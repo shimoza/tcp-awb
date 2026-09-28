@@ -1,0 +1,26 @@
+# The vault daemon of the Architect Workbench. Installed by seal/setup.sh, which fills in the owner's user name
+# in the User line. It runs as the owner (who keeps the vault) with the group awb: the check socket in /run/awb is
+# then reachable by the work user and nobody else, the admin socket stays inside the owner's vault.
+[Unit]
+Description=Architect Workbench vault daemon
+After=local-fs.target
+
+[Service]
+Type=simple
+User=@OWNER@
+Group=awb
+RuntimeDirectory=awb
+RuntimeDirectoryMode=0750
+Environment=AWB_CONF=/etc/awb/paths.conf
+ExecStart=/usr/local/bin/awb vault serve
+Restart=on-failure
+RestartSec=5
+UMask=0077
+# no core dump: the passphrase and the decrypted register live in the daemon's memory
+LimitCORE=0
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

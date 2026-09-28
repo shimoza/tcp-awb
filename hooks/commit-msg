@@ -1,0 +1,28 @@
+#!/bin/sh
+# Workbench commit message gate. First proves that the gate can still find every class (its self-test), then
+# refuses the commit when the commit message (git gives its file as $1) carries a finding (name, secret, private
+# key, token, home path, blocklist word or id). Comment lines and everything after the scissors line are not
+# part of the message and are not scanned. Install with: git config core.hooksPath hooks
+
+msg="$1"
+top=$(git rev-parse --show-toplevel) || exit 2
+python="$top/.venv/bin/python"
+
+if [ ! -x "$python" ]; then
+    echo "awb gate: commit refused, this repository has no .venv/bin/python to run the gate." >&2
+    exit 2
+fi
+
+cd "$top" || exit 2
+if ! "$python" -m awb.gate --selftest >/dev/null 2>&1; then
+    echo "awb gate: commit refused, the gate failed its self-test and cannot be trusted to find anything." >&2
+    exit 1
+fi
+"$python" -m awb.gate --message "$msg"
+code=$?
+
+if [ "$code" -ne 0 ]; then
+    echo "awb gate: commit refused (exit code $code), the commit message carries a finding, see the class above." >&2
+    echo "awb gate: remove what was found from the message and commit again." >&2
+fi
+exit "$code"

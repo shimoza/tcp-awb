@@ -1,0 +1,15 @@
+# Established technical and product terms that contain a banned word. Inside one of these terms the banned word is
+# not reported; everywhere else it still is. Only names of products, standards and fixed technical terms belong
+# here, never a phrase of style. One term per line, any case.
+Cloud Security Posture Management
+security posture management
+CSPM
+SAP landscape
+SAP system landscape
+system landscape
+transport landscape
+memory footprint
+disk footprint
+storage footprint
+Control Tower guardrails
+guardrail policies

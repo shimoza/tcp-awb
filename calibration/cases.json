@@ -1,0 +1,310 @@
+{
+ "about": "The calibration set of the review (document 06, section 8): invented texts with one seeded defect each and clean texts where every finding is a false alarm. The set carries no name: {customer}, {person}, {mail} and {domain} are filled with names the runner invents from random letters for each run, {vendor} from rules/vendor-names.txt. `awb review calibrate` runs the script steps (writing, names, l0, keep) and lists the cases that need the review workflow or the price API. Target: every seeded defect caught by some step, at most two false alarms on the clean texts.",
+ "evidence": "evidence/source.md",
+ "names": [
+  {
+   "code": "CUST-Q7M4",
+   "kind": "CUST",
+   "form": "{customer}"
+  },
+  {
+   "code": "CUST-Q7M4-PERS-1",
+   "kind": "PERS",
+   "form": "{person}"
+  },
+  {
+   "code": "CUST-Q7M4-DOM-1",
+   "kind": "DOM",
+   "form": "{domain}"
+  }
+ ],
+ "cases": [
+  {
+   "id": "W1",
+   "cls": "em-dash",
+   "step": "writing",
+   "mode": "mail",
+   "expect": "em-dash",
+   "text": "The quota in eu-de is fine — the flavor is the problem.\n"
+  },
+  {
+   "id": "W2",
+   "cls": "comma-and-or",
+   "step": "writing",
+   "mode": "doc",
+   "expect": "comma-and-or",
+   "text": "I checked the quota, the flavor, and the region of the test.\n"
+  },
+  {
+   "id": "W3",
+   "cls": "banned-word",
+   "step": "writing",
+   "mode": "doc",
+   "expect": "banned-word",
+   "text": "The team can leverage the managed database for this workload.\n"
+  },
+  {
+   "id": "W4",
+   "cls": "commitment",
+   "step": "writing",
+   "mode": "mail",
+   "expect": "commitment",
+   "text": "I will raise it as a defect with the platform team on Monday.\n",
+   "note": "document 02, 3.5: a statement in his name with no ticket behind it"
+  },
+  {
+   "id": "W5",
+   "cls": "earlier-mail",
+   "step": "writing",
+   "mode": "mail",
+   "expect": "earlier-mail",
+   "text": "As mentioned in my last mail, the quota in eu-de is fine.\n"
+  },
+  {
+   "id": "W6",
+   "cls": "vendor-name",
+   "step": "writing",
+   "mode": "doc",
+   "expect": "vendor-name",
+   "text": "The old stack ran on {vendor} servers in the second data center.\n",
+   "note": "{vendor} is filled from the first line of rules/vendor-names.txt when the case runs"
+  },
+  {
+   "id": "W7",
+   "cls": "certification",
+   "step": "writing",
+   "mode": "doc",
+   "expect": "certification",
+   "text": "The platform is certified to TISAX for this workload.\n"
+  },
+  {
+   "id": "W8",
+   "cls": "bold-lead-list",
+   "step": "writing",
+   "mode": "doc",
+   "expect": "bold-lead-list",
+   "text": "The setup:\n\n- **Network:** one VPC per stage\n- **Compute:** two nodes per zone\n- **Storage:** one bucket for the logs\n"
+  },
+  {
+   "id": "W9",
+   "cls": "we-in-mail",
+   "step": "writing",
+   "mode": "mail",
+   "expect": "we-in-mail",
+   "text": "We checked the quota in eu-de and it is fine.\n"
+  },
+  {
+   "id": "N1",
+   "cls": "customer-name",
+   "step": "names",
+   "expect": "name",
+   "text": "The landing zone of {customer} is ready in eu-de.\n",
+   "note": "document 06, section 8: a planted customer name"
+  },
+  {
+   "id": "N2",
+   "cls": "person-mail",
+   "step": "names",
+   "expect": "mail",
+   "text": "Please send the numbers to {mail} today.\n"
+  },
+  {
+   "id": "L1",
+   "cls": "over-budget",
+   "step": "l0",
+   "expect": "over the budget",
+   "tier": 1,
+   "budget": 12,
+   "text": "The cluster of CUST-Q7M4 runs 3 nodes of s3.large.2 in eu-de. Cost allocation by tag is not available in eu-nl. The disks cost 0.12 EUR per GB and month.\n"
+  },
+  {
+   "id": "L2",
+   "cls": "claim-not-listed",
+   "step": "l0",
+   "expect": "claims.tsv misses",
+   "tier": 1,
+   "budget": 400,
+   "text": "The cluster of CUST-Q7M4 runs 3 nodes of s3.large.2 in eu-de. Cost allocation by tag is not available in eu-nl. The disks cost 0.12 EUR per GB and month.\n",
+   "claims": {
+    "drop": [
+     "price"
+    ]
+   },
+   "note": "V-03: a claim that is not in the claim list is one nobody verifies"
+  },
+  {
+   "id": "L3",
+   "cls": "negative-without-evidence",
+   "step": "l0",
+   "expect": "no evidence",
+   "tier": 1,
+   "budget": 400,
+   "text": "The cluster of CUST-Q7M4 runs 3 nodes of s3.large.2 in eu-de. Cost allocation by tag is not available in eu-nl. The disks cost 0.12 EUR per GB and month.\n",
+   "claims": {
+    "negative": {
+     "evidence": "",
+     "verdict": ""
+    }
+   },
+   "note": "document 02, 3.3: one failed attempt recorded as the platform cannot"
+  },
+  {
+   "id": "L4",
+   "cls": "contradicted-claim",
+   "step": "l0",
+   "expect": "contradicted",
+   "tier": 1,
+   "budget": 400,
+   "text": "The cluster of CUST-Q7M4 runs 3 nodes of s3.large.2 in eu-de. Cost allocation by tag is not available in eu-nl. The disks cost 0.12 EUR per GB and month.\n",
+   "claims": {
+    "negative": {
+     "verdict": "contradicted"
+    }
+   }
+  },
+  {
+   "id": "L5",
+   "cls": "unknown-at-tier-2",
+   "step": "l0",
+   "expect": "unknown, which blocks",
+   "tier": 2,
+   "budget": 400,
+   "text": "The cluster of CUST-Q7M4 runs 3 nodes of s3.large.2 in eu-de. Cost allocation by tag is not available in eu-nl. The disks cost 0.12 EUR per GB and month.\n",
+   "claims": {
+    "identifier": {
+     "verdict": "unknown"
+    }
+   }
+  },
+  {
+   "id": "K1",
+   "cls": "negation-dropped",
+   "step": "keep",
+   "expect": "negation",
+   "before": "The flavor is not available in eu-nl.\n",
+   "after": "I see the flavor available in eu-nl.\n"
+  },
+  {
+   "id": "K2",
+   "cls": "number-changed",
+   "step": "keep",
+   "expect": "number",
+   "before": "The cluster runs 3 nodes in eu-de.\n",
+   "after": "I run the cluster on 2 nodes in eu-de.\n"
+  },
+  {
+   "id": "K3",
+   "cls": "region-changed",
+   "step": "keep",
+   "expect": "identifier",
+   "before": "The cluster runs 3 nodes in eu-de.\n",
+   "after": "I run the cluster on three nodes in eu-nl.\n"
+  },
+  {
+   "id": "M1",
+   "cls": "false-negative",
+   "step": "workflow",
+   "expect": "blind verification: contradicted",
+   "text": "Cost allocation by tag does not exist on TCP.\n",
+   "note": "document 02, 3.3: the manual documents it; two review passes missed it"
+  },
+  {
+   "id": "M2",
+   "cls": "invented-flavor",
+   "step": "workflow",
+   "expect": "target lens: INVENTED",
+   "text": "For the database I propose two nodes of s9.huge.8 in eu-de.\n"
+  },
+  {
+   "id": "M3",
+   "cls": "invented-schedule",
+   "step": "workflow",
+   "expect": "target lens: INVENTED",
+   "text": "The knowledge refresh of the platform runs monthly.\n",
+   "note": "document 02, 3.5: a schedule nobody stated"
+  },
+  {
+   "id": "M4",
+   "cls": "content-nobody-asked-for",
+   "step": "workflow",
+   "expect": "request check: EXTRA",
+   "text": "The request asks for the sizing of one cluster. The text adds a diagram of twelve blocks of the customer site.\n"
+  },
+  {
+   "id": "M5",
+   "cls": "misread-request",
+   "step": "workflow",
+   "expect": "request check: MISREAD",
+   "text": "The request asks for the sizing. The text answers the price of the licences only.\n"
+  },
+  {
+   "id": "M6",
+   "cls": "inverted-recovery",
+   "step": "workflow",
+   "expect": "target lens: WRONG",
+   "text": "First delete the backup vault, then restore the server from its last backup.\n",
+   "note": "document 02, 3.5: a step order that destroys the only recovery asset"
+  },
+  {
+   "id": "M7",
+   "cls": "review-record-in-text",
+   "step": "workflow",
+   "expect": "request check: EXTRA",
+   "text": "Reviewed by three lenses, all findings closed.\n"
+  },
+  {
+   "id": "M8",
+   "cls": "overclaim",
+   "step": "workflow",
+   "expect": "request check: MISLEADING",
+   "text": "TCP supports this migration path for every database engine.\n",
+   "note": "grade said in the claim list, stated as a fact"
+  },
+  {
+   "id": "P1",
+   "cls": "stale-price",
+   "step": "price",
+   "expect": "awb price check",
+   "text": "| product | unit price |\n|---|---|\n| s3.large.2 | 0.0100 EUR per hour |\n",
+   "note": "the sheet check fetches every price again; it runs its own self-test with planted errors first"
+  },
+  {
+   "id": "C1",
+   "cls": "clean",
+   "step": "clean",
+   "mode": "mail",
+   "text": "The quota in eu-de is fine for the test. I checked it this morning and three nodes fit.\n"
+  },
+  {
+   "id": "C2",
+   "cls": "clean",
+   "step": "clean",
+   "mode": "doc",
+   "text": "## Network\n\nOne VPC per stage and one subnet per zone. The nodes reach the database through a private address.\n\n| stage | subnet |\n|---|---|\n| test | 10.10.1.0/24 |\n"
+  },
+  {
+   "id": "C3",
+   "cls": "clean",
+   "step": "clean",
+   "mode": "chat",
+   "text": "- **Quota:** fine\n- **Flavor:** s3.large.2 is on sale\n- **Region:** eu-de\n"
+  },
+  {
+   "id": "C4",
+   "cls": "clean",
+   "step": "clean",
+   "mode": "doc",
+   "before": "The flavor is not available in eu-nl. The cluster runs 3 nodes in eu-de.\n",
+   "after": "I see that the flavor isn't available in eu-nl. The cluster runs three nodes in eu-de.\n"
+  },
+  {
+   "id": "C5",
+   "cls": "clean",
+   "step": "clean",
+   "mode": "doc",
+   "tier": 2,
+   "budget": 400,
+   "text": "The cluster of CUST-Q7M4 runs 3 nodes of s3.large.2 in eu-de. Cost allocation by tag is not available in eu-nl. The disks cost 0.12 EUR per GB and month.\n"
+  }
+ ]
+}

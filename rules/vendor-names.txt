@@ -1,0 +1,4 @@
+# names that stay out of prose in the TCP scope (literal identifiers such as package names are not prose). One per line.
+Huawei
+HuaweiCloud
+Huawei Cloud

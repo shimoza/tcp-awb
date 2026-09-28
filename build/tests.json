@@ -1,0 +1,426 @@
+{
+ "tests": [
+  {
+   "id": "A1",
+   "phase": "1",
+   "name": "register: malformed lines refused, error names line and reason only",
+   "run": ".venv/bin/pytest tests/test_register.py",
+   "status": "passing"
+  },
+  {
+   "id": "A2",
+   "phase": "1",
+   "name": "register: variants (umlaut, genitive, whitespace), retired forms not matched",
+   "run": ".venv/bin/pytest tests/test_register.py",
+   "status": "passing"
+  },
+  {
+   "id": "A3",
+   "phase": "1",
+   "name": "normalize: soft hyphen, zero width, hyphenation, entities, url encoding, positions tracked",
+   "run": ".venv/bin/pytest tests/test_normalize.py",
+   "status": "passing"
+  },
+  {
+   "id": "A4",
+   "phase": "1",
+   "name": "matcher: 30 planted written forms found, control name untouched, longest first, underscore and CamelCase",
+   "run": ".venv/bin/pytest tests/test_matcher.py",
+   "status": "passing"
+  },
+  {
+   "id": "A5",
+   "phase": "1",
+   "name": "patterns: mail, url, domain, ipv4, ipv6, mac, iban, bic, vat, phone, hrb; keep-list ips untouched",
+   "run": ".venv/bin/pytest tests/test_patterns.py",
+   "status": "passing"
+  },
+  {
+   "id": "B1",
+   "phase": "2",
+   "name": "extract office: docx split runs, header, footer, comment, core props, tracked change; xlsx hidden sheet, formula, comment, defined name; pptx notes; odt",
+   "run": ".venv/bin/pytest tests/test_extract_office.py",
+   "status": "passing"
+  },
+  {
+   "id": "B2",
+   "phase": "2",
+   "name": "extract pdf: title and author from metadata, two-column page, empty page flagged, all-empty file unreadable",
+   "run": ".venv/bin/pytest tests/test_extract_pdf.py",
+   "status": "passing"
+  },
+  {
+   "id": "B3",
+   "phase": "2",
+   "name": "extract mail: eml headers, rfc2047 subject, base64 and quoted-printable bodies, attachment as child; msg unsupported",
+   "run": ".venv/bin/pytest tests/test_extract_mail.py",
+   "status": "passing"
+  },
+  {
+   "id": "B4",
+   "phase": "2",
+   "name": "extract archive and text: member names, nested zip, renamed zip by content, utf-16 and latin-1, base64 block, image unreadable",
+   "run": ".venv/bin/pytest tests/test_extract_archive_text.py",
+   "status": "passing"
+  },
+  {
+   "id": "B5",
+   "phase": "2",
+   "name": "intake end to end: 10 planted names over docx, pdf, eml all caught; output and public report carry no fixture form; originals moved to the vault; image reported unreadable; candidates block",
+   "run": ".venv/bin/pytest tests/test_intake.py",
+   "status": "passing"
+  },
+  {
+   "id": "C1",
+   "phase": "1",
+   "name": "gate: planted name, key pair, private key, token, home path, blocklist word each refused; clean file passes; selftest passes",
+   "run": ".venv/bin/pytest tests/test_gate.py",
+   "status": "passing"
+  },
+  {
+   "id": "C2",
+   "phase": "1",
+   "name": "check: output has positions and classes only, never a code or a form",
+   "run": ".venv/bin/pytest tests/test_check.py",
+   "status": "passing"
+  },
+  {
+   "id": "D1",
+   "phase": "4",
+   "name": "spawn: a forty-character goal ends in a complete tcp- project, registered, git initialised; a name in the goal is refused; a second project with the same code is refused",
+   "run": ".venv/bin/pytest tests/test_projects.py",
+   "status": "passing"
+  },
+  {
+   "id": "E1",
+   "phase": "all",
+   "name": "self clean: the repository scans clean with its own gate against the fixture register; every capitalised multi-word string in tests comes from fixtures.py",
+   "run": ".venv/bin/pytest tests/test_self_clean.py",
+   "status": "passing"
+  },
+  {
+   "id": "R1",
+   "phase": "R2",
+   "name": "vault: gpg with a private homedir and no agent, daemon on two sockets, rate limit, check log without text, client fails closed",
+   "run": ".venv/bin/pytest tests/test_vault.py",
+   "status": "passing"
+  },
+  {
+   "id": "R2",
+   "phase": "R2",
+   "name": "seal: setup.sh --dry-run prints every step and touches nothing of the vault, verify.sh, awb seal check",
+   "run": ".venv/bin/pytest tests/test_seal.py",
+   "status": "passing"
+  },
+  {
+   "id": "R3",
+   "phase": "R2",
+   "name": "hooks: prompt blocks a name and warns when the check is unavailable, post-write, stop, session-start, with fakes and with the real modules",
+   "run": ".venv/bin/pytest tests/test_hooks.py",
+   "status": "passing"
+  },
+  {
+   "id": "R4",
+   "phase": "R2",
+   "name": "kb: add refuses names, codes, ids, prices, other languages and thin negatives; amend keeps the id and runs the same checks, without duplicating itself; retire withdraws an entry from find, scope, expired and the index while show still says why; find, scope, expired",
+   "run": ".venv/bin/pytest tests/test_kb.py",
+   "status": "passing"
+  },
+  {
+   "id": "R5",
+   "phase": "R2",
+   "name": "ledger: locked append, every text name-checked, report by customer, tech, kind and project",
+   "run": ".venv/bin/pytest tests/test_ledger.py",
+   "status": "passing"
+  },
+  {
+   "id": "R6",
+   "phase": "R2",
+   "name": "career: add refuses any code or name, update drafts and checks the writing, due after 90 days",
+   "run": ".venv/bin/pytest tests/test_career.py",
+   "status": "passing"
+  },
+  {
+   "id": "R7",
+   "phase": "R2",
+   "name": "writing: blocking tells, reported metrics, voice learn never edits the rules",
+   "run": ".venv/bin/pytest tests/test_writing.py",
+   "status": "passing"
+  },
+  {
+   "id": "R8",
+   "phase": "R2",
+   "name": "review: init, claims, l0, pass, status; the workflow file passes node --check",
+   "run": ".venv/bin/pytest tests/test_review.py",
+   "status": "passing"
+  },
+  {
+   "id": "R9",
+   "phase": "R2",
+   "name": "candidate rules as names: sentence start, particles, Last First, keep list, glued short forms",
+   "run": ".venv/bin/pytest tests/test_intake.py tests/test_matcher.py",
+   "status": "passing"
+  },
+  {
+   "id": "R10",
+   "phase": "R2",
+   "name": "intake in an encrypted vault: originals and private reports sealed through a real daemon, locked vault writes nothing, a failed seal is counted",
+   "run": ".venv/bin/pytest tests/test_intake.py",
+   "status": "passing"
+  },
+  {
+   "id": "R11",
+   "phase": "R2",
+   "name": "spawn with an encrypted vault and on the work side: names over the check socket, customer by its outbox folder",
+   "run": ".venv/bin/pytest tests/test_projects.py",
+   "status": "passing"
+  },
+  {
+   "id": "R12",
+   "phase": "R2",
+   "name": "config: the group-shared tree of a sealed host keeps its modes; the intake output stays readable for the work user",
+   "run": ".venv/bin/pytest tests/test_config.py",
+   "status": "passing"
+  },
+  {
+   "id": "R13",
+   "phase": "R2",
+   "name": "cli: help lists every delegated command, each runs, init leaves an encrypted register alone",
+   "run": ".venv/bin/pytest tests/test_cli.py",
+   "status": "passing"
+  },
+  {
+   "id": "R14",
+   "phase": "R2",
+   "name": "Release 2 end to end: init, register, encrypt, intake, check over the socket, spawn with hooks, kb, ledger report, writing, review to a valid record, lock: check exits 2 and the prompt hook warns",
+   "run": ".venv/bin/pytest tests/test_release2_e2e.py",
+   "status": "passing"
+  },
+  {
+   "id": "P1",
+   "phase": "P1",
+   "name": "work rules: reply in English, T Cloud Public naming, only the knowledge base crossed over, check before stating, English note for his English only; at most 60 lines, pass the writing check and the gate",
+   "run": ".venv/bin/pytest tests/test_work_rules.py tests/test_seal.py",
+   "status": "passing"
+  },
+  {
+   "id": "P2",
+   "phase": "P1",
+   "name": "spawn: a project imports the work rules, never the developer instructions; it gets the commit gate; a planted token is refused at its next commit",
+   "run": ".venv/bin/pytest tests/test_projects.py",
+   "status": "passing"
+  },
+  {
+   "id": "P3",
+   "phase": "P1",
+   "name": "config: the work user of a sealed host takes its paths from the root host file alone; environment and AWB_CONF left out, other users unchanged",
+   "run": ".venv/bin/pytest tests/test_config.py",
+   "status": "passing"
+  },
+  {
+   "id": "P4",
+   "phase": "P1",
+   "name": "commit gate: self-test before the scan in the repository hook and in installed hooks, a failed self-test refuses; install refuses core.hooksPath and a foreign hook",
+   "run": ".venv/bin/pytest tests/test_gate.py",
+   "status": "passing"
+  },
+  {
+   "id": "P5",
+   "phase": "P1",
+   "name": "kb verify: the checks of add over entry files and staged entries, a staged deletion refused; the knowledge base hook refuses a hand-written entry",
+   "run": ".venv/bin/pytest tests/test_kb.py",
+   "status": "passing"
+  },
+  {
+   "id": "P6",
+   "phase": "P1",
+   "name": "pre-write hook: Write, Edit and MultiEdit into the knowledge base refused, relative paths and links resolved; five hooks in every settings file",
+   "run": ".venv/bin/pytest tests/test_hooks.py tests/test_seal.py",
+   "status": "passing"
+  },
+  {
+   "id": "AR1",
+   "phase": "AR",
+   "name": "intake self-test: 21 planted cases before every run; a broken sanitiser or a blind matcher refuses the run before anything is read",
+   "run": ".venv/bin/pytest tests/test_intake.py",
+   "status": "passing"
+  },
+  {
+   "id": "AR2",
+   "phase": "AR",
+   "name": "second check of the intake by another method: catches what a blind matcher lets through; ordinary lower-case short words and kept phrases are left alone",
+   "run": ".venv/bin/pytest tests/test_intake.py",
+   "status": "passing"
+  },
+  {
+   "id": "AR3",
+   "phase": "AR",
+   "name": "object storage client: V2 signing checked by a stand-in, every page of a listing, head, get, put, copy, delete; no secret in an error; keys from the password store only",
+   "run": ".venv/bin/pytest tests/test_obs.py",
+   "status": "passing"
+  },
+  {
+   "id": "AR4",
+   "phase": "AR",
+   "name": "bucket: one folder per project under its month, used where found, two months refused; sync reports drift without a name; pull takes a file into the intake once; put to out/ with --replace and --reveal; move by copy, check and delete; the work user refused",
+   "run": ".venv/bin/pytest tests/test_bucket.py",
+   "status": "passing"
+  },
+  {
+   "id": "AR5",
+   "phase": "AR",
+   "name": "reveal: codes become their first active form, retired and unknown codes stay; mode 600; never where a session reads; the work user refused; nothing printed",
+   "run": ".venv/bin/pytest tests/test_reveal.py",
+   "status": "passing"
+  },
+  {
+   "id": "PC1",
+   "phase": "PC",
+   "name": "jobs: a list answers list, empty or unknown and refuses a truth value; dig reads without raising; a job flushes every line, resumes from its state file after a kill, stops at its budget; retry never waits past the budget; wait_gone asks about one resource",
+   "run": ".venv/bin/pytest tests/test_jobs.py",
+   "status": "passing"
+  },
+  {
+   "id": "PC2",
+   "phase": "PC",
+   "name": "signing: SDK-HMAC-SHA256 accepted by a stand-in gateway with a verifier of its own, a wrong secret, query or header refused, the verifier shown to fail; the signature pinned after the live proof",
+   "run": ".venv/bin/pytest tests/test_sign.py",
+   "status": "passing"
+  },
+  {
+   "id": "PC3",
+   "phase": "PC",
+   "name": "cloud client: the project named like the region, marker and offset paging, empty and unknown kept apart, a wrong key an answer and never shown, busy asked again, the work user refused, the command line GET only",
+   "run": ".venv/bin/pytest tests/test_cloud.py",
+   "status": "passing"
+  },
+  {
+   "id": "PC4",
+   "phase": "PC",
+   "name": "price: strict amounts and numbers (no decimal comma), three states of a fetch, pages, stray records left out, snapshots refused when empty, diff by value, a flavor found under another service name, the core never imports the platform package",
+   "run": ".venv/bin/pytest tests/test_price.py",
+   "status": "passing"
+  },
+  {
+   "id": "PC5",
+   "phase": "PC",
+   "name": "price sheet check: to the cent at the precision of the sheet, reserved terms flat monthly and a missing rate caught, hours rules, the OS tier, ambiguous and missing rows, the grand total against the API and against the sheet's own rows, a self-test that refuses a blind check",
+   "run": ".venv/bin/pytest tests/test_price.py",
+   "status": "passing"
+  },
+  {
+   "id": "RF1",
+   "phase": "RF",
+   "name": "mirrors: every documentation repository cloned shallow and brought up to date, archived and empty ones recorded, a failure recorded while the rest goes on, a run cut off by its budget resumes; the service description one folder per revision decided by its text, anything but a revised PDF refused; the work user reads and never updates",
+   "run": ".venv/bin/pytest tests/test_mirror.py",
+   "status": "passing"
+  },
+  {
+   "id": "RF2",
+   "phase": "RF",
+   "name": "refresh: the expired entries with how to check each, the retrieval numbers of every question file, projects with an old STATE.md, stale pointers (commands, cited ids, contract revisions), prices against the snapshot before, a report each run; apply records confirmed, changed, refuted and unchecked through the checks of the knowledge base and refuses a batch that confirmed a planted false fact",
+   "run": ".venv/bin/pytest tests/test_refresh.py",
+   "status": "passing"
+  },
+  {
+   "id": "RF3",
+   "phase": "RF",
+   "name": "knowledge base: recheck records the grade, source and date of a new check and wants two tried texts of it for a negative; amend takes new tried texts; the search counts a word with its stem once, leaves out question words and the platform's names, links abbreviations and plain words by whole terms; bench counts first places and misses",
+   "run": ".venv/bin/pytest tests/test_kb.py",
+   "status": "passing"
+  },
+  {
+   "id": "PK5",
+   "phase": "PK5",
+   "name": "life of a project: tags from the list, spawn from the outbox, the first and the last ledger entry, close waits for open items and live resources, one live owner per project, the idle and size notices, a ledger entry drafted from new commits quietly, English notes kept once and never with a name, ledger work in the career update with codes masked, folders nobody registered",
+   "run": ".venv/bin/pytest tests/test_lifecycle.py",
+   "status": "passing"
+  },
+  {
+   "id": "PK6",
+   "phase": "PK6",
+   "name": "writing in his voice: fragments, comma splices, verdict headings, connectors and the I rate reported and never blocking, each shown to fire and to stay quiet; the voice pass keeps numbers, identifiers, negations and code blocks, the report never quotes a value; the drafting skill passes its own checks and the seal installs it root-owned and immutable",
+   "run": ".venv/bin/pytest tests/test_his_voice.py",
+   "status": "passing"
+  },
+  {
+   "id": "PK4",
+   "phase": "PK4",
+   "name": "the review pipeline, second part: knowledge entries per claim and kb evidence that settles only when live or contract and not expired, the tier he lowers, counts per lens and the fuller record, softened closes a finding, the send gate refuses what a customer should not get and warns for internal files, the lenses read the blind results, findings without quote or evidence are dropped and counted, a refute agent can leave a finding plausible, the request check as a lens of its own, the calibration set caught by the script steps and a runner that can fail",
+   "run": ".venv/bin/pytest tests/test_review_board.py",
+   "status": "passing"
+  },
+  {
+   "id": "LO",
+   "phase": "LO",
+   "name": "leftovers: a push is scanned commit by commit and every repository gets a push hook, a bare key pair is a secret, the start context has a size limit, 101 planted intake cases pass, an IBAN in lower case and a phone number with 00 are found, reserved ranges are no customer address, a knowledge base refuses another scope, the old HCS folder is an blocklist name, any flavor name, a mask and only-in-a-region reach the claim list",
+   "run": ".venv/bin/pytest tests/test_leftovers.py",
+   "status": "passing"
+  },
+  {
+   "id": "IMG",
+   "phase": "IMG",
+   "name": "pictures of the intake: office media, pdf images and image files held on the vault side, listed, released by number with a hash check, sealed and released through the vault daemon in an encrypted vault, nothing left in plaintext when a seal fails",
+   "run": ".venv/bin/pytest tests/test_images.py",
+   "status": "passing"
+  },
+  {
+   "id": "PK7",
+   "phase": "PK7",
+   "name": "the sweep names untagged, expired and idle resources oldest first, an unreadable listing is unknown and never empty, handles are stable, private and mask ids and names",
+   "run": ".venv/bin/pytest tests/test_sweep.py",
+   "status": "passing"
+  },
+  {
+   "id": "RT1",
+   "phase": "RT",
+   "name": "the red team of the intake: the readers' views, the decodes and the glued halves that eight finders got through; 180 planted shapes run before every intake, each found and sanitised",
+   "run": ".venv/bin/pytest tests/test_redteam.py tests/test_intake.py tests/test_patterns.py",
+   "status": "passing"
+  },
+  {
+   "id": "RT2",
+   "phase": "RT",
+   "name": "office reader after the red team: chart, SmartArt, alt chunk, WordArt and equation text in the output, parts found through their relationships, macros and fonts noted, eighteen detect-only carriers",
+   "run": ".venv/bin/pytest tests/test_extract_office.py",
+   "status": "passing"
+  },
+  {
+   "id": "RT3",
+   "phase": "RT",
+   "name": "mail and archive readers after the red team: cp1252 headers, wrong charset labels, utf-7 and quoted printable without a label, preamble and epilogue, a mailbox split, zip and tar corners, uuencode",
+   "run": ".venv/bin/pytest tests/test_extract_mail.py tests/test_extract_archive_text.py",
+   "status": "passing"
+  },
+  {
+   "id": "RT4",
+   "phase": "RT",
+   "name": "the gate after the red team: keys behind flags, inner assignments, passwords in URLs and headers, quoted and name-shaped values, every office's key words, next-line values, credential files, more tokens and keys, every desktop's home, the commit message, ref names, authors and merge commits on push; nothing over every tracked file",
+   "run": ".venv/bin/pytest tests/test_gate.py",
+   "status": "passing"
+  },
+  {
+   "id": "SR1",
+   "phase": "RT",
+   "name": "the security review of 2026-09-27: make_dir refuses a link where a folder should be or on the way and chmods through a directory handle; the public report's temp file is exclusive and never a link; the daemon caps a check's size and the bytes per window, limits concurrent scans, answers nested JSON and keeps the register behind register_load; released pictures are scrubbed of their metadata and name checked; awb images refuses the work user",
+   "run": ".venv/bin/pytest tests/test_config.py tests/test_intake.py tests/test_vault.py tests/test_images.py",
+   "status": "passing"
+  },
+  {
+   "id": "RT5",
+   "phase": "RT",
+   "name": "the red team of the client hooks: the check reads what hides behind base64 and hex blocks and under a bidi override; values inside markup are structured data; a tag's quoted attribute may carry a bracket and has no length cap; a phone over bold table cells; no backtracking on long digit runs; glued prefixes and tool layouts of hex; an opaque record past the block limit; pre-write follows hard links, expands ~ and fails closed; post-write refuses secrets, overrides, big files and named folders and runs the writing check under a nested scope; session-start hides a named project folder and checks past the cut; every hook stops itself over its budget",
+   "run": ".venv/bin/pytest tests/test_hooks_redteam.py",
+   "status": "passing"
+  },
+  {
+   "id": "RT6",
+   "phase": "RT",
+   "name": "the red-team pack: 1,188 curated cases in calibration/redteam/, every value a fixture form or a declared invented value, EXPECTED.md names real cases, a sample of each dimension runs end to end",
+   "run": ".venv/bin/pytest tests/test_redteam_pack.py",
+   "status": "passing"
+  }
+ ],
+ "total_tests": 1846,
+ "checked": "2026-09-27"
+}

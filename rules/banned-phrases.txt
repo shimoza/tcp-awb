@@ -1,0 +1,30 @@
+# phrases that never appear in a text written in his name (case-insensitive). One per line.
+in today's fast-paced world
+it's important to note
+it is important to note
+play a crucial role
+plays a crucial role
+let's dive in
+dive into
+deep dive
+in conclusion
+in summary
+not only
+it's not just
+circle back
+touch base
+reach out
+going forward
+at pace
+at scale
+move the needle
+bake in
+table stakes
+north star
+low-hanging fruit
+double down
+best-in-class
+spin up
+sharp edges
+the whole trick
+comprehensive overview

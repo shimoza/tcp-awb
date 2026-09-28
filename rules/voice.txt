@@ -1,0 +1,10 @@
+# targets taken from his own typed English (2,039 prompts, measured 2026-09-19)
+median_sentence_words = 11
+p90_sentence_words = 21
+comma_before_and_or_per_1000 = 0
+em_dash_per_1000 = 0
+i_my_me_per_1000 = 29.5
+connectors = and, so, then, but, also, because
+# connectors outside his set: he never used "therefore" in his typed English (measured 2026-09-19), the rest are
+# of the same kind. However, moreover, furthermore and additionally are banned words and block as such.
+other_connectors = therefore, thus, hence, consequently, nevertheless, nonetheless, accordingly, meanwhile, subsequently, conversely, likewise, similarly, notably, importantly, ultimately, indeed, in addition, as a result, on the other hand, in contrast, that said, having said that, with that in mind, in turn, in fact, as such, to that end

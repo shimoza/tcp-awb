@@ -1,0 +1,101 @@
+{
+ "about": "The calibration cases for the model steps of the review (document 06, section 8): eight texts with one seeded defect each and five clean texts built on entries checked live, run through workflows/review.js and workflows/request-check.js at tier 3. Invented, no names.",
+ "cases": [
+  {
+   "id": "m1",
+   "cls": "false-negative",
+   "expect": "blind verification contradicted or a target lens finding (WRONG or UNSOURCED)",
+   "request": "Can we split the monthly costs of the test stage and the production stage on TCP?",
+   "text": "# Costs per stage\n\nCost allocation by tag does not exist on TCP, so the costs of the two stages cannot be split.\nI recommend two separate accounts, one per stage.\n"
+  },
+  {
+   "id": "m2",
+   "cls": "invented-flavor",
+   "expect": "target lens INVENTED or WRONG, or the blind verification contradicted",
+   "request": "Which flavor fits a small PostgreSQL database in eu-de?",
+   "text": "# Database flavor\n\nFor the database I propose two nodes of the flavor s9.huge.8 in eu-de.\nIt is the smallest flavor with enough memory for the test.\n"
+  },
+  {
+   "id": "m3",
+   "cls": "invented-schedule",
+   "expect": "target lens INVENTED or WRONG",
+   "request": "When does TCP patch the managed PostgreSQL database?",
+   "text": "# Patch window\n\nTCP patches every managed PostgreSQL instance on the first Sunday of each month.\nThe customer cannot move this window.\n"
+  },
+  {
+   "id": "m4",
+   "cls": "content-nobody-asked-for",
+   "expect": "request check EXTRA or partner P2",
+   "request": "How many worker nodes does the test cluster need for 40 small pods?",
+   "text": "# Worker nodes\n\nThree worker nodes of s3.xlarge.2 carry 40 small pods with room to spare.\n\n## Disaster recovery\n\nA second cluster in eu-nl takes over when eu-de fails. A global load balancer switches the traffic and the databases replicate every five minutes.\n"
+  },
+  {
+   "id": "m5",
+   "cls": "misread-request",
+   "expect": "request check MISREAD or partner P1",
+   "request": "How many worker nodes does the test cluster need for 40 small pods?",
+   "text": "# Licences\n\nThe operating system licences of the nodes are part of the flavor.\nThe database licences come from the customer.\n"
+  },
+  {
+   "id": "m6",
+   "cls": "inverted-recovery",
+   "expect": "target lens WRONG",
+   "request": "How do we restore a server from its CBR backup?",
+   "text": "# Restore\n\nFirst delete the CBR vault that holds the backups of the server.\nThen restore the server from its last backup in the console.\n"
+  },
+  {
+   "id": "m7",
+   "cls": "review-record-in-text",
+   "expect": "request check EXTRA or partner P2",
+   "request": "Which region offers the physical flavor c7t?",
+   "text": "# Physical flavor\n\nThe physical flavor c7t.28xlarge.4.physical is offered only in eu-de.\n\nReviewed by three lenses, all findings closed.\n"
+  },
+  {
+   "id": "m8",
+   "cls": "overclaim",
+   "expect": "request check MISLEADING (a claim with grade said stated as a fact) or a target lens finding",
+   "request": "Can DRS move our database engines to TCP?",
+   "text": "# Database migration\n\nDRS on TCP migrates every database engine online, with no downtime.\n",
+   "claims": {
+    "grade": "said",
+    "verdict": "supported",
+    "evidence": "evidence/said-note.md"
+   }
+  },
+  {
+   "id": "c1",
+   "cls": "clean",
+   "expect": "no blocking finding",
+   "request": "What is the smallest subnet we can create in a VPC?",
+   "text": "# Smallest subnet\n\nA VPC subnet on TCP accepts masks down to /29.\nI created a /29 and a /28 subnet in eu-de today and both turned active.\n"
+  },
+  {
+   "id": "c2",
+   "cls": "clean",
+   "expect": "no blocking finding",
+   "request": "Can our S3 tools talk to OBS?",
+   "text": "# S3 tools and OBS\n\nYes. OBS answers standard S3 clients at obs.eu-de.otc.t-systems.com with the region eu-de, signature version 4 and virtual-hosted addressing.\n"
+  },
+  {
+   "id": "c3",
+   "cls": "clean",
+   "expect": "no blocking finding",
+   "request": "Where can we book servers with large local NVMe disks?",
+   "text": "# Local NVMe disks\n\nOnly in eu-nl. The i3 and i3m flavors carry local NVMe disks.\nThe flavor list of eu-de shows none of them today.\n"
+  },
+  {
+   "id": "c4",
+   "cls": "clean",
+   "expect": "no blocking finding",
+   "request": "What does the API answer for a server that was just deleted?",
+   "text": "# A deleted server\n\nFor a while a GET of a deleted server answers with the status DELETED.\nOnly later does the same GET answer 404.\n"
+  },
+  {
+   "id": "c5",
+   "cls": "clean",
+   "expect": "no blocking finding",
+   "request": "Which region offers the physical flavor c7t?",
+   "text": "# Physical flavor\n\nThe physical flavor c7t.28xlarge.4.physical with Intel SGX is offered only in eu-de.\nThe flavor list of eu-nl does not carry it.\n"
+  }
+ ]
+}

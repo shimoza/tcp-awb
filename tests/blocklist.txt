@@ -1,0 +1,10 @@
+# The blocklist of the tests: invented entries only, in the shapes an owner's list takes (a naming scheme,
+# file names, folders with a dash or an underscore, a folder after ~, ~user, $HOME or ${HOME}).
+# Flags only in scoped form, (?i:...): every line becomes one part of a single pattern.
+(?<![A-Za-z0-9])(?:CLIENT|PARTNR|TICKT)[0-9]+(?![A-Za-z0-9])
+(?<![A-Za-z0-9])MARKR_[A-Z0-9_]+
+(?i:names[.](?:main|local|marker[-]only))
+(?i:legacy[-_]shared|(?<![A-Za-z0-9-])legacy[-_]kb(?![A-Za-z0-9-])|legacy[-_]kb[-_]export|legacy[-_]scrub)
+(?i:legacy[-_]default)(?![A-Za-z0-9])
+(?i:(?<![A-Za-z0-9])(?:legacy[-_](?:docs|services|api[-_]endpoints|pricing)|new[-_]legacy[-_]project))(?![A-Za-z0-9])
+(?:~[A-Za-z0-9_.-]*|\$HOME|\$\{HOME\})/(?i:legacy)[-_]

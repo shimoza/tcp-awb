@@ -1,0 +1,30 @@
+#!/bin/sh
+# Workbench commit gate. First proves that the gate can still find every class (its self-test), then refuses the
+# commit when the staged content or a staged path carries a finding (name, secret, private key, token, home
+# path, blocklist word, id or a binary file).
+# Runs the gate with the repository's own virtual environment, so it works before the awb console script
+# exists. Install with: git config core.hooksPath hooks
+
+top=$(git rev-parse --show-toplevel) || exit 2
+python="$top/.venv/bin/python"
+
+if [ ! -x "$python" ]; then
+    echo "awb gate: commit refused, this repository has no .venv/bin/python to run the gate." >&2
+    echo "awb gate: create the virtual environment, then commit again." >&2
+    exit 2
+fi
+
+cd "$top" || exit 2
+if ! "$python" -m awb.gate --selftest >/dev/null 2>&1; then
+    echo "awb gate: commit refused, the gate failed its self-test and cannot be trusted to find anything." >&2
+    echo "awb gate: run .venv/bin/awb gate --selftest to see which class it no longer finds." >&2
+    exit 1
+fi
+"$python" -m awb.gate --staged
+code=$?
+
+if [ "$code" -ne 0 ]; then
+    echo "awb gate: commit refused (exit code $code), see the class and file:line above." >&2
+    echo "awb gate: remove what was found from the staged files, stage them again and commit again." >&2
+fi
+exit "$code"

@@ -1,0 +1,48 @@
+# Groups of words that name the same thing on T Cloud Public (TCP), one group per line, terms separated by commas.
+# `awb kb find` adds the other terms of a group to a query that carries one of them, at a lower weight than the
+# words of the query itself. A term of several words counts when all its words are in the query.
+# Keep a group to one thing: a broad word (user, network, key, log) pulls in noise and is left out.
+ecs, elastic cloud server, virtual machine, vm
+evs, block volume, block storage, disk
+obs, object storage, bucket
+sfs, file share, nfs
+eip, elastic ip, public ip, floating ip, publicip
+elb, load balancer, loadbalancer
+nat, nat gateway, snat, dnat
+rds, managed database, database instance
+dds, mongodb
+dcs, redis, memcached
+css, elasticsearch, opensearch
+dms, kafka, rabbitmq
+dws, data warehouse
+mrs, mapreduce, hadoop
+dli, data lake insight, spark sql
+cce, kubernetes, k8s
+cci, serverless container
+swr, container registry, image registry
+ims, private image, image service
+cbr, cloud backup, backup vault
+kms, key management, encryption key, cmk
+cts, audit log, audit trail, trace
+ces, cloud eye, metric, alarm
+smn, notification, topic
+lts, log tank, log stream
+dns, domain name, record set, recordset
+waf, web application firewall
+cfw, cloud firewall
+hss, host security
+eps, enterprise project
+tms, tag management, predefined tag
+deh, dedicated host
+bms, bare metal
+vpcep, vpc endpoint, private link
+dc, direct connect
+vpn, ipsec
+drs, data replication
+sdrs, storage disaster recovery
+apig, api gateway
+functiongraph, serverless function
+aksk, ak/sk, access key, sdk-hmac-sha256, signature, signing
+az, availability zone
+sg, security group
+flavor, instance type, instance size

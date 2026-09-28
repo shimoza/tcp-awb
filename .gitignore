@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/lib/
+# never in git: anything that could hold a real form or an original
+vault/
+inbox/
+outbox/
+*.bak
+*.bak-*
+# local to this host: its own rules, the client's folder and the internal build diary
+CLAUDE.local.md
+.claude/
+build/PROGRESS.md
+build/COVERAGE.md
+build/DECISIONS.md

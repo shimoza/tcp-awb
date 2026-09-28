@@ -1,0 +1,30 @@
+#!/bin/sh
+# Workbench push gate. First proves that the gate can still find every class (its self-test), then refuses the
+# push when any file, the author, the committer or the message of any commit the push carries, or the name of a
+# pushed ref, has a finding (name, secret, private key, token, home path, blocklist word, id or a binary file).
+# Git passes the remote as $1 and the pushed refs on standard input; the gate reads them.
+# A secret that one commit adds and a later commit removes is still in the history a push publishes, so every
+# pushed commit is scanned, not only the last state. Install with: git config core.hooksPath hooks
+
+remote="$1"
+top=$(git rev-parse --show-toplevel) || exit 2
+python="$top/.venv/bin/python"
+
+if [ ! -x "$python" ]; then
+    echo "awb gate: push refused, this repository has no .venv/bin/python to run the gate." >&2
+    exit 2
+fi
+
+cd "$top" || exit 2
+if ! "$python" -m awb.gate --selftest >/dev/null 2>&1; then
+    echo "awb gate: push refused, the gate failed its self-test and cannot be trusted to find anything." >&2
+    exit 1
+fi
+"$python" -m awb.gate --pushed --repo "$top" --remote "$remote"
+code=$?
+
+if [ "$code" -ne 0 ]; then
+    echo "awb gate: push refused (exit code $code), see the class and commit:file:line above." >&2
+    echo "awb gate: a finding in an older commit needs that commit rewritten before the push." >&2
+fi
+exit "$code"

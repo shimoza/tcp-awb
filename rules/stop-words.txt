@@ -1,0 +1,223 @@
+# capitalised words and phrases that are never a name candidate (products, roles, standards, common German and English words)
+Load Balancer
+Elastic Cloud Server
+Object Storage Service
+Virtual Private Cloud
+Cloud Container Engine
+Relational Database Service
+Web Application Firewall
+Direct Connect
+Active Directory
+Windows Server
+SQL Server
+Microsoft Azure
+Amazon Web Services
+Google Cloud
+Open Telekom Cloud
+Terraform
+Kubernetes
+PostgreSQL
+MySQL
+MariaDB
+Linux
+Ubuntu
+Debian
+Red Hat
+SUSE
+Oracle
+VMware
+Cisco
+Fortinet
+SonicWall
+Veeam
+Microsoft
+Amazon
+Google
+Sehr geehrte
+Sehr geehrter
+Mit freundlichen
+Freundliche Grüße
+Best regards
+Kind regards
+Dear Sir
+Dear Madam
+Angebot
+Anlage
+Anhang
+Betreff
+Datum
+Seite
+Kapitel
+Abschnitt
+Version
+Stand
+Projekt
+Kunde
+Customer
+Auftraggeber
+Auftragnehmer
+Leistungsbeschreibung
+Vergabeunterlagen
+Rahmenvertrag
+Netzwerkbrücke
+Montag
+Dienstag
+Mittwoch
+Donnerstag
+Freitag
+Januar
+Februar
+März
+April
+Mai
+Juni
+Juli
+August
+September
+Oktober
+November
+Dezember
+Cloud Security Posture Management
+Security Posture
+Control Tower
+# products, services and technical terms of the platform and its ecosystem (added 2026-09-23 from the knowledge
+# base migration sample: every one of these was flagged as an unknown name and none is a name)
+Hive Metastore
+Dedicated Host
+Dedicated Hosts
+Cloud Firewall
+Enterprise Router
+Enterprise Switch
+Enterprise Project
+Object Lock
+Apache Iceberg
+Bare Metal Server
+Secure Boot
+Desktop Experience
+General Purpose
+Conditional Access
+Easy Auth
+Delta Lake
+Security Administrator
+Tenant Administrator
+Elastic Volume Service
+Elastic Load Balancing
+Cloud Backup and Recovery
+Cloud Server Backup Service
+Cloud Trace Service
+Cloud Eye
+Image Management Service
+Key Management Service
+Data Encryption Workshop
+MapReduce Service
+Data Lake Insight
+Distributed Cache Service
+Document Database Service
+Cloud Container Instance
+Software Repository
+Identity and Access Management
+Auto Scaling
+Log Tank Service
+Application Operations Management
+Distributed Message Service
+Simple Message Notification
+Storage Disaster Recovery Service
+Scalable File Service
+Data Replication Service
+Tag Management Service
+NAT Gateway
+VPC Endpoint
+DataArts Studio
+Entra ID
+Hybrid Benefit
+Iceberg
+Spark
+Hive
+Metastore
+HetuEngine
+Impala
+Trino
+Presto
+Kafka
+Parquet
+Avro
+Glue
+Athena
+Redshift
+Spectrum
+OpenShift
+OpenTofu
+GaussDB
+ModelArts
+Manager
+# SQL keywords, written in capitals in statements and error texts
+CREATE
+TABLE
+DESCRIBE
+HISTORY
+USING
+INSERT
+SELECT
+UPDATE
+DELETE
+ALTER
+DROP
+JOIN
+VALUES
+INTO
+WHERE
+FROM
+Bad Request
+Cloud Public
+Additional Terms
+Service Specifications
+Get Password
+REPLICATION SLAVE
+REASSIGN OWNED
+Image File
+Enterprise Edition
+Enterprise Management
+Remote Desktop Services
+Standard Edition
+Pod Security Admission
+Last Backup
+MSCK REPAIR
+Overwrite Data
+Reset Database Name
+Management Center
+Cloud Connect
+Network Interfaces
+Destination Check
+Cascade Lake
+Intel Cascade Lake
+Ice Lake
+Object Storage
+Instance Management
+Advanced Settings
+Tenant Guest
+Remote Desktop
+Instant Restore
+Cloud Native Network
+Financial Dashboard
+Ethernet Connect
+Deutsche Telekom
+Backup Migration
+Container Edition
+EXTERNAL SCHEMA
+Remote Desktop Session Host
+Cloud Service Agency
+Dedicated Engine
+Secure Mail Gateway
+Cloud Exchange
+Content Delivery Network
+Container Platform
+Resource Access
+Destination Host Unreachable
+TEXT, JSON
+Terminal Server
+Dedicated Cloud
+Client Access
+Enabling DNSSEC
+Xeon Gold
+FLAT, GRAPH
+Foundation Services
