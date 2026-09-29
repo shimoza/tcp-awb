@@ -963,3 +963,29 @@ def test_bench_counts_first_places_and_misses(home, tmp_path, capsys):
     bad.write_text('{"questions": 3}', encoding="utf-8")
     code, _, err = run(["bench", str(bad)], capsys)
     assert code == 2 and "no list of questions" in err
+
+
+def test_screen_counts_names_only_and_checks_a_long_list_in_halves(monkeypatch, tmp_path):
+    """A broad search found hundreds of entries; a source URL made the group dirty and every entry was then checked
+    alone, which ran into the rate limit of the vault daemon (2026-09-29)."""
+    entries = [kb.Entry("KB-%04d" % i, "tcp", ("other",), "docs", "2026-09-01", "stable", "2027-09-01",
+                        "https://docs.example.org/page", (), "fact %d" % i) for i in range(256)]
+    entries[77] = kb.Entry("KB-0077", "tcp", ("other",), "docs", "2026-09-01", "stable", "2027-09-01",
+                           "an invented source", (), "fact with a planted form")
+    calls = []
+
+    def hits(text, reg):
+        calls.append(len(text))
+        out = [{"start": 0, "length": 5, "cls": "url"}] if "https://" in text else []
+        if "planted form" in text:
+            out.append({"start": 0, "length": 5, "cls": "name"})
+        return out
+
+    monkeypatch.setattr(kb, "_name_hits", hits)
+    monkeypatch.setattr(kb, "_require_register", lambda reg: None)
+    shown, withheld = kb.screen(entries, tmp_path / "register.tsv")
+    assert withheld == 1 and "KB-0077" not in {e.id for e in shown} and len(shown) == 255
+    assert len(calls) <= 2 * 9 + 1, "halves, not one check per entry"
+    calls.clear()
+    clean = [e for e in entries if e.id != "KB-0077"]
+    assert kb.screen(clean, tmp_path / "register.tsv") == (clean, 0) and len(calls) == 1

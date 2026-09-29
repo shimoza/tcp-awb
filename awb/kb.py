@@ -1144,11 +1144,22 @@ def screen(entries: Sequence[Entry], register_path: Path | None = None) -> tuple
     _require_register(reg)
 
     def dirty(group: list[Entry]) -> bool:
-        return bool(_name_hits("\n\n".join(_entry_text(e) for e in group), reg))
+        # names only: structured data passed the checks of add, and a source URL must not send every search
+        # into one check per entry
+        hits = _name_hits("\n\n".join(_entry_text(e) for e in group), reg)
+        return any(isinstance(h, dict) and h.get("cls") == "name" for h in hits)
 
-    if not dirty(entries):
-        return entries, 0
-    shown = [e for e in entries if not dirty([e])]
+    def clean(group: list[Entry]) -> list[Entry]:
+        # halves instead of one check per entry: a few requests for a long list, so a broad search never runs
+        # into the rate limit of the vault daemon
+        if not dirty(group):
+            return group
+        if len(group) == 1:
+            return []
+        mid = len(group) // 2
+        return clean(group[:mid]) + clean(group[mid:])
+
+    shown = clean(entries)
     return shown, len(entries) - len(shown)
 
 
