@@ -364,12 +364,12 @@ step_moves() {
     local shared="$work_home/tcp-shared" kb="$work_home/tcp-kb"
     info "the shared side, the knowledge base and the projects move to the work user"
     move_folder tcp-shared
-    run mkdir -p "$shared/outbox" "$shared/ledger"
+    run mkdir -p "$shared/outbox" "$shared/ledger" "$shared/tenants"
     run chown -R "$WORK_USER:$WORK_GROUP" "$shared"
     run chmod 2750 "$shared"
-    run chmod -R u+rwX,g+rwX,o-rwx "$shared/outbox"
+    run chmod -R u+rwX,g+rwX,o-rwx "$shared/outbox" "$shared/tenants"
     # setgid keeps the group, the sticky bit keeps one user from renaming or removing another user's entries
-    run find "$shared/outbox" -type d -exec chmod 3770 {} +
+    run find "$shared/outbox" "$shared/tenants" -type d -exec chmod 3770 {} +
     move_projects "$shared"
     move_folder tcp-kb
     run mkdir -p "$kb"

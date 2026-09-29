@@ -91,3 +91,13 @@ def test_the_log_keeps_no_query(served, capsys):
     get(served, "/kb?q=" + fixtures.CUSTOMER_FORMS[1])
     err = capsys.readouterr().err
     assert "GET /kb 200" in err and fixtures.CUSTOMER_FORMS[1] not in err
+
+
+def test_the_tenant_page_shows_what_runs_and_what_ran(served, home):
+    from awb.tcp import tenants
+
+    assert "no tenant yet" in get(served, "/tenants")[2]
+    tenants.add(home, "test-1", "file:/nowhere/keys", ["eu-de"])
+    body = get(served, "/tenants?t=test-1")[2]
+    assert "test-1: now" in body and "no snapshot yet" in body
+    assert "<script>" not in get(served, "/tenants?t=%3Cscript%3E")[2]

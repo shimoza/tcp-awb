@@ -115,7 +115,7 @@ def test_setup_dry_run_prints_every_step(fakebin):
     assert has(r"^\+ mv -- %s/tcp-kb \S+/tcp-kb  # if present$" % re.escape(OWNER_HOME))
     assert has(r"^\+ mv -- %s/tcp-<code> \S+/tcp-<code>" % re.escape(OWNER_HOME))
     assert has(r"^\+ chmod 2750 \S+/tcp-shared$")
-    assert has(r"find \S+/tcp-shared/outbox -type d -exec chmod 3770")
+    assert has(r"find \S+/tcp-shared/outbox \S+/tcp-shared/tenants -type d -exec chmod 3770")
     assert has(r"git -C \S+/tcp-kb init -q$")
     # the code
     assert has(r"git -C %s archive HEAD \| tar -x -C /opt/tcp-awb/src$" % re.escape(str(REPO)))

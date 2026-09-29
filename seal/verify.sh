@@ -190,6 +190,7 @@ allowed "the check socket answers ping" as_work python3 -c "$PING_PY" "$socket"
 allowed "the work user can write tcp-shared" as_work sh -c "$WRITE_SH" verify "$shared"
 allowed "the owner can write the outbox" runuser -u "$owner" -- sh -c "$WRITE_SH" verify "$shared/outbox"
 allowed "the outbox carries the setgid and the sticky bit" test "$(stat -c %a -- "$shared/outbox")" = "3770"
+allowed "the owner can write the tenant history" runuser -u "$owner" -- sh -c "$WRITE_SH" verify "$shared/tenants"
 immutable() {
     # immutable FILE: the file carries the immutable flag (lsattr prints the flags first, i among them)
     local flags

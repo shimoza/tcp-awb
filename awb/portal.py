@@ -2,8 +2,8 @@
 
     awb portal serve [--port 8080]
 
-Four pages: the knowledge base (`/kb?q=...`), live prices (`/price?service=ecs&flavor=...`), the projects
-(`/projects`) and the review state of their deliverables (`/reviews`). No page writes anything, no page calls a
+Five pages: the knowledge base (`/kb?q=...`), live prices (`/price?service=ecs&flavor=...`), the projects
+(`/projects`), the review state of their deliverables (`/reviews`) and what runs on the test tenants (`/tenants`). No page writes anything, no page calls a
 model and no page takes a file.
 
 The server listens on 127.0.0.1 only. It is reached through a tunnel that puts an access check in front of it (a
@@ -64,7 +64,7 @@ def _e(value) -> str:
 
 def page(title: str, body: str) -> str:
     nav = ('<header><b>Architect Workbench</b><a href="/">Home</a><a href="/kb">Knowledge</a>'
-           '<a href="/price">Prices</a><a href="/projects">Projects</a><a href="/reviews">Reviews</a></header>')
+           '<a href="/price">Prices</a><a href="/projects">Projects</a><a href="/reviews">Reviews</a><a href="/tenants">Tenants</a></header>')
     return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>%s</title>'
             '<meta name="viewport" content="width=device-width, initial-scale=1"><style>%s</style></head>'
             '<body>%s<main><h1>%s</h1>%s</main></body></html>' % (_e(title), _CSS, nav, _e(title), body))
@@ -169,7 +169,25 @@ def reviews(p: config.Paths, q: dict) -> str:
     return page("Reviews", body)
 
 
-ROUTES = {"/": home, "/kb": knowledge, "/price": prices, "/projects": project_list, "/reviews": reviews}
+def tenant_page(p: config.Paths, q: dict) -> str:
+    import datetime
+
+    from awb.tcp import tenants
+
+    today = datetime.date.today()
+    alias = q.get("t", "").strip()[:32]
+    known = [t.alias for t in tenants.load(p)]
+    body = "<pre>%s</pre>" % _e("\n".join(tenants.list_lines(p, today)))
+    if known:
+        body += "<p>%s</p>" % " ".join('<a href="/tenants?t=%s">%s</a>' % (_e(a), _e(a)) for a in known)
+    if alias in known:
+        body += "<h2>%s: now</h2><pre>%s</pre>" % (_e(alias), _e("\n".join(tenants.now_lines(p, alias, today))))
+        body += "<h2>%s: history</h2><pre>%s</pre>" % (_e(alias), _e("\n".join(tenants.history_lines(p, alias))))
+    return page("Tenants", body)
+
+
+ROUTES = {"/": home, "/kb": knowledge, "/price": prices, "/projects": project_list, "/reviews": reviews,
+          "/tenants": tenant_page}
 
 
 def _today() -> str:
