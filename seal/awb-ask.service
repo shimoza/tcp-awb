@@ -1,4 +1,4 @@
-# The Ask page of the Architect Workbench (awb/ask.py). It runs as its own service user awb-ask, which alone reads
+# The Ask page of the Architect Workbench (awb/tcp/ask.py). It runs as its own service user awb-ask, which alone reads
 # the API key (/etc/awb/anthropic.key, mode 400): the work user's sessions never see it. Group awb lets it read the
 # knowledge base and the tenant snapshots and reach the check socket. 127.0.0.1 only, behind the tunnel's access check.
 [Unit]

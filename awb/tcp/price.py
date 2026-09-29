@@ -197,6 +197,9 @@ def check_region(region: str) -> str:
 
 def _get_json(url: str, timeout: float) -> tuple[int, Any]:
     try:
+        from awb.tcp import throttle
+
+        throttle.wait_turn(urllib.parse.urlsplit(url).netloc)   # pages of a listing never arrive as a burst
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             status, raw = resp.status, resp.read()
     except urllib.error.HTTPError as exc:

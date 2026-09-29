@@ -1,4 +1,4 @@
-"""The read-only portal (awb/portal.py): pages over the knowledge, the prices, the projects and the reviews, on
+"""The read-only portal (awb/tcp/portal.py): pages over the knowledge, the prices, the projects and the reviews, on
 127.0.0.1 only, GET and HEAD only, every value escaped, no query in the log. Invented values only."""
 from __future__ import annotations
 
@@ -9,7 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from awb import kb, portal, projects
+from awb import kb, projects
+from awb.tcp import portal
 from awb.tcp import price
 from tests import fixtures
 

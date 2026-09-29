@@ -1,4 +1,4 @@
-# The read-only portal of the Architect Workbench (awb/portal.py). It runs as the work user and listens on
+# The read-only portal of the Architect Workbench (awb/tcp/portal.py). It runs as the work user and listens on
 # 127.0.0.1 only; a tunnel with an access check in front of it is the only way in.
 [Unit]
 Description=Architect Workbench read-only portal

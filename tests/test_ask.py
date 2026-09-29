@@ -1,4 +1,4 @@
-"""The page for questions (awb/ask.py): the tool loop against a stand-in API, the name check before anything leaves, the
+"""The page for questions (awb/tcp/ask.py): the tool loop against a stand-in API, the name check before anything leaves, the
 daily budget and the page. No call reaches the real API. Invented values only."""
 from __future__ import annotations
 
@@ -8,7 +8,8 @@ import urllib.parse
 
 import pytest
 
-from awb import ask, kb
+from awb import kb
+from awb.tcp import ask
 from tests import fixtures
 
 
