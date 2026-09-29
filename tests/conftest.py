@@ -28,6 +28,10 @@ def invented_blocklist(tmp_path_factory, monkeypatch):
     none = tmp_path_factory.getbasetemp() / "no-host"
     monkeypatch.setattr(gate, "BLOCKLIST_FILES", (none / "blocklist.txt", none / "home-blocklist.txt"))
     monkeypatch.setenv("AWB_BLOCKLIST", str(BLOCKLIST))
+    # no test writes to the real shared side or the real throttle stamps: a test that builds no Workbench of its
+    # own still gets a throw-away shared folder (the call log of the cloud client wrote to the owner's home once)
+    monkeypatch.setenv("AWB_SHARED", str(none / "shared"))
+    monkeypatch.setenv("AWB_THROTTLE_DIR", str(none / "throttle"))
     monkeypatch.setattr(config, "HOST_CONF", str(none / "paths.conf"))
     monkeypatch.setattr(hooks, "HOST_FILE", none / "paths.conf")
 
