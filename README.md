@@ -108,7 +108,7 @@ claude plugin marketplace add shimoza/tcp-awb
 claude plugin install awb@tcp-awb
 ```
 
-It adds `/awb:tcp-facts`, `/awb:tcp-price`, `/awb:review`, `/awb:test-tenant` and `/awb:drafting`, and the five
+It adds `/awb:tcp-facts`, `/awb:tcp-price`, `/awb:review`, `/awb:test-tenant` and `/awb:drafting`. It also adds the five
 hooks. `plugin/README.md` has the details.
 
 ## The sealed setup
