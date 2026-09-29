@@ -1,0 +1,8 @@
+{
+  "name": "awb",
+  "description": "Architect Workbench for T Cloud Public (TCP): checked facts, live prices, reviews before anything leaves, test tenant tracking and five checkpoints that keep customer names out of a session",
+  "version": "0.1.0",
+  "author": {
+    "name": "Kirill Larin"
+  }
+}

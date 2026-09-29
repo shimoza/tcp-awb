@@ -1,0 +1,14 @@
+{
+  "name": "tcp-awb",
+  "description": "The Architect Workbench for T Cloud Public (TCP)",
+  "owner": {
+    "name": "Kirill Larin"
+  },
+  "plugins": [
+    {
+      "name": "awb",
+      "source": "./plugin",
+      "description": "Checked facts, live prices, reviews and test tenant tracking for TCP architects"
+    }
+  ]
+}

@@ -98,6 +98,19 @@ python3 -m venv .venv
 The tests use invented names only (`tests/fixtures.py`) and a throw-away Workbench each. They never touch your own
 folders.
 
+## As a plugin for Claude Code
+
+The skills and the checkpoints also come as a plugin (`plugin/`), with this repository as its marketplace. Install
+`awb` first (see above), then:
+
+```bash
+claude plugin marketplace add shimoza/tcp-awb
+claude plugin install awb@tcp-awb
+```
+
+It adds `/awb:tcp-facts`, `/awb:tcp-price`, `/awb:review`, `/awb:test-tenant` and `/awb:drafting`, and the five
+hooks. `plugin/README.md` has the details.
+
 ## The sealed setup
 
 The seal uses two users on one host. You (the owner, with `sudo`) keep the register and run the intake. The work user `awb` (no
@@ -129,6 +142,7 @@ repository.
 | `rules/` | one rule per file with its reason and what enforces it, plus the data files of the checks |
 | `hooks/` | git hooks: `pre-commit`, `commit-msg` and `pre-push` run the gate |
 | `seal/` | setup and verification of the two-user seal, the work user's client settings |
+| `plugin/` | the Claude Code plugin; `.claude-plugin/marketplace.json` makes this repository its marketplace |
 | `workflows/` | the review and refresh workflows for Claude Code |
 | `calibration/` | the review calibration set, the red-team pack and the records of the red team and the security review |
 | `tests/` | every test, invented names only |
