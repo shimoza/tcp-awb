@@ -122,6 +122,7 @@ The work user of the seal reads the mirrors read-only under `/srv/tcp-mirrors/`:
 | `awb projects check` | tcp- folders that no project registered (a name that is not a code shows as "a folder") |
 | `awb close tcp-xxxx` | close a project: refused while OPEN.md holds items or RESOURCES.md lists a resource that is not deleted or kept; `--force` closes anyway and says what is left |
 | `awb english list [--month YYYY-MM]` | the English notes the sessions wrote, kept after a name check; once a month, the three that keep coming back |
+| `awb portal serve [--port 8080]` | a read-only web page over the knowledge, live prices, the projects and the reviews, on 127.0.0.1 only; reached through a tunnel with an access check in front, never directly |
 
 The goal and the tags carry no name. Tags come from `rules/tags.txt` and a tag not listed there is refused. Spawn
 and close each write a ledger entry. A session claims its project at start (another live session in the same project

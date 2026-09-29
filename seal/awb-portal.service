@@ -1,0 +1,22 @@
+# The read-only portal of the Architect Workbench (awb/portal.py). It runs as the work user and listens on
+# 127.0.0.1 only; a tunnel with an access check in front of it is the only way in.
+[Unit]
+Description=Architect Workbench read-only portal
+After=network-online.target awb-vaultd.service
+
+[Service]
+Type=simple
+User=awb
+Group=awb
+Environment=AWB_CONF=/etc/awb/paths.conf
+ExecStart=/usr/local/bin/awb portal serve --port 8080
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

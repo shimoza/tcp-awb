@@ -34,6 +34,7 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     awb mirror docs|sd|status                                awb/tcp/mirror.py  (owner side updates)
     awb refresh [--part P]..., awb refresh apply RESULTS     awb/tcp/refresh.py
     awb english list [--month YYYY-MM]                       awb/english.py
+    awb portal serve [--port N]                              awb/portal.py
 
 Exit codes: 0 ok, 1 findings or blocked, 2 usage or error.
 
@@ -377,6 +378,7 @@ DELEGATED = {
     "mirror": ("tcp.mirror", "public mirrors of TCP: the documentation sources and the service description"),
     "refresh": ("tcp.refresh", "the refresh: mirrors, prices, expired knowledge, projects, defaults; apply results"),
     "english": ("english", "the English notes the sessions wrote: list"),
+    "portal": ("portal", "a read-only web page over the knowledge, the prices, the projects and the reviews"),
 }
 
 
