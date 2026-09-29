@@ -85,6 +85,7 @@ take a decimal point; a comma counts only as a thousands separator next to one.
 | `awb cloud get SERVICE PATH [--query K=V]...` | one signed GET; `{project_id}` in PATH is the project named like the region |
 | `awb cloud get SERVICE PATH --list KEY` | a paged list (`--paging` marker, offset or none): list, empty or unknown |
 | `awb cloud sweep` | servers, disks and elastic IPs that are untagged (no `awb-project` tag), expired (`awb-expiry` passed) or idle, oldest first; every resource as a neutral handle such as `ecs-3`, the ids in `~/tcp-shared/handles.json` (mode 600) |
+| `awb cloud usage [--month YYYY-MM]` | every call to the TCP API per day from the call log: count, 429 answers, errors, seconds waited, by service. Every call keeps at least 0.25 s from the one before to the same host and waits what a 429 names in Retry-After |
 
 Set `AWB_CLOUD_KEYS=pass:<entry of your password store>` like the key of the bucket. The command line sends GET
 only. The work user of the seal gets its own key with T-100.

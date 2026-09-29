@@ -257,7 +257,7 @@ def snapshot(p: config.Paths, t: Tenant, make_lister: Callable[[Tenant, str], Li
 def _cloud_lister(t: Tenant, region: str) -> Lister:
     from awb.tcp.cloud import Client
 
-    c = Client(keys_of(t), region)
+    c = Client(keys_of(t), region, label=t.alias)
     return lambda service, path, key, paging: c.list(service, path, key, paging=paging)
 
 

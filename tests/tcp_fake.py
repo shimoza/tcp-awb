@@ -193,6 +193,8 @@ class FakeGateway(_Server):
         self.vpcs = [{"id": "vpc-%02d" % i, "name": "net-%02d" % i} for i in range(7)]
         self.ports = [{"id": "port-%02d" % i} for i in range(5)]
         self.busy = 0
+        self.throttled = 0
+        self.retry_after = ""
         self.echo_key = False
         self.calls: list[tuple[str, str]] = []
         super().__init__(self._handler())
@@ -222,6 +224,11 @@ class FakeGateway(_Server):
             return 200, {"other": 1}
         if path == "/v1/%s/boom" % pid:
             return 500, {"error_msg": "internal"}
+        if path == "/v1/%s/throttled" % pid:
+            if self.throttled > 0:
+                self.throttled -= 1
+                return 429, {"error_code": "Common.1503", "error_msg": "API flow control error"}
+            return 200, {"items": [{"id": "y"}]}
         if path == "/v1/%s/busy" % pid:
             if self.busy > 0:
                 self.busy -= 1
@@ -248,6 +255,8 @@ class FakeGateway(_Server):
                     status, data = fake.route(self.command, self.path)
                 raw = data.encode() if isinstance(data, str) else json.dumps(data).encode()
                 self.send_response(status)
+                if status == 429 and fake.retry_after:
+                    self.send_header("Retry-After", fake.retry_after)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(raw)))
                 self.end_headers()

@@ -180,6 +180,10 @@ def tenant_page(p: config.Paths, q: dict) -> str:
     body = "<pre>%s</pre>" % _e("\n".join(tenants.list_lines(p, today)))
     if known:
         body += "<p>%s</p>" % " ".join('<a href="/tenants?t=%s">%s</a>' % (_e(a), _e(a)) for a in known)
+    from awb.tcp import throttle
+
+    body += "<h2>Calls to the TCP API this month</h2><pre>%s</pre>" % _e(
+        "\n".join(throttle.usage_lines(p.shared, today.strftime("%Y-%m"))))
     if alias in known:
         body += "<h2>%s: now</h2><pre>%s</pre>" % (_e(alias), _e("\n".join(tenants.now_lines(p, alias, today))))
         body += "<h2>%s: history</h2><pre>%s</pre>" % (_e(alias), _e("\n".join(tenants.history_lines(p, alias))))

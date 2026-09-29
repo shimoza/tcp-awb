@@ -3,6 +3,7 @@
     awb cloud projects [--region R]
     awb cloud get SERVICE PATH [--region R] [--query K=V]... [--list KEY] [--paging marker|offset|none]
     awb cloud sweep [--region R] [--today YYYY-MM-DD]       untagged, expired or idle resources (awb/tcp/sweep.py)
+    awb cloud usage [--month YYYY-MM]                       calls to the TCP API per day and every 429 (awb/tcp/throttle.py)
 
 PATH may carry `{project_id}`: the id of the project named like the region. `--list KEY` reads a paged list under
 KEY and answers one of three states (awb/jobs.py): list, empty or unknown. The command line sends GET only: a
@@ -20,6 +21,7 @@ import os
 import re
 import socket
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -71,7 +73,8 @@ class Client:
     service."""
 
     def __init__(self, keys: obs.Keys, region: str = "eu-de", *, endpoint: str | None = None,
-                 timeout: float = 30.0, job: jobs.Job | None = None):
+                 timeout: float = 30.0, job: jobs.Job | None = None, label: str = "owner"):
+        self.label = label          # the tenant alias in the call log, never an id
         self.keys = keys
         self.region = check_region(region)
         self.endpoint = endpoint.rstrip("/") if endpoint else None
@@ -105,20 +108,34 @@ class Client:
         hdrs = {"Content-Type": "application/json"}
         hdrs.update(headers or {})
 
+        from awb.tcp import throttle
+
+        host = urllib.parse.urlsplit(url).netloc
+        tries = {"n": 0}
+
         def once() -> Response:
+            tries["n"] += 1
+            waited = throttle.wait_turn(host)
             signed = sign.sign(method, url, hdrs, data, self.keys.ak, self.keys.sk)
             req = urllib.request.Request(url, data=data if body is not None else None, method=method.upper())
             for k, v in signed.items():
                 req.add_header(k, v)
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    throttle.log_call(self.label, service, self.region, method.upper(), resp.status, waited)
                     return self._response(resp.status, resp.read())
             except urllib.error.HTTPError as exc:
+                throttle.log_call(self.label, service, self.region, method.upper(), exc.code, waited)
                 r = self._response(exc.code, exc.read())
                 if exc.code in _TRANSIENT:
+                    # the gateway may name its own wait: take it before the next try, within the job's budget
+                    hint = throttle.retry_after(exc.headers.get("Retry-After") if exc.headers else None)
+                    if hint and tries["n"] < 3 and (self.job is None or self.job.remaining() > hint):
+                        time.sleep(hint)
                     raise _Transient(r)
                 return r
             except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError) as exc:
+                throttle.log_call(self.label, service, self.region, method.upper(), 0, waited)
                 raise _Transient(CloudError("no answer from the %s endpoint (%s)" % (service, type(exc).__name__)))
 
         try:
@@ -241,6 +258,8 @@ def main(argv: list[str] | None = None) -> int:
     w = sub.add_parser("sweep", help="servers, disks and addresses that are untagged, expired or idle (T-61)")
     w.add_argument("--region", default="eu-de")
     w.add_argument("--today", default=None, metavar="YYYY-MM-DD")
+    u = sub.add_parser("usage", help="calls to the TCP API per day and every 429, from the call log")
+    u.add_argument("--month", default=None, metavar="YYYY-MM")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -248,6 +267,15 @@ def main(argv: list[str] | None = None) -> int:
     if not args.command:
         ap.print_usage(sys.stderr)
         return 2
+    if args.command == "usage":
+        from awb.tcp import throttle
+
+        month = args.month or datetime.date.today().strftime("%Y-%m")
+        if not re.match(r"^\d{4}-\d{2}$", month):
+            print("awb cloud: the month reads like 2026-09", file=sys.stderr)
+            return 2
+        print("\n".join(throttle.usage_lines(config.paths().shared, month)))
+        return 0
     try:
         keys, endpoint = settings()
         job = jobs.Job("cloud", None)
