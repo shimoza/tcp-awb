@@ -49,7 +49,7 @@ def test_the_answer_comes_from_the_tools_and_names_the_entry(facts):
     assert res["answer"].startswith("Three node flavors (KB-") and res["tools"] == ["kb_find"]
     assert res["tokens"] == 470
     first = api.bodies[0]
-    assert first["model"] == ask.MODEL and first["output_config"] == {"effort": "low"}
+    assert first["model"] == ask.MODEL == "claude-haiku-4-5-20251001" and first["max_tokens"] == 1000
     assert {t["name"] for t in first["tools"]} == {"kb_find", "price_find", "tenant_now"}
     assert api.bodies[1]["messages"][1]["role"] == "assistant"
     assert ask.budget_left() == (ask.DAILY_QUESTIONS - 1, ask.DAILY_TOKENS - 470)

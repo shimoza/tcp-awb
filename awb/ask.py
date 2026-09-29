@@ -34,15 +34,15 @@ from awb import config, portal
 
 API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
-MODEL = "claude-sonnet-5"
-EFFORT = "low"
-MAX_TOKENS = 2000
-MAX_ROUNDS = 6
+MODEL = os.environ.get("AWB_ASK_MODEL") or "claude-haiku-4-5-20251001"
+"""The cheapest model the API lists: the answers come from the tools, the model only reads and phrases them."""
+MAX_TOKENS = 1000
+MAX_ROUNDS = 4
 MAX_QUESTION = 1000
 KEY_FILE = Path(os.environ.get("AWB_ASK_KEY_FILE") or "/etc/awb/anthropic.key")
 USAGE_FILE = Path(os.environ.get("AWB_ASK_USAGE") or "/var/lib/awb-ask/usage.json")
-DAILY_QUESTIONS = 80
-DAILY_TOKENS = 600_000
+DAILY_QUESTIONS = 40
+DAILY_TOKENS = 300_000
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8081
 
@@ -87,7 +87,7 @@ def run_tool(p: config.Paths, name: str, args: dict) -> str:
     if name == "kb_find":
         from awb import kb
 
-        hits = [e for _, e in kb.find(str(args.get("query", ""))[:200], where=p) if not e.is_retired][:8]
+        hits = [e for _, e in kb.find(str(args.get("query", ""))[:200], where=p) if not e.is_retired][:6]
         today = datetime.date.today().isoformat()
         return json.dumps([{"id": e.id, "fact": e.statement, "grade": e.grade, "class": e.cls, "checked": e.checked,
                             "expired": bool(e.expires and e.expires < today)} for e in hits]) or "[]"
@@ -101,7 +101,7 @@ def run_tool(p: config.Paths, name: str, args: dict) -> str:
         recs = price.select(got.records, flavor=args.get("flavor") or None, grep=args.get("grep") or None)
         return json.dumps({"source": got.source_line(), "count": len(recs), "records": [
             {"flavor": r.flavor, "name": r.name, "os": r.os, "unit": r.unit, "currency": r.currency,
-             "prices": {t: (str(v) if v is not None else None) for t, v in r.prices.items()}} for r in recs[:20]]})
+             "prices": {t: (str(v) if v is not None else None) for t, v in r.prices.items()}} for r in recs[:12]]})
     if name == "tenant_now":
         from awb.tcp import tenants
 
@@ -206,7 +206,7 @@ def ask(question: str, p: config.Paths | None = None, key: str | None = None, se
     try:
         for _ in range(MAX_ROUNDS):
             resp = sender({"model": MODEL, "max_tokens": MAX_TOKENS, "system": SYSTEM, "tools": TOOLS,
-                           "output_config": {"effort": EFFORT}, "messages": messages}, key)
+                           "messages": messages}, key)
             usage = resp.get("usage") or {}
             tokens += int(usage.get("input_tokens", 0)) + int(usage.get("output_tokens", 0))
             content = resp.get("content") or []
