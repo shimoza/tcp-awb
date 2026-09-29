@@ -36,6 +36,7 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     awb english list [--month YYYY-MM]                       awb/english.py
     awb portal serve [--port N]                              awb/portal.py
     awb tenant add|snapshot|list|now|history|at|project      awb/tcp/tenants.py
+    awb ask serve [--port N] | awb ask QUESTION              awb/ask.py
 
 Exit codes: 0 ok, 1 findings or blocked, 2 usage or error.
 
@@ -380,6 +381,7 @@ DELEGATED = {
     "refresh": ("tcp.refresh", "the refresh: mirrors, prices, expired knowledge, projects, defaults; apply results"),
     "english": ("english", "the English notes the sessions wrote: list"),
     "portal": ("portal", "a read-only web page over the knowledge, the prices, the projects and the reviews"),
+    "ask": ("ask", "questions in plain words, answered only from the checked sources (the Ask page)"),
     "tenant": ("tcp.tenants", "resources on the test tenants over time: add, snapshot, list, now, history, at, project"),
 }
 

@@ -64,7 +64,7 @@ def _e(value) -> str:
 
 def page(title: str, body: str) -> str:
     nav = ('<header><b>Architect Workbench</b><a href="/">Home</a><a href="/kb">Knowledge</a>'
-           '<a href="/price">Prices</a><a href="/projects">Projects</a><a href="/reviews">Reviews</a><a href="/tenants">Tenants</a></header>')
+           '<a href="/price">Prices</a><a href="/projects">Projects</a><a href="/reviews">Reviews</a><a href="/tenants">Tenants</a><a href="/ask">Ask</a></header>')
     return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>%s</title>'
             '<meta name="viewport" content="width=device-width, initial-scale=1"><style>%s</style></head>'
             '<body>%s<main><h1>%s</h1>%s</main></body></html>' % (_e(title), _CSS, nav, _e(title), body))

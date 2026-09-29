@@ -126,6 +126,7 @@ The work user of the seal reads the mirrors read-only under `/srv/tcp-mirrors/`:
 | `awb tenant add ALIAS --keys file:PATH [--region R]...` | a test tenant by an alias (test-1) with its read-only key: a file of the owner (mode 600, `ak=` and `sk=` lines) or `pass:ENTRY`; owner side |
 | `awb tenant snapshot [ALIAS]...` | list the servers, disks and elastic IPs of every region, keep the snapshot of the day and append what appeared, changed and went; GET only, owner side, fit for a daily cron line |
 | `awb tenant list`, `now ALIAS`, `history ALIAS [--project CODE] [--since DATE]`, `at ALIAS DATE`, `project CODE` | what runs now, what ran when and for which project, from the snapshots; handles instead of ids, aliases instead of tenant ids |
+| `awb ask serve [--port 8081]`, `awb ask QUESTION` | the Ask page: a question in plain words, answered by the model only from the knowledge base, the live price API and the tenant snapshots, with the entry of every fact; the question is name checked before it leaves; runs as its own service user that alone reads the API key; a daily budget of questions and tokens |
 
 The goal and the tags carry no name. Tags come from `rules/tags.txt` and a tag not listed there is refused. Spawn
 and close each write a ledger entry. A session claims its project at start (another live session in the same project
