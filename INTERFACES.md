@@ -820,3 +820,20 @@ Record: `calibration/redteam-2026-09-27.md`. Public names added or changed:
   with pdfdetach and read as children with `meta["attachment"]` (the saved name) and a note.
 - `images.PICTURE_KINDS = ("image", "svg")`, `IMAGE_EXTS` with emz, wmz, heic, heif, avif, ico.
 - `planted.CASES`: 180 cases (101 before).
+
+## Arithmetic and migrations (2026-09-30)
+
+`awb/calc.py` (core, R-005): `evaluate(expression, names=None) -> Decimal` (plain arithmetic only, CalcError
+otherwise, the message never echoes the expression), `bind(lets) -> dict`, `text(value, places=None) -> str`,
+`record(project, expression, lets, result, label="") -> Record` (appends to `<project>/calc/calc.tsv` under a lock,
+ids K-1, K-2 ...), `load(project)`, `find(project, id)`, `appears_in(result, sentence) -> bool`. `awb/review.py`
+accepts `calc:K-N` as evidence and requires it for a high-risk sentence whose number was computed (`_ARITH_RE`).
+
+`awb/tcp/migrate.py`: `PHASES` (discover, map, estimate, plan, review; worker files, shell or none),
+`init(project, source)`, `load_state(project)` (done phases whose artifacts changed turn stale with every later
+phase), `next_phase(state)`, `done(project, name) -> list[str]` (the gate; empty means recorded),
+`parse_azure_size(size) -> dict | None`, `inventory(project, file, table=None) -> dict`,
+`flavors_from_records(records) -> dict[class, list[Flavor]]`, `pick(flavors, vcpu, ram)`,
+`map_rows(inventory, classes) -> list[dict]`, `write_mapping`, `load_mapping`,
+`estimate(project, fetch_region, term="PAYG", hours=720) -> dict`, `os_tier(os_text)`. The phase files are in
+`plugin/skills/azure-to-tcp/phases/`, the workers in `plugin/agents/`.

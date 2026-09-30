@@ -24,6 +24,8 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     awb career add|update|due                                awb/career.py
     awb write check FILE, awb voice learn DRAFT SENT         awb/writing.py
     awb review init|claims|l0|pass|status|calibrate          awb/review.py
+    awb calc EXPRESSION, awb calc list|show                  awb/calc.py
+    awb migrate init|status|next|inventory|map|estimate|done awb/tcp/migrate.py
     awb images list|release                                  awb/images.py
     awb hook prompt|pre-write|post-write|stop|session-start  awb/hooks.py
     awb seal check                                           awb/seal.py
@@ -370,6 +372,7 @@ DELEGATED = {
     "write": ("writing", "check a text against the house style"),
     "voice": ("writing", "learn from a draft and the version that was sent"),
     "review": ("review", "review a deliverable: init, claims, l0, pass, status"),
+    "calc": ("calc", "compute with exact decimals and record it in the project: every total an offer states"),
     "hook": ("hooks", "entry points for the client hooks of working sessions"),
     "images": ("images", "pictures of the intake, held on the vault side: list, release"),
     "seal": ("seal", "checks of the seal between the vault and working sessions"),
@@ -382,6 +385,7 @@ DELEGATED = {
     "english": ("english", "the English notes the sessions wrote: list"),
     "portal": ("tcp.portal", "a read-only web page over the knowledge, the prices, the projects and the reviews"),
     "ask": ("tcp.ask", "questions in plain words, answered only from the checked sources (the Ask page)"),
+    "migrate": ("tcp.migrate", "a migration to TCP in phases: inventory, mapping, estimate, plan, review"),
     "tenant": ("tcp.tenants", "resources on the test tenants over time: add, snapshot, list, now, history, at, project"),
 }
 

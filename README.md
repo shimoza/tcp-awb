@@ -20,7 +20,8 @@ solution. The Workbench knows where everything is and how it works.
 **Prices, always live.** `awb price find` reads the public price API of the platform, `awb price snapshot` keeps a
 listing per region. `awb price diff` shows what changed since the last one. `awb price check` takes a price
 sheet and recomputes it to the cent: every price fetched again, every total and the grand total recomputed. A price
-is never taken from memory.
+is never taken from memory. And no number is computed in the model's head: `awb calc` computes every total, sum
+and saving with exact decimals and records it, and the review takes a computed number only with that record.
 
 **Knowledge you can trust.** `awb kb` holds checked facts about the platform. Each entry is one fact with its
 source, its grade and the date it was checked:
@@ -42,6 +43,13 @@ concept or a customer answer) into a list of claims, each with its evidence. For
 review board reads it through several lenses: an architect of the source platform, an architect of the target
 platform and the view of the partner who has to sell and support it, plus a fidelity pass that looks for invented
 facts, contradictions and a misread question. The findings are applied by rewriting the answer, not by patching it.
+
+**Migrations in phases.** `awb migrate` takes a customer's Azure inventory (a sanitised copy of their spreadsheet)
+to a reviewed migration plan: discover, map, estimate, plan, review. The mapping is code: every machine gets the
+nearest TCP flavor that is not smaller on vCPU and memory, from the live price API, with a status and a reason for
+every row that needs a decision. The estimate is priced live and computed by `awb calc`. Each phase is done by a
+worker with only the rights it needs (files only, or files and commands) and passes a gate before the next starts.
+The state is on disk, so a run resumes where it stopped.
 
 **A live solution on a live tenant.** A session builds and checks a lab setup on a real TCP tenant through a signed
 API client (`awb cloud`). Jobs keep to a time budget, record every finished step and resume where they stopped.

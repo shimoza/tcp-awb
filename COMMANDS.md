@@ -209,7 +209,13 @@ gate, the gate over what it carries and `awb kb verify --staged`, so a file writ
 |---|---|
 | `awb review init deliverables/FILE --request REQUEST.md --tier 2 --budget 400` | the contract: request, reader, questions, budget, tier. Also `--reader`, `--mode mail`. A text for a customer or partner is tier 3; `--lowered "his words"` records that he lowered it |
 | `awb review claims deliverables/FILE` | every checkable statement into `reviews/FILE/claims.tsv`; fill evidence and verdict there. `kb.tsv` next to it lists the knowledge entries per claim; one of grade live or contract that has not expired settles a claim as evidence `kb:KB-XXXX` |
-| `awb review l0 deliverables/FILE` | the level-0 check: style, names, budget, claims with evidence |
+| `awb review l0 deliverables/FILE` | the level-0 check: style, names, budget, claims with evidence; a computed number (a total, a sum, a saving, 20 x 8) needs `calc:K-N` as evidence |
+| `awb migrate init --from azure` | start a migration in the project; `awb migrate status` and `awb migrate next` show the phases (discover, map, estimate, plan, review), the next phase file and its worker |
+| `awb migrate inventory input/FILE` | the machines of a CSV or a sanitised copy into `migration/inventory.json` as R-1, R-2 ...; vCPU from the Azure size name when the column is missing |
+| `awb migrate map [--region eu-de]` | each machine to the nearest TCP flavor that is not smaller, from the live price API, into `migration/mapping.tsv` with a status: ok, flag, needs-input, manual, no-fit |
+| `awb migrate estimate [--term PAYG]` | the price per month of every mapped row by its OS, into `migration/estimate-TERM.tsv`, the total recorded by `awb calc` |
+| `awb migrate done PHASE` | the gate of a phase; a phase whose files change later turns stale with every phase after it |
+| `awb calc "20 * 8"` | exact decimal arithmetic, recorded in `calc/calc.tsv` of the project as K-N (R-005). `--let hours=730`, `--places 2`, `--label TEXT`, `--dry`; functions sum, min, max, abs, round, ceil, floor, pct. `awb calc list`, `awb calc show K-N` |
 | `awb review pass deliverables/FILE` | l0 and, for tier 3, the lens results; writes `record.json` with the counts per lens, the claims by verdict, the agent runs and the open points |
 | `awb review status` | valid, stale or missing record for every deliverable (the stop hook uses this) |
 | `awb review calibrate` | the calibration set (`calibration/cases.json`, invented texts with one seeded defect each and five clean ones) through the script steps; lists the cases that need the review workflow |

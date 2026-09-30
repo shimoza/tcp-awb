@@ -419,6 +419,27 @@
    "name": "the red-team pack: 1,188 curated cases in calibration/redteam/, every value a fixture form or a declared invented value, EXPECTED.md names real cases, a sample of each dimension runs end to end",
    "run": ".venv/bin/pytest tests/test_redteam_pack.py",
    "status": "passing"
+  },
+  {
+   "id": "C1",
+   "phase": "C",
+   "name": "awb calc (R-005): exact decimal arithmetic with lets, places and half-up rounding; anything but plain arithmetic refused without echoing it; a locked record with ids K-1, K-2 in the project; a result found in a sentence as written, with thousands separators, a decimal comma or rounded; the review refuses a computed number without calc:K-N and a calculation whose result is not in the sentence",
+   "run": ".venv/bin/pytest tests/test_calc.py",
+   "status": "passing"
+  },
+  {
+   "id": "M1",
+   "phase": "M",
+   "name": "awb migrate: Azure size names by Microsoft's naming convention (constrained, Arm, D and DS before v3 give no vCPU); the inventory from a CSV or a sanitised copy; the nearest TCP flavor not smaller on vCPU and memory from price records, never smaller over a sweep; GPU, FPGA, HPC and confidential sizes left to a decision; the estimate by OS tier with the total recorded by awb calc; the phases in order with their gates, stale after a change, a flavor edited by hand caught",
+   "run": ".venv/bin/pytest tests/test_migrate.py",
+   "status": "passing"
+  },
+  {
+   "id": "M2",
+   "phase": "M",
+   "name": "the plugin's migration skill and its two workers: the tools of each tier, a phase file per phase",
+   "run": ".venv/bin/pytest tests/test_plugin.py",
+   "status": "passing"
   }
  ],
  "total_tests": 1846,

@@ -33,7 +33,7 @@ def test_the_drafting_skill_is_the_copy_of_the_seal():
 def test_every_skill_names_itself_and_every_command_it_uses_exists():
     known = set(cli.DELEGATED) | {"init", "intake", "register", "spawn", "projects", "close"}
     skills = sorted((PLUGIN / "skills").iterdir())
-    assert len(skills) == 5
+    assert len(skills) == 6
     for d in skills:
         text = (d / "SKILL.md").read_text(encoding="utf-8")
         front = text.split("---")[1]
@@ -41,3 +41,25 @@ def test_every_skill_names_itself_and_every_command_it_uses_exists():
         assert re.search(r"(?m)^description: .{20,300}$", front), d.name
         for cmd in re.findall(r"`awb ([a-z]+)", text):
             assert cmd in known, "%s names awb %s" % (d.name, cmd)
+
+
+def test_the_migration_workers_have_the_tools_of_their_tier():
+    tools = {}
+    for f in sorted((PLUGIN / "agents").glob("*.md")):
+        front = f.read_text(encoding="utf-8").split("---")[1]
+        name = re.search(r"(?m)^name: (.+)$", front).group(1)
+        assert name == f.stem
+        tools[name] = {t.strip() for t in re.search(r"(?m)^tools: (.+)$", front).group(1).split(",")}
+    assert tools["migration-worker-files"] == {"Read", "Grep", "Glob", "Write", "Edit"}
+    assert tools["migration-worker-shell"] == {"Read", "Grep", "Glob", "Write", "Edit", "Bash"}
+
+
+def test_every_phase_has_its_file_and_its_worker():
+    from awb.tcp import migrate
+
+    for phase in migrate.PHASES:
+        assert migrate.phase_file(phase.name).is_file(), phase.name
+        worker = migrate.WORKERS[phase.worker]
+        if worker:
+            assert (PLUGIN / "agents" / (worker.split(":")[1] + ".md")).is_file()
+
