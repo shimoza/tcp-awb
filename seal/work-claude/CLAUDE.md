@@ -27,6 +27,8 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 
 - Check before you state. Prices come from the live price API through `awb price`, never from memory or the
   knowledge base. A price sheet passes `awb price check` before it leaves the project.
+- Never compute in a reply. Every total, sum, saving, average or product goes through `awb calc`; the review
+  takes the computed number only with its `calc:K-N` (R-005).
 - Availability and every negative need a live check or a dated source. An expired knowledge entry is a lead.
 - A check that reports clean counts only after it has shown that it can fail.
 - Before a commit, a write outside the project or a change in the cloud, say where it lands: repository, remote,

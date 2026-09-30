@@ -32,7 +32,10 @@ GB or VMs next to the number, or a word such as total, per month, a multiplicati
 and versions; low for a URL alone. When the list is written again, a row whose sentence is still in the text
 keeps its id, evidence, grade and verdict. Evidence is one or more paths relative to the project, separated by
 `;`. An evidence item can also be a knowledge entry, `kb:KB-XXXX`: it must exist, not be retired and not have
-expired, and for a high-risk claim its grade must be live or contract (V-04). Grade is live, contract, docs, said
+expired, and for a high-risk claim its grade must be live or contract (V-04). An evidence item can also be a
+calculation, `calc:K-N` of `awb calc`: it must be recorded in the project and its result must appear in the sentence.
+A high-risk sentence whose number was computed (a total, a sum, a saving, a difference, an average or a product
+such as 20 x 8) needs such an item (R-005). Grade is live, contract, docs, said
 or assumed. Verdict is supported, contradicted or unknown.
 
 The level-0 check reads the deliverable once; every check sees those bytes (a file that is not plain text is
@@ -922,6 +925,12 @@ def _writing_tells(path: Path, mode: str, scope: str, text: str | None = None) -
 
 
 _KB_EVIDENCE_RE = re.compile(r"kb:(KB-[A-Z0-9]{4})")
+_CALC_EVIDENCE_RE = re.compile(r"calc:(K-[1-9][0-9]{0,4})")
+_ARITH_RE = re.compile(
+    r"(?i)\b(?:total|totals|totalling|totaling|sum|subtotal|altogether|in all|saves?|saving|savings|difference"
+    r"|average)\b|\u00d7|(?<![\w.])[0-9]+(?:[.,][0-9]+)?\s?[x*\u00d7]\s?[0-9]"
+)
+"""A sentence whose number was computed: a total, a sum, a saving, a difference, an average or a product (R-005)."""
 
 
 def _kb_evidence_problem(kb_id: str, high: bool, kb_where=None, today: date | None = None) -> str | None:
@@ -942,8 +951,28 @@ def _kb_evidence_problem(kb_id: str, high: bool, kb_where=None, today: date | No
     return None
 
 
+def _calc_evidence_problem(project: Path, calc_id: str, sentence: str | None) -> str | None:
+    """A calculation given as evidence (`calc:K-N`, R-005): it must be recorded in the project and its result must
+    appear in the sentence."""
+    from awb import calc
+
+    try:
+        rec = calc.find(project, calc_id)
+    except calc.CalcError:
+        return "the calculation record of the project cannot be read"
+    if rec is None:
+        return "a calculation given as evidence is not recorded in the project"
+    try:
+        value = rec.value()
+    except ArithmeticError:
+        return "a calculation given as evidence has no readable result"
+    if sentence is not None and not calc.appears_in(value, sentence):
+        return "the result of the calculation given as evidence is not in the sentence"
+    return None
+
+
 def _evidence_problem(project: Path, evidence: str, deliverable: Path, high: bool = False, kb_where=None,
-                      today: date | None = None) -> str | None:
+                      today: date | None = None, sentence: str | None = None) -> str | None:
     parts = [p.strip() for p in evidence.split(";") if p.strip()]
     if not parts:
         return "no evidence"
@@ -952,6 +981,12 @@ def _evidence_problem(project: Path, evidence: str, deliverable: Path, high: boo
         m = _KB_EVIDENCE_RE.fullmatch(part)
         if m:
             problem = _kb_evidence_problem(m.group(1), high, kb_where, today)
+            if problem:
+                return problem
+            continue
+        m = _CALC_EVIDENCE_RE.fullmatch(part)
+        if m:
+            problem = _calc_evidence_problem(project, m.group(1), sentence)
             if problem:
                 return problem
             continue
@@ -980,13 +1015,15 @@ def _claim_problems(c: Claim, row: Claim, project: Path, deliverable: Path, tier
     if row.grade and row.grade not in GRADES:
         out.append("%s: the grade must be live, contract, docs, said or assumed" % where)
     if c.risk == "high":
-        problem = _evidence_problem(project, row.evidence, deliverable, True, kb_where)
+        problem = _evidence_problem(project, row.evidence, deliverable, True, kb_where, sentence=c.sentence)
         if problem:
             out.append("%s: %s" % (where, problem))
+        elif "number" in c.kinds() and _ARITH_RE.search(c.sentence) and not _CALC_EVIDENCE_RE.search(row.evidence):
+            out.append("%s: a computed number needs its calculation as evidence (awb calc, then calc:K-N)" % where)
         if not row.verdict:
             out.append("%s: no verdict" % where)
     elif row.evidence:
-        problem = _evidence_problem(project, row.evidence, deliverable, False, kb_where)
+        problem = _evidence_problem(project, row.evidence, deliverable, False, kb_where, sentence=c.sentence)
         if problem:
             out.append("%s: %s" % (where, problem))
     if row.verdict == "contradicted":

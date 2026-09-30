@@ -11,6 +11,9 @@ A price is never taken from memory or from the knowledge base. It comes from the
   `awb price find ecs --grep s3.large`. Add `--region eu-nl` or `--region eu-ch2` for another region.
 - A price sheet before it leaves: `awb price check SHEET`. It fetches every price again and recomputes every line
   and the totals to the cent. Report what it finds, line by line.
+- Never add, multiply or take a percentage in your head. Every sum, a monthly figure from an hourly price and a
+  saving goes through `awb calc "730 * 0.0418 * 3" --places 2` in the project. It records the calculation as
+  K-N; give `calc:K-N` as the evidence of the sentence in the review.
 - Give every price with its unit, its term (pay per use or a reserved term) and the time it was fetched, as the
   command prints it.
 - A price record does not prove that the item can still be ordered. Say so when availability matters.

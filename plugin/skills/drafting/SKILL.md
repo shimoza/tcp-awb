@@ -18,6 +18,7 @@ edit short. It does not replace his review and it cannot promise that no reader 
    "server".
 4. Collect the facts first. `awb kb find` for checked facts, `awb price` for every price (never from memory), a
    live check or a dated source for availability and for every negative. Keep the source of each fact.
+   Every number you compute (a total, a saving, a product) comes from `awb calc`, never from your head.
 
 ## How he writes
 
