@@ -1353,3 +1353,16 @@ def test_a_commit_message_that_names_claude_as_co_author_is_refused(tmp_path, ca
         assert "attribution" in capsys.readouterr().out
     msg.write_text("A change\n\nCo-Authored-By: colleague <colleague@example.org>\n", encoding="utf-8")
     assert gate.scan_message(msg, None) == []
+
+
+def test_selftest_passes_for_the_work_user_of_a_sealed_host(register_path, monkeypatch, tmp_path):
+    # the work user ignores AWB_BLOCKLIST, so the self-test must bring its own blocklist in the process
+    from awb import config
+
+    monkeypatch.setattr(config, "is_work_user", lambda: True)
+    planted = tmp_path / "env-blocklist.txt"
+    planted.write_text("plantedword\n", encoding="utf-8")
+    monkeypatch.setenv("AWB_BLOCKLIST", str(planted))
+    assert gate.selftest(register_path) == []
+    assert planted not in gate.blocklist_files()
+    assert not any("awb-gate-selftest-" in str(f) for f in gate.blocklist_files())

@@ -27,21 +27,21 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 
 - Check before you state. Prices come from the live price API through `awb price`, never from memory or the
   knowledge base. A price sheet passes `awb price check` before it leaves the project.
-- Never compute in a reply. Every total, sum, saving, average or product goes through `awb calc`; the review
-  takes the computed number only with its `calc:K-N` (R-005).
+- Never compute in a reply: every total, sum, saving or product goes through `awb calc` (R-005).
 - Availability and every negative need a live check or a dated source. An expired knowledge entry is a lead.
 - A check that reports clean counts only after it has shown that it can fail.
-- Before a commit, a write outside the project or a change in the cloud, say where it lands: repository, remote,
-  folder or account.
+- Before a write outside the project or a change in the cloud, say where it lands: remote, folder or account.
 
-## Commands
+## Housekeeping and commands
 
-- `awb spawn KIND --goal TEXT` starts a project. `awb ledger add --kind K --done TEXT` after every piece of work.
-- `awb report --by customer|tech|kind|project` gives his weekly report.
-- `awb career add` when work clears the bar: a new technology end to end, a result that went to a customer, a
-  number, a reusable tool. `awb career due` says when the last update is over 90 days old.
+- He works with you as in a plain chat. The ledger entry and the commit of the project are your job after each
+  piece of work: do both without asking him and without reporting them.
+- A Workbench command that fails by itself is a tooling bug: one plain line to him, an item in OPEN.md, then his
+  task again. Ask him only what he alone can decide or do (a fact, a choice, a login, a sudo command).
+- `awb spawn KIND --goal TEXT` starts a project, `awb ledger add --kind K --done TEXT` records a piece of work and
+  `awb report --by customer|tech|kind|project` gives his weekly report. `awb career add` when work clears the bar.
 - `awb kb find|add|scope` for checked facts. `awb check`, `awb write check` and `awb review status` before a
-  deliverable leaves the project. `awb gate` before every commit; the commit hook runs it too.
+  deliverable leaves the project. The commit hook runs `awb gate`.
 
 ## Writing
 
@@ -52,9 +52,6 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 - No word of `rules/banned-words.txt` or `rules/banned-phrases.txt`, no name of `rules/vendor-names.txt` in TCP
   prose. No promises about the future, no pointers to earlier mails, no certification without proof.
 - Every text that leaves under his name goes through the drafting skill: facts first, voice second.
-
-## English note
-
-Check his English messages for grammar and wording. Never for Russian or German text and never for text he
-pasted from elsewhere. Ignore typos and dictation slips. When there is a real issue, add a short "English note:"
-at the end of your reply with the correction. Otherwise leave it out.
+- English note: check his English messages for grammar and wording. Never for Russian or German text and never
+  for text he pasted from elsewhere. Ignore typos and dictation slips. When there is a real issue, add a short
+  "English note:" at the end of your reply with the correction. Otherwise leave it out.

@@ -247,15 +247,18 @@ BLOCKLIST_FILES = (Path("/etc/awb/blocklist.txt"), Path("~/.config/awb/blocklist
 file is root owned; the one in the home folder serves the owner before the seal. AWB_BLOCKLIST names more files,
 separated by a colon (tests). The work user of a sealed host reads the host file only."""
 _BLOCKLIST_CACHE: dict = {}
+_SELFTEST_FILES: list[Path] = []
+"""The self-test's own blocklist while it runs, set in the process and never through the environment, so that the
+self-test proves the blocklist check on a sealed host too, where the work user ignores AWB_BLOCKLIST."""
 
 
 def blocklist_files() -> list[Path]:
     from awb import config
 
     if config.is_work_user():
-        return [BLOCKLIST_FILES[0]]
+        return [BLOCKLIST_FILES[0], *_SELFTEST_FILES]
     extra = [Path(x) for x in os.environ.get("AWB_BLOCKLIST", "").split(":") if x]
-    return [BLOCKLIST_FILES[0], BLOCKLIST_FILES[1].expanduser(), *extra]
+    return [BLOCKLIST_FILES[0], BLOCKLIST_FILES[1].expanduser(), *extra, *_SELFTEST_FILES]
 
 
 def blocklist_re() -> "re.Pattern[str] | None":
@@ -939,15 +942,11 @@ def selftest(register_path: Path | None = None) -> list[str]:
         root = Path(tmp)
         own = root / "blocklist.txt"
         own.write_text(_SELFTEST_BLOCKED + "\n", encoding="utf-8")
-        before = os.environ.get("AWB_BLOCKLIST")
-        os.environ["AWB_BLOCKLIST"] = ":".join(x for x in (before, str(own)) if x)
+        _SELFTEST_FILES.append(own)
         try:
             return failures + _selftest_in(root)
         finally:
-            if before is None:
-                os.environ.pop("AWB_BLOCKLIST", None)
-            else:
-                os.environ["AWB_BLOCKLIST"] = before
+            _SELFTEST_FILES.remove(own)
 
 
 def _selftest_in(root: Path) -> list[str]:
