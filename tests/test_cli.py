@@ -201,6 +201,9 @@ def test_spawn_and_projects_list(con, home):
     assert (home.projects_root / pcode / "SCOPE.md").is_file()
     code, out, _ = con.run("projects", "list")
     assert code == 0 and pcode in out and fx.CUSTOMER_CODE in out
+    assert "Design the landing zone for the first workload" in out
+    code, out, _ = con.run("projects", "list", "--paths")
+    assert code == 0 and str(home.projects_root / pcode) in out
 
     # a name in the goal is refused. The refusal does not repeat it
     code, _, err = con.run("spawn", "lab", "--goal", "Migration for %s" % FULL)

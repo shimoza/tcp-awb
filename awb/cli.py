@@ -271,17 +271,33 @@ def _cmd_close(args, p: config.Paths) -> int:
 
 
 def _cmd_projects_list(args, p: config.Paths) -> int:
-    from awb import projects, sessions
+    from awb import ledger, projects, sessions
 
     rows = projects.load(p)
     if not rows:
         print("no projects")
         return EXIT_OK
-    print("code      kind        customer   state   created     owner     path")
-    for r in rows:
+    goals = [projects.goal_of(r.path) for r in rows]
+    # a goal passed the name check at spawn; the register grows, so it is checked again before it is shown
+    try:
+        hidden = ledger.hit_indexes(goals, ledger.register_path(p))
+        unchecked = False
+    except ledger.LedgerError:
+        hidden, unchecked = set(), True
+    last = "path" if args.paths else "goal"
+    print("code      kind        customer   state   created     owner     %s" % last)
+    for i, r in enumerate(rows):
         held = sessions.owner(p, r.code) if r.state == "active" else None
+        if args.paths:
+            tail = r.path
+        elif unchecked:
+            tail = "(goal not shown: the name check is unavailable)"
+        elif i in hidden:
+            tail = ledger.WITHHELD
+        else:
+            tail = projects.short_goal(goals[i])
         print("%-9s %-11s %-10s %-7s %-11s %-9s %s" % (r.code, r.kind, r.customer, r.state, r.created,
-                                                     sessions.short(held["session"]) if held else "-", r.path))
+                                                     sessions.short(held["session"]) if held else "-", tail))
     return EXIT_OK
 
 
@@ -352,7 +368,8 @@ def _build() -> argparse.ArgumentParser:
 
     pr = sub.add_parser("projects", help="the project register")
     psub = pr.add_subparsers(dest="projects_command", parser_class=_Parser)
-    s = psub.add_parser("list", help="list the projects")
+    s = psub.add_parser("list", help="list the projects with their goal")
+    s.add_argument("--paths", action="store_true", help="the folder of each project instead of its goal")
     s.set_defaults(func=_cmd_projects_list)
     s = psub.add_parser("check", help="find tcp- folders that no project registered")
     s.set_defaults(func=_cmd_projects_check)

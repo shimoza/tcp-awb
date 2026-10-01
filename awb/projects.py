@@ -80,6 +80,27 @@ def memory_key(path: str | os.PathLike) -> str:
     return str(path).replace("/", "-")
 
 
+GOAL_WIDTH = 72
+
+
+def goal_of(path: str | os.PathLike) -> str:
+    """The goal line of a project's SCOPE.md, empty when there is none or the file cannot be read."""
+    try:
+        text = (Path(path) / "SCOPE.md").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+    for line in text.splitlines():
+        if line.startswith("- goal:"):
+            return " ".join(line[len("- goal:"):].split())
+    return ""
+
+
+def short_goal(goal: str, width: int = GOAL_WIDTH) -> str:
+    if not goal:
+        return "-"
+    return goal if len(goal) <= width else goal[: width - 3].rstrip(" ,.:;") + "..."
+
+
 # --- the project register ---------------------------------------------------------------------------------
 
 def _fail(where: str, reason: str) -> ProjectError:
