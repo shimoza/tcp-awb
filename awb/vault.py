@@ -1159,8 +1159,34 @@ def _cmd_encrypt(args, p: config.Paths) -> int:
     return 0
 
 
+def in_assistant_session() -> bool:
+    """True inside a Claude Code session (its shell carries CLAUDECODE or CLAUDE_CODE_ENTRYPOINT)."""
+    return bool(os.environ.get("CLAUDECODE") or os.environ.get("CLAUDE_CODE_ENTRYPOINT"))
+
+
+def _cmd_show(args, p: config.Paths) -> int:
+    """A sealed file of the vault (a private intake report) on the owner's own terminal. Refused inside an
+    assistant session, to a pipe or a file and as the work user: what it prints carries names."""
+    if config.is_work_user():
+        print("awb vault: show is for the owner", file=sys.stderr)
+        return 2
+    if in_assistant_session():
+        print("awb vault: show never runs inside an assistant session; run it in your own terminal", file=sys.stderr)
+        return 2
+    if not sys.stdout.isatty():
+        print("awb vault: show prints to a terminal only, never to a pipe or a file", file=sys.stderr)
+        return 2
+    answer = admin_call("open_file", path=str(Path(args.file).expanduser().resolve()))
+    try:
+        text = base64.b64decode(answer.get("data") or "", validate=True).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        raise VaultError("the vault daemon answered in an unexpected form") from None
+    sys.stdout.write(text if text.endswith("\n") else text + "\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
-    """`awb vault serve|unlock|lock|status|encrypt`. Exit 0 ok, 2 on an error."""
+    """`awb vault serve|unlock|lock|status|encrypt|show`. Exit 0 ok, 2 on an error."""
     from awb.cli import SafeParser
 
     ap = SafeParser(prog="awb vault", description="The vault: encryption at rest and the vault daemon.")
@@ -1176,6 +1202,9 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(func=_cmd_lock)
     s = sub.add_parser("status", help="state, count of codes and forms")
     s.set_defaults(func=_cmd_status)
+    s = sub.add_parser("show", help="a sealed file of the vault, such as a private intake report, on your terminal")
+    s.add_argument("file")
+    s.set_defaults(func=_cmd_show)
     s = sub.add_parser("encrypt", help="encrypt a plain vault once, then unlock the daemon")
     s.add_argument("--stdin", action="store_true", help="read the new passphrase twice from standard input")
     s.set_defaults(func=_cmd_encrypt)

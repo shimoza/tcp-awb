@@ -657,3 +657,36 @@ def test_open_file_never_returns_the_register(vp, daemon, monkeypatch):
     assert_clean(wire.decode("utf-8"), "the refusal")
     with pytest.raises(vault.VaultError):
         vault.admin_call("open_file", path=str(vp.register_encrypted))
+
+
+def test_show_never_prints_inside_an_assistant_session_to_a_pipe_or_for_the_work_user(monkeypatch, capsys, tmp_path):
+    called = []
+    monkeypatch.setattr(vault, "admin_call", lambda *a, **k: called.append(a) or {"data": ""})
+    f = str(tmp_path / "report.md.gpg")
+    monkeypatch.setenv("CLAUDECODE", "1")
+    assert vault.main(["show", f]) == 2
+    assert "assistant session" in capsys.readouterr().err
+    monkeypatch.delenv("CLAUDECODE")
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+    assert vault.main(["show", f]) == 2              # pytest captures stdout: not a terminal
+    assert "terminal only" in capsys.readouterr().err
+    monkeypatch.setattr(vault.config, "is_work_user", lambda: True)
+    assert vault.main(["show", f]) == 2
+    assert called == []
+
+
+def test_show_prints_the_sealed_file_on_a_terminal(monkeypatch, tmp_path):
+    import base64 as _b64
+    import io
+
+    class Tty(io.StringIO):
+        def isatty(self):
+            return True
+
+    out = Tty()
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+    monkeypatch.setattr(vault, "admin_call", lambda op, **k: {"ok": True, "data": _b64.b64encode(b"report text").decode()})
+    monkeypatch.setattr(vault.sys, "stdout", out)
+    assert vault.main(["show", str(tmp_path / "r.md.gpg")]) == 0
+    assert out.getvalue() == "report text\n"

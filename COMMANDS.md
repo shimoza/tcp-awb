@@ -18,6 +18,7 @@ side.
 | `awb register list` | codes, kinds and counts of forms, no names |
 | `awb register list --forms` | the same with the written forms (vault side only) |
 | `awb register retire CUST-XXXX` | retire every form of a code; the code is never reused |
+| `awb vault show ~/tcp-vault/reports/CUST-XXXX/FILE.md.gpg` | the private report of an intake (the candidates with the words found) on your own terminal; refused inside an assistant session, to a pipe or a file |
 | `awb register keep "phrase"` | a phrase you reviewed as harmless is no longer a name candidate |
 | `awb register keep --list` | the kept phrases (vault side only) |
 | `awb intake --customer CUST-XXXX FILE...` | sanitised Markdown copies to `~/tcp-shared/outbox/CUST-XXXX/`, originals into the vault. No FILE: everything in `~/tcp-vault/inbox` |
