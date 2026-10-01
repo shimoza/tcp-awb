@@ -4,13 +4,16 @@
     awb cloud get SERVICE PATH [--region R] [--query K=V]... [--list KEY] [--paging marker|offset|none]
     awb cloud sweep [--region R] [--today YYYY-MM-DD]       untagged, expired or idle resources (awb/tcp/sweep.py)
     awb cloud usage [--month YYYY-MM]                       calls to the TCP API per day and every 429 (awb/tcp/throttle.py)
+    awb cloud tenants                                       the tenants of the key service (awb/tcp/keys.py)
+    awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role read|lab] [--region R] [--query K=V]... [--body FILE]
+                   [--project CODE]                         one call through the key service, for every user
 
 PATH may carry `{project_id}`: the id of the project named like the region. `--list KEY` reads a paged list under
 KEY and answers one of three states (awb/jobs.py): list, empty or unknown. The command line sends GET only: a
 session checks facts here and changes nothing. The library can send other methods for later jobs.
 
 The key comes from `AWB_CLOUD_KEYS=pass:<entry>`, the entry holding `ak` and `sk` like the key of the bucket. The work
-user of the seal gets its own key with T-100; until then it is refused. `AWB_CLOUD_ENDPOINT` (tests) sends every
+user never holds a key: `call` and `tenants` go through the key service (T-100), which signs for it. `AWB_CLOUD_ENDPOINT` (tests) sends every
 service to one base address. Errors carry a status and a short text with the key taken out, never the key.
 """
 from __future__ import annotations
@@ -260,6 +263,17 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--today", default=None, metavar="YYYY-MM-DD")
     u = sub.add_parser("usage", help="calls to the TCP API per day and every 429, from the call log")
     u.add_argument("--month", default=None, metavar="YYYY-MM")
+    sub.add_parser("tenants", help="the tenants of the key service, their keys and the names of their secrets")
+    k = sub.add_parser("call", help="one call through the key service: the key never reaches this process")
+    k.add_argument("method")
+    k.add_argument("service")
+    k.add_argument("path")
+    k.add_argument("--tenant", required=True)
+    k.add_argument("--role", default="read", choices=("read", "lab"))
+    k.add_argument("--region", default=None)
+    k.add_argument("--query", action="append", default=[], metavar="K=V")
+    k.add_argument("--body", default=None, metavar="FILE", help="a JSON file; a password field may hold {{secret:NAME}}")
+    k.add_argument("--project", default=None, help="the project code (default: the project of the working folder)")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -276,6 +290,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         print("\n".join(throttle.usage_lines(config.paths().shared, month)))
         return 0
+    if args.command in ("tenants", "call"):
+        return _through_service(args)
     try:
         keys, endpoint = settings()
         job = jobs.Job("cloud", None)
@@ -323,6 +339,55 @@ def main(argv: list[str] | None = None) -> int:
     except CloudError as err:
         print("awb cloud: %s" % err, file=sys.stderr)
         return 2
+
+
+def _project_code(arg: str | None) -> str | None:
+    if arg:
+        return arg
+    from awb import review
+
+    scope = review.find_project() / "SCOPE.md"
+    try:
+        for line in scope.read_text(encoding="utf-8").splitlines():
+            if line.startswith("- code:"):
+                return line.split(":", 1)[1].strip()
+    except OSError:
+        return None
+    return None
+
+
+def _through_service(args) -> int:
+    from awb.tcp import keys as _keys
+
+    if args.command == "tenants":
+        return _keys.main(["status"])
+    try:
+        body = None
+        if args.body:
+            try:
+                body = json.loads(open(args.body, encoding="utf-8").read())
+            except (OSError, ValueError):
+                print("awb cloud: the body file is not readable JSON", file=sys.stderr)
+                return 2
+        req = {"op": "call", "tenant": args.tenant, "role": args.role, "method": args.method.upper(),
+               "service": args.service, "path": args.path, "region": args.region, "query": _pairs(args.query),
+               "body": body, "project": _project_code(args.project)}
+        answer = _keys.request(_keys.call_socket(), req)
+    except (_keys.KeysError, CloudError) as err:
+        print("awb cloud: %s" % err, file=sys.stderr)
+        return 2
+    if not answer.get("ok"):
+        print("awb cloud: %s" % answer.get("error"), file=sys.stderr)
+        return 2
+    if answer.get("data") is not None:
+        print(json.dumps(answer["data"], ensure_ascii=False, indent=2, sort_keys=True))
+    elif answer.get("text"):
+        print(answer["text"])
+    status = int(answer.get("status") or 0)
+    if not 200 <= status < 300:
+        print("awb cloud: HTTP %d" % status, file=sys.stderr)
+        return 1 if status else 2
+    return 0
 
 
 if __name__ == "__main__":

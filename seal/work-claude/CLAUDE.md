@@ -40,6 +40,8 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   task again. Ask him only what he alone can decide or do (a fact, a choice, a login, a sudo command).
 - `awb spawn KIND --goal TEXT` starts a project, `awb ledger add --kind K --done TEXT` records a piece of work and
   `awb report --by customer|tech|kind|project` gives his weekly report. `awb career add` when work clears the bar.
+- `awb cloud tenants` lists the test tenants; `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role lab]` reaches
+  them through the key service. A password goes into a body only as `{{secret:NAME}}`, a key never.
 - `awb kb find|add|scope` for checked facts. `awb check`, `awb write check` and `awb review status` before a
   deliverable leaves the project. The commit hook runs `awb gate`.
 

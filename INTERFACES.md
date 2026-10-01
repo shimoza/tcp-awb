@@ -837,3 +837,11 @@ phase), `next_phase(state)`, `done(project, name) -> list[str]` (the gate; empty
 `map_rows(inventory, classes) -> list[dict]`, `write_mapping`, `load_mapping`,
 `estimate(project, fetch_region, term="PAYG", hours=720) -> dict`, `os_tier(os_text)`. The phase files are in
 `plugin/skills/azure-to-tcp/phases/`, the workers in `plugin/agents/`.
+
+## The key service (2026-10-01, T-100)
+
+`awb/tcp/keys.py`: `store_entries(root=None)`, `collect(entries, reader)`, `Service(admin_path, call_path,
+endpoint=None, paths_fn=config.paths, log_dir=None)` with `start()`, `stop()`, `serve_forever()`;
+`fill(body, secrets)`, `request(sock, obj)`, `unlock(sock=None, entries=None, reader=pass_reader)`, `main(argv)`.
+Admin socket ops: ping, status, load, lock. Call socket ops: ping, tenants, call. `awb/tcp/cloud.py` gained
+`call` and `tenants`, which go through the service for every user. The unit is `seal/awb-keyd.service`.

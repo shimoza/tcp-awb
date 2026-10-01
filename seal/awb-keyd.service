@@ -1,0 +1,27 @@
+# The key service of the Architect Workbench (awb/tcp/keys.py). It runs as the owner like the vault daemon and holds
+# the keys and secrets of the test tenants in memory only: after every start the owner loads them with awb keys
+# unlock. The call socket /run/awb-keys/cloud.sock is reachable by the group awb, the admin socket stays in the
+# owner's vault. Install: sed "s/@OWNER@/<owner>/" this file into /etc/systemd/system/awb-keyd.service.
+[Unit]
+Description=Architect Workbench key service
+After=network-online.target
+
+[Service]
+Type=simple
+User=@OWNER@
+Group=awb
+RuntimeDirectory=awb-keys
+RuntimeDirectoryMode=0750
+Environment=AWB_CONF=/etc/awb/paths.conf
+ExecStart=/usr/local/bin/awb keys serve
+Restart=on-failure
+RestartSec=5
+UMask=0007
+# no core dump: the keys live in the service's memory
+LimitCORE=0
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

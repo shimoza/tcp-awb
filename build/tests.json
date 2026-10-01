@@ -440,6 +440,13 @@
    "name": "the plugin's migration skill and its two workers: the tools of each tier, a phase file per phase",
    "run": ".venv/bin/pytest tests/test_plugin.py",
    "status": "passing"
+  },
+  {
+   "id": "K1",
+   "phase": "K",
+   "name": "the key service (T-100): the password store layout per tenant alias (read key, lab key, named secrets), locked until the owner loads it, read calls signed with the tenant key, writes only with the lab key and an active project, a secret only as the whole value of a password field, every key and secret taken out of the answer also in base64 and JSON form, a log without paths or values, a rate limit, awb cloud call for the work user while the direct key path stays closed",
+   "run": ".venv/bin/pytest tests/test_keys.py",
+   "status": "passing"
   }
  ],
  "total_tests": 1846,

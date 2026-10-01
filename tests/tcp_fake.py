@@ -197,6 +197,7 @@ class FakeGateway(_Server):
         self.retry_after = ""
         self.echo_key = False
         self.calls: list[tuple[str, str]] = []
+        self.bodies: list[bytes] = []
         super().__init__(self._handler())
 
     def route(self, method: str, raw_path: str) -> tuple[int, dict | str]:
@@ -247,6 +248,7 @@ class FakeGateway(_Server):
                 length = int(self.headers.get("Content-Length") or 0)
                 body = self.rfile.read(length) if length else b""
                 fake.calls.append((self.command, self.path))
+                fake.bodies.append(body)
                 if not verify(self.command, self.path, self.headers, body, fake.ak, fake.sk):
                     status, data = 401, {"error_code": "APIGW.0301",
                                          "error_msg": "verify aksk signature fail" +
@@ -264,5 +266,7 @@ class FakeGateway(_Server):
 
             do_GET = _serve
             do_POST = _serve
+            do_PUT = _serve
+            do_DELETE = _serve
 
         return Handler
