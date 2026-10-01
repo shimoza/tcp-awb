@@ -125,8 +125,9 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
    `RESOURCES.md`.
 4. A text for a customer or a partner goes through the drafting skill and `awb review`. Only the reviewed version
    leaves.
-5. The session writes its ledger entry and commits by itself. At the end, `awb close` checks that nothing is left
-   running.
+5. The session writes its ledger entry, commits and harvests by itself: what it learned live on the platform goes
+   into the knowledge base with the grade `live`. When it called the TCP API and added nothing, the stop hook sends
+   it back once to do so. At the end, `awb close` checks that nothing is left running.
 
 ## Test tenants and keys
 

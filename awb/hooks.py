@@ -712,14 +712,20 @@ def hook_stop(data: dict) -> int:
     if root is None:
         return OK
     _quietly(draft_ledger, config.paths(), root)
+    harvest_msg = None
+    try:
+        from awb import harvest
+        harvest_msg = harvest.due(config.paths(), data.get("transcript_path"), data.get("session_id"))
+    except Exception:
+        harvest_msg = None
     mod = _module("review")
     status = getattr(mod, "status", None) if mod is not None else None
-    if status is None:
-        return OK
-    try:
-        rows = status(root)
-    except Exception:
-        return OK
+    rows = None
+    if status is not None:
+        try:
+            rows = status(root)
+        except Exception:
+            rows = None
     pending = []
     unreadable = []
     for row in rows or []:
@@ -729,9 +735,12 @@ def hook_stop(data: dict) -> int:
         name = _field(row, "file", "deliverable", "name", "path", default="")
         (unreadable if state == "unreadable" else pending).append(Path(str(name)).name or "unnamed")
     if not pending and not unreadable:
+        if harvest_msg:
+            print(harvest_msg, file=sys.stderr)
+            return BLOCK
         return OK
     shown = _safe_names(pending + unreadable)
-    lines = []
+    lines = [harvest_msg] if harvest_msg else []
     if pending:
         lines.append("run the review for: %s" % ", ".join(shown[:len(pending)]))
     if unreadable:

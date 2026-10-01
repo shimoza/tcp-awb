@@ -454,6 +454,13 @@
    "name": "awb kb export: the dataset carries live, contract and docs facts, never retired ones, expired ones only on request and marked, said only on request; every entry name checked again and withheld when it carries a name registered later; an existing file is not overwritten without --force",
    "run": ".venv/bin/pytest tests/test_kb.py",
    "status": "passing"
+  },
+  {
+   "id": "H1",
+   "phase": "H",
+   "name": "harvest: a session that called the TCP API and added no knowledge entry after its last call is stopped once with the harvest message; the same calls never ask twice, a new batch asks again, sessions are kept apart, nothing outside a project, never while the client already continues",
+   "run": ".venv/bin/pytest tests/test_harvest.py",
+   "status": "passing"
   }
  ],
  "total_tests": 1846,

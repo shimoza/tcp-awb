@@ -34,8 +34,8 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 
 ## Housekeeping and commands
 
-- He works with you as in a plain chat. The ledger entry and the commit of the project are your job after each
-  piece of work: do both without asking him and without reporting them.
+- He works with you as in a plain chat. The ledger entry, the commit and the harvest are your job after each piece
+  of work, never his: what you learned live on TCP goes into `awb kb add --grade live` at once, one fact per entry.
 - A Workbench command that fails by itself is a tooling bug: one plain line to him, an item in OPEN.md, then his
   task again. Ask him only what he alone can decide or do (a fact, a choice, a login, a sudo command).
 - `awb spawn KIND --goal TEXT` starts a project, `awb ledger add --kind K --done TEXT` records a piece of work and
