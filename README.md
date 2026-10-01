@@ -1,8 +1,12 @@
 # Architect Workbench
 
-An AI assistant for T Cloud Public (TCP) architects, built on Claude Code. It answers what-if questions from checked
-facts, prices a whole solution live and builds a proof of concept on a real tenant. Every fact it uses has a source,
-every number is computed by a program and every deliverable is reviewed before it leaves.
+**A harness for cloud architecture work on T Cloud Public (TCP).** The Workbench sits around an AI assistant (Claude
+Code) and decides what the model may use, checks what it hands out and keeps the record. The model reasons and
+writes. The harness supplies checked facts, live prices and a live tenant. It lets nothing leave unreviewed.
+
+It is a harness in both senses: it holds the model to checked sources and it tests every result before it leaves.
+With it an architect answers what-if questions from checked facts, prices a whole solution live and builds a proof
+of concept on a real tenant.
 
 Most of it is not tied to one cloud. The facts, prices and API details are for TCP.
 
@@ -184,7 +188,7 @@ fields. Take a fresh export rather than an old one.
 ## Customer data
 
 The Workbench runs on whatever model the architect's assistant uses. That model may be public. With a key to a
-private model, customer data may go in and nothing needs to be hidden. On a public model the Workbench keeps live
+private model, customer data may go in and nothing needs to be hidden. On a public model the harness keeps live
 customer data out of the model as far as it can:
 
 - `awb intake` turns documents into working copies with a code (`CUST-XXXX`) in place of every registered name. It
