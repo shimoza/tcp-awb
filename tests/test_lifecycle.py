@@ -211,3 +211,60 @@ def test_the_detector_finds_folders_nobody_registered(home, register_path, capsy
     assert cli.main(["projects", "check"]) == 1
     out = capsys.readouterr().out
     assert "2 tcp- folder(s)" in out and fx.CUSTOMER_FORMS[1].lower() not in out
+
+
+# --------------------------------------------------------------------------- delete
+
+
+def test_delete_removes_the_folder_of_a_closed_project_and_keeps_the_code(home, register_path, capsys):
+    pr = spawn(home, register_path)
+    folder = Path(pr.path)
+    with pytest.raises(projects.ProjectError, match="is active; close it first"):
+        projects.delete(home, pr.code)
+    assert folder.is_dir()
+    projects.close(home, pr.code, force=True)
+    assert cli.main(["projects", "delete", pr.code]) == 0
+    assert "deleted %s" % pr.code in capsys.readouterr().out
+    assert not folder.exists()
+    assert [r.state for r in projects.load(home) if r.code == pr.code] == ["deleted"]
+    assert cli.main(["projects", "list"]) == 0
+    assert pr.code not in capsys.readouterr().out
+    assert cli.main(["projects", "list", "--all"]) == 0
+    assert pr.code in capsys.readouterr().out
+    # again: nothing changes; close does not bring it back
+    assert projects.delete(home, pr.code).state == "deleted"
+    assert projects.close(home, pr.code).state == "deleted"
+
+
+def test_delete_waits_for_live_resources_and_a_live_session(home, register_path):
+    pr = spawn(home, register_path)
+    folder = Path(pr.path)
+    projects.close(home, pr.code, force=True)
+    with open(folder / "RESOURCES.md", "a", encoding="utf-8") as f:
+        f.write("| srv-1 | ecs | eu-de | small | 2026-12-31 | live | lab server |\n")
+    with pytest.raises(projects.ProjectError, match="1 live resource"):
+        projects.delete(home, pr.code)
+    (folder / "RESOURCES.md").write_text((folder / "RESOURCES.md").read_text().replace("| live |", "| deleted |"))
+    with pytest.raises(projects.ProjectError, match="a live session holds"):
+        projects.delete(home, pr.code, holder=lambda c: True)
+    assert folder.is_dir()
+    projects.delete(home, pr.code)
+    assert not folder.exists()
+
+
+def test_delete_never_follows_a_link_in_place_of_the_folder(home, register_path, tmp_path):
+    pr = spawn(home, register_path)
+    projects.close(home, pr.code, force=True)
+    folder = Path(pr.path)
+    elsewhere = tmp_path / "elsewhere"
+    folder.rename(elsewhere)
+    folder.symlink_to(elsewhere, target_is_directory=True)
+    with pytest.raises(projects.ProjectError, match="not a plain folder"):
+        projects.delete(home, pr.code)
+    assert elsewhere.is_dir() and (elsewhere / "SCOPE.md").is_file()
+
+
+def test_delete_refuses_codes_it_does_not_know(home, capsys):
+    assert cli.main(["projects", "delete", "tcp-zzzz", "nonsense"]) == 1
+    err = capsys.readouterr().err
+    assert "tcp-zzzz is not registered" in err and "not a project code" in err

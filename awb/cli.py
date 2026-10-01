@@ -274,7 +274,7 @@ def _cmd_close(args, p: config.Paths) -> int:
 def _cmd_projects_list(args, p: config.Paths) -> int:
     from awb import ledger, projects, sessions
 
-    rows = projects.load(p)
+    rows = [r for r in projects.load(p) if args.all or r.state != "deleted"]
     if not rows:
         print("no projects")
         return EXIT_OK
@@ -300,6 +300,28 @@ def _cmd_projects_list(args, p: config.Paths) -> int:
         print("%-9s %-11s %-10s %-7s %-11s %-9s %s" % (r.code, r.kind, r.customer, r.state, r.created,
                                                      sessions.short(held["session"]) if held else "-", tail))
     return EXIT_OK
+
+
+def _cmd_projects_delete(args, p: config.Paths) -> int:
+    from awb import projects, sessions
+
+    failed = 0
+    for code in args.codes:
+        try:
+            before = {r.code: r for r in projects.load(p)}.get(code)
+            pr = projects.delete(p, code, holder=lambda c: sessions.owner(p, c) is not None)
+            if before is not None and before.state == "deleted":
+                print("%s was deleted already" % pr.code)
+                continue
+            print("deleted %s: the folder is gone, the code stays registered" % pr.code)
+            try:
+                projects.record(p, pr, "Deleted %s" % pr.code)
+            except Exception:
+                print("awb projects: the ledger entry for %s was not written" % pr.code, file=sys.stderr)
+        except projects.ProjectError as err:
+            failed += 1
+            print("awb projects: %s" % err, file=sys.stderr)
+    return EXIT_FINDINGS if failed else EXIT_OK
 
 
 def _cmd_projects_check(args, p: config.Paths) -> int:
@@ -371,7 +393,11 @@ def _build() -> argparse.ArgumentParser:
     psub = pr.add_subparsers(dest="projects_command", parser_class=_Parser)
     s = psub.add_parser("list", help="list the projects with their goal")
     s.add_argument("--paths", action="store_true", help="the folder of each project instead of its goal")
+    s.add_argument("--all", action="store_true", help="also the deleted projects")
     s.set_defaults(func=_cmd_projects_list)
+    s = psub.add_parser("delete", help="remove the folder of closed projects; the code stays registered as deleted")
+    s.add_argument("codes", nargs="+", metavar="CODE")
+    s.set_defaults(func=_cmd_projects_delete)
     s = psub.add_parser("check", help="find tcp- folders that no project registered")
     s.set_defaults(func=_cmd_projects_check)
     return ap

@@ -38,7 +38,7 @@ from awb import register as _register
 
 PROJECT_KINDS = ("engagement", "lab", "topic", "code")
 HEADER = ("code", "kind", "customer", "platform", "path", "memory_key", "state", "created")
-STATES = ("active", "closed")
+STATES = ("active", "closed", "deleted")
 PLATFORM = "tcp"
 NO_CUSTOMER = "none"
 SUBFOLDERS = ("input", "evidence", "deliverables", "reviews")
@@ -133,7 +133,7 @@ def _check(pr: Project, where: str) -> None:
     if pr.memory_key != memory_key(pr.path):
         raise _fail(where, "memory_key must be the path with every slash turned into a hyphen")
     if pr.state not in STATES:
-        raise _fail(where, "state must be active or closed")
+        raise _fail(where, "state must be active, closed or deleted")
     if not _DATE_RE.fullmatch(pr.created):
         raise _fail(where, "created is not an ISO date (YYYY-MM-DD)")
     try:
@@ -623,12 +623,49 @@ def close(p: _config.Paths, code: str, force: bool = False) -> Project:
         rows = load(p)
         for i, pr in enumerate(rows):
             if pr.code == code:
-                if pr.state == "closed":
+                if pr.state in ("closed", "deleted"):
                     return pr
                 rows[i] = _replace(pr, state="closed")
                 _save(p, rows)
                 return rows[i]
     raise ProjectError("project %s is not registered" % code)
+
+
+def delete(p: _config.Paths, code: str, holder=None) -> Project:
+    """Remove the folder of a closed project and mark its row deleted. The row stays, so that the code is never
+    handed out again and old ledger lines still name a known project. Refused for an active project, while
+    RESOURCES.md lists a live resource, while a session holds it and for a folder that is not a plain folder of
+    the projects root named like the code. Deleting a deleted project changes nothing."""
+    import shutil
+
+    if not isinstance(code, str) or not _codes.is_project_code(code):
+        raise ProjectError("not a project code")
+    with _locked(p):
+        rows = load(p)
+        idx = next((i for i, r in enumerate(rows) if r.code == code), None)
+        if idx is None:
+            raise ProjectError("project %s is not registered" % code)
+        pr = rows[idx]
+        if pr.state == "deleted":
+            return pr
+        if pr.state != "closed":
+            raise ProjectError("project %s is active; close it first (awb close %s)" % (code, code))
+        folder = Path(pr.path)
+        if folder.exists() or folder.is_symlink():
+            if folder.is_symlink() or not folder.is_dir():
+                raise ProjectError("the folder of %s is not a plain folder; nothing deleted" % code)
+            if folder.parent.resolve() != p.projects_root.resolve() or folder.name != code:
+                raise ProjectError("the folder of %s is not under the projects root; nothing deleted" % code)
+            live = live_resources(folder)
+            if live:
+                raise ProjectError("project %s lists %d live resource(s) in RESOURCES.md; delete them in the "
+                                   "cloud first" % (code, live))
+            if holder is not None and holder(code):
+                raise ProjectError("a live session holds %s; end it first" % code)
+            shutil.rmtree(folder)
+        rows[idx] = _replace(pr, state="deleted")
+        _save(p, rows)
+        return rows[idx]
 
 
 def unregistered(p: _config.Paths) -> list[str]:

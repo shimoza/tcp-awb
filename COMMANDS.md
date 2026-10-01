@@ -121,6 +121,7 @@ The work user of the seal reads the mirrors read-only under `/srv/tcp-mirrors/`:
 | `awb spawn code --goal "..."` | a code project |
 | `awb spawn engagement --goal "..." --customer CUST-XXXX --from-outbox` | the same; the sanitised copies waiting in `~/tcp-shared/outbox/CUST-XXXX/` move into `input/` and the first commit |
 | `awb projects list` | the project register with the goal of each project (checked for names again) and the session that holds each active project; `--paths` shows the folders instead of the goals |
+| `awb projects delete CODE...` | remove the folder of closed projects (`awb close` first); refused while RESOURCES.md lists a live resource or a session holds the project; the code stays registered as deleted and `awb projects list` hides it (`--all` shows it) |
 | `awb projects check` | tcp- folders that no project registered (a name that is not a code shows as "a folder") |
 | `awb close tcp-xxxx` | close a project: refused while OPEN.md holds items or RESOURCES.md lists a resource that is not deleted or kept; `--force` closes anyway and says what is left |
 | `awb english list [--month YYYY-MM]` | the English notes the sessions wrote, kept after a name check; once a month, the three that keep coming back |
