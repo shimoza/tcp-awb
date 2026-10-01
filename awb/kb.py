@@ -54,6 +54,7 @@ A name check that cannot run stops every command with exit 2: the knowledge base
     awb kb scope [--scope S] TAG
     awb kb expired
     awb kb index
+    awb kb export --out FILE [--scope S] [--grade G]... [--tag T]... [--include-expired] [--force]
 
 Exit codes: 0 ok, 1 refused (add, amend, retire) or expired entries found (expired), 2 usage or error.
 """
@@ -1163,6 +1164,46 @@ def screen(entries: Sequence[Entry], register_path: Path | None = None) -> tuple
     return shown, len(entries) - len(shown)
 
 
+EXPORT_GRADES = ("live", "contract", "docs")
+"""What an export carries unless --grade says otherwise: a statement of the product team (said) may be
+confidential and needs a clearance before it leaves; an assumption (assumed) is a lead, not a fact."""
+
+
+def export_record(e: Entry, today: date) -> dict:
+    return {"id": e.id, "scope": e.scope, "statement": e.statement, "grade": e.grade, "checked": e.checked,
+            "expires": e.expires, "expired": e.is_expired(today), "class": e.cls, "tags": list(e.tags),
+            "source": e.source, "negative": e.negative, "tried": list(e.tried)}
+
+
+def export(where=None, *, scope: str | None = "tcp", grades: Sequence[str] = EXPORT_GRADES,
+           tags: Sequence[str] = (), include_expired: bool = False, today: date | None = None,
+           register_path: Path | None = None) -> tuple[list[dict], dict[str, int]]:
+    """The entries fit to leave as a dataset, as records, and the counts of what was left out and why. Retired
+    entries never leave; expired ones only when asked; every entry passes the name check again first."""
+    today = today or date.today()
+    bad = [g for g in grades if g not in GRADES]
+    if bad:
+        raise KBError("a grade is one of %s" % ", ".join(GRADES))
+    left: dict[str, int] = {"retired": 0, "other scope": 0, "grade": 0, "tag": 0, "expired": 0, "withheld": 0}
+    keep: list[Entry] = []
+    for e in load(where):
+        if e.is_retired:
+            left["retired"] += 1
+        elif scope and e.scope != scope:
+            left["other scope"] += 1
+        elif e.grade not in grades:
+            left["grade"] += 1
+        elif tags and not set(tags) & set(e.tags):
+            left["tag"] += 1
+        elif e.is_expired(today) and not include_expired:
+            left["expired"] += 1
+        else:
+            keep.append(e)
+    shown, withheld = screen(keep, register_path)
+    left["withheld"] = withheld
+    return [export_record(e, today) for e in sorted(shown, key=lambda x: x.id)], left
+
+
 def _entry_text(e: Entry) -> str:
     return "\n".join([e.statement, e.source, e.why, *e.tried])
 
@@ -1369,6 +1410,26 @@ def _cmd_scope(args, today: date) -> int:
     return 0
 
 
+def _cmd_export(args, today: date) -> int:
+    out = Path(args.out)
+    if out.exists() and not args.force:
+        print("awb kb export: the output file exists; give --force to replace it", file=sys.stderr)
+        return 2
+    if out.is_symlink():
+        print("awb kb export: the output file is a link", file=sys.stderr)
+        return 2
+    records, left = export(scope=args.scope or None, grades=args.grade or EXPORT_GRADES, tags=args.tag,
+                           include_expired=args.include_expired, today=today)
+    text = "".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in records)
+    tmp = out.with_name(".%s.tmp" % out.name)
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, out)
+    grades = sorted({r["grade"] for r in records})
+    print("exported %s to %s (grades %s)" % (_n(len(records), "entry", "entries"), out, ", ".join(grades) or "-"))
+    print("left out: %s" % ", ".join("%s %d" % kv for kv in left.items() if kv[1]) or "left out: nothing")
+    return 0
+
+
 def _cmd_expired(args, today: date) -> int:
     old = expired(today=today)
     if not old:
@@ -1466,6 +1527,14 @@ def _parser():
     s = sub.add_parser("expired", help="entries past their expiry date")
     s.set_defaults(func=_cmd_expired)
 
+    s = sub.add_parser("export", help="the facts fit to leave as a dataset, one JSON object per line")
+    s.add_argument("--out", required=True, help="the JSON Lines file to write")
+    s.add_argument("--scope", default="tcp", help="tcp or hcs; empty for both")
+    s.add_argument("--grade", action="append", default=[], help="a grade to export (default: live, contract, docs)")
+    s.add_argument("--tag", action="append", default=[], help="only entries with one of these tags")
+    s.add_argument("--include-expired", action="store_true", help="also entries past their expiry, marked expired")
+    s.add_argument("--force", action="store_true", help="replace an existing output file")
+    s.set_defaults(func=_cmd_export)
     s = sub.add_parser("index", help="write INDEX.md again")
     s.set_defaults(func=_cmd_index)
 

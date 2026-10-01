@@ -989,3 +989,49 @@ def test_screen_counts_names_only_and_checks_a_long_list_in_halves(monkeypatch, 
     calls.clear()
     clean = [e for e in entries if e.id != "KB-0077"]
     assert kb.screen(clean, tmp_path / "register.tsv") == (clean, 0) and len(calls) == 1
+
+
+# --------------------------------------------------------------------------- export
+
+
+def test_export_carries_the_checked_facts_and_leaves_out_said_assumed_retired_and_expired(home, capsys, tmp_path):
+    live = new(S_FLAVOR, grade="live", source="live call on a test tenant, eu-de")
+    said = new(S_GPU, grade="said", tags=["gpu"])
+    neg = new(S_NEGATIVE, grade="docs", tags=["ims"], tried=TRIED)
+    old = new("EVS disks of type SSD can be attached to running servers in eu-de", grade="docs", tags=["evs"],
+              checked=(TODAY - timedelta(days=400)).isoformat(), cls="api")
+    gone = new("CCE clusters can be created with three master nodes in eu-de", grade="docs", tags=["cce"])
+    kb.retire(gone.id, "replaced by a newer entry")
+    out = tmp_path / "facts.jsonl"
+    code, text, err = run(["export", "--out", str(out)], capsys)
+    assert code == 0, err
+    recs = [json.loads(l) for l in out.read_text().splitlines()]
+    assert sorted(r["id"] for r in recs) == sorted([live.id, neg.id])
+    r = next(r for r in recs if r["id"] == neg.id)
+    assert r["negative"] is True and r["tried"] == list(TRIED) and r["expired"] is False
+    assert set(r) == {"id", "scope", "statement", "grade", "checked", "expires", "expired", "class", "tags",
+                      "source", "negative", "tried"}
+    assert "exported 2 entries" in text and "retired 1" in text and "grade 1" in text and "expired 1" in text
+    # on request: the statements of the product team and the expired entries, marked
+    code, text, _ = run(["export", "--out", str(out), "--force", "--grade", "said", "--grade", "docs",
+                         "--include-expired"], capsys)
+    ids = {json.loads(l)["id"]: json.loads(l) for l in out.read_text().splitlines()}
+    assert set(ids) == {said.id, neg.id, old.id} and ids[old.id]["expired"] is True
+
+
+def test_export_refuses_to_overwrite_and_a_bad_grade(home, capsys, tmp_path):
+    new(S_FLAVOR)
+    out = tmp_path / "facts.jsonl"
+    out.write_text("keep me\n")
+    code, _, err = run(["export", "--out", str(out)], capsys)
+    assert code == 2 and "exists" in err and out.read_text() == "keep me\n"
+    with pytest.raises(kb.KBError):
+        kb.export(grades=["rumour"])
+
+
+def test_export_withholds_an_entry_with_a_name_registered_after_it_was_added(home, capsys, tmp_path, monkeypatch):
+    e = new(S_FLAVOR)
+    real = kb._name_hits
+    monkeypatch.setattr(kb, "_name_hits", lambda text, reg: [{"cls": "name"}] if "s3.large.2" in text else real(text, reg))
+    records, left = kb.export()
+    assert records == [] and left["withheld"] == 1
