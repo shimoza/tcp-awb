@@ -58,6 +58,17 @@ def no_waiting(monkeypatch):
     monkeypatch.setattr(jobs.time, "sleep", lambda s: None)
 
 
+@pytest.fixture(autouse=True)
+def calls_logged_here(monkeypatch):
+    """The call log of the service. A test that plays the work user makes config.paths() ignore the test folders,
+    so the log would land in the real home: it is kept in a list instead."""
+    from awb.tcp import throttle
+
+    logged: list = []
+    monkeypatch.setattr(throttle, "log_call", lambda *a, **k: logged.append(a))
+    return logged
+
+
 @pytest.fixture
 def gw():
     with EchoGateway(AK, SK) as g:
