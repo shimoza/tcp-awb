@@ -1,30 +1,24 @@
 # Architect Workbench
 
-A toolkit for cloud solution architects who work with an AI coding assistant (Claude Code). It helps to design a
-solution, price it, check it against the platform and build it on a live tenant. Every fact the assistant uses
-comes from a checked source. Every price is fetched live. Every result is reviewed before it leaves.
+An AI assistant for T Cloud Public (TCP) architects, built on Claude Code. It answers what-if questions from checked
+facts, prices a whole solution live and builds a proof of concept on a real tenant. Every fact it uses has a source,
+every number is computed by a program and every deliverable is reviewed before it leaves.
 
-It is built for T Cloud Public (TCP), but most of it is not tied to one cloud.
+Most of it is not tied to one cloud. The facts, prices and API details are for TCP.
 
 ## What it does for an architect
 
-**It remembers the platform so you do not have to.** You no longer keep in your head which endpoint a service has
-in which region or how a call is built and signed. The Workbench also knows which project id goes into the path,
-how a list is paged and which call behaves differently from the documentation. Its knowledge base keeps these
-details as checked API facts. Each one was proven with a live call on a tenant and is rechecked every 180 days:
-the calls that work with their parameters, the ones that do not and why, what differs between regions. The API
-client builds the endpoint from the service and the region and signs the request. It finds the project id itself,
-pages through long lists and tells an empty answer from one it could not read. The architect thinks about the
-solution. The Workbench knows where everything is and how it works.
+**What-if questions.** What happens if the database moves to another region? If a partner runs ten customers in one
+tenant? The answer is built from checked facts, each with its source. The model's memory is not a source.
 
-**Prices, always live.** `awb price find` reads the public price API of the platform, `awb price snapshot` keeps a
-listing per region. `awb price diff` shows what changed since the last one. `awb price check` takes a price
-sheet and recomputes it to the cent: every price fetched again, every total and the grand total recomputed. A price
-is never taken from memory. And no number is computed in the model's head: `awb calc` computes every total, sum
-and saving with exact decimals and records it, and the review takes a computed number only with that record.
+**It remembers the platform so you do not have to.** You no longer keep in your head which endpoint a service has in
+which region, how a call is signed, which project id goes into the path or how a list is paged. The knowledge base
+keeps these details as checked facts, many of them proven with a live call on a tenant: the calls that work with
+their parameters, the ones that do not and why, what differs between regions. The API client builds the endpoint,
+signs the request, finds the project id and tells an empty answer from one it could not read.
 
-**Knowledge you can trust.** `awb kb` holds checked facts about the platform. Each entry is one fact with its
-source, its grade and the date it was checked:
+**Facts with a weight.** Much of what we know about a platform comes from old slides and from what someone said in
+a meeting. In the Workbench every fact carries its weight:
 
 | grade | meaning |
 |---|---|
@@ -35,64 +29,36 @@ source, its grade and the date it was checked:
 | `assumed` | not checked yet, used as a lead only |
 
 A negative ("this is not possible") needs two recorded attempts. Facts that go stale (availability, flavors,
-regions) carry an expiry date. `awb refresh` brings the documentation mirrors up to date, compares prices with the
-last snapshot and rechecks what expired. New facts only get in through the checks of `awb kb add`.
+regions) carry an expiry date and are checked again.
 
-**Architectures checked before they leave.** `awb review` turns a deliverable (a target architecture, a migration
-concept or a customer answer) into a list of claims, each with its evidence. For an important text a
-review board reads it through several lenses: an architect of the source platform, an architect of the target
-platform and the view of the partner who has to sell and support it, plus a fidelity pass that looks for invented
-facts, contradictions and a misread question. The findings are applied by rewriting the answer, not by patching it.
+**Whole-solution prices.** Anyone can look up one price in a calculator. The Workbench prices the whole solution:
+every position fetched live from the public price API and a price sheet recomputed to the cent before it leaves.
+Every total, sum and saving is computed by `awb calc` with exact decimals. The model never adds numbers in its head.
+The review accepts a computed number only together with its recorded calculation.
 
-**Migrations in phases.** `awb migrate` takes a customer's Azure inventory (a sanitised copy of their spreadsheet)
-to a reviewed migration plan: discover, map, estimate, plan, review. The mapping is code: every machine gets the
-nearest TCP flavor that is not smaller on vCPU and memory, from the live price API, with a status and a reason for
-every row that needs a decision. The estimate is priced live and computed by `awb calc`. Each phase is done by a
-worker with only the rights it needs (files only, or files and commands) and passes a gate before the next starts.
-The state is on disk, so a run resumes where it stopped.
+**Proofs of concept on a live tenant.** A session builds and checks a lab setup on a real TCP tenant. It never holds
+a key: a key service on the owner's side signs every call. Every resource a project creates is listed, tagged with
+the project code and found again by the resource sweep when it was left behind.
 
-**A live solution on a live tenant.** A session builds and checks a lab setup on a real TCP tenant through a signed
-API client (`awb cloud`). Jobs keep to a time budget, record every finished step and resume where they stopped.
-`awb cloud sweep` finds servers, disks and addresses nobody tagged or used for a while.
+**Migrations in phases.** `awb migrate` takes an Azure inventory (a sanitised copy of the customer's spreadsheet) to
+a reviewed plan: discover, map, estimate, plan, review. Every machine gets the nearest TCP flavor that is not smaller
+on vCPU and memory, from the live price API, with a reason for every row that needs a decision. Each phase is done
+by a worker with only the rights it needs and passes a gate before the next one starts.
 
-**Texts that read like the architect wrote them.** `awb write check` measures a text against the architect's own
-style (sentence length, the connectors he uses, typical AI words) and blocks what does not fit. A drafting skill
-writes mails, offers and PoC documents in that voice and proves that the voice pass changed no fact.
+**Reviewed before it leaves.** `awb review` turns a deliverable into a list of claims, each with its evidence. For an
+important text a review board reads it as an architect of the source platform, an architect of TCP and the partner
+who has to sell it, plus a check for invented facts and a misread question. The answer is rewritten from the
+question, never patched. A send gate lets only the exact reviewed version leave.
 
-**A folder per project.** `awb spawn` creates a project with its scope, rules, hooks and git. Sessions pick
-up where the last one stopped. `awb ledger` keeps a line per activity for the weekly report.
+**Texts in the architect's own voice.** `awb write check` measures a text against the architect's style and a
+drafting skill writes mails, offers and PoC documents in that voice, with a check that the voice pass changed no
+fact.
 
-## Customer data
+## Install
 
-In this concept version the Workbench runs on a public model. **No customer data goes into a session.** Work with
-invented or public material only. Describe no customer in a way that makes it recognisable (a region, an
-industry and a headquarters together can name a company as clearly as its name).
-
-The Workbench is built to keep it that way and to move to a private model later:
-
-- `awb intake` turns documents into working copies with a code (`CUST-XXXX`) in place of every registered name. It
-  also takes out bank data, tax ids, phone numbers, addresses, secrets and hidden text. The register of names stays on
-  the owner's side. It is tested with 1,188 invented cases (`calibration/redteam/`).
-- The sealed setup runs every session as a separate system user that cannot read the register at all.
-- Five hooks check every prompt, every written file and the start and end of every session, so that a registered
-  name typed by mistake is stopped before the model sees it.
-- A gate checks every commit for names, secrets, home paths and the owner's blocklist. A send gate lets only the
-  exact reviewed version of a deliverable leave.
-
-These checks are a safeguard, not a guarantee. The architect stays responsible for what goes into a session.
-
-## What you need
-
-- A Linux host. Tested on Ubuntu 24.04 with Python 3.12 on ext4.
-- `git` and `gpg`.
-- The poppler tools: `pdftotext`, `pdfinfo`, `pdfimages`, `pdfdetach`.
-- Claude Code with your own subscription login. The `awb` command itself needs no model and no API key.
-- For the sealed setup: `sudo` on the host.
-
-Runtime code is the Python standard library plus the poppler tools. The tests use `pytest`, `python-docx`,
-`openpyxl` and `reportlab`.
-
-## Try it
+You need a Linux host (tested on Ubuntu 24.04 with Python 3.12), `git`, `gpg`, the poppler tools (`pdftotext`,
+`pdfinfo`, `pdfimages`, `pdfdetach`) and Claude Code with your own subscription login. The `awb` command itself
+needs no model and no API key. Runtime code is the Python standard library plus the poppler tools.
 
 ```bash
 git clone https://github.com/shimoza/tcp-awb.git ~/tcp-awb
@@ -106,50 +72,166 @@ python3 -m venv .venv
 The tests use invented names only (`tests/fixtures.py`) and a throw-away Workbench each. They never touch your own
 folders.
 
-## As a plugin for Claude Code
+### As a plugin for Claude Code
 
-The skills and the checkpoints also come as a plugin (`plugin/`), with this repository as its marketplace. Install
-`awb` first (see above), then:
+The skills, the workers and the checkpoints also come as a plugin, with this repository as its marketplace. Install
+`awb` first (above), then:
 
 ```bash
 claude plugin marketplace add shimoza/tcp-awb
 claude plugin install awb@tcp-awb
 ```
 
-It adds `/awb:tcp-facts`, `/awb:tcp-price`, `/awb:review`, `/awb:test-tenant` and `/awb:drafting`. It also adds the five
-hooks. `plugin/README.md` has the details.
+| part | what it does |
+|---|---|
+| `/awb:tcp-facts` | answers about TCP services, limits, flavors, regions and APIs from checked facts |
+| `/awb:tcp-price` | live prices and price sheets checked to the cent |
+| `/awb:review` | the review of a deliverable before it leaves |
+| `/awb:test-tenant` | what runs and ran on the test tenants; tags for new lab resources |
+| `/awb:azure-to-tcp` | Azure machines to TCP in phases, from the inventory to a reviewed plan |
+| `/awb:drafting` | texts in the architect's own voice (the style is the author's: replace it with yours) |
+| workers | `migration-worker-files` (files only) and `migration-worker-shell` (files and `awb` commands), one phase each |
+| hooks | five checkpoints: every prompt, before and after a write, the start and the end of a session |
 
-## The sealed setup
+On a sealed host (below) the seal installs the hooks for the work user already. Do not install the plugin there as
+well: every hook would run twice.
 
-The seal uses two users on one host. You (the owner, with `sudo`) keep the register and run the intake. The work user `awb` (no
-`sudo`) runs every Claude Code session. A small daemon answers the sessions' name checks with positions and classes
-only. `seal/README.md` explains the design and its limits.
+## The main commands
+
+The full list, with every option and who runs what, is in `COMMANDS.md`.
+
+| task | command | what you get |
+|---|---|---|
+| start a project | `awb spawn lab --goal "..." --tag network` | a project folder with its scope, rules, hooks and git; kinds are `engagement` (with `--customer CUST-XXXX`), `lab`, `topic` and `code` |
+| see the projects | `awb projects list` | every project with its goal and the session that holds it |
+| finish a project | `awb close tcp-xxxx`, then `awb projects delete tcp-xxxx` | close waits for open items and live resources; delete removes the folder and keeps the code |
+| look up a fact | `awb kb find "ecs flavor eu-nl"`, `awb kb show KB-XXXX` | ranked facts with grade, source and check date |
+| a price | `awb price find ecs --grep s3.large` | the live records with every term |
+| check a price sheet | `awb price check sheet.csv` | every price fetched again, every total recomputed |
+| compute | `awb calc "730 * 0.0418 * 3" --places 2` | the exact result, recorded as `K-N` for the review |
+| the test tenants | `awb cloud tenants`, `awb tenant now test-1` | the tenants by alias and what runs there |
+| call the TCP API | `awb cloud call GET vpc "/v1/{project_id}/vpcs" --tenant test-1` | the answer, signed by the key service; a write needs `--role lab` and runs for the project of the folder |
+| a migration | `awb migrate init --from azure`, then `awb migrate next` | the next phase, its worker and its files |
+| review a text | `awb review init`, `claims`, `l0`, `pass` | the claim list with evidence and a review record |
+| the week | `awb ledger add ...`, `awb report --by customer` | one line per piece of work, reports by customer, technology or project |
+
+## A typical day
+
+1. `awb spawn lab --goal "Test a virtual firewall appliance on TCP"` and open a Claude Code session in the new
+   folder.
+2. Ask in plain words. The session reads the project's SCOPE, STATE and OPEN files, looks facts up with `awb kb`,
+   prices with `awb price` and `awb calc` and writes what it found to `evidence/`, with a source for each statement.
+3. When it builds on a tenant, it calls through the key service with the project code. Every resource goes into
+   `RESOURCES.md`.
+4. A text for a customer or a partner goes through the drafting skill and `awb review`. Only the reviewed version
+   leaves.
+5. The session writes its ledger entry and commits by itself. At the end, `awb close` checks that nothing is left
+   running.
+
+## Test tenants and keys
+
+A working session never sees a key. The key service (`awb keys serve`, a systemd service of the owner) holds the
+keys and secrets of every test tenant in memory and signs the calls the sessions send it. The owner keeps them in
+his password store (`pass`), one folder per tenant alias:
+
+| entry | what it is | what it allows |
+|---|---|---|
+| `awb/tenant/<alias>/ak`, `sk` | the read key, best an IAM user with a read-only role | GET and HEAD |
+| `awb/tenant/<alias>/lab/ak`, `lab/sk` | the lab key | every method; a write needs the code of an active project |
+| `awb/tenant/<alias>/secret/<name>` | a login or a password | fills a password field of a request, never shown |
+
+```bash
+pass insert awb/tenant/test-1/ak
+pass insert awb/tenant/test-1/sk
+awb tenant add test-1 --keys pass:awb/tenant/test-1 --region eu-de
+awb keys unlock                  # after every start of the service
+```
+
+A request body may name a secret only as the whole value of a password field, `{"admin_pass": "{{secret:NAME}}"}`.
+The answer comes back with every key and secret of the tenant taken out, also in base64 and JSON form. Every call is
+logged on the owner's side without its path or body.
+
+`awb tenant snapshot` records what runs on each tenant every day, so that `awb tenant at test-1 2026-09-30` tells
+what ran on a given day and `awb tenant project tcp-xxxx` what a project created. Calls keep a pause between them and
+wait when the API gateway says so (HTTP 429).
+
+## The knowledge as a dataset
+
+The knowledge base of TCP facts is not part of this repository. A team that builds its own tools can take it as a
+dataset:
+
+```bash
+awb kb export --out tcp-facts.jsonl
+```
+
+One JSON object per line:
+
+```json
+{"id": "KB-XXXX", "scope": "tcp", "statement": "...", "grade": "live", "checked": "2026-09-25",
+ "expires": "2027-03-24", "expired": false, "class": "api", "tags": ["ecs"], "source": "...",
+ "negative": false, "tried": []}
+```
+
+By default the export carries `live`, `contract` and `docs` facts only. Statements of the product team (`said`) may
+be confidential and need a clearance first (`--grade said`). Assumptions stay out. Retired facts never leave and
+expired ones only on request (`--include-expired`, marked `"expired": true`). Every entry passes the name check once
+more before it is written.
+
+A dataset ages. Facts about availability expire after 30 days, API facts after 180. Use the `checked` and `expires`
+fields. Take a fresh export rather than an old one.
+
+## Customer data
+
+The Workbench runs on whatever model the architect's assistant uses. That model may be public. With a key to a
+private model, customer data may go in and nothing needs to be hidden. On a public model the Workbench keeps live
+customer data out of the model as far as it can:
+
+- `awb intake` turns documents into working copies with a code (`CUST-XXXX`) in place of every registered name. It
+  also takes out bank data, tax ids, phone numbers, addresses, secrets and hidden text. It is tested with 1,188
+  invented cases (`calibration/redteam/`).
+- The register of names lives in a vault on the owner's side. The sealed setup runs every session as a separate
+  system user that cannot read it.
+- Five hooks check every prompt, every written file and the start and end of every session, so that a registered
+  name typed by mistake is stopped before the model sees it.
+- A gate checks every commit for names, secrets, home paths and the owner's blocklist. A send gate lets only the
+  exact reviewed version of a deliverable leave.
+
+These checks are a safeguard, not a guarantee. The architect stays responsible for what goes into a session.
+
+## The sealed setup and its operation
+
+The seal uses two users on one host. You (the owner, with `sudo`) keep the register, the keys and the intake. The
+work user `awb` (no `sudo`) runs every Claude Code session and owns the projects. `seal/README.md` explains the
+design and its limits.
 
 ```bash
 sudo seal/setup.sh --dry-run     # prints every step, changes nothing
 sudo seal/setup.sh               # add --mirrors DIR... for read-only doc mirrors
-# log out and in again: you are now in the group awb
 sudo seal/verify.sh              # every line must say PASS
-awb vault encrypt                # the register encrypted at rest; after a reboot: awb vault unlock
+awb vault encrypt                # the register encrypted at rest
 ssh awb@<host>                   # the work user takes your ssh keys
 awb seal check                   # as awb: what the work user can and cannot reach
 ```
 
-Then connect Claude Code to the host as `awb` and test the hooks in a real session with an invented test name.
-After a code change run `sudo seal/setup.sh` again, then `sudo systemctl restart awb-vaultd` and `awb vault unlock`.
+The key service is installed once from `seal/awb-keyd.service` (fill in the owner's user name). Things you want no
+commit to carry (names of other workspaces, a naming scheme) go into a local blocklist, one regular expression per
+line: `/etc/awb/blocklist.txt` or `~/.config/awb/blocklist.txt`. It never enters the repository.
 
-Things you want no commit to carry (names of other workspaces, a naming scheme) go into a local blocklist, one
-regular expression per line: `/etc/awb/blocklist.txt` or `~/.config/awb/blocklist.txt`. It never enters the
-repository.
+| when | what to run |
+|---|---|
+| after a reboot | `awb vault unlock`, then `awb keys unlock` (as the owner) |
+| after a code change | `sudo seal/setup.sh`, restart the services (`awb-vaultd`, `awb-keyd` and the portal ones), then both unlocks |
+| a new project, close or delete | as `awb`: projects belong to the work user |
+| a customer's material | as the owner: `awb register` the names, `awb intake --customer CUST-XXXX`, then `awb spawn ... --from-outbox` as `awb` |
 
 ## Layout
 
 | folder | what |
 |---|---|
-| `awb/` | the package and the `awb` command |
+| `awb/` | the package and the `awb` command; `awb/tcp/` holds what belongs to TCP |
 | `rules/` | one rule per file with its reason and what enforces it, plus the data files of the checks |
 | `hooks/` | git hooks: `pre-commit`, `commit-msg` and `pre-push` run the gate |
-| `seal/` | setup and verification of the two-user seal, the work user's client settings |
+| `seal/` | setup and verification of the two-user seal, the service units, the work user's client settings |
 | `plugin/` | the Claude Code plugin; `.claude-plugin/marketplace.json` makes this repository its marketplace |
 | `workflows/` | the review and refresh workflows for Claude Code |
 | `calibration/` | the review calibration set, the red-team pack and the records of the red team and the security review |
@@ -159,8 +241,8 @@ repository.
 
 ## Personal parts
 
-- `rules/voice.txt`, the drafting skill in `seal/work-claude/skills/drafting/` and `tests/test_his_voice.py` carry
-  the author's own writing style, measured from his own typed English. Replace them with yours.
+- `rules/voice.txt`, the drafting skill and `tests/test_his_voice.py` carry the author's own writing style, measured
+  from his own typed English. Replace them with yours.
 - The knowledge base of TCP facts is not part of this repository. `awb kb` works on an empty one.
 
 ## License
