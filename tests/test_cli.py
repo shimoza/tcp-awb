@@ -356,3 +356,16 @@ def test_init_leaves_an_encrypted_register_alone(con, home):
     assert not home.register.exists(), "init must not write a plaintext register next to the encrypted one"
     assert home.register_encrypted.read_bytes() == data
     con.assert_clean()
+
+
+def test_register_add_of_a_customer_opens_its_outbox_so_the_work_side_can_spawn(con, home, register_path,
+                                                                                 monkeypatch):
+    code, out, _ = con.run("register", "new", "CUST")
+    fresh = out.strip()
+    assert not (home.outbox / fresh).exists()
+    code, _, _ = con.run("register", "add", fresh, "CUST", fx.PLANTED_CANDIDATE)
+    assert code == 0 and (home.outbox / fresh).is_dir()
+    # the work side cannot read the register: the outbox folder is what lets spawn take the code
+    monkeypatch.setattr(projects, "_readable_here", lambda *a: False)
+    pr = projects.spawn(home, "lab", "a first look at the workloads", fresh, register_path)
+    assert pr.customer == fresh

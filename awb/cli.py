@@ -156,6 +156,13 @@ def _cmd_register_add(args, p: config.Paths) -> int:
     register.add(p.register, args.code, args.kind, form)
     active = sum(1 for e in register.load(p.register) if e.code == args.code and e.status == "active")
     print("added one form to %s (%d active)" % (args.code, active))
+    if args.kind == "CUST" and args.code.count("-") == 1:
+        # the work side cannot read the register: its outbox folder is how awb spawn knows the code was issued
+        try:
+            config.make_dir(p.outbox / args.code, 0o750, shared=True)
+        except OSError:
+            print("register add: the outbox folder of %s could not be made; awb spawn as the work user will "
+                  "refuse the code until an intake ran" % args.code, file=sys.stderr)
     return EXIT_OK
 
 
