@@ -1,6 +1,6 @@
 # The awb plugin
 
-The Architect Workbench as a Claude Code plugin: six skills, two workers and the five checkpoints of a working
+The Architect Workbench as a Claude Code plugin: seven skills, two workers and the five checkpoints of a working
 session.
 
 | part | what |
@@ -8,7 +8,8 @@ session.
 | `awb:tcp-facts` | answers about TCP from checked facts (`awb kb`), with the entry of every fact |
 | `awb:tcp-price` | live prices and price sheets checked to the cent (`awb price`) |
 | `awb:review` | the review of a deliverable before it leaves (`awb review`, `awb write check`) |
-| `awb:test-tenant` | what runs and ran on the test tenants (`awb tenant`) |
+| `awb:test-tenant` | the test tenants: what runs and ran (`awb tenant`), calls through the key service (`awb cloud call`) |
+| `awb:exchange` | files from the owner's inboxes into the project and results back (`awb inbox`, `awb xchg`) |
 | `awb:azure-to-tcp` | Azure machines to TCP in phases, from the inventory to a reviewed plan (`awb migrate`) |
 | workers | `migration-worker-files` (reads and writes files) and `migration-worker-shell` (also runs `awb`), one phase each |
 | `awb:drafting` | texts in the architect's own voice; the style is the author's, replace it with yours |

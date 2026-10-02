@@ -91,7 +91,8 @@ claude plugin install awb@tcp-awb
 | `/awb:tcp-facts` | answers about TCP services, limits, flavors, regions and APIs from checked facts |
 | `/awb:tcp-price` | live prices and price sheets checked to the cent |
 | `/awb:review` | the review of a deliverable before it leaves |
-| `/awb:test-tenant` | what runs and ran on the test tenants; tags for new lab resources |
+| `/awb:test-tenant` | the test tenants: what runs, API calls through the key service, tags for new resources |
+| `/awb:exchange` | files from the inboxes into a project and results back to the owner |
 | `/awb:azure-to-tcp` | Azure machines to TCP in phases, from the inventory to a reviewed plan |
 | `/awb:drafting` | texts in the architect's own voice (the style is the author's: replace it with yours) |
 | workers | `migration-worker-files` (files only) and `migration-worker-shell` (files and `awb` commands), one phase each |

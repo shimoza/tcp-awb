@@ -33,7 +33,7 @@ def test_the_drafting_skill_is_the_copy_of_the_seal():
 def test_every_skill_names_itself_and_every_command_it_uses_exists():
     known = set(cli.DELEGATED) | {"init", "intake", "register", "spawn", "projects", "close"}
     skills = sorted((PLUGIN / "skills").iterdir())
-    assert len(skills) == 6
+    assert len(skills) == 7
     for d in skills:
         text = (d / "SKILL.md").read_text(encoding="utf-8")
         front = text.split("---")[1]
