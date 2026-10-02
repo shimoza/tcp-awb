@@ -27,6 +27,7 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     awb calc EXPRESSION, awb calc list|show                  awb/calc.py
     awb migrate init|status|next|inventory|map|estimate|done awb/tcp/migrate.py
     awb keys serve|unlock|lock|status                        awb/tcp/keys.py
+    awb inbox take|list, awb xchg put|list                   awb/tcp/xchg.py
     awb images list|release                                  awb/images.py
     awb hook prompt|pre-write|post-write|stop|session-start  awb/hooks.py
     awb seal check                                           awb/seal.py
@@ -252,10 +253,38 @@ def _cmd_spawn(args, p: config.Paths) -> int:
     return EXIT_OK
 
 
+def _exchange_leftovers(code: str, folder: Path | None) -> str | None:
+    """Why a project cannot close because of files in its exchange folders of the lab bucket, or None. The check
+    lives in the module of the delegated command xchg, so the core reaches it the way it reaches that command."""
+    try:
+        xchg = importlib.import_module("awb.%s" % DELEGATED["xchg"][0])
+    except ImportError:
+        return None
+    n = xchg.leftovers(code)
+    if n is None:
+        print("awb close: the exchange folders could not be checked (key service); check them in the console",
+              file=sys.stderr)
+        return None
+    if not n:
+        return None
+    try:
+        res = (folder / "RESOURCES.md").read_text(encoding="utf-8") if folder else ""
+    except OSError:
+        res = ""
+    if any("%s/" % code in line and "| kept |" in line for line in res.splitlines()):
+        return None
+    return ("%s still holds %d file(s) in its in/ and from-session/ folders of the lab bucket; fetch and delete "
+            "them, mark them kept in RESOURCES.md or close with --force" % (code, n))
+
+
 def _cmd_close(args, p: config.Paths) -> int:
     from awb import ledger, projects
 
     before = {r.code: r for r in projects.load(p)}.get(args.code)
+    if not args.force and before is not None and before.state == "active":
+        why = _exchange_leftovers(args.code, Path(before.path))
+        if why:
+            return _err(why)
     items = projects.open_items(before.path) if before else 0
     live = projects.live_resources(before.path) if before else 0
     pr = projects.close(p, args.code, force=args.force)
@@ -429,6 +458,8 @@ DELEGATED = {
     "english": ("english", "the English notes the sessions wrote: list"),
     "portal": ("tcp.portal", "a read-only web page over the knowledge, the prices, the projects and the reviews"),
     "ask": ("tcp.ask", "questions in plain words, answered only from the checked sources (the Ask page)"),
+    "inbox": ("tcp.inbox", "take a file the owner dropped into an inbox into this project"),
+    "xchg": ("tcp.xchg", "put a result of this project into the owner's from-session folder"),
     "keys": ("tcp.keys", "the key service: keys, logins and passwords of the test tenants, never shown to a session"),
     "migrate": ("tcp.migrate", "a migration to TCP in phases: inventory, mapping, estimate, plan, review"),
     "tenant": ("tcp.tenants", "resources on the test tenants over time: add, snapshot, list, now, history, at, project"),

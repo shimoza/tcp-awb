@@ -160,6 +160,21 @@ logged on the owner's side without its path or body.
 what ran on a given day and `awb tenant project tcp-xxxx` what a project created. Calls keep a pause between them and
 wait when the API gateway says so (HTTP 429).
 
+## Files in and out
+
+You drop a file into an inbox in the OBS console with no project code and no command. Then you name it in the
+first prompt of a project ("read FILE from the inbox"). The session takes it with `awb inbox take FILE`:
+
+| inbox | for | what the session gets |
+|---|---|---|
+| `inbox/` of the lab bucket | material without customer content: vendor images, test data, public documents | the file itself after the name check |
+| `inbox/` of the owner bucket | anything that may hold customer material | only the sanitised copies of your intake; the original goes to the vault |
+
+A file with a name hit or unknown name candidates is held. You get a mail about it. Results come back with `awb xchg put`
+into `<project>/from-session/<date>/` of the lab bucket, after the name check and, for a customer project, the
+send gate. You fetch them in the OBS console. A mail tells you about each one. The key service signs every object call
+and refuses everything outside the inbox and the project's own folders.
+
 ## The knowledge as a dataset
 
 The knowledge base of TCP facts is not part of this repository. A team that builds its own tools can take it as a

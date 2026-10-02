@@ -38,8 +38,9 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   of work, never his: what you learned live on TCP goes into `awb kb add --grade live` at once, one fact per entry.
 - A Workbench command that fails by itself is a tooling bug: one plain line to him, an item in OPEN.md, then his
   task again. Ask him only what he alone can decide or do (a fact, a choice, a login, a sudo command).
-- `awb spawn KIND --goal TEXT` starts a project, `awb ledger add --kind K --done TEXT` records a piece of work and
-  `awb report --by customer|tech|kind|project` gives his weekly report. `awb career add` when work clears the bar.
+- `awb ledger add --kind K --done TEXT` records work, `awb report --by KEY` reports, `awb career add` for his CV.
+- Files: take only the file he names, `awb inbox take FILE`; it never hands you an original. Results go out with
+  `awb xchg put FILE`: codes only, no ids in logs, a screenshot only with `--image` and why it is clean.
 - `awb cloud tenants` lists the test tenants; `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role lab]` reaches
   them through the key service. A password goes into a body only as `{{secret:NAME}}`, a key never.
 - `awb kb find|add|scope` for checked facts. `awb check`, `awb write check` and `awb review status` before a

@@ -31,6 +31,9 @@ def invented_blocklist(tmp_path_factory, monkeypatch):
     # no test writes to the real shared side or the real throttle stamps: a test that builds no Workbench of its
     # own still gets a throw-away shared folder (the call log of the cloud client wrote to the owner's home once)
     monkeypatch.setenv("AWB_SHARED", str(none / "shared"))
+    # never the real key service of the host: a test that wants one starts its own
+    monkeypatch.setenv("AWB_KEYS_SOCKET", str(none / "cloud.sock"))
+    monkeypatch.setenv("AWB_KEYS_CONF", str(none / "keys.conf"))
     monkeypatch.setenv("AWB_THROTTLE_DIR", str(none / "throttle"))
     monkeypatch.setattr(config, "HOST_CONF", str(none / "paths.conf"))
     monkeypatch.setattr(hooks, "HOST_FILE", none / "paths.conf")

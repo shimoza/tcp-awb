@@ -40,6 +40,7 @@ import re
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import deque
@@ -169,10 +170,12 @@ class Service:
     """The key service. `start()` binds both sockets, `stop()` ends them and forgets every secret."""
 
     def __init__(self, admin_path: Path, call_path: Path, *, endpoint: str | None = None,
-                 paths_fn=config.paths, log_dir: Path | None = None):
+                 paths_fn=config.paths, log_dir: Path | None = None, obs_endpoints: dict | None = None):
         self.admin_path = Path(admin_path)
         self.call_path = Path(call_path)
         self.endpoint = endpoint
+        self.obs_endpoints = dict(obs_endpoints or {})
+        self.settings: dict = {}
         self.paths_fn = paths_fn
         self.log_dir = log_dir
         self.tenants: dict = {}
@@ -272,16 +275,109 @@ class Service:
             except ValueError:
                 self._send(conn, {"ok": False, "error": "a request is one JSON object on one line"})
                 return
-            if admin:
-                answer = self._admin(req, uid)
-            else:
-                answer = self._call_socket(req, uid)
-            conn.settimeout(CALL_TIMEOUT)
-            self._send(conn, answer)
+            upload = None
+            stream = None
+            try:
+                if not admin and req.get("op") == "obs" and str(req.get("method") or "").upper() == "PUT":
+                    upload = self._receive(conn, buf[buf.index(b"\n") + 1:], req)
+                if admin:
+                    answer = self._admin(req, uid)
+                else:
+                    answer = self._call_socket(req, uid, upload)
+                    if isinstance(answer, tuple):
+                        answer, stream = answer
+                conn.settimeout(CALL_TIMEOUT)
+                if stream is not None:
+                    answer = dict(answer, length=stream.stat().st_size)
+                self._send(conn, answer)
+                if stream is not None:
+                    with open(stream, "rb") as fh:
+                        while True:
+                            chunk = fh.read(1 << 16)
+                            if not chunk:
+                                break
+                            conn.sendall(chunk)
+            except KeysError as err:
+                self._send(conn, {"ok": False, "error": str(err)})
+            finally:
+                for f in (upload, stream):
+                    if f is not None:
+                        try:
+                            f.unlink()
+                        except OSError:
+                            pass
         except (OSError, socket.timeout):
             pass
         finally:
             self._done(conn)
+
+    def _xchg(self):
+        from awb.tcp import xchg
+
+        return xchg.Context(self.settings, self._lab_keys, self._obs_client, self.paths_fn, self._project_row,
+                            self._notify)
+
+    def _receive(self, conn: socket.socket, head: bytes, req: dict) -> Path:
+        """The bytes of a put, streamed into a private file of the owner, at most the limit of keys.conf."""
+        length = req.get("length")
+        limit = self._xchg().max_bytes()
+        if not isinstance(length, int) or length < 0:
+            raise KeysError("a put names its length")
+        if length > limit:
+            raise KeysError("the file is larger than the limit of keys.conf (max_mb)")
+        from awb.tcp import xchg
+
+        fd, name = tempfile.mkstemp(prefix="awb-put-", dir=xchg._tmp_dir(self._xchg()))
+        got = 0
+        with os.fdopen(fd, "wb") as out:
+            data = bytes(head[:length])
+            out.write(data)
+            got = len(data)
+            conn.settimeout(CALL_TIMEOUT)
+            while got < length:
+                chunk = conn.recv(min(1 << 16, length - got))
+                if not chunk:
+                    raise KeysError("the put ended before its length")
+                out.write(chunk)
+                got += len(chunk)
+        return Path(name)
+
+    def _lab_keys(self, alias):
+        with self.lock:
+            pair = (self.tenants.get(alias) or {}).get("roles", {}).get("lab")
+        return obs.Keys(pair["ak"], pair["sk"]) if pair else None
+
+    def _obs_client(self, bucket: str, keys_):
+        return obs.Client(bucket, keys_, self.settings.get("region") or "eu-de",
+                          endpoint=self.obs_endpoints.get(bucket), timeout=CALL_TIMEOUT)
+
+    def _project_row(self, code):
+        from awb import projects
+
+        if not isinstance(code, str) or not _PROJECT_RE.match(code):
+            return None
+        try:
+            return next((r for r in projects.load(self.paths_fn()) if r.code == code and r.state == "active"),
+                        None)
+        except Exception:
+            return None
+
+    def _notify(self, subject: str, message: str) -> None:
+        """A mail to the owner through the SMN topic of keys.conf; quietly nothing when none is set."""
+        from awb.tcp import cloud
+
+        topic = self.settings.get("notify_topic")
+        alias = self.settings.get("bucket_tenant")
+        keys_ = self._lab_keys(alias) if alias else None
+        if not topic or keys_ is None:
+            return
+        try:
+            client = cloud.Client(keys_, self.settings.get("region") or "eu-de", endpoint=self.endpoint,
+                                  label=alias, timeout=30.0)
+            client.request("POST", "smn", "/v2/{project_id}/notifications/topics/%s/publish" % topic,
+                           body={"subject": subject[:100], "message": message})
+        except Exception:
+            pass
 
     @staticmethod
     def _send(conn: socket.socket, answer: dict) -> None:
@@ -306,6 +402,7 @@ class Service:
                 return {"ok": False, "error": "load needs tenants"}
             with self.lock:
                 self.tenants = data
+                self.settings = dict(req.get("settings") or {})
             return {"ok": True, "tenants": self._summary()}
         return {"ok": False, "error": "unknown operation"}
 
@@ -315,7 +412,7 @@ class Service:
                     for a, t in sorted(self.tenants.items())}
 
     # the call socket
-    def _call_socket(self, req: dict, uid: int) -> dict:
+    def _call_socket(self, req: dict, uid: int, upload: Path | None = None):
         now = time.monotonic()
         with self.lock:
             q = self._rate.setdefault(uid, deque())
@@ -338,7 +435,34 @@ class Service:
                 return {"ok": False, "error": str(err)}
             except KeysError as err:
                 return {"ok": False, "error": str(err)}
+        if op in ("obs", "owner_has", "take_owner"):
+            return self._exchange(op, req, uid, upload)
         return {"ok": False, "error": "unknown operation"}
+
+    def _exchange(self, op: str, req: dict, uid: int, upload: Path | None):
+        from awb.tcp import xchg
+
+        if not self.tenants:
+            return {"ok": False, "error": "the key service is locked: the owner runs awb keys unlock"}
+        ctx = self._xchg()
+        status, stream = "ok", None
+        try:
+            if op == "obs":
+                answer, stream = xchg.serve_obs(ctx, req, upload)
+            elif op == "owner_has":
+                answer = xchg.serve_owner_has(ctx, req)
+            else:
+                answer = xchg.serve_take_owner(ctx, req)
+                status = answer.get("state", "ok")
+        except (xchg.XchgError, obs.OBSError) as err:
+            answer, status = {"ok": False, "error": str(err)}, "refused"
+        except Exception as err:
+            answer, status = {"ok": False, "error": "the exchange failed (%s)" % type(err).__name__}, "failed"
+        method = str(req.get("method") or op).upper()
+        self._log(uid, self.settings.get("bucket_tenant") or "-", "lab", method, "obs" if op == "obs" else op,
+                  self.settings.get("region") or "eu-de", status if not answer.get("ok") else
+                  "%s %s" % (status, answer.get("size", "")), req.get("project"))
+        return (answer, stream) if stream is not None else answer
 
     def _registered(self) -> dict[str, tuple[str, ...]]:
         from awb.tcp import tenants as _tenants
@@ -445,20 +569,52 @@ def admin_socket() -> Path:
     return Path(env) if env else config.paths().vault / "keys-admin.sock"
 
 
-def request(sock: Path, obj: dict, timeout: float = CALL_TIMEOUT + 10) -> dict:
+def request(sock: Path, obj: dict, timeout: float = CALL_TIMEOUT + 10, *, upload: Path | None = None,
+            download: Path | None = None) -> dict:
+    """One request. `upload` sends a file's bytes after the request line (a put); `download` receives the bytes
+    that follow an answer carrying a length (a get)."""
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(timeout)
     try:
         s.connect(str(sock))
+        if upload is not None:
+            obj = dict(obj, length=Path(upload).stat().st_size)
         s.sendall(json.dumps(obj).encode("utf-8") + b"\n")
+        if upload is not None:
+            try:
+                with open(upload, "rb") as fh:
+                    while True:
+                        chunk = fh.read(1 << 16)
+                        if not chunk:
+                            break
+                        s.sendall(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass        # the service refused before the bytes were all sent: its answer is waiting
         buf = bytearray()
         while b"\n" not in buf:
             chunk = s.recv(1 << 16)
             if not chunk:
                 break
             buf += chunk
-            if len(buf) > MAX_ANSWER + 4096:
+            if len(buf) > MAX_ANSWER + 4096 and b"\n" not in buf:
                 raise KeysError("the answer of the key service is too large")
+        head, _, rest = bytes(buf).partition(b"\n")
+        try:
+            answer = json.loads(head)
+        except ValueError:
+            raise KeysError("the key service gave no readable answer") from None
+        length = answer.get("length") if isinstance(answer, dict) else None
+        if download is not None and isinstance(length, int):
+            with open(download, "wb") as out:
+                out.write(rest[:length])
+                got = min(len(rest), length)
+                while got < length:
+                    chunk = s.recv(min(1 << 16, length - got))
+                    if not chunk:
+                        raise KeysError("the file from the key service ended early")
+                    out.write(chunk)
+                    got += len(chunk)
+        return answer
     except (FileNotFoundError, ConnectionRefusedError):
         raise KeysError("the key service is not running") from None
     except PermissionError:
@@ -467,19 +623,20 @@ def request(sock: Path, obj: dict, timeout: float = CALL_TIMEOUT + 10) -> dict:
         raise KeysError("no answer from the key service (%s)" % type(err).__name__) from None
     finally:
         s.close()
-    try:
-        return json.loads(bytes(buf).split(b"\n", 1)[0])
-    except ValueError:
-        raise KeysError("the key service gave no readable answer") from None
 
 
-def unlock(sock: Path | None = None, entries: list[str] | None = None, reader=pass_reader) -> dict:
+def unlock(sock: Path | None = None, entries: list[str] | None = None, reader=pass_reader,
+           settings: dict | None = None) -> dict:
     """Load every tenant of the password store into the service. Returns the summary (aliases, roles, secret
     names)."""
     tenants = collect(store_entries() if entries is None else entries, reader)
     if not tenants:
         raise KeysError("the password store holds nothing under awb/tenant")
-    answer = request(sock or admin_socket(), {"op": "load", "tenants": tenants}, timeout=30)
+    from awb.tcp import xchg
+
+    answer = request(sock or admin_socket(), {"op": "load", "tenants": tenants,
+                                              "settings": xchg.read_settings() if settings is None else settings},
+                     timeout=30)
     if not answer.get("ok"):
         raise KeysError("the key service refused the load: %s" % answer.get("error"))
     return answer["tenants"]

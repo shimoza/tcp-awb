@@ -461,6 +461,13 @@
    "name": "harvest: a session that called the TCP API and added no knowledge entry after its last call is stopped once with the harvest message; the same calls never ask twice, a new batch asks again, sessions are kept apart, nothing outside a project, never while the client already continues",
    "run": ".venv/bin/pytest tests/test_harvest.py",
    "status": "passing"
+  },
+  {
+   "id": "X1",
+   "phase": "X",
+   "name": "the exchange (T-102): a take of a file in neither or both inboxes refused; a clean file from the lab inbox into input/ and the project's in/, a file with a registered name held; the owner inbox only through the intake, the session gets the sanitised copy, unknown candidates hold the file and tell the owner only; a project without a customer needs a code; put into from-session/ with a mail, refused for a name hit, a picture without --image and a reason, a customer deliverable without review, a file above max_mb; object calls outside the allowed folders refused before signing; no key or owner file name in an answer or a log; close waits for files in the exchange folders",
+   "run": ".venv/bin/pytest tests/test_xchg.py",
+   "status": "passing"
   }
  ],
  "total_tests": 1846,
