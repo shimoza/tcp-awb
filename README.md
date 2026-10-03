@@ -108,7 +108,7 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 | task | command | what you get |
 |---|---|---|
 | start work | `awb spawn query --goal "..."` or `awb spawn project --goal "..."` | a folder with its scope, rules, hooks and git. A query works with the knowledge base, the docs and live prices; a project also reaches the test tenants. `--customer CUST-XXXX` on either |
-| switch | `awb projects kind tcp-xxxx project` | a query that needs a live test becomes a project, and back |
+| switch | `awb projects kind tcp-xxxx project` | a query that needs a live test becomes a project (or back) |
 | see the projects | `awb projects list` | every project with its goal and the session that holds it |
 | finish a project | `awb close tcp-xxxx`, then `awb projects delete tcp-xxxx` | close waits for open items and live resources; delete removes the folder and keeps the code |
 | look up a fact | `awb kb find "ecs flavor eu-nl"`, `awb kb show KB-XXXX` | ranked facts with grade, source and check date |
