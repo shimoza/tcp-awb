@@ -507,6 +507,16 @@ class Service:
         if region not in regions:
             raise Refused("the region is not one of the tenant's")
         project = req.get("project") or ""
+        if uid != os.getuid():
+            # a session reaches a tenant only from a project of the kind project, never from a query
+            from awb import projects as _projects
+
+            row = self._project_row(project)
+            if row is None:
+                raise Refused("a call to a test tenant runs from the folder of an active project")
+            if not _projects.tenant_access(row.kind):
+                raise Refused("%s is a query: it has no test tenant; the owner switches it with awb projects kind "
+                              "%s project" % (project, project))
         if method in WRITE_METHODS:
             if not (isinstance(project, str) and _PROJECT_RE.match(project) and self._active_project(project)):
                 raise Refused("a write needs the code of an active project")

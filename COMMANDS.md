@@ -115,11 +115,10 @@ The work user of the seal reads the mirrors read-only under `/srv/tcp-mirrors/`:
 
 | command | what it does |
 |---|---|
-| `awb spawn engagement --goal "..." --customer CUST-XXXX --tag vpn --tag backup` | a customer project `tcp-<code>` with its files, hooks and git |
-| `awb spawn lab --goal "..."` | a live proof without a customer |
-| `awb spawn topic --goal "..." --tag ms-licensing` | a technology topic |
-| `awb spawn code --goal "..."` | a code project |
-| `awb spawn engagement --goal "..." --customer CUST-XXXX --from-outbox` | the same; the sanitised copies waiting in `~/tcp-shared/outbox/CUST-XXXX/` move into `input/` and the first commit |
+| `awb spawn query --goal "..." [--customer CUST-XXXX] --tag iam` | a query `tcp-<code>` with its files, hooks and git: the knowledge base, the docs mirror, live prices and calculations, no test tenant (the key service refuses it) |
+| `awb spawn project --goal "..." [--customer CUST-XXXX] --tag vpn` | a project: everything a query has plus the test tenants through the key service |
+| `awb spawn query --goal "..." --customer CUST-XXXX --from-outbox` | the sanitised copies waiting in `~/tcp-shared/outbox/CUST-XXXX/` move into `input/` and the first commit |
+| `awb projects kind tcp-xxxx project` | switch a query to a project (or back); a ledger line records it. The old kinds engagement, topic and code read as query, lab as project |
 | `awb projects list` | the project register with the goal of each project (checked for names again) and the session that holds each active project; `--paths` shows the folders instead of the goals |
 | `awb projects delete CODE...` | remove the folder of closed projects (`awb close` first); refused while RESOURCES.md lists a live resource or a session holds the project; the code stays registered as deleted and `awb projects list` hides it (`--all` shows it) |
 | `awb projects check` | tcp- folders that no project registered (a name that is not a code shows as "a folder") |

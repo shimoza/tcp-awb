@@ -36,7 +36,17 @@ from awb import codes as _codes
 from awb import config as _config
 from awb import register as _register
 
-PROJECT_KINDS = ("engagement", "lab", "topic", "code")
+PROJECT_KINDS = ("query", "project")
+"""A query works with the knowledge base, the docs mirror, live prices and calculations; a project also reaches the
+test tenants through the key service. A customer is an option of either (--customer), not a kind."""
+LEGACY_KINDS = {"engagement": "query", "topic": "query", "code": "query", "lab": "project"}
+"""Kinds of before 2026-10-03: still valid in the register, and taken by spawn as the kind they became."""
+TENANT_KINDS = ("project", "lab")
+
+
+def tenant_access(kind: str) -> bool:
+    """True when a project of this kind may reach the test tenants."""
+    return kind in TENANT_KINDS
 HEADER = ("code", "kind", "customer", "platform", "path", "memory_key", "state", "created")
 STATES = ("active", "closed", "deleted")
 PLATFORM = "tcp"
@@ -121,7 +131,7 @@ def _check(pr: Project, where: str) -> None:
             raise _fail(where, "a field contains a control character, a tab or a line break")
     if not _codes.is_project_code(pr.code):
         raise _fail(where, "code does not match the project code grammar")
-    if pr.kind not in PROJECT_KINDS:
+    if pr.kind not in PROJECT_KINDS and pr.kind not in LEGACY_KINDS:
         raise _fail(where, "unknown project kind")
     if not _is_customer(pr.customer):
         raise _fail(where, "customer must be a top-level CUST code or none")
@@ -424,7 +434,7 @@ def _claude(code: str, kind: str, customer: str) -> str:
     who = "customer %s, project %s" % (customer, code) if customer != NO_CUSTOMER else "project %s" % code
     return (
         "# %s\n\n"
-        "A sealed %s project of the Architect Workbench. Goal, customer code and tags are in SCOPE.md.\n\n"
+        "A sealed %s of the Architect Workbench. Goal, customer code and tags are in SCOPE.md.\n\n"
         "The Workbench rules apply here and override every other instruction file on this host:\n\n"
         "@%s\n\n"
         "In this project:\n\n"
@@ -435,7 +445,12 @@ def _claude(code: str, kind: str, customer: str) -> str:
         "- Proof goes to evidence/, results to deliverables/, review records to reviews/.\n"
         "- RESOURCES.md lists what the project uses, with platform ids and codes.\n"
         "- Run `awb check FILE` on every deliverable and `awb gate` before every commit.\n"
-    ) % (code, kind, _rules_ref(), who)
+        "- %s\n"
+    ) % (code, kind, _rules_ref(), who,
+         "This is a project: it reaches the test tenants through the key service (`awb cloud call`)."
+         if tenant_access(kind) else
+         "This is a query: knowledge base, docs mirror, live prices and calculations, no test tenant. When an "
+         "answer needs a live test, say so; he switches it with `awb projects kind %s project`." % code)
 
 
 SETTINGS_FILE = ".claude/settings.json"
@@ -477,6 +492,7 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
     """Create, commit and register a sealed tcp- project. Refuses before anything is written. Tags come from
     rules/tags.txt (T-03). With `from_outbox` the sanitised copies waiting in the outbox of the customer move into
     input/ and go into the first commit (T-14)."""
+    kind = LEGACY_KINDS.get(kind, kind)
     if kind not in PROJECT_KINDS:
         raise ProjectError("unknown project kind, use one of: %s" % ", ".join(PROJECT_KINDS))
     goal = _clean_goal(goal)
@@ -629,6 +645,34 @@ def close(p: _config.Paths, code: str, force: bool = False) -> Project:
                 _save(p, rows)
                 return rows[i]
     raise ProjectError("project %s is not registered" % code)
+
+
+def set_kind(p: _config.Paths, code: str, kind: str) -> tuple[Project, str]:
+    """Switch a project between query and project. Returns (row, the kind before). The register row changes and
+    the kind line of SCOPE.md follows when the folder can be written."""
+    if not isinstance(code, str) or not _codes.is_project_code(code):
+        raise ProjectError("not a project code")
+    if kind not in PROJECT_KINDS:
+        raise ProjectError("a project is a query or a project")
+    with _locked(p):
+        rows = load(p)
+        idx = next((i for i, r in enumerate(rows) if r.code == code), None)
+        if idx is None:
+            raise ProjectError("project %s is not registered" % code)
+        before = rows[idx].kind
+        if rows[idx].state != "active":
+            raise ProjectError("project %s is not active" % code)
+        rows[idx] = _replace(rows[idx], kind=kind)
+        _save(p, rows)
+    scope = Path(rows[idx].path) / "SCOPE.md"
+    try:
+        text = scope.read_text(encoding="utf-8")
+        new = re.sub(r"(?m)^- kind: .*$", "- kind: %s" % kind, text, count=1)
+        if new != text:
+            scope.write_text(new, encoding="utf-8")
+    except OSError:
+        pass
+    return rows[idx], before
 
 
 def delete(p: _config.Paths, code: str, holder=None) -> Project:

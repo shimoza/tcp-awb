@@ -252,7 +252,7 @@ def _cmd_spawn(args, p: config.Paths) -> int:
                         from_outbox=args.from_outbox)
     print("spawned %s (%s, customer %s): %s" % (pr.code, pr.kind, pr.customer, pr.path))
     try:
-        projects.record(p, pr, "Started %s (%s project): %s" % (pr.code, pr.kind, " ".join(args.goal.split())),
+        projects.record(p, pr, "Started %s (a %s): %s" % (pr.code, pr.kind, " ".join(args.goal.split())),
                         tags=args.tag or [])
     except ledger.LedgerError as err:
         print("awb spawn: the first ledger entry was not written (%s); add it with awb ledger add" % err,
@@ -338,6 +338,23 @@ def _cmd_projects_list(args, p: config.Paths) -> int:
     return EXIT_OK
 
 
+def _cmd_projects_kind(args, p: config.Paths) -> int:
+    from awb import projects
+
+    pr, before = projects.set_kind(p, args.code, args.kind)
+    if before == pr.kind:
+        print("%s is a %s already" % (pr.code, pr.kind))
+        return EXIT_OK
+    print("%s is now a %s (was %s)%s" % (pr.code, pr.kind, before,
+                                       ": it reaches the test tenants" if projects.tenant_access(pr.kind)
+                                       else ": no test tenant"))
+    try:
+        projects.record(p, pr, "Switched %s from %s to %s" % (pr.code, before, pr.kind))
+    except Exception:
+        print("awb projects: the ledger entry was not written", file=sys.stderr)
+    return EXIT_OK
+
+
 def _cmd_projects_delete(args, p: config.Paths) -> int:
     from awb import projects, sessions
 
@@ -412,8 +429,8 @@ def _build() -> argparse.ArgumentParser:
     for name, (_, text) in DELEGATED.items():
         sub.add_parser(name, help=text, add_help=False)
 
-    s = sub.add_parser("spawn", help="create a sealed tcp- project")
-    s.add_argument("kind")
+    s = sub.add_parser("spawn", help="create a sealed tcp- project: a query or a project")
+    s.add_argument("kind", help="query (knowledge base, prices, no tenant) or project (also the test tenants)")
     s.add_argument("--goal", required=True)
     s.add_argument("--customer", default=None)
     s.add_argument("--tag", action="append", default=[])
@@ -431,6 +448,10 @@ def _build() -> argparse.ArgumentParser:
     s.add_argument("--paths", action="store_true", help="the folder of each project instead of its goal")
     s.add_argument("--all", action="store_true", help="also the deleted projects")
     s.set_defaults(func=_cmd_projects_list)
+    s = psub.add_parser("kind", help="switch a project between query (knowledge only) and project (test tenants)")
+    s.add_argument("code")
+    s.add_argument("kind", choices=("query", "project"))
+    s.set_defaults(func=_cmd_projects_kind)
     s = psub.add_parser("delete", help="remove the folder of closed projects; the code stays registered as deleted")
     s.add_argument("codes", nargs="+", metavar="CODE")
     s.set_defaults(func=_cmd_projects_delete)

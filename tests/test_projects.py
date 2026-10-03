@@ -77,7 +77,7 @@ def test_scope_carries_kind_code_customer_goal_created_and_sealed(home, register
     folder = Path(pr.path)
     scope = _scope(folder)
     assert scope["code"] == pr.code
-    assert scope["kind"] == "engagement"
+    assert scope["kind"] == "query"          # engagement became query on 2026-10-03 (his two kinds)
     assert scope["customer"] == fixtures.CUSTOMER_CODE
     assert scope["goal"] == GOAL
     assert scope["created"] == date.today().isoformat()
@@ -175,7 +175,7 @@ def test_project_is_registered_with_memory_key(home, register_path):
     assert row.path == str(folder)
     assert os.path.isabs(row.path)
     assert row.memory_key == str(folder).replace("/", "-")
-    assert row.kind == "engagement"
+    assert row.kind == "query"               # engagement became query on 2026-10-03 (his two kinds)
     assert row.customer == fixtures.CUSTOMER_CODE
     assert row.platform == "tcp"
     assert row.state == "active"

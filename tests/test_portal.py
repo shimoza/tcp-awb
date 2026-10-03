@@ -55,7 +55,7 @@ def test_every_value_is_escaped(served):
 def test_the_projects_and_reviews_pages_show_codes(served, home):
     body = get(served, "/projects")[2]
     code = projects.load(home)[0].code
-    assert code in body and ">lab<" in body
+    assert code in body and ">project<" in body      # lab became project on 2026-10-03
     fixtures.assert_no_fixture_name(body, "the projects page")
     assert get(served, "/reviews")[0] == 200
 

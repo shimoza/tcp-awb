@@ -107,7 +107,8 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 
 | task | command | what you get |
 |---|---|---|
-| start a project | `awb spawn lab --goal "..." --tag network` | a project folder with its scope, rules, hooks and git; kinds are `engagement` (with `--customer CUST-XXXX`), `lab`, `topic` and `code` |
+| start work | `awb spawn query --goal "..."` or `awb spawn project --goal "..."` | a folder with its scope, rules, hooks and git. A query works with the knowledge base, the docs and live prices; a project also reaches the test tenants. `--customer CUST-XXXX` on either |
+| switch | `awb projects kind tcp-xxxx project` | a query that needs a live test becomes a project, and back |
 | see the projects | `awb projects list` | every project with its goal and the session that holds it |
 | finish a project | `awb close tcp-xxxx`, then `awb projects delete tcp-xxxx` | close waits for open items and live resources; delete removes the folder and keeps the code |
 | look up a fact | `awb kb find "ecs flavor eu-nl"`, `awb kb show KB-XXXX` | ranked facts with grade, source and check date |
@@ -122,7 +123,7 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 
 ## A typical day
 
-1. `awb spawn lab --goal "Test a virtual firewall appliance on TCP"` and open a Claude Code session in the new
+1. `awb spawn project --goal "Test a virtual firewall appliance on TCP"` and open a Claude Code session in the new
    folder.
 2. Ask in plain words. The session reads the project's SCOPE, STATE and OPEN files, looks facts up with `awb kb`,
    prices with `awb price` and `awb calc` and writes what it found to `evidence/`, with a source for each statement.

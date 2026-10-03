@@ -280,3 +280,22 @@ def test_no_service_is_a_plain_error(monkeypatch, capsys):
     monkeypatch.setenv(keys.CALL_SOCKET_ENV, "/tmp/awb-no-such-dir/cloud.sock")
     assert cli.main(["keys", "status"]) == 2
     assert "the key service is not running" in capsys.readouterr().err
+
+
+def test_a_session_reaches_a_tenant_only_from_a_project_of_the_kind_project(svc, gw):
+    from types import SimpleNamespace
+
+    load(svc)
+    rows = {"tcp-ab2c": SimpleNamespace(code="tcp-ab2c", kind="project"),
+            "tcp-qu3r": SimpleNamespace(code="tcp-qu3r", kind="query"),
+            "tcp-1ab4": SimpleNamespace(code="tcp-1ab4", kind="lab")}
+    svc._project_row = lambda code: rows.get(code)
+    session = __import__("os").getuid() + 1          # any uid but the service's own is a session
+    req = {"tenant": "test-1", "method": "GET", "service": "vpc", "path": "/v1/{project_id}/vpcs"}
+    with pytest.raises(keys.Refused, match="is a query"):
+        svc._call(dict(req, project="tcp-qu3r"), session)
+    with pytest.raises(keys.Refused, match="folder of an active project"):
+        svc._call(dict(req), session)
+    assert svc._call(dict(req, project="tcp-ab2c"), session)["status"] == 200
+    assert svc._call(dict(req, project="tcp-1ab4"), session)["status"] == 200      # a lab of before counts
+    assert svc._call(dict(req), __import__("os").getuid())["status"] == 200       # the owner needs no project

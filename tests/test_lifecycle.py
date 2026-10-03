@@ -80,7 +80,7 @@ def test_the_command_line_writes_the_first_and_the_last_ledger_entry(home, regis
     assert cli.main(["close", code]) == 0
     assert "closed %s" % code in capsys.readouterr().out
     done = [e.done for e in ledger.load(home) if e.project == code]
-    assert done[0] == "Started %s (engagement project): %s" % (code, GOAL)
+    assert done[0] == "Started %s (a query): %s" % (code, GOAL)      # two kinds since 2026-10-03
     assert done[-1] == "Closed %s" % code
     assert cli.main(["close", code]) == 0
     assert "was closed already" in capsys.readouterr().out
@@ -268,3 +268,33 @@ def test_delete_refuses_codes_it_does_not_know(home, capsys):
     assert cli.main(["projects", "delete", "tcp-zzzz", "nonsense"]) == 1
     err = capsys.readouterr().err
     assert "tcp-zzzz is not registered" in err and "not a project code" in err
+
+
+# --------------------------------------------------------------------------- query and project
+
+
+def test_two_kinds_and_the_old_ones_as_aliases(home, register_path, capsys):
+    q = projects.spawn(home, "query", GOAL, None, register_path)
+    pj = projects.spawn(home, "project", GOAL, fx.CUSTOMER_CODE, register_path)
+    old = projects.spawn(home, "engagement", GOAL, fx.CUSTOMER_CODE, register_path)
+    assert (q.kind, pj.kind, old.kind) == ("query", "project", "query")
+    assert "- kind: query" in (Path(q.path) / "SCOPE.md").read_text()
+    assert "no test tenant" in (Path(q.path) / "CLAUDE.md").read_text()
+    assert "reaches the test tenants" in (Path(pj.path) / "CLAUDE.md").read_text()
+    assert projects.tenant_access("project") and projects.tenant_access("lab")
+    assert not projects.tenant_access("query") and not projects.tenant_access("engagement")
+    with pytest.raises(projects.ProjectError, match="query, project"):
+        projects.spawn(home, "survey", GOAL, None, register_path)
+
+
+def test_switch_a_query_to_a_project_and_back(home, register_path, capsys):
+    q = projects.spawn(home, "query", GOAL, None, register_path)
+    assert cli.main(["projects", "kind", q.code, "project"]) == 0
+    assert "is now a project (was query)" in capsys.readouterr().out
+    assert {r.code: r.kind for r in projects.load(home)}[q.code] == "project"
+    assert "- kind: project" in (Path(q.path) / "SCOPE.md").read_text()
+    assert cli.main(["projects", "kind", q.code, "project"]) == 0
+    assert "a project already" in capsys.readouterr().out
+    projects.close(home, q.code, force=True)
+    with pytest.raises(projects.ProjectError, match="not active"):
+        projects.set_kind(home, q.code, "query")
