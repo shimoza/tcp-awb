@@ -482,8 +482,15 @@
    "name": "the web handlers in the repository (awb/tcp/web: gateway, projects, tenants, creation, materials, project chat), moved from the deployed copies with their behaviour: the tests the web side wrote for them pass here, every real answer fits the contract, every text the handlers send is listed in the contract or named unreachable with its reason, the host and the owner are settings, the internal library calls became public with the old names kept for the deployed copies, a reserved code reaches spawn, and the systemd templates of seal/web name no host and start modules that exist",
    "run": ".venv/bin/pytest tests/test_web_gateway.py tests/test_web_projects_api.py tests/test_web_tenant_api.py tests/test_web_create_api.py tests/test_web_materials_api.py tests/test_web_chat_service.py tests/test_web_seal.py tests/test_web_contract.py tests/test_projects.py",
    "status": "passing"
+  },
+  {
+   "id": "W3",
+   "phase": "W",
+   "name": "the materials service reads the buckets through the key service (agreed point 2, F7): the web mode of the key service lists inbox/ of both buckets and an active project's month folder, names the month folders and reads one object at the version of its listing, owner only, never a write, a delete or a copy, every read logged without its key; another version, a size above the limit, another folder or another caller refused; the materials service holds no key and reads no password store, a locked or absent key service is a plain refusal, the tests of the web side pass on this path, and the text check of the contract reads named constants too",
+   "run": ".venv/bin/pytest tests/test_xchg.py tests/test_web_materials_api.py tests/test_web_contract.py tests/test_obs.py",
+   "status": "passing"
   }
  ],
- "total_tests": 2177,
+ "total_tests": 2183,
  "checked": "2026-10-04"
 }

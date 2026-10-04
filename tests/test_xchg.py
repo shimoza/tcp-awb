@@ -274,3 +274,68 @@ def test_the_settings_file_is_read_and_refuses_unknown_keys(tmp_path):
     f.write_text("secret = x\n", encoding="utf-8")
     with pytest.raises(xchg.XchgError, match="line 1"):
         xchg.read_settings(f)
+
+
+# --- the web mode: the owner's materials service reads both buckets, never writes ---------------------------
+
+def _web(svc, **obj):
+    return keys.request(svc.call_path, {"op": "web_read", **obj})
+
+
+def test_web_read_lists_names_months_and_reads_a_version_without_writing(svc, buckets, cust_project, tmp_path):
+    lab, own = buckets
+    month = "%s/%s/in/" % (cust_project.created[:7], cust_project.code)
+    lab.client().put_bytes("inbox/brief.md", b"a task without customer content")
+    own.client().put_bytes("inbox/drop.pdf", b"unassigned")
+    own.client().put_bytes(month + "scope.docx", b"customer scope")
+    own.client().put_bytes("notes/readme.txt", b"not a month folder")
+    writes = lambda: [m for m, _ in lab.calls + own.calls if m in ("PUT", "DELETE")]
+    before = writes()
+    assert [r["key"] for r in _web(svc, bucket="lab", what="list", prefix="inbox/")["objects"]] == ["inbox/brief.md"]
+    assert [r["key"] for r in _web(svc, bucket="owner", what="list", prefix="inbox/")["objects"]] == ["inbox/drop.pdf"]
+    rows = _web(svc, bucket="owner", what="list", prefix=month)["objects"]
+    assert [r["key"] for r in rows] == [month + "scope.docx"] and rows[0]["modified"] and rows[0]["etag"]
+    assert _web(svc, bucket="owner", what="months")["months"] == [cust_project.created[:7] + "/"]
+    out = tmp_path / "copy"
+    answer = keys.request(svc.call_path, {"op": "web_read", "bucket": "owner", "what": "get", "key": month + "scope.docx",
+                                          "etag": rows[0]["etag"]}, download=out)
+    assert answer["ok"] and answer["etag"] == rows[0]["etag"] and out.read_bytes() == b"customer scope"
+    assert own.client().head(month + "scope.docx") is not None
+    assert writes() == before
+
+
+def test_web_read_refuses_other_folders_versions_and_sizes(svc, buckets, cust_project, tmp_path):
+    lab, own = buckets
+    month = "%s/%s/in/" % (cust_project.created[:7], cust_project.code)
+    own.client().put_bytes(month + "big.bin", b"x" * 2048)
+    etag = _web(svc, bucket="owner", what="list", prefix=month)["objects"][0]["etag"]
+    for obj in ({"bucket": "lab", "what": "list", "prefix": month}, {"bucket": "owner", "what": "list", "prefix": ""},
+                {"bucket": "owner", "what": "list", "prefix": "2026-10/tcp-zzzz/in/"},
+                {"bucket": "owner", "what": "list", "prefix": "inbox/../"},
+                {"bucket": "owner", "what": "list", "prefix": month + "sub/"},
+                {"bucket": "lab", "what": "months"}, {"bucket": "other", "what": "list", "prefix": "inbox/"},
+                {"bucket": "owner", "what": "get", "key": month, "etag": etag},
+                {"bucket": "owner", "what": "get", "key": month + "big.bin"},
+                {"bucket": "owner", "what": "put", "key": month + "big.bin"},
+                {"bucket": "owner", "what": "delete", "key": month + "big.bin"}):
+        answer = _web(svc, **obj)
+        assert answer["ok"] is False and answer["kind"] == "refused", obj
+    stale = _web(svc, bucket="owner", what="get", key=month + "big.bin", etag="0" * 32)
+    assert (stale["ok"], stale["kind"]) == (False, "changed")
+    small = _web(svc, bucket="owner", what="get", key=month + "big.bin", etag=etag, limit=1024)
+    assert (small["ok"], small["kind"]) == (False, "too_large")
+    assert own.client().head(month + "big.bin") is not None
+
+
+def test_web_read_is_for_the_owner_only_and_waits_for_the_unlock(svc, buckets, monkeypatch, tmp_path):
+    lab, _ = buckets
+    lab.client().put_bytes("inbox/brief.md", b"text")
+    real = keys.os.getuid()
+    monkeypatch.setattr(keys.os, "getuid", lambda: real + 1)
+    assert _web(svc, bucket="lab", what="list", prefix="inbox/") == {"ok": False, "kind": "refused", "error": "refused"}
+    monkeypatch.setattr(keys.os, "getuid", lambda: real)
+    keys.request(svc.admin_path, {"op": "lock"})
+    answer = _web(svc, bucket="lab", what="list", prefix="inbox/")
+    assert (answer["ok"], answer["kind"]) == (False, "locked")
+    log = "\n".join(p.read_text() for p in (tmp_path / "log").glob("*.tsv"))
+    assert "inbox/brief.md" not in log and AK not in log and SK not in log

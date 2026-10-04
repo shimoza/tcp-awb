@@ -70,6 +70,7 @@ def keys_from_reference(ref: str | None) -> Keys:
 class Listing:
     objects: list[tuple[str, int, str]]   # key, size, etag
     prefixes: list[str]
+    modified: dict[str, str] = field(default_factory=dict)    # key -> LastModified as the service wrote it
 
 
 def xml_local(tag: str) -> str:
@@ -169,6 +170,7 @@ class Client:
         """Every object under `prefix` (all pages); with `delimiter` the common prefixes one level down."""
         objects: list[tuple[str, int, str]] = []
         prefixes: list[str] = []
+        modified: dict[str, str] = {}
         marker = ""
         while True:
             params = [("max-keys", str(page))]
@@ -189,6 +191,7 @@ class Client:
                 if name == "Contents":
                     k = xml_text(xml_child(el, "Key"))
                     objects.append((k, int(xml_text(xml_child(el, "Size")) or 0), xml_text(xml_child(el, "ETag")).strip('"')))
+                    modified[k] = xml_text(xml_child(el, "LastModified"))
                     last = k
                 elif name == "CommonPrefixes":
                     p = xml_text(xml_child(el, "Prefix"))
@@ -199,7 +202,7 @@ class Client:
             marker = xml_text(xml_child(root, "NextMarker")) or last
             if not marker:
                 break
-        return Listing(objects, prefixes)
+        return Listing(objects, prefixes, modified)
 
     def head(self, key: str) -> dict | None:
         """The headers of an object, None when it is not there."""
@@ -211,8 +214,10 @@ class Client:
             raise
         return headers
 
-    def get(self, key: str, to: Path) -> Path:
-        self._send("GET", key, to=Path(to))
+    def get(self, key: str, to: Path, if_match: str | None = None) -> Path:
+        """The object into `to`. With `if_match` only that version (its ETag): another one fails with status 412."""
+        headers = {"If-Match": '"%s"' % if_match.strip('"')} if if_match else None
+        self._send("GET", key, headers=headers, to=Path(to))
         return Path(to)
 
     def put_bytes(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:

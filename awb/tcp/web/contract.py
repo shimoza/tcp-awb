@@ -61,6 +61,8 @@ CUSTOMER_RETIRED = "The customer is unavailable or retired."
 REOPEN = "Reopen this project before importing files."
 CUSTOMER_CHANGED = "The project customer changed. This input cannot be used in its new context."
 NOT_READY = "The selected input is not ready in this project."
+KEYS_LOCKED = "The key service is locked: the owner runs awb keys unlock."
+KEYS_DOWN = "The key service is unavailable. Try again later."
 PROJECT_READ_FAILED = (
     "The data check is locked. Project content was not returned.",
     "The data check is unavailable. Project content was not returned.",
@@ -132,6 +134,8 @@ IMPORT_MESSAGES = [
     "Project not found.",
     "Reopen this project before importing files.",
     "The customer is unavailable or retired.",
+    KEYS_LOCKED,
+    KEYS_DOWN,
 ]
 TURN_FAILURES = [
     "Not enough daily token budget remains for this answer.",
@@ -994,9 +998,11 @@ def _material_paths() -> dict:
                                "Bucket read access is unavailable (HTTP 403).",
                                "The bucket could not be read. Try again later.",
                                "The bucket returned an inconsistent listing.",
-                               "The bucket listing could not be completed.", INPUT_DOWN),
+                               "The bucket listing could not be completed.", INPUT_DOWN, KEYS_LOCKED, KEYS_DOWN),
             }, description="brief lists the unassigned lab inbox. customer lists the unassigned owner inbox and the "
-                           "project's own in/ folders under every month; it needs a project with a customer.",
+                           "project's own in/ folders under every month; it needs a project with a customer. In the "
+                           "repository version the buckets are read through the owner's key service, so this service "
+                           "holds no key; its two refusals about the key service come with that version.",
                 parameters=[CODE, {"name": "source", "in": "query", "required": True,
                                    "description": "brief or customer.",
                                    "schema": {"type": "string", "enum": ["brief", "customer"]}}]),
@@ -1018,7 +1024,8 @@ def _material_paths() -> dict:
             }, description="Copies the chosen versions; the originals stay in the bucket. Each file is read at the "
                            "version of the listing, so a changed file is refused. It is checked, sanitised through "
                            "the intake when it comes from the customer source and added to the project's input/ as "
-                           "<id>.md. The same version imported again keeps its first id. Nothing starts an AI call.",
+                           "<id>.md. The same version imported again keeps its first id. Nothing starts an AI call. In the "
+                           "repository version each file is read through the owner's key service at its version.",
                 parameters=[CODE],
                 body=json_body("ImportRequest", {"one-file": {"request_id": REQ, "files": [{"id": SOURCE,
                                                                                          "etag": ETAG}]}}),

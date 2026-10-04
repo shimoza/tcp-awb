@@ -184,9 +184,13 @@ ERROR_CALLS = {"Problem", "ChatError", "Unavailable", "InventoryError", "login_p
                "append"}
 
 
-def _pattern(node) -> str:
-    """A regular expression for the text an expression builds; '.+' for a part only known at run time."""
+def _pattern(node, names=None) -> str:
+    """A regular expression for the text an expression builds; '.+' for a part only known at run time. `names` maps
+    the module's constants to their text, so a refusal that names a constant is read like one that spells it."""
     import ast
+    names = names or {}
+    if isinstance(node, ast.Name) and node.id in names:
+        return re.escape(names[node.id].strip())
     if isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)):
         value = node.value.decode() if isinstance(node.value, bytes) else node.value
         if value.startswith('{"error":'):
@@ -195,11 +199,11 @@ def _pattern(node) -> str:
     if isinstance(node, ast.JoinedStr):
         return "".join(re.escape(v.value) if isinstance(v, ast.Constant) else ".+" for v in node.values)
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        return _pattern(node.left) + _pattern(node.right)
+        return _pattern(node.left, names) + _pattern(node.right, names)
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod) and isinstance(node.left, ast.Constant):
         return re.sub(r"%[sd]", ".+", re.escape(node.left.value).replace(r"\%", "%"))
     if isinstance(node, ast.IfExp):
-        return "(?:%s|%s)" % (_pattern(node.body), _pattern(node.orelse))
+        return "(?:%s|%s)" % (_pattern(node.body, names), _pattern(node.orelse, names))
     return ".+"
 
 
@@ -211,7 +215,14 @@ def _texts_of_the_code() -> dict[str, str]:
         if path.name in ("__init__.py", "contract.py"):
             continue
         source = path.read_text(encoding="utf-8")
-        for node in ast.walk(ast.parse(source)):
+        tree = ast.parse(source)
+        names = {}
+        for node in tree.body:     # module constants that hold a sentence, NAME = '...' or A = B = '...'
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        names[target.id] = node.value.value
+        for node in ast.walk(tree):
             parts = []
             if isinstance(node, ast.Call):
                 name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
@@ -223,7 +234,7 @@ def _texts_of_the_code() -> dict[str, str]:
             for part in parts:
                 if isinstance(part, ast.Dict):
                     continue
-                p = _pattern(part)
+                p = _pattern(part, names)
                 literal = re.sub(r"\\(.)", r"\1", p.replace(".+", " "))
                 if len(literal) >= 8 and " " in literal.strip() and literal[:1].isupper():
                     found[p] = path.name
@@ -275,3 +286,19 @@ def test_the_text_check_can_fail(doc):
     broken["components"]["schemas"]["ChatTurn"]["properties"]["error"]["x-awb-texts"].remove(
         "The model declined this question.")
     assert _missing(broken) == ["chat_service.py: " + re.escape("The model declined this question.")]
+    # a refusal that names a module constant is read too: drop that constant's text from the whole contract
+    from awb.tcp.web import materials_api
+    assert _missing(_without(doc, materials_api.KEYS_LOCKED)) == ["materials_api.py: " +
+                                                                   re.escape(materials_api.KEYS_LOCKED)]
+
+
+def _without(doc, text):
+    """A copy of the contract with every example and listed text that holds `text` taken out."""
+    def walk(node):
+        if isinstance(node, dict):
+            return {k: walk(v) for k, v in node.items()
+                    if not (isinstance(v, dict) and text in json.dumps(v.get("value", ""), ensure_ascii=False))}
+        if isinstance(node, list):
+            return [walk(v) for v in node if not (isinstance(v, str) and text in v)]
+        return node
+    return walk(copy.deepcopy(doc))

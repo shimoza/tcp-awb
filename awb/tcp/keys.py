@@ -20,7 +20,8 @@ Two sockets, one JSON object per line and one answer per connection:
 A call names the tenant, the role (read or lab), the method, the service, the path (with {project_id} when
 needed), the region, the query and a JSON body. Checks before anything is sent: the tenant is registered (awb
 tenant add) and loaded, the role has a key and allows the method, the region is one of the tenant's, a write names
-an active project (tcp-xxxx) of the project register, the path and service are plain. A body may carry a secret
+an active project (tcp-xxxx) of the project register, the path and service are plain, a write never reaches an
+identity service such as iam. A body may carry a secret
 only as a whole value `{{secret:NAME}}` in a password field (admin_pass, password, user_password and the like):
 nowhere else, so that no secret is put into a field the session can read back. The answer carries the status and
 the parsed body with every key and secret of the tenant replaced by <secret>, also in base64 and JSON-escaped
@@ -55,6 +56,9 @@ DEFAULT_CALL_SOCKET = Path("/run/awb-keys/cloud.sock")
 STORE_PREFIX = "awb/tenant"
 ROLES = {"read": ("GET", "HEAD"), "lab": ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")}
 WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
+NO_WRITE_SERVICES = frozenset({"iam"})
+"""Services the lab key never writes to: a new access key, user or agency would come back in a form the answer
+mask does not know. Identities and credentials are made on the owner's side, never from a session."""
 MAX_REQUEST = 512 * 1024
 MAX_BODY = 256 * 1024
 MAX_ANSWER = 8 * 1024 * 1024
@@ -437,13 +441,19 @@ class Service:
                 return {"ok": False, "error": str(err)}
         if op in ("obs", "owner_has", "take_owner"):
             return self._exchange(op, req, uid, upload)
+        if op == "web_read":
+            # the materials service of the web console runs as the owner, like this service; nobody else reads
+            # the owner bucket through it
+            if uid != os.getuid():
+                return {"ok": False, "kind": "refused", "error": "refused"}
+            return self._exchange(op, req, uid, upload)
         return {"ok": False, "error": "unknown operation"}
 
     def _exchange(self, op: str, req: dict, uid: int, upload: Path | None):
         from awb.tcp import xchg
 
         if not self.tenants:
-            return {"ok": False, "error": "the key service is locked: the owner runs awb keys unlock"}
+            return {"ok": False, "kind": "locked", "error": "the key service is locked: the owner runs awb keys unlock"}
         ctx = self._xchg()
         status, stream = "ok", None
         try:
@@ -451,6 +461,9 @@ class Service:
                 answer, stream = xchg.serve_obs(ctx, req, upload)
             elif op == "owner_has":
                 answer = xchg.serve_owner_has(ctx, req)
+            elif op == "web_read":
+                answer, stream = xchg.serve_web_read(ctx, req)
+                status = "ok" if answer.get("ok") else answer.get("kind", "refused")
             else:
                 answer = xchg.serve_take_owner(ctx, req)
                 status = answer.get("state", "ok")
@@ -458,10 +471,10 @@ class Service:
             answer, status = {"ok": False, "error": str(err)}, "refused"
         except Exception as err:
             answer, status = {"ok": False, "error": "the exchange failed (%s)" % type(err).__name__}, "failed"
-        method = str(req.get("method") or op).upper()
+        method = str(req.get("method") or req.get("what") or op).upper()
         self._log(uid, self.settings.get("bucket_tenant") or "-", "lab", method, "obs" if op == "obs" else op,
                   self.settings.get("region") or "eu-de", status if not answer.get("ok") else
-                  "%s %s" % (status, answer.get("size", "")), req.get("project"))
+                  "%s %s" % (status, answer.get("size", "")), req.get("project") or answer.get("project"))
         return (answer, stream) if stream is not None else answer
 
     def _registered(self) -> dict[str, tuple[str, ...]]:
@@ -522,6 +535,9 @@ class Service:
                 raise Refused("a write needs the code of an active project")
         if not isinstance(service, str) or not re.match(r"^[a-z][a-z0-9-]{1,30}$", service):
             raise Refused("a service name reads like ecs or vpc")
+        if method in WRITE_METHODS and service in NO_WRITE_SERVICES:
+            raise Refused("the key service does not write to %s; credentials and identities are an owner task"
+                          % service)
         if not isinstance(path, str) or not _PATH_RE.match(path) or ".." in path or "//" in path:
             raise Refused("a path is plain: /v1/{project_id}/cloudservers")
         query = req.get("query") or {}
@@ -560,9 +576,9 @@ class Service:
             folder.mkdir(parents=True, exist_ok=True)
             path = folder / ("cloud-%s.tsv" % datetime.now(timezone.utc).strftime("%Y-%m"))
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+            fields = (_now(), uid, alias, role, method, service, region, status, project or "-")
             with os.fdopen(fd, "a", encoding="utf-8") as fh:
-                fh.write("\t".join(str(x) for x in (_now(), uid, alias, role, method, service, region, status,
-                                                    project or "-")) + "\n")
+                fh.write("\t".join(re.sub(r"[\t\r\n]+", " ", str(x)) for x in fields) + "\n")
         except OSError:
             pass
 

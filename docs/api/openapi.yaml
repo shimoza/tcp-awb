@@ -1703,7 +1703,7 @@ paths:
       tags:
         - materials
       summary: The files of one source, with their versions.
-      description: "brief lists the unassigned lab inbox. customer lists the unassigned owner inbox and the project's own in/ folders under every month; it needs a project with a customer."
+      description: "brief lists the unassigned lab inbox. customer lists the unassigned owner inbox and the project's own in/ folders under every month; it needs a project with a customer. In the repository version the buckets are read through the owner's key service, so this service holds no key; its two refusals about the key service come with that version."
       parameters:
         - name: code
           in: path
@@ -1869,6 +1869,12 @@ paths:
                 the-input-service-is-unavailable:
                   value:
                     error: The input service is unavailable. Check the bucket connection and vault.
+                the-key-service-is-locked:
+                  value:
+                    error: "The key service is locked: the owner runs awb keys unlock."
+                the-key-service-is-unavailable:
+                  value:
+                    error: The key service is unavailable. Try again later.
       x-awb-state: deployed
   "/api/projects/{code}/materials/imports":
     post:
@@ -1876,7 +1882,7 @@ paths:
       tags:
         - materials
       summary: Import chosen files into the project.
-      description: "Copies the chosen versions; the originals stay in the bucket. Each file is read at the version of the listing, so a changed file is refused. It is checked, sanitised through the intake when it comes from the customer source and added to the project's input/ as <id>.md. The same version imported again keeps its first id. Nothing starts an AI call."
+      description: "Copies the chosen versions; the originals stay in the bucket. Each file is read at the version of the listing, so a changed file is refused. It is checked, sanitised through the intake when it comes from the customer source and added to the project's input/ as <id>.md. The same version imported again keeps its first id. Nothing starts an AI call. In the repository version each file is read through the owner's key service at its version."
       parameters:
         - name: code
           in: path
@@ -3328,6 +3334,8 @@ components:
             - Project not found.
             - Reopen this project before importing files.
             - The customer is unavailable or retired.
+            - "The key service is locked: the owner runs awb keys unlock."
+            - The key service is unavailable. Try again later.
         created:
           type: string
           format: date-time

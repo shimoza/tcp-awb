@@ -20,6 +20,7 @@ class FakeOBS:
     def __init__(self, bucket: str = "awb", ak: str = "AKFAKE", sk: str = "sk-fake-secret"):
         self.bucket, self.ak, self.sk = bucket, ak, sk
         self.objects: dict[str, bytes] = {}
+        self.modified: dict[str, str] = {}
         self.calls: list[tuple[str, str]] = []
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -96,8 +97,10 @@ class FakeOBS:
         for kind, value in items:
             if kind == "key":
                 data = self.objects[value]
-                body.append('<Contents><Key>%s</Key><Size>%d</Size><ETag>"%s"</ETag></Contents>'
-                            % (escape(value), len(data), hashlib.md5(data).hexdigest()))
+                body.append('<Contents><Key>%s</Key><Size>%d</Size><ETag>"%s"</ETag>'
+                            '<LastModified>%s</LastModified></Contents>'
+                            % (escape(value), len(data), hashlib.md5(data).hexdigest(),
+                               self.modified.get(value, "2026-10-03T07:58:12.000Z")))
             else:
                 body.append("<CommonPrefixes><Prefix>%s</Prefix></CommonPrefixes>" % escape(value))
         body.append("</ListBucketResult>")
@@ -138,7 +141,11 @@ class FakeOBS:
                     if key not in fake.objects:
                         return self._answer(404, code="NoSuchKey")
                     data = fake.objects[key]
-                    return self._answer(200, data, headers={"ETag": '"%s"' % hashlib.md5(data).hexdigest()})
+                    etag = hashlib.md5(data).hexdigest()
+                    wanted = self.headers.get("If-Match")
+                    if wanted and wanted.strip().strip('"') != etag:
+                        return self._answer(412, code="PreconditionFailed")
+                    return self._answer(200, data, headers={"ETag": '"%s"' % etag})
                 if method == "PUT":
                     source = self.headers.get("x-obs-copy-source")
                     if source:

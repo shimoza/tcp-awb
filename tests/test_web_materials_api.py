@@ -1,50 +1,85 @@
 """The materials service (awb/tcp/web/materials_api.py): copy-only imports from the buckets, the original stays, the
 chosen version or nothing, customer files only through the intake, answers that fit the contract.
 
-Ported from the tests the web side wrote for the deployed service. The projects use the kinds of the repository;
-the contract checks are new.
+Ported from the tests the web side wrote for the deployed service. The buckets are read through a real key service
+now (its web mode) in front of two stand-in buckets, so every test below also runs that path; the projects use the
+kinds of the repository; the contract checks and the key service checks are new.
 """
+import contextlib
 import dataclasses
 import hashlib
 import os
+import shutil
+import tempfile
 import threading
 from pathlib import Path
 
 import pytest
 
-from awb import obs, projects
+from awb import projects
+from awb.tcp import keys
 from awb.tcp.web import contract
 from awb.tcp.web import materials_api
 from awb.tcp.web.create_api import ProjectStore
-from awb.tcp.web.materials_api import Handler, Problem, ReadOBS, Server, Store, local_call
+from awb.tcp.web.materials_api import Handler, Problem, Server, Sources, Store, local_call
 from tests import fixtures
 from tests.obs_fake import FakeOBS
+
+AK, SK = "AKLABFAKE", "sk-lab-fake-secret"
+
+
+@contextlib.contextmanager
+def short_dir():
+    d = tempfile.mkdtemp(prefix="awbm", dir="/tmp")
+    try:
+        yield Path(d)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+class Buckets:
+    """The lab bucket for inbox/ keys, the owner bucket for the month folders of the projects."""
+
+    def __init__(self, lab, own):
+        self.lab, self.own = lab.client(), own.client()
+
+    def of(self, key):
+        return self.lab if key.startswith("inbox/") else self.own
+
+    def put_bytes(self, key, data):
+        self.of(key).put_bytes(key, data)
+
+    def head(self, key):
+        return self.of(key).head(key)
 
 
 @pytest.fixture
 def materials(home, tmp_path):
     pr = projects.spawn(home, "query", "Compare storage options", None, home.register)
     private = projects.spawn(home, "query", "Compare network options", fixtures.CUSTOMER_CODE, home.register)
-    with FakeOBS("test-import", "AKFAKE", "sk-fake") as fake:
-        c = obs.Client(fake.bucket, obs.Keys("AKFAKE", "sk-fake"), endpoint=fake.endpoint)
-
-        class Sources:
-            def client(self, source):
-                return ReadOBS(c)
-
-            def prefixes(self, project, source):
-                return ["inbox/" if source == "brief" else project.code + "/in/"]
+    with FakeOBS("awb-lab-eu-de", AK, SK) as lab, FakeOBS("awb", AK, SK) as own, short_dir() as d:
+        service = keys.Service(d / "admin.sock", d / "call.sock", log_dir=tmp_path / "log",
+                               obs_endpoints={lab.bucket: lab.endpoint, own.bucket: own.endpoint})
+        service.start()
+        keys.unlock(service.admin_path, ["test-1/lab/ak", "test-1/lab/sk"],
+                    reader={"test-1/lab/ak": AK, "test-1/lab/sk": SK}.get,
+                    settings={"bucket_tenant": "test-1", "lab_bucket": lab.bucket, "owner_bucket": own.bucket,
+                              "max_mb": "30"})
         writer = ProjectStore(home, tmp_path / "writer")
 
         def publish(row, text):
             return writer.publish_material(row["project"], {"id": row["id"], "customer": row["customer"], "text": text,
                                                             "sha256": hashlib.sha256(text.encode()).hexdigest()})
-        store = Store(home, tmp_path / "materials", Sources(), publish)
-        yield store, c, pr, private
+        store = Store(home, tmp_path / "materials", Sources(sock=service.call_path), publish)
+        store.key_service, store.log_dir, store.fakes = service, tmp_path / "log", (lab, own)
+        try:
+            yield store, Buckets(lab, own), pr, private
+        finally:
+            service.stop()
 
 
 def import_one(s, c, p, source="brief", text="Compare storage options.", name="task.md", rid="a" * 32):
-    key = ("inbox/" if source == "brief" else p.code + "/in/") + name
+    key = ("inbox/" if source == "brief" else "%s/%s/in/" % (p.created[:7], p.code)) + name
     c.put_bytes(key, text.encode())
     listing = s.browse(p.code, source)
     f = next(x for x in listing["files"] if x["name"] == name)
@@ -296,3 +331,49 @@ def test_the_answers_fit_the_contract(materials):
     held, _, _ = import_one(s, c, p, text=fixtures.CUSTOMER_FORMS[0], name="held.md", rid="c" * 32)
     fits(s.history(p.code), "MaterialHistory")
     assert s.history(p.code)["items"][0]["message"] in contract.IMPORT_MESSAGES
+
+
+def test_the_service_holds_no_key_and_reads_through_the_key_service(materials, monkeypatch):
+    s, c, p, private = materials
+
+    def no_store(entry):
+        raise AssertionError("the materials service read the password store")
+    monkeypatch.setattr(keys, "pass_reader", no_store)
+    ident, key, _ = import_one(s, c, p)
+    assert s.history(p.code)["items"][0]["state"] == "ready"
+    assert c.head(key) is not None
+    customer, ckey, _ = import_one(s, c, private, "customer", "Requirements for the network.", rid="b" * 32)
+    assert s.history(private.code)["items"][0]["state"] == "ready"
+    log = "\n".join(f.read_text() for f in s.log_dir.glob("*.tsv"))
+    lines = [line.split("\t") for line in log.splitlines() if "\tweb_read\t" in line]
+    assert {line[4] for line in lines} >= {"LIST", "GET", "MONTHS"}
+    assert any(line[8] == private.code for line in lines)
+    assert key not in log and ckey not in log and AK not in log and SK not in log
+    source = Path(materials_api.__file__).read_text(encoding="utf-8")
+    assert "pass_reader" not in source and "read_settings" not in source
+    for fake in s.fakes:     # the one put of each bucket is the test's own upload: the import wrote nothing
+        assert [m for m, _ in fake.calls if m in ("PUT", "DELETE")] == ["PUT"]
+
+
+def test_a_locked_or_absent_key_service_is_a_plain_refusal(materials):
+    s, c, p, _ = materials
+    c.put_bytes("inbox/task.md", b"Compare options.")
+    keys.request(s.key_service.admin_path, {"op": "lock"})
+    with pytest.raises(Problem) as e:
+        s.browse(p.code, "brief")
+    assert (e.value.status, e.value.message) == (503, materials_api.KEYS_LOCKED)
+    s.key_service.stop()
+    with pytest.raises(Problem) as e:
+        s.browse(p.code, "brief")
+    assert (e.value.status, e.value.message) == (503, materials_api.KEYS_DOWN)
+
+
+def test_a_version_that_changed_between_listing_and_read_is_refused_by_the_key_service(materials):
+    s, c, p, _ = materials
+    c.put_bytes("inbox/task.md", b"Compare options.")
+    f = s.browse(p.code, "brief")["files"][0]
+    c.put_bytes("inbox/task.md", b"Compare other options.")
+    with pytest.raises(Problem) as e:
+        s.sources.client("brief").read("inbox/task.md", etag=f["etag"], to=s.root / "probe")
+    assert e.value.status == 409 and "source changed" in e.value.message
+    assert not (s.root / "probe").exists() or (s.root / "probe").stat().st_size == 0

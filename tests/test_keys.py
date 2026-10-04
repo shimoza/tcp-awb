@@ -193,6 +193,28 @@ def test_a_write_needs_the_lab_key_and_an_active_project(svc, gw):
     assert a["data"]["user_data_seen"] == keys.MASK
 
 
+def test_the_lab_role_does_not_write_to_an_identity_service(svc, gw):
+    load(svc)
+    before = len(gw.calls)
+    a = call(svc, role="lab", method="POST", service="iam", path="/v3.0/OS-CREDENTIAL/credentials",
+             body={"credential": {"user_id": "x"}}, project=PROJECT)
+    assert not a["ok"] and "does not write to iam" in a["error"]
+    assert len(gw.calls) == before          # refused before anything is signed and sent
+    # a read of iam stays allowed: the inventory and the project id resolution need it
+    a = call(svc, role="read", method="GET", service="iam", path="/v3/projects")
+    assert a["ok"] and a["status"] == 200, a
+
+
+def test_a_crafted_project_cannot_add_a_line_to_the_log(svc, gw, tmp_path):
+    load(svc)
+    a = call(svc, method="GET", service="vpc", path="/v1/x",
+             project="tcp-ab2c\nFAKE\t12\tread\tGET\tvpc\teu-de\t200\tinjected")
+    assert a["ok"]
+    log = next((tmp_path / "log").glob("*.tsv"))
+    lines = [l for l in log.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert len(lines) == 1, lines
+
+
 @pytest.mark.parametrize("body, error", [
     ({"server": {"user_data": "{{secret:ecs-admin}}"}}, "may only fill a password field"),
     ({"server": {"admin_pass": "x{{secret:ecs-admin}}"}}, "must be the whole value"),

@@ -22,7 +22,12 @@ mail through the SMN topic of the settings when a session puts a file and when a
 The service side (`serve_obs`, `serve_take_owner`, `serve_owner_has`) runs inside the key service and is refused
 everything outside the allowed prefixes before anything is signed: `inbox/` of the lab bucket (get, head, delete,
 copy into the project, list), `<code>/in/` and `<code>/from-session/` of an active project code. Never a policy, an
-ACL or another bucket. The owner's settings live in `~/.config/awb/keys.conf` and travel with `awb keys unlock`:
+ACL or another bucket.
+
+The web mode (`serve_web_read`) is the owner's materials service of the web console reading both buckets: a copy,
+never a move. It lists `inbox/` of either bucket and `<YYYY-MM>/<code>/in/` of an active project in the owner
+bucket, names the month folders of the owner bucket and reads one object at the version (ETag) its listing showed;
+another version fails as changed. It never writes, deletes or copies, and only the owner's own processes reach it. The owner's settings live in `~/.config/awb/keys.conf` and travel with `awb keys unlock`:
 
     bucket_tenant = <alias whose lab key reaches both buckets>
     lab_bucket = awb-lab-eu-de        owner_bucket = awb        region = eu-de
@@ -270,6 +275,103 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
         return {"ok": True, "state": "held", "why": "name candidates for the owner", "customer": customer}
     return {"ok": True, "state": "taken", "customer": customer,
             "outputs": [o.name for o in res.outputs if o.name != "intake-report.md"]}
+
+
+WEB_MONTH_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])/$")
+_WEB_FOLDER_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])/(tcp-[a-z2-7]{4})/in/")
+WEB_MAX_OBJECTS = 2000
+"""The most objects one listing of the web mode returns; more is refused as too many."""
+WEB_MAX_ROOT = 1000
+"""The most entries the top of the owner bucket may hold for the month folders to be named."""
+
+
+def _web_folder(ctx: Context, which: str, path: str) -> tuple[str, str | None] | None:
+    """The allowed folder that `path` (a prefix or a key) lies in and the project it belongs to, or None: inbox/
+    of either bucket, <YYYY-MM>/<code>/in/ of an active project in the owner bucket."""
+    if not isinstance(path, str) or path.startswith("/") or "//" in path or ".." in path.split("/") or \
+            any(ord(c) < 32 or ord(c) == 127 for c in path):
+        return None
+    if path.startswith(INBOX):
+        return INBOX, None
+    m = _WEB_FOLDER_RE.match(path)
+    if which == "owner" and m and ctx.active_project(m.group(1)) is not None:
+        return m.group(0), m.group(1)
+    return None
+
+
+def _web_refusal(kind: str, error: str, status: int = 0) -> tuple[dict, None]:
+    return {"ok": False, "kind": kind, "error": error, **({"status": status} if status else {})}, None
+
+
+def serve_web_read(ctx: Context, req: dict) -> tuple[dict, Path | None]:
+    """A read of the owner's materials service: `months` of the owner bucket, `list` of an allowed folder or `get`
+    of one object at the version it names. A refusal carries a kind (setup, refused, too_many, inconsistent,
+    too_large, changed, http) and, for an answer of the object storage, its status."""
+    from awb import obs
+
+    what, which = req.get("what"), req.get("bucket")
+    if which not in ("lab", "owner"):
+        return _web_refusal("refused", "the web mode reads the lab bucket or the owner bucket")
+    try:
+        c = ctx.client(which)
+    except XchgError as err:
+        return _web_refusal("setup", str(err))
+    try:
+        if what == "months":
+            if which != "owner":
+                return _web_refusal("refused", "month folders exist in the owner bucket only")
+            listing = c.list("", "/")
+            if len(listing.objects) + len(listing.prefixes) > WEB_MAX_ROOT:
+                return _web_refusal("too_many", "the top of the owner bucket holds too many entries")
+            return {"ok": True, "months": sorted(p for p in listing.prefixes if WEB_MONTH_RE.match(p))}, None
+        if what == "list":
+            prefix = req.get("prefix")
+            folder = _web_folder(ctx, which, prefix)
+            if folder is None or folder[0] != prefix:
+                return _web_refusal("refused", "a listing is allowed for inbox/ and an active project's in/ only")
+            listing = c.list(prefix)
+            rows, seen = [], set()
+            for key, size, etag in listing.objects:
+                if not key.startswith(prefix) or key in seen:
+                    return _web_refusal("inconsistent", "the listing named a key twice or outside its folder")
+                seen.add(key)
+                if key.endswith("/"):
+                    continue
+                rows.append({"key": key, "size": size, "etag": etag, "modified": listing.modified.get(key, "")})
+                if len(rows) > WEB_MAX_OBJECTS:
+                    return _web_refusal("too_many", "the folder holds too many objects")
+            return {"ok": True, "objects": rows, "project": folder[1]}, None
+        if what == "get":
+            key, etag, limit = req.get("key"), req.get("etag"), req.get("limit")
+            folder = _web_folder(ctx, which, key)
+            if folder is None or len(key) <= len(folder[0]) or key.endswith("/"):
+                return _web_refusal("refused", "a read is allowed inside inbox/ and an active project's in/ only")
+            if not isinstance(etag, str) or not etag.strip('"'):
+                return _web_refusal("refused", "a read names the version it wants")
+            cap = ctx.max_bytes()
+            if isinstance(limit, int) and not isinstance(limit, bool) and 0 < limit < cap:
+                cap = limit
+            head = c.head(key)
+            if head is None or str(head.get("ETag", "")).strip('"') != etag.strip('"'):
+                return _web_refusal("changed", "the object is gone or is another version now")
+            if int(head.get("Content-Length", 0) or 0) > cap:
+                return _web_refusal("too_large", "the object is larger than the limit")
+            tmp = Path(tempfile.mkstemp(prefix="awb-web-", dir=_tmp_dir(ctx))[1])
+            try:
+                c.get(key, tmp, if_match=etag)
+                if tmp.stat().st_size > cap:
+                    raise XchgError("the object grew past the limit")
+            except BaseException:
+                tmp.unlink(missing_ok=True)
+                raise
+            return {"ok": True, "etag": etag.strip('"'), "size": tmp.stat().st_size, "project": folder[1]}, tmp
+        return _web_refusal("refused", "the web mode knows months, list and get")
+    except obs.OBSError as err:
+        if err.status == 412:
+            return _web_refusal("changed", "the object is another version now")
+        return _web_refusal("http", "the object storage refused the read", err.status)
+    except XchgError as err:
+        return _web_refusal("too_large", str(err))
 
 
 # --------------------------------------------------------------------------- session side

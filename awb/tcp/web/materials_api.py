@@ -1,4 +1,6 @@
-"""Owner-side, copy-only OBS imports. Names and originals never cross the work boundary."""
+"""Owner-side, copy-only OBS imports. Names and originals never cross the work boundary.
+
+The buckets are read through the owner's key service (KeySource): this service holds no key of its own."""
 # Moved from the web adapters of 2026-10-02 into the repository on 2026-10-04, behaviour unchanged (tests/test_web_*.py).
 
 import argparse
@@ -20,14 +22,11 @@ import sys
 import tempfile
 import threading
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
-import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
-from awb import config, projects, register, intake, check, extract, gate, obs
-from awb.tcp import xchg, keys
+from awb import config, projects, register, intake, check, extract, gate
+from awb.tcp import keys
 
 SOCKET='/run/awb-materials.sock'
 PUBLISH_SOCKET='/run/awb-project-create.sock'
@@ -59,81 +58,82 @@ def local_call(path,route,method='GET',data=None,limit=2*1024*1024):
         return result
     finally:c.close()
 
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self,*args,**kwargs):return None
+KEYS_LOCKED='The key service is locked: the owner runs awb keys unlock.'
+KEYS_DOWN='The key service is unavailable. Try again later.'
+NOT_READ='The bucket could not be read. Try again later.'
 
-class ReadOBS:
-    """Only GET and HEAD; bounded listing/download, no redirects, conditional version reads."""
-    def __init__(self,client):self.client=client
-    def read(self,key='',query='',etag=None,to=None,head=False):
-        method='HEAD' if head else 'GET';headers={}
-        if etag:headers['If-Match']='"'+etag.strip('"')+'"'
-        self.client.sign(method,key,headers)
-        req=urllib.request.Request(self.client.url(key,query),headers=headers,method=method)
+
+class KeySource:
+    """One bucket, read through the owner's key service (its web mode, op web_read). This process holds no key and
+    signs nothing; the key service checks every folder, logs every read and never writes or deletes. A refusal of
+    the key service reaches the browser with the same text as when this service read the bucket itself."""
+
+    def __init__(self, which, request=None, sock=None):
+        self.which, self.request, self.sock = which, request or keys.request, sock
+
+    def _ask(self, obj, download=None, too_many=None):
         try:
-            with urllib.request.build_opener(NoRedirect()).open(req,timeout=20) as r:
-                h=dict(r.headers);limit=MAX_FILE if to else 2*1024*1024
-                if int(r.headers.get('Content-Length','0'))>limit:raise Problem(413,'The file exceeds the import limit.')
-                if head:return h,b''
-                chunks=[];total=0
-                f=open(to,'wb') if to else None
-                try:
-                    while True:
-                        b=r.read(min(65536,limit-total+1))
-                        if not b:break
-                        total+=len(b)
-                        if total>limit:raise Problem(413,'The file exceeds the import limit.')
-                        if f:f.write(b)
-                        else:chunks.append(b)
-                finally:
-                    if f:f.close()
-                return h,b''.join(chunks)
-        except urllib.error.HTTPError as e:
-            if e.code==412:raise Problem(409,'The source changed. Refresh the file list and import its current version.') from None
-            raise Problem(503,'Bucket read access is unavailable (HTTP %d).'%e.code) from None
-        except (OSError,ValueError,urllib.error.URLError):raise Problem(503,'The bucket could not be read. Try again later.') from None
-    def listing(self,prefix):
-        rows=[];marker='';seen=set()
-        for _ in range(20):
-            q=urllib.parse.urlencode({'prefix':prefix,'max-keys':200,**({'marker':marker} if marker else {})})
-            _,raw=self.read(query=q)
-            root=ET.fromstring(raw)
-            for el in root:
-                if obs.xml_local(el.tag)!='Contents':continue
-                key=obs.xml_text(obs.xml_child(el,'Key'))
-                if not key.startswith(prefix) or key in seen:raise Problem(503,'The bucket returned an inconsistent listing.')
-                seen.add(key)
-                if key.endswith('/'):continue
-                rows.append({'key':key,'size':int(obs.xml_text(obs.xml_child(el,'Size')) or 0),'etag':obs.xml_text(obs.xml_child(el,'ETag')).strip('"'),'modified':obs.xml_text(obs.xml_child(el,'LastModified'))})
-                if len(rows)>MAX_OBJECTS:raise Problem(413,'This source has too many files. Narrow the source folder first.')
-            if obs.xml_text(obs.xml_child(root,'IsTruncated')).lower()!='true':return rows
-            nxt=obs.xml_text(obs.xml_child(root,'NextMarker'))
-            if not nxt or nxt==marker:raise Problem(503,'The bucket listing could not be completed.')
-            marker=nxt
-        raise Problem(413,'This source exceeds the supported listing limit.')
+            answer = self.request(self.sock or keys.call_socket(), {'op': 'web_read', 'bucket': self.which, **obj},
+                                  download=download)
+        except keys.KeysError:
+            raise Problem(503, KEYS_DOWN) from None
+        if not isinstance(answer, dict):
+            raise Problem(503, NOT_READ)
+        if answer.get('ok'):
+            return answer
+        kind, status = answer.get('kind'), answer.get('status')
+        if kind == 'locked':
+            raise Problem(503, KEYS_LOCKED)
+        if kind == 'setup':
+            raise Problem(503, 'The AWB bucket connection is not configured.')
+        if kind == 'changed':
+            raise Problem(409, 'The source changed. Refresh the file list and import its current version.')
+        if kind == 'too_large':
+            raise Problem(413, 'The file exceeds the import limit.')
+        if kind == 'too_many' and too_many:
+            raise Problem(413, too_many)
+        if kind == 'inconsistent':
+            raise Problem(503, 'The bucket returned an inconsistent listing.')
+        if kind == 'http' and isinstance(status, int) and not isinstance(status, bool) and status > 0:
+            raise Problem(503, 'Bucket read access is unavailable (HTTP %d).' % status)
+        raise Problem(503, NOT_READ)
+
+    def months(self):
+        answer = self._ask({'what': 'months'}, too_many='The customer bucket layout needs a narrower binding.')
+        return [m for m in answer.get('months', []) if isinstance(m, str)]
+
+    def listing(self, prefix):
+        answer = self._ask({'what': 'list', 'prefix': prefix},
+                           too_many='This source has too many files. Narrow the source folder first.')
+        return list(answer.get('objects', []))
+
+    def read(self, key, etag, to):
+        """The object at the version `etag` into `to`; another version is refused as changed."""
+        answer = self._ask({'what': 'get', 'key': key, 'etag': etag, 'limit': MAX_FILE}, download=to)
+        if not Path(to).is_file() or Path(to).stat().st_size != answer.get('size'):
+            raise Problem(503, NOT_READ)
+        return {'ETag': str(answer.get('etag', ''))}, b''
+
 
 class Sources:
-    def __init__(self):self.settings=xchg.read_settings()
-    def client(self,source):
-        s=self.settings;alias=s.get('bucket_tenant')
-        if not alias:raise Problem(503,'The AWB bucket connection is not configured.')
-        pair=obs.Keys(keys.pass_reader(alias+'/lab/ak'),keys.pass_reader(alias+'/lab/sk'))
-        return ReadOBS(obs.Client(s['lab_bucket' if source=='brief' else 'owner_bucket'],pair,s.get('region','eu-de'),timeout=20))
-    def prefixes(self,project,source):
-        if source=='brief':return ['inbox/']
+    """The two buckets through the key service: the lab inbox for a task description (brief), the owner's inbox and
+    the project's own in/ folders for customer material."""
+
+    def __init__(self, request=None, sock=None):
+        self.request, self.sock = request, sock
+
+    def client(self, source):
+        return KeySource('lab' if source == 'brief' else 'owner', self.request, self.sock)
+
+    def prefixes(self, project, source):
+        if source == 'brief':
+            return ['inbox/']
         # Existing AWB project folders, including folders kept under an earlier month.
-        c=self.client(source);prefixes=['inbox/'];month=project.created[:7]
-        # Only known AWB layout, never arbitrary customer-supplied URLs or paths.
-        _,raw=c.read(query='delimiter=%2F&max-keys=1000')
-        root=ET.fromstring(raw)
-        if obs.xml_text(obs.xml_child(root,'IsTruncated')).lower()=='true':raise Problem(413,'The customer bucket layout needs a narrower binding.')
-        months={month}
-        for el in root:
-            if obs.xml_local(el.tag)=='CommonPrefixes':
-                p=obs.xml_text(obs.xml_child(el,'Prefix'))
-                if re.fullmatch(r'\d{4}-(?:0[1-9]|1[0-2])/',p):months.add(p.rstrip('/'))
-        if len(months)>120:raise Problem(413,'The customer bucket layout exceeds the supported limit.')
-        return prefixes+[m+'/'+project.code+'/in/' for m in sorted(months)]
+        months = {project.created[:7]} | {m.rstrip('/') for m in self.client(source).months()}
+        if len(months) > 120:
+            raise Problem(413, 'The customer bucket layout exceeds the supported limit.')
+        return ['inbox/'] + [m + '/' + project.code + '/in/' for m in sorted(months)]
+
 
 class Store:
     def __init__(self,paths=None,state=STATE,sources=None,publisher=None):
