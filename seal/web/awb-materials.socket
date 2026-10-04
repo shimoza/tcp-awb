@@ -1,0 +1,13 @@
+# Template of the web side of the Workbench (seal/web/README.md). Placeholders: @OWNER@ the owner user,
+# @DOMAIN@ the host name of the site, @VAULT@ and @SHARED@ the folders of /etc/awb/paths.conf, @WORK_HOME@ the
+# home of the work user. Not installed by setup.sh: the switch is a step of its own.
+[Unit]
+Description=AWB private project inputs socket
+[Socket]
+ListenStream=/run/awb-materials.sock
+SocketUser=awb-web
+SocketGroup=awb
+SocketMode=0660
+RemoveOnStop=yes
+[Install]
+WantedBy=sockets.target

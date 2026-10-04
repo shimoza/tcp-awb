@@ -72,19 +72,26 @@ class Listing:
     prefixes: list[str]
 
 
-def _local(tag: str) -> str:
+def xml_local(tag: str) -> str:
+    """An element's tag without its namespace."""
     return tag.rsplit("}", 1)[-1]
 
 
-def _child(el: ET.Element, name: str) -> ET.Element | None:
+def xml_child(el: ET.Element, name: str) -> ET.Element | None:
+    """The first child of that name, whatever its namespace."""
     for c in el:
-        if _local(c.tag) == name:
+        if xml_local(c.tag) == name:
             return c
     return None
 
 
-def _text(el: ET.Element | None) -> str:
+def xml_text(el: ET.Element | None) -> str:
+    """The text of an element, empty for none."""
     return (el.text or "") if el is not None else ""
+
+
+# The private names stay for the web adapters still deployed outside the repository until they are switched.
+_local, _child, _text = xml_local, xml_child, xml_text
 
 
 class Client:
@@ -104,14 +111,16 @@ class Client:
     def _path(self, key: str) -> str:
         return "/" + urllib.parse.quote(key, safe="/~")
 
-    def _url(self, key: str, query: str) -> str:
+    def url(self, key: str, query: str) -> str:
+        """The address of a key with its query."""
         if self.endpoint:
             base = "%s/%s" % (self.endpoint, self.bucket)
         else:
             base = "https://%s.obs.%s.%s" % (self.bucket, self.region, DOMAIN)
         return base + self._path(key) + ("?" + query if query else "")
 
-    def _sign(self, method: str, key: str, headers: dict[str, str], sub: str = "") -> None:
+    def sign(self, method: str, key: str, headers: dict[str, str], sub: str = "") -> None:
+        """Add Date and the V2 Authorization header for this request to `headers`."""
         date = email.utils.formatdate(usegmt=True)
         headers["Date"] = date
         obs = sorted((k.lower(), v.strip()) for k, v in headers.items() if k.lower().startswith("x-obs-"))
@@ -121,14 +130,16 @@ class Client:
         mac = hmac.new(self.keys.sk.encode("utf-8"), text.encode("utf-8"), hashlib.sha1).digest()
         headers["Authorization"] = "OBS %s:%s" % (self.keys.ak, base64.b64encode(mac).decode("ascii"))
 
+    _url, _sign = url, sign       # kept for the web adapters still deployed outside the repository
+
     def _send(self, method: str, key: str = "", *, query: str = "", sub: str = "", data=None,
               headers: dict[str, str] | None = None, to: Path | None = None) -> tuple[int, dict, bytes]:
         headers = dict(headers or {})
         if data is not None and "Content-Type" not in headers:
             headers["Content-Type"] = "application/octet-stream"   # else urllib adds one outside the signature
-        self._sign(method, key, headers, sub)
+        self.sign(method, key, headers, sub)
         q = "&".join(x for x in (sub, query) if x)
-        req = urllib.request.Request(self._url(key, q), data=data, method=method, headers=headers)
+        req = urllib.request.Request(self.url(key, q), data=data, method=method, headers=headers)
         try:
             resp = urllib.request.urlopen(req, timeout=self.timeout)
         except urllib.error.HTTPError as exc:
@@ -139,7 +150,7 @@ class Client:
                 pass
             code = ""
             try:
-                code = _text(_child(ET.fromstring(body), "Code")) if body else ""
+                code = xml_text(xml_child(ET.fromstring(body), "Code")) if body else ""
             except ET.ParseError:
                 pass
             raise OBSError("HTTP %d%s" % (exc.code, " " + code if code else ""), exc.code, code) from None
@@ -174,18 +185,18 @@ class Client:
                 raise OBSError("the listing is not XML") from None
             last = ""
             for el in root:
-                name = _local(el.tag)
+                name = xml_local(el.tag)
                 if name == "Contents":
-                    k = _text(_child(el, "Key"))
-                    objects.append((k, int(_text(_child(el, "Size")) or 0), _text(_child(el, "ETag")).strip('"')))
+                    k = xml_text(xml_child(el, "Key"))
+                    objects.append((k, int(xml_text(xml_child(el, "Size")) or 0), xml_text(xml_child(el, "ETag")).strip('"')))
                     last = k
                 elif name == "CommonPrefixes":
-                    p = _text(_child(el, "Prefix"))
+                    p = xml_text(xml_child(el, "Prefix"))
                     prefixes.append(p)
                     last = max(last, p)
-            if _text(_child(root, "IsTruncated")).lower() != "true":
+            if xml_text(xml_child(root, "IsTruncated")).lower() != "true":
                 break
-            marker = _text(_child(root, "NextMarker")) or last
+            marker = xml_text(xml_child(root, "NextMarker")) or last
             if not marker:
                 break
         return Listing(objects, prefixes)

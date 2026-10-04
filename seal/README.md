@@ -11,6 +11,8 @@ The seal keeps the register of names away from every working session. It uses tw
 - The vault daemon (`awb-vaultd.service`) runs as the owner with the group `awb`. Working sessions ask it for the
   name check through `/run/awb/check.sock`. They never see a form or a code of the register.
 - The code runs from `/opt/tcp-awb` (root owned, read-only for the work user, its own virtual environment).
+- The web side (the gateway, the console data, creation, materials and the project chat) has its own templates
+  and switch steps in `web/README.md`; `setup.sh` does not install them.
   `/usr/local/bin/awb` points at it. `/etc/awb/paths.conf` tells every `awb` command where things are.
 
 ## Files

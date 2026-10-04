@@ -1,0 +1,357 @@
+"""Owner-side, copy-only OBS imports. Names and originals never cross the work boundary."""
+# Moved from the web adapters of 2026-10-02 into the repository on 2026-10-04, behaviour unchanged (tests/test_web_*.py).
+
+import argparse
+import datetime as dt
+import hashlib
+import hmac
+import http.client
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import secrets
+import socket
+import sqlite3
+import struct
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
+from awb import config, projects, register, intake, check, extract, gate, obs
+from awb.tcp import xchg, keys
+
+SOCKET='/run/awb-materials.sock'
+PUBLISH_SOCKET='/run/awb-project-create.sock'
+STATE='/var/lib/awb-materials'
+CODE=re.compile(r'tcp-[a-z2-7]{4}')
+IDENT=re.compile(r'M-[A-Z]{24}')
+REQ=re.compile(r'[a-f0-9]{32}')
+MAX_FILE=25*1024*1024
+MAX_TEXT=256*1024
+MAX_OBJECTS=2000
+SUPPORTED={'.md','.txt','.csv','.tsv','.json','.yaml','.yml','.pdf','.docx','.xlsx','.pptx','.odt','.ods','.odp'}
+
+class Problem(Exception):
+    def __init__(self,status,message): self.status=status;self.message=message
+
+def now():return dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
+def identifier():return 'M-'+''.join(secrets.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZ') for _ in range(24))
+def digest(data):return hashlib.sha256(data).hexdigest()
+
+def local_call(path,route,method='GET',data=None,limit=2*1024*1024):
+    c=http.client.HTTPConnection('localhost',timeout=30)
+    c.sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);c.sock.settimeout(30);c.sock.connect(path)
+    try:
+        c.request(method,route,body=json.dumps(data).encode() if data is not None else None,headers={'Content-Type':'application/json'})
+        r=c.getresponse();raw=r.read(limit+1)
+        if len(raw)>limit:raise Problem(503,'The local response exceeds the size limit.')
+        result=json.loads(raw)
+        if r.status>=400:raise Problem(r.status,result.get('error','The local service is unavailable.'))
+        return result
+    finally:c.close()
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self,*args,**kwargs):return None
+
+class ReadOBS:
+    """Only GET and HEAD; bounded listing/download, no redirects, conditional version reads."""
+    def __init__(self,client):self.client=client
+    def read(self,key='',query='',etag=None,to=None,head=False):
+        method='HEAD' if head else 'GET';headers={}
+        if etag:headers['If-Match']='"'+etag.strip('"')+'"'
+        self.client.sign(method,key,headers)
+        req=urllib.request.Request(self.client.url(key,query),headers=headers,method=method)
+        try:
+            with urllib.request.build_opener(NoRedirect()).open(req,timeout=20) as r:
+                h=dict(r.headers);limit=MAX_FILE if to else 2*1024*1024
+                if int(r.headers.get('Content-Length','0'))>limit:raise Problem(413,'The file exceeds the import limit.')
+                if head:return h,b''
+                chunks=[];total=0
+                f=open(to,'wb') if to else None
+                try:
+                    while True:
+                        b=r.read(min(65536,limit-total+1))
+                        if not b:break
+                        total+=len(b)
+                        if total>limit:raise Problem(413,'The file exceeds the import limit.')
+                        if f:f.write(b)
+                        else:chunks.append(b)
+                finally:
+                    if f:f.close()
+                return h,b''.join(chunks)
+        except urllib.error.HTTPError as e:
+            if e.code==412:raise Problem(409,'The source changed. Refresh the file list and import its current version.') from None
+            raise Problem(503,'Bucket read access is unavailable (HTTP %d).'%e.code) from None
+        except (OSError,ValueError,urllib.error.URLError):raise Problem(503,'The bucket could not be read. Try again later.') from None
+    def listing(self,prefix):
+        rows=[];marker='';seen=set()
+        for _ in range(20):
+            q=urllib.parse.urlencode({'prefix':prefix,'max-keys':200,**({'marker':marker} if marker else {})})
+            _,raw=self.read(query=q)
+            root=ET.fromstring(raw)
+            for el in root:
+                if obs.xml_local(el.tag)!='Contents':continue
+                key=obs.xml_text(obs.xml_child(el,'Key'))
+                if not key.startswith(prefix) or key in seen:raise Problem(503,'The bucket returned an inconsistent listing.')
+                seen.add(key)
+                if key.endswith('/'):continue
+                rows.append({'key':key,'size':int(obs.xml_text(obs.xml_child(el,'Size')) or 0),'etag':obs.xml_text(obs.xml_child(el,'ETag')).strip('"'),'modified':obs.xml_text(obs.xml_child(el,'LastModified'))})
+                if len(rows)>MAX_OBJECTS:raise Problem(413,'This source has too many files. Narrow the source folder first.')
+            if obs.xml_text(obs.xml_child(root,'IsTruncated')).lower()!='true':return rows
+            nxt=obs.xml_text(obs.xml_child(root,'NextMarker'))
+            if not nxt or nxt==marker:raise Problem(503,'The bucket listing could not be completed.')
+            marker=nxt
+        raise Problem(413,'This source exceeds the supported listing limit.')
+
+class Sources:
+    def __init__(self):self.settings=xchg.read_settings()
+    def client(self,source):
+        s=self.settings;alias=s.get('bucket_tenant')
+        if not alias:raise Problem(503,'The AWB bucket connection is not configured.')
+        pair=obs.Keys(keys.pass_reader(alias+'/lab/ak'),keys.pass_reader(alias+'/lab/sk'))
+        return ReadOBS(obs.Client(s['lab_bucket' if source=='brief' else 'owner_bucket'],pair,s.get('region','eu-de'),timeout=20))
+    def prefixes(self,project,source):
+        if source=='brief':return ['inbox/']
+        # Existing AWB project folders, including folders kept under an earlier month.
+        c=self.client(source);prefixes=['inbox/'];month=project.created[:7]
+        # Only known AWB layout, never arbitrary customer-supplied URLs or paths.
+        _,raw=c.read(query='delimiter=%2F&max-keys=1000')
+        root=ET.fromstring(raw)
+        if obs.xml_text(obs.xml_child(root,'IsTruncated')).lower()=='true':raise Problem(413,'The customer bucket layout needs a narrower binding.')
+        months={month}
+        for el in root:
+            if obs.xml_local(el.tag)=='CommonPrefixes':
+                p=obs.xml_text(obs.xml_child(el,'Prefix'))
+                if re.fullmatch(r'\d{4}-(?:0[1-9]|1[0-2])/',p):months.add(p.rstrip('/'))
+        if len(months)>120:raise Problem(413,'The customer bucket layout exceeds the supported limit.')
+        return prefixes+[m+'/'+project.code+'/in/' for m in sorted(months)]
+
+class Store:
+    def __init__(self,paths=None,state=STATE,sources=None,publisher=None):
+        self.p=paths or config.paths();self.root=Path(state);self.root.mkdir(parents=True,exist_ok=True,mode=0o700)
+        self.sources=sources or Sources();self.publisher=publisher or self.publish
+        self.lock=threading.Lock();self.list_lock=threading.Lock()
+        self.keyfile=self.root/'digest.key'
+        if not self.keyfile.exists():
+            with open(os.open(self.keyfile,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600),'wb') as f:f.write(secrets.token_bytes(32))
+        self.key=self.keyfile.read_bytes()
+        with self.db() as c:
+            c.executescript('''CREATE TABLE IF NOT EXISTS objects (id TEXT PRIMARY KEY, project TEXT, customer TEXT, source TEXT, object_key TEXT, etag TEXT, size INTEGER, modified TEXT, seen TEXT);
+CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, project TEXT, fingerprint TEXT, result TEXT);
+CREATE TABLE IF NOT EXISTS imports (id TEXT PRIMARY KEY, project TEXT, customer TEXT, object_id TEXT, source TEXT, object_key TEXT, etag TEXT, size INTEGER, name TEXT, state TEXT, message TEXT, created TEXT, version INTEGER, sha TEXT, text_sha TEXT, filename TEXT);
+CREATE INDEX IF NOT EXISTS import_project ON imports(project,created);
+''')
+    def db(self):
+        c=sqlite3.connect(self.root/'imports.sqlite3',timeout=10);c.row_factory=sqlite3.Row;return c
+    def project(self,code,active=False):
+        if not CODE.fullmatch(code or ''):raise Problem(404,'Project not found.')
+        p=next((x for x in projects.load(self.p) if x.code==code and x.state!='deleted'),None)
+        if not p:raise Problem(404,'Project not found.')
+        if active and p.state!='active':raise Problem(409,'Reopen this project before importing files.')
+        if p.customer!='none' and not any(e.code==p.customer and e.status=='active' for e in register.load(self.p.register)):
+            raise Problem(409,'The customer is unavailable or retired.')
+        return p
+    def source_id(self,code,source,key):return hmac.new(self.key,(code+'\0'+source+'\0'+key).encode(),hashlib.sha256).hexdigest()
+    def history(self,code):
+        self.project(code)
+        with self.db() as c:rows=[dict(r) for r in c.execute('SELECT * FROM imports WHERE project=? ORDER BY created DESC,rowid DESC LIMIT 500',(code,))]
+        return {'items':[{k:r[k] for k in ('id','name','source','state','message','created','version','filename','size')} for r in rows], 'busy':any(r['state'] in ('queued','processing','publishing') for r in rows)}
+    def browse(self,code,source):
+        p=self.project(code,True)
+        if source not in ('brief','customer'):raise Problem(400,'Choose a source.')
+        if source=='customer' and p.customer=='none':raise Problem(409,'Select a customer for this project before importing customer material.')
+        if not self.list_lock.acquire(blocking=False):raise Problem(429,'Another source is being listed. Try again shortly.')
+        try:
+            c=self.sources.client(source);rows=[]
+            for prefix in self.sources.prefixes(p,source):rows.extend(c.listing(prefix))
+            if len(rows)>MAX_OBJECTS:raise Problem(413,'The source has too many files.')
+            result=[]
+            with self.db() as db:
+                for r in rows:
+                    if not r['etag'] or len(r['key'])>2048 or any(ord(x)<32 for x in r['key']):continue
+                    oid=self.source_id(code,source,r['key']);name=r['key'].rsplit('/',1)[-1]
+                    db.execute('INSERT OR REPLACE INTO objects VALUES(?,?,?,?,?,?,?,?,?)',(oid,code,p.customer,source,r['key'],r['etag'],r['size'],r['modified'],now()))
+                    old=db.execute("SELECT etag,state FROM imports WHERE project=? AND object_id=? AND state IN ('ready','duplicate','queued','processing','publishing') ORDER BY rowid DESC LIMIT 1",(code,oid)).fetchone()
+                    status=('imported' if old['state'] in ('ready','duplicate') else 'processing') if old and old['etag']==r['etag'] else 'updated' if old else 'new'
+                    supported=Path(name).suffix.lower() in SUPPORTED and 0<r['size']<=MAX_FILE
+                    result.append({'id':oid,'name':name,'etag':r['etag'],'size':r['size'],'modified':r['modified'],'status':status,'supported':supported,'location':'Unassigned inbox' if r['key'].startswith('inbox/') else 'Project folder'})
+            return {'source':source,'files':result,'limit_mb':MAX_FILE//1024//1024}
+        finally:self.list_lock.release()
+    def queue(self,code,data):
+        p=self.project(code,True)
+        if not isinstance(data,dict) or set(data)!={'request_id','files'} or not REQ.fullmatch(str(data.get('request_id',''))):raise Problem(400,'Invalid import request.')
+        files=data['files']
+        if not isinstance(files,list) or not 1<=len(files)<=10 or any(not isinstance(f,dict) or set(f)!={'id','etag'} or not re.fullmatch(r'[a-f0-9]{64}',str(f['id'])) or not isinstance(f['etag'],str) for f in files):raise Problem(400,'Select between 1 and 10 files.')
+        if len({f['id'] for f in files})!=len(files):raise Problem(400,'Select each file once.')
+        fp=digest(json.dumps(sorted(files,key=lambda x:x['id']),sort_keys=True).encode())
+        with self.lock,self.db() as db:
+            prior=db.execute('SELECT * FROM requests WHERE id=?',(data['request_id'],)).fetchone()
+            if prior:
+                if prior['project']!=code or prior['fingerprint']!=fp:raise Problem(409,'This request belongs to another import.')
+                return json.loads(prior['result'])
+            chosen=[]
+            for f in files:
+                row=db.execute('SELECT * FROM objects WHERE id=? AND project=?',(f['id'],code)).fetchone()
+                if not row or row['customer']!=p.customer or row['etag']!=f['etag']:raise Problem(409,'The source selection changed. Refresh the file list.')
+                if row['source']=='customer' and p.customer=='none':raise Problem(409,'A customer is required.')
+                if Path(row['object_key']).suffix.lower() not in SUPPORTED or not 0<row['size']<=MAX_FILE:raise Problem(413,'The selected file type or size is unsupported.')
+                chosen.append(row)
+            pending=db.execute("SELECT count(*) FROM imports WHERE state IN ('queued','processing','publishing')").fetchone()[0]
+            if pending+len(chosen)>30:raise Problem(429,'The import queue is full. Wait for current files to finish.')
+            ids=[]
+            for row in chosen:
+                prior=db.execute("SELECT id FROM imports WHERE project=? AND object_id=? AND etag=? AND state IN ('ready','duplicate','queued','processing','publishing') ORDER BY rowid DESC LIMIT 1",(code,row['id'],row['etag'])).fetchone()
+                if prior:ids.append(prior['id']);continue
+                uncertain=db.execute("SELECT id FROM imports WHERE project=? AND object_id=? AND etag=? AND state='failed' AND text_sha IS NOT NULL ORDER BY rowid DESC LIMIT 1",(code,row['id'],row['etag'])).fetchone()
+                if uncertain:
+                    ids.append(uncertain['id']);db.execute("UPDATE imports SET state='publishing',message='Checking publication of the saved working copy.' WHERE id=?",(uncertain['id'],));continue
+                ident=identifier();ids.append(ident)
+                version=db.execute("SELECT coalesce(max(version),0)+1 FROM imports WHERE project=? AND object_id=? AND state='ready'",(code,row['id'])).fetchone()[0]
+                db.execute('INSERT INTO imports VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(ident,code,p.customer,row['id'],row['source'],row['object_key'],row['etag'],row['size'],Path(row['object_key']).name,'queued','Waiting for processing.',now(),version,None,None,ident+'.md'))
+            result={'imports':ids};db.execute('INSERT INTO requests VALUES(?,?,?,?)',(data['request_id'],code,fp,json.dumps(result)))
+            return result
+    def update(self,ident,**fields):
+        with self.db() as c:c.execute('UPDATE imports SET '+','.join(k+'=?' for k in fields)+' WHERE id=?',(*fields.values(),ident))
+    def publish(self,row,text):
+        return local_call(PUBLISH_SOCKET,'/internal/projects/'+row['project']+'/materials','POST',{'id':row['id'],'customer':row['customer'],'text':text,'sha256':digest(text.encode())})
+    def checked(self,text):
+        if len(text.encode())>MAX_TEXT:raise Problem(422,'Extracted text is too large. Split this document into smaller files.')
+        if check.check_text(text,self.p.register) or any(gate.DETECTORS[k](text) for k in ('secret','private-key','token','homepath')):
+            raise Problem(422,'The working copy contains protected values. Owner review is required.')
+        return text
+    def process(self,ident):
+        with self.db() as db:row=db.execute('SELECT * FROM imports WHERE id=?',(ident,)).fetchone()
+        if not row or row['state'] not in ('queued','publishing'):return
+        row=dict(row)
+        try:
+            p=self.project(row['project'],True)
+            if p.customer!=row['customer']:raise Problem(409,'The project customer changed. Import again with the correct customer.')
+            stage=self.root/(ident+'.md')
+            if row['state']=='publishing':
+                text=stage.read_text();self.checked(text)
+                if digest(text.encode())!=row['text_sha']:raise Problem(422,'The staged document changed. Owner review is required.')
+                self.publisher(row,text);self.update(ident,state='ready',message='Ready text copy. Embedded images are not included.');return
+            self.update(ident,state='processing',message='Downloading and checking the selected version.')
+            tmp_root=self.p.vault/'tmp';tmp_root.mkdir(exist_ok=True,mode=0o700)
+            with tempfile.TemporaryDirectory(prefix='web-import-',dir=tmp_root) as folder:
+                original=Path(folder)/row['name']
+                if original.name in ('','.','..') or '/' in original.name or '\\' in original.name:raise Problem(422,'The filename is unsupported.')
+                c=self.sources.client(row['source']);headers,_=c.read(row['object_key'],etag=row['etag'],to=original)
+                if original.stat().st_size!=row['size'] or next((v for k,v in headers.items() if k.lower()=='etag'),'').strip('"')!=row['etag']:raise Problem(409,'The source changed. Refresh the file list and import its current version.')
+                sha=digest(original.read_bytes());self.update(ident,sha=sha)
+                with self.db() as db:
+                    prior=db.execute("SELECT id,version FROM imports WHERE project=? AND object_id=? AND sha=? AND state='ready' ORDER BY rowid DESC LIMIT 1",(row['project'],row['object_id'],sha)).fetchone()
+                if prior:
+                    self.update(ident,state='duplicate',version=prior['version'],message='The same content is already imported as '+prior['id']+'.');return
+                if row['source']=='customer':
+                    # Public outbox is isolated per job; only this job's approved copies can be published.
+                    from dataclasses import replace
+                    job_shared=self.root/'jobs'/ident;job_shared.mkdir(parents=True,mode=0o700,exist_ok=True)
+                    job_paths=replace(self.p,shared=job_shared)
+                    result=intake.run([original],row['customer'],job_paths)
+                    if result.blocked:raise Problem(422,'Unrecognised names require owner review in the intake report. Register or approve them, then retry.')
+                    if result.unsealed:raise Problem(422,'The original could not be sealed. Owner review is required before release.')
+                    if not result.states or any(v not in ('ok','empty') for v in result.states.values()):raise Problem(422,'The document could not be read completely. Review it or provide a supported text version.')
+                    approved=[f for f in result.outputs if f.name!='intake-report.md']
+                    if not approved:raise Problem(422,'No usable text was extracted from this file.')
+                    text='\n\n'.join(f.read_text() for f in approved)
+                else:
+                    with extract.temp_root(Path(folder)):
+                        ex=extract.extract(original)
+                    if ex.state!='ok' or ex.meta.get(extract.INCOMPLETE):raise Problem(422,'The document could not be read completely. Provide a supported text version.')
+                    if check.check_file(original,self.p.register) or intake.unknown_candidates(row['name']+'\n'+ex.text,[]):raise Problem(422,'This task description may contain private information. Use the customer source or ask the owner to review it.')
+                    text=ex.text
+                if not text.strip():raise Problem(422,'This file contains no readable text.')
+                self.checked(text)
+                with self.db() as db:version=db.execute("SELECT coalesce(max(version),0)+1 FROM imports WHERE project=? AND object_id=? AND state='ready'",(row['project'],row['object_id'])).fetchone()[0]
+                self.update(ident,version=version)
+                with open(stage,'w') as f:f.write(text);f.flush();os.fsync(f.fileno())
+                os.chmod(stage,0o600)
+                self.update(ident,state='publishing',text_sha=digest(text.encode()),message='Adding the checked working copy to the project.')
+                self.publisher(row,text)
+                self.update(ident,state='ready',message='Ready text copy. Embedded images are not included.')
+        except Problem as e:self.update(ident,state='held' if e.status==422 else 'failed',message=e.message)
+        except Exception:self.update(ident,state='failed',message='Import stopped. Check the connection and vault, then retry. Source files were preserved.')
+    def text(self,code,ident):
+        project=self.project(code)
+        with self.db() as db:row=db.execute("SELECT * FROM imports WHERE project=? AND id=? AND state='ready'",(code,ident)).fetchone()
+        if not row:raise Problem(404,'The selected input is not ready in this project.')
+        if row['customer']!=project.customer:raise Problem(409,'The project customer changed. This input cannot be used in its new context.')
+        path=self.root/(ident+'.md')
+        if path.is_symlink() or path.stat().st_size>MAX_TEXT:raise Problem(422,'The imported working copy is unavailable.')
+        text=path.read_text()
+        if digest(text.encode())!=row['text_sha']:raise Problem(422,'The imported working copy changed. Import it again before use.')
+        self.checked(text)
+        return {'id':ident,'version':row['version'],'filename':row['filename'],'imported':row['created'],'text':text}
+    def worker(self):
+        # A killed extraction is never reported ready. Staged copies can finish idempotent publication.
+        with self.db() as db:db.execute("UPDATE imports SET state='failed',message='Processing was interrupted. Retry the import; source files were preserved.' WHERE state='processing'")
+        while True:
+            with self.db() as db:row=db.execute("SELECT id FROM imports WHERE state IN ('queued','publishing') ORDER BY rowid LIMIT 1").fetchone()
+            if not row:time.sleep(1);continue
+            try:
+                subprocess.run([sys.executable,'-m','awb.tcp.web.materials_api','--state',str(self.root),'--process',row['id']],timeout=120,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True)
+            except Exception:self.update(row['id'],state='failed',message='Processing timed out or stopped. Retry with a smaller supported document.')
+            time.sleep(1)
+
+class Handler(BaseHTTPRequestHandler):
+    def setup(self):super().setup();self.connection.settimeout(30)
+    def reply(self,status,data):
+        raw=json.dumps(data,ensure_ascii=False).encode();self.send_response(status)
+        for k,v in {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store, private','Content-Length':str(len(raw)),'Connection':'close'}.items():self.send_header(k,v)
+        self.end_headers();self.wfile.write(raw)
+    def do_GET(self):self.dispatch()
+    def do_POST(self):self.dispatch()
+    def dispatch(self):
+        try:
+            uid=struct.unpack('3i',self.connection.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))[1]
+            url=urllib.parse.urlsplit(self.path);route=re.fullmatch(r'/api/projects/(tcp-[a-z2-7]{4})/materials(?:/(sources|imports|M-[A-Z]{24}))?',url.path)
+            inner=re.fullmatch(r'/internal/projects/(tcp-[a-z2-7]{4})/materials/(M-[A-Z]{24})',url.path)
+            if inner and self.command=='GET' and uid in self.server.read_uids:return self.reply(200,self.server.store.text(*inner.groups()))
+            if uid!=self.server.web_uid:raise Problem(403,'Not allowed.')
+            if not route:raise Problem(404,'Not found.')
+            code,action=route.groups()
+            if self.command=='GET':
+                if action=='sources':
+                    q=urllib.parse.parse_qs(url.query,strict_parsing=True,max_num_fields=1)
+                    return self.reply(200,self.server.store.browse(code,(q.get('source') or [''])[0]))
+                if action is None:return self.reply(200,self.server.store.history(code))
+                if IDENT.fullmatch(action):return self.reply(200,self.server.store.text(code,action))
+            if self.command=='POST' and action=='imports':
+                lengths=self.headers.get_all('Content-Length',[])
+                if len(lengths)!=1 or self.headers.get('Transfer-Encoding') or self.headers.get('Content-Type','').split(';')[0]!='application/json':raise Problem(400,'Invalid request.')
+                n=int(lengths[0])
+                if not 0<n<=16384:raise Problem(413,'Request is too large.')
+                raw=self.rfile.read(n)
+                if len(raw)!=n:raise Problem(400,'Incomplete request.')
+                return self.reply(202,self.server.store.queue(code,json.loads(raw)))
+            raise Problem(405,'Method not allowed.')
+        except Problem as e:self.reply(e.status,{'error':e.message})
+        except (ValueError,TypeError):self.reply(400,{'error':'Invalid request.'})
+        except Exception:self.reply(503,{'error':'The input service is unavailable. Check the bucket connection and vault.'})
+    def log_message(self,*a):pass
+class Server(ThreadingMixIn,HTTPServer):
+    address_family=socket.AF_UNIX;daemon_threads=True
+    def get_request(self):c,_=self.socket.accept();return c,('local',0)
+def main():
+    ap=argparse.ArgumentParser();ap.add_argument('--state',default=STATE);ap.add_argument('--process');args=ap.parse_args()
+    store=Store(state=args.state)
+    if args.process:
+        if not IDENT.fullmatch(args.process):raise SystemExit(2)
+        import resource
+        resource.setrlimit(resource.RLIMIT_CPU,(90,90));resource.setrlimit(resource.RLIMIT_AS,(512*1024*1024,512*1024*1024))
+        store.process(args.process);return
+    if os.environ.get('LISTEN_PID')!=str(os.getpid()) or os.environ.get('LISTEN_FDS')!='1':raise SystemExit('Socket activation required.')
+    s=Server('',Handler,bind_and_activate=False);s.socket.close();s.socket=socket.socket(fileno=3)
+    s.store=store;s.web_uid=pwd.getpwnam('awb-web').pw_uid;s.read_uids={pwd.getpwnam(u).pw_uid for u in ('awb','awb-ask')}
+    threading.Thread(target=store.worker,daemon=True).start();s.serve_forever()
+if __name__=='__main__':main()

@@ -169,7 +169,7 @@ def take(t: Tenant, handles: _sweep.Handles, listers: dict[str, Lister], now: da
             for raw in listing.items:
                 if not isinstance(raw, dict) or not isinstance(raw.get("id"), str):
                     continue
-                tags = _sweep._tags(raw.get("tags") or (raw.get("metadata") or {}).get("tags"))
+                tags = _sweep.tags(raw.get("tags") or (raw.get("metadata") or {}).get("tags"))
                 items.append({
                     "handle": handles.handle(kind, raw["id"]),
                     "kind": kind,

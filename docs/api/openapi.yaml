@@ -1,0 +1,3635 @@
+openapi: "3.1.0"
+info:
+  title: Architect Workbench web API
+  version: "0.1.0"
+  description: |-
+    The HTTP interface of the Architect Workbench web console. The console page and every route below are served
+    by one gateway. It checks the session and the request, then hands the request to the backend that owns the
+    route.
+
+    State: this document describes what is deployed, the gateway and the backends of 2026-10-02. Production is
+    frozen while the backend moves into the repository. Every operation carries x-awb-state: deployed runs in
+    production as written here, repository exists in the repository only and is not deployed yet.
+
+    One change waits in the repository: the project kinds. The deployed backend knows engagement, lab, topic and
+    code. The repository knows query and project and reads the old words as one of them (schema Kind).
+    GET /api/project-options always serves the kinds of the running backend.
+
+    Planned, not in this version: the same routes under /api/v1/ with the old paths kept until the interface has
+    switched, and GET /api/v1/version with the backend commit and the time of the deploy.
+
+    Rules for every route:
+    - Customers, projects and tenants appear as codes (CUST-Q7M4, tcp-q7m4, test-1). Only /api/customers carries
+      registered names, for the owner's own console.
+    - A backend answers JSON. A refusal is {"error": "<one sentence>"}, at times with field, terminal, code or
+      matches. A refusal of the gateway itself is one line of text/html.
+    - A write carries request_id, 32 lower-case hex characters made by the browser for one submission. The same
+      request_id with the same content returns the first result, so a retry after a broken connection is safe.
+      The same request_id with other content is refused with 409.
+    - A POST needs the session cookie, the site's own Origin, Sec-Fetch-Site same-origin or none, one
+      Content-Length of at most 16384 bytes and the content type of its route.
+    - Times are ISO 8601 in UTC unless a field says otherwise. HEAD works wherever GET does.
+    - Without a session every /api/ route answers 401 and a page answers 303 to /login.
+    - Any path: a wrong host gets 400 Invalid host., a target that is not a path 400 Invalid request target.,
+      an unknown path 404 Not found. and a method other than GET, HEAD or POST 405 Method not allowed., each as
+      one line of text/html (info.x-awb-texts).
+
+    The gateway also serves the older server-rendered pages /kb, /price, /projects, /reviews, /tenants, /health
+    and /portal. They are HTML, the console does not call them and they are not part of this contract.
+  x-awb-deployed: "2026-10-02"
+  x-awb-texts:
+    - Invalid host.
+    - Invalid request target.
+    - Not found.
+    - Method not allowed.
+servers:
+  - url: /
+    description: "The site itself: the console and the API share one origin."
+security:
+  - session: []
+tags:
+  - name: session
+    description: Sign in and sign out. A session lasts up to 8 hours.
+  - name: pages
+    description: The HTML pages the console uses.
+  - name: projects
+    description: The project register, read and create.
+  - name: customers
+    description: "The customer register. Owner only: it carries names."
+  - name: tenants
+    description: The test tenants, read only.
+  - name: materials
+    description: Inputs from the buckets, copied into a project.
+  - name: chat
+    description: Questions about a project, answered from checked sources only.
+paths:
+  /login:
+    get:
+      operationId: signInPage
+      tags:
+        - session
+      summary: The sign-in page.
+      parameters:
+        - name: next
+          in: query
+          required: false
+          description: A page to open after the sign-in. Anything else becomes /.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The form. Sets the __Host-awb-login cookie for 600 seconds.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                page:
+                  value: "<!doctype html><html lang=\"en\"><head><title>Sign in · AWB</title></head><body><form action=\"/login\" method=\"post\">...</form></body></html>"
+        "303":
+          description: Already signed in.
+          headers:
+            Location:
+              description: The next page.
+              schema:
+                type: string
+        "400":
+          description: The query cannot be read.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                invalid-query:
+                  value: |
+                    Invalid query.
+      security: []
+      x-awb-state: deployed
+    post:
+      operationId: signIn
+      tags:
+        - session
+      summary: Sign in with the username and the password.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                csrf:
+                  type: string
+                  description: "The hidden field of the sign-in page; it must equal the __Host-awb-login cookie and is valid for 600 seconds."
+                username:
+                  type: string
+                  maxLength: 100
+                password:
+                  type: string
+                  maxLength: 200
+                next:
+                  type: string
+                  description: Where to go after the sign-in.
+                  enum:
+                    - /
+                    - /kb
+                    - /price
+                    - /projects
+                    - /reviews
+                    - /tenants
+                    - /health
+                    - /portal
+                    - /ask
+              required:
+                - csrf
+                - username
+                - password
+              additionalProperties: false
+            examples:
+              sign-in:
+                value:
+                  csrf: "<the hidden field>"
+                  username: "<username>"
+                  password: "<password>"
+                  next: /
+      responses:
+        "200":
+          description: "The username or the password is wrong: the form again, with the reason."
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                page:
+                  value: "<!doctype html><html lang=\"en\"><head><title>Sign in · AWB</title></head><body><p role=\"alert\" class=\"error\">The username or password is incorrect.</p><form action=\"/login\" method=\"post\">...</form></body></html>"
+        "303":
+          description: Signed in.
+          headers:
+            Location:
+              description: The next page.
+              schema:
+                type: string
+            Set-Cookie:
+              description: "__Host-awb-session: valid for 8 hours, Secure, HttpOnly, SameSite=Lax."
+              schema:
+                type: string
+        "400":
+          description: The form cannot be read.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                a-single-content-length-is:
+                  value: |
+                    A single content length is required.
+                invalid-form:
+                  value: |
+                    Invalid form.
+        "403":
+          description: "The form expired or came from another site: the form again, with the reason. The form was not sent from the site."
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                page:
+                  value: "<!doctype html><html lang=\"en\"><head><title>Sign in · AWB</title></head><body><p role=\"alert\" class=\"error\">The sign-in form expired. Please try again.</p><form action=\"/login\" method=\"post\">...</form></body></html>"
+                open-this-form-on-the:
+                  value: |
+                    Open this form on the AWB site.
+        "413":
+          description: The form is larger than 16384 bytes.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-is-too-large:
+                  value: |
+                    Request is too large.
+        "415":
+          description: The body is not a form.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                use-the-sign-in-form:
+                  value: |
+                    Use the sign-in form.
+        "429":
+          description: Eight failed attempts within a minute.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                page:
+                  value: "<!doctype html><html lang=\"en\"><head><title>Sign in · AWB</title></head><body><p role=\"alert\" class=\"error\">Too many attempts. Try again in one minute.</p><form action=\"/login\" method=\"post\">...</form></body></html>"
+      security: []
+      x-awb-state: deployed
+  /logout:
+    get:
+      operationId: signOutPage
+      tags:
+        - session
+      summary: A page that asks before signing out.
+      responses:
+        "200":
+          description: The page with one button.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                page:
+                  value: "<html><head><title>Sign out - AWB</title></head><body><h1>Sign out of AWB?</h1><form method=\"post\" action=\"/logout\"><button>Sign out</button></form></body></html>"
+        "303":
+          description: No valid session.
+          headers:
+            Location:
+              description: /login?next=<the page, or / for any other path>
+              schema:
+                type: string
+      x-awb-state: deployed
+    post:
+      operationId: signOut
+      tags:
+        - session
+      summary: End the session.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
+            examples:
+              empty:
+                value: {}
+      responses:
+        "303":
+          description: Signed out.
+          headers:
+            Location:
+              description: /login
+              schema:
+                type: string
+            Set-Cookie:
+              description: __Host-awb-session cleared.
+              schema:
+                type: string
+        "400":
+          description: The form cannot be read.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                a-single-content-length-is:
+                  value: |
+                    A single content length is required.
+                invalid-form:
+                  value: |
+                    Invalid form.
+        "403":
+          description: Not sent from the site, or no session.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-this-form-on-the:
+                  value: |
+                    Open this form on the AWB site.
+                sign-in-before-submitting-a:
+                  value: |
+                    Sign in before submitting a question.
+        "413":
+          description: The form is larger than 16384 bytes.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-is-too-large:
+                  value: |
+                    Request is too large.
+        "415":
+          description: The body is not a form.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                use-the-sign-in-form:
+                  value: |
+                    Use the sign-in form.
+      x-awb-state: deployed
+  /:
+    get:
+      operationId: getConsole
+      tags:
+        - pages
+      summary: "The console: one HTML page with its own script."
+      responses:
+        "200":
+          description: The page, with a Content-Security-Policy that allows its inline scripts only.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                page:
+                  value: "<!doctype html><html lang=\"en\"><head><title>Architect Workbench</title></head><body>...</body></html>"
+        "303":
+          description: No valid session.
+          headers:
+            Location:
+              description: /login?next=<the page, or / for any other path>
+              schema:
+                type: string
+        "503":
+          description: The page cannot be read.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-workspace-is-temporarily-unavailable:
+                  value: |
+                    The workspace is temporarily unavailable.
+      x-awb-state: deployed
+  /architect-workbench.html:
+    get:
+      operationId: getConsoleByName
+      tags:
+        - pages
+      summary: "The console: one HTML page with its own script."
+      responses:
+        "200":
+          description: The page, with a Content-Security-Policy that allows its inline scripts only.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                page:
+                  value: "<!doctype html><html lang=\"en\"><head><title>Architect Workbench</title></head><body>...</body></html>"
+        "303":
+          description: No valid session.
+          headers:
+            Location:
+              description: /login?next=<the page, or / for any other path>
+              schema:
+                type: string
+        "503":
+          description: The page cannot be read.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-workspace-is-temporarily-unavailable:
+                  value: |
+                    The workspace is temporarily unavailable.
+      x-awb-state: deployed
+  /ask:
+    get:
+      operationId: askPage
+      tags:
+        - pages
+      summary: "The Ask page: one general question, answered only from the checked sources."
+      responses:
+        "200":
+          description: The page.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                page:
+                  value: "<!doctype html><html lang=\"en\"><head><title>Ask · AWB</title></head><body>...</body></html>"
+        "303":
+          description: No valid session.
+          headers:
+            Location:
+              description: /login?next=<the page, or / for any other path>
+              schema:
+                type: string
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+      x-awb-state: deployed
+    post:
+      operationId: askGeneral
+      tags:
+        - pages
+      summary: Send one general question from the Ask page.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                q:
+                  type: string
+                  description: The question.
+                  minLength: 1
+                  maxLength: 1000
+              required:
+                - q
+              additionalProperties: false
+            examples:
+              question:
+                value:
+                  q: Which flavors does the region eu-de offer for SAP HANA?
+      responses:
+        "200":
+          description: The page with the answer and its sources, or with the reason it failed.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                page:
+                  value: "<!doctype html><html lang=\"en\"><head><title>Ask · AWB</title></head><body>...</body></html>"
+        "400":
+          description: The question cannot be used. The gateway refused the request.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                write-a-question-of-1:
+                  value:
+                    error: Write a question of 1 to 1000 characters.
+                the-request-could-not-be:
+                  value:
+                    error: The request could not be read.
+            text/html:
+              schema:
+                type: string
+              examples:
+                a-single-content-length-is:
+                  value: |
+                    A single content length is required.
+                incomplete-request:
+                  value: |
+                    Incomplete request.
+        "403":
+          description: No session. The gateway refused a request from another site.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                sign-in-before-submitting-a:
+                  value: |
+                    Sign in before submitting a question.
+                open-ask-on-the-awb:
+                  value: |
+                    Open Ask on the AWB site to submit a question.
+                cross-site-requests-are-not:
+                  value: |
+                    Cross-site requests are not allowed.
+        "408":
+          description: The body did not arrive in time.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-timed-out:
+                  value: |
+                    Request timed out.
+        "413":
+          description: The body is larger than 16384 bytes.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-is-too-large:
+                  value: |
+                    Request is too large.
+        "415":
+          description: The body is not a form. The body has the wrong content type.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                use-the-ask-form:
+                  value: |
+                    Use the Ask form.
+        "422":
+          description: The question holds a name or a protected value.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-text-contains-a-name:
+                  value:
+                    error: The text contains a name, address or protected value. Use project and customer codes.
+        "429":
+          description: One answer at a time, and a daily budget.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                another-answer-is-being-prepared:
+                  value:
+                    error: Another answer is being prepared. Try again when it finishes.
+                the-daily-ask-budget-is:
+                  value:
+                    error: "The daily Ask budget is used up. It resets at 00:00 UTC."
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: A check or the usage record is unavailable.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-data-check-is-locked:
+                  value:
+                    error: The data check is locked. Nothing was sent.
+                the-data-check-is-unavailable:
+                  value:
+                    error: The data check is unavailable. Nothing was sent.
+                the-usage-record-is-unavailable:
+                  value:
+                    error: The usage record is unavailable. No new questions can be sent.
+                the-question-could-not-be:
+                  value:
+                    error: The question could not be accepted. Check the conversation before trying again.
+      x-awb-state: deployed
+  /api/projects:
+    get:
+      operationId: listProjects
+      tags:
+        - projects
+      summary: The registered projects that are not deleted.
+      responses:
+        "200":
+          description: The list.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ProjectList"
+              examples:
+                three-projects:
+                  value:
+                    source: AWB project register
+                    fetched_at: "2026-10-04T09:30:00.120034+00:00"
+                    projects:
+                      - code: tcp-k2wd
+                        kind: query
+                        customer: none
+                        state: active
+                        created: "2026-10-01"
+                        goal: Compare the object storage classes of TCP for archive data
+                        goal_redacted: false
+                        open_items: 2
+                        live_resources: 0
+                        updated: "2026-10-03T16:40:12.511204+00:00"
+                      - code: tcp-m3fx
+                        kind: lab
+                        customer: none
+                        state: active
+                        created: "2026-09-30"
+                        goal: Test a virtual firewall appliance on a test tenant
+                        goal_redacted: false
+                        open_items: 5
+                        live_resources: 3
+                        updated: "2026-10-02T11:05:47.902114+00:00"
+                      - code: tcp-q7m4
+                        kind: engagement
+                        customer: CUST-Q7M4
+                        state: closed
+                        created: "2026-09-22"
+                        goal: Plan the move of the customer's file servers to TCP
+                        goal_redacted: false
+                        open_items: 0
+                        live_resources: null
+                        updated: null
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The data check or a project folder is unavailable. Nothing was returned.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-data-check-is-locked:
+                  value:
+                    error: The data check is locked. Project content was not returned.
+                the-data-check-is-unavailable:
+                  value:
+                    error: The data check is unavailable. Project content was not returned.
+                the-registered-project-folder-cannot:
+                  value:
+                    error: The registered project folder cannot be opened safely.
+                the-registered-project-folder-is:
+                  value:
+                    error: The registered project folder is unavailable.
+                project-data-could-not-be:
+                  value:
+                    error: Project data could not be read. Try again shortly.
+      x-awb-state: deployed
+    post:
+      operationId: createProject
+      tags:
+        - projects
+      summary: Create a project.
+      description: Creates the project folder with its files and registers it. No AI call and no cloud resource. The engagement rule (a customer is required) exists in the deployed backend only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ProjectCreateRequest"
+            examples:
+              internal-query:
+                value:
+                  request_id: ffffffffffffffffffffffffffffffff
+                  kind: query
+                  goal: Compare the object storage classes of TCP for archive data
+                  customer: none
+                  tags:
+                    - obs
+              customer-work:
+                value:
+                  request_id: ffffffffffffffffffffffffffffffff
+                  kind: engagement
+                  goal: Plan the move of the customer's file servers to TCP
+                  customer: CUST-Q7M4
+                  tags: []
+      responses:
+        "201":
+          description: Created, or the result of the first submission with this request_id.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/CreationResult"
+              examples:
+                created:
+                  value:
+                    code: tcp-k2wd
+                    created: true
+                recovered:
+                  value:
+                    code: tcp-k2wd
+                    created: true
+                    warning: Project recovered after an interrupted request. Its first activity entry may be missing.
+                no-activity-entry:
+                  value:
+                    code: tcp-k2wd
+                    created: true
+                    warning: Project created. The first activity entry could not be written.
+        "400":
+          description: The content is refused. The project check of the backend may also refuse with a sentence of its own. The gateway refused the request.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                unsupported-form-fields:
+                  value:
+                    error: Unsupported form fields.
+                a-valid-request-id-is:
+                  value:
+                    error: A valid request ID is required.
+                choose-a-project-type-and:
+                  value:
+                    error: Choose a project type and enter a goal of up to 500 characters.
+                select-a-valid-customer-or:
+                  value:
+                    error: Select a valid customer or Internal project.
+                select-tags-from-the-list:
+                  value:
+                    error: Select tags from the list.
+                select-a-customer-for-customer:
+                  value:
+                    error: Select a customer for customer work.
+                    field: customer
+                this-customer-is-unavailable-or:
+                  value:
+                    error: This customer is unavailable or retired. Select an active customer.
+                    field: customer
+                invalid-request:
+                  value:
+                    error: Invalid request.
+            text/html:
+              schema:
+                type: string
+              examples:
+                a-single-content-length-is:
+                  value: |
+                    A single content length is required.
+                incomplete-request:
+                  value: |
+                    Incomplete request.
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "403":
+          description: The gateway refused a request from another site.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-ask-on-the-awb:
+                  value: |
+                    Open Ask on the AWB site to submit a question.
+                cross-site-requests-are-not:
+                  value: |
+                    Cross-site requests are not allowed.
+        "408":
+          description: The body did not arrive in time.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-timed-out:
+                  value: |
+                    Request timed out.
+        "409":
+          description: The request_id belongs to another submission, or a reserved project needs the owner's look.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                this-request-already-belongs-to:
+                  value:
+                    error: This request already belongs to another submission. Reopen the form.
+                    terminal: true
+                the-reserved-project-needs-inspection:
+                  value:
+                    error: The reserved project needs inspection.
+                    terminal: true
+                    code: tcp-k2wd
+                creation-was-interrupted-the-reserved:
+                  value:
+                    error: Creation was interrupted. The reserved folder needs inspection before retrying.
+                    terminal: true
+                    code: tcp-k2wd
+        "413":
+          description: The body is larger than 16384 bytes.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-is-too-large:
+                  value: |
+                    Request is too large.
+        "415":
+          description: The body has the wrong content type.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                use-the-ask-form:
+                  value: |
+                    Use the Ask form.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: A register or the creation service is unavailable. Retry with the same request_id.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-customer-register-is-unavailable:
+                  value:
+                    error: The customer register is unavailable. Try again later.
+                the-customer-register-is-locked:
+                  value:
+                    error: The customer register is locked or unavailable. Retry this submission when it is unlocked.
+                the-operation-could-not-finish:
+                  value:
+                    error: The operation could not finish. Retry the same submission to check its result.
+      x-awb-state: deployed
+  "/api/projects/{code}":
+    get:
+      operationId: getProject
+      tags:
+        - projects
+      summary: One project with its files and deliverables.
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: "The project code: tcp- and four characters of a to z and 2 to 7."
+          schema:
+            type: string
+            pattern: "^tcp-[a-z2-7]{4}$"
+      responses:
+        "200":
+          description: The project.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ProjectDetail"
+              examples:
+                query:
+                  value:
+                    code: tcp-k2wd
+                    kind: query
+                    customer: none
+                    state: active
+                    created: "2026-10-01"
+                    goal: Compare the object storage classes of TCP for archive data
+                    goal_redacted: false
+                    open_items: 2
+                    live_resources: 0
+                    updated: "2026-10-03T16:40:12.511204+00:00"
+                    documents:
+                      SCOPE.md:
+                        text: |
+                          # Scope
+
+                          - goal: Compare the object storage classes of TCP for archive data
+                        status: available
+                        redacted: false
+                        modified: "2026-10-01T09:02:31.104577+00:00"
+                      STATE.md:
+                        text: |
+                          # State
+
+                          The prices of the three classes are fetched.
+                        status: available
+                        redacted: false
+                        modified: "2026-10-03T16:40:12.511204+00:00"
+                      OPEN.md:
+                        text: |
+                          # Open
+
+                          - confirm the retrieval fee
+                          - check the minimum storage time
+                        status: available
+                        redacted: false
+                        modified: "2026-10-03T16:31:55.020931+00:00"
+                      RESOURCES.md:
+                        text: ""
+                        status: missing
+                        redacted: false
+                        modified: null
+                    deliverables:
+                      status: available
+                      truncated: false
+                      items:
+                        - file: deliverables/storage-classes.md
+                          state: valid
+                          tier: 1
+                          redacted: false
+                    fetched_at: "2026-10-04T09:30:00.120034+00:00"
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "404":
+          description: No such project.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                this-project-is-not-registered:
+                  value:
+                    error: This project is not registered or has been deleted.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The data check or a project folder is unavailable. Nothing was returned.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-data-check-is-locked:
+                  value:
+                    error: The data check is locked. Project content was not returned.
+                the-data-check-is-unavailable:
+                  value:
+                    error: The data check is unavailable. Project content was not returned.
+                the-registered-project-folder-cannot:
+                  value:
+                    error: The registered project folder cannot be opened safely.
+                the-registered-project-folder-is:
+                  value:
+                    error: The registered project folder is unavailable.
+                project-data-could-not-be:
+                  value:
+                    error: Project data could not be read. Try again shortly.
+      x-awb-state: deployed
+  /api/project-options:
+    get:
+      operationId: getProjectOptions
+      tags:
+        - projects
+      summary: What the create form offers.
+      responses:
+        "200":
+          description: The kinds and the tags of the running backend.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ProjectOptions"
+              examples:
+                deployed:
+                  value:
+                    kinds:
+                      - engagement
+                      - lab
+                      - topic
+                      - code
+                    tags:
+                      - ecs
+                      - obs
+                      - vpc
+                repository:
+                  value:
+                    kinds:
+                      - query
+                      - project
+                    tags:
+                      - ecs
+                      - obs
+                      - vpc
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The creation service could not answer.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-operation-could-not-finish:
+                  value:
+                    error: The operation could not finish. Retry the same submission to check its result.
+      x-awb-state: deployed
+  "/api/project-operations/{request_id}":
+    get:
+      operationId: getProjectOperation
+      tags:
+        - projects
+      summary: The state of a project submission, for a retry after a broken connection.
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          description: The request_id of the submission.
+          schema:
+            type: string
+            pattern: "^[a-f0-9]{32}$"
+      responses:
+        "200":
+          description: The state.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/OperationStatus"
+              examples:
+                unknown:
+                  value:
+                    status: unknown
+                pending:
+                  value:
+                    status: pending
+                    code: tcp-k2wd
+                complete:
+                  value:
+                    status: complete
+                    code: tcp-k2wd
+                    created: true
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The creation service could not answer.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-operation-could-not-finish:
+                  value:
+                    error: The operation could not finish. Retry the same submission to check its result.
+      x-awb-state: deployed
+  /api/customers:
+    get:
+      operationId: listCustomers
+      tags:
+        - customers
+      summary: The customer register for the owner's console.
+      description: The only route that carries registered names. It answers the signed-in owner only. A name read here never goes into a project, a chat, a task or a log.
+      responses:
+        "200":
+          description: Every customer code with its registered forms.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/CustomerList"
+              examples:
+                one-customer:
+                  value:
+                    customers:
+                      - code: CUST-Q7M4
+                        name: "<registered name>"
+                        aliases:
+                          - "<short form>"
+                        active: true
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The register cannot be read.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-customer-register-is-locked:
+                  value:
+                    error: The customer register is locked or unavailable. Retry this submission when it is unlocked.
+                the-operation-could-not-finish:
+                  value:
+                    error: The operation could not finish. Retry the same submission to check its result.
+      x-awb-state: deployed
+    post:
+      operationId: createCustomer
+      tags:
+        - customers
+      summary: Register a new customer.
+      description: "The name and its other forms go into the owner's register and the customer gets a new code. A name that exists already is never merged: the answer names the existing codes."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/CustomerCreateRequest"
+            examples:
+              new-customer:
+                value:
+                  request_id: ffffffffffffffffffffffffffffffff
+                  name: "<registered name>"
+                  aliases:
+                    - "<short form>"
+      responses:
+        "201":
+          description: Registered, or the result of the first submission with this request_id.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/CreationResult"
+              examples:
+                created:
+                  value:
+                    code: CUST-Q7M4
+                    created: true
+        "400":
+          description: The content is refused. The gateway refused the request.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                unsupported-form-fields:
+                  value:
+                    error: Unsupported form fields.
+                a-valid-request-id-is:
+                  value:
+                    error: A valid request ID is required.
+                enter-a-customer-name-and:
+                  value:
+                    error: Enter a customer name and at most 10 alternative names.
+                names-must-contain-2-to:
+                  value:
+                    error: Names must contain 2 to 200 characters on one line.
+                use-a-name-without-brackets:
+                  value:
+                    error: Use a name without brackets, pipes, hashes or notes.
+                invalid-request:
+                  value:
+                    error: Invalid request.
+            text/html:
+              schema:
+                type: string
+              examples:
+                a-single-content-length-is:
+                  value: |
+                    A single content length is required.
+                incomplete-request:
+                  value: |
+                    Incomplete request.
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "403":
+          description: The gateway refused a request from another site.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-ask-on-the-awb:
+                  value: |
+                    Open Ask on the AWB site to submit a question.
+                cross-site-requests-are-not:
+                  value: |
+                    Cross-site requests are not allowed.
+        "408":
+          description: The body did not arrive in time.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-timed-out:
+                  value: |
+                    Request timed out.
+        "409":
+          description: The request_id belongs to another submission, or the name is taken.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                this-request-already-belongs-to:
+                  value:
+                    error: This request already belongs to another submission. Reopen the form.
+                    terminal: true
+                this-customer-was-retired-open:
+                  value:
+                    error: This customer was retired. Open the customer register.
+                    terminal: true
+                    code: CUST-Q7M4
+                the-saved-customer-needs-inspection:
+                  value:
+                    error: The saved customer needs inspection before retrying.
+                    terminal: true
+                    code: CUST-Q7M4
+                a-customer-with-this-name:
+                  value:
+                    error: A customer with this name already exists. Select the existing customer.
+                    matches:
+                      - CUST-Q7M4
+        "413":
+          description: The body is larger than 16384 bytes.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-is-too-large:
+                  value: |
+                    Request is too large.
+        "415":
+          description: The body has the wrong content type.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                use-the-ask-form:
+                  value: |
+                    Use the Ask form.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The register is unavailable. Retry with the same request_id.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-customer-was-saved-but:
+                  value:
+                    error: The customer was saved but is not ready for projects. Retry this submission.
+                the-customer-register-is-locked:
+                  value:
+                    error: The customer register is locked or unavailable. Retry this submission when it is unlocked.
+                the-operation-could-not-finish:
+                  value:
+                    error: The operation could not finish. Retry the same submission to check its result.
+      x-awb-state: deployed
+  "/api/customer-operations/{request_id}":
+    get:
+      operationId: getCustomerOperation
+      tags:
+        - customers
+      summary: The state of a customer submission, for a retry after a broken connection.
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          description: The request_id of the submission.
+          schema:
+            type: string
+            pattern: "^[a-f0-9]{32}$"
+      responses:
+        "200":
+          description: The state.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/OperationStatus"
+              examples:
+                unknown:
+                  value:
+                    status: unknown
+                pending:
+                  value:
+                    status: pending
+                    code: CUST-Q7M4
+                complete:
+                  value:
+                    status: complete
+                    code: CUST-Q7M4
+                    created: true
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The register is unavailable.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-customer-register-is-locked:
+                  value:
+                    error: The customer register is locked or unavailable. Retry this submission when it is unlocked.
+                the-operation-could-not-finish:
+                  value:
+                    error: The operation could not finish. Retry the same submission to check its result.
+      x-awb-state: deployed
+  /api/tenants:
+    get:
+      operationId: getTenants
+      tags:
+        - tenants
+      summary: What runs on the test tenants, from the last snapshot.
+      description: "Read only. Servers, disks, elastic IPs, VPCs and private images of each registered test tenant in its regions. A snapshot older than 300 seconds starts a refresh in the background and is still returned with stale true. Before the next backend deploy: the key service of the repository refuses a tenant read that names no active project, so the owner decides first how this route reads."
+      parameters:
+        - name: refresh
+          in: query
+          required: false
+          description: "1 starts a refresh in the background, at most every 30 seconds."
+          schema:
+            type: string
+            enum:
+              - "1"
+      responses:
+        "200":
+          description: The snapshot.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/TenantInventory"
+              examples:
+                one-tenant:
+                  value:
+                    tenants:
+                      - alias: test-1
+                        regions:
+                          - eu-de
+                        domain_name: sample-domain
+                        domain_status: available
+                        scope: accessible
+                        scope_label: All resources visible to the connected account
+                        ownership_verified: false
+                        collected_at: "2026-10-04T09:25:03+00:00"
+                        coverage:
+                          - region: eu-de
+                            kind: ecs
+                            status: complete
+                            count: 1
+                          - region: eu-de
+                            kind: evs
+                            status: complete
+                            count: 1
+                          - region: eu-de
+                            kind: eip
+                            status: complete
+                            count: 0
+                          - region: eu-de
+                            kind: vpc
+                            status: complete
+                            count: 1
+                          - region: eu-de
+                            kind: ims
+                            status: unavailable
+                            count: null
+                            error: Read access unavailable (HTTP 403).
+                        resources:
+                          - handle: ecs-1a2b3c4d
+                            kind: ecs
+                            region: eu-de
+                            state: ACTIVE
+                            size: s3.large.2
+                            amount: null
+                            project: tcp-m3fx
+                            project_source: tag
+                            expiry: "2026-10-31"
+                            created: "2026-09-30T10:12:44+00:00"
+                          - handle: evs-5e6f7a8b
+                            kind: evs
+                            region: eu-de
+                            state: in-use
+                            size: "40 GiB"
+                            amount: 40
+                            project: tcp-m3fx
+                            project_source: tag
+                            expiry: "2026-10-31"
+                            created: "2026-09-30T10:12:40+00:00"
+                          - handle: vpc-9c0d1e2f
+                            kind: vpc
+                            region: eu-de
+                            state: OK
+                            size: ""
+                            amount: null
+                            project: ""
+                            project_source: null
+                            expiry: ""
+                            created: null
+                        errors: []
+                        counts:
+                          ecs: 1
+                          evs: 1
+                          eip: 0
+                          vpc: 1
+                          ims: null
+                          running: 1
+                          stopped: 0
+                          attached_disks: 1
+                          disk_gib: 40
+                        status: partial
+                    collected_at: "2026-10-04T09:25:03+00:00"
+                    timestamp: 1791105903.0
+                    refreshing: false
+                    stale: false
+                    error: ""
+                    registered_count: 1
+                    refresh_interval_seconds: 300
+                    scope_note: Counts cover resources visible to the connected account in the configured regions. They are not filtered by creator.
+                    coverage_note: "Coverage: ECS servers, EVS disks, elastic IPs, VPCs and private images. Other services are not included."
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The inventory cannot be read.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-tenant-inventory-is-unavailable:
+                  value:
+                    error: The tenant inventory is unavailable.
+      x-awb-state: deployed
+  "/api/projects/{code}/materials":
+    get:
+      operationId: listMaterials
+      tags:
+        - materials
+      summary: The imports of a project.
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: "The project code: tcp- and four characters of a to z and 2 to 7."
+          schema:
+            type: string
+            pattern: "^tcp-[a-z2-7]{4}$"
+      responses:
+        "200":
+          description: Latest first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/MaterialHistory"
+              examples:
+                two-imports:
+                  value:
+                    items:
+                      - id: M-BCDEFGHIJKLMNOPQRSTUVWXY
+                        name: network.xlsx
+                        source: customer
+                        state: held
+                        message: Unrecognised names require owner review in the intake report. Register or approve them, then retry.
+                        created: "2026-10-03T08:16:21+00:00"
+                        version: 1
+                        filename: M-BCDEFGHIJKLMNOPQRSTUVWXY.md
+                        size: 52211
+                      - id: M-ABCDEFGHIJKLMNOPQRSTUVWX
+                        name: requirements.pdf
+                        source: customer
+                        state: ready
+                        message: Ready text copy. Embedded images are not included.
+                        created: "2026-10-03T08:15:00+00:00"
+                        version: 1
+                        filename: M-ABCDEFGHIJKLMNOPQRSTUVWX.md
+                        size: 182344
+                    busy: false
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "404":
+          description: No such project.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                project-not-found:
+                  value:
+                    error: Project not found.
+        "409":
+          description: The customer of the project is retired.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-customer-is-unavailable-or:
+                  value:
+                    error: The customer is unavailable or retired.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The input service cannot answer.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-input-service-is-unavailable:
+                  value:
+                    error: The input service is unavailable. Check the bucket connection and vault.
+      x-awb-state: deployed
+  "/api/projects/{code}/materials/sources":
+    get:
+      operationId: listMaterialSources
+      tags:
+        - materials
+      summary: The files of one source, with their versions.
+      description: "brief lists the unassigned lab inbox. customer lists the unassigned owner inbox and the project's own in/ folders under every month; it needs a project with a customer."
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: "The project code: tcp- and four characters of a to z and 2 to 7."
+          schema:
+            type: string
+            pattern: "^tcp-[a-z2-7]{4}$"
+        - name: source
+          in: query
+          required: true
+          description: brief or customer.
+          schema:
+            type: string
+            enum:
+              - brief
+              - customer
+      responses:
+        "200":
+          description: The files.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/MaterialSources"
+              examples:
+                customer-source:
+                  value:
+                    source: customer
+                    files:
+                      - id: eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+                        name: requirements.pdf
+                        etag: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                        size: 182344
+                        modified: "2026-10-03T07:58:12.000Z"
+                        status: imported
+                        supported: true
+                        location: Project folder
+                      - id: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+                        name: diagram.vsdx
+                        etag: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+                        size: 52211
+                        modified: "2026-10-03T07:59:40.000Z"
+                        status: new
+                        supported: false
+                        location: Unassigned inbox
+                    limit_mb: 25
+        "400":
+          description: No source, or an unknown one.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                choose-a-source:
+                  value:
+                    error: Choose a source.
+                invalid-request:
+                  value:
+                    error: Invalid request.
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "404":
+          description: No such project.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                project-not-found:
+                  value:
+                    error: Project not found.
+        "409":
+          description: The project cannot import now.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                reopen-this-project-before-importing:
+                  value:
+                    error: Reopen this project before importing files.
+                select-a-customer-for-this:
+                  value:
+                    error: Select a customer for this project before importing customer material.
+                the-customer-is-unavailable-or:
+                  value:
+                    error: The customer is unavailable or retired.
+        "413":
+          description: The source is too large to list.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                this-source-has-too-many:
+                  value:
+                    error: This source has too many files. Narrow the source folder first.
+                the-source-has-too-many:
+                  value:
+                    error: The source has too many files.
+                this-source-exceeds-the-supported:
+                  value:
+                    error: This source exceeds the supported listing limit.
+                the-customer-bucket-layout-needs:
+                  value:
+                    error: The customer bucket layout needs a narrower binding.
+                the-customer-bucket-layout-exceeds:
+                  value:
+                    error: The customer bucket layout exceeds the supported limit.
+        "429":
+          description: Another listing runs.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                another-source-is-being-listed:
+                  value:
+                    error: Another source is being listed. Try again shortly.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The bucket cannot be read.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-awb-bucket-connection-is:
+                  value:
+                    error: The AWB bucket connection is not configured.
+                bucket-read-access-is-unavailable:
+                  value:
+                    error: Bucket read access is unavailable (HTTP 403).
+                the-bucket-could-not-be:
+                  value:
+                    error: The bucket could not be read. Try again later.
+                the-bucket-returned-an-inconsistent:
+                  value:
+                    error: The bucket returned an inconsistent listing.
+                the-bucket-listing-could-not:
+                  value:
+                    error: The bucket listing could not be completed.
+                the-input-service-is-unavailable:
+                  value:
+                    error: The input service is unavailable. Check the bucket connection and vault.
+      x-awb-state: deployed
+  "/api/projects/{code}/materials/imports":
+    post:
+      operationId: importMaterials
+      tags:
+        - materials
+      summary: Import chosen files into the project.
+      description: "Copies the chosen versions; the originals stay in the bucket. Each file is read at the version of the listing, so a changed file is refused. It is checked, sanitised through the intake when it comes from the customer source and added to the project's input/ as <id>.md. The same version imported again keeps its first id. Nothing starts an AI call."
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: "The project code: tcp- and four characters of a to z and 2 to 7."
+          schema:
+            type: string
+            pattern: "^tcp-[a-z2-7]{4}$"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ImportRequest"
+            examples:
+              one-file:
+                value:
+                  request_id: ffffffffffffffffffffffffffffffff
+                  files:
+                    - id: eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+                      etag: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      responses:
+        "202":
+          description: "Queued. GET /api/projects/{code}/materials shows the state of each import."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ImportAccepted"
+              examples:
+                queued:
+                  value:
+                    imports:
+                      - M-ABCDEFGHIJKLMNOPQRSTUVWX
+        "400":
+          description: The content is refused. The gateway refused the request.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                invalid-import-request:
+                  value:
+                    error: Invalid import request.
+                select-between-1-and-10:
+                  value:
+                    error: Select between 1 and 10 files.
+                select-each-file-once:
+                  value:
+                    error: Select each file once.
+                invalid-request:
+                  value:
+                    error: Invalid request.
+            text/html:
+              schema:
+                type: string
+              examples:
+                a-single-content-length-is:
+                  value: |
+                    A single content length is required.
+                incomplete-request:
+                  value: |
+                    Incomplete request.
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "403":
+          description: The gateway refused a request from another site.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-ask-on-the-awb:
+                  value: |
+                    Open Ask on the AWB site to submit a question.
+                cross-site-requests-are-not:
+                  value: |
+                    Cross-site requests are not allowed.
+        "404":
+          description: No such project.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                project-not-found:
+                  value:
+                    error: Project not found.
+        "408":
+          description: The body did not arrive in time.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-timed-out:
+                  value: |
+                    Request timed out.
+        "409":
+          description: The choice or the project changed.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                this-request-belongs-to-another:
+                  value:
+                    error: This request belongs to another import.
+                the-source-selection-changed-refresh:
+                  value:
+                    error: The source selection changed. Refresh the file list.
+                a-customer-is-required:
+                  value:
+                    error: A customer is required.
+                reopen-this-project-before-importing:
+                  value:
+                    error: Reopen this project before importing files.
+                the-customer-is-unavailable-or:
+                  value:
+                    error: The customer is unavailable or retired.
+        "413":
+          description: A chosen file is of an unknown type, empty or too large. The body is larger than 16384 bytes.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-selected-file-type-or:
+                  value:
+                    error: The selected file type or size is unsupported.
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-is-too-large:
+                  value: |
+                    Request is too large.
+        "415":
+          description: The body has the wrong content type.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                use-the-ask-form:
+                  value: |
+                    Use the Ask form.
+        "429":
+          description: Too many imports wait.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-import-queue-is-full:
+                  value:
+                    error: The import queue is full. Wait for current files to finish.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The input service cannot answer.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-input-service-is-unavailable:
+                  value:
+                    error: The input service is unavailable. Check the bucket connection and vault.
+      x-awb-state: deployed
+  "/api/projects/{code}/materials/{material_id}":
+    get:
+      operationId: getMaterial
+      tags:
+        - materials
+      summary: The working copy of a ready import.
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: "The project code: tcp- and four characters of a to z and 2 to 7."
+          schema:
+            type: string
+            pattern: "^tcp-[a-z2-7]{4}$"
+        - name: material_id
+          in: path
+          required: true
+          description: "An import of this project: M- and 24 capital letters."
+          schema:
+            type: string
+            pattern: "^M-[A-Z]{24}$"
+      responses:
+        "200":
+          description: The checked text.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/MaterialText"
+              examples:
+                ready:
+                  value:
+                    id: M-ABCDEFGHIJKLMNOPQRSTUVWX
+                    version: 1
+                    filename: M-ABCDEFGHIJKLMNOPQRSTUVWX.md
+                    imported: "2026-10-03T08:15:00+00:00"
+                    text: |
+                      # Requirements
+
+                      The workloads move to the region eu-de.
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "404":
+          description: No such project or no such ready import.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                project-not-found:
+                  value:
+                    error: Project not found.
+                the-selected-input-is-not:
+                  value:
+                    error: The selected input is not ready in this project.
+        "409":
+          description: The customer of the project changed or is retired.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-project-customer-changed-this:
+                  value:
+                    error: The project customer changed. This input cannot be used in its new context.
+                the-customer-is-unavailable-or:
+                  value:
+                    error: The customer is unavailable or retired.
+        "422":
+          description: The working copy no longer passes its checks.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-imported-working-copy-is:
+                  value:
+                    error: The imported working copy is unavailable.
+                the-imported-working-copy-changed:
+                  value:
+                    error: The imported working copy changed. Import it again before use.
+                the-working-copy-contains-protected:
+                  value:
+                    error: The working copy contains protected values. Owner review is required.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The input service cannot answer.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-input-service-is-unavailable:
+                  value:
+                    error: The input service is unavailable. Check the bucket connection and vault.
+      x-awb-state: deployed
+  "/api/projects/{code}/chat":
+    get:
+      operationId: getChat
+      tags:
+        - chat
+      summary: The conversation of a project, the budget and the model.
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: "The project code: tcp- and four characters of a to z and 2 to 7."
+          schema:
+            type: string
+            pattern: "^tcp-[a-z2-7]{4}$"
+      responses:
+        "200":
+          description: The last 100 turns.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ChatHistory"
+              examples:
+                one-turn:
+                  value:
+                    project: tcp-k2wd
+                    turns:
+                      - id: ffffffffffffffffffffffffffffffff
+                        project: tcp-k2wd
+                        question: Which storage class fits data that is read once a year?
+                        answer: "The cold class fits: it has the lowest storage price, and reading data back costs a retrieval fee."
+                        status: complete
+                        error: ""
+                        created: "2026-10-04T09:31:02.551203+00:00"
+                        completed: "2026-10-04T09:31:09.004417+00:00"
+                        tokens: 5120
+                        tools: "[\"kb_find\", \"price_find\"]"
+                        context_time: "2026-10-04 09:31 UTC"
+                        material_ids: "[]"
+                        material_sources: "[]"
+                    older_turns: 0
+                    budget:
+                      questions_left: 31
+                      tokens_left: 254880
+                      daily_questions: 40
+                      daily_tokens: 300000
+                      resets: "00:00 UTC"
+                    model: claude-haiku-4-5-20251001
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "404":
+          description: No such project.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                no-such-project:
+                  value:
+                    error: No such project.
+                this-project-is-unavailable:
+                  value:
+                    error: This project is unavailable.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The project, a check or the usage record is unavailable.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                this-project-is-unavailable:
+                  value:
+                    error: This project is unavailable.
+                project-context-could-not-be:
+                  value:
+                    error: Project context could not be loaded. Nothing was sent.
+                the-project-snapshot-is-too:
+                  value:
+                    error: The project snapshot is too large.
+                the-data-check-is-locked:
+                  value:
+                    error: The data check is locked. Nothing was sent.
+                the-data-check-is-unavailable:
+                  value:
+                    error: The data check is unavailable. Nothing was sent.
+                the-usage-record-is-unavailable:
+                  value:
+                    error: The usage record is unavailable. No new questions can be sent.
+                conversation-history-is-unavailable:
+                  value:
+                    error: Conversation history is unavailable.
+      x-awb-state: deployed
+    post:
+      operationId: askProject
+      tags:
+        - chat
+      summary: Ask about a project.
+      description: "The question is checked for names before anything leaves. The project files and up to five ready inputs go along as source data, never as instructions. One answer at a time for the whole site; 40 questions and 300,000 tokens a day, reset at 00:00 UTC. A failed turn carries its reason in error and is never resent by itself."
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: "The project code: tcp- and four characters of a to z and 2 to 7."
+          schema:
+            type: string
+            pattern: "^tcp-[a-z2-7]{4}$"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ChatRequest"
+            examples:
+              question:
+                value:
+                  question: Which storage class fits data that is read once a year?
+                  request_id: ffffffffffffffffffffffffffffffff
+              with-an-input:
+                value:
+                  question: Which requirements in this document affect the network design?
+                  request_id: ffffffffffffffffffffffffffffffff
+                  material_ids:
+                    - M-ABCDEFGHIJKLMNOPQRSTUVWX
+      responses:
+        "200":
+          description: "This request_id was sent before: its turn as it stands."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ChatAccepted"
+              examples:
+                complete:
+                  value:
+                    turn:
+                      id: ffffffffffffffffffffffffffffffff
+                      project: tcp-k2wd
+                      question: Which storage class fits data that is read once a year?
+                      answer: "The cold class fits: it has the lowest storage price, and reading data back costs a retrieval fee."
+                      status: complete
+                      error: ""
+                      created: "2026-10-04T09:31:02.551203+00:00"
+                      completed: "2026-10-04T09:31:09.004417+00:00"
+                      tokens: 5120
+                      tools: "[\"kb_find\", \"price_find\"]"
+                      context_time: "2026-10-04 09:31 UTC"
+                      material_ids: "[]"
+                      material_sources: "[]"
+                    budget:
+                      questions_left: 31
+                      tokens_left: 254880
+                      daily_questions: 40
+                      daily_tokens: 300000
+                      resets: "00:00 UTC"
+        "202":
+          description: "Accepted. The answer is prepared in the background: read GET /api/projects/{code}/chat until the turn is complete or failed."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ChatAccepted"
+              examples:
+                pending:
+                  value:
+                    turn:
+                      id: ffffffffffffffffffffffffffffffff
+                      project: tcp-k2wd
+                      question: Which storage class fits data that is read once a year?
+                      answer: ""
+                      status: pending
+                      error: ""
+                      created: "2026-10-04T09:31:02.551203+00:00"
+                      completed: null
+                      tokens: 0
+                      tools: "[]"
+                      context_time: "2026-10-04 09:31 UTC"
+                      material_ids: "[\"M-ABCDEFGHIJKLMNOPQRSTUVWX\"]"
+                      material_sources: "[{\"id\": \"M-ABCDEFGHIJKLMNOPQRSTUVWX\", \"file\": \"M-ABCDEFGHIJKLMNOPQRSTUVWX.md\", \"version\": 1, \"imported\": \"2026-10-03T08:15\", \"truncated\": false}]"
+                    budget:
+                      questions_left: 30
+                      tokens_left: 254880
+                      daily_questions: 40
+                      daily_tokens: 300000
+                      resets: "00:00 UTC"
+        "400":
+          description: The content is refused. The gateway refused the request.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                select-up-to-five-ready:
+                  value:
+                    error: Select up to five ready inputs.
+                a-valid-request-id-is:
+                  value:
+                    error: A valid request ID is required.
+                write-a-question-of-1:
+                  value:
+                    error: Write a question of 1 to 1000 characters.
+                a-json-object-is-required:
+                  value:
+                    error: A JSON object is required.
+                the-request-could-not-be:
+                  value:
+                    error: The request could not be read.
+            text/html:
+              schema:
+                type: string
+              examples:
+                a-single-content-length-is:
+                  value: |
+                    A single content length is required.
+                incomplete-request:
+                  value: |
+                    Incomplete request.
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "403":
+          description: The gateway refused a request from another site.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-ask-on-the-awb:
+                  value: |
+                    Open Ask on the AWB site to submit a question.
+                cross-site-requests-are-not:
+                  value: |
+                    Cross-site requests are not allowed.
+        "404":
+          description: No such project or no such ready input.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                no-such-project:
+                  value:
+                    error: No such project.
+                this-project-is-unavailable:
+                  value:
+                    error: This project is unavailable.
+                project-not-found:
+                  value:
+                    error: Project not found.
+                the-selected-input-is-not:
+                  value:
+                    error: The selected input is not ready in this project.
+        "408":
+          description: The body did not arrive in time.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-timed-out:
+                  value: |
+                    Request timed out.
+        "409":
+          description: The request_id belongs to another question, or an input cannot be used.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                this-request-id-belongs-to:
+                  value:
+                    error: This request ID belongs to another question.
+                the-project-customer-changed-this:
+                  value:
+                    error: The project customer changed. This input cannot be used in its new context.
+                the-customer-is-unavailable-or:
+                  value:
+                    error: The customer is unavailable or retired.
+        "413":
+          description: The inputs are too large together. The body is larger than 16384 bytes.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                these-inputs-exceed-the-context:
+                  value:
+                    error: These inputs exceed the context limit. Select fewer documents.
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-is-too-large:
+                  value: |
+                    Request is too large.
+        "415":
+          description: The body has the wrong content type.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                use-the-ask-form:
+                  value: |
+                    Use the Ask form.
+        "422":
+          description: The question or an input holds a name or a protected value, or an input no longer passes its checks.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-text-contains-a-name:
+                  value:
+                    error: The text contains a name, address or protected value. Use project and customer codes.
+                the-imported-working-copy-is:
+                  value:
+                    error: The imported working copy is unavailable.
+                the-imported-working-copy-changed:
+                  value:
+                    error: The imported working copy changed. Import it again before use.
+                the-working-copy-contains-protected:
+                  value:
+                    error: The working copy contains protected values. Owner review is required.
+        "429":
+          description: One answer at a time, and a daily budget.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                another-answer-is-being-prepared:
+                  value:
+                    error: Another answer is being prepared. Try again when it finishes.
+                the-daily-ask-budget-is:
+                  value:
+                    error: "The daily Ask budget is used up. It resets at 00:00 UTC."
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The project, a check, an input or the usage record is unavailable. Nothing was sent.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-question-could-not-be:
+                  value:
+                    error: The question could not be accepted. Check the conversation before trying again.
+                the-data-check-is-locked:
+                  value:
+                    error: The data check is locked. Nothing was sent.
+                the-data-check-is-unavailable:
+                  value:
+                    error: The data check is unavailable. Nothing was sent.
+                project-context-could-not-be:
+                  value:
+                    error: Project context could not be loaded. Nothing was sent.
+                this-project-is-unavailable:
+                  value:
+                    error: This project is unavailable.
+                the-project-snapshot-is-too:
+                  value:
+                    error: The project snapshot is too large.
+                the-usage-record-is-unavailable:
+                  value:
+                    error: The usage record is unavailable. No new questions can be sent.
+                the-selected-input-could-not:
+                  value:
+                    error: The selected input could not be read. Nothing was sent.
+                the-input-service-is-unavailable:
+                  value:
+                    error: The input service is unavailable. Check the bucket connection and vault.
+                the-local-response-exceeds-the:
+                  value:
+                    error: The local response exceeds the size limit.
+      x-awb-state: deployed
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: __Host-awb-session
+      description: Set by POST /login. Valid for 8 hours, Secure, HttpOnly, SameSite=Lax.
+  schemas:
+    Error:
+      type: object
+      description: A refusal of a backend.
+      properties:
+        error:
+          type: string
+          description: One sentence for the person at the screen. It carries no name and no submitted value.
+        field:
+          type: string
+          description: The form field the refusal is about.
+        terminal:
+          type: boolean
+          description: "true: this request_id will never succeed. Reopen the form, which makes a new request_id."
+        code:
+          type: string
+          description: The code the stuck submission reserved.
+        matches:
+          type: array
+          description: Existing customers with the same name.
+          items:
+            "$ref": "#/components/schemas/CustomerCode"
+      required:
+        - error
+    ProjectCode:
+      type: string
+      description: A project code.
+      pattern: "^tcp-[a-z2-7]{4}$"
+    CustomerCode:
+      type: string
+      description: A customer code.
+      pattern: "^CUST-[A-Z2-7]{4}$"
+    CustomerOrNone:
+      type: string
+      description: A customer code, or none for an internal project.
+      pattern: "^(none|CUST-[A-Z2-7]{4})$"
+    RequestId:
+      type: string
+      description: "Made by the browser for one submission: 32 lower-case hex characters. A retry sends the same one."
+      pattern: "^[a-f0-9]{32}$"
+    MaterialId:
+      type: string
+      description: "An import: M- and 24 capital letters."
+      pattern: "^M-[A-Z]{24}$"
+    Kind:
+      type: string
+      description: "The kind of a project as stored. A query works with the knowledge base, the docs and live prices; a project also reaches a test tenant. The repository writes query and project only, older projects keep their word and it reads as x-awb-reads-as says. The deployed backend still writes the four old words."
+      enum:
+        - query
+        - project
+        - engagement
+        - lab
+        - topic
+        - code
+      x-awb-reads-as:
+        engagement: query
+        topic: query
+        code: query
+        lab: project
+    ProjectSummary:
+      type: object
+      description: One project of the list.
+      properties:
+        code:
+          "$ref": "#/components/schemas/ProjectCode"
+        kind:
+          "$ref": "#/components/schemas/Kind"
+        customer:
+          "$ref": "#/components/schemas/CustomerOrNone"
+        state:
+          type: string
+          description: Deleted projects are not listed.
+          enum:
+            - active
+            - closed
+        created:
+          type: string
+          description: The day the project was created.
+          format: date
+        goal:
+          type: string
+          description: "The goal line of SCOPE.md after the data check. A withheld part reads [withheld]; a goal the check still refuses reads [Content withheld by the data check.]"
+        goal_redacted:
+          type: boolean
+          description: true when the data check withheld a part of the goal.
+        open_items:
+          type:
+            - integer
+            - "null"
+          description: "Lines of OPEN.md that start with a dash; null when OPEN.md cannot be read."
+        live_resources:
+          type:
+            - integer
+            - "null"
+          description: "Rows of RESOURCES.md whose state is neither deleted nor kept; null when RESOURCES.md cannot be read."
+        updated:
+          type:
+            - string
+            - "null"
+          description: "The latest change of SCOPE.md, STATE.md, OPEN.md or RESOURCES.md; null when none can be read."
+          format: date-time
+      required:
+        - code
+        - kind
+        - customer
+        - state
+        - created
+        - goal
+        - goal_redacted
+        - open_items
+        - live_resources
+        - updated
+    ProjectList:
+      type: object
+      properties:
+        source:
+          type: string
+          enum:
+            - AWB project register
+        fetched_at:
+          type: string
+          format: date-time
+        projects:
+          type: array
+          description: Latest change first.
+          items:
+            "$ref": "#/components/schemas/ProjectSummary"
+      required:
+        - source
+        - fetched_at
+        - projects
+    ProjectDocument:
+      type: object
+      properties:
+        text:
+          type: string
+          description: "The file after the data check; empty when it is missing or cannot be read."
+        status:
+          type: string
+          enum:
+            - available
+            - missing
+            - unavailable
+        redacted:
+          type: boolean
+          description: true when the data check withheld a part.
+        modified:
+          type:
+            - string
+            - "null"
+          format: date-time
+      required:
+        - text
+        - status
+        - redacted
+        - modified
+    Deliverables:
+      type: object
+      properties:
+        status:
+          type: string
+          description: unavailable when the folders cannot be read safely.
+          enum:
+            - available
+            - unavailable
+        items:
+          type: array
+          description: At most 300.
+          items:
+            type: object
+            properties:
+              file:
+                type: string
+                description: deliverables/<name> after the data check.
+              state:
+                type: string
+                enum:
+                  - valid
+                  - stale
+                  - missing
+                  - unreadable
+              tier:
+                type:
+                  - integer
+                  - "null"
+                description: "The tier of the review record; null without a record."
+              redacted:
+                type: boolean
+            required:
+              - file
+              - state
+              - tier
+              - redacted
+        truncated:
+          type: boolean
+          description: true when there were more than 300. Absent when status is unavailable.
+      required:
+        - status
+        - items
+    ProjectDetail:
+      type: object
+      description: One project with its four files and its deliverables.
+      properties:
+        code:
+          "$ref": "#/components/schemas/ProjectCode"
+        kind:
+          "$ref": "#/components/schemas/Kind"
+        customer:
+          "$ref": "#/components/schemas/CustomerOrNone"
+        state:
+          type: string
+          description: Deleted projects are not listed.
+          enum:
+            - active
+            - closed
+        created:
+          type: string
+          description: The day the project was created.
+          format: date
+        goal:
+          type: string
+          description: "The goal line of SCOPE.md after the data check. A withheld part reads [withheld]; a goal the check still refuses reads [Content withheld by the data check.]"
+        goal_redacted:
+          type: boolean
+          description: true when the data check withheld a part of the goal.
+        open_items:
+          type:
+            - integer
+            - "null"
+          description: "Lines of OPEN.md that start with a dash; null when OPEN.md cannot be read."
+        live_resources:
+          type:
+            - integer
+            - "null"
+          description: "Rows of RESOURCES.md whose state is neither deleted nor kept; null when RESOURCES.md cannot be read."
+        updated:
+          type:
+            - string
+            - "null"
+          description: "The latest change of SCOPE.md, STATE.md, OPEN.md or RESOURCES.md; null when none can be read."
+          format: date-time
+        documents:
+          type: object
+          properties:
+            SCOPE.md:
+              "$ref": "#/components/schemas/ProjectDocument"
+            STATE.md:
+              "$ref": "#/components/schemas/ProjectDocument"
+            OPEN.md:
+              "$ref": "#/components/schemas/ProjectDocument"
+            RESOURCES.md:
+              "$ref": "#/components/schemas/ProjectDocument"
+          required:
+            - SCOPE.md
+            - STATE.md
+            - OPEN.md
+            - RESOURCES.md
+        deliverables:
+          "$ref": "#/components/schemas/Deliverables"
+        fetched_at:
+          type: string
+          format: date-time
+      required:
+        - code
+        - kind
+        - customer
+        - state
+        - created
+        - goal
+        - goal_redacted
+        - open_items
+        - live_resources
+        - updated
+        - documents
+        - deliverables
+        - fetched_at
+    ProjectOptions:
+      type: object
+      properties:
+        kinds:
+          type: array
+          description: "The kinds the running backend accepts, in the order to show. Deployed: engagement, lab, topic, code. Repository: query, project."
+          items:
+            type: string
+        tags:
+          type: array
+          description: The technology tags a project may carry.
+          items:
+            type: string
+      required:
+        - kinds
+        - tags
+    ProjectCreateRequest:
+      type: object
+      properties:
+        request_id:
+          "$ref": "#/components/schemas/RequestId"
+        kind:
+          type: string
+          description: One of the kinds of GET /api/project-options.
+        goal:
+          type: string
+          description: "What the project is for, without customer names: 1 to 500 characters after trimming."
+          minLength: 1
+          maxLength: 500
+        customer:
+          "$ref": "#/components/schemas/CustomerOrNone"
+        tags:
+          type: array
+          description: "Tags of GET /api/project-options. Default: none."
+          items:
+            type: string
+          maxItems: 20
+      required:
+        - request_id
+        - kind
+        - goal
+      additionalProperties: false
+    CreationResult:
+      type: object
+      properties:
+        code:
+          type: string
+          description: The new code.
+          pattern: "^(tcp-[a-z2-7]{4}|CUST-[A-Z2-7]{4})$"
+        created:
+          type: boolean
+          description: Always true.
+        warning:
+          type: string
+          description: The work is done but a side step is not. Show it to the person.
+      required:
+        - code
+        - created
+    OperationStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          description: "unknown: no submission with this request_id. pending: reserved, not finished. complete: done, the fields of the creation result follow."
+          enum:
+            - unknown
+            - pending
+            - complete
+        code:
+          type: string
+          description: The reserved or created code.
+        created:
+          type: boolean
+        warning:
+          type: string
+      required:
+        - status
+    Customer:
+      type: object
+      properties:
+        code:
+          "$ref": "#/components/schemas/CustomerCode"
+        name:
+          type: string
+          description: "The first registered form: a name, for the owner only."
+        aliases:
+          type: array
+          description: The other active forms.
+          items:
+            type: string
+        active:
+          type: boolean
+          description: false when every form is retired.
+      required:
+        - code
+        - name
+        - aliases
+        - active
+    CustomerList:
+      type: object
+      properties:
+        customers:
+          type: array
+          description: Ordered by code.
+          items:
+            "$ref": "#/components/schemas/Customer"
+      required:
+        - customers
+    CustomerCreateRequest:
+      type: object
+      properties:
+        request_id:
+          "$ref": "#/components/schemas/RequestId"
+        name:
+          type: string
+          description: "2 to 200 characters on one line, without brackets, pipes, hashes or notes."
+          minLength: 2
+          maxLength: 200
+        aliases:
+          type: array
+          description: Other written forms.
+          items:
+            type: string
+            minLength: 2
+            maxLength: 200
+          maxItems: 10
+      required:
+        - request_id
+        - name
+      additionalProperties: false
+    Coverage:
+      type: object
+      properties:
+        region:
+          type: string
+        kind:
+          type: string
+          enum:
+            - ecs
+            - evs
+            - eip
+            - vpc
+            - ims
+        status:
+          type: string
+          enum:
+            - complete
+            - unavailable
+        count:
+          type:
+            - integer
+            - "null"
+        error:
+          type: string
+          description: Why the listing failed.
+          x-awb-texts:
+            - The read connection is unavailable.
+            - Read access unavailable (HTTP <status>).
+            - Read access unavailable.
+            - The service returned no readable inventory.
+            - The service returned an incomplete inventory.
+            - Inventory pagination repeated a resource.
+            - The inventory is incomplete.
+            - The inventory exceeds the supported page limit.
+      required:
+        - region
+        - kind
+        - status
+        - count
+    Resource:
+      type: object
+      properties:
+        handle:
+          type: string
+          description: "A stable handle: the kind and eight hex characters, never the cloud id."
+          pattern: "^(ecs|evs|eip|vpc|ims)-[0-9a-f]{8}$"
+        kind:
+          type: string
+          enum:
+            - ecs
+            - evs
+            - eip
+            - vpc
+            - ims
+        region:
+          type: string
+        state:
+          type: string
+          description: The status the service reports, or Unknown.
+        size:
+          type: string
+          description: "The flavor of a server, GiB of a disk, Mbit/s of an elastic IP or the minimum disk of an image; empty when unknown."
+        amount:
+          type:
+            - number
+            - "null"
+          description: "The number behind size; null when there is none."
+        project:
+          type: string
+          description: "The project from the awb-project tag or else from the name; empty when none."
+        project_source:
+          type:
+            - string
+            - "null"
+          enum:
+            - tag
+            - name
+            - null
+        expiry:
+          type: string
+          description: "The awb-expiry tag, YYYY-MM-DD; empty when none."
+        created:
+          type:
+            - string
+            - "null"
+          format: date-time
+      required:
+        - handle
+        - kind
+        - region
+        - state
+        - size
+        - amount
+        - project
+        - project_source
+        - expiry
+        - created
+    Counts:
+      type: object
+      description: "Counted over complete listings only; null when a listing of that kind is incomplete."
+      properties:
+        ecs:
+          type:
+            - integer
+            - "null"
+        evs:
+          type:
+            - integer
+            - "null"
+        eip:
+          type:
+            - integer
+            - "null"
+        vpc:
+          type:
+            - integer
+            - "null"
+        ims:
+          type:
+            - integer
+            - "null"
+        running:
+          type:
+            - integer
+            - "null"
+        stopped:
+          type:
+            - integer
+            - "null"
+        attached_disks:
+          type:
+            - integer
+            - "null"
+        disk_gib:
+          type:
+            - number
+            - "null"
+      required:
+        - ecs
+        - evs
+        - eip
+        - vpc
+        - ims
+        - running
+        - stopped
+        - attached_disks
+        - disk_gib
+    Tenant:
+      type: object
+      properties:
+        alias:
+          type: string
+          description: The tenant alias, for example test-1.
+        regions:
+          type: array
+          items:
+            type: string
+        domain_name:
+          type:
+            - string
+            - "null"
+          description: "The IAM domain name of the account; null when it cannot be read."
+        domain_status:
+          type: string
+          enum:
+            - available
+            - unavailable
+        scope:
+          type: string
+          enum:
+            - accessible
+        scope_label:
+          type: string
+        ownership_verified:
+          type: boolean
+          description: "Always false: the counts are not filtered by creator."
+        collected_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        coverage:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Coverage"
+        resources:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Resource"
+        errors:
+          type: array
+          items:
+            type: string
+          x-awb-texts:
+            - The full IAM domain name is unavailable.
+        counts:
+          "$ref": "#/components/schemas/Counts"
+        status:
+          type: string
+          enum:
+            - complete
+            - partial
+      required:
+        - alias
+        - regions
+        - domain_name
+        - domain_status
+        - scope
+        - scope_label
+        - ownership_verified
+        - collected_at
+        - coverage
+        - resources
+        - errors
+        - counts
+        - status
+    TenantInventory:
+      type: object
+      properties:
+        tenants:
+          type: array
+          description: Only the tenants that are still registered.
+          items:
+            "$ref": "#/components/schemas/Tenant"
+        collected_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        timestamp:
+          type: number
+          description: "Seconds since 1970 of the snapshot; absent before the first one."
+        refreshing:
+          type: boolean
+        stale:
+          type: boolean
+          description: true when the snapshot is older than refresh_interval_seconds.
+        error:
+          type: string
+          description: "Why the last refresh failed; empty when it did not."
+          x-awb-texts:
+            - The inventory could not be refreshed. The previous snapshot is shown when available.
+        registered_count:
+          type: integer
+        refresh_interval_seconds:
+          type: integer
+        scope_note:
+          type: string
+        coverage_note:
+          type: string
+      required:
+        - tenants
+        - collected_at
+        - refreshing
+        - stale
+        - error
+        - registered_count
+        - refresh_interval_seconds
+        - scope_note
+        - coverage_note
+    MaterialImport:
+      type: object
+      properties:
+        id:
+          "$ref": "#/components/schemas/MaterialId"
+        name:
+          type: string
+          description: The file name in the bucket.
+        source:
+          type: string
+          description: "brief: the lab inbox. customer: the owner's bucket, through the intake."
+          enum:
+            - brief
+            - customer
+        state:
+          type: string
+          description: "queued, processing and publishing run. ready: the working copy is in input/. duplicate: the same content as an earlier import. held: the owner has to look. failed: stopped, a new import may be tried."
+          enum:
+            - queued
+            - processing
+            - publishing
+            - ready
+            - duplicate
+            - held
+            - failed
+        message:
+          type: string
+          description: One sentence on the state.
+          x-awb-texts:
+            - Waiting for processing.
+            - Downloading and checking the selected version.
+            - Adding the checked working copy to the project.
+            - Checking publication of the saved working copy.
+            - Ready text copy. Embedded images are not included.
+            - The same content is already imported as <id>.
+            - Unrecognised names require owner review in the intake report. Register or approve them, then retry.
+            - The original could not be sealed. Owner review is required before release.
+            - The document could not be read completely. Review it or provide a supported text version.
+            - The document could not be read completely. Provide a supported text version.
+            - No usable text was extracted from this file.
+            - This task description may contain private information. Use the customer source or ask the owner to review it.
+            - This file contains no readable text.
+            - Extracted text is too large. Split this document into smaller files.
+            - The working copy contains protected values. Owner review is required.
+            - The staged document changed. Owner review is required.
+            - The filename is unsupported.
+            - The file exceeds the import limit.
+            - The source changed. Refresh the file list and import its current version.
+            - The project customer changed. Import again with the correct customer.
+            - Import stopped. Check the connection and vault, then retry. Source files were preserved.
+            - "Processing was interrupted. Retry the import; source files were preserved."
+            - Processing timed out or stopped. Retry with a smaller supported document.
+            - The working copy failed its final data check.
+            - The project is unavailable or its customer changed.
+            - The registered project folder is unsupported.
+            - An input with this identifier already exists with different content.
+            - The local response exceeds the size limit.
+            - The AWB bucket connection is not configured.
+            - Bucket read access is unavailable (HTTP <status>).
+            - The bucket could not be read. Try again later.
+            - Project not found.
+            - Reopen this project before importing files.
+            - The customer is unavailable or retired.
+        created:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          description: The version of this source file in the project.
+        filename:
+          type: string
+          description: "The working copy in the project: <id>.md."
+        size:
+          type: integer
+          description: Bytes of the source file.
+      required:
+        - id
+        - name
+        - source
+        - state
+        - message
+        - created
+        - version
+        - filename
+        - size
+    MaterialHistory:
+      type: object
+      properties:
+        items:
+          type: array
+          description: Latest first, at most 500.
+          items:
+            "$ref": "#/components/schemas/MaterialImport"
+        busy:
+          type: boolean
+          description: true while an import runs.
+      required:
+        - items
+        - busy
+    SourceFile:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Stable for this project, source and file.
+          pattern: "^[a-f0-9]{64}$"
+        name:
+          type: string
+        etag:
+          type: string
+          description: The version of the file in the bucket.
+        size:
+          type: integer
+        modified:
+          type: string
+          description: As the bucket reports it.
+        status:
+          type: string
+          description: "new: never imported. updated: imported before, changed since. imported: this version is ready or a duplicate. processing: this version is being imported."
+          enum:
+            - new
+            - updated
+            - imported
+            - processing
+        supported:
+          type: boolean
+          description: false for an unknown type, an empty file or one above the limit.
+        location:
+          type: string
+          enum:
+            - Unassigned inbox
+            - Project folder
+      required:
+        - id
+        - name
+        - etag
+        - size
+        - modified
+        - status
+        - supported
+        - location
+    MaterialSources:
+      type: object
+      properties:
+        source:
+          type: string
+          enum:
+            - brief
+            - customer
+        files:
+          type: array
+          items:
+            "$ref": "#/components/schemas/SourceFile"
+        limit_mb:
+          type: integer
+          description: The largest file in MB.
+      required:
+        - source
+        - files
+        - limit_mb
+    ImportRequest:
+      type: object
+      properties:
+        request_id:
+          "$ref": "#/components/schemas/RequestId"
+        files:
+          type: array
+          description: "1 to 10 files of the last listing, each once."
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                pattern: "^[a-f0-9]{64}$"
+              etag:
+                type: string
+                description: The etag of the listing. A file that changed since is refused.
+            required:
+              - id
+              - etag
+            additionalProperties: false
+          minItems: 1
+          maxItems: 10
+      required:
+        - request_id
+        - files
+      additionalProperties: false
+    ImportAccepted:
+      type: object
+      properties:
+        imports:
+          type: array
+          description: One id per file, in the order sent. A version imported before keeps its id.
+          items:
+            "$ref": "#/components/schemas/MaterialId"
+      required:
+        - imports
+    MaterialText:
+      type: object
+      properties:
+        id:
+          "$ref": "#/components/schemas/MaterialId"
+        version:
+          type: integer
+        filename:
+          type: string
+        imported:
+          type: string
+          format: date-time
+        text:
+          type: string
+          description: The checked working copy, at most 256 KiB.
+      required:
+        - id
+        - version
+        - filename
+        - imported
+        - text
+    ChatTurn:
+      type: object
+      properties:
+        id:
+          "$ref": "#/components/schemas/RequestId"
+        project:
+          "$ref": "#/components/schemas/ProjectCode"
+        question:
+          type: string
+          description: "After the data check. [Text withheld by the data check.] when a later check withholds it."
+        answer:
+          type: string
+          description: Empty while pending and after a failure.
+        status:
+          type: string
+          enum:
+            - pending
+            - complete
+            - failed
+        error:
+          type: string
+          description: "Why it failed; empty otherwise. A failed turn is never resent by itself."
+          x-awb-texts:
+            - Not enough daily token budget remains for this answer.
+            - The model returned no usable usage record. The token allowance remains reserved.
+            - The model declined this question.
+            - The model returned an empty answer.
+            - The model requested an unsupported tool.
+            - The model returned no usable tool request.
+            - The answer reached its tool limit. Ask a narrower question.
+            - The answer could not be completed. It will not be resent automatically.
+            - The service restarted before completion. This request will not be resent automatically.
+            - The data check is locked. Nothing was sent.
+            - The data check is unavailable. Nothing was sent.
+            - The text contains a name, address or protected value. Use project and customer codes.
+            - The usage record is unavailable. No new questions can be sent.
+        created:
+          type: string
+          format: date-time
+        completed:
+          type:
+            - string
+            - "null"
+          format: date-time
+        tokens:
+          type: integer
+          description: Tokens this answer used.
+        tools:
+          type: string
+          description: "A JSON array as text: the sources the answer used (kb_find, price_find, tenant_now)."
+        context_time:
+          type:
+            - string
+            - "null"
+          description: "When the project snapshot was taken, YYYY-MM-DD HH:MM UTC."
+        material_ids:
+          type: string
+          description: "A JSON array as text: the inputs the question selected."
+        material_sources:
+          type: string
+          description: "A JSON array as text: id, file, version, imported and truncated of each input."
+      required:
+        - id
+        - project
+        - question
+        - answer
+        - status
+        - error
+        - created
+        - completed
+        - tokens
+        - tools
+        - context_time
+        - material_ids
+        - material_sources
+    Budget:
+      type: object
+      properties:
+        questions_left:
+          type: integer
+        tokens_left:
+          type: integer
+        daily_questions:
+          type: integer
+        daily_tokens:
+          type: integer
+        resets:
+          type: string
+          enum:
+            - "00:00 UTC"
+      required:
+        - questions_left
+        - tokens_left
+        - daily_questions
+        - daily_tokens
+        - resets
+    ChatHistory:
+      type: object
+      properties:
+        project:
+          "$ref": "#/components/schemas/ProjectCode"
+        turns:
+          type: array
+          description: Oldest first, the last 100.
+          items:
+            "$ref": "#/components/schemas/ChatTurn"
+        older_turns:
+          type: integer
+          description: Turns before the first one shown.
+        budget:
+          "$ref": "#/components/schemas/Budget"
+        model:
+          type: string
+          description: The model that answers.
+      required:
+        - project
+        - turns
+        - older_turns
+        - budget
+        - model
+    ChatRequest:
+      type: object
+      properties:
+        question:
+          type: string
+          description: "1 to 1000 characters after trimming, checked for names before it leaves."
+          minLength: 1
+          maxLength: 1000
+        request_id:
+          "$ref": "#/components/schemas/RequestId"
+        material_ids:
+          type: array
+          description: Up to five ready inputs of this project, each once.
+          items:
+            "$ref": "#/components/schemas/MaterialId"
+          maxItems: 5
+      required:
+        - question
+        - request_id
+      additionalProperties: false
+    ChatAccepted:
+      type: object
+      properties:
+        turn:
+          "$ref": "#/components/schemas/ChatTurn"
+        budget:
+          "$ref": "#/components/schemas/Budget"
+      required:
+        - turn
+        - budget

@@ -134,6 +134,7 @@ The work user of the seal reads the mirrors read-only under `/srv/tcp-mirrors/`:
 | `awb tenant snapshot [ALIAS]...` | list the servers, disks and elastic IPs of every region, keep the snapshot of the day and append what appeared, changed and went; GET only, owner side, fit for a daily cron line |
 | `awb tenant list`, `now ALIAS`, `history ALIAS [--project CODE] [--since DATE]`, `at ALIAS DATE`, `project CODE` | what runs now, what ran when and for which project, from the snapshots; handles instead of ids, aliases instead of tenant ids |
 | `awb ask serve [--port 8081]`, `awb ask QUESTION` | the Ask page: a question in plain words, answered by the model only from the knowledge base, the live price API and the tenant snapshots, with the entry of every fact; the question is name checked before it leaves; runs as its own service user that alone reads the API key; a daily budget of questions and tokens |
+| `awb api write`, `awb api check` | the contract of the web API: `docs/api/openapi.yaml` is written from `awb/tcp/web/contract.py`; check refuses a file that drifted from the module, an example that does not fit its schema, an unresolved reference and an operation without `x-awb-state` (deployed or repository) |
 
 The goal and the tags carry no name. Tags come from `rules/tags.txt` and a tag not listed there is refused. Spawn
 and close each write a ledger entry. A session claims its project at start (another live session in the same project

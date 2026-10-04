@@ -1,0 +1,34 @@
+# Template of the web side of the Workbench (seal/web/README.md). Placeholders: @OWNER@ the owner user,
+# @DOMAIN@ the host name of the site, @VAULT@ and @SHARED@ the folders of /etc/awb/paths.conf, @WORK_HOME@ the
+# home of the work user. Not installed by setup.sh: the switch is a step of its own.
+[Unit]
+Description=AWB authenticated web gateway
+After=network.target awb-portal.service awb-ask.service
+Wants=awb-portal.service awb-ask.service
+
+[Service]
+Type=simple
+User=awb-web
+Group=awb-web
+ExecStart=/usr/bin/python3 /opt/tcp-awb/src/awb/tcp/web/gateway.py --auth /etc/awb-web/auth.json --index /srv/awb-web/index.html --domain @DOMAIN@
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_UNIX
+CapabilityBoundingSet=
+UMask=0077
+LimitNOFILE=1024
+TasksMax=128
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

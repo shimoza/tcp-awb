@@ -468,8 +468,22 @@
    "name": "the exchange (T-102): a take of a file in neither or both inboxes refused; a clean file from the lab inbox into input/ and the project's in/, a file with a registered name held; the owner inbox only through the intake, the session gets the sanitised copy, unknown candidates hold the file and tell the owner only; a project without a customer needs a code; put into from-session/ with a mail, refused for a name hit, a picture without --image and a reason, a customer deliverable without review, a file above max_mb; object calls outside the allowed folders refused before signing; no key or owner file name in an answer or a log; close waits for files in the exchange folders",
    "run": ".venv/bin/pytest tests/test_xchg.py",
    "status": "passing"
+  },
+  {
+   "id": "W1",
+   "phase": "W",
+   "name": "the contract of the web API: docs/api/openapi.yaml written from awb/tcp/web/contract.py and equal to it, 23 operations with every field, status and error text and an example that fits its schema, each operation deployed or repository; each check shown to fail (a wrong type, a missing field, a field the schema lacks, a value off the list, a path parameter, an unresolved reference, a refusal without the error schema, no state, an operationId twice); kinds, codes and chat limits follow the backend; the YAML writer quotes what a parser would read otherwise; awb api write and check",
+   "run": ".venv/bin/pytest tests/test_web_contract.py",
+   "status": "passing"
+  },
+  {
+   "id": "W2",
+   "phase": "W",
+   "name": "the web handlers in the repository (awb/tcp/web: gateway, projects, tenants, creation, materials, project chat), moved from the deployed copies with their behaviour: the tests the web side wrote for them pass here, every real answer fits the contract, every text the handlers send is listed in the contract or named unreachable with its reason, the host and the owner are settings, the internal library calls became public with the old names kept for the deployed copies, a reserved code reaches spawn, and the systemd templates of seal/web name no host and start modules that exist",
+   "run": ".venv/bin/pytest tests/test_web_gateway.py tests/test_web_projects_api.py tests/test_web_tenant_api.py tests/test_web_create_api.py tests/test_web_materials_api.py tests/test_web_chat_service.py tests/test_web_seal.py tests/test_web_contract.py tests/test_projects.py",
+   "status": "passing"
   }
  ],
- "total_tests": 1846,
- "checked": "2026-09-27"
+ "total_tests": 2177,
+ "checked": "2026-10-04"
 }

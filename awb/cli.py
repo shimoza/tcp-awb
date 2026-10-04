@@ -41,6 +41,7 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     awb portal serve [--port N]                              awb/tcp/portal.py
     awb tenant add|snapshot|list|now|history|at|project      awb/tcp/tenants.py
     awb ask serve [--port N] | awb ask QUESTION              awb/tcp/ask.py
+    awb api write|check                                      awb/tcp/web/contract.py
 
 Exit codes: 0 ok, 1 findings or blocked, 2 usage or error.
 
@@ -491,6 +492,7 @@ DELEGATED = {
     "keys": ("tcp.keys", "the key service: keys, logins and passwords of the test tenants, never shown to a session"),
     "migrate": ("tcp.migrate", "a migration to TCP in phases: inventory, mapping, estimate, plan, review"),
     "tenant": ("tcp.tenants", "resources on the test tenants over time: add, snapshot, list, now, history, at, project"),
+    "api": ("tcp.web.contract", "the contract of the web API: write docs/api/openapi.yaml, check it"),
 }
 
 

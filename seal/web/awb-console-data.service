@@ -1,0 +1,34 @@
+# Template of the web side of the Workbench (seal/web/README.md). Placeholders: @OWNER@ the owner user,
+# @DOMAIN@ the host name of the site, @VAULT@ and @SHARED@ the folders of /etc/awb/paths.conf, @WORK_HOME@ the
+# home of the work user. Not installed by setup.sh: the switch is a step of its own.
+[Unit]
+Description=AWB console read-only project data
+After=network.target awb-vaultd.service
+
+[Service]
+Type=simple
+User=awb
+Group=awb
+StateDirectory=awb-console-data
+StateDirectoryMode=0700
+ExecStart=/opt/tcp-awb/venv/bin/python3 -m awb.tcp.web.projects_api --port 8182
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_UNIX
+CapabilityBoundingSet=
+UMask=0077
+TasksMax=64
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

@@ -90,6 +90,11 @@ def _check(e: Entry, where: str) -> None:
         raise _fail(where, "status must be active or retired")
 
 
+def check_entry(e: Entry, where: str) -> None:
+    """Refuse an entry that must not be in the register, before it is written (the web creation of a customer)."""
+    _check(e, where)
+
+
 def _check_all(entries: list[Entry]) -> None:
     """Check a list that is about to be written, with the line each entry would take."""
     seen: dict[tuple[str, str], int] = {}

@@ -1,0 +1,34 @@
+# Template of the web side of the Workbench (seal/web/README.md). Placeholders: @OWNER@ the owner user,
+# @DOMAIN@ the host name of the site, @VAULT@ and @SHARED@ the folders of /etc/awb/paths.conf, @WORK_HOME@ the
+# home of the work user. Not installed by setup.sh: the switch is a step of its own.
+[Unit]
+Description=AWB project inputs and copy-only bucket imports
+Requires=awb-materials.socket
+After=awb-vaultd.service awb-project-create.socket network-online.target
+[Service]
+User=@OWNER@
+Group=awb
+Environment=AWB_CONF=/etc/awb/paths.conf
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/tcp-awb/venv/bin/python3 -m awb.tcp.web.materials_api
+StateDirectory=awb-materials
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@VAULT@
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+UMask=0077
+LimitCORE=0
+TasksMax=48
+MemoryMax=768M
+Restart=on-failure
+RestartSec=3

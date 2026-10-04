@@ -234,7 +234,7 @@ def _save(p: _config.Paths, rows: list[Project]) -> None:
 
 
 @contextmanager
-def _locked(p: _config.Paths):
+def locked(p: _config.Paths):
     """One writer of the project register at a time, across processes."""
     p.shared.mkdir(parents=True, exist_ok=True)
     fd = os.open(p.shared / ".projects.lock", os.O_RDWR | os.O_CREAT, 0o640)
@@ -246,6 +246,10 @@ def _locked(p: _config.Paths):
             fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)
+
+
+# The private name stays for the web adapters still deployed outside the repository until they are switched.
+_locked = locked
 
 
 # --- checks on what goes into a project -------------------------------------------------------------------
@@ -479,7 +483,8 @@ def _git(folder: Path, *args: str) -> None:
 
 # --- public -------------------------------------------------------------------------------------------------
 
-def _known_tags() -> list[str]:
+def known_tags() -> list[str]:
+    """The tags of rules/tags.txt, the only ones a project may carry."""
     from awb import ledger
     try:
         return ledger.load_tags()
@@ -487,11 +492,15 @@ def _known_tags() -> list[str]:
         raise ProjectError("rules/tags.txt cannot be read, nothing was created") from None
 
 
+_known_tags = known_tags         # kept for the web adapters still deployed outside the repository
+
+
 def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register_path: Path,
-          tags: list[str] = (), from_outbox: bool = False) -> Project:
+          tags: list[str] = (), from_outbox: bool = False, code: str | None = None) -> Project:
     """Create, commit and register a sealed tcp- project. Refuses before anything is written. Tags come from
     rules/tags.txt (T-03). With `from_outbox` the sanitised copies waiting in the outbox of the customer move into
-    input/ and go into the first commit (T-14)."""
+    input/ and go into the first commit (T-14). `code` takes a code reserved before (the web creation keeps it
+    with its request id); a reserved code that is registered already is refused."""
     kind = LEGACY_KINDS.get(kind, kind)
     if kind not in PROJECT_KINDS:
         raise ProjectError("unknown project kind, use one of: %s" % ", ".join(PROJECT_KINDS))
@@ -500,7 +509,7 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
     _word_checks(goal, "goal")
     for n, tag in enumerate(tags, start=1):
         _word_checks(tag, "tag %d" % n)
-    known = _known_tags()           # after the word checks: a blocklist hit is refused as that, first
+    known = known_tags()            # after the word checks: a blocklist hit is refused as that, first
     for n, tag in enumerate(tags, start=1):
         if tag not in known:
             raise ProjectError("tag %d is not in rules/tags.txt; add it there first" % n)
@@ -530,9 +539,13 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
         if not waiting:
             raise ProjectError("the outbox of %s holds no file, nothing was created" % customer)
 
-    with _locked(p):
+    with locked(p):
         rows = load(p)
-        code = _codes.new_project_code(PLATFORM, {r.code for r in rows})
+        taken = {r.code for r in rows}
+        if code is None:
+            code = _codes.new_project_code(PLATFORM, taken)
+        elif not re.fullmatch(r"%s-[a-z2-7]{4}" % PLATFORM, code) or code in taken:
+            raise ProjectError("the reserved project code is already registered")
         if any(r.code == code for r in rows):
             raise ProjectError("project %s is already registered" % code)
         folder = p.projects_root / code

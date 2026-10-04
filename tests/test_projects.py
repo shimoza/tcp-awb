@@ -705,3 +705,13 @@ def test_a_spawned_project_gets_the_commit_gate(home, register_path, monkeypatch
     _git(folder, "add", "-A")
     passed = _commit(folder)
     assert passed.returncode == 0, passed.stdout + passed.stderr
+
+
+def test_spawn_takes_a_reserved_code_and_refuses_one_that_is_taken(home, register_path):
+    pr = projects.spawn(home, "query", "Compare the storage classes of the region", "none", register_path,
+                        code="tcp-q7m4")
+    assert pr.code == "tcp-q7m4" and [p.code for p in projects.load(home)] == ["tcp-q7m4"]
+    for code in ("tcp-q7m4", "tcp-q7m1", "hcs-q7m4", "tcp-Q7M4"):
+        with pytest.raises(projects.ProjectError, match="reserved project code"):
+            projects.spawn(home, "query", "Compare the storage classes again", "none", register_path, code=code)
+    assert len(projects.load(home)) == 1

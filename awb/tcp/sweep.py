@@ -126,7 +126,7 @@ class SweepReport:
     counts: dict[str, int]
 
 
-def _tags(raw) -> dict[str, str]:
+def tags(raw) -> dict[str, str]:
     """Tags as a dict from the shapes the services use: a dict, a list of "key=value" or of {key, value}."""
     out: dict[str, str] = {}
     if isinstance(raw, dict):
@@ -139,6 +139,9 @@ def _tags(raw) -> dict[str, str]:
             elif isinstance(t, dict) and "key" in t:
                 out[str(t["key"])] = str(t.get("value", ""))
     return out
+
+
+_tags = tags    # the readers below have a local named tags; the web adapters deployed outside use it too
 
 
 def _created(item: dict) -> str:
