@@ -29,24 +29,20 @@ belong to `awb-web`, so only the gateway reaches them.
 | `@SHARED@` | `shared` of `/etc/awb/paths.conf` |
 | `@WORK_HOME@` | the home folder of the work user |
 
-## The switch (not done yet: production stays on `/opt/awb-web` until the owner decides)
+## The switch (production stays on `/opt/awb-web` until the owner runs it)
 
-1. Install the current code: `sudo seal/setup.sh` (it installs `/opt/tcp-awb/src` from `git archive HEAD`).
-   Create the system user of the tenant inventory, once, in group `awb` (the key service socket and the tenant
-   register are group `awb`): `sudo useradd --system --gid awb --no-create-home --shell /usr/sbin/nologin awb-console`.
-2. Render the templates into `/etc/systemd/system/`, one file each, with the values above:
+1. `sudo seal/setup.sh` installs the committed code into `/opt/tcp-awb` (`git archive HEAD`).
+2. Publish the reviewed page of the console to `/srv/awb-web/index.html`, the old one kept as
+   `index.html.before-switch`.
+3. `sudo seal/web/install.sh --domain <host name of the site>`, first with `--dry-run`. It creates the system user
+   `awb-console` once, renders every template with the values of `/etc/awb/paths.conf`, keeps every unit it replaces
+   as `<unit>.before-switch`, retires `awb-ask.service.d/90-awb-web.conf` and restarts the key service and the web
+   units.
+4. As the owner: `awb keys unlock`. The restarted key service holds no key until then.
+5. Check: every unit is active, the console signs in, the projects, the tenants and the create form (Query, Project)
+   load.
 
-   ```bash
-   sed -e "s|@OWNER@|$OWNER|g" -e "s|@DOMAIN@|$DOMAIN|g" -e "s|@VAULT@|$VAULT|g" -e "s|@SHARED@|$SHARED|g" -e "s|@WORK_HOME@|$WORK_HOME|g" seal/web/awb-web.service | sudo tee /etc/systemd/system/awb-web.service
-   ```
-
-   The two drop-ins go into `/etc/systemd/system/awb-portal.service.d/` and `awb-ask.service.d/`. The older
-   drop-in `awb-ask.service.d/90-awb-web.conf` goes: `95-project-chat.conf` replaces it.
-3. `sudo systemctl daemon-reload`, then restart `awb-keyd` (it forgets the keys: run `awb keys unlock` as the owner
-   right after, the materials service reads the buckets through it), `awb-web`, `awb-console-data`, `awb-console-tenants`,
-   `awb-ask`, `awb-portal` and the three sockets with their services.
-4. Check: the console opens and signs in, every page loads, `systemctl status` shows each unit active.
-5. Keep `/opt/awb-web` until the check passed. To go back, reinstall the units that point there and restart.
+To go back: `sudo seal/web/install.sh --rollback`, and the page backup copied over `/srv/awb-web/index.html`.
 
 The web adapters in `/opt/awb-web` keep working against a newer `/opt/tcp-awb` until the switch: the private
 names they call (`register._check`, `projects._known_tags`, `projects._locked`, `obs._text`, `obs._child`,
