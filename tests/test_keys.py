@@ -321,3 +321,23 @@ def test_a_session_reaches_a_tenant_only_from_a_project_of_the_kind_project(svc,
     assert svc._call(dict(req, project="tcp-ab2c"), session)["status"] == 200
     assert svc._call(dict(req, project="tcp-1ab4"), session)["status"] == 200      # a lab of before counts
     assert svc._call(dict(req), __import__("os").getuid())["status"] == 200       # the owner needs no project
+
+
+def test_the_console_user_reads_a_tenant_without_a_project_and_nothing_more(svc, gw):
+    """F2: the tenant inventory of the console runs as its own system user, which alone may read without a project."""
+    load(svc)
+    console = __import__("os").getuid() + 2
+    session = __import__("os").getuid() + 1
+    svc._console_uid = lambda: console
+    req = {"tenant": "test-1", "method": "GET", "service": "vpc", "path": "/v1/{project_id}/vpcs"}
+    assert svc._call(dict(req), console)["status"] == 200
+    with pytest.raises(keys.Refused, match="read key only"):
+        svc._call(dict(req, role="lab"), console)
+    with pytest.raises(keys.Refused, match="allows GET, HEAD only"):
+        svc._call(dict(req, method="POST", body={}), console)
+    with pytest.raises(keys.Refused, match="folder of an active project"):
+        svc._call(dict(req), session)
+    svc._console_uid = lambda: None          # no such user on the host: nobody reads without a project
+    with pytest.raises(keys.Refused, match="folder of an active project"):
+        svc._call(dict(req), console)
+    assert keys.CONSOLE_USER == "awb-console" and svc.console_user == keys.CONSOLE_USER

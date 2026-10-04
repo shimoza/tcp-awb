@@ -958,9 +958,9 @@ def _tenant_paths() -> dict:
                 "503": refusal("The inventory cannot be read.", "The tenant inventory is unavailable."),
             }, description="Read only. Servers, disks, elastic IPs, VPCs and private images of each registered test "
                            "tenant in its regions. A snapshot older than 300 seconds starts a refresh in the "
-                           "background and is still returned with stale true. Before the next backend deploy: the "
-                           "key service of the repository refuses a tenant read that names no active project, so "
-                           "the owner decides first how this route reads.",
+                           "background and is still returned with stale true. In the repository version the "
+                           "inventory runs as its own service and system user (awb-console), which alone may read "
+                           "the test tenants without a project; sessions still need an active project.",
                 parameters=[{"name": "refresh", "in": "query", "required": False,
                              "description": "1 starts a refresh in the background, at most every 30 seconds.",
                              "schema": {"type": "string", "enum": ["1"]}}]),

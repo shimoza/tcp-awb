@@ -9,7 +9,7 @@ import re
 import stat
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlsplit, parse_qs
+from urllib.parse import urlsplit
 from awb import config, projects, review, vault, normalize
 
 FILES = ('SCOPE.md', 'STATE.md', 'OPEN.md', 'RESOURCES.md')
@@ -175,13 +175,6 @@ class Handler(BaseHTTPRequestHandler):
         if self.command!='HEAD':self.wfile.write(raw)
     def do_GET(self):
         path=urlsplit(self.path).path
-        if path=='/api/tenants':
-            try:
-                refresh=parse_qs(urlsplit(self.path).query).get('refresh')==['1']
-                self.reply(200,self.server.inventory.get(refresh=refresh))
-            except Exception:
-                self.reply(503,{'error':'The tenant inventory is unavailable.'})
-            return
         if not re.fullmatch(r'/api/projects(?:/tcp-[a-z0-9]{4})?',path):
             self.reply(404,{'error':'No such project endpoint.'});return
         try:
@@ -201,10 +194,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    from awb.tcp.web.tenant_api import Inventory
+    # the tenants moved to their own service and user (awb.tcp.web.tenant_api, F2)
     parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=8182);args=parser.parse_args()
     server=ThreadingHTTPServer(('127.0.0.1',args.port),Handler)
-    server.inventory=Inventory()
     server.serve_forever()
 
 if __name__=='__main__':main()

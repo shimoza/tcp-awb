@@ -1,0 +1,35 @@
+# Template of the web side of the Workbench (seal/web/README.md). Placeholders: @OWNER@ the owner user,
+# @DOMAIN@ the host name of the site, @VAULT@ and @SHARED@ the folders of /etc/awb/paths.conf, @WORK_HOME@ the
+# home of the work user. Not installed by setup.sh: the switch is a step of its own.
+[Unit]
+Description=AWB console tenant inventory, read only (its own user: the key service lets it alone read without a project)
+After=network.target awb-keyd.service
+
+[Service]
+Type=simple
+User=awb-console
+Group=awb
+StateDirectory=awb-console-tenants
+StateDirectoryMode=0700
+Environment=AWB_CONF=/etc/awb/paths.conf
+ExecStart=/opt/tcp-awb/venv/bin/python3 -m awb.tcp.web.tenant_api --port 8183 --cache /var/lib/awb-console-tenants/tenants.json
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_UNIX
+CapabilityBoundingSet=
+UMask=0077
+TasksMax=64
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

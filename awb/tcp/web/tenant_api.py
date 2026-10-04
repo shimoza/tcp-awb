@@ -1,6 +1,10 @@
-"""Bounded read-only tenant inventory through the existing key-service socket."""
+"""Bounded read-only tenant inventory through the existing key-service socket.
+
+It runs as its own service and system user (awb-console, F2): the key service lets that user alone read the test
+tenants without a project. GET /api/tenants behind the gateway, 127.0.0.1:8183."""
 # Moved from the web adapters of 2026-10-02 into the repository on 2026-10-04, behaviour unchanged (tests/test_web_*.py).
 
+import argparse
 import concurrent.futures
 import datetime as dt
 import hashlib
@@ -9,7 +13,9 @@ import os
 import re
 import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 from awb import config
 from awb.tcp import keys, tenants, sweep
 
@@ -185,3 +191,53 @@ class Inventory:
             with self.lock:self.error='The inventory could not be refreshed. The previous snapshot is shown when available.'
         finally:
             with self.lock:self.refreshing=False
+
+
+class Handler(BaseHTTPRequestHandler):
+    """GET /api/tenants, refresh=1 starts a refresh in the background. Read only."""
+
+    def reply(self, status, data):
+        raw = json.dumps(data, ensure_ascii=False).encode()
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(raw)))
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(raw)
+
+    def do_GET(self):
+        url = urlsplit(self.path)
+        if url.path != '/api/tenants':
+            self.reply(404, {'error': 'Not found.'})
+            return
+        try:
+            self.reply(200, self.server.inventory.get(refresh=parse_qs(url.query).get('refresh') == ['1']))
+        except Exception:
+            self.reply(503, {'error': 'The tenant inventory is unavailable.'})
+    do_HEAD = do_GET
+
+    def do_POST(self):
+        self.reply(405, {'error': 'Method not allowed.'})
+    do_PUT = do_PATCH = do_DELETE = do_POST
+
+    def log_message(self, fmt, *args):
+        print(self.command, str(args[1]) if len(args) > 1 else '-', flush=True)
+
+
+def make_server(port=8183, inventory=None):
+    server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
+    server.inventory = inventory or Inventory()
+    return server
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--port', type=int, default=8183)
+    parser.add_argument('--cache', type=Path, default=CACHE)
+    args = parser.parse_args()
+    make_server(args.port, Inventory(args.cache)).serve_forever()
+
+
+if __name__ == '__main__':
+    main()

@@ -250,6 +250,32 @@ class LoginTests(unittest.TestCase):
         h, d = self.form()
         self.assertEqual(self.request("/login", "POST", h, "x" * 20000)[0], 413)
 
+    def test_projects_and_tenants_reach_their_own_backends(self):
+        class Marked(Backend):
+            def answer(self):
+                self.calls.append((self.command, self.path, dict(self.headers), b""))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(self.server.mark)
+        backends = []
+        for mark in (b"projects", b"tenants"):
+            b = ThreadingHTTPServer(("127.0.0.1", 0), Marked)
+            b.mark = mark
+            threading.Thread(target=b.serve_forever, daemon=True).start()
+            backends.append(b)
+        s = gateway.make_server(0, self.auth, self.root / "index.html", 1, 1, backends[0].server_port,
+                                backends[1].server_port, domain=DOMAIN)
+        threading.Thread(target=s.serve_forever, daemon=True).start()
+        try:
+            self.assertEqual(self.request("/api/projects", headers=self.session_headers(), server=s)[2], b"projects")
+            self.assertEqual(self.request("/api/tenants", headers=self.session_headers(), server=s)[2], b"tenants")
+            self.assertEqual(self.request("/api/tenants?refresh=1", headers=self.session_headers(), server=s)[2],
+                             b"tenants")
+        finally:
+            for x in (s, *backends):
+                x.shutdown()
+                x.server_close()
+
     def test_the_host_of_the_site_is_a_setting(self):
         other = gateway.make_server(0, self.auth, self.root / "index.html", 1, 1, domain="Other.Example.Test")
         threading.Thread(target=other.serve_forever, daemon=True).start()

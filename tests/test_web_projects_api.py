@@ -122,3 +122,22 @@ class Tests(unittest.TestCase):
         detail = api.project_detail("tcp-q7m4", self.paths)
         self.assertEqual(detail["deliverables"], {"status": "unavailable", "items": []})
         self.assertEqual(contract.validate(doc, detail, contract.ref("ProjectDetail")), [])
+
+
+def test_the_projects_service_no_longer_answers_the_tenants():
+    """F2: the tenants moved to their own service and user; this service reads projects only."""
+    import http.client
+    import json
+    import threading
+    from http.server import ThreadingHTTPServer
+    server = ThreadingHTTPServer(("127.0.0.1", 0), api.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        c = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        c.request("GET", "/api/tenants")
+        r = c.getresponse()
+        assert (r.status, json.loads(r.read())) == (404, {"error": "No such project endpoint."})
+        c.close()
+    finally:
+        server.shutdown()
+        server.server_close()

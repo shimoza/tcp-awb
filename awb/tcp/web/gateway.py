@@ -330,14 +330,15 @@ class Gateway(BaseHTTPRequestHandler):
         if path == '/favicon.ico':
             self.reply(204)
             return
-        is_project_api = path == '/api/tenants' or bool(re.fullmatch(r'/api/projects(?:/tcp-[a-z0-9]{4})?', path))
+        is_tenant_api = path == '/api/tenants'
+        is_project_api = bool(re.fullmatch(r'/api/projects(?:/tcp-[a-z0-9]{4})?', path))
         is_chat_api = bool(re.fullmatch(r'/api/projects/tcp-[a-z0-9]{4}/chat', path))
         is_materials_api = bool(re.fullmatch(r'/api/projects/tcp-[a-z2-7]{4}/materials(?:/(?:sources|imports|M-[A-Z]{24}))?',path))
         is_creation_api = bool(re.fullmatch(r'/api/(?:customer|project)-operations/[a-f0-9]{32}', path)) or path in {'/api/customers', '/api/project-options'} or (path == '/api/projects' and self.command == 'POST')
-        if path not in BACKEND_ROUTES and not is_project_api and not is_chat_api and not is_creation_api and not is_materials_api:
+        if path not in BACKEND_ROUTES and not is_project_api and not is_tenant_api and not is_chat_api and not is_creation_api and not is_materials_api:
             self.reply(404, b'Not found.\n')
             return
-        port = self.server.projects_port if is_project_api else self.server.ask_port if path == '/ask' or is_chat_api else self.server.portal_port
+        port = self.server.projects_port if is_project_api else self.server.tenants_port if is_tenant_api else self.server.ask_port if path == '/ask' or is_chat_api else self.server.portal_port
         target = '/' if path == '/portal' else self.path
         forwarded = {'Host': self.server.domain, 'X-Forwarded-Proto': 'https'}
         if self.command == 'POST':
@@ -368,7 +369,7 @@ class Gateway(BaseHTTPRequestHandler):
         print(self.command, status, flush=True)
 
 
-def make_server(port, auth, index, portal_port, ask_port, projects_port=8182, *, domain):
+def make_server(port, auth, index, portal_port, ask_port, projects_port=8182, tenants_port=8183, *, domain):
     server = ThreadingHTTPServer(('127.0.0.1', port), Gateway)
     server.domain = domain.lower()
     server.daemon_threads = True
@@ -377,6 +378,7 @@ def make_server(port, auth, index, portal_port, ask_port, projects_port=8182, *,
     server.portal_port = portal_port
     server.ask_port = ask_port
     server.projects_port = projects_port
+    server.tenants_port = tenants_port
     server.customer_socket = '/run/awb-customers.sock'
     server.project_socket = '/run/awb-project-create.sock'
     server.materials_socket = '/run/awb-materials.sock'
@@ -392,9 +394,10 @@ def main():
     ap.add_argument('--portal-port', type=int, default=8180)
     ap.add_argument('--ask-port', type=int, default=8181)
     ap.add_argument('--projects-port', type=int, default=8182)
+    ap.add_argument('--tenants-port', type=int, default=8183)
     args = ap.parse_args()
     auth = Auth(args.auth)
-    servers = [make_server(port, auth, args.index, args.portal_port, args.ask_port, args.projects_port, domain=args.domain) for port in args.ports]
+    servers = [make_server(port, auth, args.index, args.portal_port, args.ask_port, args.projects_port, args.tenants_port, domain=args.domain) for port in args.ports]
     for server in servers[1:]:
         threading.Thread(target=server.serve_forever, daemon=True).start()
     print('AWB authenticated gateway ready', flush=True)

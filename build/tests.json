@@ -489,8 +489,15 @@
    "name": "the materials service reads the buckets through the key service (agreed point 2, F7): the web mode of the key service lists inbox/ of both buckets and an active project's month folder, names the month folders and reads one object at the version of its listing, owner only, never a write, a delete or a copy, every read logged without its key; another version, a size above the limit, another folder or another caller refused; the materials service holds no key and reads no password store, a locked or absent key service is a plain refusal, the tests of the web side pass on this path, and the text check of the contract reads named constants too",
    "run": ".venv/bin/pytest tests/test_xchg.py tests/test_web_materials_api.py tests/test_web_contract.py tests/test_obs.py",
    "status": "passing"
+  },
+  {
+   "id": "W4",
+   "phase": "W",
+   "name": "F2, his decision: the console's tenant inventory is its own service under its own system user (awb-console); the key service lets that user alone read a test tenant without a project, with the read key only, a session still needs an active project of kind project and nobody reads without one when the user does not exist; the gateway sends /api/tenants to the new service and /api/projects to the old one, which no longer answers the tenants; the unit template of seal/web and the switch steps",
+   "run": ".venv/bin/pytest tests/test_keys.py tests/test_web_tenant_api.py tests/test_web_projects_api.py tests/test_web_gateway.py tests/test_web_seal.py",
+   "status": "passing"
   }
  ],
- "total_tests": 2183,
+ "total_tests": 2187,
  "checked": "2026-10-04"
 }

@@ -75,6 +75,9 @@ _REF_RE = re.compile(r"^\{\{secret:([a-z0-9][a-z0-9_.-]{0,40})\}\}$")
 _SECRET_FIELD_RE = re.compile(r"(?i)^(?:admin_?pass(?:word)?|password|passwd|user_?password|root_?password"
                               r"|db_?password|login_?password)$")
 MASK = "<secret>"
+CONSOLE_USER = "awb-console"
+"""The system user of the console's tenant inventory (F2, his decision of 2026-10-04): it alone reads a test tenant
+without a project, with the read key only. Sessions run as the work user and keep the query/project rule."""
 
 
 class KeysError(Exception):
@@ -174,11 +177,13 @@ class Service:
     """The key service. `start()` binds both sockets, `stop()` ends them and forgets every secret."""
 
     def __init__(self, admin_path: Path, call_path: Path, *, endpoint: str | None = None,
-                 paths_fn=config.paths, log_dir: Path | None = None, obs_endpoints: dict | None = None):
+                 paths_fn=config.paths, log_dir: Path | None = None, obs_endpoints: dict | None = None,
+                 console_user: str = CONSOLE_USER):
         self.admin_path = Path(admin_path)
         self.call_path = Path(call_path)
         self.endpoint = endpoint
         self.obs_endpoints = dict(obs_endpoints or {})
+        self.console_user = console_user
         self.settings: dict = {}
         self.paths_fn = paths_fn
         self.log_dir = log_dir
@@ -355,6 +360,14 @@ class Service:
         return obs.Client(bucket, keys_, self.settings.get("region") or "eu-de",
                           endpoint=self.obs_endpoints.get(bucket), timeout=CALL_TIMEOUT)
 
+    def _console_uid(self) -> int | None:
+        import pwd
+
+        try:
+            return pwd.getpwnam(self.console_user).pw_uid
+        except KeyError:
+            return None
+
     def _project_row(self, code):
         from awb import projects
 
@@ -520,7 +533,11 @@ class Service:
         if region not in regions:
             raise Refused("the region is not one of the tenant's")
         project = req.get("project") or ""
-        if uid != os.getuid():
+        if uid != os.getuid() and uid == self._console_uid():
+            # the console's tenant inventory: the read key and no project, nothing else (F2)
+            if role != "read":
+                raise Refused("the console reads with the read key only")
+        elif uid != os.getuid():
             # a session reaches a tenant only from a project of the kind project, never from a query
             from awb import projects as _projects
 

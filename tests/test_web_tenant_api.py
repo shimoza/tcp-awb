@@ -139,3 +139,42 @@ class Tests(unittest.TestCase):
             filled = inventory.get()
             self.assertIn("timestamp", filled)
             self.assertEqual(contract.validate(doc, filled, contract.ref("TenantInventory")), [])
+
+
+class ServiceTests(unittest.TestCase):
+    """The inventory as its own service (F2): GET /api/tenants only, a plain 503 when the inventory fails."""
+
+    def ask(self, inventory, method="GET", path="/api/tenants"):
+        import http.client
+        import threading
+        server = api.make_server(0, inventory)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            c = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+            c.request(method, path)
+            r = c.getresponse()
+            body = r.read()
+            c.close()
+            return r.status, (json.loads(body) if body else None)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_the_route_the_refresh_and_the_refusals(self):
+        seen = []
+
+        class Fake:
+            def get(self, refresh=False):
+                seen.append(refresh)
+                return {"tenants": [], "collected_at": None}
+        self.assertEqual(self.ask(Fake()), (200, {"tenants": [], "collected_at": None}))
+        self.assertEqual(self.ask(Fake(), path="/api/tenants?refresh=1")[0], 200)
+        self.assertEqual(seen, [False, True])
+        self.assertEqual(self.ask(Fake(), path="/api/projects"), (404, {"error": "Not found."}))
+        self.assertEqual(self.ask(Fake(), method="POST"), (405, {"error": "Method not allowed."}))
+        self.assertEqual(self.ask(Fake(), method="HEAD"), (200, None))
+
+        class Broken:
+            def get(self, refresh=False):
+                raise RuntimeError("no key service")
+        self.assertEqual(self.ask(Broken()), (503, {"error": "The tenant inventory is unavailable."}))

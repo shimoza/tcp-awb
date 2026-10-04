@@ -281,7 +281,7 @@ def test_every_unreachable_text_is_still_in_the_code():
 def test_the_text_check_can_fail(doc):
     broken = copy.deepcopy(doc)
     _body(broken, "/api/tenants", "get", "503")["examples"] = {"other": {"value": {"error": "Something else."}}}
-    assert _missing(broken) == ["projects_api.py: " + re.escape("The tenant inventory is unavailable.")]
+    assert _missing(broken) == ["tenant_api.py: " + re.escape("The tenant inventory is unavailable.")]
     broken = copy.deepcopy(doc)
     broken["components"]["schemas"]["ChatTurn"]["properties"]["error"]["x-awb-texts"].remove(
         "The model declined this question.")

@@ -19,7 +19,7 @@ def templates():
 
 def test_the_templates_name_no_host_and_only_documented_placeholders():
     readme = (WEB / "README.md").read_text(encoding="utf-8")
-    assert len(templates()) == 10
+    assert len(templates()) == 11
     for path in templates():
         text = path.read_text(encoding="utf-8")
         assert "/home/" not in text and "/opt/awb-web" not in text, path.name
@@ -36,7 +36,7 @@ def test_every_module_a_template_starts_exists():
             if line.startswith("ExecStart=") and line != "ExecStart=":
                 started += re.findall(r"-m (awb\.[\w.]+)", line)
                 started += [m.replace("/opt/tcp-awb/src/", "") for m in re.findall(r"/opt/tcp-awb/src/\S+\.py", line)]
-    assert len(started) == 6
+    assert len(started) == 7
     for name in started:
         if name.endswith(".py"):
             assert (REPO / name).is_file(), name

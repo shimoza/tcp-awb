@@ -8,7 +8,8 @@ copies in `/opt/awb-web` is a step of its own, done once, by the owner.
 | unit | user | what it runs | listens on |
 |---|---|---|---|
 | `awb-web.service` | `awb-web` | `awb/tcp/web/gateway.py`: sign-in, sessions, the checks of every request | 127.0.0.1:8080 and 8081 |
-| `awb-console-data.service` | `awb` | `awb.tcp.web.projects_api`: projects and tenants, read only | 127.0.0.1:8182 |
+| `awb-console-data.service` | `awb` | `awb.tcp.web.projects_api`: the projects, read only | 127.0.0.1:8182 |
+| `awb-console-tenants.service` | `awb-console` | `awb.tcp.web.tenant_api`: the test tenants, read only; the key service lets this user alone read without a project (F2) | 127.0.0.1:8183 |
 | `awb-project-create.socket` and `.service` | `awb` | `awb.tcp.web.create_api projects`: new projects | `/run/awb-project-create.sock` |
 | `awb-customers.socket` and `.service` | the owner | `awb.tcp.web.create_api customers`: new customers, the register | `/run/awb-customers.sock` |
 | `awb-materials.socket` and `.service` | the owner | `awb.tcp.web.materials_api`: copy-only imports from the buckets, read through the key service; no network of its own | `/run/awb-materials.sock` |
@@ -31,6 +32,8 @@ belong to `awb-web`, so only the gateway reaches them.
 ## The switch (not done yet: production stays on `/opt/awb-web` until the owner decides)
 
 1. Install the current code: `sudo seal/setup.sh` (it installs `/opt/tcp-awb/src` from `git archive HEAD`).
+   Create the system user of the tenant inventory, once, in group `awb` (the key service socket and the tenant
+   register are group `awb`): `sudo useradd --system --gid awb --no-create-home --shell /usr/sbin/nologin awb-console`.
 2. Render the templates into `/etc/systemd/system/`, one file each, with the values above:
 
    ```bash
@@ -40,8 +43,8 @@ belong to `awb-web`, so only the gateway reaches them.
    The two drop-ins go into `/etc/systemd/system/awb-portal.service.d/` and `awb-ask.service.d/`. The older
    drop-in `awb-ask.service.d/90-awb-web.conf` goes: `95-project-chat.conf` replaces it.
 3. `sudo systemctl daemon-reload`, then restart `awb-keyd` (it forgets the keys: run `awb keys unlock` as the owner
-   right after, the materials service reads the buckets through it), `awb-web`, `awb-console-data`, `awb-ask`,
-   `awb-portal` and the three sockets with their services.
+   right after, the materials service reads the buckets through it), `awb-web`, `awb-console-data`, `awb-console-tenants`,
+   `awb-ask`, `awb-portal` and the three sockets with their services.
 4. Check: the console opens and signs in, every page loads, `systemctl status` shows each unit active.
 5. Keep `/opt/awb-web` until the check passed. To go back, reinstall the units that point there and restart.
 
