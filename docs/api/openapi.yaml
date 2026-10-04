@@ -2304,7 +2304,7 @@ paths:
       tags:
         - chat
       summary: Ask about a project.
-      description: "The question is checked for names before anything leaves. The project files and up to five ready inputs go along as source data, never as instructions. One answer at a time for the whole site; 40 questions and 300,000 tokens a day, reset at 00:00 UTC. A failed turn carries its reason in error and is never resent by itself."
+      description: "The question is checked for names before anything leaves. The project files and up to five ready inputs go along as source data, never as instructions: a long input as the passages that match the question best, about 16,000 characters for all inputs together, and the model may search the selected inputs with input_find. One answer at a time for the whole site; 40 questions and 300,000 tokens a day, reset at 00:00 UTC. A failed turn carries its reason in error and is never resent by itself."
       parameters:
         - name: code
           in: path
@@ -3542,7 +3542,7 @@ components:
           description: Tokens this answer used.
         tools:
           type: string
-          description: "A JSON array as text: the sources the answer used (kb_find, price_find, tenant_now)."
+          description: "A JSON array as text: the sources the answer used (kb_find, price_find, tenant_now and, with selected inputs, input_find)."
         context_time:
           type:
             - string
@@ -3553,7 +3553,7 @@ components:
           description: "A JSON array as text: the inputs the question selected."
         material_sources:
           type: string
-          description: "A JSON array as text: id, file, version, imported and truncated of each input."
+          description: "A JSON array as text: id, file, version, imported and truncated of each input, and for a long input the places of the passages sent, such as \"3, 7 of 12\"."
       required:
         - id
         - project

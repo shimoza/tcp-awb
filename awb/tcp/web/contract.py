@@ -680,11 +680,13 @@ def _schemas() -> dict:
             "created": string(format="date-time"),
             "completed": string(nullable=True, format="date-time"),
             "tokens": integer("Tokens this answer used."),
-            "tools": string("A JSON array as text: the sources the answer used (kb_find, price_find, tenant_now)."),
+            "tools": string("A JSON array as text: the sources the answer used (kb_find, price_find, tenant_now and, "
+                            "with selected inputs, input_find)."),
             "context_time": string("When the project snapshot was taken, YYYY-MM-DD HH:MM UTC.", nullable=True),
             "material_ids": string("A JSON array as text: the inputs the question selected."),
             "material_sources": string("A JSON array as text: id, file, version, imported and truncated of each "
-                                       "input."),
+                                       "input, and for a long input the places of the passages sent, such as "
+                                       "\"3, 7 of 12\"."),
         }),
         "Budget": obj({
             "questions_left": integer(),
@@ -1089,7 +1091,9 @@ def _chat_paths() -> dict:
                                USAGE_DOWN, "The selected input could not be read. Nothing was sent.", INPUT_DOWN,
                                "The local response exceeds the size limit."),
             }, description="The question is checked for names before anything leaves. The project files and up to "
-                           "five ready inputs go along as source data, never as instructions. One answer at a time "
+                           "five ready inputs go along as source data, never as instructions: a long input as the "
+                           "passages that match the question best, about 16,000 characters for all inputs together, "
+                           "and the model may search the selected inputs with input_find. One answer at a time "
                            "for the whole site; 40 questions and 300,000 tokens a day, reset at 00:00 UTC. A failed "
                            "turn carries its reason in error and is never resent by itself.",
                 parameters=[CODE],

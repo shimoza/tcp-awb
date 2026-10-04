@@ -503,8 +503,15 @@
    "name": "awb register review: the candidates of a blocked intake in one editor pass on the owner's own terminal; p, o, c, s and + register people, companies, customer forms and places in one save, unmarked lines go to the keep list in one write, - and deleted lines stay open; the counts are confirmed first; a wrong mark reopens the file with the marks kept; nothing printed but counts; refused inside an assistant session and without a terminal; the next intake passes with codes in place of the names",
    "run": ".venv/bin/pytest tests/test_candidates.py tests/test_intake.py",
    "status": "passing"
+  },
+  {
+   "id": "W5",
+   "phase": "W",
+   "name": "the project chat sends the passages of a long input that match the question best (the previous question counts half), each marked with its place, within the same 16,000 characters; a short input goes whole; without a match the passages from the start; the model may search the selected inputs with input_find in the words of the documents, also for a question in another language; the tool exists only with inputs",
+   "run": ".venv/bin/pytest tests/test_web_chat_service.py",
+   "status": "passing"
   }
  ],
- "total_tests": 2201,
+ "total_tests": 2204,
  "checked": "2026-10-04"
 }

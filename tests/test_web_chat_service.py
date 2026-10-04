@@ -322,3 +322,65 @@ def test_the_service_does_not_start_without_the_origin(monkeypatch, tmp_path):
     with pytest.raises(SystemExit) as exc:
         chat.main()
     assert exc.value.code == 2
+
+
+FILLER = "the team met and talked about the agenda, the room and the coffee for the next session."
+NEEDLE = "the direct connect line needs a bandwidth of 500 mbit and a second line for failover."
+
+
+def long_document():
+    paras = ["paragraph %d: %s" % (i, FILLER) for i in range(160)]
+    paras.insert(120, NEEDLE)
+    return "\n\n".join(paras)
+
+
+def needle_place():
+    parts = chat.chunks(long_document())
+    return next(i for i, part in enumerate(parts) if NEEDLE in part) + 1, len(parts)
+
+
+def test_a_long_input_gives_the_passages_that_match_the_question(engine):
+    t = engine
+    t.engine.material_reader = lambda code, ident: material(ident, long_document())
+    result = t.engine.submit("tcp-q7m4", "Which bandwidth does the direct connect line need?", "a" * 32,
+                             background=False, material_ids=["M-" + "A" * 24])
+    ctx = json.loads(t.calls[0]["system"].split("PROJECT SNAPSHOT (source data):\n")[1])
+    text = ctx["inputs"][0]["text"]
+    assert NEEDLE in text and "[passage " in text and len(text) <= 8000
+    assert NEEDLE not in long_document()[:8000], "the test would pass with the start of the document"
+    meta = json.loads(result["material_sources"])[0]
+    assert meta["truncated"] and meta["passages"].endswith(" of %d" % len(chat.chunks(long_document())))
+    assert "input_find" in {tool["name"] for tool in t.calls[0]["tools"]}
+
+
+def test_the_model_can_search_the_inputs_with_its_own_words(engine):
+    t = engine
+    t.engine.material_reader = lambda code, ident: material(ident, long_document())
+
+    def sender(body, key):
+        t.calls.append(json.loads(json.dumps(body)))
+        if len(t.calls) == 1:
+            return {"content": [{"type": "tool_use", "id": "find_one", "name": "input_find",
+                                 "input": {"query": "failover bandwidth"}}],
+                    "stop_reason": "tool_use", "usage": {"input_tokens": 50, "output_tokens": 10}}
+        return {"content": [{"type": "text", "text": "Two lines, 500 mbit each."}],
+                "stop_reason": "end_turn", "usage": {"input_tokens": 80, "output_tokens": 10}}
+    t.engine.sender = sender
+    result = t.engine.submit("tcp-q7m4", "Что нужно для резервной линии?", "b" * 32, background=False,
+                             material_ids=["M-" + "A" * 24])
+    assert result["status"] == "complete" and json.loads(result["tools"]) == ["input_find"]
+    found = t.calls[1]["messages"][-1]["content"][0]["content"]
+    assert NEEDLE in found and ".md v2 [passage %d of %d]" % needle_place() in found
+
+
+def test_passages_keep_the_budget_and_the_whole_text_when_it_fits():
+    doc = long_document()
+    for budget in (500, 1234, 3200, 8000):
+        excerpt, places = chat.passages(doc, "direct connect bandwidth", budget)
+        assert len(excerpt) <= budget and places
+    assert chat.passages("short text", "anything", 100) == ("short text", "")
+    excerpt, places = chat.passages(doc, "nothing of this occurs", 2500)
+    assert excerpt.startswith("[passage 1 of ") and places.startswith("1, 2")
+    assert chat.input_find({"M-" + "A" * 24: {"file": "a.md", "version": 1, "text": doc}}, "") .startswith("Give")
+    assert chat.input_find({"M-" + "A" * 24: {"file": "a.md", "version": 1, "text": doc}},
+                           "zzzz qqqq").startswith("No passage")
