@@ -377,3 +377,54 @@ def test_a_version_that_changed_between_listing_and_read_is_refused_by_the_key_s
         s.sources.client("brief").read("inbox/task.md", etag=f["etag"], to=s.root / "probe")
     assert e.value.status == 409 and "source changed" in e.value.message
     assert not (s.root / "probe").exists() or (s.root / "probe").stat().st_size == 0
+
+
+def test_the_copies_of_the_project_folder_are_inputs_the_chat_can_read(materials, home, tmp_path):
+    """The owner's intake on the command line puts its clean copies into input/: they are listed as ready inputs,
+    read like an import and served on the chat's internal route; links, images, the public report and copies of
+    this service are left out, a copy above the limit is held and one with a registered name is refused."""
+    s, c, internal, private = materials
+    folder = Path(private.path) / "input"
+    folder.mkdir(exist_ok=True)
+    (folder / "notes.md").write_text("The workloads move to the region eu-de.\n", encoding="utf-8")
+    (folder / "intake-report.md").write_text("public report\n", encoding="utf-8")
+    (folder / ("M-" + "Q" * 24 + ".md")).write_text("a copy of this service\n", encoding="utf-8")
+    (folder / "diagram.png").write_bytes(b"\x89PNG")
+    (folder / "big.md").write_text("x" * (materials_api.MAX_TEXT + 1), encoding="utf-8")
+    (tmp_path / "outside.md").write_text("outside\n", encoding="utf-8")
+    (folder / "link.md").symlink_to(tmp_path / "outside.md")
+    (folder / "named.md").write_text("Notes for %s.\n" % fixtures.CUSTOMER_FORMS[0], encoding="utf-8")
+    items = s.history(private.code)["items"]
+    by_name = {x["name"]: x for x in items}
+    assert set(by_name) == {"notes.md", "big.md", "named.md"}
+    notes = by_name["notes.md"]
+    assert (notes["source"], notes["state"], notes["version"], notes["message"]) == (
+        "customer", "ready", 1, materials_api.PROJECT_COPY)
+    again = {x["name"]: x["id"] for x in s.history(private.code)["items"]}
+    assert by_name["big.md"]["state"] == "held" and again["notes.md"] == notes["id"]       # a stable id
+    doc = contract.build()
+    assert contract.validate(doc, s.history(private.code), contract.ref("MaterialHistory")) == []
+    text = s.text(private.code, notes["id"])
+    assert text["text"] == "The workloads move to the region eu-de.\n" and text["filename"] == "notes.md"
+    assert contract.validate(doc, text, contract.ref("MaterialText")) == []
+    for name, status in (("big.md", 422), ("named.md", 422)):
+        with pytest.raises(Problem) as e:
+            s.text(private.code, by_name[name]["id"])
+        assert e.value.status == status
+    with pytest.raises(Problem) as e:
+        s.text(internal.code, notes["id"])          # the id of one project is nothing in another
+    assert e.value.status == 404
+    server = Server(str(tmp_path / "inputs.sock"), Handler)
+    server.store, server.web_uid, server.read_uids = s, os.getuid() + 1000, {os.getuid()}
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        served = local_call(str(tmp_path / "inputs.sock"), "/internal/projects/%s/materials/%s" % (private.code,
+                                                                                                    notes["id"]))
+        assert served["text"] == text["text"]
+    finally:
+        server.shutdown()
+        server.server_close()
+    task = Path(internal.path) / "input"
+    task.mkdir(exist_ok=True)
+    (task / "task.md").write_text("Compare the storage classes.\n", encoding="utf-8")
+    assert [x["source"] for x in s.history(internal.code)["items"]] == ["brief"]

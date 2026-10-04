@@ -486,7 +486,7 @@
   {
    "id": "W3",
    "phase": "W",
-   "name": "the materials service reads the buckets through the key service (agreed point 2, F7): the web mode of the key service lists inbox/ of both buckets and an active project's month folder, names the month folders and reads one object at the version of its listing, owner only, never a write, a delete or a copy, every read logged without its key; another version, a size above the limit, another folder or another caller refused; the materials service holds no key and reads no password store, a locked or absent key service is a plain refusal, the tests of the web side pass on this path, and the text check of the contract reads named constants too",
+   "name": "the materials service reads the buckets through the key service (agreed point 2, F7): the web mode of the key service lists inbox/ of both buckets and an active project's month folder, names the month folders and reads one object at the version of its listing, owner only, never a write, a delete or a copy, every read logged without its key; another version, a size above the limit, another folder or another caller refused; the materials service holds no key and reads no password store, a locked or absent key service is a plain refusal, the tests of the web side pass on this path, and the text check of the contract reads named constants too; the text copies of the project's input/ folder that came another way (the owner's intake on the command line) are listed as ready inputs with a stable id and read on the chat's route, links, images, the public report and the service's own copies left out",
    "run": ".venv/bin/pytest tests/test_xchg.py tests/test_web_materials_api.py tests/test_web_contract.py tests/test_obs.py",
    "status": "passing"
   },
@@ -505,6 +505,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 2200,
+ "total_tests": 2201,
  "checked": "2026-10-04"
 }

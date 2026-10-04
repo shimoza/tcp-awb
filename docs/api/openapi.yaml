@@ -1605,6 +1605,7 @@ paths:
       tags:
         - materials
       summary: The imports of a project.
+      description: "The imports of this service, latest first, then the text copies that reached the project's input/ folder another way (the owner's intake on the command line, a take of the exchange): ready, version 1, source customer in a project with a customer and brief in one without, with a stable id. Both kinds can be read and used in the chat. The copies of the project folder come with the repository version."
       parameters:
         - name: code
           in: path
@@ -3336,6 +3337,7 @@ components:
             - The customer is unavailable or retired.
             - "The key service is locked: the owner runs awb keys unlock."
             - The key service is unavailable. Try again later.
+            - Ready text copy from the project folder.
         created:
           type: string
           format: date-time

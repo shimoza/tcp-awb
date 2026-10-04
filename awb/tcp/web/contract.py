@@ -136,6 +136,7 @@ IMPORT_MESSAGES = [
     "The customer is unavailable or retired.",
     KEYS_LOCKED,
     KEYS_DOWN,
+    "Ready text copy from the project folder.",
 ]
 TURN_FAILURES = [
     "Not enough daily token budget remains for this answer.",
@@ -977,7 +978,12 @@ def _material_paths() -> dict:
                 "404": refusal("No such project.", NO_PROJECT),
                 "409": refusal("The customer of the project is retired.", CUSTOMER_RETIRED),
                 "503": refusal("The input service cannot answer.", INPUT_DOWN),
-            }, parameters=[CODE]),
+            }, description="The imports of this service, latest first, then the text copies that reached the "
+                           "project's input/ folder another way (the owner's intake on the command line, a take of "
+                           "the exchange): ready, version 1, source customer in a project with a customer and brief "
+                           "in one without, with a stable id. Both kinds can be read and used in the chat. The copies "
+                           "of the project folder come with the repository version.",
+                parameters=[CODE]),
         },
         "/api/projects/{code}/materials/sources": {
             "get": operation("listMaterialSources", "materials", "The files of one source, with their versions.", {

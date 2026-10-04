@@ -16,6 +16,7 @@ import re
 import secrets
 import socket
 import sqlite3
+import stat
 import struct
 import subprocess
 import sys
@@ -33,6 +34,9 @@ PUBLISH_SOCKET='/run/awb-project-create.sock'
 STATE='/var/lib/awb-materials'
 CODE=re.compile(r'tcp-[a-z2-7]{4}')
 IDENT=re.compile(r'M-[A-Z]{24}')
+IDENT_FILE=re.compile(r'M-[A-Z]{24}\.md')
+PROJECT_COPY='Ready text copy from the project folder.'
+TOO_LARGE='Extracted text is too large. Split this document into smaller files.'
 REQ=re.compile(r'[a-f0-9]{32}')
 MAX_FILE=25*1024*1024
 MAX_TEXT=256*1024
@@ -162,9 +166,39 @@ CREATE INDEX IF NOT EXISTS import_project ON imports(project,created);
         return p
     def source_id(self,code,source,key):return hmac.new(self.key,(code+'\0'+source+'\0'+key).encode(),hashlib.sha256).hexdigest()
     def history(self,code):
-        self.project(code)
+        p=self.project(code)
         with self.db() as c:rows=[dict(r) for r in c.execute('SELECT * FROM imports WHERE project=? ORDER BY created DESC,rowid DESC LIMIT 500',(code,))]
-        return {'items':[{k:r[k] for k in ('id','name','source','state','message','created','version','filename','size')} for r in rows], 'busy':any(r['state'] in ('queued','processing','publishing') for r in rows)}
+        items=[{k:r[k] for k in ('id','name','source','state','message','created','version','filename','size')} for r in rows]
+        # text copies that reached input/ another way (the owner's intake on the command line, a take of the
+        # exchange): customer material in a project with a customer, a task description in one without
+        source='brief' if p.customer=='none' else 'customer'
+        for ident,name,_,size,modified in self.project_files(p):
+            large=size>MAX_TEXT
+            items.append({'id':ident,'name':name,'source':source,'state':'held' if large else 'ready',
+                          'message':TOO_LARGE if large else PROJECT_COPY,'created':modified,'version':1,
+                          'filename':name,'size':size})
+        return {'items':items, 'busy':any(r['state'] in ('queued','processing','publishing') for r in rows)}
+    def project_file_id(self,code,name):
+        """A stable id in the shape of an import for a file of the project's input/ folder."""
+        mac=hmac.new(self.key,('input\0'+code+'\0'+name).encode(),hashlib.sha256).digest()
+        return 'M-'+''.join(chr(65+b%26) for b in mac[:24])
+    def project_files(self,p):
+        """The Markdown and text files directly in the project's input/ folder that this service did not import:
+        (id, name, path, size, modified). Links, folders, the public intake report and the service's own copies
+        are left out; a project folder that is not the registered one is not read."""
+        if Path(p.path)!=self.p.projects_root/p.code:return []
+        folder=Path(p.path)/'input'
+        try:names=sorted(os.listdir(folder))
+        except OSError:return []
+        out=[]
+        for name in names:
+            if name=='intake-report.md' or IDENT_FILE.fullmatch(name) or Path(name).suffix.lower() not in ('.md','.txt'):continue
+            try:st=os.lstat(folder/name)
+            except OSError:continue
+            if not stat.S_ISREG(st.st_mode):continue
+            out.append((self.project_file_id(p.code,name),name,folder/name,st.st_size,
+                        dt.datetime.fromtimestamp(st.st_mtime,dt.timezone.utc).isoformat(timespec='seconds')))
+        return out
     def browse(self,code,source):
         p=self.project(code,True)
         if source not in ('brief','customer'):raise Problem(400,'Choose a source.')
@@ -284,7 +318,18 @@ CREATE INDEX IF NOT EXISTS import_project ON imports(project,created);
     def text(self,code,ident):
         project=self.project(code)
         with self.db() as db:row=db.execute("SELECT * FROM imports WHERE project=? AND id=? AND state='ready'",(code,ident)).fetchone()
-        if not row:raise Problem(404,'The selected input is not ready in this project.')
+        if not row:
+            for fid,name,path,size,modified in self.project_files(project):
+                if fid!=ident:continue
+                if size>MAX_TEXT:raise Problem(422,'The imported working copy is unavailable.')
+                try:
+                    with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as fh:raw=fh.read(MAX_TEXT+1)
+                    text=raw.decode('utf-8')
+                except (OSError,UnicodeDecodeError):raise Problem(422,'The imported working copy is unavailable.') from None
+                if len(raw)>MAX_TEXT:raise Problem(422,'The imported working copy is unavailable.')
+                self.checked(text)
+                return {'id':ident,'version':1,'filename':name,'imported':modified,'text':text}
+            raise Problem(404,'The selected input is not ready in this project.')
         if row['customer']!=project.customer:raise Problem(409,'The project customer changed. This input cannot be used in its new context.')
         path=self.root/(ident+'.md')
         if path.is_symlink() or path.stat().st_size>MAX_TEXT:raise Problem(422,'The imported working copy is unavailable.')
