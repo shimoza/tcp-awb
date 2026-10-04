@@ -24,6 +24,7 @@ side.
 | `awb intake --customer CUST-XXXX FILE...` | sanitised Markdown copies to `~/tcp-shared/outbox/CUST-XXXX/`, originals into the vault. No FILE: everything in `~/tcp-vault/inbox` |
 | `awb intake --customer new FILE...` | the same for a new customer, a code is created |
 | `awb intake --customer CUST-XXXX --force FILE...` | write the copies even when unknown name candidates were found (after you reviewed them) |
+| `awb register review CUST-XXXX` | sort the candidates of a blocked intake in one pass: an editor opens with them, one per line; mark the real names (`p` person, `o` company, `c` this customer, `s` place, `+` one more form, `-` later), every unmarked line goes to the keep list; the counts are confirmed before anything is written; your own terminal only, never inside an assistant session |
 | `awb images list [CUST-XXXX]` | the pictures the intake held on the vault side (office media, pdf images, image files), per file: held, released, left out |
 | `awb images release CUST-XXXX FILEID N...` | after you looked at them: copy the chosen pictures to `~/tcp-shared/outbox/CUST-XXXX/images/`; `--all` for every held picture of the file |
 | `awb reveal FILE --out PATH` | put the real names back into a finished text: every code becomes its first active form; the named file gets mode 600 and never goes where a session reads |

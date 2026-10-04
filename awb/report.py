@@ -197,9 +197,10 @@ def render_private(run: Run) -> str:
     if run.blocked:
         lines += [
             "Blocked: the candidates below look like names that are not in the register. Nothing was written to "
-            "the outbox and no original was moved. Register each real name with "
-            "`awb register add CODE KIND FORM`, then run again with `--customer %s`. When every candidate "
-            "is harmless, run again with `--force`." % run.customer,
+            "the outbox and no original was moved. Sort them in one pass with `awb register review %s` "
+            "(mark the real names, the rest goes to the keep list), or register one name with "
+            "`awb register add CODE KIND FORM`; then run again with `--customer %s`. When every candidate "
+            "is harmless, run again with `--force`." % (run.customer, run.customer),
             "",
         ]
 

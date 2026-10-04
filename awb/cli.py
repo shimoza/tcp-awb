@@ -135,8 +135,8 @@ def _cmd_intake(args, p: config.Paths) -> int:
     if res.blocked:
         print("intake %s blocked: %d candidates, nothing was written to the outbox" % (res.customer, res.candidates))
         print("private report (vault side): %s" % res.private_report)
-        print("register or dismiss the candidates, then run again with --customer %s or with --force"
-              % res.customer)
+        print("sort them in one pass in your own terminal: awb register review %s (mark the real names, the rest "
+              "passes), then run again with --customer %s" % (res.customer, res.customer))
         return EXIT_ERROR if res.unsealed else EXIT_FINDINGS
     states = Counter(res.states.values())
     print("intake %s: %d files, %d outputs, %d candidates reviewed"
@@ -244,6 +244,12 @@ def _cmd_register_keep(args, p: config.Paths) -> int:
     else:
         print("the phrase was kept before, %d in the keep list" % count)
     return EXIT_OK
+
+
+def _cmd_register_review(args, p: config.Paths) -> int:
+    from awb import candidates
+
+    return candidates.command(args, p)
 
 
 def _cmd_spawn(args, p: config.Paths) -> int:
@@ -426,6 +432,11 @@ def _build() -> argparse.ArgumentParser:
     s.add_argument("phrase", nargs="?", default=None, help="the phrase or - to read it from standard input")
     s.add_argument("--list", action="store_true", help="print the kept phrases (vault side only)")
     s.set_defaults(func=_cmd_register_keep)
+    s = rsub.add_parser("review", help="sort the candidates of a blocked intake in one pass in an editor: mark the "
+                                       "real names, the rest is kept as not a name (owner's terminal)")
+    s.add_argument("customer", help="the CUST code of the blocked intake")
+    s.add_argument("--report", default=None, help="a private report other than the latest of the customer")
+    s.set_defaults(func=_cmd_register_review)
 
     for name, (_, text) in DELEGATED.items():
         sub.add_parser(name, help=text, add_help=False)

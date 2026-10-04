@@ -722,21 +722,38 @@ def keep_phrase(p: config.Paths, phrase: str) -> tuple[bool, int]:
     """Add one phrase to the keep list. Returns (added, phrases in the list); added is False when the phrase was
     kept before. Any phrase is taken, only an empty one is an error. When the vault is encrypted the list is
     sealed again through the vault daemon and no plaintext copy stays behind. Nothing here echoes the phrase."""
-    if not isinstance(phrase, str):
-        raise IntakeError("keep list: the phrase must be text")
-    phrase = " ".join(normalize.normalize(phrase).text.split())
-    if not phrase:
-        raise IntakeError("keep list: the phrase is empty")
-    phrases = load_keep(p)
-    if keep_key(phrase) in {keep_key(k) for k in phrases}:
-        return False, len(phrases)
-    phrases.append(phrase)
+    added, count = keep_phrases(p, [phrase])
+    return added == 1, count
+
+
+def keep_phrases(p: config.Paths, phrases: list[str]) -> tuple[int, int]:
+    """Add several phrases to the keep list in one write and, when the vault is encrypted, one seal (the review
+    of a blocked intake keeps hundreds at once). Returns (added, phrases in the list). A phrase kept before is
+    left as it is; an empty one refuses the whole call before anything is written. Nothing here echoes a phrase."""
+    clean = []
+    for phrase in phrases:
+        if not isinstance(phrase, str):
+            raise IntakeError("keep list: the phrase must be text")
+        phrase = " ".join(normalize.normalize(phrase).text.split())
+        if not phrase:
+            raise IntakeError("keep list: the phrase is empty")
+        clean.append(phrase)
+    kept = load_keep(p)
+    keys = {keep_key(k) for k in kept}
+    added = 0
+    for phrase in clean:
+        if keep_key(phrase) not in keys:
+            kept.append(phrase)
+            keys.add(keep_key(phrase))
+            added += 1
+    if not added:
+        return 0, len(kept)
     encrypted = p.register_encrypted.exists() or _sealed_keep(p).exists()
     try:
         before = p.keep_list.read_bytes() if encrypted else None
     except FileNotFoundError:
         before = None
-    _write_private(p.keep_list, "".join(k + "\n" for k in phrases))
+    _write_private(p.keep_list, "".join(k + "\n" for k in kept))
     if encrypted:
         try:
             _vault_call(p, "seal_file", path=str(p.keep_list))
@@ -747,7 +764,7 @@ def keep_phrase(p: config.Paths, phrase: str) -> tuple[bool, int]:
             else:
                 _write_private(p.keep_list, before.decode("utf-8"))
             raise
-    return True, len(phrases)
+    return added, len(kept)
 
 
 # --------------------------------------------------------------------------- detection and replacement

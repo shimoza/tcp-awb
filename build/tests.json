@@ -496,8 +496,15 @@
    "name": "F2, his decision: the console's tenant inventory is its own service under its own system user (awb-console); the key service lets that user alone read a test tenant without a project, with the read key only, a session still needs an active project of kind project and nobody reads without one when the user does not exist; the gateway sends /api/tenants to the new service and /api/projects to the old one, which no longer answers the tenants; the unit template of seal/web and the switch steps; the switch script seal/web/install.sh renders, backs up, retires the old drop-in, restarts in order and rolls back, run against a temporary folder with stand-ins for systemctl and useradd",
    "run": ".venv/bin/pytest tests/test_keys.py tests/test_web_tenant_api.py tests/test_web_projects_api.py tests/test_web_gateway.py tests/test_web_seal.py",
    "status": "passing"
+  },
+  {
+   "id": "RV1",
+   "phase": "RV",
+   "name": "awb register review: the candidates of a blocked intake in one editor pass on the owner's own terminal; p, o, c, s and + register people, companies, customer forms and places in one save, unmarked lines go to the keep list in one write, - and deleted lines stay open; the counts are confirmed first; a wrong mark reopens the file with the marks kept; nothing printed but counts; refused inside an assistant session and without a terminal; the next intake passes with codes in place of the names",
+   "run": ".venv/bin/pytest tests/test_candidates.py tests/test_intake.py",
+   "status": "passing"
   }
  ],
- "total_tests": 2190,
+ "total_tests": 2200,
  "checked": "2026-10-04"
 }
