@@ -10,8 +10,7 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 - The prompt hook stops a prompt with a registered name before you see it. For a name the register does not
   know yet, never repeat it: ask him to register it in his own shell and use the code he gives you.
 - When a document points to a customer in another way (a logo, a product, a description), say which kind and
-  where, never what it says.
-- Never invent a code. Take it from SCOPE.md, from the outbox or from him.
+  where, never what it says. Never invent a code: take it from SCOPE.md, from the outbox or from him.
 - Customer material enters only through `awb intake`, run by him on the owner side. You never see an original.
   Sanitised copies wait in `~/tcp-shared/outbox/<CODE>/`; move them into the `input/` folder of the project.
 
@@ -40,8 +39,9 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   of work, never his: what you learned live on TCP goes into `awb kb add --grade live` at once, one fact per entry.
 - A Workbench command that fails by itself is a tooling bug: one plain line to him, an item in OPEN.md, then his
   task again. Ask him only what he alone can decide or do (a fact, a choice, a login, a sudo command).
-- Files: take only the file he names, `awb inbox take FILE`; it never hands you an original. Results go out with
-  `awb xchg put FILE`: codes only, no ids in logs, a screenshot only with `--image` and why it is clean.
+- Files: he describes a file, he never names it. `awb inbox take HIS WORDS` takes the one they match (`--all`: all
+  files); with none or several it lists both inboxes: pick by his words or ask him, then `--id ID`. Results go out
+  with `awb xchg put FILE`: codes only, no ids in logs, a screenshot only with `--image` and why it is clean.
 - `awb cloud tenants` lists the test tenants; `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role lab]` reaches
   them through the key service. A password goes into a body only as `{{secret:NAME}}`, a key never.
 - `awb kb find|add|scope`, `awb ledger add`, `awb report --by KEY`, `awb career add`. `awb check`, `awb write check` and

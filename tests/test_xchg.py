@@ -339,3 +339,99 @@ def test_web_read_is_for_the_owner_only_and_waits_for_the_unlock(svc, buckets, m
     assert (answer["ok"], answer["kind"]) == (False, "locked")
     log = "\n".join(p.read_text() for p in (tmp_path / "log").glob("*.tsv"))
     assert "inbox/brief.md" not in log and AK not in log and SK not in log
+
+
+# --------------------------------------------------------------------------- which file he means
+
+
+def _ids(text):
+    import re
+    return re.findall(r"(?:lab|own)-[0-9a-f]{12}", text)
+
+
+def test_the_words_he_uses_for_a_file():
+    rels = ["Angebot.pdf", "Sizing.xlsx", "deck/Overview.pptx", "notes.md", "Angebot alt.pdf"]
+    modified = ["2026-10-01T08:00:00.000Z", "2026-10-02T08:00:00.000Z", "2026-10-03T08:00:00.000Z",
+                "2026-10-04T08:00:00.000Z", "2026-09-01T08:00:00.000Z"]
+
+    def m(words):
+        return xchg.match(words, rels, modified)
+    assert m("ANGEBOT.PDF") == [0]                                  # the same letters and digits
+    assert m("эксель") == m("the excel file") == m("Tabelle") == [1]
+    assert m("презентацию") == m("Präsentation") == m("overview") == [2]
+    assert m("pdf") == [0, 4] and m("newest pdf") == m("последний пдф") == [0]
+    assert m("последний") == [3]
+    assert m("sizing|angebot alt") == [1, 4]
+    assert m("contract") == [] and m("файл") == []
+
+
+def test_his_words_find_the_file_without_its_exact_name(svc, buckets, cust_project, capsys):
+    _, own = buckets
+    own.objects["inbox/All_blocks.TXT"] = b"The migration plan of the database cluster.\n"
+    code, out, err = run(["inbox", "take", "all-blocks.txt"], capsys)
+    assert code == 0, err
+    assert "taken from the owner inbox through the intake" in out
+    assert not [k for k in own.objects if k.startswith("inbox/")]
+
+
+def test_a_description_by_kind_takes_the_one_file_of_that_kind(svc, buckets, cust_project, capsys):
+    _, own = buckets
+    own.objects["inbox/kickoff notes.md"] = b"Notes of the kick-off: two clusters move.\n"
+    own.objects["inbox/sizing.csv"] = b"flavor,count\ns3.large.2,4\n"
+    code, out, err = run(["inbox", "take", "эксель"], capsys)
+    assert code == 0, err
+    assert out.startswith("CSV of") and "inbox/sizing.csv" not in own.objects
+    assert "inbox/kickoff notes.md" in own.objects
+
+
+def test_none_or_several_list_both_inboxes_and_never_an_owner_name(svc, buckets, cust_project, capsys):
+    lab, own = buckets
+    lab.objects["inbox/vendor-guide.png"] = b"x" * 10
+    own.objects["inbox/offer %s.txt" % fx.CUSTOMER_FORMS[1]] = b"y" * 3000
+    own.objects["inbox/notes.txt"] = b"The notes of the workshop about the network.\n"
+    code, _, err = run(["inbox", "take", "презентация"], capsys)
+    assert code == 1 and "neither inbox" in err and len(_ids(err)) == 3
+    assert "vendor-guide.png" in err and err.count("name not shown") == 2
+    code, listed, _ = run(["inbox", "list"], capsys)
+    assert code == 0 and len(_ids(listed)) == 3
+    code, _, several = run(["inbox", "take", "txt"], capsys)
+    assert code == 1 and "2 files match" in several and len(_ids(several)) == 2
+    raw = json.dumps([keys.request(svc.call_path, dict(q, op="inbox_find", project=cust_project.code))
+                      for q in ({"words": "txt"}, {"all": True}, {})])
+    for text in (err, listed, several, raw):
+        fx.assert_no_fixture_name(text, "the list of the inboxes")
+        assert "offer" not in text and "notes.txt" not in text
+    line = next(row for row in several.splitlines() if "owner inbox" in row and " bytes " in row)
+    code, out, err = run(["inbox", "take", "--id", _ids(line)[0]], capsys)
+    assert code == 0, err
+    assert "inbox/notes.txt" not in own.objects and "inbox/offer %s.txt" % fx.CUSTOMER_FORMS[1] in own.objects
+
+
+def test_all_takes_every_file_of_both_inboxes(svc, buckets, cust_project, capsys):
+    lab, own = buckets
+    lab.objects["inbox/vendor.md"] = b"The appliance needs two NICs.\n"
+    own.objects["inbox/kickoff.txt"] = ("Kick-off with %s: two clusters move.\n" % fx.CUSTOMER_FORMS[0]).encode()
+    code, out, err = run(["inbox", "take", "--all"], capsys)
+    assert code == 0, err
+    assert "taken from the lab inbox: input/vendor.md" in out and "through the intake" in out
+    assert not [k for k in list(lab.objects) + list(own.objects) if k.startswith("inbox/")]
+    fx.assert_no_fixture_name(out, "the answer of a take of all files")
+
+
+def test_a_file_in_a_subfolder_of_the_lab_inbox_is_taken(svc, buckets, lab_project, capsys):
+    lab, _ = buckets
+    lab.objects["inbox/meraki/readme.md"] = b"Boot the image with UEFI.\n"
+    code, out, err = run(["inbox", "take", "readme"], capsys)
+    assert code == 0, err
+    assert (Path(lab_project.path) / "input" / "readme.md").exists()
+    assert lab.objects["%s/in/readme.md" % lab_project.code] == b"Boot the image with UEFI.\n"
+    assert "inbox/meraki/readme.md" not in lab.objects
+
+
+def test_a_find_leaves_no_owner_name_in_the_log(svc, buckets, cust_project, capsys, tmp_path):
+    _, own = buckets
+    own.objects["inbox/budget-%s.txt" % fx.CUSTOMER_FORMS[1]] = b"numbers"
+    run(["inbox", "list"], capsys)
+    run(["inbox", "take", "budget"], capsys)
+    log = "\n".join(p.read_text() for p in (tmp_path / "log").glob("*.tsv"))
+    assert fx.CUSTOMER_FORMS[1] not in log and "budget" not in log

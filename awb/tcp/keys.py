@@ -452,7 +452,7 @@ class Service:
                 return {"ok": False, "error": str(err)}
             except KeysError as err:
                 return {"ok": False, "error": str(err)}
-        if op in ("obs", "owner_has", "take_owner"):
+        if op in ("obs", "owner_has", "take_owner", "inbox_find"):
             return self._exchange(op, req, uid, upload)
         if op == "web_read":
             # the materials service of the web console runs as the owner, like this service; nobody else reads
@@ -474,6 +474,8 @@ class Service:
                 answer, stream = xchg.serve_obs(ctx, req, upload)
             elif op == "owner_has":
                 answer = xchg.serve_owner_has(ctx, req)
+            elif op == "inbox_find":
+                answer = xchg.serve_inbox_find(ctx, req)
             elif op == "web_read":
                 answer, stream = xchg.serve_web_read(ctx, req)
                 status = "ok" if answer.get("ok") else answer.get("kind", "refused")

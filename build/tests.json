@@ -517,8 +517,15 @@
    "name": "offered services: what the latest service description lists and nothing else; the check takes the names people write; a section the text marks no longer available is not offered after its date; a service outside the text is not offered whatever the docs say; both chats get the list and a note under an answer that names a service not offered; the review refuses such a deliverable; the refresh and the check say when the mirror holds a newer revision; the core reads the lists without the platform package",
    "run": ".venv/bin/pytest tests/test_services.py tests/test_price.py tests/test_refresh.py",
    "status": "passing"
+  },
+  {
+   "id": "W7",
+   "phase": "W",
+   "name": "the owner describes a file instead of naming it: his words (the exact name, the same letters, kind words in English, German or Russian, a word for the newest, words inside the name, | between alternatives) are matched inside the key service against both inboxes, subfolders included; one match is taken, none or several list both inboxes with id, kind, size and time and never a name of the owner inbox, not even in the answer of the key service; --id takes the one he means, --all every file; no owner name in the log",
+   "run": ".venv/bin/pytest tests/test_xchg.py",
+   "status": "passing"
   }
  ],
- "total_tests": 2219,
- "checked": "2026-10-04"
+ "total_tests": 2226,
+ "checked": "2026-10-05"
 }

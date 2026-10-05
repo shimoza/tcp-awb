@@ -1,7 +1,8 @@
 """The exchange between the owner and the sessions through OBS (T-102): two inboxes and a from-session folder.
 
-    awb inbox take FILE [--project CODE] [--customer CUST-XXXX]   take a file the owner dropped into an inbox
-    awb inbox list                                                the lab inbox (names checked first)
+    awb inbox take WORDS... [--project CODE] [--customer CUST-XXXX]   the file the owner describes, from either inbox
+    awb inbox take --all | --id ID...                                 every file of both inboxes, or the ones named
+    awb inbox list                                                    both inboxes: id, kind, size, time
     awb xchg put FILE [--as NAME] [--image --reason TEXT]         a result into <code>/from-session/<date>/
     awb xchg list                                                 what this project put
 
@@ -10,7 +11,14 @@ The owner drops a file into one of two inboxes in the OBS console, with no proje
     <lab bucket>/inbox/     material without customer content (vendor images, test data, public documents)
     <owner bucket>/inbox/   anything that may hold customer material; only the owner's IAM user reaches it
 
-A session takes the file the owner names. From the lab inbox the key service fetches it; a file the name check
+The owner never has to know a file's name: he says what it is ("the pdf", "the excel with the sizing", "the
+newest", "all files") and the session passes his words. The key service matches them against the names of both
+inboxes: the exact name, the same letters (case, dashes and the extension aside), then kind words in English,
+German or Russian (pdf, excel, Tabelle, презентация), a word for the newest file and the other words inside the
+name; several ways of saying it go in one call, separated by |. One file found: it is taken. None or several: the
+session gets the list of both inboxes (an id, the kind, the size and the time, the name only for a file of the lab
+inbox the name check passes, never for one of the owner inbox), picks by his description or asks him, and takes
+by id. From the lab inbox the key service fetches it; a file the name check
 passes is copied to `<lab bucket>/<code>/in/`, saved to `input/` and removed from the inbox, a file with a hit or
 one that cannot be checked stays in the inbox. From the owner inbox the session never sees the original: the key
 service (the owner's process) moves it into the project's folder of the owner bucket, runs `awb intake` for the
@@ -36,12 +44,15 @@ another version fails as changed. It never writes, deletes or copies, and only t
 from __future__ import annotations
 
 import datetime
+import hashlib
+import hmac
 import json
 import os
 import re
 import shutil
 import sys
 import tempfile
+import unicodedata
 from pathlib import Path
 
 from awb import config
@@ -93,6 +104,107 @@ def valid_name(name: str) -> bool:
         not name.startswith(".")
 
 
+# --------------------------------------------------------------------------- which file he means
+
+
+FIND_MAX = 50
+"""The most files the two inboxes may hold for a find; the owner keeps a handful there."""
+_ID_RE = re.compile(r"^(lab|own)-[0-9a-f]{12}$")
+_ID_SECRET = os.urandom(16)
+"""The ids of inbox files hold while the key service runs; after a restart the session finds the file again."""
+_SHEET = {"xlsx", "xls", "xlsm", "ods", "csv"}
+_DOC = {"docx", "doc", "odt", "rtf"}
+_SLIDES = {"pptx", "ppt", "odp"}
+_TEXT = {"txt", "md"}
+_IMAGE = {"png", "jpg", "jpeg", "gif", "webp", "svg"}
+_ARCHIVE = {"zip", "7z", "gz", "tgz", "tar"}
+KIND_WORDS = {
+    "pdf": {"pdf"}, "пдф": {"pdf"},
+    "excel": _SHEET, "эксел": _SHEET, "таблиц": _SHEET, "spreadsheet": _SHEET, "sheet": _SHEET, "tabelle": _SHEET,
+    "xlsx": _SHEET, "xls": _SHEET, "csv": {"csv"},
+    "word": _DOC, "ворд": _DOC, "docx": _DOC, "doc": _DOC,
+    "powerpoint": _SLIDES, "presentation": _SLIDES, "slides": _SLIDES, "deck": _SLIDES, "презентац": _SLIDES,
+    "слайд": _SLIDES, "präsentation": _SLIDES, "folien": _SLIDES, "pptx": _SLIDES,
+    "text": _TEXT, "текст": _TEXT, "txt": _TEXT, "markdown": _TEXT,
+    "image": _IMAGE, "picture": _IMAGE, "screenshot": _IMAGE, "картинк": _IMAGE, "скрин": _IMAGE, "фото": _IMAGE,
+    "bild": _IMAGE, "png": _IMAGE, "jpg": _IMAGE,
+    "archive": _ARCHIVE, "архив": _ARCHIVE, "zip": _ARCHIVE,
+}
+"""Words for a kind of file and the extensions they mean; a word of four letters or more also takes its endings."""
+_NEWEST = ("last", "latest", "newest", "new", "recent", "последн", "нов", "свеж", "neu", "letzt")
+_FILLER = {"the", "a", "an", "file", "files", "my", "this", "that", "these", "those", "please", "of", "in", "from",
+           "for", "to", "and", "or", "with", "inbox", "all", "both", "take", "get", "fetch",
+           "файл", "файлы", "файла", "файлик", "в", "из", "и", "или", "для", "с", "мой", "мои", "этот", "эти", "тот",
+           "все", "всё", "оба", "обе", "инбокс", "инбокса", "инбоксе", "забери", "забирай", "возьми",
+           "die", "der", "das", "datei", "dateien", "und", "oder", "von", "aus", "im", "alle", "beide", "hol", "nimm"}
+
+
+def _fold(text: str) -> str:
+    """Letters and digits only, in one case and one Unicode form (a name typed on a Mac may arrive decomposed)."""
+    return "".join(ch for ch in unicodedata.normalize("NFKC", text).casefold() if ch.isalnum())
+
+
+def suffix(rel: str) -> str:
+    base = rel.rsplit("/", 1)[-1]
+    return base.rsplit(".", 1)[-1].lower() if "." in base[1:] else ""
+
+
+def _forms(rel: str) -> set[str]:
+    base = rel.rsplit("/", 1)[-1]
+    stem = base.rsplit(".", 1)[0] if "." in base[1:] else base
+    return {_fold(rel), _fold(base), _fold(stem)}
+
+
+def _kinds_of(token: str) -> set[str] | None:
+    for word, kinds in KIND_WORDS.items():
+        w = _fold(word)
+        if token == w or (len(w) >= 4 and token.startswith(w)):
+            return kinds
+    return None
+
+
+def _is_newest(token: str) -> bool:
+    """A word for the newest file; the Russian and German stems take their endings (последний, neueste)."""
+    return any(token == w or (token.startswith(w) and (not w.isascii() or w in ("neu", "letzt"))) for w in _NEWEST)
+
+
+def match(words: str, rels: list[str], modified: list[str] | None = None) -> list[int]:
+    """The indexes of the files `words` means, `rels` being their names under inbox/. The exact name wins, then the
+    same letters and digits, then each alternative of `words` (separated by |): its kind words pick the type, a word
+    for the newest keeps the newest file, every other word must be inside the name."""
+    wanted = words.strip()
+    exact = [i for i, r in enumerate(rels) if wanted in (r, r.rsplit("/", 1)[-1])]
+    if exact:
+        return exact
+    folded = _fold(wanted)
+    same = [i for i, r in enumerate(rels) if folded and folded in _forms(r)]
+    if same:
+        return same
+    found: list[int] = []
+    for alternative in wanted.split("|"):
+        kinds: set[str] = set()
+        newest, rest = False, []
+        for raw in re.findall(r"\w+", unicodedata.normalize("NFKC", alternative).casefold()):
+            t = _fold(raw)
+            if not t or t in _FILLER:
+                continue
+            k = _kinds_of(t)
+            if k is not None:
+                kinds |= k
+            elif _is_newest(t):
+                newest = True
+            elif len(t) >= 2 or t.isdigit():
+                rest.append(t)
+        if not (kinds or newest or rest):
+            continue
+        hits = [i for i, r in enumerate(rels) if (not kinds or suffix(r) in kinds) and all(t in _fold(r) for t in rest)]
+        if newest and len(hits) > 1 and modified:
+            last = max(modified[i] for i in hits)
+            hits = [i for i in hits if modified[i] == last]
+        found += [i for i in hits if i not in found]
+    return found
+
+
 # --------------------------------------------------------------------------- service side (inside the key service)
 
 
@@ -129,7 +241,7 @@ def allowed_key(key: str, method: str, project: str | None) -> bool:
     if not isinstance(key, str) or not key or key.startswith("/") or ".." in key.split("/") or "//" in key:
         return False
     if key.startswith(INBOX):
-        return method in ("GET", "HEAD", "DELETE") and valid_name(key[len(INBOX):])
+        return method in ("GET", "HEAD", "DELETE") and all(valid_name(part) for part in key[len(INBOX):].split("/"))
     if project and _CODE_RE.match(project):
         for sub in (IN, FROM):
             base = "%s/%s" % (project, sub)
@@ -220,6 +332,65 @@ def _name_hits(names: list[str], p) -> set[int]:
     return out
 
 
+def _inbox_files(ctx: Context, which: str) -> list[dict]:
+    """The files under inbox/ of one bucket, subfolders included."""
+    listing = ctx.client(which).list(INBOX)
+    out = []
+    for key, size, etag in listing.objects:
+        rel = key[len(INBOX):]
+        if key.endswith("/") or not rel or not all(valid_name(part) for part in rel.split("/")):
+            continue
+        out.append({"key": key, "rel": rel, "size": size, "etag": etag, "modified": listing.modified.get(key, "")})
+    return out
+
+
+def _file_id(which: str, key: str, etag: str) -> str:
+    digest = hmac.new(_ID_SECRET, ("%s\0%s\0%s" % (which, key, etag)).encode(), hashlib.sha256).hexdigest()
+    return "%s-%s" % ("lab" if which == "lab" else "own", digest[:12])
+
+
+def _resolve(ctx: Context, which: str, ident: str) -> dict | None:
+    for f in _inbox_files(ctx, which):
+        if _file_id(which, f["key"], f["etag"]) == ident:
+            return f
+    return None
+
+
+def serve_inbox_find(ctx: Context, req: dict) -> dict:
+    """Which inbox files the owner means: `words` (what he said), `id` (a file an earlier find showed), `all` or
+    nothing (the list). Every file of both inboxes comes back with an id, its bucket, kind, size and time; the name
+    only for a file of the lab inbox the name check passes, never for one of the owner inbox. His words meet those
+    names here, inside his own process."""
+    project = req.get("project")
+    if project is not None and ctx.active_project(project) is None:
+        raise XchgError("the project is not an active project")
+    words, ident = req.get("words"), req.get("id")
+    if ident is not None and not (isinstance(ident, str) and _ID_RE.match(ident)):
+        raise XchgError("an id reads lab- or own- and twelve characters, as awb inbox list shows it")
+    if words is not None and not (isinstance(words, str) and words.strip() and len(words) <= 500):
+        raise XchgError("say which file: what it is, a part of its name or a few words")
+    files, entries = [], []
+    for which in ("lab", "owner"):
+        found = _inbox_files(ctx, which)
+        hidden = _name_hits([f["rel"] for f in found], ctx.paths_fn()) if which == "lab" else set(range(len(found)))
+        for i, f in enumerate(found):
+            files.append(f)
+            entries.append({"id": _file_id(which, f["key"], f["etag"]), "bucket": which,
+                            "name": None if i in hidden else f["rel"], "kind": suffix(f["rel"]).upper() or "FILE",
+                            "size": f["size"], "modified": f["modified"]})
+    if len(entries) > FIND_MAX:
+        raise XchgError("the inboxes hold %d files, more than %d; the owner clears them first" % (len(entries), FIND_MAX))
+    if ident is not None:
+        picked = [i for i, e in enumerate(entries) if e["id"] == ident]
+    elif req.get("all"):
+        picked = list(range(len(entries)))
+    elif words is not None:
+        picked = match(words, [f["rel"] for f in files], [f["modified"] for f in files])
+    else:
+        picked = []
+    return {"ok": True, "files": entries, "matches": [entries[i] for i in picked]}
+
+
 def serve_owner_has(ctx: Context, req: dict) -> dict:
     name = req.get("name")
     if not valid_name(name):
@@ -232,8 +403,11 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
     the owner bucket, the intake runs for the customer, the session gets only the ids of the sanitised copies."""
     from awb import bucket, intake, projects
 
-    name, code = req.get("name"), req.get("project")
-    if not valid_name(name):
+    name, code, ident = req.get("name"), req.get("project"), req.get("id")
+    if ident is not None:
+        if not (isinstance(ident, str) and ident.startswith("own-") and _ID_RE.match(ident)):
+            raise XchgError("an id of the owner inbox reads own- and twelve characters")
+    elif not valid_name(name):
         raise XchgError("a file name without a folder")
     project = ctx.active_project(code)
     if project is None:
@@ -247,9 +421,15 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
         raise XchgError("the customer code is not the customer of the project")
     p = ctx.paths_fn()
     c = ctx.client("owner")
-    src = INBOX + name
-    if c.head(src) is None:
-        return {"ok": True, "state": "absent"}
+    if ident is not None:
+        f = _resolve(ctx, "owner", ident)
+        if f is None:
+            return {"ok": True, "state": "absent"}
+        src, name = f["key"], f["rel"].rsplit("/", 1)[-1]
+    else:
+        src = INBOX + name
+        if c.head(src) is None:
+            return {"ok": True, "state": "absent"}
     config.ensure_layout(p)
     dst = p.inbox / bucket._local_name(name, p.inbox)
     c.get(src, dst)
@@ -421,21 +601,31 @@ def check_problems(path: Path, image: bool = False) -> list[str]:
     return []
 
 
-def take(name: str, project: str | None = None, customer: str | None = None) -> str:
-    if not valid_name(name):
-        raise XchgError("give the file name as the owner wrote it, without a folder")
-    root, code, scope_customer = _project()
-    code = project or code
-    lab = _ok(_call({"op": "obs", "method": "HEAD", "key": INBOX + name, "project": code}))
-    own = _ok(_call({"op": "owner_has", "name": name}))
-    if lab.get("exists") and own.get("exists"):
-        raise XchgError("the file is in both inboxes: ask the owner which one he means")
-    if not lab.get("exists") and not own.get("exists"):
-        raise XchgError("the file is in neither inbox")
-    if own.get("exists"):
-        a = _ok(_call({"op": "take_owner", "name": name, "project": code, "customer": customer}))
+def _size(n: int) -> str:
+    if n < 1024:
+        return "%d bytes" % n
+    return "%.0f KB" % (n / 1024) if n < 1024 * 1024 else "%.1f MB" % (n / 1024 / 1024)
+
+
+def describe(e: dict) -> str:
+    """One inbox file for the session and for him: id, inbox, kind, size, time and, for the lab inbox, the name."""
+    when = (e.get("modified") or "")[:16].replace("T", " ")
+    where = "lab inbox" if e["bucket"] == "lab" else "owner inbox"
+    if e["bucket"] == "owner":
+        name = "name not shown"
+    else:
+        name = e.get("name") or "name withheld: the name check found a hit"
+    return "%s  %-11s  %-4s  %8s  %s  %s" % (e["id"], where, e["kind"], _size(e["size"]),
+                                            (when + " UTC") if when else "time unknown", name)
+
+
+def _take_one(root: Path, code: str, e: dict, customer: str | None) -> str:
+    what = "%s of %s" % (e["kind"], _size(e["size"]))
+    if e["bucket"] == "owner":
+        a = _ok(_call({"op": "take_owner", "id": e["id"], "project": code, "customer": customer}))
         if a.get("state") == "held":
-            return "held on the owner's side (%s); the owner has been told" % a.get("why", "held")
+            return "%s from the owner inbox: held on the owner's side (%s); the owner has been told" % (
+                what, a.get("why", "held"))
         if a.get("state") != "taken":
             raise XchgError("the file left the owner inbox before the take")
         outbox = config.paths().outbox / a["customer"]
@@ -445,11 +635,16 @@ def take(name: str, project: str | None = None, customer: str | None = None) -> 
             if src.is_file():
                 shutil.move(str(src), str(root / "input" / out))
                 moved.append(out)
-        return "taken from the owner inbox through the intake: %d sanitised copy(ies) in input/ (%s)" % (
-            len(moved), ", ".join(moved) or "-")
+        return "%s taken from the owner inbox through the intake: %d sanitised copy(ies) in input/ (%s)" % (
+            what, len(moved), ", ".join(moved) or "-")
+    rel = e.get("name")
+    if not rel:
+        return "%s in the lab inbox: held, its name holds a hit of the name check; the owner renames it or moves " \
+               "it to the owner inbox" % what
+    name, key = rel.rsplit("/", 1)[-1], INBOX + rel
     with tempfile.TemporaryDirectory(prefix="awb-take-") as tmp:
         local = Path(tmp) / name
-        a = _ok(_call({"op": "obs", "method": "GET", "key": INBOX + name, "project": code}, download=local))
+        a = _ok(_call({"op": "obs", "method": "GET", "key": key, "project": code}, download=local))
         if not a.get("exists"):
             raise XchgError("the file left the lab inbox before the take")
         problems = check_problems(local)
@@ -459,19 +654,63 @@ def take(name: str, project: str | None = None, customer: str | None = None) -> 
         dest = root / "input" / name
         if dest.exists():
             raise XchgError("input/ already holds a file of that name")
-        _ok(_call({"op": "obs", "method": "COPY", "source": INBOX + name, "key": "%s/%s%s" % (code, IN, name),
+        _ok(_call({"op": "obs", "method": "COPY", "source": key, "key": "%s/%s%s" % (code, IN, name),
                    "project": code}))
         shutil.copyfile(local, dest)
-        _ok(_call({"op": "obs", "method": "DELETE", "key": INBOX + name, "project": code}))
+        _ok(_call({"op": "obs", "method": "DELETE", "key": key, "project": code}))
     return "taken from the lab inbox: input/%s, a copy in the project's in/ folder" % name
+
+
+def take(words: str | None = None, project: str | None = None, customer: str | None = None,
+         ids: list[str] | None = None, take_all: bool = False) -> tuple[str, bool]:
+    """The files he means, taken one by one. Returns the lines for him and whether every take went through."""
+    root, code, _ = _project()
+    code = project or code
+    if ids:
+        picked = []
+        for ident in ids:
+            a = _ok(_call({"op": "inbox_find", "id": ident, "project": code}))
+            if not a.get("matches"):
+                raise XchgError("%s is in neither inbox any more, or the file changed: run awb inbox list" % ident)
+            picked += [m for m in a["matches"] if m["id"] not in {p["id"] for p in picked}]
+    elif take_all:
+        picked = _ok(_call({"op": "inbox_find", "all": True, "project": code})).get("matches", [])
+        if not picked:
+            raise XchgError("both inboxes are empty: the file is in neither inbox")
+    else:
+        if not (words and words.strip()):
+            raise XchgError("say which file: his words for it, --all, or --id from awb inbox list")
+        a = _ok(_call({"op": "inbox_find", "words": words, "project": code}))
+        picked = a.get("matches", [])
+        everything = "\n".join("  " + describe(e) for e in a.get("files", [])) or "  both inboxes are empty"
+        if not picked:
+            raise XchgError("the file is in neither inbox under these words. What the inboxes hold:\n%s\nPick the "
+                            "one he described and take it with --id ID, or ask him." % everything)
+        if len(picked) > 1:
+            head = ("the file is in both inboxes" if {e["bucket"] for e in picked} == {"lab", "owner"}
+                    else "%d files match" % len(picked))
+            raise XchgError("%s: ask him which one he means, then take it with --id ID:\n%s" % (
+                head, "\n".join("  " + describe(e) for e in picked)))
+    if len(picked) == 1:
+        return _take_one(root, code, picked[0], customer), True
+    lines, ok = [], True
+    for e in picked:
+        try:
+            lines.append(_take_one(root, code, e, customer))
+        except XchgError as err:
+            lines.append("%s not taken: %s" % (e["id"], err))
+            ok = False
+    return "\n".join(lines), ok
 
 
 def inbox_list() -> list[str]:
     _, code, _ = _project()
-    a = _ok(_call({"op": "obs", "method": "LIST", "prefix": INBOX, "project": code}))
-    lines = ["%s  %d bytes" % (o["name"], o["size"]) for o in a.get("objects", [])]
-    if a.get("withheld"):
-        lines.append("%d file(s) withheld: their names hold a hit of the name check" % a["withheld"])
+    a = _ok(_call({"op": "inbox_find", "project": code}))
+    files = a.get("files", [])
+    lines = [describe(e) for e in files]
+    withheld = sum(1 for e in files if e["bucket"] == "lab" and not e.get("name"))
+    if withheld:
+        lines.append("%d file(s) withheld: their names hold a hit of the name check" % withheld)
     return lines
 
 
@@ -539,11 +778,14 @@ def main_inbox(argv: list[str] | None = None) -> int:
 
     ap = SafeParser(prog="awb inbox", description="Take a file the owner dropped into an inbox.")
     sub = ap.add_subparsers(dest="command")
-    t = sub.add_parser("take", help="take FILE from an inbox into this project")
-    t.add_argument("file")
+    t = sub.add_parser("take", help="take the file he describes from either inbox into this project")
+    t.add_argument("words", nargs="*", help="his words for the file: what it is or a part of its name; | between "
+                                            "several ways of saying it")
+    t.add_argument("--id", dest="ids", action="append", default=[], help="a file awb inbox list showed (repeat)")
+    t.add_argument("--all", dest="take_all", action="store_true", help="every file of both inboxes")
     t.add_argument("--project", default=None)
     t.add_argument("--customer", default=None, help="the customer code, for a project with customer none")
-    sub.add_parser("list", help="the lab inbox")
+    sub.add_parser("list", help="both inboxes: id, kind, size and time")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -553,10 +795,11 @@ def main_inbox(argv: list[str] | None = None) -> int:
         return 2
     try:
         if args.command == "take":
-            print(take(args.file, args.project, args.customer))
-        else:
-            for line in inbox_list() or ["the lab inbox is empty"]:
-                print(line)
+            text, ok = take(" ".join(args.words), args.project, args.customer, args.ids, args.take_all)
+            print(text)
+            return 0 if ok else 1
+        for line in inbox_list() or ["both inboxes are empty"]:
+            print(line)
         return 0
     except XchgError as err:
         print("awb inbox: %s" % err, file=sys.stderr)
