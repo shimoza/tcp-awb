@@ -17,7 +17,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
 from http.server import ThreadingHTTPServer
 from awb import config, vault, normalize, gate, kb
-from awb.tcp import ask
+from awb.tcp import ask, services
 
 CODE = re.compile(r'tcp-[a-z0-9]{4}')
 REQUEST_ID = re.compile(r'[a-f0-9]{32}')
@@ -373,7 +373,7 @@ class Conversations:
         try:
             sender = self.sender or ask.post
             key = None if self.sender else ask.read_key()
-            system = SYSTEM if context else ask.SYSTEM
+            system = (SYSTEM if context else ask.SYSTEM) + '\n\n' + services.prompt_lines()
             if context:
                 if context.get('inputs'):
                     system += INPUTS_NOTE
@@ -402,6 +402,9 @@ class Conversations:
                     if not answer:
                         raise ChatError('The model returned an empty answer.')
                     answer = screen(answer, self.paths)
+                    note = services.note_for(answer)       # a service the service description does not offer
+                    if note:
+                        answer += '\n\n' + note
                     with self.connect() as con:
                         con.execute("UPDATE turns SET answer=?,status='complete',completed=?,tokens=?,tools=? WHERE id=?", (answer, now(), tokens, json.dumps(sorted(set(used))), request_id))
                     return

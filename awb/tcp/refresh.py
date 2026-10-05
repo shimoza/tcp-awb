@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import awb
-from awb import config, jobs, kb, projects
+from awb import config, jobs, kb, offered, projects
 from awb.tcp import mirror, price
 
 PARTS = ("mirrors", "prices", "knowledge", "projects", "defaults")
@@ -293,6 +293,13 @@ def part_defaults(p: config.Paths, base: Path, *, code_root: Path | None = None)
         part.lines.append("contract entries citing another revision than %s: %d" % (current, len(other)))
         part.lines += ["  " + o for o in sorted(set(other))]
         part.overdue += len(set(other))
+        catalog = offered.load()
+        if catalog.revision != current:
+            part.lines.append("rules/services.tsv is of the revision %s, the mirror holds %s: run awb service update"
+                              % (catalog.revision or "unknown", current))
+            part.overdue += 1
+        else:
+            part.lines.append("rules/services.tsv: the current revision %s" % current)
     return part
 
 

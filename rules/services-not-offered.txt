@@ -1,0 +1,5 @@
+# Services that are not offered on T Cloud Public although the documentation mirror or the price API still
+# knows them. Kept by hand: add a line only with a dated source (a knowledge entry, a release note). One service
+# per line, its other names after a |.
+Bare Metal Server | BMS
+Data Ingestion Service | DIS

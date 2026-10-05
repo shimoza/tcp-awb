@@ -221,3 +221,110 @@ Enabling DNSSEC
 Xeon Gold
 FLAT, GRAPH
 Foundation Services
+# --- the services of the T Cloud Public service description and the ones not offered (awb service update), revision 2026-08-17
+Alert Service
+Anti-DDoS
+API Gateway
+API Gateway (dedicated)
+API Gateway dedicated
+Application Operations Management
+Application Performance Management
+Application Service Mesh
+Auto Scaling
+Bare Metal Server
+CCE Turbo
+Cloud Backup and Recovery
+Cloud Connect
+Cloud Container Engine
+Cloud Container Engine and Cloud Container Engine Turbo
+Cloud Container Engine Turbo
+Cloud Container Instance
+Cloud Create
+Cloud Create (former Cloud Topology Designer)
+Cloud Create former Cloud Topology Designer
+Cloud Eye
+Cloud Firewall
+Cloud Search Service
+Cloud Secret Management Service
+Cloud Server Backup Service
+Cloud Topology Designer
+Cloud Trace Service
+Config
+Config (former Resource Management Service)
+Config former Resource Management Service
+Consulting Services
+Data Admin Service
+Data Ingestion Service
+Data Lake Insight
+Data Replication Service
+Data Warehouse Service
+DataArts Studio
+Database Security Service
+Dedicated host
+DeH
+Direct Connect
+Distributed Cache Service
+Distributed Database Middleware
+Distributed Message Service
+Document Database Service
+Domain Name Service
+Elastic Cloud Server
+Elastic IP
+Elastic Load Balancer
+Elastic Volume Service
+Enterprise Agreement 1.0
+Enterprise Dashboard
+Enterprise Project Management Service
+Enterprise Router
+Enterprise Support Agreement 2.0
+Enterprise Switch
+Enterprise VPN
+EthernetConnect & IntraSelect & Equinix Cloud Exchange
+Financial Dashboard
+Financial Dashboard (former Enterprise Dashboard)
+Financial Dashboard former Enterprise Dashboard
+FunctionGraph
+GeminiDB
+Host Security Service
+Identity and Access Management
+Image Management
+Image Management Service
+Kafka
+Key Management Service
+Log Tank Service
+Managed Services
+MapReduce Service
+Marketplace
+ModelArts
+NAT Gateway
+Object Storage Service
+OpenStack projects
+Optical Character Recognition
+Oracle-optimized
+Relational Database Service
+Resource Formation Service
+Resource Management Service
+Scalable File Service
+Secure Mail Gateway
+SFS Turbo
+Simple Message Notification
+Software Repository for Containers
+Storage Disaster Recovery Service
+Tag Management Service
+TaurusDB
+Ubiquitous Cloud Native Service
+Virtual Private Cloud
+Volume Backup Service
+VPC Endpoint
+WAF Classic
+WAF Cloud
+WAF Dedicated
+Web Application Firewall
+Web Application Firewall (Classic Mode)
+Web Application Firewall (Cloud Mode)
+Web Application Firewall (Dedicated)
+Web Application Firewall - Modes and Metrics
+Web Application Firewall Classic Mode
+Web Application Firewall Cloud Mode
+Web Application Firewall Dedicated
+# --- end of the services

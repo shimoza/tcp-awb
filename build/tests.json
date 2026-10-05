@@ -510,8 +510,15 @@
    "name": "the project chat sends the passages of a long input that match the question best (the previous question counts half), each marked with its place, within the same 16,000 characters; a short input goes whole; without a match the passages from the start; the model may search the selected inputs with input_find in the words of the documents, also for a question in another language; the tool exists only with inputs",
    "run": ".venv/bin/pytest tests/test_web_chat_service.py",
    "status": "passing"
+  },
+  {
+   "id": "W6",
+   "phase": "W",
+   "name": "offered services: what the latest service description lists and nothing else; the check takes the names people write; a section the text marks no longer available is not offered after its date; a service outside the text is not offered whatever the docs say; both chats get the list and a note under an answer that names a service not offered; the review refuses such a deliverable; the refresh and the check say when the mirror holds a newer revision; the core reads the lists without the platform package",
+   "run": ".venv/bin/pytest tests/test_services.py tests/test_price.py tests/test_refresh.py",
+   "status": "passing"
   }
  ],
- "total_tests": 2204,
+ "total_tests": 2219,
  "checked": "2026-10-04"
 }

@@ -59,6 +59,21 @@ Seal, once, with sudo: `seal/setup.sh --dry-run` (read the plan), `sudo seal/set
 ~/tcp-mirrors/docs ~/tcp-mirrors/service-description` (your shell expands the `~`), log in again,
 `sudo seal/verify.sh` (every line PASS).
 
+## Offered services of T Cloud Public (TCP)
+
+Offered is what the latest service description lists, nothing else. The docs, an API that answers, a price record
+or a memory never make a service offered. Sessions run these as well.
+
+| command | what it does |
+|---|---|
+| `awb service check NAME...` | offered or not, with the section and the revision; takes short names and the forms people write; a service the text marks no longer available counts as not offered after that date; exit 1 when one is not offered; a note when the mirror holds a newer revision than the lists |
+| `awb service list` | every service of the current revision with its section, its other names and its end date |
+| `awb service update` | after `awb mirror sd` brought a new revision: `rules/services.tsv` and the block of service names in `rules/stop-words.txt` rebuilt from it (owner side); the documented services the service description does not know are printed, to check each before it goes into `rules/services-not-offered.txt` by hand |
+
+The chats get the list in their instructions and a note under an answer that names a service which is not
+offered; the review refuses such a deliverable (`service:` in the findings); `awb refresh` reports lists older
+than the mirror.
+
 ## Prices of T Cloud Public (TCP)
 
 The public price API needs no key, so sessions run these as well. Every answer is records, empty (the API

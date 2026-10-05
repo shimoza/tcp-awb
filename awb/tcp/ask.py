@@ -209,9 +209,11 @@ def ask(question: str, p: config.Paths | None = None, key: str | None = None, se
     messages: list[dict] = [{"role": "user", "content": question}]
     used: list[str] = []
     tokens = 0
+    from awb.tcp import services
+    system = SYSTEM + "\n\n" + services.prompt_lines()
     try:
         for _ in range(MAX_ROUNDS):
-            resp = sender({"model": MODEL, "max_tokens": MAX_TOKENS, "system": SYSTEM, "tools": TOOLS,
+            resp = sender({"model": MODEL, "max_tokens": MAX_TOKENS, "system": system, "tools": TOOLS,
                            "messages": messages}, key)
             usage = resp.get("usage") or {}
             tokens += int(usage.get("input_tokens", 0)) + int(usage.get("output_tokens", 0))
@@ -221,7 +223,9 @@ def ask(question: str, p: config.Paths | None = None, key: str | None = None, se
                 raise AskError("the model declined this question")
             if stop != "tool_use":
                 text = "\n\n".join(b.get("text", "") for b in content if b.get("type") == "text").strip()
-                return {"answer": text or "(no answer)", "tools": used, "tokens": tokens}
+                note = services.note_for(text)          # a service the service description does not offer
+                return {"answer": (text + "\n\n" + note if note else text) or "(no answer)", "tools": used,
+                        "tokens": tokens}
             messages.append({"role": "assistant", "content": content})
             results = []
             for b in content:

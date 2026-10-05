@@ -34,6 +34,7 @@ def test_the_work_rules_stay_within_their_line_budget():
     "Never for Russian or German text",     # the English note is for his own English only
     "Only `awb kb` writes there",           # facts enter the knowledge base through its checks
     "never what it says",                   # a leak is flagged by kind and place, never repeated
+    "`awb service check NAME`",              # offered is what the latest service description lists, nothing else
 ])
 def test_the_work_rules_carry_each_rule(must):
     assert must in text()

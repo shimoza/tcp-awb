@@ -1,0 +1,81 @@
+# The services of the T Cloud Public service description, revision 2026-08-17 (awb service update).
+# number	name	area	status	other names	no longer from	no longer what
+3.1.1	Elastic Cloud Server	Computing	offered	ECS		
+3.1.2	Dedicated host	Computing	offered	DeH | DH		
+3.1.3	Auto Scaling	Computing	offered	AS		
+3.1.4	Image Management Service	Computing	offered	IMS		
+3.1.5	FunctionGraph	Computing	offered			
+3.2.1	Relational Database Service	Databases	offered	RDS		
+3.2.2	Distributed Cache Service	Databases	offered	DCS		
+3.2.3	Document Database Service	Databases	offered	DDS		
+3.2.4	Cloud Search Service	Databases	offered	CSS		
+3.2.5	Data Replication Service	Databases	offered	DRS		
+3.2.6	TaurusDB	Databases	offered			
+3.2.7	GeminiDB	Databases	offered			
+3.2.8	Distributed Database Middleware	Databases	offered	DDM		
+3.2.9	Oracle-optimized	Databases	offered	OO		
+3.3.1	Object Storage Service	Storage	offered	OBS | OSS		
+3.3.2	Elastic Volume Service	Storage	offered	EVS		
+3.3.3	Volume Backup Service	Storage	offered	VBS	2026-01-01	available
+3.3.4	Cloud Server Backup Service	Storage	offered	CSBS	2026-01-01	available
+3.3.5	Scalable File Service	Storage	offered	SFS | SFS Turbo		
+3.3.6	Storage Disaster Recovery Service	Storage	offered	SDRS		
+3.3.7	Cloud Backup and Recovery	Storage	offered	CBR		
+3.4.1	Virtual Private Cloud	Network	offered	VPC		
+3.4.2	Elastic IP	Network	offered	EIP | EI		
+3.4.3	Elastic Load Balancer	Network	offered	ELB		
+3.4.4	Domain Name Service	Network	offered	DNS		
+3.4.5	Direct Connect	Network	offered	DC		
+3.4.6	Secure Mail Gateway	Network	offered	SMG		
+3.4.7	NAT Gateway	Network	offered	NAT | NG		
+3.4.8	VPC Endpoint	Network	offered	VPCEP | VE		
+3.4.9	Enterprise Router	Network	offered	ER		
+3.4.10	Enterprise VPN	Network	offered	VPN | EV		
+3.5.1	Distributed Message Service	Application	offered	DMS | Kafka		
+3.5.2	API Gateway (dedicated)	Application	offered	API Gateway | APIG | AG		
+3.5.3	Simple Message Notification	Application	offered	SMN		
+3.5.4	Application Operations Management	Application	offered	AOM		
+3.5.5	Application Performance Management	Application	offered	APM		
+3.6.1	Cloud Eye	Management & Deployment	offered	CES | CE		
+3.6.2	Cloud Trace Service	Management & Deployment	offered	CTS		
+3.6.3	Tag Management Service	Management & Deployment	offered	TMS		
+3.6.4	Config (former Resource Management Service)	Management & Deployment	offered	Config | Resource Management Service | RMS		
+3.6.5	Identity and Access Management	Management & Deployment	offered	IAM		
+3.6.6	Log Tank Service	Management & Deployment	offered	LTS		
+3.6.7	Resource Formation Service	Management & Deployment	offered	RFS		
+3.6.8	OpenStack projects	Management & Deployment	offered	OP		
+3.6.9	Enterprise Project Management Service	Management & Deployment	offered	EPS | EPMS		
+3.7.1	Cloud Container Engine and Cloud Container Engine Turbo	Container	offered	Cloud Container Engine | Cloud Container Engine Turbo | CCE | CCE Turbo | CCECCET		
+3.7.2	Software Repository for Containers	Container	offered	SWR | SRC		
+3.7.3	Application Service Mesh	Container	offered	ASM		
+3.7.4	Ubiquitous Cloud Native Service	Container	offered	UCS | UCNS		
+3.8.1	MapReduce Service	Data analysis	offered	MRS		
+3.8.2	Data Warehouse Service	Data analysis	offered	DWS		
+3.8.3	ModelArts	Data analysis	offered			
+3.8.4	Data Lake Insight	Data analysis	offered	DLI		
+3.8.5	DataArts Studio	Data analysis	offered	DS		
+3.8.6	Optical Character Recognition	Data analysis	offered	OCR		
+3.9.1	Anti-DDoS	Security	offered	AD		
+3.9.2	Key Management Service	Security	offered	KMS		
+3.9.3	Web Application Firewall (Classic Mode)	Security	offered	Web Application Firewall | WAF Classic | WAF	2026-06-01	bookable
+3.9.4	Web Application Firewall (Cloud Mode)	Security	offered	Web Application Firewall | WAF Cloud | WAF		
+3.9.5	Web Application Firewall (Dedicated)	Security	offered	Web Application Firewall | WAF Dedicated | WAF		
+3.9.6	Web Application Firewall - Modes and Metrics	Security	offered	WAFMM		
+3.9.7	Database Security Service	Security	offered	DBSS | DSS		
+3.9.8	Host Security Service	Security	offered	HSS		
+3.9.9	Cloud Secret Management Service	Security	offered	CSMS		
+3.9.10	Cloud Firewall	Security	offered	CFW | CF		
+3.11.1	Enterprise Agreement 1.0	Optional services	optional	EA10		
+3.11.2	Enterprise Support Agreement 2.0	Optional services	optional	ESA20		
+3.11.3	EthernetConnect & IntraSelect & Equinix Cloud Exchange	Optional services	optional	EIECE		
+3.11.4	Financial Dashboard (former Enterprise Dashboard)	Optional services	optional	Financial Dashboard | Enterprise Dashboard | FD		
+3.11.5	Consulting Services	Optional services	optional	CS		
+3.11.6	Cloud Create (former Cloud Topology Designer)	Optional services	optional	Cloud Create | Cloud Topology Designer		
+3.11.7	Managed Services	Optional services	optional			
+3.11.8	Marketplace	Optional services	optional			
+3.12.2	Image Management	Preview and beta versions	preview	IM		
+3.12.3	Cloud Container Instance	Preview and beta versions	preview	CCI		
+3.12.4	Alert Service	Preview and beta versions	preview			
+3.12.5	Data Admin Service	Preview and beta versions	preview	DAS		
+3.12.6	Enterprise Switch	Preview and beta versions	preview	ES		
+3.12.7	Cloud Connect	Preview and beta versions	preview			

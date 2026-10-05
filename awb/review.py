@@ -1072,6 +1072,14 @@ def _l0_of(path: Path, source: Path, rel: str, project: Path, folder: Path, cont
     if hits:
         problems.append("name check: %d hits (%s)" % (len(hits), _counts(hits)))
 
+    if _platform(project) != "hcs":
+        # offered is what the latest service description lists: a deliverable never proposes anything else
+        from awb import offered
+        catalog = offered.load()
+        for name in offered.mentions(text, catalog):
+            problems.append("service: %s is not offered on TCP (the service description of %s)"
+                            % (name, offered.revision_label(catalog)))
+
     words = count_words(text)
     if words > contract.budget:
         problems.append("words: %d, over the budget of %d" % (words, contract.budget))

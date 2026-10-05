@@ -17,8 +17,7 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 
 ## Where things are
 
-- `~/tcp-<code>/`: one folder per project. Start with SCOPE.md, STATE.md and OPEN.md; update STATE.md and OPEN.md
-  before the session ends.
+- `~/tcp-<code>/`: one folder per project. Read SCOPE.md, STATE.md and OPEN.md first, update the last two at the end.
 - `~/tcp-shared/`: the project register, the ledger, the outbox. `~/tcp-kb/`: the knowledge base, one checked
   fact per file. Only `awb kb` writes there.
 - `/opt/tcp-awb/`: the Workbench code, read-only. `/etc/awb/paths.conf` says where everything is.
@@ -28,7 +27,10 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 - Check before you state. Prices come from the live price API through `awb price`, never from memory or the
   knowledge base. A price sheet passes `awb price check` before it leaves the project.
 - Never compute in a reply: every total, sum, saving or product goes through `awb calc` (R-005).
-- Availability and every negative need a live check or a dated source. An expired knowledge entry is a lead.
+- Offered is what the latest service description lists, nothing else: run `awb service check NAME` before you name
+  a service as an option. The docs, an API that answers, a price record or memory never make a service offered. What
+  an offered service is made of comes from the docs (GitHub), the API, the knowledge base and experience.
+- Every negative needs a live check or a dated source. An expired knowledge entry is a lead.
 - A check that reports clean counts only after it has shown that it can fail.
 - Before a write outside the project or a change in the cloud, say where it lands: remote, folder or account.
 
@@ -38,19 +40,17 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   of work, never his: what you learned live on TCP goes into `awb kb add --grade live` at once, one fact per entry.
 - A Workbench command that fails by itself is a tooling bug: one plain line to him, an item in OPEN.md, then his
   task again. Ask him only what he alone can decide or do (a fact, a choice, a login, a sudo command).
-- `awb ledger add --kind K --done TEXT` records work, `awb report --by KEY` reports, `awb career add` for his CV.
 - Files: take only the file he names, `awb inbox take FILE`; it never hands you an original. Results go out with
   `awb xchg put FILE`: codes only, no ids in logs, a screenshot only with `--image` and why it is clean.
 - `awb cloud tenants` lists the test tenants; `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role lab]` reaches
   them through the key service. A password goes into a body only as `{{secret:NAME}}`, a key never.
-- `awb kb find|add|scope` for checked facts. `awb check`, `awb write check` and `awb review status` before a
-  deliverable leaves the project. The commit hook runs `awb gate`.
+- `awb kb find|add|scope`, `awb ledger add`, `awb report --by KEY`, `awb career add`. `awb check`, `awb write check` and
+  `awb review status` before a deliverable leaves the project. The commit hook runs `awb gate`.
 
 ## Writing
 
 - Reply in English, whatever language his message is in. He dictates in Russian when it is faster.
-- Write T Cloud Public (TCP) at the first mention and TCP after it, where you would write OTC or Open Telekom
-  Cloud. Host names and other identifiers stay as they are.
+- Write T Cloud Public (TCP) at the first mention, TCP after it, never OTC; host names and identifiers stay as they are.
 - Plain English, short sentences, plain verbs. No em-dash, no comma before "and" or "or", no list of bold leads.
 - No word of `rules/banned-words.txt` or `rules/banned-phrases.txt`, no name of `rules/vendor-names.txt` in TCP
   prose. No promises about the future, no pointers to earlier mails, no certification without proof.
