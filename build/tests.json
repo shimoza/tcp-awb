@@ -524,8 +524,15 @@
    "name": "the owner describes a file instead of naming it: his words (the exact name, the same letters, kind words in English, German or Russian, a word for the newest, words inside the name, | between alternatives) are matched inside the key service against both inboxes, subfolders included; one match is taken, none or several list both inboxes with id, kind, size and time and never a name of the owner inbox, not even in the answer of the key service; --id takes the one he means, --all every file; no owner name in the log",
    "run": ".venv/bin/pytest tests/test_xchg.py",
    "status": "passing"
+  },
+  {
+   "id": "W8",
+   "phase": "W",
+   "name": "a package upgrade no longer locks the Workbench: the setup writes a needrestart rule that leaves the vault daemon and the key service running (the rule matches those two units and nothing else, proven with the matching needrestart does); the project chat passes on a locked data check as locked instead of calling the project unavailable",
+   "run": ".venv/bin/pytest tests/test_seal.py tests/test_web_chat_service.py",
+   "status": "passing"
   }
  ],
- "total_tests": 2226,
- "checked": "2026-10-05"
+ "total_tests": 2231,
+ "checked": "2026-10-06"
 }
