@@ -399,6 +399,17 @@ P_DETAIL = dict(P_QUERY, documents={
 }, deliverables={"status": "available", "truncated": False, "items": [
     {"file": "deliverables/storage-classes.md", "state": "valid", "tier": 1, "redacted": False}]},
     fetched_at="2026-10-04T09:30:00.120034+00:00")
+P_BOARD = {"source": "AWB project register", "generated_at": "2026-10-06T12:00:00.204511+00:00",
+           "summary": {"projects": 2, "current": 1, "lagging": 1, "without_status": 0},
+           "projects": [
+               dict(P_QUERY, waiting_on={"items": [], "total": 0},
+                    open={"items": ["confirm the retrieval fee", "check the minimum storage time"], "total": 2},
+                    deliverables={"status": "available", "counts": {"valid": 1}}, board_redacted=False),
+               dict(P_LAB, waiting_on={"items": ["A ticket to the operator on the disk controller."], "total": 1},
+                    open={"items": ["boot test on the second flavor", "token path", "test instance", "EIP",
+                                    "Terraform deployment"], "total": 5},
+                    deliverables={"status": "available", "counts": {"valid": 3, "stale": 1}},
+                    board_redacted=False)]}
 TAGS = ["ecs", "obs", "vpc"]
 BUDGET = {"questions_left": 31, "tokens_left": 254880, "daily_questions": 40, "daily_tokens": 300000,
           "resets": "00:00 UTC"}
@@ -541,6 +552,33 @@ def _schemas() -> dict:
             "deliverables": ref("Deliverables"),
             "fetched_at": string(format="date-time"),
         }), description="One project with its four files and its deliverables."),
+        "BoardItems": obj({
+            "items": array(string(), "At most five, after the data check, in the order of the file."),
+            "total": integer("How many there are in the file."),
+        }),
+        "BoardProject": obj(dict(summary, **{
+            "waiting_on": ref("BoardItems"),
+            "open": ref("BoardItems"),
+            "deliverables": obj({
+                "status": string("unavailable when the folders cannot be read safely.",
+                                 enum=["available", "unavailable"]),
+                "counts": obj({state: integer() for state in ("valid", "stale", "missing", "unreadable")},
+                              required=[], description="Deliverables per review state; a state with none is left "
+                                                       "out."),
+            }),
+            "board_redacted": boolean("true when the data check withheld a part of a waiting-on or open item."),
+        }), description="One active project on the board: the summary of the list and what management reads."),
+        "Board": obj({
+            "source": string(enum=["AWB project register"]),
+            "generated_at": string("When the board was put together.", format="date-time"),
+            "summary": obj({
+                "projects": integer("Active projects."),
+                "current": integer("Projects whose recorded status has its two lines and no later commit."),
+                "lagging": integer("Projects with commits newer than their recorded status."),
+                "without_status": integer("Projects whose STATE.md has no Status: line yet."),
+            }),
+            "projects": array(ref("BoardProject"), "Active projects, latest change first."),
+        }, description="The status of every active project for management, codes only."),
         "ProjectOptions": obj({
             "kinds": array(string(), "The kinds the running backend accepts, in the order to show. Deployed: "
                                      "engagement, lab, topic, code. Repository: query, project."),
@@ -903,6 +941,16 @@ def _project_paths() -> dict:
                 "404": refusal("No such project.", "This project is not registered or has been deleted."),
                 "503": read_failed,
             }, parameters=[CODE]),
+        },
+        "/api/board": {
+            "get": operation("getBoard", "projects", "The status of every active project for management.", {
+                "200": answer("The board.", ref("Board"), {"two-projects": P_BOARD}),
+                "503": read_failed,
+            }, description="Read on every request from the project files, like the list: the recorded status with "
+                           "the time of STATE.md and the commits newer than it, what the project waits on (the ## "
+                           "Waiting on items of STATE.md), the first items of OPEN.md, the deliverables by review "
+                           "state and the live resources. Codes only. `awb board` writes the same as a dated "
+                           "Markdown and HTML file on the owner side.", state="repository"),
         },
         "/api/project-options": {
             "get": operation("getProjectOptions", "projects", "What the create form offers.", {

@@ -132,12 +132,13 @@ def project_list(paths):
     return {'source':'AWB project register','fetched_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'projects':result}
 
 
-def safe_review_status(root,paths):
+def review_rows(root):
+    """The review states of the deliverables, or None when the folders cannot be read safely."""
     # The existing reviewer hashes deliverables. Refuse symlinks before calling it.
     for name in ('deliverables','reviews'):
         base=root/name
         if base.is_symlink():
-            return {'status':'unavailable','items':[]}
+            return None
         if not base.exists():
             continue
         count=0
@@ -146,9 +147,18 @@ def safe_review_status(root,paths):
                 count+=1
                 f=Path(folder)/leaf
                 if count>2000 or f.is_symlink():
-                    return {'status':'unavailable','items':[]}
+                    return None
     try:
-        found=review.status(root)
+        return review.status(root)
+    except (OSError,ValueError):
+        return None
+
+
+def safe_review_status(root,paths):
+    found=review_rows(root)
+    if found is None:
+        return {'status':'unavailable','items':[]}
+    try:
         items=[]
         for row in found[:300]:
             name,masked=checked(row['file'],paths)
@@ -156,6 +166,59 @@ def safe_review_status(root,paths):
         return {'status':'available','items':items,'truncated':len(found)>300}
     except (OSError,ValueError):
         return {'status':'unavailable','items':[]}
+
+
+BOARD_ITEMS = 5
+"""The most waiting-on and open items the board shows for one project."""
+WITHHELD = '[Content withheld by the data check.]'
+
+
+def bullets(text,heading=None):
+    """The dash items of a Markdown text, or only those under the ## heading named."""
+    out,inside=[],heading is None
+    for line in text.splitlines():
+        if heading is not None and line.startswith('## '):
+            inside=line[3:].strip().lower()==heading.lower()
+            continue
+        if inside and line.startswith('- '):
+            out.append(' '.join(line[2:].split()))
+    return out
+
+
+def board(paths):
+    """Every active project for management: the recorded status with its time and lag, what the project waits on,
+    its first open items, its deliverables by review state and its live resources. Codes only; the texts of one
+    project pass the data check in one call."""
+    rows=[]
+    for record in entries(paths):
+        if record.state!='active':
+            continue
+        row,source,root=base_record(record,paths)
+        state=source['STATE.md']['text'] if source['STATE.md']['status']=='available' else ''
+        opened=source['OPEN.md']['text'] if source['OPEN.md']['status']=='available' else ''
+        waiting,items=bullets(state,'Waiting on'),bullets(opened)
+        texts=waiting[:BOARD_ITEMS]+items[:BOARD_ITEMS]
+        redacted=False
+        if texts:
+            joined,redacted=checked('\n'.join(texts),paths)
+            parts=joined.split('\n')
+            texts=parts if len(parts)==len(texts) else [WITHHELD]*len(texts)
+        found=review_rows(root)
+        counts={}
+        for r in found or []:
+            counts[r['state']]=counts.get(r['state'],0)+1
+        n=min(len(waiting),BOARD_ITEMS)
+        rows.append(dict(row,waiting_on={'items':texts[:n],'total':len(waiting)},
+                         open={'items':texts[n:],'total':len(items)},
+                         deliverables={'status':'unavailable' if found is None else 'available','counts':counts},
+                         board_redacted=redacted))
+    rows.sort(key=lambda r:r['updated'] or r['created'],reverse=True)
+    summary={'projects':len(rows),
+             'current':sum(1 for r in rows if r['status']['summary'] and r['status']['behind']==0),
+             'lagging':sum(1 for r in rows if r['status']['behind']),
+             'without_status':sum(1 for r in rows if not r['status']['summary'])}
+    return {'source':'AWB project register','generated_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'summary':summary,'projects':rows}
 
 
 def project_detail(code,paths):
@@ -186,13 +249,14 @@ class Handler(BaseHTTPRequestHandler):
         if self.command!='HEAD':self.wfile.write(raw)
     def do_GET(self):
         path=urlsplit(self.path).path
-        if not re.fullmatch(r'/api/projects(?:/tcp-[a-z0-9]{4})?',path):
+        if path!='/api/board' and not re.fullmatch(r'/api/projects(?:/tcp-[a-z0-9]{4})?',path):
             self.reply(404,{'error':'No such project endpoint.'});return
         try:
             paths=config.paths()
             if vault.ping(paths.check_socket)=='locked':
                 raise Unavailable('The data check is locked. Project content was not returned.')
             if path=='/api/projects':data=project_list(paths)
+            elif path=='/api/board':data=board(paths)
             else:data=project_detail(path.rsplit('/',1)[1],paths)
             self.reply(200,data) if data is not None else self.reply(404,{'error':'This project is not registered or has been deleted.'})
         except Unavailable as e:self.reply(503,{'error':str(e)})

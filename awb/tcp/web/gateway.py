@@ -331,7 +331,7 @@ class Gateway(BaseHTTPRequestHandler):
             self.reply(204)
             return
         is_tenant_api = path == '/api/tenants'
-        is_project_api = bool(re.fullmatch(r'/api/projects(?:/tcp-[a-z0-9]{4})?', path))
+        is_project_api = bool(re.fullmatch(r'/api/projects(?:/tcp-[a-z0-9]{4})?', path)) or path == '/api/board'
         is_chat_api = bool(re.fullmatch(r'/api/projects/tcp-[a-z0-9]{4}/chat', path))
         is_materials_api = bool(re.fullmatch(r'/api/projects/tcp-[a-z2-7]{4}/materials(?:/(?:sources|imports|M-[A-Z]{24}))?',path))
         is_creation_api = bool(re.fullmatch(r'/api/(?:customer|project)-operations/[a-f0-9]{32}', path)) or path in {'/api/customers', '/api/project-options'} or (path == '/api/projects' and self.command == 'POST')

@@ -1038,6 +1038,140 @@ paths:
                   value:
                     error: Project data could not be read. Try again shortly.
       x-awb-state: deployed
+  /api/board:
+    get:
+      operationId: getBoard
+      tags:
+        - projects
+      summary: The status of every active project for management.
+      description: "Read on every request from the project files, like the list: the recorded status with the time of STATE.md and the commits newer than it, what the project waits on (the ## Waiting on items of STATE.md), the first items of OPEN.md, the deliverables by review state and the live resources. Codes only. `awb board` writes the same as a dated Markdown and HTML file on the owner side."
+      responses:
+        "200":
+          description: The board.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Board"
+              examples:
+                two-projects:
+                  value:
+                    source: AWB project register
+                    generated_at: "2026-10-06T12:00:00.204511+00:00"
+                    summary:
+                      projects: 2
+                      current: 1
+                      lagging: 1
+                      without_status: 0
+                    projects:
+                      - code: tcp-k2wd
+                        kind: query
+                        customer: none
+                        state: active
+                        created: "2026-10-01"
+                        goal: Compare the object storage classes of TCP for archive data
+                        goal_redacted: false
+                        open_items: 2
+                        live_resources: 0
+                        updated: "2026-10-03T16:40:12.511204+00:00"
+                        status:
+                          summary: The prices of the three storage classes are fetched.
+                          next: Compare the retrieval fees.
+                          updated: "2026-10-03T16:40:12.511204+00:00"
+                          behind: 0
+                          redacted: false
+                        waiting_on:
+                          items: []
+                          total: 0
+                        open:
+                          items:
+                            - confirm the retrieval fee
+                            - check the minimum storage time
+                          total: 2
+                        deliverables:
+                          status: available
+                          counts:
+                            valid: 1
+                        board_redacted: false
+                      - code: tcp-m3fx
+                        kind: lab
+                        customer: none
+                        state: active
+                        created: "2026-09-30"
+                        goal: Test a virtual firewall appliance on a test tenant
+                        goal_redacted: false
+                        open_items: 5
+                        live_resources: 3
+                        updated: "2026-10-02T11:05:47.902114+00:00"
+                        status:
+                          summary: "The appliance image is imported; its boot waits on a disk controller."
+                          next: Repeat the boot test once the controller is offered.
+                          updated: "2026-10-01T20:58:03.120411+00:00"
+                          behind: 3
+                          redacted: false
+                        waiting_on:
+                          items:
+                            - A ticket to the operator on the disk controller.
+                          total: 1
+                        open:
+                          items:
+                            - boot test on the second flavor
+                            - token path
+                            - test instance
+                            - EIP
+                            - Terraform deployment
+                          total: 5
+                        deliverables:
+                          status: available
+                          counts:
+                            valid: 3
+                            stale: 1
+                        board_redacted: false
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The data check or a project folder is unavailable. Nothing was returned.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-data-check-is-locked:
+                  value:
+                    error: The data check is locked. Project content was not returned.
+                the-data-check-is-unavailable:
+                  value:
+                    error: The data check is unavailable. Project content was not returned.
+                the-registered-project-folder-cannot:
+                  value:
+                    error: The registered project folder cannot be opened safely.
+                the-registered-project-folder-is:
+                  value:
+                    error: The registered project folder is unavailable.
+                project-data-could-not-be:
+                  value:
+                    error: Project data could not be read. Try again shortly.
+      x-awb-state: repository
   /api/project-options:
     get:
       operationId: getProjectOptions
@@ -2947,6 +3081,153 @@ components:
         - documents
         - deliverables
         - fetched_at
+    BoardItems:
+      type: object
+      properties:
+        items:
+          type: array
+          description: At most five, after the data check, in the order of the file.
+          items:
+            type: string
+        total:
+          type: integer
+          description: How many there are in the file.
+      required:
+        - items
+        - total
+    BoardProject:
+      type: object
+      description: "One active project on the board: the summary of the list and what management reads."
+      properties:
+        code:
+          "$ref": "#/components/schemas/ProjectCode"
+        kind:
+          "$ref": "#/components/schemas/Kind"
+        customer:
+          "$ref": "#/components/schemas/CustomerOrNone"
+        state:
+          type: string
+          description: Deleted projects are not listed.
+          enum:
+            - active
+            - closed
+        created:
+          type: string
+          description: The day the project was created.
+          format: date
+        goal:
+          type: string
+          description: "The goal line of SCOPE.md after the data check. A withheld part reads [withheld]; a goal the check still refuses reads [Content withheld by the data check.]"
+        goal_redacted:
+          type: boolean
+          description: true when the data check withheld a part of the goal.
+        open_items:
+          type:
+            - integer
+            - "null"
+          description: "Lines of OPEN.md that start with a dash; null when OPEN.md cannot be read."
+        live_resources:
+          type:
+            - integer
+            - "null"
+          description: "Rows of RESOURCES.md whose state is neither deleted nor kept; null when RESOURCES.md cannot be read."
+        updated:
+          type:
+            - string
+            - "null"
+          description: "The latest change of SCOPE.md, STATE.md, OPEN.md or RESOURCES.md; null when none can be read."
+          format: date-time
+        status:
+          "$ref": "#/components/schemas/ProjectStatus"
+        waiting_on:
+          "$ref": "#/components/schemas/BoardItems"
+        open:
+          "$ref": "#/components/schemas/BoardItems"
+        deliverables:
+          type: object
+          properties:
+            status:
+              type: string
+              description: unavailable when the folders cannot be read safely.
+              enum:
+                - available
+                - unavailable
+            counts:
+              type: object
+              description: "Deliverables per review state; a state with none is left out."
+              properties:
+                valid:
+                  type: integer
+                stale:
+                  type: integer
+                missing:
+                  type: integer
+                unreadable:
+                  type: integer
+          required:
+            - status
+            - counts
+        board_redacted:
+          type: boolean
+          description: true when the data check withheld a part of a waiting-on or open item.
+      required:
+        - code
+        - kind
+        - customer
+        - state
+        - created
+        - goal
+        - goal_redacted
+        - open_items
+        - live_resources
+        - updated
+        - status
+        - waiting_on
+        - open
+        - deliverables
+        - board_redacted
+    Board:
+      type: object
+      description: The status of every active project for management, codes only.
+      properties:
+        source:
+          type: string
+          enum:
+            - AWB project register
+        generated_at:
+          type: string
+          description: When the board was put together.
+          format: date-time
+        summary:
+          type: object
+          properties:
+            projects:
+              type: integer
+              description: Active projects.
+            current:
+              type: integer
+              description: Projects whose recorded status has its two lines and no later commit.
+            lagging:
+              type: integer
+              description: Projects with commits newer than their recorded status.
+            without_status:
+              type: integer
+              description: "Projects whose STATE.md has no Status: line yet."
+          required:
+            - projects
+            - current
+            - lagging
+            - without_status
+        projects:
+          type: array
+          description: Active projects, latest change first.
+          items:
+            "$ref": "#/components/schemas/BoardProject"
+      required:
+        - source
+        - generated_at
+        - summary
+        - projects
     ProjectOptions:
       type: object
       properties:
