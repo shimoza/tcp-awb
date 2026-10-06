@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Architect Workbench: intake, projects, checked knowledge and checked results for a cloud solution architect"
 requires-python = ">=3.12"
 license = {text = "Apache-2.0"}
-authors = [{name = "Kirill Larin"}]
+authors = [{name = "shimoza"}]
 dependencies = []
 
 [project.scripts]
