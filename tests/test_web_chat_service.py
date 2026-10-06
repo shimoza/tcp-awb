@@ -384,3 +384,38 @@ def test_passages_keep_the_budget_and_the_whole_text_when_it_fits():
     assert chat.input_find({"M-" + "A" * 24: {"file": "a.md", "version": 1, "text": doc}}, "") .startswith("Give")
     assert chat.input_find({"M-" + "A" * 24: {"file": "a.md", "version": 1, "text": doc}},
                            "zzzz qqqq").startswith("No passage")
+
+
+@pytest.mark.parametrize("status,body,said", [
+    (503, {"error": "The data check is locked. Project content was not returned."},
+     ("The data check is locked. Nothing was sent.", 503)),
+    (503, {"error": "Project data could not be read. Try again shortly."}, ("This project is unavailable.", 503)),
+    (404, {"error": "This project is not registered or has been deleted."}, ("This project is unavailable.", 404)),
+])
+def test_the_chat_says_when_the_project_service_answers_locked(status, body, said):
+    """2026-10-06: a package upgrade restarted the vault daemon; the project service answered locked and the chat
+    turned it into "This project is unavailable", which told the owner nothing."""
+    from http.server import BaseHTTPRequestHandler
+
+    from awb.tcp.web import chat_service
+
+    class Projects(BaseHTTPRequestHandler):
+        def do_GET(self):
+            raw = json.dumps(body).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def log_message(self, *a):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Projects)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises(chat_service.ChatError) as err:
+            chat_service.fetch_project("tcp-k2wd", port=server.server_address[1])
+        assert (str(err.value), err.value.status) == said
+    finally:
+        server.shutdown()

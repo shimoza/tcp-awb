@@ -458,3 +458,26 @@ def test_owner_home_comes_from_the_host_file_or_the_vault(tmp_path):
     assert seal.owner_home(p, {}) == tmp_path / "o"
     assert seal.owner_home(p, {"owner": USER}) == Path(OWNER_HOME)
     assert seal.owner_home(p, {"owner": "no-such-user-" + "x7"}) == tmp_path / "o"
+
+
+def test_setup_keeps_needrestart_away_from_the_daemons_that_hold_secrets(fakebin):
+    """A package upgrade restarted the vault daemon on 2026-10-06 and the console lost projects and chat until the
+    owner unlocked the vault again: needrestart now leaves the vault daemon and the key service running."""
+    res = run_script(SETUP, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    out = res.stdout.splitlines()
+    assert "+ write /etc/needrestart/conf.d/awb.conf (mode 644, root:root)" in out
+    for unit in ("awb-vaultd", "awb-keyd"):
+        assert "    | $nrconf{override_rc}{qr(^%s\\b)} = 0;" % unit in out
+
+
+@pytest.mark.skipif(shutil.which("perl") is None, reason="perl is not installed")
+def test_the_needrestart_rule_matches_the_two_daemons_and_nothing_else():
+    script = ("our %%nrconf = (override_rc => {}); do '%s'; die $@ if $@;"
+              "for my $rc (@ARGV) { my $r = 1; foreach my $re (keys %%{$nrconf{override_rc}}) "
+              "{ next unless $rc =~ /$re/; $r = $nrconf{override_rc}->{$re}; last } print \"$rc=$r\\n\" }"
+              % (SEAL / "needrestart-awb.conf"))
+    units = ["awb-vaultd.service", "awb-keyd.service", "awb-web.service", "awb-ask.service", "awb-vaultdx.service"]
+    res = subprocess.run(["perl", "-e", script] + units, capture_output=True, text=True, check=True)
+    assert res.stdout.split() == ["awb-vaultd.service=0", "awb-keyd.service=0", "awb-web.service=1",
+                                  "awb-ask.service=1", "awb-vaultdx.service=1"]

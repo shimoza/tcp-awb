@@ -20,6 +20,8 @@ The seal keeps the register of names away from every working session. It uses tw
 - `setup.sh`: sets all of the above up. Idempotent, prints every command before it runs it.
 - `verify.sh`: proves the seal as root, one line per check, PASS or FAIL, exit 1 on any FAIL.
 - `awb-vaultd.service`: the unit of the vault daemon. `setup.sh` fills in the owner in the `User=` line.
+- `needrestart-awb.conf`: goes to `/etc/needrestart/conf.d/awb.conf`, so that a package upgrade never restarts
+  the vault daemon or the key service: a restart locks them and the console loses projects and chat.
 - `work-claude/settings.json`: the client settings of the work user: the five Workbench hooks
   (`/usr/local/bin/awb hook NAME`) and a deny rule for every connector tool (`mcp__*`). Connectors of the account
   would hand raw customer text to a session.
@@ -54,7 +56,8 @@ user.
 6. Writes `/etc/awb/paths.conf` with the owner, the shared side, the vault, the projects root, the knowledge base
    and the check socket.
 7. Installs, enables and starts the unit. After a code update restart it yourself: the vault locks and needs
-   `awb vault unlock` again.
+   `awb vault unlock` again. Writes `/etc/needrestart/conf.d/awb.conf`: needrestart, which unattended upgrades run,
+   leaves the vault daemon and the key service running.
 8. Copies the owner's `~/.ssh/authorized_keys` to the work user.
 9. Installs `work-claude/settings.json` and `work-claude/CLAUDE.md` into the `.claude` folder of the work home,
    owned by root, readable for the work user and immutable (`chattr +i`): the folder is the work user's own

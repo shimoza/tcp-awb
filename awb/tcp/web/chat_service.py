@@ -154,6 +154,13 @@ def fetch_project(code, port=8182):
             raise ChatError('The project snapshot is too large.')
         return json.loads(data)
     except urllib.error.HTTPError as e:
+        # a locked vault is said as such, so the console can tell the owner what to do
+        try:
+            reason = str(json.loads(e.read(4096) or b'{}').get('error', ''))
+        except (OSError, ValueError, AttributeError):
+            reason = ''
+        if e.code == 503 and reason.startswith('The data check is locked'):
+            raise ChatError('The data check is locked. Nothing was sent.') from None
         raise ChatError('This project is unavailable.', 404 if e.code == 404 else 503) from None
     except (OSError, ValueError):
         raise ChatError('Project context could not be loaded. Nothing was sent.') from None

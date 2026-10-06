@@ -24,6 +24,7 @@ CONF_DIR=/etc/awb
 CONF_FILE=/etc/awb/paths.conf
 UNIT_NAME=awb-vaultd.service
 UNIT_FILE=/etc/systemd/system/awb-vaultd.service
+NEEDRESTART_FILE=/etc/needrestart/conf.d/awb.conf
 CHECK_SOCKET=/run/awb/check.sock
 MIRROR_ROOT=/srv/tcp-mirrors
 MANAGED_DIR=/etc/claude-code/managed-settings.d
@@ -426,6 +427,9 @@ step_daemon() {
     run systemctl daemon-reload
     run systemctl enable --now "$UNIT_NAME"
     info "after an update of the code run: systemctl restart $UNIT_NAME (the vault locks, unlock it again)"
+    info "needrestart leaves the vault daemon and the key service running after a package upgrade"
+    run mkdir -p "$(dirname "$NEEDRESTART_FILE")"
+    write_file "$NEEDRESTART_FILE" 644 root:root <"$seal_dir/needrestart-awb.conf"
 }
 
 step_ssh() {
