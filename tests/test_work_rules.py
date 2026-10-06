@@ -53,3 +53,9 @@ def test_the_work_rules_pass_the_writing_check():
 
 def test_the_work_rules_pass_the_gate():
     assert gate.scan_files([RULES], None) == []
+
+
+def test_the_work_rules_keep_the_status_current_after_every_step():
+    """2026-10-06: STATE.md lagged five days behind the work and the portal showed the old status."""
+    t = text()
+    assert "After every step that" in t and "Status: and Next: lines" in t and "in the same commit" in t

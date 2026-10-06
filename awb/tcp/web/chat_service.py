@@ -203,8 +203,14 @@ def snapshot(project):
         remaining -= len(text)
         docs[name] = {'text': text, 'status': doc.get('status', 'missing'),
                       'modified': source_time(doc.get('modified')), 'truncated': len(text) < len(original)}
-    return {'code': project['code'], 'goal': project['goal'], 'state': project['state'],
-            'fetched_at': source_time(project['fetched_at']), 'documents': docs}
+    out = {'code': project['code'], 'goal': project['goal'], 'state': project['state'],
+           'fetched_at': source_time(project['fetched_at']), 'documents': docs}
+    status = project.get('status') or {}
+    if status.get('behind'):
+        # the files lag behind the work: the answer says so instead of passing an old status as the current one
+        out['status_note'] = ('STATE.md is older than %d later commit(s) of this project: say that the recorded '
+                              'status may be out of date.' % status['behind'])
+    return out
 
 
 def fetch_material(code, ident):

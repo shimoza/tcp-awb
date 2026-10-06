@@ -11,6 +11,7 @@ from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 from awb import config, projects, review, vault, normalize
+from awb import status as recorded
 
 FILES = ('SCOPE.md', 'STATE.md', 'OPEN.md', 'RESOURCES.md')
 LIMIT = 256 * 1024
@@ -106,8 +107,18 @@ def base_record(record,paths):
     resources=source['RESOURCES.md']
     live=sum(row.get('state','').lower() not in ('deleted','kept') for row in resource_rows(resources['text'])) if resources['status']=='available' else None
     dates=[f['modified'] for f in source.values() if f['modified']]
-    result={'code':record.code,'kind':record.kind,'customer':record.customer,'state':record.state,'created':record.created,'goal':goal,'goal_redacted':redacted,'open_items':open_count,'live_resources':live,'updated':max(dates) if dates else None}
+    result={'code':record.code,'kind':record.kind,'customer':record.customer,'state':record.state,'created':record.created,'goal':goal,'goal_redacted':redacted,'open_items':open_count,'live_resources':live,'updated':max(dates) if dates else None,'status':status_of(source['STATE.md'],root,paths)}
     return result,source,root
+
+
+def status_of(state,root,paths):
+    """The Status: and Next: lines of STATE.md after the data check, its date and the commits newer than it."""
+    if state['status']!='available':
+        return {'summary':None,'next':None,'updated':None,'behind':None,'redacted':False}
+    lines=recorded.lines(state['text'])
+    summary,red_summary=checked(lines.summary,paths) if lines.summary else (None,False)
+    nxt,red_next=checked(lines.next,paths) if lines.next else (None,False)
+    return {'summary':summary,'next':nxt,'updated':state['modified'],'behind':recorded.behind(root),'redacted':red_summary or red_next}
 
 
 def project_list(paths):

@@ -373,17 +373,25 @@ MATERIAL = path_param("material_id", "An import of this project: M- and 24 capit
 
 P_QUERY = {"code": "tcp-k2wd", "kind": "query", "customer": "none", "state": "active", "created": "2026-10-01",
            "goal": "Compare the object storage classes of TCP for archive data", "goal_redacted": False,
-           "open_items": 2, "live_resources": 0, "updated": "2026-10-03T16:40:12.511204+00:00"}
+           "open_items": 2, "live_resources": 0, "updated": "2026-10-03T16:40:12.511204+00:00",
+           "status": {"summary": "The prices of the three storage classes are fetched.",
+                      "next": "Compare the retrieval fees.", "updated": "2026-10-03T16:40:12.511204+00:00",
+                      "behind": 0, "redacted": False}}
 P_LAB = {"code": "tcp-m3fx", "kind": "lab", "customer": "none", "state": "active", "created": "2026-09-30",
          "goal": "Test a virtual firewall appliance on a test tenant", "goal_redacted": False,
-         "open_items": 5, "live_resources": 3, "updated": "2026-10-02T11:05:47.902114+00:00"}
+         "open_items": 5, "live_resources": 3, "updated": "2026-10-02T11:05:47.902114+00:00",
+         "status": {"summary": "The appliance image is imported; its boot waits on a disk controller.",
+                    "next": "Repeat the boot test once the controller is offered.",
+                    "updated": "2026-10-01T20:58:03.120411+00:00", "behind": 3, "redacted": False}}
 P_CUSTOMER = {"code": "tcp-q7m4", "kind": "engagement", "customer": "CUST-Q7M4", "state": "closed",
               "created": "2026-09-22", "goal": "Plan the move of the customer's file servers to TCP",
-              "goal_redacted": False, "open_items": 0, "live_resources": None, "updated": None}
+              "goal_redacted": False, "open_items": 0, "live_resources": None, "updated": None,
+              "status": {"summary": None, "next": None, "updated": None, "behind": None, "redacted": False}}
 P_DETAIL = dict(P_QUERY, documents={
     "SCOPE.md": {"text": "# Scope\n\n- goal: Compare the object storage classes of TCP for archive data\n",
                  "status": "available", "redacted": False, "modified": "2026-10-01T09:02:31.104577+00:00"},
-    "STATE.md": {"text": "# State\n\nThe prices of the three classes are fetched.\n", "status": "available",
+    "STATE.md": {"text": "# State\n\nStatus: The prices of the three storage classes are fetched.\nNext: Compare the "
+                         "retrieval fees.\n", "status": "available",
                  "redacted": False, "modified": "2026-10-03T16:40:12.511204+00:00"},
     "OPEN.md": {"text": "# Open\n\n- confirm the retrieval fee\n- check the minimum storage time\n",
                 "status": "available", "redacted": False, "modified": "2026-10-03T16:31:55.020931+00:00"},
@@ -463,6 +471,7 @@ def _schemas() -> dict:
                                   "RESOURCES.md cannot be read.", nullable=True),
         "updated": string("The latest change of SCOPE.md, STATE.md, OPEN.md or RESOURCES.md; null when none can "
                           "be read.", nullable=True, format="date-time"),
+        "status": ref("ProjectStatus"),
     }
     return {
         "Error": obj({
@@ -490,6 +499,19 @@ def _schemas() -> dict:
             "enum": REPOSITORY_KINDS + DEPLOYED_KINDS,
             "x-awb-reads-as": dict(READS_AS),
         },
+        "ProjectStatus": obj({
+            "summary": string("The Status: line of STATE.md after the data check, one sentence; null when STATE.md "
+                              "has none yet.", nullable=True),
+            "next": string("The Next: line of STATE.md after the data check, one sentence; null when STATE.md has "
+                           "none yet.", nullable=True),
+            "updated": string("When STATE.md last changed; null when it cannot be read.", nullable=True,
+                              format="date-time"),
+            "behind": integer("Commits of the project newer than STATE.md. More than 0: the recorded status lags "
+                              "behind the work. null when the history cannot be read.", nullable=True),
+            "redacted": boolean("true when the data check withheld a part of a line."),
+        }, description="The recorded status of a project: the two lines STATE.md opens with. The working session "
+                       "updates them after every step that changes the status; its stop hook holds a reply while "
+                       "commits are newer than STATE.md."),
         "ProjectSummary": obj(dict(summary), description="One project of the list."),
         "ProjectList": obj({
             "source": string(enum=["AWB project register"]),

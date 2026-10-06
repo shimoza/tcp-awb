@@ -16,10 +16,10 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 
 ## Where things are
 
-- `~/tcp-<code>/`: one folder per project. Read SCOPE.md, STATE.md and OPEN.md first, update the last two at the end.
-- `~/tcp-shared/`: the project register, the ledger, the outbox. `~/tcp-kb/`: the knowledge base, one checked
-  fact per file. Only `awb kb` writes there.
-- `/opt/tcp-awb/`: the Workbench code, read-only. `/etc/awb/paths.conf` says where everything is.
+- `~/tcp-<code>/`: one folder per project. Read SCOPE.md, STATE.md and OPEN.md first. After every step that
+  changes the status, update STATE.md (its Status: and Next: lines too) and OPEN.md in the same commit.
+- `~/tcp-shared/`: the register, the ledger, the outbox. `~/tcp-kb/`: the knowledge base, one checked fact per file.
+  Only `awb kb` writes there. `/opt/tcp-awb/`: the code, read-only. `/etc/awb/paths.conf` says where everything is.
 
 ## Facts
 

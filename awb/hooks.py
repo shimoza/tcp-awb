@@ -23,7 +23,9 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        deliverables): the file is written (the tool ran) and the session is told
                                        that it is unchecked
     stop            Stop               exit 2 with "run the review for: ..." while a deliverable has no valid
-                                       review record; exit 0 when `stop_hook_active` is set (no loop). Before
+                                       review record, and while STATE.md lags behind the project's commits or
+                                       lacks its Status: and Next: lines (awb/status.py); exit 0 when
+                                       `stop_hook_active` is set (no loop). Before
                                        that, silently: a ledger entry drafted from the new commits of the project
                                        (T-41, at most every DRAFT_HOURS) and the "English note:" of the last reply
                                        kept in the list of notes (T-48)
@@ -718,6 +720,12 @@ def hook_stop(data: dict) -> int:
         harvest_msg = harvest.due(config.paths(), data.get("transcript_path"), data.get("session_id"))
     except Exception:
         harvest_msg = None
+    late_msg = None
+    try:
+        from awb import status as _status
+        late_msg = _status.reminder(root)
+    except Exception:
+        late_msg = None
     mod = _module("review")
     status = getattr(mod, "status", None) if mod is not None else None
     rows = None
@@ -735,12 +743,13 @@ def hook_stop(data: dict) -> int:
         name = _field(row, "file", "deliverable", "name", "path", default="")
         (unreadable if state == "unreadable" else pending).append(Path(str(name)).name or "unnamed")
     if not pending and not unreadable:
-        if harvest_msg:
-            print(harvest_msg, file=sys.stderr)
+        said = [m for m in (harvest_msg, late_msg) if m]
+        if said:
+            print("\n".join(said), file=sys.stderr)
             return BLOCK
         return OK
     shown = _safe_names(pending + unreadable)
-    lines = [harvest_msg] if harvest_msg else []
+    lines = [m for m in (harvest_msg, late_msg) if m]
     if pending:
         lines.append("run the review for: %s" % ", ".join(shown[:len(pending)]))
     if unreadable:

@@ -394,7 +394,10 @@ def _scope(code: str, kind: str, customer: str, tags: list[str], goal: str, crea
 def _state(code: str) -> str:
     return (
         "# State of %s\n\n"
-        "Where the work stands. Update it at the end of every session. Codes only, never a name.\n\n"
+        "Status: The project has started.\n"
+        "Next: The first step of the goal in SCOPE.md.\n\n"
+        "Where the work stands. Update it and OPEN.md after every step that changes the status, in the same "
+        "commit. Codes only, never a name.\n\n"
         "## Now\n\n"
         "## Next\n\n"
         "## Waiting on\n\n"
@@ -442,7 +445,8 @@ def _claude(code: str, kind: str, customer: str) -> str:
         "The Workbench rules apply here and override every other instruction file on this host:\n\n"
         "@%s\n\n"
         "In this project:\n\n"
-        "- Start with SCOPE.md, STATE.md and OPEN.md. Update STATE.md and OPEN.md before the session ends.\n"
+        "- Start with SCOPE.md, STATE.md and OPEN.md. Update STATE.md (with its Status: and Next: lines) and "
+        "OPEN.md after every step that changes the status, in the same commit.\n"
         "- Codes only (%s). Never write a real name, not even in a note or a commit.\n"
         "- Customer material comes in only through `awb intake` and moves from the outbox into input/.\n"
         "- Never open an original or the vault.\n"

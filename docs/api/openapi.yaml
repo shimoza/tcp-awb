@@ -620,6 +620,12 @@ paths:
                         open_items: 2
                         live_resources: 0
                         updated: "2026-10-03T16:40:12.511204+00:00"
+                        status:
+                          summary: The prices of the three storage classes are fetched.
+                          next: Compare the retrieval fees.
+                          updated: "2026-10-03T16:40:12.511204+00:00"
+                          behind: 0
+                          redacted: false
                       - code: tcp-m3fx
                         kind: lab
                         customer: none
@@ -630,6 +636,12 @@ paths:
                         open_items: 5
                         live_resources: 3
                         updated: "2026-10-02T11:05:47.902114+00:00"
+                        status:
+                          summary: "The appliance image is imported; its boot waits on a disk controller."
+                          next: Repeat the boot test once the controller is offered.
+                          updated: "2026-10-01T20:58:03.120411+00:00"
+                          behind: 3
+                          redacted: false
                       - code: tcp-q7m4
                         kind: engagement
                         customer: CUST-Q7M4
@@ -640,6 +652,12 @@ paths:
                         open_items: 0
                         live_resources: null
                         updated: null
+                        status:
+                          summary: null
+                          next: null
+                          updated: null
+                          behind: null
+                          redacted: false
         "401":
           description: No valid session. Sign in first.
           content:
@@ -917,6 +935,12 @@ paths:
                     open_items: 2
                     live_resources: 0
                     updated: "2026-10-03T16:40:12.511204+00:00"
+                    status:
+                      summary: The prices of the three storage classes are fetched.
+                      next: Compare the retrieval fees.
+                      updated: "2026-10-03T16:40:12.511204+00:00"
+                      behind: 0
+                      redacted: false
                     documents:
                       SCOPE.md:
                         text: |
@@ -930,7 +954,8 @@ paths:
                         text: |
                           # State
 
-                          The prices of the three classes are fetched.
+                          Status: The prices of the three storage classes are fetched.
+                          Next: Compare the retrieval fees.
                         status: available
                         redacted: false
                         modified: "2026-10-03T16:40:12.511204+00:00"
@@ -2665,6 +2690,40 @@ components:
         topic: query
         code: query
         lab: project
+    ProjectStatus:
+      type: object
+      description: "The recorded status of a project: the two lines STATE.md opens with. The working session updates them after every step that changes the status; its stop hook holds a reply while commits are newer than STATE.md."
+      properties:
+        summary:
+          type:
+            - string
+            - "null"
+          description: "The Status: line of STATE.md after the data check, one sentence; null when STATE.md has none yet."
+        next:
+          type:
+            - string
+            - "null"
+          description: "The Next: line of STATE.md after the data check, one sentence; null when STATE.md has none yet."
+        updated:
+          type:
+            - string
+            - "null"
+          description: "When STATE.md last changed; null when it cannot be read."
+          format: date-time
+        behind:
+          type:
+            - integer
+            - "null"
+          description: "Commits of the project newer than STATE.md. More than 0: the recorded status lags behind the work. null when the history cannot be read."
+        redacted:
+          type: boolean
+          description: true when the data check withheld a part of a line.
+      required:
+        - summary
+        - next
+        - updated
+        - behind
+        - redacted
     ProjectSummary:
       type: object
       description: One project of the list.
@@ -2707,6 +2766,8 @@ components:
             - "null"
           description: "The latest change of SCOPE.md, STATE.md, OPEN.md or RESOURCES.md; null when none can be read."
           format: date-time
+        status:
+          "$ref": "#/components/schemas/ProjectStatus"
       required:
         - code
         - kind
@@ -2718,6 +2779,7 @@ components:
         - open_items
         - live_resources
         - updated
+        - status
     ProjectList:
       type: object
       properties:
@@ -2847,6 +2909,8 @@ components:
             - "null"
           description: "The latest change of SCOPE.md, STATE.md, OPEN.md or RESOURCES.md; null when none can be read."
           format: date-time
+        status:
+          "$ref": "#/components/schemas/ProjectStatus"
         documents:
           type: object
           properties:
@@ -2879,6 +2943,7 @@ components:
         - open_items
         - live_resources
         - updated
+        - status
         - documents
         - deliverables
         - fetched_at
