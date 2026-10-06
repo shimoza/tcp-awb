@@ -33,7 +33,11 @@ Every detector runs over the text as given and, when it differs, over its normal
 escapes, entities, percent encoding, invisible characters, terminal colour sequences) with the hits mapped
 back, and over what the base64 and hex blocks of the text decode to (such a finding is on the line of the
 block). A commit message is scanned the same way (`awb gate --message FILE`, the commit-msg hook) and so are
-the author, the committer, the message and the ref names of every pushed commit.
+the author, the committer, the message and the ref names of every pushed commit. One exception: when the owner
+pushes a repository he owns, an author or committer line that is exactly the name or the mail of the identity in
+that repository's own git config passes, because that identity is his and he signs every commit with it; his
+name may sit in the register to keep it out of customer material. The work user never gets the exception, nor
+does a repository another user owns, so no session can make a name pass by setting it as its identity.
 
 A finding is a file, a line and a class. Line 0 means the file as a whole (opaque), its path (the staged
 path of a file is checked like its content; a path given on the command line is checked for names), a pushed
@@ -1052,6 +1056,28 @@ def _commit_texts(top: Path, commits: list[str]) -> dict[str, str]:
     return texts
 
 
+def _owner_identity(top: Path) -> set[str]:
+    """The name and the mail the owner signs this repository's commits with (its own git config, --local), when
+    the owner pushes a repository he owns; empty for the work user and for a repository of another user."""
+    try:
+        from awb import config
+
+        if config.is_work_user() or Path(top).stat().st_uid != os.getuid():
+            return set()
+    except Exception:
+        return set()
+    out: set[str] = set()
+    for key in ("user.name", "user.email"):
+        try:
+            r = subprocess.run(["git", "-C", str(top), "config", "--local", "--get", key], capture_output=True,
+                               text=True, check=False, timeout=GIT_TIMEOUT)
+        except (OSError, subprocess.SubprocessError):
+            return set()
+        if r.returncode == 0 and r.stdout.strip():
+            out.add(r.stdout.strip())
+    return out
+
+
 def _scan_pushed(repo: Path, updates: list[tuple[str, str, str, str]], matcher: Matcher | None,
                  remote: str | None = None) -> list[Finding]:
     """Scan what a push carries: every file of every pushed commit, as that commit has it (a secret that one
@@ -1076,9 +1102,13 @@ def _scan_pushed(repo: Path, updates: list[tuple[str, str, str, str]], matcher: 
         label = "ref " + tag_candidates[object_id]
         out.extend(sorted({Finding(label, 0, f.cls) for f in _scan_text(label, _decode(data), matcher)}, key=_order))
     commits = pushed_commits(top, updates, remote)
+    owner = _owner_identity(top)
     for commit, text in _commit_texts(top, commits).items():
         label = "commit " + commit[:10]
-        out.extend(sorted({Finding(label, 0, f.cls) for f in _scan_text(label, text, matcher) + _attribution(label, text)},
+        lines = text.split("\n")
+        # author name and mail, committer name and mail: the owner's own identity passes, the message never does
+        scanned = "\n".join([x for x in lines[:4] if x not in owner] + lines[4:]) if owner else text
+        out.extend(sorted({Finding(label, 0, f.cls) for f in _scan_text(label, scanned, matcher) + _attribution(label, text)},
                           key=_order))
     entries: list[tuple[str, str, str]] = []
     seen: set[str] = set()

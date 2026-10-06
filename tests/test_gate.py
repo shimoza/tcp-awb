@@ -1366,3 +1366,37 @@ def test_selftest_passes_for_the_work_user_of_a_sealed_host(register_path, monke
     assert gate.selftest(register_path) == []
     assert planted not in gate.blocklist_files()
     assert not any("awb-gate-selftest-" in str(f) for f in gate.blocklist_files())
+
+
+def test_the_owner_identity_of_his_own_repository_passes_in_the_commit_lines(tmp_path, register_path, monkeypatch):
+    """2026-10-06: the owner's name went into the register to keep it out of customer material, and every push of his
+    own repository stopped at his own author line. His identity passes there, his name in a message never does."""
+    from awb import config
+
+    repo, base = repo_with_one_commit(tmp_path)
+    owner = (fixtures.PERSON_FORMS[0], "owner@example.org")
+    push_git(repo, "config", "user.name", owner[0])
+    push_git(repo, "config", "user.email", owner[1])
+    env = dict(os.environ, GIT_AUTHOR_NAME=owner[0], GIT_AUTHOR_EMAIL=owner[1], GIT_COMMITTER_NAME=owner[0],
+               GIT_COMMITTER_EMAIL=owner[1])
+
+    def commit(message: str) -> str:
+        (repo / "a.txt").write_text("change %d\n" % len(message), encoding="utf-8")
+        push_git(repo, "add", "-A")
+        subprocess.run(["git", "-C", str(repo), "commit", "-q", "--no-verify", "-m", message], check=True,
+                       capture_output=True, env=env)
+        return push_git(repo, "rev-parse", "HEAD")
+
+    head = commit("a clean change")
+    matcher = gate._load_matcher(register_path)
+    updates = gate.parse_push_lines("refs/heads/main %s refs/heads/main %s\n" % (head, base))
+    assert gate._scan_pushed(repo, updates, matcher) == []
+    push_git(repo, "config", "user.name", "someone else")                 # not the identity of this repository
+    assert [f.cls for f in gate._scan_pushed(repo, updates, matcher)] == ["name"]
+    push_git(repo, "config", "user.name", owner[0])
+    monkeypatch.setattr(config, "is_work_user", lambda: True)               # the work user never gets the exception
+    assert [f.cls for f in gate._scan_pushed(repo, updates, matcher)] == ["name"]
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    named = commit("notes of %s" % owner[0])                                 # his name in a message is found
+    updates = gate.parse_push_lines("refs/heads/main %s refs/heads/main %s\n" % (named, head))
+    assert [(f.file, f.cls) for f in gate._scan_pushed(repo, updates, matcher)] == [("commit " + named[:10], "name")]

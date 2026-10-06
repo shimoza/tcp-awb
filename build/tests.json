@@ -545,8 +545,15 @@
    "name": "the harvest counts live work beyond the Workbench's own calls: a Terraform or OpenTofu apply, plan, destroy, import or refresh, the openstack client and curl, wget or http to a host under .otc.t-systems.com; init, fmt, validate and a host named only after a pipe do not count",
    "run": ".venv/bin/pytest tests/test_harvest.py",
    "status": "passing"
+  },
+  {
+   "id": "W11",
+   "phase": "W",
+   "name": "the push check lets the owner's own identity pass in the author and committer lines of a repository he owns (the name and mail of its local git config), never for the work user, never for another identity, never in a commit message",
+   "run": ".venv/bin/pytest tests/test_gate.py",
+   "status": "passing"
   }
  ],
- "total_tests": 2249,
+ "total_tests": 2250,
  "checked": "2026-10-06"
 }
