@@ -22,6 +22,8 @@ HEAD_LINES = 40
 """The two lines are looked for in the first lines of STATE.md only."""
 HISTORY = 500
 """The most commits read to count the ones newer than STATE.md."""
+GRACE = 60
+"""Seconds after STATE.md in which a commit still counts as the same step (the work and the status a moment apart)."""
 _LINE_RE = {"summary": re.compile(r"^Status:[ \t]*(\S.*?)\s*$", re.M),
             "next": re.compile(r"^Next:[ \t]*(\S.*?)\s*$", re.M)}
 
@@ -49,8 +51,9 @@ def _git(root: Path, *args: str) -> str | None:
 
 
 def behind(root: Path) -> int | None:
-    """Commits of the project newer than STATE.md: newer than the last commit that touched it and than its last
-    change on disk, so an update not yet committed counts. None when the history or the file cannot be read."""
+    """Commits of the project newer than STATE.md by more than GRACE: newer than the last commit that touched it and
+    than its last change on disk, so an update not yet committed counts. None when the history or the file cannot
+    be read."""
     root = Path(root)
     try:
         on_disk = int((root / STATE).stat().st_mtime)
@@ -61,7 +64,7 @@ def behind(root: Path) -> int | None:
     if touched is None or times is None:
         return None
     since = max(on_disk, int(touched.strip() or 0))
-    return sum(1 for t in times.split() if t.isdigit() and int(t) > since)
+    return sum(1 for t in times.split() if t.isdigit() and int(t) > since + GRACE)
 
 
 def reminder(root: Path) -> str | None:

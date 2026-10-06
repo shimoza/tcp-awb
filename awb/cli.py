@@ -14,7 +14,7 @@
     awb gate --install [--kb] [--force] [--repo PATH]
     awb spawn KIND --goal TEXT [--customer CODE] [--tag T]... [--from-outbox]
     awb close CODE [--force]
-    awb projects list|check
+    awb projects list|check|sync
 
 Commands that live in their own module (DELEGATED below; `awb NAME --help` shows the options of each):
 
@@ -386,6 +386,18 @@ def _cmd_projects_delete(args, p: config.Paths) -> int:
     return EXIT_FINDINGS if failed else EXIT_OK
 
 
+def _cmd_projects_sync(args, p: config.Paths) -> int:
+    from awb import rulesync
+
+    done = rulesync.sync(p, args.codes or None)
+    if not done:
+        print("no active project%s" % (" of these codes" if args.codes else ""))
+        return EXIT_FINDINGS if args.codes else EXIT_OK
+    for code, files in done:
+        print("%s: %s" % (code, ("brought up to date: " + ", ".join(files)) if files else "already current"))
+    return EXIT_OK
+
+
 def _cmd_projects_check(args, p: config.Paths) -> int:
     from awb import projects
 
@@ -471,6 +483,10 @@ def _build() -> argparse.ArgumentParser:
     s.set_defaults(func=_cmd_projects_delete)
     s = psub.add_parser("check", help="find tcp- folders that no project registered")
     s.set_defaults(func=_cmd_projects_check)
+    s = psub.add_parser("sync", help="bring the template lines of CLAUDE.md and STATE.md of every active project "
+                                     "up to the current rules, every other line kept")
+    s.add_argument("codes", nargs="*", metavar="CODE")
+    s.set_defaults(func=_cmd_projects_sync)
     return ap
 
 

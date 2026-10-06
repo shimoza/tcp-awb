@@ -2,7 +2,9 @@
 
 Each hook reads the hook JSON of the client from standard input and answers the way the client expects:
 
-    prompt          UserPromptSubmit   exit 2 when the prompt carries a registered name, structured data or a
+    prompt          UserPromptSubmit   once per change: the notice that the rules the session loaded changed
+                                       (awb/rulesync.py), as additional context of a clean prompt.
+                                       Exit 2 when the prompt carries a registered name, structured data or a
                                        secret of the gate's classes (the client drops the prompt and shows the
                                        message to him); exit 0 with a warning in `additionalContext` when the
                                        name check cannot run, so that a locked vault never blocks typing. The
@@ -449,6 +451,18 @@ def _beat(data: dict) -> None:
         pass
 
 
+def _rules_notice(data: dict) -> None:
+    """Tell a running session once that the rules it loaded at its start changed (awb/rulesync.py)."""
+    try:
+        from awb import rulesync
+
+        said = rulesync.notice(config.paths(), data.get("session_id"), project_root(_session_folder(data)))
+    except Exception:
+        return
+    if said:
+        _emit(EVENTS["prompt"], said)
+
+
 def hook_prompt(data: dict) -> int:
     _beat(data)
     text = data.get("prompt")
@@ -469,6 +483,7 @@ def hook_prompt(data: dict) -> int:
         return OK
     secrets = _secret_hits(text)
     if not hits and not secrets:
+        _rules_notice(data)
         return OK
     names = [h for h in hits if h.get("cls") == "name"]
     other = [h for h in hits if h.get("cls") != "name"]
@@ -921,6 +936,12 @@ def _project_notes(p: config.Paths, root: Path, sid, shown: str | None = None) -
 def hook_session_start(data: dict) -> int:
     p = config.paths()
     root = project_root(_session_folder(data))
+    try:
+        from awb import rulesync
+
+        rulesync.remember(p, data.get("session_id"), root)
+    except Exception:
+        pass
     notes: list[str] = []
     parts: list[str] = []
     if root is None:

@@ -11,8 +11,8 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   know yet, never repeat it: ask him to register it in his own shell and use the code he gives you.
 - When a document points to a customer in another way (a logo, a product, a description), say which kind and
   where, never what it says. Never invent a code: take it from SCOPE.md, from the outbox or from him.
-- Customer material enters only through `awb intake`, run by him on the owner side. You never see an original.
-  Sanitised copies wait in `~/tcp-shared/outbox/<CODE>/`; move them into the `input/` folder of the project.
+- Customer material enters only through `awb intake` on his side: you never see an original. "The inbox" means
+  the bucket inboxes of `awb inbox take`, never the vault. Copies of his own intake wait in the outbox: to `input/`.
 
 ## Where things are
 

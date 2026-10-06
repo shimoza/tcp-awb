@@ -559,8 +559,15 @@
    "name": "the board for management: every active project with its recorded status, the time and the lag, what it waits on, its first open items, its deliverables by review state and its live resources, codes only, a refused check withholds every item, a closed project is left out; awb board writes Markdown and printable HTML with every text escaped; the gateway sends /api/board to the projects service with a session only; the answer fits the contract",
    "run": ".venv/bin/pytest tests/test_board.py",
    "status": "passing"
+  },
+  {
+   "id": "W13",
+   "phase": "W",
+   "name": "rules that change reach every project and every running session: awb projects sync replaces the old template lines of CLAUDE.md and STATE.md and adds the new ones, keeps the project's own notes and the file itself, changes nothing the second time; a new project is current from the start; the session-start hook remembers what a session loaded and the prompt hook tells it once when that changed, or when the session is older than the check",
+   "run": ".venv/bin/pytest tests/test_rulesync.py",
+   "status": "passing"
   }
  ],
- "total_tests": 2256,
+ "total_tests": 2260,
  "checked": "2026-10-06"
 }
