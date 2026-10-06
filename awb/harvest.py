@@ -1,8 +1,9 @@
 """Harvest: what a session learned live on the platform goes into the knowledge base, without anyone asking.
 
-The stop hook calls `due()` with the session's transcript. When the session called the TCP API (`awb cloud call`,
-`awb cloud get`, `awb tenant snapshot`) since the last harvest check and ran no `awb kb add`, `amend` or `recheck`
-after those calls, the hook stops the session once with `MESSAGE`: the session adds its live findings itself and
+The stop hook calls `due()` with the session's transcript. When the session worked live on the platform since the
+last harvest check (`awb cloud call`, `awb cloud get`, `awb tenant snapshot`, a Terraform or OpenTofu apply, plan,
+destroy, import or refresh, the openstack command line, or curl, wget or http to a host under .otc.t-systems.com)
+and ran no `awb kb add`, `amend` or `recheck` after those calls, the hook stops the session once with `MESSAGE`: the session adds its live findings itself and
 then stops. The position up to which a transcript was checked is kept per session in
 `<shared>/sessions/harvest-<session id>.json`, so the same calls never ask twice and a session that has nothing new
 is asked once per batch of calls, never in a loop.
@@ -19,13 +20,19 @@ from pathlib import Path
 
 from awb import config
 
-LIVE_RE = re.compile(r"\bawb\s+(?:cloud\s+(?:call|get|projects|sweep)|tenant\s+snapshot)\b")
+LIVE_RE = re.compile(r"\bawb\s+(?:cloud\s+(?:call|get|projects|sweep)|tenant\s+snapshot)\b"
+                     r"|\b(?:terraform|tofu)\s+(?:-chdir=\S+\s+)?(?:apply|plan|destroy|import|refresh)\b"
+                     r"|\bopenstack\s+[a-z]"
+                     r"|\b(?:curl|wget|http)\b[^\n|;&]*\.otc\.t-systems\.com")
+"""Live work on the platform: the Workbench's own calls, Terraform runs, the openstack client and plain HTTP to
+the API hosts of TCP. A Terraform init, fmt or validate touches no cloud and does not count."""
 KB_RE = re.compile(r"\bawb\s+kb\s+(?:add|amend|recheck)\b")
 _SID_RE = re.compile(r"[^A-Za-z0-9_-]")
 MAX_TRANSCRIPT = 64 * 1024 * 1024
 
 MESSAGE = (
-    "Harvest before you stop: this session called the TCP API (%d time(s) since the last check) and added nothing "
+    "Harvest before you stop: this session worked live on TCP, through its API or Terraform (%d time(s) since the "
+    "last check), and added nothing "
     "to the knowledge base after its last call. Add every live finding yourself, without asking him: a call that behaves unlike the "
     "documentation, a limit, an error and what fixed it, a property a resource needs, an order of steps that "
     "matters. Use awb kb add --grade live --class api (availability for what can change within weeks) --source "

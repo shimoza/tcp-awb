@@ -88,3 +88,25 @@ def test_outside_a_project_the_stop_hook_never_asks(home, tmp_path, monkeypatch,
     t = transcript(tmp_path / "t.jsonl", tool("awb cloud call GET vpc /v1/x --tenant test-1"))
     code, err = run_stop({"cwd": str(tmp_path), "transcript_path": str(t), "session_id": "s8"}, monkeypatch, capsys)
     assert code == hooks.OK and "Harvest" not in err
+
+
+@pytest.mark.parametrize("cmd,live", [
+    ("terraform apply -auto-approve", True),
+    ("terraform -chdir=terraform/https-vm plan -out tf.plan", True),
+    ("tofu destroy", True),
+    ("terraform import opentelekomcloud_vpc_v1.this 1234", True),
+    ("openstack server list", True),
+    ("curl -s https://ecs.eu-de.otc.t-systems.com/v1/x", True),
+    ("terraform init -upgrade", False),
+    ("terraform fmt -recursive", False),
+    ("terraform validate", False),
+    ("curl -s https://example.org/x | grep otc.t-systems.com", False),
+])
+def test_terraform_and_plain_api_calls_count_as_live_work(home, tmp_path, cmd, live):
+    """2026-10-06: a Terraform demo built a load balancer, a NAT gateway and a DNS record and the harvest never
+    asked, because only the Workbench's own calls counted."""
+    t = transcript(tmp_path / "t.jsonl", tool(cmd), say("done"))
+    msg = harvest.due(home, t, "tf-%d" % abs(hash(cmd)))
+    assert (msg is not None) is live, cmd
+    if live:
+        assert "1 time(s)" in msg and "awb kb add --grade live" in msg

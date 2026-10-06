@@ -538,8 +538,15 @@
    "name": "the recorded status of a project: STATE.md opens with Status: and Next:, the commits newer than STATE.md are counted (an update on disk counts), the stop hook holds a reply while they exist or the two lines are missing (only in a project with git history), the projects API serves summary, next, updated and behind on every project, the chat says when the status lags, the work rules ask for the update after every step",
    "run": ".venv/bin/pytest tests/test_status.py tests/test_work_rules.py tests/test_hooks.py",
    "status": "passing"
+  },
+  {
+   "id": "W10",
+   "phase": "W",
+   "name": "the harvest counts live work beyond the Workbench's own calls: a Terraform or OpenTofu apply, plan, destroy, import or refresh, the openstack client and curl, wget or http to a host under .otc.t-systems.com; init, fmt, validate and a host named only after a pipe do not count",
+   "run": ".venv/bin/pytest tests/test_harvest.py",
+   "status": "passing"
   }
  ],
- "total_tests": 2239,
+ "total_tests": 2249,
  "checked": "2026-10-06"
 }
