@@ -75,6 +75,19 @@ Seal, once, with sudo: `seal/setup.sh --dry-run` (read the plan), `sudo seal/set
 The tree must be clean (commit first). The deploy runs the installed copy of its own code, so a change of
 `awb/deploy.py` is live from the following deploy. `seal/setup.sh` (full) stays for the first seal of a host.
 
+## The console page (owner side, your own shell)
+
+| Command | What it does |
+|---|---|
+| `sudo awb web publish --from-queue ID` | publish the page of a UI queue run: the applied source of a completed run or the candidate of a `--candidate-only` run in state ready, only with a validation that starts with PASS. Checks names, secrets, tokens, private keys, one `<title>` and no external script, keeps the current page as `index.html.before-ID`, installs the new one 644 root:root, prints the size and the backup |
+| `sudo awb web publish FILE` | the same for a file; the backup is `index.html.before-<date-time>` |
+| `awb web publish --dry-run --from-queue ID` | the checks only, without sudo; nothing is installed |
+| `sudo awb web publish --rollback [NAME]` | put a backup back (the newest without NAME); the replaced page is kept as a backup too |
+| `awb web status` | the size and time of the page, the last backup, the gateway and `/health` |
+
+A refusal names the class of the finding (name, secret, token, private-key, html) and never the text. Under sudo the
+page is read and checked as you; root only keeps the backup and installs.
+
 ## Offered services of T Cloud Public (TCP)
 
 Offered is what the latest service description lists, nothing else. The docs, an API that answers, a price record

@@ -1224,8 +1224,113 @@
    "name": "the sweep marks a resource listed in RESOURCES.md as known",
    "run": ".venv/bin/pytest tests/test_sweep.py::test_the_sweep_marks_a_resource_listed_in_resources_as_known",
    "status": "passing"
+  },
+  {
+   "id": "T6-1",
+   "phase": "T6",
+   "name": "a completed run with PASS is installed with a backup named by its id",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_a_completed_run_with_pass_is_installed_with_a_backup_named_by_its_id",
+   "status": "passing"
+  },
+  {
+   "id": "T6-2",
+   "phase": "T6",
+   "name": "a candidate-only run in state ready installs its candidate",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_a_candidate_only_run_in_state_ready_installs_its_candidate",
+   "status": "passing"
+  },
+  {
+   "id": "T6-3",
+   "phase": "T6",
+   "name": "a run whose validation is not PASS is refused",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_a_run_whose_validation_is_not_pass_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "T6-4",
+   "phase": "T6",
+   "name": "a run that is not completed is refused",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_a_run_that_is_not_completed_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "T6-5",
+   "phase": "T6",
+   "name": "a planted secret, token or private key is refused with its class only",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_a_planted_secret_is_refused_with_its_class_only",
+   "status": "passing"
+  },
+  {
+   "id": "T6-6",
+   "phase": "T6",
+   "name": "a planted registered form is refused with the class only",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_a_planted_registered_form_is_refused_with_the_class_only",
+   "status": "passing"
+  },
+  {
+   "id": "T6-7",
+   "phase": "T6",
+   "name": "an external script or a second title is refused",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_an_external_script_or_a_second_title_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "T6-8",
+   "phase": "T6",
+   "name": "a file is installed with a dated backup",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_a_file_is_installed_with_a_dated_backup",
+   "status": "passing"
+  },
+  {
+   "id": "T6-9",
+   "phase": "T6",
+   "name": "--dry-run installs nothing",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_dry_run_installs_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "T6-10",
+   "phase": "T6",
+   "name": "--rollback restores the last backup",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_rollback_restores_the_last_backup",
+   "status": "passing"
+  },
+  {
+   "id": "T6-11",
+   "phase": "T6",
+   "name": "refused for the work user",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_refused_for_the_work_user",
+   "status": "passing"
+  },
+  {
+   "id": "T6-12",
+   "phase": "T6",
+   "name": "the real web folder needs sudo",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_the_real_web_folder_needs_sudo",
+   "status": "passing"
+  },
+  {
+   "id": "T6-13",
+   "phase": "T6",
+   "name": "under sudo the page is read and checked as the owner",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_under_sudo_the_page_is_read_and_checked_as_the_owner",
+   "status": "passing"
+  },
+  {
+   "id": "T6-14",
+   "phase": "T6",
+   "name": "under sudo a refusal of the owner check installs nothing",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_under_sudo_a_refusal_of_the_owner_check_installs_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "T6-15",
+   "phase": "T6",
+   "name": "status names the page and the last backup",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_status_names_the_page_and_the_last_backup",
+   "status": "passing"
   }
  ],
- "total_tests": 2378,
+ "total_tests": 2396,
  "checked": "2026-10-07"
 }

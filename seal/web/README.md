@@ -43,7 +43,10 @@ belong to `awb-web`, so only the gateway reaches them.
 5. Check: every unit is active, the console signs in, the projects, the tenants and the create form (Query, Project)
    load.
 
-To go back: `sudo seal/web/install.sh --rollback`, and the page backup copied over `/srv/awb-web/index.html`.
+To go back: `sudo seal/web/install.sh --rollback`, and `sudo awb web publish --rollback index.html.before-switch`.
+
+A new page of the console goes live with `sudo awb web publish --from-queue ID` (or `FILE`): checked, the old page
+kept as `index.html.before-ID`. `awb web status` shows the page, the last backup and the gateway.
 
 After the switch `--domain` may be left out: the script reads the host name from the installed `awb-web.service`.
 `sudo awb deploy` runs `releases/<commit>/seal/web/install.sh --only UNIT...` from the release it extracted, once an

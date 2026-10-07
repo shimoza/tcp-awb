@@ -102,6 +102,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/migrate.py": "awb migrate, run in a working session",
     "awb/tcp/refresh.py": "awb refresh, run by the owner or a timer of his",
     "awb/tcp/web/contract.py": "awb api write|check, writes and checks docs/api/openapi.yaml",
+    "awb/tcp/web/publish.py": "awb web publish|status, run by the owner with sudo",
 }
 
 # Files outside the package, first match wins. A value is a tuple of effects: "all" (every unit), "rules" (the

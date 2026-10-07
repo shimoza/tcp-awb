@@ -193,6 +193,7 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 | the week | `awb ledger add ...`, `awb report --by customer` | one line per piece of work, reports by customer, technology or project |
 | the status | `awb board show`, `awb board write` | the status of every active project on one page |
 | bring a commit live | `sudo awb deploy` | the new release, only the changed services restarted, the status at the end |
+| publish the console page | `sudo awb web publish --from-queue ID` | the checked page of a UI run live, the old one kept as a backup |
 
 ## A typical day
 
