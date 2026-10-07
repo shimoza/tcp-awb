@@ -661,6 +661,11 @@ step_client() {
     for d in skills/drafting skills; do
         try_run chattr +i "$work_home/.claude/$d"
     done
+    info "the git identity of the work user (.gitconfig in its home), root owned and immutable, so a plain git"
+    info "commit in a project works and names the Workbench"
+    clear_target "$work_home/.gitconfig" f
+    run install -o root -g "$WORK_GROUP" -m 644 "$seal_dir/work-gitconfig" "$work_home/.gitconfig"
+    try_run chattr +i "$work_home/.gitconfig"
 }
 
 step_managed() {

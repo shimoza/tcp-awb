@@ -24,7 +24,9 @@ Classes of findings:
                  per line): names of other workspaces on the host, a naming scheme that must not spread. The list
                  lives outside the repository, so what it holds stays the owner's
     identifier   a 32 hex id (also after 0x), a UUID (also glued to a resource name with a dash) or a 5 or 6
-                 digit number right after 'tenant', 'domain', 'project', 'account' or 'Mandant'
+                 digit number right after 'tenant', 'domain', 'project', 'account' or 'Mandant'. One file kind is
+                 allowed the first two: RESOURCES.md of a project (a folder with SCOPE.md), in a table row whose
+                 first cell is a handle (`ecs-3`); a project repository has no remote and the cleanup needs the id
     opaque       a file that is not text (a NUL byte in the first 8 KB, the magic of a PDF, a ZIP or a gzip
                  file, the suffix of a document, an archive, an image or a key store) or cannot be read; never
                  silently clean
@@ -559,10 +561,28 @@ def _uuid_bounded(text: str, m: re.Match) -> bool:
     return True
 
 
-def _detect_identifier(text: str) -> list[int]:
-    out = [m.start() for m in _HEX32_RE.finditer(text) if len(set(m.group(1).lower())) > 1]
+RESOURCES_FILE = "RESOURCES.md"
+_HANDLE_ROW_RE = re.compile(r"(?m)^[ \t]*\|[ \t]*[a-z]{2,5}-[1-9][0-9]{0,5}[ \t]*\|[^\n]*")
+"""A table row whose first cell is a handle (awb.tcp.sweep), as RESOURCES.md lists a resource."""
+
+
+def resources_file(path: Path | str | None) -> bool:
+    """True for RESOURCES.md in a project folder (one with SCOPE.md): its handle rows may carry full ids."""
+    if path is None:
+        return False
+    path = Path(path)
+    return path.name == RESOURCES_FILE and (path.parent / "SCOPE.md").is_file()
+
+
+def _detect_identifier(text: str, path: Path | str | None = None) -> list[int]:
+    """Offsets of every id. In RESOURCES.md of a project a 32 hex id or a UUID on a handle row passes."""
+    rows = [(m.start(), m.end()) for m in _HANDLE_ROW_RE.finditer(text)] if resources_file(path) else []
+
+    def kept(off: int) -> bool:
+        return not any(a <= off < b for a, b in rows)
+    out = [m.start() for m in _HEX32_RE.finditer(text) if len(set(m.group(1).lower())) > 1 and kept(m.start())]
     out.extend(m.start() for m in _UUID_RE.finditer(text)
-               if len(set(m.group(0).replace("-", ""))) > 1 and _uuid_bounded(text, m))
+               if len(set(m.group(0).replace("-", ""))) > 1 and _uuid_bounded(text, m) and kept(m.start()))
     out.extend(m.start("n") for m in _TENANT_RE.finditer(text))
     return out
 
@@ -603,14 +623,17 @@ def _detect_names(text: str, matcher) -> list[int]:
     return [normalize.original_span(n, s.start, s.end)[0] for s in _name_spans(text, n, matcher)]
 
 
-def _detect_all(text: str, matcher) -> list[tuple[str, int]]:
+def _detect_all(text: str, matcher, path: Path | str | None = None) -> list[tuple[str, int]]:
     """(class, offset in `text`) of every hit: the name class over the normalised text, every pattern detector
-    over the text as given and, when it differs, over the normalised text with the offsets mapped back."""
+    over the text as given and, when it differs, over the normalised text with the offsets mapped back. `path`
+    is the file on disk the text comes from, for the allowance of the identifier class."""
     out: list[tuple[str, int]] = []
     if matcher is not None:
         out.extend(("name", off) for off in _detect_names(text, matcher))
     n = _normalized(text)
     for cls, detect in list(DETECTORS.items()):
+        if detect is _detect_identifier:
+            detect = (lambda t, _p=path: _detect_identifier(t, _p))
         out.extend((cls, off) for off in detect(text))
         if n.text != text:
             out.extend((cls, normalize.original_span(n, off, off + 1)[0]) for off in detect(n.text))
@@ -628,12 +651,12 @@ def _order(f: Finding) -> tuple:
     return (f.line, CLASSES.index(f.cls) if f.cls in CLASSES else len(CLASSES), f.cls)
 
 
-def _scan_text(label: str, text: str, matcher: Matcher | None) -> list[Finding]:
+def _scan_text(label: str, text: str, matcher: Matcher | None, path: Path | str | None = None) -> list[Finding]:
     """Findings of one decoded text, one per line and class. What a base64 or hex block of the text decodes to
-    is scanned as well; its findings are on the line of the block."""
+    is scanned as well (without the allowance of `path`); its findings are on the line of the block."""
     starts = _line_starts(text)
     hits: set[tuple[int, str]] = set()
-    for cls, off in _detect_all(text, matcher):
+    for cls, off in _detect_all(text, matcher, path):
         hits.add((bisect.bisect_right(starts, off), cls))
     blocks = extract_text.encoded_blocks(text)
     if blocks:
@@ -661,10 +684,10 @@ def _is_opaque(label: str, data: bytes) -> bool:
             or Path(label).suffix.lower() in _OPAQUE_SUFFIXES)
 
 
-def _scan_bytes(label: str, data: bytes, matcher: Matcher | None) -> list[Finding]:
+def _scan_bytes(label: str, data: bytes, matcher: Matcher | None, path: Path | str | None = None) -> list[Finding]:
     if _is_opaque(label, data):
         return [Finding(label, 0, "opaque")]
-    return _scan_text(label, _decode(data), matcher)
+    return _scan_text(label, _decode(data), matcher, path)
 
 
 RATE_WAIT = check.RATE_WAIT
@@ -697,7 +720,7 @@ def _scan_paths(files: Iterable[Path], matcher: Matcher | None) -> list[Finding]
             found.append(Finding(str(f), 0, "opaque"))
             out.extend(sorted(found, key=_order))
             continue
-        found.extend(_scan_bytes(str(f), data, matcher))
+        found.extend(_scan_bytes(str(f), data, matcher, f))
         out.extend(sorted(set(found), key=_order))
     return out
 
@@ -880,7 +903,7 @@ def _scan_staged(repo: Path, matcher: Matcher | None) -> list[Finding]:
         if data is None:
             found.add(Finding(rel, 0, "opaque"))
         else:
-            found.update(_scan_bytes(rel, data, matcher))
+            found.update(_scan_bytes(rel, data, matcher, top / rel))
         out.extend(sorted(found, key=_order))
     return out
 
@@ -971,6 +994,24 @@ def _selftest_in(root: Path) -> list[str]:
         got = scan_files([clean], reg)
         if got:
             failures.append("clean: expected nothing, found %s" % ", ".join(sorted({x.cls for x in got})))
+        if failures:
+            return failures
+        # the allowance of the identifier class: a full id on a handle row of a project's RESOURCES.md passes,
+        # the same id in another file of the project is found
+        project = root / "project"
+        project.mkdir()
+        (project / "SCOPE.md").write_text("# Scope\n", encoding="utf-8")
+        planted = "4f1c9a7e2b6d" + "40f8a3c5e9b1d7f2a6c0"
+        rows = "| handle | id |\n|---|---|\n| ecs-3 | %s |\n" % planted
+        (project / RESOURCES_FILE).write_text(rows, encoding="utf-8")
+        (project / "STATE.md").write_text("selftest case\nserver %s\n" % planted, encoding="utf-8")
+        got = scan_files([project / RESOURCES_FILE], reg)
+        if got:
+            failures.append("resources: expected nothing, found %s" % ", ".join(sorted({x.cls for x in got})))
+        got = scan_files([project / "STATE.md"], reg)
+        if [(x.cls, x.line) for x in got] != [("identifier", 2)]:
+            found = ", ".join("%s on line %d" % (x.cls, x.line) for x in got) or "nothing"
+            failures.append("state: expected one identifier finding on line 2, found %s" % found)
         if failures:
             return failures
         # the commit message path, proven with classes that passed above: comment lines and the part after the
@@ -1126,7 +1167,7 @@ def _scan_pushed(repo: Path, updates: list[tuple[str, str, str, str]], matcher: 
         if data is None:
             found.add(Finding(label, 0, "opaque"))
         else:
-            found.update(Finding(label, f.line, f.cls) for f in _scan_bytes(rel, data, matcher))
+            found.update(Finding(label, f.line, f.cls) for f in _scan_bytes(rel, data, matcher, top / rel))
         out.extend(sorted(found, key=_order))
     return out
 

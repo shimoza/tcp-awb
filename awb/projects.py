@@ -64,8 +64,9 @@ RULES_FILE = REPO / "seal" / "work-claude" / "CLAUDE.md"
 """The work rules a project imports. The same file the seal installs for the work user; never the developer
 instructions of the repository (`CLAUDE.md` at its top), which tell a session to build the Workbench."""
 
-_GIT_NAME = "awb"
-_GIT_EMAIL = "awb@workbench.invalid"
+_GIT_NAME = "Architect Workbench"
+_GIT_EMAIL = "awb@localhost"
+"""The git identity of a project (seal/work-gitconfig names the same for the work user)."""
 
 _DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _TAG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,47}")
@@ -416,7 +417,7 @@ def _open(code: str) -> str:
     ) % code
 
 
-RESOURCE_COLUMNS = ("id", "type", "region", "cost class", "expiry", "state", "note")
+RESOURCE_COLUMNS = ("handle", "id", "type", "region", "cost class", "expiry", "state", "note")
 RESOURCE_STATES = ("live", "deleted", "kept")
 
 
@@ -424,8 +425,9 @@ def _resources(code: str) -> str:
     return (
         "# Resources of %s\n\n"
         "Every cloud resource this project creates, one row each, so that `awb close` can check that nothing is "
-        "left running. Platform ids and codes only, never a name. state is live, deleted or kept (the reason in "
-        "note).\n\n"
+        "left running. The handle (`ecs-3`) first, then the platform id in full, so a cleanup can address the "
+        "resource exactly; codes only, never a name. `awb cloud sweep` reads this file and marks the resources "
+        "a project knows. state is live, deleted or kept (the reason in note).\n\n"
         "| %s |\n"
         "|%s\n"
     ) % (code, " | ".join(RESOURCE_COLUMNS), "---|" * len(RESOURCE_COLUMNS))
@@ -600,6 +602,8 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
                     raise ProjectError("two outbox files would land under one name in input/")
                 shutil.copy2(f, folder / "input" / f.name)
             _git(folder, "init", "-q")
+            _git(folder, "config", "user.name", _GIT_NAME)
+            _git(folder, "config", "user.email", _GIT_EMAIL)
             _git(folder, "add", "-A")
             _git(folder, "commit", "-q", "-m", "Spawn %s, a sealed %s project" % (code, kind))
             # every later commit of the project goes through the gate, its self-test first; a project without
@@ -646,8 +650,11 @@ def live_resources(folder: Path) -> int:
             continue
         if all(set(c) <= set("-: ") for c in cells):
             continue
-        row = dict(zip(head, cells))
-        if row.get("state", "") not in ("deleted", "kept"):
+        if len(cells) == len(head):
+            state = dict(zip(head, cells)).get("state", "")
+        else:                   # a row of another width (a table of before the handle column): its state word
+            state = next((c for c in cells if c in RESOURCE_STATES), "")
+        if state not in ("deleted", "kept"):
             live += 1
     return live
 

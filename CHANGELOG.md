@@ -22,6 +22,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   its commits are newer than that status, the console shows the status with its lag.
 - Sessions ask less. At most one question per reply, at its end, with the default the session takes. Every other
   open decision goes into `OPEN.md`. `awb report --by questions` counts the replies that ended with a question.
+- A plain `git commit` works in every project. RESOURCES.md lists each cloud resource with its handle and its full
+  platform id, so a cleanup can address it exactly, and `awb cloud sweep` marks the resources a project lists.
 
 ### Changed
 

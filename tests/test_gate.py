@@ -1400,3 +1400,68 @@ def test_the_owner_identity_of_his_own_repository_passes_in_the_commit_lines(tmp
     named = commit("notes of %s" % owner[0])                                 # his name in a message is found
     updates = gate.parse_push_lines("refs/heads/main %s refs/heads/main %s\n" % (named, head))
     assert [(f.file, f.cls) for f in gate._scan_pushed(repo, updates, matcher)] == [("commit " + named[:10], "name")]
+
+
+# --------------------------------------------------------------------------- T11: full ids in RESOURCES.md
+
+
+def resources_project(tmp_path: Path) -> Path:
+    folder = tmp_path / "tcp-q7m4"
+    folder.mkdir()
+    (folder / "SCOPE.md").write_text("# Scope\n", encoding="utf-8")
+    return folder
+
+
+ROWS = "| handle | id | type |\n|---|---|---|\n| ecs-3 | %s | ecs |\n| evs-12 | %s | evs |\n" % (HEX32, UUID)
+
+
+def test_a_full_id_on_a_handle_row_of_resources_passes_and_the_same_id_in_a_note_is_found(tmp_path, register_path):
+    folder = resources_project(tmp_path)
+    (folder / "RESOURCES.md").write_text(ROWS, encoding="utf-8")
+    (folder / "notes.md").write_text("intro\nthe server " + HEX32 + "\n", encoding="utf-8")
+    assert gate.scan_files([folder / "RESOURCES.md"], register_path) == []
+    assert [(f.line, f.cls) for f in gate.scan_files([folder / "notes.md"], register_path)] == [(2, "identifier")]
+
+
+def test_an_id_in_resources_without_a_handle_or_outside_a_project_is_found(tmp_path, register_path):
+    folder = resources_project(tmp_path)
+    (folder / "RESOURCES.md").write_text("| id | type |\n|---|---|\n| %s | ecs |\nloose %s\n" % (HEX32, UUID),
+                                         encoding="utf-8")
+    assert [(f.line, f.cls) for f in gate.scan_files([folder / "RESOURCES.md"], register_path)] == [
+        (3, "identifier"), (4, "identifier")]
+    other = tmp_path / "plain"
+    other.mkdir()
+    (other / "RESOURCES.md").write_text(ROWS, encoding="utf-8")
+    assert [(f.line, f.cls) for f in gate.scan_files([other / "RESOURCES.md"], register_path)] == [
+        (3, "identifier"), (4, "identifier")]
+
+
+def test_the_tenant_number_stays_found_on_a_handle_row(tmp_path, register_path):
+    folder = resources_project(tmp_path)
+    (folder / "RESOURCES.md").write_text("| handle | note |\n|---|---|\n| ecs-3 | tenant " + "104" + "91 |\n",
+                                         encoding="utf-8")
+    assert [(f.line, f.cls) for f in gate.scan_files([folder / "RESOURCES.md"], register_path)] == [(3, "identifier")]
+
+
+def test_resources_ids_pass_the_staged_and_the_push_check(tmp_path, register_path, capsys):
+    folder = new_repo(resources_project(tmp_path))
+    (folder / "RESOURCES.md").write_text(ROWS, encoding="utf-8")
+    assert git(folder, "add", "-A").returncode == 0
+    assert run_staged(folder, register_path, capsys) == (0, [])
+    assert git(folder, "commit", "-q", "--no-verify", "-m", "resources").returncode == 0
+    head = git(folder, "rev-parse", "HEAD").stdout.strip()
+    updates = gate.parse_push_lines("refs/heads/main %s refs/heads/main %s\n" % (head, zero()))
+    assert gate._scan_pushed(folder, updates, gate._load_matcher(register_path)) == []
+    (folder / "STATE.md").write_text("intro\nthe server " + HEX32 + "\n", encoding="utf-8")
+    assert git(folder, "add", "-A").returncode == 0
+    assert run_staged(folder, register_path, capsys) == (1, ["identifier  STATE.md:2"])
+
+
+def test_the_selftest_carries_the_resources_cases(monkeypatch):
+    assert gate.selftest() == []
+    monkeypatch.setattr(gate, "resources_file", lambda path: False)
+    assert any(f.startswith("resources:") for f in gate.selftest())
+    monkeypatch.undo()
+    monkeypatch.setattr(gate, "_HANDLE_ROW_RE", re.compile(r"(?s).+"))
+    monkeypatch.setattr(gate, "resources_file", lambda path: path is not None and Path(path).parent.name == "project")
+    assert [f.split(":")[0] for f in gate.selftest()] == ["state"]

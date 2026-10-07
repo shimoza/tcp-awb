@@ -304,7 +304,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise CloudError("the date reads like 2026-09-25") from None
             handles = _sweep.Handles(_sweep.handles_path(config.paths()))
             rep = _sweep.sweep(lambda service, path, key, paging: c.list(service, path, key, paging=paging),
-                               today, handles)
+                               today, handles, _sweep.known_ids(config.paths().projects_root))
             handles.save()
             for line in _sweep.report_lines(rep):
                 print(handles.mask(line))

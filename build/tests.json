@@ -1140,8 +1140,92 @@
    "name": "a restarted active socket unit, which has no NRestarts, passes the final check of the deploy",
    "run": ".venv/bin/pytest tests/test_deploy.py::test_a_restarted_active_socket_passes_the_final_check",
    "status": "passing"
+  },
+  {
+   "id": "T11-1",
+   "phase": "T11",
+   "name": "setup.sh dry run installs the work user's git identity, root owned and immutable",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_dry_run_installs_the_git_identity_of_the_work_user",
+   "status": "passing"
+  },
+  {
+   "id": "T11-2",
+   "phase": "T11",
+   "name": "verify.sh checks the work user's git identity and its flag",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_verify_checks_the_git_identity_of_the_work_user",
+   "status": "passing"
+  },
+  {
+   "id": "T11-3",
+   "phase": "T11",
+   "name": "the work gitconfig names the Workbench identity",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_work_gitconfig_names_the_workbench",
+   "status": "passing"
+  },
+  {
+   "id": "T11-4",
+   "phase": "T11",
+   "name": "a spawned project carries the identity and a plain commit works",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_a_spawned_project_carries_the_workbench_identity_and_a_plain_commit_works",
+   "status": "passing"
+  },
+  {
+   "id": "T11-5",
+   "phase": "T11",
+   "name": "the RESOURCES.md template puts the handle first and asks for the full id",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_the_resources_template_puts_the_handle_first_and_asks_for_the_full_id",
+   "status": "passing"
+  },
+  {
+   "id": "T11-6",
+   "phase": "T11",
+   "name": "live_resources reads handle rows and rows of the older width",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_live_resources_reads_handle_rows_and_rows_of_the_older_width",
+   "status": "passing"
+  },
+  {
+   "id": "T11-7",
+   "phase": "T11",
+   "name": "a full id on a handle row of RESOURCES.md passes, the same id in a note is found",
+   "run": ".venv/bin/pytest tests/test_gate.py::test_a_full_id_on_a_handle_row_of_resources_passes_and_the_same_id_in_a_note_is_found",
+   "status": "passing"
+  },
+  {
+   "id": "T11-8",
+   "phase": "T11",
+   "name": "an id in RESOURCES.md without a handle or outside a project is found",
+   "run": ".venv/bin/pytest tests/test_gate.py::test_an_id_in_resources_without_a_handle_or_outside_a_project_is_found",
+   "status": "passing"
+  },
+  {
+   "id": "T11-9",
+   "phase": "T11",
+   "name": "the tenant number stays found on a handle row",
+   "run": ".venv/bin/pytest tests/test_gate.py::test_the_tenant_number_stays_found_on_a_handle_row",
+   "status": "passing"
+  },
+  {
+   "id": "T11-10",
+   "phase": "T11",
+   "name": "RESOURCES.md ids pass the staged and the push check",
+   "run": ".venv/bin/pytest tests/test_gate.py::test_resources_ids_pass_the_staged_and_the_push_check",
+   "status": "passing"
+  },
+  {
+   "id": "T11-11",
+   "phase": "T11",
+   "name": "the gate self-test carries the two RESOURCES.md cases",
+   "run": ".venv/bin/pytest tests/test_gate.py::test_the_selftest_carries_the_resources_cases",
+   "status": "passing"
+  },
+  {
+   "id": "T11-12",
+   "phase": "T11",
+   "name": "the sweep marks a resource listed in RESOURCES.md as known",
+   "run": ".venv/bin/pytest tests/test_sweep.py::test_the_sweep_marks_a_resource_listed_in_resources_as_known",
+   "status": "passing"
   }
  ],
- "total_tests": 2366,
+ "total_tests": 2378,
  "checked": "2026-10-07"
 }

@@ -206,6 +206,9 @@ done
 for d in skills skills/drafting; do
     allowed "the skill folder $d of the work user is immutable" immutable "$work_home/.claude/$d"
 done
+allowed "the git identity of the work user is the one of the repository" \
+    cmp -s -- "$seal_dir/work-gitconfig" "$work_home/.gitconfig"
+allowed "the git identity of the work user is immutable" immutable "$work_home/.gitconfig"
 allowed "the managed client settings carry the Workbench hooks" \
     cmp -s -- "$seal_dir/work-claude/managed-settings.json" "$MANAGED_FILE"
 allowed "the host file names the work user, so the hooks leave other users alone" \

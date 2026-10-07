@@ -868,7 +868,7 @@ def test_setup_update_mode_skips_the_seal_steps(fakebin):
     assert [c for c in cmds if " mv -T " in c or c.startswith("+ mv -T")] == [
         "+ mv -T -- /opt/tcp-awb/src.next /opt/tcp-awb/releases/pre-deploy  # if /opt/tcp-awb/src.next is the plain "
         "folder of before T1, else rm -f"]
-    assert "pip" not in joined and "git" not in joined
+    assert "pip" not in joined and not re.search(r"(^|[ |;&])git ", joined, re.M)
     text = SETUP.read_text(encoding="utf-8")
     assert not re.search(r'rm -rf[^\n]*\$OPT/src["\s]', text)
     assert re.search(r"^update_steps\(\) \{\n(    #.*\n)?    if \[ \"\$units_only\" -eq 1 \]; then\n        step_units\n"
@@ -940,3 +940,29 @@ def test_step_client_removes_a_foreign_entry(tmp_path):
         assert "+i %s" % target in log.read_text().splitlines(), name
     assert "a foreign entry at %s" % (claude / "settings.json") in res.stdout
     assert "a foreign entry at %s" % (claude / "CLAUDE.md") in res.stdout
+
+
+# --------------------------------------------------------------------------- T11: the work user's git identity
+
+
+def test_setup_dry_run_installs_the_git_identity_of_the_work_user(fakebin):
+    for args in (["--dry-run"], ["--dry-run", "--update"]):
+        res = run_script(SETUP, args, fakebin)
+        assert res.returncode == 0, res.stderr
+        joined = "\n".join(commands(res.stdout))
+        assert re.search(r"^\+ install -o root -g awb -m 644 \S*/seal/work-gitconfig \S*/\.gitconfig$", joined, re.M), args
+        assert re.search(r"^\+ chattr \+i \S*/\.gitconfig", joined, re.M), args
+
+
+def test_verify_checks_the_git_identity_of_the_work_user(fakebin):
+    res = run_script(VERIFY, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    checks = [line[6:] for line in res.stdout.splitlines() if line.startswith("CHECK ")]
+    assert any("git identity of the work user is the one of the repository" in c for c in checks)
+    assert any("git identity of the work user is immutable" in c for c in checks)
+
+
+def test_the_work_gitconfig_names_the_workbench():
+    text = (SEAL / "work-gitconfig").read_text(encoding="utf-8")
+    from awb import projects
+    assert text == "[user]\n\tname = %s\n\temail = %s\n" % (projects._GIT_NAME, projects._GIT_EMAIL)

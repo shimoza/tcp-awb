@@ -724,3 +724,40 @@ def test_a_spawned_project_opens_open_md_with_the_decisions_section(home, regist
     text = (folder / "OPEN.md").read_text(encoding="utf-8")
     assert "## Decisions for the owner, with defaults" in text
     assert projects.open_items(folder) == 0              # the section alone is no open item: close still works
+
+
+# --- T11: the git identity of a project ---------------------------------------------------------------------
+
+def test_a_spawned_project_carries_the_workbench_identity_and_a_plain_commit_works(home, register_path, monkeypatch,
+                                                                                  tmp_path):
+    monkeypatch.setenv("PYTHONPATH", str(Path(awb.__file__).resolve().parent.parent))
+    pr = _spawn(home, register_path)
+    folder = Path(pr.path)
+    assert _git(folder, "config", "--local", "user.name").strip() == projects._GIT_NAME
+    assert _git(folder, "config", "--local", "user.email").strip() == "awb@localhost"
+    (folder / "evidence" / "notes.md").write_text("two app clusters, one per zone\n", encoding="utf-8")
+    _git(folder, "add", "-A")
+    env = dict(os.environ, HOME=str(tmp_path), GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    env.pop("GIT_AUTHOR_NAME", None)
+    env.pop("GIT_AUTHOR_EMAIL", None)
+    res = subprocess.run(["git", "-C", str(folder), "-c", "commit.gpgsign=false", "commit", "-q", "-m", "work"],
+                         capture_output=True, text=True, env=env)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert _git(folder, "log", "-1", "--format=%an <%ae>").strip() == "%s <awb@localhost>" % projects._GIT_NAME
+
+
+def test_the_resources_template_puts_the_handle_first_and_asks_for_the_full_id(home, register_path):
+    folder = Path(_spawn(home, register_path).path)
+    text = (folder / "RESOURCES.md").read_text(encoding="utf-8")
+    assert "| handle | id |" in text
+    assert "in full" in text and "awb cloud sweep" in text
+
+
+def test_live_resources_reads_handle_rows_and_rows_of_the_older_width(home, register_path):
+    folder = Path(_spawn(home, register_path).path)
+    with open(folder / "RESOURCES.md", "a", encoding="utf-8") as f:
+        f.write("| ecs-3 | srv-id-0003 | ecs | eu-de | small | 2026-12-31 | live | |\n"
+                "| evs-1 | vol-id-0001 | evs | eu-de | small | none | deleted | |\n"
+                "| eip-id-0001 | eip | eu-de | small | none | kept | the address of the demo |\n"
+                "| obs-id-0001 | obs | eu-de | small | none | live | |\n")
+    assert projects.live_resources(folder) == 2

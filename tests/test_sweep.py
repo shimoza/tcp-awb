@@ -72,3 +72,24 @@ def test_handles_are_stable_saved_private_and_mask_ids_and_names(tmp_path):
     assert again.resolve("ecs-2") == "srv-id-0002"
     with pytest.raises(sweep.SweepError):
         again.resolve("ecs-77")
+
+
+def test_the_sweep_marks_a_resource_listed_in_resources_as_known(tmp_path):
+    root = tmp_path / "projects"
+    folder = root / "tcp-abcd"
+    folder.mkdir(parents=True)
+    (folder / "SCOPE.md").write_text("# Scope\n", encoding="utf-8")
+    (folder / "RESOURCES.md").write_text(
+        "# Resources\n\n| handle | id | type | state |\n|---|---|---|---|\n| ecs-4 | srv-id-0004 | ecs | live |\n",
+        encoding="utf-8")
+    stray = root / "loose"                      # no SCOPE.md: not a project, its rows count for nothing
+    stray.mkdir()
+    (stray / "RESOURCES.md").write_text("| handle | id |\n|---|---|\n| eip-1 | eip-id-0001 |\n", encoding="utf-8")
+    known = sweep.known_ids(root)
+    assert known == {"srv-id-0004": "tcp-abcd"}
+    rep = sweep.sweep(listings(SERVERS, VOLUMES, EIPS), TODAY, sweep.Handles(tmp_path / "h.json"), known)
+    assert {i.handle: i.known for i in rep.items}["ecs-4"] == "tcp-abcd"
+    assert {i.handle: i.known for i in rep.items}["eip-1"] == ""
+    line = [x for x in sweep.report_lines(rep) if x.startswith("ecs-4")][0]
+    assert "tcp-abcd" in line
+    assert sweep.known_ids(tmp_path / "missing") == {}
