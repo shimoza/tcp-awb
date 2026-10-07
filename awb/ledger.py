@@ -4,6 +4,7 @@
                    [--deliverable P]... [--open TEXT]... [--date D]
     awb ledger list [--from D] [--to D]
     awb report --by customer|tech|kind|project [--from D] [--to D] [--format md|html]
+    awb report --by questions                     the monthly count of replies that end with a question
 
 One file per ISO week, `<shared>/ledger/YYYY-Www.jsonl` (the ISO year and week of the entry's date), one JSON
 object per line with the fields of `FIELDS`. A line is appended under an exclusive `fcntl` lock on the week file
@@ -733,13 +734,17 @@ def _main_report(argv: list[str]) -> int:
 
     prog = "awb report"
     ap = SafeParser(prog=prog, description="A report from the ledger, grouped by a key. Codes only.")
-    ap.add_argument("--by", required=True, choices=BY)
+    ap.add_argument("--by", required=True, choices=BY + ("questions",))
     _range_args(ap)
     ap.add_argument("--format", dest="fmt", choices=FORMATS, default="md")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
         return _exit_code(exc)
+    if args.by == "questions":               # the monthly counts of the stop hook (T13), counts only
+        from awb import questions
+        sys.stdout.write(questions.render(config.paths()))
+        return EXIT_OK
     try:
         text, withheld = report(args.by, args.start, args.end, args.fmt)
     except (LedgerError, OSError) as err:

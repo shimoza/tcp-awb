@@ -715,3 +715,12 @@ def test_spawn_takes_a_reserved_code_and_refuses_one_that_is_taken(home, registe
         with pytest.raises(projects.ProjectError, match="reserved project code"):
             projects.spawn(home, "query", "Compare the storage classes again", "none", register_path, code=code)
     assert len(projects.load(home)) == 1
+
+
+def test_a_spawned_project_opens_open_md_with_the_decisions_section(home, register_path):
+    """T13: a question that does not stop the work goes into OPEN.md with its default, not into the chat."""
+    pr = _spawn(home, register_path)
+    folder = Path(pr.path)
+    text = (folder / "OPEN.md").read_text(encoding="utf-8")
+    assert "## Decisions for the owner, with defaults" in text
+    assert projects.open_items(folder) == 0              # the section alone is no open item: close still works

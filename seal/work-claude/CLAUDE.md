@@ -23,13 +23,11 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 
 ## Facts
 
-- Check before you state. Prices come from the live price API through `awb price`, never from memory or the
-  knowledge base. A price sheet passes `awb price check` before it leaves the project.
+- Check before you state. Prices come from the live price API (`awb price`), never from memory; a price sheet passes
+  `awb price check` before it leaves. A negative needs a live check or a dated source; an expired entry is a lead.
 - Never compute in a reply: every total, sum, saving or product goes through `awb calc` (R-005).
-- Offered is what the latest service description lists, nothing else: run `awb service check NAME` before you name
-  a service as an option. The docs, an API that answers, a price record or memory never make a service offered. What
-  an offered service is made of comes from the docs (GitHub), the API, the knowledge base and experience.
-- Every negative needs a live check or a dated source. An expired knowledge entry is a lead.
+- Offered is only what the latest service description lists: `awb service check NAME` before you name an option.
+  What an offered service is made of comes from the docs (GitHub), the API, the knowledge base and experience.
 - A check that reports clean counts only after it has shown that it can fail.
 - Before a write outside the project or a change in the cloud, say where it lands: remote, folder or account.
 
@@ -37,8 +35,11 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 
 - He works with you as in a plain chat. The ledger entry, the commit and the harvest are your job after each piece
   of work, never his: what you learned live on TCP goes into `awb kb add --grade live` at once, one fact per entry.
-- A Workbench command that fails by itself is a tooling bug: one plain line to him, an item in OPEN.md, then his
-  task again. Ask him only what he alone can decide or do (a fact, a choice, a login, a sudo command).
+- A Workbench command that fails by itself is a tooling bug: one plain line to him, an item in OPEN.md, then his task.
+- Ask him only what he alone can decide or do: at most one question per reply, at its end, with your default ("I take
+  X unless you say otherwise"). A question that does not stop the work goes into OPEN.md with its default instead.
+- Never ask again after a "go", "давай" or "делай": a "go" covers the whole list it answers to.
+- A command for him only when he alone can run it: one line of context, one block, the user and the window named.
 - Files: he describes a file, he never names it. `awb inbox take HIS WORDS` takes the one they match (`--all`: all
   files); with none or several it lists both inboxes: pick by his words or ask him, then `--id ID`. Results go out
   with `awb xchg put FILE`: codes only, no ids in logs, a screenshot only with `--image` and why it is clean.
@@ -55,6 +56,5 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 - No word of `rules/banned-words.txt` or `rules/banned-phrases.txt`, no name of `rules/vendor-names.txt` in TCP
   prose. No promises about the future, no pointers to earlier mails, no certification without proof.
 - Every text that leaves under his name goes through the drafting skill: facts first, voice second.
-- English note: check his English messages for grammar and wording. Never for Russian or German text and never
-  for text he pasted from elsewhere. Ignore typos and dictation slips. When there is a real issue, add a short
-  "English note:" at the end of your reply with the correction. Otherwise leave it out.
+- English note: check his English messages for grammar and wording. Never for Russian or German text, pasted text,
+  typos or dictation slips. A real issue gets a short "English note:" with the correction at the end of the reply.

@@ -35,6 +35,11 @@ def test_the_work_rules_stay_within_their_line_budget():
     "Only `awb kb` writes there",           # facts enter the knowledge base through its checks
     "never what it says",                   # a leak is flagged by kind and place, never repeated
     "`awb service check NAME`",              # offered is what the latest service description lists, nothing else
+    "at most one question per reply",       # T13: one question, at the end of the reply
+    "unless you say otherwise",             # T13: with the default the session takes
+    "goes into OPEN.md with its default",   # T13: a question that does not stop the work is not asked in the chat
+    "a \"go\" covers the whole list",        # T13: never re-ask after a go
+    "the user and the window named",        # T13: a command for him names the user and the window
 ])
 def test_the_work_rules_carry_each_rule(must):
     assert must in text()

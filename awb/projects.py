@@ -409,7 +409,10 @@ def _open(code: str) -> str:
     return (
         "# Open items of %s\n\n"
         "One line per open question or task, with the code of whoever it waits on. Remove a line when it is "
-        "closed.\n"
+        "closed.\n\n"
+        "## Decisions for the owner, with defaults\n\n"
+        "A question that does not stop the work goes here with the default the session takes, never into the "
+        "chat.\n"
     ) % code
 
 

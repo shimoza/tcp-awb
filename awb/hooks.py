@@ -792,8 +792,9 @@ def hook_stop(data: dict) -> int:
     if data.get("stop_hook_active"):
         return OK
     root = project_root(_session_folder(data))
-    from awb import english
+    from awb import english, questions
     _quietly(english.capture, config.paths(), data.get("transcript_path"))
+    _quietly(questions.capture, config.paths(), data.get("transcript_path"), root)
     if root is None:
         return OK
     _quietly(draft_ledger, config.paths(), root)

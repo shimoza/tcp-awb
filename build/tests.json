@@ -1077,8 +1077,64 @@
    "name": "test_deploy_decides_reload_or_restart_before_systemctl: Planted: a daemon without ops reloaded, one with ops restarted, a changed unit or --restart reloaded, a failed reload with an unchanged MainPID followed by a restart instead of the flip back and exit 1.",
    "run": ".venv/bin/pytest tests/test_deploy.py::test_deploy_decides_reload_or_restart_before_systemctl",
    "status": "passing"
+  },
+  {
+   "id": "T13-1",
+   "phase": "T13",
+   "name": "the work rules keep their 60-line budget with the four T13 lines",
+   "run": ".venv/bin/pytest tests/test_work_rules.py::test_the_work_rules_stay_within_their_line_budget",
+   "status": "passing"
+  },
+  {
+   "id": "T13-2",
+   "phase": "T13",
+   "name": "the work rules carry one question with a default, OPEN.md for the rest, no re-ask after a go, a command with user and window",
+   "run": ".venv/bin/pytest tests/test_work_rules.py::test_the_work_rules_carry_each_rule",
+   "status": "passing"
+  },
+  {
+   "id": "T13-3",
+   "phase": "T13",
+   "name": "the rewritten work rules pass the writing check",
+   "run": ".venv/bin/pytest tests/test_work_rules.py::test_the_work_rules_pass_the_writing_check",
+   "status": "passing"
+  },
+  {
+   "id": "T13-4",
+   "phase": "T13",
+   "name": "a spawned project's OPEN.md carries the decisions section and counts no open item",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_a_spawned_project_opens_open_md_with_the_decisions_section",
+   "status": "passing"
+  },
+  {
+   "id": "T13-5",
+   "phase": "T13",
+   "name": "the counter counts a reply ending with ? and not one quoting a question in a code block",
+   "run": ".venv/bin/pytest tests/test_questions.py::test_the_counter_sees_a_question_at_the_end_and_not_one_inside_a_code_block",
+   "status": "passing"
+  },
+  {
+   "id": "T13-6",
+   "phase": "T13",
+   "name": "the stop hook writes counts per project and day into questions.tsv",
+   "run": ".venv/bin/pytest tests/test_questions.py::test_the_stop_hook_counts_replies_and_questions_per_project_and_day",
+   "status": "passing"
+  },
+  {
+   "id": "T13-7",
+   "phase": "T13",
+   "name": "awb report --by questions prints the monthly counts",
+   "run": ".venv/bin/pytest tests/test_questions.py::test_awb_report_by_questions_prints_the_monthly_counts",
+   "status": "passing"
+  },
+  {
+   "id": "T13-8",
+   "phase": "T13",
+   "name": "a planted name in a transcript or a folder never reaches the file or the report",
+   "run": ".venv/bin/pytest tests/test_questions.py::test_the_counter_writes_counts_only_never_a_name_or_a_path",
+   "status": "passing"
   }
  ],
- "total_tests": 2348,
+ "total_tests": 2365,
  "checked": "2026-10-07"
 }
