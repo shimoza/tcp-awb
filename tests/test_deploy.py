@@ -328,8 +328,11 @@ class FakeRunner:
         self.pid = 100
 
     def unit(self, u: str) -> dict:
-        return self.units.setdefault(u, {"LoadState": "loaded", "ActiveState": "active", "MainPID": "50",
-                                         "NRestarts": "0", "InactiveEnterTimestamp": ""})
+        info = {"LoadState": "loaded", "ActiveState": "active", "MainPID": "50", "NRestarts": "0",
+                "InactiveEnterTimestamp": ""}
+        if u.endswith(".socket"):           # systemctl show gives no NRestarts for a socket unit
+            del info["NRestarts"]
+        return self.units.setdefault(u, info)
 
     def __call__(self, cmd, **kw):
         cmd = [str(c) for c in cmd]
@@ -698,6 +701,17 @@ def test_a_full_run_writes_the_journal_extracts_and_restarts(world, capsys):
     assert [c for c, _ in setup] == [[str(rel / "seal" / "setup.sh"), "--update"]]
     log = (world.root / "deploy.log").read_text()
     assert "target=%s" % world.c1 in log and "result=ok" in log
+
+
+def test_a_restarted_active_socket_passes_the_final_check(world, capsys):
+    """2026-10-07: three active web sockets were marked failed because NRestarts, which a socket unit does not
+    have, was compared with a stored "0"."""
+    sockets = ["awb-customers.socket", "awb-materials.socket", "awb-project-create.socket"]
+    world.runner.plan = world.plan(actions={u: "restart" for u in sockets})
+    assert world.main([]) == 0, capsys.readouterr()
+    j = json.loads((world.root / "DEPLOYED").read_text())
+    assert [j["units"][u]["result"] for u in sockets] == ["restarted"] * 3 and j["pending"] == []
+    assert "after the restart" not in capsys.readouterr().out
 
 
 def test_an_interrupted_run_leaves_its_units_pending(world, tmp_path, capsys):

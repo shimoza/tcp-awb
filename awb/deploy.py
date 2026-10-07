@@ -1439,7 +1439,8 @@ class Run:
             now = self.host.clock()
             for u in left:
                 i = info.get(u, {})
-                self.nrestarts.setdefault(u, i.get("NRestarts", "0"))
+                if i.get("NRestarts"):          # a socket unit has no NRestarts: nothing to compare later
+                    self.nrestarts.setdefault(u, i["NRestarts"])
                 pid = i.get("MainPID", "0")
                 if i.get("ActiveState") != "active":
                     seen.pop(u, None)
@@ -1520,7 +1521,8 @@ class Run:
         for u in watch:
             i = info.get(u, {})
             before = getattr(self, "nrestarts", {}).get(u)
-            if i.get("ActiveState") != "active" or (before is not None and i.get("NRestarts") != before):
+            restarts = i.get("NRestarts")         # none for a socket unit: it has no such property
+            if i.get("ActiveState") != "active" or (before is not None and restarts not in (None, "", before)):
                 say("# %s is %s after the restart: journalctl -u %s" % (u, i.get("ActiveState") or "gone", u))
                 self.mark(u, "failed")
                 self.failed.append(u)

@@ -1133,8 +1133,15 @@
    "name": "a planted name in a transcript or a folder never reaches the file or the report",
    "run": ".venv/bin/pytest tests/test_questions.py::test_the_counter_writes_counts_only_never_a_name_or_a_path",
    "status": "passing"
+  },
+  {
+   "id": "D-1",
+   "phase": "D",
+   "name": "a restarted active socket unit, which has no NRestarts, passes the final check of the deploy",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_a_restarted_active_socket_passes_the_final_check",
+   "status": "passing"
   }
  ],
- "total_tests": 2365,
+ "total_tests": 2366,
  "checked": "2026-10-07"
 }
