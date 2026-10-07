@@ -310,6 +310,7 @@ def decrypt_bytes(data: bytes, passphrase: str, homedir: Path) -> bytes   # rais
 class VaultError(Exception): ...          # messages carry no value
 class VaultLocked(VaultError): ...
 class VaultUnavailable(VaultError): ...   # no daemon, socket missing, refused, timeout
+class VaultBusy(VaultError): ...          # "busy": a reload hands the daemon over, try again (T2)
 ```
 
 Daemon `awb vault serve` (run by systemd as the owner; in tests in a thread with short socket paths):
@@ -330,6 +331,21 @@ Daemon `awb vault serve` (run by systemd as the owner; in tests in a thread with
   register text), `register_save` (text; the daemon validates it with `register` rules, encrypts and writes it
   atomically, reloads its matcher), `seal_file` (path of a plaintext file inside the vault: writes `<path>.gpg`,
   overwrites and removes the plaintext), `open_file` (path of a `.gpg` in the vault: returns its content base64).
+  Since T2: `reload` (the hand-over below); `ping` on the admin socket and `status` also answer `ops` (the admin op
+  names) and `release` (the real path of the tree the package came from), `status` its `pid`.
+- The reload (T2, 2026-10-07): `admin_call("reload", timeout=RELOAD_CLIENT_TIMEOUT)` (75 s). The daemon decides within
+  `HANDOVER_DEADLINE` (45 s): it takes `vault_lock` (an intake in flight delays it), sets `handing_over`, copies its
+  state under its lock, starts `_takeover_command(fd)` (`python -I -m awb vault serve --takeover FD`) with the socket
+  pair and both listening sockets passed, writes one line (`state`, `passphrase` when unlocked, `since`, the two
+  descriptors and paths), waits for `{"ok","pid","release"}`, pauses its accept loops, writes `go`, waits for
+  `{"serving":true}`, sends `MAINPID=<child>` to `$NOTIFY_SOCKET`, closes the pair (the child then sends `READY=1`)
+  and answers `{"ok":true,"state","pid","release"}`; it leaves through `Daemon.leave()` (socket files kept, requests
+  in flight answered, passphrase forgotten). On any failure the child is killed and waited for, the daemon keeps
+  serving and answers `{"ok":false,"error":"failed","detail":"the new daemon did not come up (<word>)"}`. During a
+  hand-over `unlock`, `lock`, `register_save` and `seal_file` answer `busy`; `ping`, `status`, `check`,
+  `register_load` and `open_file` answer as always. `vault.hand_over(owner, command, fds, line, deadline, check)` is
+  the parent's side for both daemons; `sd_notify(msg)`, `no_dump()` (`PR_SET_DUMPABLE` 0 at every daemon start),
+  `release_path()`. `ping(sock, timeout=10.0)` and `check_remote(text, sock, timeout=None)` take a timeout.
 - `awb vault unlock` reads the passphrase with getpass (or from stdin with `--stdin`), sends it to the admin socket.
   `awb vault lock`, `awb vault status`. `awb vault encrypt` (one time): asks for a new passphrase twice, encrypts
   register.tsv, keep.tsv, every file under originals/ and reports/, removes the plaintext (overwrite then unlink),
@@ -844,7 +860,10 @@ phase), `next_phase(state)`, `done(project, name) -> list[str]` (the gate; empty
 `awb/tcp/keys.py`: `store_entries(root=None)`, `collect(entries, reader)`, `Service(admin_path, call_path,
 endpoint=None, paths_fn=config.paths, log_dir=None)` with `start()`, `stop()`, `serve_forever()`;
 `fill(body, secrets)`, `request(sock, obj)`, `unlock(sock=None, entries=None, reader=pass_reader)`, `main(argv)`.
-Admin socket ops: ping, status, load, lock. Call socket ops: ping, tenants, call. `awb/tcp/cloud.py` gained
+Admin socket ops: ping, status, load, lock, reload (T2: the vault daemon's hand-over; the line also carries `tenants`,
+`settings` and `digest`, a sha256 over their canonical JSON; the child answers its summary and the digest of what it
+holds, the parent compares both before `go`; the digest stays on the pair; `load` and `lock` answer `busy` during
+it). `ping` and `status` answer `ops` and `release`. Call socket ops: ping, tenants, call. `awb/tcp/cloud.py` gained
 `call` and `tenants`, which go through the service for every user. The unit is `seal/awb-keyd.service`.
 
 ## The deploy (2026-10-07, T1)

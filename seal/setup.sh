@@ -591,6 +591,8 @@ step_units() {
     info "the units of seal/*.service, rendered with the owner: the vault daemon and the key service run as the owner"
     info "with the group $WORK_GROUP, the Ask page as awb-ask (its key file stays the owner's step), the portal as"
     info "the work user. A running unit is left running: sudo awb deploy restarts what changed"
+    info "The vault locks on a stop, a crash or a reboot. awb vault reload (what awb deploy uses after a code update)"
+    info "hands the passphrase to the new process over a private socket pair and keeps it unlocked"
     for f in "$seal_dir"/*.service; do
         name=$(basename -- "$f")
         write_file "$UNITS_DIR/$name" 644 root:root < <(sed -e "s|@OWNER@|$owner|g" "$f")

@@ -3,6 +3,9 @@
 
 The service (`awb keys serve`, a systemd service of the owner like the vault daemon) holds the secrets in memory
 only. The owner loads them from his password store after every start (`awb keys unlock`); a restart forgets them.
+A reload (`awb keys reload`, what `awb deploy` runs after a code update) keeps them: the service starts
+`awb keys serve --takeover FD` itself and hands the tenants and settings to it as one line on an anonymous socket
+pair, with a sha256 over both that the new process must give back before it serves (awb/vault.py, hand_over).
 A working session never reads a key: it sends its call to the service, which checks it, fills in what it may,
 signs it, sends it to the TCP API and answers with every secret taken out.
 
@@ -14,7 +17,7 @@ The password store layout, one tenant per alias (the alias of `awb tenant add`):
 
 Two sockets, one JSON object per line and one answer per connection:
 
-    admin  <vault>/keys-admin.sock, mode 600, the owner only     ping, status, load, lock
+    admin  <vault>/keys-admin.sock, mode 600, the owner only     ping, status, load, lock, reload
     call   /run/awb-keys/cloud.sock, mode 660, group awb         ping, tenants, call
 
 A call names the tenant, the role (read or lab), the method, the service, the path (with {project_id} when
@@ -35,6 +38,7 @@ tenant's IAM rights allow; give it list rights only.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -75,6 +79,9 @@ _REF_RE = re.compile(r"^\{\{secret:([a-z0-9][a-z0-9_.-]{0,40})\}\}$")
 _SECRET_FIELD_RE = re.compile(r"(?i)^(?:admin_?pass(?:word)?|password|passwd|user_?password|root_?password"
                               r"|db_?password|login_?password)$")
 MASK = "<secret>"
+LEAVE_WAIT = 70.0
+"""Seconds a handed-over service waits for its calls in flight (a cloud call takes at most 60) before it exits."""
+ADMIN_OPS = ("load", "lock", "ping", "reload", "status")
 CONSOLE_USER = "awb-console"
 """The system user of the console's tenant inventory (F2, his decision of 2026-10-04): it alone reads a test tenant
 without a project, with the read key only. Sessions run as the work user and keep the query/project rule."""
@@ -145,6 +152,17 @@ def collect(entries: list[str], reader=pass_reader) -> dict:
 # --------------------------------------------------------------------------- the service
 
 
+def _digest(tenants, settings) -> str:
+    """sha256 over the canonical JSON of what a service holds: the hand-over compares it, so a successor that got
+    masked, empty or summary-shaped values is refused before it serves. It travels on the socket pair only."""
+    return hashlib.sha256(json.dumps([tenants, settings], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _takeover_command(fd: int) -> list[str]:
+    """The new key service of a reload, like vault._takeover_command; the tests replace it with a stand-in."""
+    return [sys.executable, "-I", "-m", "awb", "keys", "serve", "--takeover", str(fd)]
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -190,40 +208,94 @@ class Service:
         self.tenants: dict = {}
         self.lock = threading.Lock()
         self.stopping = threading.Event()
-        self._servers: list[socket.socket] = []
+        self._servers: list[tuple[socket.socket, Path, tuple[int, int]]] = []
         self._threads: list[threading.Thread] = []
         self._open = 0
         self._rate: dict[int, deque] = {}
+        self.handing_over = threading.Event()
+        self.handed_over = threading.Event()
+        self._paused = threading.Event()
+        self._idle = {True: threading.Event(), False: threading.Event()}
+        self._reload_lock = threading.Lock()
+        self.accepts = {"admin": 0, "call": 0}
 
     # sockets
-    def start(self) -> None:
+    def start(self, inherited: dict | None = None, accept: bool = True) -> None:
+        """Bind both sockets and serve. `inherited` ({True: admin, False: call} listening sockets of the service
+        before) skips the bind; `accept=False` waits for accept_now() (the go of a hand-over)."""
         from awb import vault
 
+        if self._servers:
+            return
         for path, mode, folder, admin in ((self.admin_path, 0o600, 0o700, True), (self.call_path, 0o660, None, False)):
-            srv, _ = vault._bind(path, mode, folder)
-            self._servers.append(srv)
-            t = threading.Thread(target=self._accept, args=(srv, admin), daemon=True, name="awb-keys")
-            t.start()
-            self._threads.append(t)
+            if inherited is None:
+                srv, ident = vault._bind(path, mode, folder)
+            else:
+                srv = inherited[admin]
+                ident = vault._adopt(srv, path)
+            self._servers.append((srv, path, ident))
+            self._threads.append(threading.Thread(target=self._accept, args=(srv, admin), daemon=True,
+                                                  name="awb-keys"))
+        if accept:
+            self.accept_now()
 
-    def stop(self) -> None:
-        self.stopping.set()
-        for srv in self._servers:
-            srv.close()
+    def accept_now(self) -> None:
         for t in self._threads:
-            t.join(timeout=2)
-        for path in (self.admin_path, self.call_path):
+            if t.ident is None:
+                t.start()
+
+    def _close_servers(self, unlink: bool) -> None:
+        """Close the listening sockets; remove a socket file only while it is still the one this service bound or
+        took over (its identity), never after a hand-over."""
+        unlink = unlink and not self.handed_over.is_set()
+        for srv, path, ident in self._servers:
+            srv.close()
+            if not unlink:
+                continue
             try:
-                path.unlink()
+                st = os.lstat(path)
+                if (st.st_dev, st.st_ino) == ident:
+                    path.unlink()
             except OSError:
                 pass
+
+    def stop(self) -> None:
+        if self.handed_over.is_set():
+            self.leave()
+            return
+        self.stopping.set()
+        self._close_servers(unlink=True)
+        for t in self._threads:
+            if t.ident is not None:
+                t.join(timeout=2)
         with self.lock:
             self.tenants = {}
+
+    def leave(self) -> None:
+        """The hand-over exit: the successor serves on the same socket files, so they stay; the calls in flight
+        finish (bounded by LEAVE_WAIT); the keys are forgotten."""
+        self.handed_over.set()
+        self.stopping.set()
+        self._close_servers(unlink=False)
+        for t in self._threads:
+            if t.ident is not None:
+                t.join(timeout=2)
+        end = time.monotonic() + LEAVE_WAIT
+        while time.monotonic() < end:
+            with self.lock:
+                if self._open <= 0:
+                    break
+            time.sleep(0.05)
+        with self.lock:
+            self.tenants = {}
+            self.settings = {}
 
     def serve_forever(self) -> None:
         import signal
 
-        signal.signal(signal.SIGTERM, lambda *_: self.stopping.set())
+        if threading.current_thread() is threading.main_thread():
+            # the finally reads handed_over: after a hand-over a signal leaves the successor's files alone
+            signal.signal(signal.SIGTERM, lambda *_: self.stopping.set())
         self.start()
         try:
             while not self.stopping.is_set():
@@ -231,12 +303,31 @@ class Service:
         except KeyboardInterrupt:
             pass
         finally:
-            self.stop()
+            if self.handed_over.is_set():
+                self.leave()
+            else:
+                self.stop()
+
+    def _pause(self, wait: float = 2.0) -> bool:
+        for e in self._idle.values():
+            e.clear()
+        self._paused.set()
+        end = time.monotonic() + wait
+        return all(e.wait(max(0.0, end - time.monotonic())) for e in self._idle.values())
+
+    def _resume(self) -> None:
+        self._paused.clear()
 
     def _accept(self, srv: socket.socket, admin: bool) -> None:
         from awb import vault
 
+        key = "admin" if admin else "call"
         while not self.stopping.is_set():
+            if self._paused.is_set():
+                self._idle[admin].set()
+                time.sleep(0.02)
+                continue
+            self.accepts[key] += 1
             try:
                 conn, _ = srv.accept()
             except (TimeoutError, socket.timeout):
@@ -404,13 +495,18 @@ class Service:
     def _admin(self, req: dict, uid: int) -> dict:
         if uid != os.getuid():
             return {"ok": False, "error": "refused"}
+        from awb import vault
+
         op = req.get("op")
         if op == "ping":
-            return {"ok": True}
+            return {"ok": True, "ops": list(ADMIN_OPS), "release": vault.release_path()}
         if op == "status":
-            return {"ok": True, "tenants": self._summary()}
+            return {"ok": True, "tenants": self._summary(), "ops": list(ADMIN_OPS), "release": vault.release_path(),
+                    "pid": os.getpid()}
         if op == "lock":
             with self.lock:
+                if self.handing_over.is_set():
+                    return {"ok": False, "error": "busy"}
                 self.tenants = {}
             return {"ok": True}
         if op == "load":
@@ -418,10 +514,52 @@ class Service:
             if not isinstance(data, dict):
                 return {"ok": False, "error": "load needs tenants"}
             with self.lock:
+                if self.handing_over.is_set():
+                    return {"ok": False, "error": "busy"}
                 self.tenants = data
                 self.settings = dict(req.get("settings") or {})
             return {"ok": True, "tenants": self._summary()}
+        if op == "reload":
+            return self._reload()
         return {"ok": False, "error": "unknown operation"}
+
+    def _reload(self) -> dict:
+        """Hand the service to a new process of the installed code (design 8.4): the same order as the vault
+        daemon's, plus the summary and the digest of the child compared before go."""
+        from awb import vault
+
+        deadline = time.monotonic() + vault.HANDOVER_DEADLINE
+        if not self._reload_lock.acquire(blocking=False):
+            return {"ok": False, "error": "busy"}
+        try:
+            self.handing_over.set()
+            with self.lock:
+                tenants, settings = self.tenants, self.settings
+            summary = self._summary()
+            digest = _digest(tenants, settings)
+            (admin, admin_path, _), (call, call_path, _) = self._servers
+            line = {"tenants": tenants, "settings": settings, "digest": digest, "admin_fd": admin.fileno(),
+                    "call_fd": call.fileno(), "admin_path": str(admin_path), "call_path": str(call_path)}
+
+            def check(reply: dict) -> str | None:
+                if reply.get("tenants") != summary:
+                    return "another summary"
+                if reply.get("digest") != digest:
+                    return "other values"
+                return None
+
+            reply, word = vault.hand_over(self, _takeover_command, (admin.fileno(), call.fileno()), line, deadline,
+                                          check)
+            line = tenants = settings = None
+            if reply is None:
+                return {"ok": False, "error": "failed", "detail": "the new key service did not come up (%s)" % word}
+            self.handed_over.set()
+            self.stopping.set()
+            return {"ok": True, "pid": reply["pid"], "release": reply["release"], "tenants": summary}
+        finally:
+            if not self.handed_over.is_set():
+                self.handing_over.clear()
+            self._reload_lock.release()
 
     def _summary(self) -> dict:
         with self.lock:
@@ -602,6 +740,67 @@ class Service:
             pass
 
 
+def _hold(svc: Service, line: dict) -> None:
+    """Put what the line carries into the new service (a stand-in child of the tests replaces it)."""
+    with svc.lock:
+        svc.tenants = line["tenants"]
+        svc.settings = dict(line["settings"])
+
+
+def _take_over(fd: int, endpoint: str | None) -> Service | None:
+    """The child's side of a reload (design 8.4): takes the two listening sockets and what the service before
+    held, answers the summary and the digest over what it holds, starts accepting on go. None on a failure."""
+    from awb import vault
+
+    deadline = time.monotonic() + vault.HANDOVER_DEADLINE
+    try:
+        pair = vault._Pair(socket.socket(fileno=fd))
+    except (OSError, ValueError):
+        return None
+    line = pair.read(deadline)
+    svc: Service | None = None
+    servers: dict = {}
+    done = False
+    try:
+        if not line or not isinstance(line.get("tenants"), dict) or not isinstance(line.get("settings"), dict):
+            pair.send({"ok": False, "error": "failed"})
+            return None
+        try:
+            servers = {True: vault._inherited(line.get("admin_fd")), False: vault._inherited(line.get("call_fd"))}
+            svc = Service(Path(line["admin_path"]), Path(line["call_path"]), endpoint=endpoint)
+        except (OSError, ValueError, TypeError, KeyError):
+            pair.send({"ok": False, "error": "failed"})
+            return None
+        svc.start(inherited=servers, accept=False)
+        _hold(svc, line)
+        with svc.lock:
+            digest = _digest(svc.tenants, svc.settings)
+        if not pair.send({"ok": True, "pid": os.getpid(), "release": vault.release_path(),
+                          "tenants": svc._summary(), "digest": digest}):
+            return None
+        digest = None
+        if pair.read(deadline) != {"go": True}:
+            return None
+        svc.accept_now()
+        if not pair.send({"serving": True}):
+            return None
+        done = True
+    finally:
+        line = None
+        if not done:
+            if svc is not None:
+                svc.stopping.set()
+                svc._close_servers(unlink=False)
+            else:
+                for srv in servers.values():
+                    srv.close()
+            pair.close()
+    pair.wait_end(deadline)
+    pair.close()
+    vault.sd_notify("READY=1")
+    return svc
+
+
 # --------------------------------------------------------------------------- clients
 
 
@@ -694,10 +893,14 @@ def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
     ap = SafeParser(prog="awb keys", description="The key service: keys and secrets of the test tenants.")
+    import argparse
+
     sub = ap.add_subparsers(dest="command")
-    sub.add_parser("serve", help="run the service (systemd, as the owner)")
+    s = sub.add_parser("serve", help="run the service (systemd, as the owner)")
+    s.add_argument("--takeover", type=int, default=None, metavar="FD", help=argparse.SUPPRESS)
     sub.add_parser("unlock", help="load the keys and secrets from the password store (owner)")
     sub.add_parser("lock", help="forget every key and secret (owner)")
+    sub.add_parser("reload", help="hand the service to a new process of the installed code, keys kept (owner)")
     sub.add_parser("status", help="the tenants, their roles and the names of their secrets")
     try:
         args = ap.parse_args(argv)
@@ -711,15 +914,40 @@ def main(argv: list[str] | None = None) -> int:
             if config.is_work_user():
                 print("awb keys: the service runs as the owner", file=sys.stderr)
                 return 2
-            Service(admin_socket(), call_socket(), endpoint=os.environ.get("AWB_CLOUD_ENDPOINT") or None
-                    ).serve_forever()
+            from awb import vault
+
+            vault.no_dump()
+            endpoint = os.environ.get("AWB_CLOUD_ENDPOINT") or None
+            if args.takeover is not None:
+                svc = _take_over(args.takeover, endpoint)
+                if svc is None:
+                    return 1
+            else:
+                svc = Service(admin_socket(), call_socket(), endpoint=endpoint)
+                svc.start()
+                vault.sd_notify("READY=1")
+            svc.serve_forever()
             return 0
-        if args.command in ("unlock", "lock") and config.is_work_user():
+        if args.command in ("unlock", "lock", "reload") and config.is_work_user():
             print("awb keys: %s is for the owner" % args.command, file=sys.stderr)
             return 2
         if args.command == "unlock":
             summary = unlock()
             _print_summary(summary)
+            return 0
+        if args.command == "reload":
+            from awb import vault
+
+            answer = request(admin_socket(), {"op": "reload"}, timeout=vault.RELOAD_CLIENT_TIMEOUT)
+            if not answer.get("ok"):
+                detail = answer.get("detail")
+                print("awb keys: %s%s" % (answer.get("error"), ": %s" % detail if isinstance(detail, str) else ""),
+                      file=sys.stderr)
+                return 2
+            release = answer.get("release")
+            print("keys %s, pid %s, release %s" % (", ".join(sorted(answer.get("tenants") or {})) or "locked",
+                                                    answer.get("pid"), os.path.basename(release)
+                                                    if isinstance(release, str) else "unknown"))
             return 0
         if args.command == "lock":
             answer = request(admin_socket(), {"op": "lock"}, timeout=10)

@@ -9,8 +9,10 @@ the outputs and carries codes, classes and counts. The private report goes to th
 
 When the vault is encrypted (register.tsv.gpg), the register is read through the vault daemon and every
 original and private report of the run is sealed right after it is written (`seal_file` of the daemon writes
-`<file>.gpg` and removes the plaintext). A file that cannot be sealed stays in plaintext inside the vault and is
-counted in `IntakeResult.unsealed`.
+`<file>.gpg` and removes the plaintext). A file that cannot be sealed because no vault daemon answers stays in
+plaintext inside the vault and is counted in `IntakeResult.unsealed`. When the daemon answers and refuses the seal
+(locked, busy with a reload, refused), the run is undone: its originals go back where they came from, its outputs,
+pictures and reports are removed and the run fails, so nothing of it stays in the vault in plaintext (D-T2h).
 
 The original file name is treated as text: it is scanned and never used for an output. Nothing in this
 module writes a matched value, a form or an original name into an exception, a log line or the public side.
@@ -654,6 +656,8 @@ def _vault_call(p: config.Paths, op: str, **fields) -> dict:
         raise IntakeError("keep list: the vault is locked, run awb vault unlock") from None
     except vault.VaultUnavailable:
         raise IntakeError("keep list: no vault daemon") from None
+    except vault.VaultBusy:
+        raise IntakeError("keep list: the vault daemon is reloading, try again") from None
     except vault.VaultError:
         raise IntakeError("keep list: the vault daemon refused the request") from None
 
@@ -1087,9 +1091,54 @@ def seal(p: config.Paths, path: Path) -> str | None:
         return "vault locked"
     except vault.VaultUnavailable:
         return "no vault daemon"
+    except vault.VaultBusy:
+        return BUSY_SEAL
     except vault.VaultError:
         return "refused by the vault daemon"
     return None
+
+
+BUSY_SEAL = "the vault daemon is reloading, try again"
+UNDO_SEALS = ("vault locked", BUSY_SEAL, "refused by the vault daemon")
+"""Seal failures that undo the run: the daemon answered and would not seal. Without a daemon the plaintext stays
+inside the vault and the run names it."""
+UNDONE = ("the vault daemon is busy or refused the seal, nothing of this run stays in the vault in plaintext, run "
+          "the intake again")
+
+
+def _undo(p: config.Paths, cust: str, moved: list[tuple[Path, Path, str]], outputs: list[Path],
+          extra: list[Path]) -> None:
+    """Take a run back after a refused or busy seal: every original of the run goes back to where it came from (a
+    sealed one through open_file; one that cannot be opened stays sealed, never in plaintext), the outputs, the
+    pictures and the reports of the run are removed."""
+    from awb import vault
+
+    for src, dst, fid in moved:
+        try:
+            if _is_file(dst):
+                shutil.move(str(dst), str(src))
+            elif _is_file(_sealed(dst)):
+                answer = vault.admin_call("open_file", p.admin_sock, path=str(_sealed(dst)))
+                fd = os.open(src, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(base64.b64decode(answer.get("data") or ""))
+                _sealed(dst).unlink()
+        except (OSError, ValueError, vault.VaultError):
+            pass
+        shutil.rmtree(_images.folder(p, cust, fid), ignore_errors=True)
+    for f in list(outputs) + list(extra):
+        for g in (f, _sealed(f)):
+            try:
+                g.unlink()
+            except OSError:
+                pass
+
+
+def _is_file(path: Path) -> bool:
+    try:
+        return path.is_file() and not path.is_symlink()
+    except OSError:
+        return False
 
 
 def _sealed(path: Path) -> Path:
@@ -1112,9 +1161,21 @@ def _write_private_report(p: config.Paths, path: Path, rec, encrypted: bool) -> 
     written = _report.write_private(_free_private_path(path) if encrypted else path, rec)
     if not encrypted:
         return written, 0
-    if seal(p, written) is not None:
+    why = seal(p, written)
+    if why in UNDO_SEALS:
+        written.unlink(missing_ok=True)
+        raise _Undo(written)
+    if why is not None:
         return written, 1
     return _sealed(written), 0
+
+
+class _Undo(Exception):
+    """A private report whose seal was refused or busy: it is removed and the run is taken back."""
+
+    def __init__(self, path: Path):
+        super().__init__("undo")
+        self.path = path
 
 
 def _move_original(src: Path, dst: Path) -> None:
@@ -1233,7 +1294,10 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, force: bool = Fal
     if unique and not force:
         rec.blocked = True
         rec.hits = list(engine.hits.values())
-        written, unsealed = _write_private_report(p, private_path, rec, encrypted)
+        try:
+            written, unsealed = _write_private_report(p, private_path, rec, encrypted)
+        except _Undo:
+            raise IntakeError(UNDONE) from None
         return IntakeResult(customer=cust, outputs=[], public_report=public_path, private_report=written,
                             blocked=True, candidates=len(unique), states=states, unsealed=unsealed)
 
@@ -1251,6 +1315,7 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, force: bool = Fal
 
     # step 8: move the originals of every file that passed the final check; seal them in an encrypted vault
     unsealed = 0
+    moved: list[tuple[Path, Path, str]] = []
     for src, fr in zip(files, rec.files):
         if fr.file_id in check_failed:
             fr.reasons.append("original left in the inbox because the final check failed")
@@ -1270,10 +1335,14 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, force: bool = Fal
         except OSError as err:
             fr.reasons.append("original not moved (%s)" % type(err).__name__)
             continue
+        moved.append((src, dst, fr.file_id))
         if encrypted:
             why = seal(p, dst)
             if why is None:
                 fr.original = _sealed(dst)
+            elif why in UNDO_SEALS:
+                _undo(p, cust, moved, outputs, [])
+                raise IntakeError(UNDONE)
             else:
                 unsealed += 1
                 fr.reasons.append("original not sealed (%s), it lies in plaintext in the vault" % why)
@@ -1282,7 +1351,11 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, force: bool = Fal
     rec.hits = list(engine.hits.values())
     public_text = _public_text(rec, engine)
     public_written = _report.write_public(public_path, public_text)
-    private_written, report_unsealed = _write_private_report(p, private_path, rec, encrypted)
+    try:
+        private_written, report_unsealed = _write_private_report(p, private_path, rec, encrypted)
+    except _Undo as undo:
+        _undo(p, cust, moved, outputs, [public_written, undo.path])
+        raise IntakeError(UNDONE) from None
     return IntakeResult(customer=cust, outputs=outputs, public_report=public_written,
                         private_report=private_written, blocked=False, candidates=len(unique),
                         states={f.file_id: f.state for f in rec.files}, unsealed=unsealed + report_unsealed)

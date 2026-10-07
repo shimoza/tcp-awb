@@ -341,3 +341,210 @@ def test_the_console_user_reads_a_tenant_without_a_project_and_nothing_more(svc,
     with pytest.raises(keys.Refused, match="folder of an active project"):
         svc._call(dict(req), console)
     assert keys.CONSOLE_USER == "awb-console" and svc.console_user == keys.CONSOLE_USER
+
+
+# --------------------------------------------------------------------------- T2: the hand-over of a reload
+#
+# The service before runs in threads of this process, the new one is a real child process (`python -I -m awb keys
+# serve --takeover FD`) or a stand-in that tampers with what it holds. The child reads the tenants and projects of
+# the test home like the service of a host does.
+
+KEYS_STANDIN = r'''
+import sys
+from awb.tcp import keys
+fd, mode = int(sys.argv[1]), sys.argv[2]
+real = keys._hold
+
+def hold(svc, line):
+    t, s = line["tenants"], line["settings"]
+    if mode == "summary":
+        t = {a: {"roles": sorted(v["roles"]), "secrets": sorted(v["secrets"])} for a, v in t.items()}
+    elif mode == "masked":
+        t = {a: {"roles": {r: {k: keys.MASK for k in pair} for r, pair in v["roles"].items()},
+                 "secrets": {n: keys.MASK for n in v["secrets"]}} for a, v in t.items()}
+    elif mode == "empty-settings":
+        s = {}
+    real(svc, dict(line, tenants=t, settings=s))
+
+keys._hold = hold
+sys.exit(keys.main(["serve", "--takeover", str(fd)]))
+'''
+SETTINGS = {"region": "eu-de", "bucket_tenant": "test-1"}
+
+
+@pytest.fixture
+def hsvc(home, gw, monkeypatch, tmp_path):
+    """A service of the test home: tenants and an active project registered on disk, so that the new process of a
+    reload knows them too. Serves in a thread like `awb keys serve`; a new process a reload started is stopped at
+    the end."""
+    from awb import projects
+    from awb.tcp import tenants
+
+    tenants.add(home, "test-1", "file:/nonexistent/key", ["eu-de"])
+    tenants.add(home, "test-2", "file:/nonexistent/key", ["eu-de", "eu-nl"])
+    folder = str(home.projects_root / PROJECT)
+    home.projects_register.parent.mkdir(parents=True, exist_ok=True)
+    projects._save(home, [projects.Project(PROJECT, "project", projects.NO_CUSTOMER, "tcp", folder,
+                                           projects.memory_key(folder), "active", "2026-10-07")])
+    monkeypatch.setenv("AWB_CLOUD_ENDPOINT", gw.base)
+    import threading
+
+    with short_dir() as d:
+        s = keys.Service(d / "admin.sock", d / "call.sock", endpoint=gw.base)
+        s.start()
+        t = threading.Thread(target=s.serve_forever, daemon=True)
+        t.start()
+        s.thread, s.children = t, []
+        try:
+            yield s
+        finally:
+            if not s.handed_over.is_set():
+                s.stopping.set()
+            t.join(timeout=90)
+            for pid in s.children:
+                _stop(pid)
+
+
+def _stop(pid: int) -> None:
+    import os
+    import signal
+    import time
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    end = time.monotonic() + 20
+    while Path("/proc/%d" % pid).exists() and time.monotonic() < end:
+        try:
+            os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            pass
+        time.sleep(0.05)
+    assert not Path("/proc/%d" % pid).exists(), "the new key service did not stop"
+
+
+def _reload(s) -> dict:
+    answer = keys.request(s.admin_path, {"op": "reload"}, timeout=75)
+    if answer.get("ok"):
+        s.children.append(answer["pid"])
+    return answer
+
+
+def _keys_standin(monkeypatch, tmp_path, mode: str) -> None:
+    import sys
+
+    script = tmp_path / "keys_standin.py"
+    script.write_text(KEYS_STANDIN, encoding="utf-8")
+    monkeypatch.setattr(keys, "_takeover_command", lambda fd: [sys.executable, "-I", str(script), str(fd), mode])
+
+
+def test_the_key_service_reload_keeps_the_key_values(hsvc, gw, monkeypatch, tmp_path, capfd):
+    """Planted: a new service that lost or changed a key value (its calls are not signed with the fixture keys); a
+    summary-shaped, a masked or an empty-settings child that the service before lets serve; the digest in an answer
+    or a log line."""
+    import os
+
+    real_command = keys._takeover_command
+    summary = keys.unlock(hsvc.admin_path, sorted(STORE), reader=lambda e: STORE[e], settings=SETTINGS)
+    with hsvc.lock:
+        digest = keys._digest(hsvc.tenants, hsvc.settings)
+    answers = []
+    for mode in ("summary", "masked", "empty-settings"):
+        _keys_standin(monkeypatch, tmp_path, mode)
+        a = _reload(hsvc)
+        answers.append(a)
+        assert a == {"ok": False, "error": "failed",
+                     "detail": "the new key service did not come up (other values)"}, mode
+        assert keys.request(hsvc.admin_path, {"op": "status"})["pid"] == os.getpid()
+        assert not hsvc.handing_over.is_set()
+    monkeypatch.setattr(keys, "_takeover_command", real_command)
+    a = _reload(hsvc)
+    answers.append(a)
+    assert a["ok"] and a["tenants"] == summary and a["pid"] != os.getpid()
+    hsvc.thread.join(timeout=90)
+    assert not hsvc.thread.is_alive(), "the service before did not leave"
+    status = keys.request(hsvc.admin_path, {"op": "status"})
+    answers.append(status)
+    assert status["pid"] == a["pid"] and status["tenants"] == summary
+    r = call(hsvc, method="GET", service="vpc", path="/v1/{project_id}/vpcs", query={"limit": "3"})
+    assert r["ok"] and r["status"] == 200 and len(r["data"]["vpcs"]) == 3, r
+    lab_gateway(gw)
+    body = {"server": {"name": "lab-1", "admin_pass": "{{secret:ecs-admin}}"}}
+    r = call(hsvc, role="lab", method="POST", service="ecs", path="/v1/{project_id}/cloudservers", body=body,
+             project=PROJECT)
+    assert r["ok"] and r["status"] == 200, r
+    assert ADMIN_PW.encode() in gw.bodies[-1]
+    out, err = capfd.readouterr()
+    logs = "".join(f.read_text() for f in (config.paths().vault / "log").glob("*.tsv"))
+    for text in [json.dumps(x) for x in answers] + [out, err, logs]:
+        assert digest not in text
+        for value in STORE.values():
+            assert value not in text
+
+
+def test_the_key_service_leaves_through_the_hand_over_exit(hsvc, tmp_path):
+    """Planted: an exit through stop() that removes the socket files the new service serves on; a SIGTERM to the
+    service before that does; a stop that removes a socket file it did not bind."""
+    import os
+    import socket
+
+    keys.unlock(hsvc.admin_path, sorted(STORE), reader=lambda e: STORE[e], settings=SETTINGS)
+    ident = [os.lstat(f).st_ino for f in (hsvc.admin_path, hsvc.call_path)]
+    a = _reload(hsvc)
+    assert a["ok"]
+    hsvc.thread.join(timeout=90)
+    hsvc.stopping.set()          # what the signal handler does
+    hsvc.stop()
+    assert [os.lstat(f).st_ino for f in (hsvc.admin_path, hsvc.call_path)] == ident
+    assert keys.request(hsvc.admin_path, {"op": "ping"})["ok"]
+    assert keys.request(hsvc.call_path, {"op": "ping"})["state"] == "unlocked"
+    _stop(a["pid"])
+    hsvc.children.remove(a["pid"])
+    assert not hsvc.admin_path.exists() and not hsvc.call_path.exists(), "the new service's clean stop"
+    # a later clean stop removes only a file it bound itself
+    with short_dir() as d:
+        s = keys.Service(d / "admin.sock", d / "call.sock")
+        s.start()
+        s.call_path.unlink()
+        other = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        other.bind(str(s.call_path))
+        try:
+            s.stop()
+            assert s.call_path.exists() and not s.admin_path.exists()
+        finally:
+            other.close()
+
+
+def test_the_key_service_is_not_dumpable_says_ready_and_answers_ops(tmp_path, monkeypatch):
+    """Planted: a served key service whose /proc stays the owner's; no READY=1 after the bind; a ping or status
+    without ops (reload among them) or release."""
+    import os
+    import signal
+    import socket
+    import subprocess
+    import sys
+    import time
+
+    from awb import vault
+
+    with short_dir() as d:
+        note = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        note.bind(str(d / "notify"))
+        note.settimeout(20)
+        env = dict(os.environ, NOTIFY_SOCKET=str(d / "notify"), AWB_KEYS_SOCKET=str(d / "call.sock"),
+                   AWB_KEYS_ADMIN=str(d / "admin.sock"), PYTHONPATH=str(Path(__file__).resolve().parent.parent))
+        with open(tmp_path / "serve.log", "wb") as out:
+            proc = subprocess.Popen([sys.executable, "-m", "awb", "keys", "serve"], env=env, stdout=out, stderr=out)
+        try:
+            assert note.recv(64) == b"READY=1"
+            assert (d / "admin.sock").exists() and (d / "call.sock").exists()
+            assert os.stat("/proc/%d/status" % proc.pid).st_uid == 0
+            for op in ("ping", "status"):
+                a = keys.request(d / "admin.sock", {"op": op}, timeout=10)
+                assert "reload" in a["ops"] and a["release"] == vault.release_path()
+        finally:
+            proc.send_signal(signal.SIGTERM)
+            proc.wait(timeout=20)
+            note.close()
+        assert not (d / "admin.sock").exists()

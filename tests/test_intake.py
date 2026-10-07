@@ -1172,3 +1172,44 @@ def test_the_public_report_never_writes_through_a_link(tmp_path):
     with pytest.raises(FileExistsError, match="a link stands"):
         report.write_replace(outbox / "cust" / "report.md", "public\n", 0o640, 0o750)
     assert list(elsewhere.iterdir()) == []
+
+
+@pytest.mark.parametrize("answer", ["locked", "busy", "refused"])
+@pytest.mark.parametrize("where", ["first original", "second original", "private report"])
+def test_a_refused_or_busy_seal_leaves_no_plaintext_in_the_vault(sealed_vault, monkeypatch, capsys, answer, where):
+    """D-T2h. The daemon answers and will not seal: locked (what `_fake_daemon(fail_seal=True)` answers), busy (a
+    reload) or refused. Planted: the code before T2 kept the original and the private report in plaintext in the
+    vault and called the run done."""
+    from awb import cli, vault
+
+    p = sealed_vault
+    real = vault.admin_call
+    errors = {"locked": vault.VaultLocked("vault locked"), "busy": vault.VaultBusy(),
+              "refused": vault.VaultError("refused")}
+    seen = {"originals": 0}
+
+    def flaky(op, sock=None, **fields):
+        if op == "seal_file":
+            target = Path(fields["path"])
+            is_report = p.private_reports in target.parents
+            if not is_report and p.originals in target.parents:
+                seen["originals"] += 1
+            if (where == "private report" and is_report) or (where == "first original" and seen["originals"] == 1
+                                                              and not is_report) or (
+                    where == "second original" and seen["originals"] == 2 and not is_report):
+                raise errors[answer]
+        return real(op, sock, **fields)
+
+    monkeypatch.setattr(vault, "admin_call", flaky)
+    files = [p.inbox / "angebot.txt", p.inbox / "konzept.txt"]
+    texts = ["das angebot fuer %s.\n" % FULL, "das konzept fuer %s.\n" % SHORT]
+    for f, t in zip(files, texts):
+        f.write_text(t, encoding="utf-8")
+    assert cli.main(["intake", "--customer", fx.CUSTOMER_CODE] + [str(f) for f in files]) == 2
+    err = capsys.readouterr().err
+    assert "run the intake again" in err and "nothing of this run stays in the vault in plaintext" in err
+    fx.assert_no_fixture_name(err, "intake output")
+    assert [f.read_text(encoding="utf-8") for f in files] == texts, "the originals are back where they came from"
+    assert _names_under(p.originals) == [] and _names_under(p.private_reports) == []
+    out = p.outbox / fx.CUSTOMER_CODE
+    assert not out.exists() or not [f for f in out.iterdir() if f.suffix == ".md" and f.stem.startswith("F-")]

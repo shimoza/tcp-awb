@@ -916,8 +916,169 @@
    "name": "test_install_sh_only_restarts_the_named_units: Planted: a dry run with --only awb-ask.service that prints another restart line, or a --domain that is not taken from the installed awb-web.service, fails. A real run with a socket pair keeps the script's order.",
    "run": ".venv/bin/pytest tests/test_web_seal.py::test_install_sh_only_restarts_the_named_units",
    "status": "passing"
+  },
+  {
+   "id": "T2-1",
+   "phase": "T2",
+   "name": "test_a_reload_keeps_the_state_unlocked_and_the_socket_files: Planted: a client pinging and checking with a 2 s bound across a real reload sees locked, a refused connection, a timeout or a missing socket; a socket file changes its inode; status differs except pid and release.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_a_reload_keeps_the_state_unlocked_and_the_socket_files",
+   "status": "passing"
+  },
+  {
+   "id": "T2-2",
+   "phase": "T2",
+   "name": "test_checks_and_pings_answer_during_the_hand_over: Planted: a reload that keeps the daemon lock across the wait for a slow child makes ping and check (timeout 1 s) time out.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_checks_and_pings_answer_during_the_hand_over",
+   "status": "passing"
+  },
+  {
+   "id": "T2-3",
+   "phase": "T2",
+   "name": "test_the_passphrase_travels_on_the_socket_pair_only: Planted: the passphrase in the child's argv or environment; a descriptor beyond 0, 1, 2 and the three passed ones.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_the_passphrase_travels_on_the_socket_pair_only",
+   "status": "passing"
+  },
+  {
+   "id": "T2-4",
+   "phase": "T2",
+   "name": "test_a_child_that_fails_leaves_the_old_daemon_serving: Planted: a child that answers failed, exits, hangs past the deadline or never says serving: the old daemon must stay unlocked and accepting, no MAINPID, same inodes, the fixed detail, no live child or zombie.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_a_child_that_fails_leaves_the_old_daemon_serving",
+   "status": "passing"
+  },
+  {
+   "id": "T2-5",
+   "phase": "T2",
+   "name": "test_the_order_is_go_serving_mainpid: Planted: MAINPID before serving, READY=1 before MAINPID, or the child accepting before go.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_the_order_is_go_serving_mainpid",
+   "status": "passing"
+  },
+  {
+   "id": "T2-6",
+   "phase": "T2",
+   "name": "test_a_write_between_ok_and_go_is_answered_busy_by_the_parent: Planted: a register_save between the child's ok and go accepted by anyone; a new daemon whose matcher differs from the register file.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_a_write_between_ok_and_go_is_answered_busy_by_the_parent",
+   "status": "passing"
+  },
+  {
+   "id": "T2-7",
+   "phase": "T2",
+   "name": "test_write_ops_are_busy_during_the_hand_over_and_the_order_is_total: Planted: a write op not busy during the hand-over; a writer queued on the daemon lock that runs after the copy; register_save refused by the new daemon.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_write_ops_are_busy_during_the_hand_over_and_the_order_is_total",
+   "status": "passing"
+  },
+  {
+   "id": "T2-8",
+   "phase": "T2",
+   "name": "test_the_parent_leaves_through_the_hand_over_exit: Planted: an exit through stop() that removes the socket files; a request in flight cut off; a SIGTERM to the handed-over daemon that removes the new daemon's files.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_the_parent_leaves_through_the_hand_over_exit",
+   "status": "passing"
+  },
+  {
+   "id": "T2-9",
+   "phase": "T2",
+   "name": "test_a_reload_from_another_uid_is_refused: Planted: a reload from another uid that is answered or starts a child.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_a_reload_from_another_uid_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "T2-10",
+   "phase": "T2",
+   "name": "test_the_reload_client_outlasts_the_parent: Planted: a client timeout equal to the daemon's wait; a child answering just before the deadline that the client misses.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_the_reload_client_outlasts_the_parent",
+   "status": "passing"
+  },
+  {
+   "id": "T2-11",
+   "phase": "T2",
+   "name": "test_a_reload_waits_for_an_intake_and_an_intake_waits_for_a_reload: Planted: a reload that starts its child while an intake holds the vault; an intake that runs during a hand-over.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_a_reload_waits_for_an_intake_and_an_intake_waits_for_a_reload",
+   "status": "passing"
+  },
+  {
+   "id": "T2-12",
+   "phase": "T2",
+   "name": "test_ready_is_sent_at_a_normal_start_and_nothing_without_the_variable: Planted: no READY=1 after the sockets are bound; a datagram without NOTIFY_SOCKET.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_ready_is_sent_at_a_normal_start_and_nothing_without_the_variable",
+   "status": "passing"
+  },
+  {
+   "id": "T2-13",
+   "phase": "T2",
+   "name": "test_a_locked_daemon_reloads_and_stays_locked_with_its_time: Planted: a line that carries a passphrase while locked; a lock time lost in the hand-over.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_a_locked_daemon_reloads_and_stays_locked_with_its_time",
+   "status": "passing"
+  },
+  {
+   "id": "T2-14",
+   "phase": "T2",
+   "name": "test_an_inherited_socket_is_served_with_the_timeout_and_the_identity: Planted: a skipped settimeout on an inherited socket (accept spins); an identity that is not the file's lstat.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_an_inherited_socket_is_served_with_the_timeout_and_the_identity",
+   "status": "passing"
+  },
+  {
+   "id": "T2-15",
+   "phase": "T2",
+   "name": "test_the_daemons_are_not_dumpable: Planted: a served vault daemon or its successor whose /proc stays the owner's.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_the_daemons_are_not_dumpable",
+   "status": "passing"
+  },
+  {
+   "id": "T2-16",
+   "phase": "T2",
+   "name": "test_status_and_ping_answer_ops_and_release: Planted: an admin ping or status without ops, reload or the real release path; ops or release on the check socket.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_status_and_ping_answer_ops_and_release",
+   "status": "passing"
+  },
+  {
+   "id": "T2-17",
+   "phase": "T2",
+   "name": "test_the_module_text_promise_still_holds: Planted: a passphrase, the tenants or the digest in a print, a log line, an argv or an environment of vault.py or keys.py.",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_the_module_text_promise_still_holds",
+   "status": "passing"
+  },
+  {
+   "id": "T2-18",
+   "phase": "T2",
+   "name": "test_a_refused_or_busy_seal_leaves_no_plaintext_in_the_vault: Planted: a locked, busy or refused seal of an original or the private report that leaves plaintext in the vault, the originals away from the inbox or the run not failed with 'run the intake again'.",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_a_refused_or_busy_seal_leaves_no_plaintext_in_the_vault",
+   "status": "passing"
+  },
+  {
+   "id": "T2-19",
+   "phase": "T2",
+   "name": "test_the_key_service_reload_keeps_the_key_values: Planted: a new key service whose read and lab calls are not signed with the fixture keys; a summary-shaped, masked or empty-settings child let through; the digest in an answer or a log line.",
+   "run": ".venv/bin/pytest tests/test_keys.py::test_the_key_service_reload_keeps_the_key_values",
+   "status": "passing"
+  },
+  {
+   "id": "T2-20",
+   "phase": "T2",
+   "name": "test_the_key_service_leaves_through_the_hand_over_exit: Planted: a stop or SIGTERM of the handed-over service that removes the socket files; a stop that removes a file it did not bind.",
+   "run": ".venv/bin/pytest tests/test_keys.py::test_the_key_service_leaves_through_the_hand_over_exit",
+   "status": "passing"
+  },
+  {
+   "id": "T2-21",
+   "phase": "T2",
+   "name": "test_the_key_service_is_not_dumpable_says_ready_and_answers_ops: Planted: a key service whose /proc stays the owner's, no READY=1, a ping or status without ops or release.",
+   "run": ".venv/bin/pytest tests/test_keys.py::test_the_key_service_is_not_dumpable_says_ready_and_answers_ops",
+   "status": "passing"
+  },
+  {
+   "id": "T2-22",
+   "phase": "T2",
+   "name": "test_the_units_declare_notify_and_reload: Planted: a unit without Type=notify, NotifyAccess=main, ExecReload or TimeoutStartSec=120; ExecReload naming another command.",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_units_declare_notify_and_reload",
+   "status": "passing"
+  },
+  {
+   "id": "T2-23",
+   "phase": "T2",
+   "name": "test_deploy_decides_reload_or_restart_before_systemctl: Planted: a daemon without ops reloaded, one with ops restarted, a changed unit or --restart reloaded, a failed reload with an unchanged MainPID followed by a restart instead of the flip back and exit 1.",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_deploy_decides_reload_or_restart_before_systemctl",
+   "status": "passing"
   }
  ],
- "total_tests": 2313,
+ "total_tests": 2348,
  "checked": "2026-10-07"
 }

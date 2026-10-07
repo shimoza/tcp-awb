@@ -390,6 +390,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(201, store.create(data))
         except Problem as e:
             self.reply(e.status, e.data)
+        except (register.RegisterBusy, vault.VaultBusy):
+            self.reply(503, {'error': 'The vault daemon is reloading, try again. Retry this submission in a moment.'})
         except (register.RegisterError, vault.VaultError):
             self.reply(503, {'error': 'The customer register is locked or unavailable. Retry this submission when it is unlocked.'})
         except Exception:

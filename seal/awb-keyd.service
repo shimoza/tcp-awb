@@ -7,7 +7,15 @@ Description=Architect Workbench key service
 After=network-online.target
 
 [Service]
-Type=simple
+# Type=notify: the key service says READY=1 once its sockets are bound. A reload (awb deploy after a code update, or
+# systemctl reload by hand) runs ExecReload: the key service starts its successor from the installed code, hands it
+# the sockets and what it holds over a private socket pair and names it with MAINPID; the journal then shows
+# "Supervising process N which is not our child" once per reload, as expected. A stop, a crash or a reboot still
+# forget everything held in memory.
+Type=notify
+NotifyAccess=main
+ExecReload=/usr/local/bin/awb keys reload
+TimeoutStartSec=120
 User=@OWNER@
 Group=awb
 RuntimeDirectory=awb-keys

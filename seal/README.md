@@ -72,7 +72,10 @@ user.
    and the check socket.
 7. Installs every `*.service` of this folder, enables and starts them (a failed start only warns: the Ask page
    waits for its key file, which stays the owner's step). A unit that runs is left running: `sudo awb deploy`
-   restarts what a commit changed. A restart of the vault daemon locks it and the deploy asks the passphrase once.
+   restarts what a commit changed. The vault locks on a stop, a crash or a reboot. `awb vault reload` (what `awb
+   deploy` uses after a code update) hands the passphrase to the new process over a private socket pair and keeps
+   it unlocked; the key service keeps its keys the same way. A restart (a changed unit file, a daemon from before
+   the hand-over, `--restart`) locks the vault and the deploy asks the passphrase once.
    While the vault is locked every prompt of a work session is refused with the time of
    the lock (`awb hook prompt` exits 2) and a session starts without its project files. Writes `/etc/needrestart/conf.d/awb.conf`: needrestart, which unattended upgrades run,
    leaves the vault daemon and the key service running.
@@ -124,7 +127,11 @@ units whose code changed. `awb deploy --dry-run` prints the plan and every step 
 
 A run that is interrupted (Ctrl-C, a lost terminal) leaves the journal `running`: the next deploy treats every
 unit of that run as pending. `--only UNIT...` restarts the named units even when nothing changed, `--all` every
-installed unit, `--restart` restarts the two daemons where a reload would do (T2 adds the reload).
+installed unit, `--restart` restarts the two daemons where a reload would do. The reload (`systemctl reload`, the unit's
+`ExecReload`) is chosen when the daemon runs, its unit has the reload, the running daemon names `reload` among its
+ops, the target has the hand-over and the unit file did not change; a failed reload with an unchanged main pid puts
+the previous code and units back and stops, it never restarts. The first deploy that carries the hand-over restarts
+both daemons with one last passphrase prompt. A deploy is refused while an intake holds the vault.
 
 ## Needs
 

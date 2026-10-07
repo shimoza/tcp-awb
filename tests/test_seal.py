@@ -269,6 +269,31 @@ def test_unit_runs_the_daemon_as_the_owner_with_the_group_awb():
     assert UNIT.read_text(encoding="utf-8").count("@OWNER@") == 1
 
 
+def _service_keys(path: Path) -> dict[str, list[str]]:
+    keys: dict[str, list[str]] = {}
+    section = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("["):
+            section = line
+        elif "=" in line and not line.startswith("#") and section == "[Service]":
+            k, v = line.split("=", 1)
+            keys.setdefault(k, []).append(v)
+    return keys
+
+
+@pytest.mark.parametrize("unit, command", [("awb-vaultd.service", "vault"), ("awb-keyd.service", "keys")])
+def test_the_units_declare_notify_and_reload(unit, command):
+    """T2, design 8.6. Planted: a unit without one of the four lines; ExecReload naming another command."""
+    path = SEAL / unit
+    keys = _service_keys(path)
+    assert keys["Type"] == ["notify"]
+    assert keys["NotifyAccess"] == ["main"]
+    assert keys["ExecReload"] == ["/usr/local/bin/awb %s reload" % command]
+    assert keys["TimeoutStartSec"] == ["120"]
+    assert keys["ExecStart"] == ["/usr/local/bin/awb %s serve" % command]
+    assert "Supervising process N which is not our child" in path.read_text(encoding="utf-8")
+
+
 def test_work_settings_carry_the_five_hooks_and_deny_connectors():
     data = json.loads(WORK_SETTINGS.read_text(encoding="utf-8"))
     assert set(data) == {"hooks", "permissions"}

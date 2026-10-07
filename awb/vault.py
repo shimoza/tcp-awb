@@ -9,9 +9,17 @@ The daemon (`awb vault serve`, run as the owner) listens on two unix sockets, on
 answer per request:
 
     admin socket  <vault>/admin.sock, mode 600, peer uid must be the daemon's own uid
-                  ping, unlock, lock, status, register_load, register_save, seal_file, open_file
+                  ping, unlock, lock, status, register_load, register_save, seal_file, open_file, reload
     check socket  /run/awb/check.sock, mode 660, the group of the daemon process
                   ping, check
+
+`reload` (T2, `awb vault reload`, what `awb deploy` runs after a code update) hands the daemon to a new process of
+the installed code without a lock: the daemon starts `awb vault serve --takeover FD` itself, passes it the two
+listening sockets and an anonymous socket pair, and sends the state, the lock time and the passphrase as one line
+on that pair. The new process unlocks in memory, answers ok, starts accepting on `go`, and the old one tells
+systemd the new main pid and leaves without removing the socket files. During the hand-over the writing admin ops
+answer `busy`; ping, status, check, register_load and open_file keep answering. Anything that fails leaves the old
+daemon serving, unlocked. A stop, a crash and a reboot still lock the vault.
 
 States: `plain` (no register.tsv.gpg: the plaintext register is used without unlock), `locked` (the encrypted
 register exists and no passphrase is in memory) and `unlocked`. The daemon remembers since when it is locked (UTC,
@@ -27,11 +35,13 @@ the owner out of the admin socket. A text larger than one request is checked in 
 while `awb vault encrypt` runs.
 
 Nothing here puts a passphrase, a form, a code or a path of the vault into a message, a log line or an answer
-of the check socket.
+of the check socket. No file, argument, log line or environment ever carries the passphrase: it lives in the
+daemon's memory, reaches gpg on a pipe of its own and a successor on the socket pair the daemon made itself.
 """
 from __future__ import annotations
 
 import base64
+import ctypes
 import fcntl
 import getpass
 import json
@@ -104,6 +114,13 @@ SINCE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 """A client takes `since` only in this shape: it is the one daemon supplied text that lands in the output of a
 session and on the board (T3)."""
 MIN_NEW_PASSPHRASE = 12
+HANDOVER_DEADLINE = 45.0
+"""Seconds a reload may take from the moment the daemon reads the request: the new process must answer ok and
+serving within it, else the old daemon keeps serving (D-T2j)."""
+RELOAD_CLIENT_TIMEOUT = 75.0
+"""Seconds `awb vault reload` waits for the answer: longer than the daemon's own deadline, so the daemon decides."""
+RELOAD_LOCK_WAIT = 20.0
+"""Seconds a reload waits for an intake or an encryption that holds the vault."""
 
 HIT_KEYS = frozenset(("start", "length", "cls"))
 HIT_CLASSES = frozenset(("name",) + tuple(k.lower() for k in codes.DATA_KINDS))
@@ -111,7 +128,7 @@ CHECK_LOG_HEADER = "time\tuid\tlength\thits\tresult\n"
 
 ERROR_WORDS = frozenset(("locked", "rate", "refused", "wrong passphrase", "bad request", "unknown op", "too large",
                          "no register", "register invalid", "not encrypted", "invalid", "failed", "no such file",
-                         "not allowed"))
+                         "not allowed", "busy"))
 """The only error words a client repeats. Anything else is an unexpected answer."""
 _DETAIL_RE = re.compile(r"[A-Za-z0-9 ,;:.'()-]{1,200}")
 
@@ -135,6 +152,13 @@ class VaultUnavailable(VaultError):
 
 class VaultRateLimited(VaultUnavailable):
     """The daemon refused the request: too many requests of this user in the last minute."""
+
+
+class VaultBusy(VaultError):
+    """The daemon hands itself over to a new process (a reload) and takes no write for these seconds."""
+
+    def __init__(self, message: str = "the vault daemon is reloading, try again"):
+        super().__init__(message)
 
 
 def since_or_none(value) -> str | None:
@@ -313,8 +337,9 @@ def plaintext_files(p: config.Paths) -> list[Path]:
 @contextmanager
 def vault_lock(p: config.Paths, wait: float | None = None):
     """Hold the vault for one intake or one encryption: an exclusive lock on the vault folder itself (no lock
-    file). Waits up to `wait` seconds (LOCK_WAIT by default), then raises VaultError. The daemon never takes it,
-    so an intake that holds it can still have its files sealed."""
+    file). Waits up to `wait` seconds (LOCK_WAIT by default), then raises VaultError. The daemon takes it for a
+    reload only, and never while it holds its own lock, so an intake that holds it can still have its files
+    sealed."""
     wait = LOCK_WAIT if wait is None else wait
     fd = os.open(p.vault, os.O_RDONLY | os.O_DIRECTORY)
     try:
@@ -434,6 +459,8 @@ def _raise_for(answer: dict, details: bool = True) -> None:
         raise VaultUnavailable("the vault daemon refused this user")
     if word == "wrong passphrase":
         raise VaultError("wrong passphrase or damaged file")
+    if word == "busy":
+        raise VaultBusy()
     detail = answer.get("detail")
     if details and isinstance(detail, str) and _DETAIL_RE.fullmatch(detail):
         raise VaultError("%s: %s" % (word, detail))
@@ -476,7 +503,7 @@ def _safe_cut(text: str, lo: int, hi: int) -> int:
     return hi
 
 
-def check_remote(text: str, sock: Path) -> list[dict]:
+def check_remote(text: str, sock: Path, timeout: float | None = None) -> list[dict]:
     """The name and structured data check of the vault daemon: [{start, length, cls}], positions in the
     normalised text. Raises VaultLocked or VaultUnavailable (also for an answer that carries anything else).
 
@@ -487,7 +514,7 @@ def check_remote(text: str, sock: Path) -> list[dict]:
     if not isinstance(text, str):
         raise TypeError("text must be a string")
     if len(text) <= CHECK_CHUNK and _encoded_size(text) <= MAX_REQUEST:
-        return _check_one(text, sock)
+        return _check_one(text, sock, timeout)
     from awb import normalize
 
     found: set[tuple[int, int, str]] = set()
@@ -501,7 +528,7 @@ def check_remote(text: str, sock: Path) -> list[dict]:
                 break
             size //= 2
         piece = text[start:end]
-        hits = _check_one(piece, sock)
+        hits = _check_one(piece, sock, timeout)
         length = None if last else len(normalize.normalize(piece).text)
         for h in hits:
             if length is not None and h["start"] + h["length"] >= length:
@@ -515,8 +542,8 @@ def check_remote(text: str, sock: Path) -> list[dict]:
     return [{"start": s, "length": ln, "cls": c} for s, ln, c in sorted(found)]
 
 
-def _check_one(text: str, sock: Path) -> list[dict]:
-    answer = _request(Path(sock), {"op": "check", "text": text}, limit=MAX_CHECK_ANSWER)
+def _check_one(text: str, sock: Path, timeout: float | None = None) -> list[dict]:
+    answer = _request(Path(sock), {"op": "check", "text": text}, timeout=timeout, limit=MAX_CHECK_ANSWER)
     if not answer["ok"]:
         try:
             _raise_for(answer, details=False)
@@ -537,17 +564,17 @@ def _check_one(text: str, sock: Path) -> list[dict]:
     return out
 
 
-def ping(sock: Path) -> str:
+def ping(sock: Path, timeout: float = 10.0) -> str:
     """The state of the daemon behind a socket: plain, locked or unlocked. Raises VaultUnavailable. Extra keys
     of the answer are left alone, so an older client works with a newer daemon."""
-    return ping_state(sock)["state"]
+    return ping_state(sock, timeout)["state"]
 
 
-def ping_state(sock: Path) -> dict:
+def ping_state(sock: Path, timeout: float = 10.0) -> dict:
     """{"state": plain, locked or unlocked, "since": the lock time in SINCE_FORMAT or None} of the daemon behind a
     socket, for the board, the portal and `awb vault status`. `since` is None unless the daemon is locked and
     said since when in the fixed shape. Raises VaultUnavailable."""
-    answer = _request(Path(sock), {"op": "ping"}, timeout=10.0)
+    answer = _request(Path(sock), {"op": "ping"}, timeout=timeout)
     if not answer["ok"]:
         try:
             _raise_for(answer, details=False)
@@ -566,11 +593,11 @@ def locked_line(since: str | None) -> str:
     return "locked since %s" % (since_or_none(since) or "unknown")
 
 
-def admin_call(op: str, sock: Path | None = None, **fields) -> dict:
+def admin_call(op: str, sock: Path | None = None, *, timeout: float | None = None, **fields) -> dict:
     """One request on the admin socket (default: the configured one). Returns the answer when it is ok, else
-    raises VaultLocked, VaultUnavailable or VaultError with a value-free message."""
+    raises VaultLocked, VaultBusy, VaultUnavailable or VaultError with a value-free message."""
     sock = Path(sock) if sock is not None else config.paths().admin_sock
-    answer = _request(sock, dict(fields, op=op), limit=MAX_ADMIN_ANSWER)
+    answer = _request(sock, dict(fields, op=op), timeout=timeout, limit=MAX_ADMIN_ANSWER)
     if not answer["ok"]:
         _raise_for(answer)
     return answer
@@ -655,9 +682,7 @@ def _bind(path: Path, mode: int, folder_mode: int | None) -> tuple[socket.socket
             srv.bind(str(path))
             os.chmod(path, mode)
         srv.listen(16)
-        srv.settimeout(0.2)
-        st = os.lstat(path)
-        return srv, (st.st_dev, st.st_ino)
+        return srv, _adopt(srv, path)
     except BaseException:
         srv.close()
         raise
@@ -668,6 +693,202 @@ def _bind(path: Path, mode: int, folder_mode: int | None) -> tuple[socket.socket
                     (os.rmdir if leftover == tmpdir else os.unlink)(leftover)
                 except OSError:
                     pass
+
+
+def _adopt(srv: socket.socket, path: Path) -> tuple[int, int]:
+    """A listening socket as the accept loops want it: a timeout of 0.2 s (a socket inherited from the daemon
+    before arrives non-blocking) and the (device, inode) of its file, the identity a clean stop checks before it
+    removes the file (fstat of a socket gives a sockfs inode, so it is the file's lstat)."""
+    srv.settimeout(0.2)
+    st = os.lstat(path)
+    return st.st_dev, st.st_ino
+
+
+# --------------------------------------------------------------------------- the hand-over (T2)
+
+PR_GET_DUMPABLE = 3
+PR_SET_DUMPABLE = 4
+MAX_PAIR_LINE = 4 * 1024 * 1024
+
+
+def no_dump() -> bool:
+    """prctl(PR_SET_DUMPABLE, 0): /proc/<pid> and ptrace are closed to the owner's other processes (D-T2c). The
+    flag resets on exec, so every daemon sets it at its own start. False when the call failed."""
+    try:
+        return ctypes.CDLL(None, use_errno=True).prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) == 0
+    except (OSError, AttributeError):
+        return False
+
+
+def sd_notify(message: str) -> bool:
+    """One datagram to systemd's $NOTIFY_SOCKET (an @ first means an abstract address). Nothing without the
+    variable. True when it was sent."""
+    addr = os.environ.get("NOTIFY_SOCKET")
+    if not addr:
+        return False
+    if addr.startswith("@"):
+        addr = "\0" + addr[1:]
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    try:
+        s.connect(addr)
+        s.sendall(message.encode("ascii"))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def release_path() -> str:
+    """The real path of the tree the running package came from: a release folder under /opt/tcp-awb/releases on a
+    sealed host. A daemon answers it, so that `awb deploy` sees which release each daemon runs."""
+    import awb
+
+    return os.path.dirname(os.path.realpath(awb.__path__[0]))
+
+
+def _takeover_command(fd: int) -> list[str]:
+    """The new daemon of a reload: the installed code in a fresh, isolated interpreter, so `-m awb` resolves through
+    the live release. The tests replace this function with a stand-in child; no option names another program."""
+    return [sys.executable, "-I", "-m", "awb", "vault", "serve", "--takeover", str(fd)]
+
+
+class _Pair:
+    """One end of the socket pair of a hand-over: one JSON object per line in both directions, each read within a
+    deadline. Nothing else can address it: it has no path and lives in the two processes only."""
+
+    def __init__(self, sock: socket.socket):
+        self.sock = sock
+        self.buf = bytearray()
+
+    def send(self, obj: dict) -> bool:
+        try:
+            self.sock.settimeout(10.0)
+            self.sock.sendall(json.dumps(obj).encode("ascii") + b"\n")
+            return True
+        except OSError:
+            return False
+
+    def read(self, deadline: float) -> dict | None:
+        """The next line as an object; None on a timeout, an end, a line too long or not an object."""
+        while b"\n" not in self.buf:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return None
+            try:
+                self.sock.settimeout(left)
+                chunk = self.sock.recv(1 << 16)
+            except OSError:
+                return None
+            if not chunk:
+                return None
+            self.buf += chunk
+            if len(self.buf) > MAX_PAIR_LINE:
+                return None
+        nl = self.buf.index(b"\n")
+        line = bytes(self.buf[:nl])
+        del self.buf[:nl + 1]
+        try:
+            obj = json.loads(line.decode("utf-8"))
+        except (ValueError, RecursionError):
+            return None
+        return obj if isinstance(obj, dict) else None
+
+    def wait_end(self, deadline: float) -> bool:
+        """True when the other side closed its write side within the deadline."""
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return False
+            try:
+                self.sock.settimeout(left)
+                if not self.sock.recv(1 << 16):
+                    return True
+            except OSError:
+                return False
+
+    def shut_write(self) -> None:
+        try:
+            self.sock.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+
+    def close(self) -> None:
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
+def _end_child(child: subprocess.Popen) -> None:
+    """SIGKILL to a child that still lives, then wait for it: no zombie."""
+    if child.poll() is None:
+        try:
+            child.kill()
+        except OSError:
+            pass
+    try:
+        child.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def hand_over(owner, command, fds: tuple[int, ...], line: dict, deadline: float, check=None) -> tuple[dict | None, str]:
+    """The parent's side of a reload, shared by the vault daemon and the key service (design 8.2 and 8.3).
+
+    Starts `command(<pair fd>)` with the pair and `fds` passed, writes `line`, waits for {"ok": true, "pid",
+    "release"}, lets `check(reply)` refuse it (a word), pauses the owner's accept loops, writes go, waits for
+    {"serving": true}, sends MAINPID to systemd and closes its end (the child's sign that it is the main process
+    now). Returns (reply, "") or (None, word); on a failure the child is killed and waited for, then the accept
+    loops resume and MAINPID was never sent."""
+    a, b = socket.socketpair()
+    try:
+        child = subprocess.Popen(command(b.fileno()), pass_fds=(b.fileno(),) + tuple(fds), close_fds=True, cwd="/",
+                                 stdin=subprocess.DEVNULL)
+    except OSError:
+        a.close()
+        return None, "it could not be started"
+    finally:
+        b.close()
+    pair = _Pair(a)
+    paused = False
+
+    def fail(word: str) -> tuple[None, str]:
+        _end_child(child)
+        if paused:
+            owner._resume()
+        pair.close()
+        return None, word
+
+    try:
+        if not pair.send(line):
+            return fail("the line did not go")
+        line = None
+        reply = pair.read(deadline)
+        if reply is None:
+            return fail("it exited" if child.poll() is not None else "no answer in time")
+        if reply.get("ok") is not True:
+            err = reply.get("error")
+            return fail(err if err in ("wrong passphrase", "failed") else "not ok")
+        if reply.get("pid") != child.pid or not isinstance(reply.get("release"), str):
+            return fail("an answer of another form")
+        word = check(reply) if check is not None else None
+        if word:
+            return fail(word)
+        paused = True
+        if not owner._pause():
+            return fail("the accept loops did not pause")
+        if not pair.send({"go": True}):
+            return fail("go did not go")
+        if pair.read(deadline) != {"serving": True}:
+            return fail("no serving after go")
+        sd_notify("MAINPID=%d" % child.pid)
+        pair.shut_write()
+        pair.close()
+        return reply, ""
+    except BaseException:
+        fail("internal error")
+        raise
 
 
 class Daemon:
@@ -699,6 +920,16 @@ class Daemon:
         self._conn_info: dict[socket.socket, tuple[bool, int]] = {}   # (admin, peer uid)
         self._log_warned = False
         self._started = False
+        self.handing_over = threading.Event()
+        """Set by a reload from the request to the end: the writing admin ops answer busy."""
+        self.handed_over = threading.Event()
+        """Set once the successor serves: every exit is the hand-over exit, never stop()."""
+        self._paused = threading.Event()
+        self._idle = {True: threading.Event(), False: threading.Event()}
+        self._reload_lock = threading.Lock()
+        self._conn_busy: set[socket.socket] = set()
+        self.accepts = {"admin": 0, "check": 0}
+        """Calls of accept() per socket, for the tests: none before go, a few per idle second."""
 
     # ----------------------------------------------------------------- life cycle
 
@@ -706,25 +937,36 @@ class Daemon:
     def homedir(self) -> Path:
         return _vault_homedir(self.p)
 
-    def start(self) -> None:
+    def start(self, inherited: dict | None = None, accept: bool = True) -> None:
+        """Bind both sockets and serve. `inherited` ({True: admin, False: check} listening sockets of the daemon
+        before) skips the bind; `accept=False` waits for accept_now() (the go of a hand-over)."""
         if self._started:
             return
         self.stopping.clear()
         try:
             for path, mode, folder_mode, admin in ((self.admin_path, 0o600, None, True),
                                                    (self.check_path, 0o660, 0o750, False)):
-                srv, ident = _bind(path, mode, folder_mode)
+                if inherited is None:
+                    srv, ident = _bind(path, mode, folder_mode)
+                else:
+                    srv = inherited[admin]
+                    ident = _adopt(srv, path)
                 self._servers.append((srv, path, ident))
                 t = threading.Thread(target=self._accept_loop, args=(srv, admin), daemon=True,
                                      name="awb-vault-%s" % ("admin" if admin else "check"))
                 self._threads.append(t)
         except BaseException:
-            self._close_servers()
+            self._close_servers(unlink=inherited is None)
             raise
         self._started = True
         self.state()      # a start with an encrypted register is locked from now on: _state() notes the time
+        if accept:
+            self.accept_now()
+
+    def accept_now(self) -> None:
         for t in self._threads:
-            t.start()
+            if t.ident is None:
+                t.start()
 
     def serve_forever(self) -> None:
         self.start()
@@ -732,9 +974,15 @@ class Daemon:
             while not self.stopping.wait(0.5):
                 pass
         finally:
-            self.stop()
+            if self.handed_over.is_set():
+                self.leave()
+            else:
+                self.stop()
 
     def stop(self) -> None:
+        if self.handed_over.is_set():
+            self.leave()
+            return
         self.stopping.set()
         for t in self._threads:
             t.join(timeout=5)
@@ -753,9 +1001,61 @@ class Daemon:
             self._forget()
         self._started = False
 
-    def _close_servers(self) -> None:
+    def leave(self) -> None:
+        """The hand-over exit: the successor serves on the same socket files, so they stay. The open connections
+        finish the request they are in (bounded by READ_TIMEOUT), the idle ones are closed for reading, then the
+        passphrase is forgotten."""
+        self.handed_over.set()
+        self.stopping.set()
+        for t in self._threads:
+            if t.ident is not None:
+                t.join(timeout=5)
+        self._threads = []
+        self._close_servers(unlink=False)
+        end = time.monotonic() + READ_TIMEOUT
+        while time.monotonic() < end:
+            with self._conn_lock:
+                conns = list(self._conns)
+                busy = set(self._conn_busy)
+            if not conns:
+                break
+            for conn in conns:
+                if conn not in busy:
+                    try:
+                        conn.shutdown(socket.SHUT_RD)
+                    except OSError:
+                        pass
+            time.sleep(0.05)
+        with self._conn_lock:
+            conns = list(self._conns.items())
+        for conn, _ in conns:
+            try:
+                conn.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        for _, t in conns:
+            t.join(timeout=2)
+        with self._lock:
+            self._forget()
+        self._started = False
+
+    def _pause(self, wait: float = 2.0) -> bool:
+        """Stop accepting until _resume(): True once no accept loop is inside accept()."""
+        for e in self._idle.values():
+            e.clear()
+        self._paused.set()
+        end = time.monotonic() + wait
+        return all(e.wait(max(0.0, end - time.monotonic())) for e in self._idle.values())
+
+    def _resume(self) -> None:
+        self._paused.clear()
+
+    def _close_servers(self, unlink: bool = True) -> None:
+        unlink = unlink and not self.handed_over.is_set()
         for srv, path, ident in self._servers:
             srv.close()
+            if not unlink:
+                continue
             try:
                 st = os.lstat(path)
                 if (st.st_dev, st.st_ino) == ident:
@@ -767,7 +1067,13 @@ class Daemon:
     # ----------------------------------------------------------------- connections
 
     def _accept_loop(self, srv: socket.socket, admin: bool) -> None:
+        key = "admin" if admin else "check"
         while not self.stopping.is_set():
+            if self._paused.is_set():
+                self._idle[admin].set()
+                time.sleep(0.02)
+                continue
+            self.accepts[key] += 1
             try:
                 conn, _ = srv.accept()
             except TimeoutError:
@@ -809,9 +1115,11 @@ class Daemon:
             buf = bytearray()
             end_of_life = time.monotonic() + MAX_CONNECTION_SECONDS
             deadline = min(time.monotonic() + READ_TIMEOUT, end_of_life)
-            while not self.stopping.is_set():
+            while True:
                 nl = buf.find(b"\n")
                 if nl < 0:
+                    if not buf and self.stopping.is_set():
+                        return     # between requests only: a request in flight is answered (the hand-over exit)
                     if len(buf) > MAX_REQUEST:
                         conn.sendall(json.dumps(_error("too large")).encode() + b"\n")
                         return
@@ -823,6 +1131,7 @@ class Daemon:
                     if not chunk:
                         return
                     buf += chunk
+                    self._mark(conn, True)
                     continue
                 line = bytes(buf[:nl])
                 del buf[:nl + 1]
@@ -832,6 +1141,8 @@ class Daemon:
                 answer = self._answer(line, admin, uid)
                 conn.settimeout(READ_TIMEOUT)
                 conn.sendall(json.dumps(answer, ensure_ascii=False).encode("utf-8") + b"\n")
+                if not buf:
+                    self._mark(conn, False)
                 if answer.get("error") == "rate":
                     return   # a client over its budget gets its answer and loses the connection
                 deadline = min(time.monotonic() + READ_TIMEOUT, end_of_life)
@@ -845,6 +1156,15 @@ class Daemon:
             with self._conn_lock:
                 self._conns.pop(conn, None)
                 self._conn_info.pop(conn, None)
+                self._conn_busy.discard(conn)
+
+    def _mark(self, conn: socket.socket, busy: bool) -> None:
+        """A connection is busy from its first byte of a request to its answer: the hand-over exit lets it finish."""
+        with self._conn_lock:
+            if busy:
+                self._conn_busy.add(conn)
+            else:
+                self._conn_busy.discard(conn)
 
     def _answer(self, line: bytes, admin: bool, uid: int) -> dict:
         allowed = admin or self._allow(uid, len(line))
@@ -967,6 +1287,12 @@ class Daemon:
             entries, m = self._plain_register()
             return state, entries, m
 
+    def _not_handing_over(self) -> None:
+        """The first statement of every writing admin op inside its own `with self._lock`: a reload sets the flag
+        before it takes the lock for its copy, so a write either ran before the copy or is refused."""
+        if self.handing_over.is_set():
+            raise _Refused("busy")
+
     def _need_unlocked(self) -> str:
         state = self._state()
         if state == "locked":
@@ -1034,6 +1360,27 @@ class Daemon:
 
     # ----------------------------------------------------------------- admin socket ops
 
+    def _op_ping_admin(self, req: dict, uid: int) -> dict:
+        """Ping on the admin socket also names the admin ops and the release, for the plan of `awb deploy`."""
+        return dict(self._op_ping(req, uid), ops=sorted(self._ADMIN_OPS), release=release_path())
+
+    def _unlock(self, pw: str) -> None:
+        """Decrypt the register with `pw` and keep both in memory. Called with the daemon lock held."""
+        if not _is_regular(self.p.register_encrypted):
+            raise _Refused("not encrypted")
+        try:
+            data = decrypt_bytes(self.p.register_encrypted.read_bytes(), pw, self.homedir)
+        except VaultError:
+            raise _Refused("wrong passphrase") from None
+        try:
+            entries = register.parse(data)
+        except register.RegisterError as err:
+            raise _Refused("invalid", str(err)) from None
+        self._passphrase = pw
+        self._locked_since = None
+        self._entries = entries
+        self._matcher = Matcher(register.forms_for_matching(entries))
+
     def _op_unlock(self, req: dict, uid: int) -> dict:
         pw = req.get("passphrase")
         try:
@@ -1041,24 +1388,13 @@ class Daemon:
         except VaultError:
             raise _Refused("bad request", "the passphrase must be one non-empty line") from None
         with self._lock:
-            if not _is_regular(self.p.register_encrypted):
-                raise _Refused("not encrypted")
-            try:
-                data = decrypt_bytes(self.p.register_encrypted.read_bytes(), pw, self.homedir)
-            except VaultError:
-                raise _Refused("wrong passphrase") from None
-            try:
-                entries = register.parse(data)
-            except register.RegisterError as err:
-                raise _Refused("invalid", str(err)) from None
-            self._passphrase = pw
-            self._locked_since = None
-            self._entries = entries
-            self._matcher = Matcher(register.forms_for_matching(entries))
+            self._not_handing_over()
+            self._unlock(pw)
             return {"ok": True, "state": "unlocked"}
 
     def _op_lock(self, req: dict, uid: int) -> dict:
         with self._lock:
+            self._not_handing_over()
             if self._passphrase is not None:
                 self._locked_since = _now_since()     # locked from now; a lock of a locked vault keeps its time
             self._forget()
@@ -1070,7 +1406,8 @@ class Daemon:
     def _op_status(self, req: dict, uid: int) -> dict:
         with self._lock:
             state = self._state()
-            out = {"ok": True, "state": state}
+            out = {"ok": True, "state": state, "ops": sorted(self._ADMIN_OPS), "release": release_path(),
+                   "pid": os.getpid()}
             if state == "locked" and self._locked_since:
                 out["since"] = self._locked_since
             entries = None
@@ -1104,6 +1441,7 @@ class Daemon:
         except register.RegisterError as err:
             raise _Refused("invalid", str(err)) from None
         with self._lock:
+            self._not_handing_over()
             state = self._state()
             if state == "locked":
                 raise _Refused("locked")
@@ -1135,6 +1473,7 @@ class Daemon:
 
     def _op_seal_file(self, req: dict, uid: int) -> dict:
         with self._lock:
+            self._not_handing_over()
             pw = self._need_unlocked()
             path = self._vault_file(req.get("path"), encrypted=False)
             seal_path(path, pw, self.homedir)
@@ -1150,10 +1489,51 @@ class Daemon:
                 raise _Refused("failed", "the file does not decrypt with the passphrase in memory") from None
             return {"ok": True, "data": base64.b64encode(data).decode("ascii")}
 
+    def _op_reload(self, req: dict, uid: int) -> dict:
+        """Hand the daemon to a new process of the installed code (design 8.2): the deadline runs from here; an
+        intake in flight delays the reload, one started during it waits in its own lock."""
+        deadline = time.monotonic() + HANDOVER_DEADLINE
+        if not self._reload_lock.acquire(blocking=False):
+            raise _Refused("busy")
+        try:
+            held = vault_lock(self.p, wait=max(0.0, min(RELOAD_LOCK_WAIT, deadline - time.monotonic() - 5.0)))
+            try:
+                held.__enter__()
+            except VaultError:
+                raise _Refused("failed", "an intake holds the vault, reload later") from None
+            try:
+                return self._reload_held(deadline)
+            finally:
+                held.__exit__(None, None, None)
+        finally:
+            self._reload_lock.release()
+
+    def _reload_held(self, deadline: float) -> dict:
+        self.handing_over.set()
+        try:
+            with self._lock:      # held for the copy only: checks and pings never wait on the hand-over
+                state = self._state()
+                line = {"state": state, "since": self._locked_since if state == "locked" else None}
+                if state == "unlocked":
+                    line["passphrase"] = self._passphrase
+            servers = {admin: (srv, path) for (srv, path, _), admin in zip(self._servers, (True, False))}
+            line.update(admin_fd=servers[True][0].fileno(), check_fd=servers[False][0].fileno(),
+                        admin_path=str(servers[True][1]), check_path=str(servers[False][1]))
+            reply, word = hand_over(self, _takeover_command, (line["admin_fd"], line["check_fd"]), line, deadline)
+            line = None
+            if reply is None:
+                raise _Refused("failed", "the new daemon did not come up (%s)" % word)
+            self.handed_over.set()
+            self.stopping.set()       # serve_forever leaves through leave() once this answer is out
+            return {"ok": True, "state": state, "pid": reply["pid"], "release": reply["release"]}
+        finally:
+            if not self.handed_over.is_set():
+                self.handing_over.clear()
+
     _CHECK_OPS = {"ping": _op_ping, "check": _op_check}
-    _ADMIN_OPS = {"ping": _op_ping, "unlock": _op_unlock, "lock": _op_lock, "status": _op_status,
+    _ADMIN_OPS = {"ping": _op_ping_admin, "unlock": _op_unlock, "lock": _op_lock, "status": _op_status,
                   "register_load": _op_register_load, "register_save": _op_register_save,
-                  "seal_file": _op_seal_file, "open_file": _op_open_file}
+                  "seal_file": _op_seal_file, "open_file": _op_open_file, "reload": _op_reload}
 
 
 # --------------------------------------------------------------------------- command line
@@ -1167,14 +1547,106 @@ def _read_secret(args, prompt: str) -> str:
 
 
 def _cmd_serve(args, p: config.Paths) -> int:
-    d = Daemon(p, admin_sock=args.admin_socket, check_sock=args.check_socket)
-    d.start()
+    no_dump()
+    if args.takeover is not None:
+        d = _take_over(args.takeover, p)
+        if d is None:
+            return 1
+    else:
+        d = Daemon(p, admin_sock=args.admin_socket, check_sock=args.check_socket)
+        d.start()
+        sd_notify("READY=1")
     if threading.current_thread() is threading.main_thread():
+        # serve_forever reads handed_over: after a hand-over a signal leaves the successor's files alone
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
             signal.signal(sig, lambda *_: d.stopping.set())
-    print("awb vault: serving, state %s" % d.state(), file=sys.stderr, flush=True)
+    print("awb vault: serving, state %s%s" % (d.state(), ", taken over" if args.takeover is not None else ""),
+          file=sys.stderr, flush=True)
     d.serve_forever()
-    print("awb vault: stopped", file=sys.stderr, flush=True)
+    print("awb vault: %s" % ("handed over" if d.handed_over.is_set() else "stopped"), file=sys.stderr, flush=True)
+    return 0
+
+
+def _inherited(fd) -> socket.socket:
+    if type(fd) is not int or fd < 3:
+        raise ValueError("not a descriptor")
+    s = socket.socket(fileno=fd)
+    if s.family != socket.AF_UNIX or s.type != socket.SOCK_STREAM or \
+            not s.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN):
+        raise ValueError("not a listening unix socket")
+    return s
+
+
+def _take_over(fd: int, p: config.Paths) -> Daemon | None:
+    """The child's side of a reload (design 8.2, steps 5 to 7). The daemon before passed the pair and its two
+    listening sockets; nothing is accepted before go, nothing is removed on a failure. Returns the daemon serving
+    on them, or None (exit 1)."""
+    deadline = time.monotonic() + HANDOVER_DEADLINE
+    try:
+        pair = _Pair(socket.socket(fileno=fd))
+    except (OSError, ValueError):
+        return None
+    line = pair.read(deadline)
+    d: Daemon | None = None
+    servers: dict = {}
+    done = False
+    try:
+        state = line.get("state") if line else None
+        pw = line.pop("passphrase", None) if line else None
+        if state not in ("plain", "locked", "unlocked") or (pw is not None) != (state == "unlocked"):
+            pair.send({"ok": False, "error": "failed"})
+            return None
+        try:
+            servers = {True: _inherited(line.get("admin_fd")), False: _inherited(line.get("check_fd"))}
+            paths = [Path(line.get(k)) for k in ("admin_path", "check_path")]
+        except (OSError, ValueError, TypeError):
+            pair.send({"ok": False, "error": "failed"})
+            return None
+        d = Daemon(p, admin_sock=paths[0], check_sock=paths[1])
+        d._locked_since = since_or_none(line.get("since"))
+        d.start(inherited=servers, accept=False)
+        if pw is not None:
+            with d._lock:
+                try:
+                    d._unlock(_check_passphrase(pw))
+                except (_Refused, VaultError) as err:
+                    word = "wrong passphrase" if getattr(err, "word", "") == "wrong passphrase" else "failed"
+                    pair.send({"ok": False, "error": word})
+                    return None
+        pw = None
+        if d.state() != state:
+            pair.send({"ok": False, "error": "failed"})
+            return None
+        if not pair.send({"ok": True, "pid": os.getpid(), "release": release_path()}):
+            return None
+        if pair.read(deadline) != {"go": True}:
+            return None
+        d.accept_now()
+        if not pair.send({"serving": True}):
+            return None
+        done = True
+    finally:
+        line = pw = None
+        if not done:
+            if d is not None:
+                d.stopping.set()
+                d._close_servers(unlink=False)
+            else:
+                for srv in servers.values():
+                    srv.close()
+            pair.close()
+    # the daemon before sends MAINPID, then closes its end: from then on this is the main process
+    pair.wait_end(deadline)
+    pair.close()
+    sd_notify("READY=1")
+    return d
+
+
+def _cmd_reload(args, p: config.Paths) -> int:
+    answer = admin_call("reload", p.admin_sock, timeout=RELOAD_CLIENT_TIMEOUT)
+    release = answer.get("release")
+    print("vault %s, pid %s, release %s" % (answer.get("state"), answer.get("pid"),
+                                             os.path.basename(release) if isinstance(release, str) else "unknown"))
     return 0
 
 
@@ -1249,7 +1721,9 @@ def _cmd_show(args, p: config.Paths) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """`awb vault serve|unlock|lock|status|encrypt|show`. Exit 0 ok, 2 on an error."""
+    """`awb vault serve|unlock|lock|status|reload|encrypt|show`. Exit 0 ok, 2 on an error."""
+    import argparse
+
     from awb.cli import SafeParser
 
     ap = SafeParser(prog="awb vault", description="The vault: encryption at rest and the vault daemon.")
@@ -1257,7 +1731,10 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("serve", help="run the vault daemon (the owner, under systemd)")
     s.add_argument("--admin-socket", type=Path, default=None)
     s.add_argument("--check-socket", type=Path, default=None)
+    s.add_argument("--takeover", type=int, default=None, metavar="FD", help=argparse.SUPPRESS)
     s.set_defaults(func=_cmd_serve)
+    s = sub.add_parser("reload", help="hand the daemon to a new process of the installed code, without a lock")
+    s.set_defaults(func=_cmd_reload)
     s = sub.add_parser("unlock", help="give the passphrase to the daemon")
     s.add_argument("--stdin", action="store_true", help="read the passphrase from standard input")
     s.set_defaults(func=_cmd_unlock)

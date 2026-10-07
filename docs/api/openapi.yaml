@@ -897,6 +897,9 @@ paths:
                 the-customer-register-is-locked:
                   value:
                     error: The customer register is locked or unavailable. Retry this submission when it is unlocked.
+                the-vault-daemon-is-reloading:
+                  value:
+                    error: The vault daemon is reloading, try again. Retry this submission in a moment.
                 the-operation-could-not-finish:
                   value:
                     error: The operation could not finish. Retry the same submission to check its result.
@@ -1364,6 +1367,9 @@ paths:
                 the-customer-register-is-locked:
                   value:
                     error: The customer register is locked or unavailable. Retry this submission when it is unlocked.
+                the-vault-daemon-is-reloading:
+                  value:
+                    error: The vault daemon is reloading, try again. Retry this submission in a moment.
                 the-operation-could-not-finish:
                   value:
                     error: The operation could not finish. Retry the same submission to check its result.
@@ -1539,6 +1545,9 @@ paths:
                 the-customer-register-is-locked:
                   value:
                     error: The customer register is locked or unavailable. Retry this submission when it is unlocked.
+                the-vault-daemon-is-reloading:
+                  value:
+                    error: The vault daemon is reloading, try again. Retry this submission in a moment.
                 the-operation-could-not-finish:
                   value:
                     error: The operation could not finish. Retry the same submission to check its result.
@@ -1610,6 +1619,9 @@ paths:
                 the-customer-register-is-locked:
                   value:
                     error: The customer register is locked or unavailable. Retry this submission when it is unlocked.
+                the-vault-daemon-is-reloading:
+                  value:
+                    error: The vault daemon is reloading, try again. Retry this submission in a moment.
                 the-operation-could-not-finish:
                   value:
                     error: The operation could not finish. Retry the same submission to check its result.

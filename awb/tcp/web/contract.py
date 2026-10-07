@@ -53,6 +53,7 @@ SNAPSHOT = dt.datetime(2026, 10, 4, 9, 25, 3, tzinfo=dt.timezone.utc)
 # Error texts used by more than one route, exactly as the deployed backends send them.
 SIGNED_OUT = "Sign in to open the project data."
 LOCKED_REGISTER = "The customer register is locked or unavailable. Retry this submission when it is unlocked."
+BUSY_REGISTER = "The vault daemon is reloading, try again. Retry this submission in a moment."
 NOT_FINISHED = "The operation could not finish. Retry the same submission to check its result."
 OTHER_SUBMISSION = "This request already belongs to another submission. Reopen the form."
 INPUT_DOWN = "The input service is unavailable. Check the bucket connection and vault."
@@ -922,7 +923,7 @@ def _project_paths() -> dict:
                                          "retrying.", "terminal": True, "code": "tcp-k2wd"}),
                 "503": refusal("A register or the creation service is unavailable. Retry with the same request_id.",
                                "The customer register is unavailable. Try again later.", LOCKED_REGISTER,
-                               NOT_FINISHED),
+                               BUSY_REGISTER, NOT_FINISHED),
             }, description="Creates the project folder with its files and registers it. No AI call and no cloud "
                            "resource. The engagement rule (a customer is required) exists in the deployed backend "
                            "only.",
@@ -985,7 +986,7 @@ def _customer_paths() -> dict:
                 "200": answer("Every customer code with its registered forms.", ref("CustomerList"), {
                     "one-customer": {"customers": [{"code": "CUST-Q7M4", "name": "<registered name>",
                                                     "aliases": ["<short form>"], "active": True}]}}),
-                "503": refusal("The register cannot be read.", LOCKED_REGISTER, NOT_FINISHED),
+                "503": refusal("The register cannot be read.", LOCKED_REGISTER, BUSY_REGISTER, NOT_FINISHED),
             }, description="The only route that carries registered names. It answers the signed-in owner only. "
                            "A name read here never goes into a project, a chat, a task or a log."),
             "post": operation("createCustomer", "customers", "Register a new customer.", {
@@ -1005,7 +1006,7 @@ def _customer_paths() -> dict:
                                 "matches": ["CUST-Q7M4"]}),
                 "503": refusal("The register is unavailable. Retry with the same request_id.",
                                "The customer was saved but is not ready for projects. Retry this submission.",
-                               LOCKED_REGISTER, NOT_FINISHED),
+                               LOCKED_REGISTER, BUSY_REGISTER, NOT_FINISHED),
             }, description="The name and its other forms go into the owner's register and the customer gets a new "
                            "code. A name that exists already is never merged: the answer names the existing codes.",
                 body=json_body("CustomerCreateRequest", {
@@ -1020,7 +1021,8 @@ def _customer_paths() -> dict:
                                      "pending": {"status": "pending", "code": "CUST-Q7M4"},
                                      "complete": {"status": "complete", "code": "CUST-Q7M4", "created": True},
                                  }),
-                                 "503": refusal("The register is unavailable.", LOCKED_REGISTER, NOT_FINISHED),
+                                 "503": refusal("The register is unavailable.", LOCKED_REGISTER, BUSY_REGISTER,
+                                                NOT_FINISHED),
                              }, parameters=[REQUEST]),
         },
     }

@@ -1090,3 +1090,77 @@ def test_the_status_lines_name_three_states_and_the_split():
     assert lines[0] == ("vault: unlocked, 2 codes, release aaaaaaa; code and units: release bbbbbbb; next: sudo awb "
                         "deploy --only awb-vaultd.service")
     assert lines[1] == "keys: t1, t2"
+
+
+def test_deploy_decides_reload_or_restart_before_systemctl(world, tmp_path, capsys):
+    """T2, design 3.2. The plan decides from the running daemons' ops, the target tree, a changed unit template and
+    --restart; the root run then calls systemctl with exactly that verb. Planted: a daemon whose status has no ops
+    reloaded (no prompt after it); a daemon with ops restarted (a prompt for nothing); a changed unit template or
+    --restart reloaded; a failed reload (any text, "unknown op" too) with an unchanged MainPID followed by a restart
+    instead of the flip back and exit 1."""
+    repo = tmp_path / "t2"
+    shutil.copytree(synth_tree(tmp_path).root, repo)
+    git(repo, "init", "-q")
+    c1 = commit(repo)
+    (repo / "awb" / "vault.py").write_text("from awb import config\nTAKEOVER = '--takeover'\n")
+    (repo / "awb" / "tcp" / "keys.py").write_text("from awb.cli import main\nTAKEOVER = '--takeover'\n")
+    c2 = commit(repo)
+    unit = repo / "seal" / "awb-vaultd.service"
+    unit.write_text(unit.read_text() + "# changed\n")
+    c3 = commit(repo)
+    shutil.copytree(REPO / "seal", world.root / "releases" / c1 / "seal")
+    (world.root / "src").unlink()
+    (world.root / "src").symlink_to("releases/%s" % c1)
+    deploy.write_journal(world.root / "DEPLOYED", {"state": "done", "target": c1, "previous": None, "units": {},
+                                                    "pending": [], "running": {}})
+    for u in ("awb-vaultd.service", "awb-keyd.service"):
+        world.runner.unit(u)["CanReload"] = "yes"
+    old = lambda: {"vault": {"state": "unlocked"}, "keys": {"state": "unlocked"}}         # noqa: E731
+    new = lambda: {"vault": {"state": "unlocked", "ops": ["reload"]},                       # noqa: E731
+                   "keys": {"state": "unlocked", "ops": ["reload"]}}
+
+    def actions(daemons, opts) -> dict[str, tuple[str, str]]:
+        plan = deploy.owner_plan(opts, repo, plan_host(world, repo, daemons))
+        return {u["unit"]: (u["action"], u["reason"]) for u in plan["units"] if u["kind"] in ("vault", "keys")}
+
+    first = actions(old, deploy.Options(to=c2))
+    assert {u: a for u, (a, _) in first.items()} == {"awb-vaultd.service": "restart", "awb-keyd.service": "restart"}
+    assert all("the running daemon predates the hand-over" in r for _, r in first.values())
+    later = actions(new, deploy.Options(to=c2))
+    assert {u: a for u, (a, _) in later.items()} == {"awb-vaultd.service": "reload", "awb-keyd.service": "reload"}
+    forced = actions(new, deploy.Options(to=c2, restart=True))
+    assert {a for a, _ in forced.values()} == {"restart"} and all("--restart" in r for _, r in forced.values())
+    changed = actions(new, deploy.Options(to=c3))
+    assert changed["awb-vaultd.service"][0] == "restart" and "the unit file changed" in changed["awb-vaultd.service"][1]
+    assert changed["awb-keyd.service"][0] == "reload"
+
+    # the root run carries the decision into systemctl: a restart asks the passphrase once, a reload never
+    def root_run(decided, rc_text=None) -> tuple[int, World]:
+        w = World(tmp_path / ("w%d" % len(list(tmp_path.glob("w*")))))
+        w.runner.plan = w.plan(actions={u: a for u, (a, _) in decided.items()})
+        if rc_text is not None:
+            w.runner.on = lambda cmd, kw: subprocess.CompletedProcess(cmd, 1, "", rc_text) \
+                if cmd[:2] == ["systemctl", "reload"] else None
+        return w.main([]), w
+
+    rc, w = root_run(first)
+    assert rc == 0, capsys.readouterr()
+    calls = w.runner.systemctl()
+    assert ["systemctl", "restart", "awb-vaultd.service"] in calls and not [c for c in calls if c[1] == "reload"]
+    assert len(w.runner.named("deploy", "unlock")) == 1
+    rc, w = root_run(later)
+    assert rc == 0, capsys.readouterr()
+    calls = w.runner.systemctl()
+    assert ["systemctl", "reload", "awb-vaultd.service"] in calls
+    assert ["systemctl", "reload", "awb-keyd.service"] in calls
+    assert not [c for c in calls if c[1] == "restart" and c[2] in ("awb-vaultd.service", "awb-keyd.service")]
+    assert not w.runner.named("deploy", "unlock")
+    for text in ("", "awb vault: unknown op", "awb vault: failed: the new daemon did not come up (no answer in time)"):
+        rc, w = root_run(later, text)
+        assert rc == 1
+        calls = w.runner.systemctl()
+        assert not [c for c in calls if c[1] == "restart" and c[2] in ("awb-vaultd.service", "awb-keyd.service")]
+        assert [c for c, _ in w.runner.named("--units-only")] == [
+            [str(w.root / "releases" / w.c0 / "seal" / "setup.sh"), "--update", "--units-only"]]
+        assert os.readlink(w.root / "src") == "releases/%s" % w.c0
+        assert not w.runner.named("deploy", "unlock")

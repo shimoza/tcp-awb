@@ -755,3 +755,621 @@ def test_show_prints_the_sealed_file_on_a_terminal(monkeypatch, tmp_path):
     monkeypatch.setattr(vault.sys, "stdout", out)
     assert vault.main(["show", str(tmp_path / "r.md.gpg")]) == 0
     assert out.getvalue() == "report text\n"
+
+
+# --------------------------------------------------------------------------- T2: the hand-over of a reload
+#
+# The daemon before runs in threads of this process (so fast_gpg applies to it), the new one is a real child
+# process (`python -I -m awb vault serve --takeover FD`) or a stand-in child where a failure is planted. A fake
+# NOTIFY_SOCKET bound here records every datagram in order. No systemd is needed.
+
+STANDIN = r'''
+import json, os, sys, time
+fd, mode, log = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+started = time.monotonic()
+
+def note(**kw):
+    with open(log, "a") as fh:
+        fh.write(json.dumps(dict(kw, t=time.monotonic())) + "\n")
+
+note(event="start", pid=os.getpid())
+from awb import vault
+if mode.startswith(("slow:", "late:")):
+    wait = float(mode.split(":")[1])
+    time.sleep(wait if mode.startswith("slow:") else max(0.0, wait - (time.monotonic() - started)))
+    sys.exit(vault.main(["serve", "--takeover", str(fd)]))
+if mode == "logged":
+    real_send, real_accept = vault._Pair.send, vault.Daemon.accept_now
+    def send(self, obj):
+        note(event="send", obj=sorted(obj))
+        return real_send(self, obj)
+    def accept_now(self):
+        note(event="go", accepts=sum(self.accepts.values()))
+        return real_accept(self)
+    vault._Pair.send, vault.Daemon.accept_now = send, accept_now
+    sys.exit(vault.main(["serve", "--takeover", str(fd)]))
+import socket
+pair = vault._Pair(socket.socket(fileno=fd))
+if mode == "record":
+    fds = {}
+    for name in os.listdir("/proc/self/fd"):
+        try:
+            fds[name] = os.readlink("/proc/self/fd/" + name)
+        except OSError:
+            pass
+    fds = sorted(int(n) for n, target in fds.items() if not target.startswith("/proc/"))
+    line = pair.read(time.monotonic() + 10)
+    note(event="record", argv=sys.argv, environ=dict(os.environ), fds=fds, line=line)
+    pair.send({"ok": False, "error": "failed"})
+    sys.exit(1)
+line = pair.read(time.monotonic() + 10)
+if mode == "failed":
+    pair.send({"ok": False, "error": "failed"})
+    sys.exit(1)
+if mode == "exit":
+    sys.exit(1)
+if mode == "hang":
+    time.sleep(3600)
+if mode == "no-serving":
+    pair.send({"ok": True, "pid": os.getpid(), "release": vault.release_path()})
+    pair.read(time.monotonic() + 10)
+    note(event="go")
+    time.sleep(3600)
+'''
+
+
+def standin(monkeypatch, tmp: Path, mode: str) -> Path:
+    """Replace the child of a reload with the stand-in in `mode`; returns its log file."""
+    script, log = tmp / "standin.py", tmp / ("standin-%s.log" % mode.replace(":", "-"))
+    script.write_text(STANDIN, encoding="utf-8")
+    monkeypatch.setattr(vault, "_takeover_command",
+                        lambda fd: [sys.executable, "-I", str(script), str(fd), mode, str(log)])
+    return log
+
+
+def notes(log: Path) -> list[dict]:
+    try:
+        return [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines()]
+    except FileNotFoundError:
+        return []
+
+
+def gone(pid: int, wait: float = 20.0) -> bool:
+    """True once the process has no /proc entry (exited and reaped: no zombie)."""
+    end = time.monotonic() + wait
+    while time.monotonic() < end:
+        try:
+            os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            pass
+        if not Path("/proc/%d" % pid).exists():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def stop_child(pid: int) -> None:
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    assert gone(pid), "the new daemon did not stop"
+
+
+class Notify:
+    """A fake NOTIFY_SOCKET: every datagram with its arrival time, in order."""
+
+    def __init__(self, path: Path):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.sock.bind(str(path))
+        self.sock.settimeout(0.2)
+        self.got: list[tuple[float, str]] = []
+        self.done = threading.Event()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def _run(self):
+        while not self.done.is_set():
+            try:
+                data = self.sock.recv(4096)
+            except OSError:
+                continue
+            self.got.append((time.monotonic(), data.decode()))
+
+    def messages(self) -> list[str]:
+        return [m for _, m in self.got]
+
+    def close(self):
+        self.done.set()
+        self.thread.join(timeout=2)
+        self.sock.close()
+
+
+@pytest.fixture
+def notify(sockets, monkeypatch):
+    n = Notify(sockets / "notify")
+    monkeypatch.setenv("NOTIFY_SOCKET", str(sockets / "notify"))
+    try:
+        yield n
+    finally:
+        n.close()
+
+
+@contextlib.contextmanager
+def parent(vp: config.Paths):
+    """The daemon before, serving in a thread of this process the way `awb vault serve` does. At the end the new
+    daemon a reload started is stopped too."""
+    d = vault.Daemon(vp)
+    d.start()
+    t = threading.Thread(target=d.serve_forever, daemon=True)
+    t.start()
+    d.thread, d.children = t, []
+    try:
+        yield d
+    finally:
+        if not d.handed_over.is_set():
+            d.stopping.set()
+        t.join(timeout=30)
+        assert not t.is_alive()
+        for pid in d.children:
+            stop_child(pid)
+
+
+def reload(d, timeout: float | None = None) -> dict:
+    answer = vault.admin_call("reload", timeout=vault.RELOAD_CLIENT_TIMEOUT if timeout is None else timeout)
+    d.children.append(answer["pid"])
+    return answer
+
+
+def inodes(vp: config.Paths) -> list[tuple[int, int]]:
+    return [(os.lstat(f).st_dev, os.lstat(f).st_ino) for f in (vp.admin_sock, vp.check_socket)]
+
+
+def expected_hits() -> list[dict]:
+    return [{"start": h["start"], "length": h["length"], "cls": h["cls"]} for h in check._scan(
+        TEXT, check.Matcher(register.forms_for_matching(register.parse("\n".join(fixtures.register_lines()) + "\n"))))]
+
+
+def test_a_reload_keeps_the_state_unlocked_and_the_socket_files(vp, notify, monkeypatch):
+    """Planted: a client pinging and checking in a loop with a 2 s bound across a real reload sees locked, a refused
+    connection, a timeout or a missing socket; a socket file changes its inode; status differs after the reload
+    except for pid and release."""
+    with parent(vp) as d:
+        assert encrypt_vault(monkeypatch) == 0 and d.state() == "unlocked"
+        want = vault.check_remote(TEXT, vp.check_socket)
+        assert want and want == expected_hits()
+        before, files = vault.admin_call("status"), inodes(vp)
+        seen: list[str] = []
+        stop = threading.Event()
+
+        def probe():
+            while not stop.is_set():
+                try:
+                    state = vault.ping(vp.check_socket, timeout=2.0)
+                    hits = vault.check_remote(TEXT, vp.check_socket, timeout=2.0)
+                    seen.append("ok" if state == "unlocked" and hits == want else "wrong %s" % state)
+                except vault.VaultError as err:
+                    seen.append(type(err).__name__)
+                if not (vp.admin_sock.exists() and vp.check_socket.exists()):
+                    seen.append("missing")
+
+        prober = threading.Thread(target=probe)
+        prober.start()
+        time.sleep(0.3)
+        answer = reload(d)
+        d.thread.join(timeout=30)
+        assert not d.thread.is_alive(), "the daemon before did not leave"
+        time.sleep(0.5)
+        stop.set()
+        prober.join(timeout=10)
+        assert answer["state"] == "unlocked" and answer["pid"] != os.getpid()
+        assert answer["release"] == vault.release_path()
+        assert set(seen) == {"ok"} and len(seen) > 5, sorted(set(seen))
+        assert inodes(vp) == files
+        after = vault.admin_call("status")
+        assert after["pid"] == answer["pid"]
+        assert {k: v for k, v in after.items() if k not in ("pid", "release")} == \
+            {k: v for k, v in before.items() if k not in ("pid", "release")}
+        assert vault.check_remote(TEXT, vp.check_socket) == want
+        assert "MAINPID=%d" % answer["pid"] in notify.messages()
+
+
+def test_checks_and_pings_answer_during_the_hand_over(vp, notify, monkeypatch, tmp_path):
+    """Planted: an _op_reload that keeps the daemon lock across the wait for the child makes both time out."""
+    standin(monkeypatch, tmp_path, "slow:5")
+    with parent(vp) as d:
+        assert encrypt_vault(monkeypatch) == 0
+        result = {}
+        t = threading.Thread(target=lambda: result.update(reload(d)))
+        t.start()
+        assert d.handing_over.wait(10)
+        time.sleep(0.5)
+        started = time.monotonic()
+        assert vault.ping(vp.check_socket, timeout=1.0) == "unlocked"
+        assert vault.check_remote(TEXT, vp.check_socket, timeout=1.0) == expected_hits()
+        assert vault.admin_call("status", timeout=1.0)["state"] == "unlocked"
+        assert time.monotonic() - started < 2.0
+        assert d.handing_over.is_set() and not d.handed_over.is_set(), "the child answered too early for the test"
+        t.join(timeout=60)
+        assert result["state"] == "unlocked"
+
+
+def test_the_passphrase_travels_on_the_socket_pair_only(vp, notify, monkeypatch, tmp_path):
+    """Planted: the passphrase in the child's argv or environment; a descriptor beyond 0, 1, 2 and the three passed
+    ones (the pair and the two listening sockets)."""
+    log = standin(monkeypatch, tmp_path, "record")
+    with parent(vp) as d:
+        assert encrypt_vault(monkeypatch) == 0
+        with pytest.raises(vault.VaultError, match="the new daemon did not come up"):
+            vault.admin_call("reload")
+        assert vault.ping(vp.check_socket) == "unlocked"
+        (rec,) = [n for n in notes(log) if n["event"] == "record"]
+        line = rec["line"]
+        assert line["passphrase"] == PASS and line["state"] == "unlocked"
+        assert PASS not in " ".join(rec["argv"])
+        assert not [k for k, v in rec["environ"].items() if PASS in k or PASS in v]
+        pair_fd = int(rec["argv"][1])
+        assert rec["fds"] == sorted({0, 1, 2, pair_fd, line["admin_fd"], line["check_fd"]})
+        assert line["admin_path"] == str(vp.admin_sock) and line["check_path"] == str(vp.check_socket)
+
+
+@pytest.mark.parametrize("mode", ["failed", "exit", "hang", "no-serving"])
+def test_a_child_that_fails_leaves_the_old_daemon_serving(vp, notify, monkeypatch, tmp_path, mode):
+    """Planted: the daemon before stops answering or accepting, is locked, sent MAINPID, lost a socket file, answers
+    anything but the fixed detail, or leaves its child alive or a zombie."""
+    monkeypatch.setattr(vault, "HANDOVER_DEADLINE", 3.0)
+    log = standin(monkeypatch, tmp_path, mode)
+    with parent(vp) as d:
+        assert encrypt_vault(monkeypatch) == 0
+        files = inodes(vp)
+        with pytest.raises(vault.VaultError) as err:
+            vault.admin_call("reload")
+        assert str(err.value).startswith("failed: the new daemon did not come up (")
+        assert vault.ping(vp.check_socket) == "unlocked"
+        assert vault.admin_call("status")["pid"] == os.getpid()
+        assert vault.check_remote(TEXT, vp.check_socket) == expected_hits()
+        assert inodes(vp) == files
+        assert not [m for m in notify.messages() if m.startswith("MAINPID")]
+        (start,) = [n for n in notes(log) if n["event"] == "start"]
+        assert gone(start["pid"], 2.0), "the child lives on or is a zombie"
+        assert not d.handing_over.is_set() and not d.handed_over.is_set()
+        assert vault.admin_call("register_load")["ok"]
+
+
+def test_the_order_is_go_serving_mainpid(vp, notify, monkeypatch, tmp_path):
+    """Planted: MAINPID before serving, READY=1 before MAINPID, or the child accepting before go (its accept counter
+    must be zero until then)."""
+    log = standin(monkeypatch, tmp_path, "logged")
+    with parent(vp) as d:
+        assert encrypt_vault(monkeypatch) == 0
+        answer = reload(d)
+        d.thread.join(timeout=30)
+        time.sleep(0.5)
+        events = notes(log)
+        (go,) = [n for n in events if n["event"] == "go"]
+        assert go["accepts"] == 0
+        sends = [n for n in events if n["event"] == "send"]
+        assert [s["obj"] for s in sends] == [["ok", "pid", "release"], ["serving"]]
+        serving = sends[1]["t"]
+        got = [(t, m) for t, m in notify.got]
+        assert [m for _, m in got] == ["MAINPID=%d" % answer["pid"], "READY=1"]
+        assert serving < got[0][0] < got[1][0]
+        assert sends[0]["t"] < go["t"] < serving
+
+
+def test_a_write_between_ok_and_go_is_answered_busy_by_the_parent(vp, notify, monkeypatch):
+    """Planted: a register_save sent after the child's ok and before go is accepted by anyone; the new daemon's
+    matcher differs from the register file after the hand-over."""
+    with parent(vp) as d:
+        assert encrypt_vault(monkeypatch) == 0
+        text = vault.admin_call("register_load")["text"]
+        planted = text + "\t".join((fixtures.PARTNER_CODE + "-PERS-1", "PERS", fixtures.PLANTED_PERSON,
+                                    fixtures.TODAY, "active")) + "\n"
+        saved = vp.register_encrypted.read_bytes()
+        caught: list = []
+        real_pause = d._pause
+
+        def pause(*a, **k):
+            try:
+                vault.admin_call("register_save", text=planted)
+                caught.append("accepted")
+            except vault.VaultBusy:
+                caught.append("busy")
+            return real_pause(*a, **k)
+
+        d._pause = pause
+        reload(d)
+        d.thread.join(timeout=30)
+        assert caught == ["busy"]
+        assert vp.register_encrypted.read_bytes() == saved
+        assert vault.check_remote("met %s today" % fixtures.PLANTED_PERSON, vp.check_socket) == []
+        assert vault.check_remote(TEXT, vp.check_socket) == expected_hits()
+        assert vault.admin_call("register_load")["text"] == text
+
+
+def test_write_ops_are_busy_during_the_hand_over_and_the_order_is_total(vp, notify, monkeypatch, tmp_path):
+    """Planted: a writer that passed the flag check before taking the daemon lock and runs after the copy (the flag
+    checked before the lock); a write op that is not busy during the hand-over; a new daemon that refuses
+    register_save afterwards."""
+    standin(monkeypatch, tmp_path, "slow:4")
+    with parent(vp) as d:
+        assert encrypt_vault(monkeypatch) == 0
+        text = vault.admin_call("register_load")["text"]
+        planted = text + "\t".join((fixtures.PARTNER_CODE + "-PERS-1", "PERS", fixtures.PLANTED_PERSON,
+                                    fixtures.TODAY, "active")) + "\n"
+        early: list = []
+        result: dict = {}
+
+        def save():
+            try:
+                vault.admin_call("register_save", text=planted)
+                early.append("accepted")
+            except vault.VaultBusy:
+                early.append("busy")
+
+        with d._lock:     # a writer queued on the daemon lock before the reload took its copy
+            writer = threading.Thread(target=save)
+            writer.start()
+            time.sleep(0.3)
+            t = threading.Thread(target=lambda: result.update(reload(d)))
+            t.start()
+            assert d.handing_over.wait(10)
+            time.sleep(0.2)
+        writer.join(timeout=30)
+        assert early == ["busy"]
+        f = vp.originals / "F-AB2C.txt"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("x\n", encoding="utf-8")
+        for op, fields in (("register_save", {"text": planted}), ("unlock", {"passphrase": PASS}),
+                           ("lock", {}), ("seal_file", {"path": str(f)})):
+            with pytest.raises(vault.VaultBusy, match="reloading, try again"):
+                vault.admin_call(op, **fields)
+        assert not d.handed_over.is_set(), "the child answered too early for the test"
+        t.join(timeout=60)
+        assert result["state"] == "unlocked"
+        d.thread.join(timeout=30)
+        assert vault.admin_call("register_save", text=planted)["ok"]
+        assert vault.check_remote("met %s today" % fixtures.PLANTED_PERSON, vp.check_socket)
+
+
+def served(tmp: Path) -> tuple[subprocess.Popen, Path]:
+    """`awb vault serve` as a process of its own. Its output goes to a file: the new daemon of a reload inherits it,
+    so a pipe would stay open after the daemon before has left."""
+    log = tmp / "serve.log"
+    env = dict(os.environ, PYTHONPATH=str(ROOT))
+    with open(log, "wb") as out:
+        proc = subprocess.Popen([sys.executable, "-m", "awb", "vault", "serve"], env=env, cwd=str(ROOT),
+                                stdout=out, stderr=out)
+    return proc, log
+
+
+def test_the_parent_leaves_through_the_hand_over_exit(vp, tmp_path):
+    """Planted: an exit through stop() (the socket files go), a connection of before the switch cut off in its
+    request, a SIGTERM to the handed-over daemon that removes the new daemon's files."""
+    proc, log = served(tmp_path)
+    child = None
+    try:
+        deadline = time.monotonic() + 20
+        while not (vp.check_socket.exists() and vp.admin_sock.exists()):
+            assert proc.poll() is None and time.monotonic() < deadline
+            time.sleep(0.05)
+        files = inodes(vp)
+        half = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        half.settimeout(15)
+        half.connect(str(vp.check_socket))
+        line = json.dumps({"op": "check", "text": TEXT}).encode()
+        half.sendall(line[:10])           # a request in flight across the switch
+        time.sleep(0.3)
+        answer = vault.admin_call("reload")
+        child = answer["pid"]
+        assert child != proc.pid
+        time.sleep(0.5)
+        assert proc.poll() is None, "the daemon before left with a request in flight"
+        proc.send_signal(signal.SIGTERM)
+        time.sleep(0.3)
+        half.sendall(line[10:] + b"\n")
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = half.recv(65536)
+            assert chunk, "the request in flight was cut off"
+            buf += chunk
+        half.close()
+        assert json.loads(buf)["hits"] == expected_hits()
+        assert proc.wait(timeout=20) == 0 and "handed over" in log.read_text()
+        assert inodes(vp) == files
+        assert vault.ping(vp.check_socket) == "plain" and vault.admin_call("status")["pid"] == child
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        if child:
+            stop_child(child)
+    assert not vp.check_socket.exists() and not vp.admin_sock.exists(), "the new daemon's clean stop"
+
+
+def test_a_reload_from_another_uid_is_refused(vp, daemon, monkeypatch):
+    def never(fd):
+        raise AssertionError("a child was started")
+
+    monkeypatch.setattr(vault, "_takeover_command", never)
+    monkeypatch.setattr(vault, "_peer_uid", lambda conn: os.getuid() + 1)
+    assert raw(vp.admin_sock, {"op": "reload"})[0] == {"ok": False, "error": "refused"}
+    with pytest.raises(vault.VaultUnavailable):
+        vault.admin_call("reload")
+    assert vault.main(["reload"]) == 2
+    assert not daemon.handing_over.is_set()
+
+
+def test_the_reload_client_outlasts_the_parent(vp, notify, monkeypatch, tmp_path):
+    """The clock is scaled: the daemon's deadline and the client's timeout shrink by the same factor. The stand-in
+    child answers just before the daemon's deadline: the client must still get the ok. Planted: a client timeout
+    equal to the daemon's wait."""
+    assert vault.RELOAD_CLIENT_TIMEOUT - vault.HANDOVER_DEADLINE >= 20
+    scale = 6.0 / vault.HANDOVER_DEADLINE
+    monkeypatch.setattr(vault, "HANDOVER_DEADLINE", vault.HANDOVER_DEADLINE * scale)
+    monkeypatch.setattr(vault, "RELOAD_LOCK_WAIT", 1.0)
+    standin(monkeypatch, tmp_path, "late:5.0")
+    with parent(vp) as d:
+        assert encrypt_vault(monkeypatch) == 0
+        started = time.monotonic()
+        answer = reload(d, timeout=vault.RELOAD_CLIENT_TIMEOUT * scale)
+        assert answer["state"] == "unlocked" and time.monotonic() - started > 4.5
+
+
+def test_a_reload_waits_for_an_intake_and_an_intake_waits_for_a_reload(vp, notify, monkeypatch, tmp_path):
+    """Planted: a reload that starts its child while an intake holds the vault; an intake that runs during a
+    hand-over."""
+    log = standin(monkeypatch, tmp_path, "slow:3")
+    with parent(vp) as d:
+        assert encrypt_vault(monkeypatch) == 0
+        result: dict = {}
+        with vault.vault_lock(vp):
+            t = threading.Thread(target=lambda: result.update(reload(d)))
+            t.start()
+            time.sleep(1.0)
+            assert not notes(log) and not result
+            released = time.monotonic()
+        time.sleep(1.0)
+        (start,) = [n for n in notes(log) if n["event"] == "start"]
+        assert start["t"] > released
+        with pytest.raises(vault.VaultError, match="holds the vault"):
+            with vault.vault_lock(vp, wait=0.5):
+                pass
+        t.join(timeout=60)
+        assert result["state"] == "unlocked"
+
+
+def test_ready_is_sent_at_a_normal_start_and_nothing_without_the_variable(vp, notify, monkeypatch):
+    env = dict(os.environ, PYTHONPATH=str(ROOT))
+    proc = subprocess.Popen([sys.executable, "-m", "awb", "vault", "serve"], env=env, cwd=str(ROOT),
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        deadline = time.monotonic() + 20
+        while "READY=1" not in notify.messages():
+            assert proc.poll() is None and time.monotonic() < deadline, "no READY=1"
+            time.sleep(0.05)
+        assert vp.admin_sock.exists() and vp.check_socket.exists()
+        assert notify.messages() == ["READY=1"]
+    finally:
+        proc.send_signal(signal.SIGTERM)
+        proc.communicate(timeout=20)
+    monkeypatch.delenv("NOTIFY_SOCKET")
+    assert vault.sd_notify("READY=1") is False
+    time.sleep(0.3)
+    assert notify.messages() == ["READY=1"]
+
+
+def test_a_locked_daemon_reloads_and_stays_locked_with_its_time(vp, notify, monkeypatch, tmp_path):
+    """Planted: a line that carries a passphrase while locked; a lock time lost in the hand-over."""
+    real_command = vault._takeover_command
+    with parent(vp) as d:
+        assert encrypt_vault(monkeypatch) == 0
+        assert vault.admin_call("lock")["state"] == "locked"
+        since = vault.admin_call("status")["since"]
+        assert SINCE_RE.fullmatch(since)
+        log = standin(monkeypatch, tmp_path, "record")
+        with pytest.raises(vault.VaultError):
+            vault.admin_call("reload")
+        (rec,) = [n for n in notes(log) if n["event"] == "record"]
+        assert "passphrase" not in rec["line"] and rec["line"]["state"] == "locked"
+        assert rec["line"]["since"] == since
+        monkeypatch.setattr(vault, "_takeover_command", real_command)
+        time.sleep(1.1)
+        answer = reload(d)
+        assert answer["state"] == "locked"
+        d.thread.join(timeout=30)
+        status = vault.admin_call("status")
+        assert status["pid"] == answer["pid"] and status["state"] == "locked" and status["since"] == since
+        assert vault.ping_state(vp.check_socket) == {"state": "locked", "since": since}
+
+
+def test_an_inherited_socket_is_served_with_the_timeout_and_the_identity(vp):
+    """Planted: a skipped settimeout (the inherited description is non-blocking: accept spins every 50 ms, 20 times a
+    second) or an identity that is not the file's lstat."""
+    srv, _ = vault._bind(vp.admin_sock, 0o600, None)
+    chk, _ = vault._bind(vp.check_socket, 0o660, 0o750)
+    # as the child gets them: a socket object over a description another process left non-blocking
+    inherited = {True: socket.socket(fileno=os.dup(srv.fileno())), False: socket.socket(fileno=os.dup(chk.fileno()))}
+    srv.close()
+    chk.close()
+    assert inherited[True].gettimeout() is None
+    d = vault.Daemon(vp)
+    d.start(inherited=inherited, accept=False)
+    try:
+        for s, path in ((inherited[True], vp.admin_sock), (inherited[False], vp.check_socket)):
+            assert s.gettimeout() == 0.2
+        st = os.lstat(vp.admin_sock)
+        assert d._servers[0][2] == (st.st_dev, st.st_ino)
+        time.sleep(0.5)
+        assert d.accepts == {"admin": 0, "check": 0}
+        d.accept_now()
+        time.sleep(1.0)
+        assert 0 < d.accepts["admin"] < 10 and 0 < d.accepts["check"] < 10, d.accepts
+        assert vault.ping(vp.check_socket) == "plain"
+    finally:
+        d.stop()
+    assert not vp.admin_sock.exists() and not vp.check_socket.exists()
+
+
+def test_the_daemons_are_not_dumpable(vp, tmp_path):
+    """Planted: prctl(PR_GET_DUMPABLE) of the served process is 1: /proc/<pid> stays the owner's and readable."""
+    proc, _ = served(tmp_path)
+    child = None
+    try:
+        deadline = time.monotonic() + 20
+        while not (vp.check_socket.exists() and vp.admin_sock.exists()):
+            assert proc.poll() is None and time.monotonic() < deadline
+            time.sleep(0.05)
+        for pid in (proc.pid,):
+            assert os.stat("/proc/%d/status" % pid).st_uid == 0
+            with pytest.raises(PermissionError):
+                Path("/proc/%d/environ" % pid).read_bytes()
+        child = vault.admin_call("reload")["pid"]
+        assert os.stat("/proc/%d/status" % child).st_uid == 0, "the new daemon sets the flag again after exec"
+        assert os.stat("/proc/%d/status" % os.getpid()).st_uid == os.getuid()
+    finally:
+        if proc.poll() is None:
+            proc.send_signal(signal.SIGTERM)
+        proc.wait(timeout=20)
+        if child:
+            stop_child(child)
+
+
+def test_status_and_ping_answer_ops_and_release(vp, daemon):
+    """Planted: an answer without ops, without reload in it, or a release that is not the real path of the tree of
+    the package; ops or release on the check socket."""
+    import awb
+
+    tree = os.path.dirname(os.path.realpath(awb.__file__))
+    assert vault.release_path() == os.path.dirname(tree)
+    for op in ("status", "ping"):
+        answer = vault.admin_call(op)
+        assert "reload" in answer["ops"] and answer["ops"] == sorted(vault.Daemon._ADMIN_OPS)
+        assert answer["release"] == os.path.dirname(tree)
+    assert set(raw(vp.check_socket, {"op": "ping"})[0]) == {"ok", "state"}
+
+
+def test_the_module_text_promise_still_holds():
+    """Planted: a passphrase, the tenants or the digest in a print, a log line, an argv or an environment."""
+    import ast
+
+    banned = {"pw", "passphrase", "_passphrase", "tenants", "digest", "line", "secrets"}
+    for rel in ("awb/vault.py", "awb/tcp/keys.py"):
+        tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            reach = []
+            if isinstance(node, ast.Call):
+                f = node.func
+                name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else ""
+                if name in ("print", "_log", "Popen", "_takeover_command", "putenv", "sd_notify") or (
+                        name == "write" and re.search(r"std(err|out)", ast.dump(f))):
+                    reach = node.args + [k.value for k in node.keywords if k.arg not in ("pass_fds", "input")]
+            elif isinstance(node, ast.Assign) and any(
+                    isinstance(t, ast.Subscript) and "environ" in ast.dump(t.value) for t in node.targets):
+                reach = [node.value]
+            elif isinstance(node, ast.FunctionDef) and node.name in ("_takeover_command",):
+                reach = [r.value for r in ast.walk(node) if isinstance(r, ast.Return)]
+            for r in reach:
+                for n in ast.walk(r):
+                    word = n.id if isinstance(n, ast.Name) else n.attr if isinstance(n, ast.Attribute) else None
+                    assert word not in banned, "%s:%d carries %s" % (rel, node.lineno, word)

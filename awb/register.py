@@ -51,6 +51,10 @@ class RegisterError(Exception):
     """A register problem. The message names the line and the reason, never the content of the line."""
 
 
+class RegisterBusy(RegisterError):
+    """The vault daemon hands itself over to a new process (a reload): try again in a moment."""
+
+
 def _fail(where: str, reason: str) -> RegisterError:
     return RegisterError("register %s: %s" % (where, reason))
 
@@ -140,6 +144,8 @@ def _vault_call(path: Path, op: str, **fields) -> dict:
         raise RegisterError("register is encrypted and the vault is locked; run awb vault unlock") from None
     except vault.VaultUnavailable:
         raise RegisterError("register is encrypted and the vault daemon is not available") from None
+    except vault.VaultBusy:
+        raise RegisterBusy("the vault daemon is reloading, try again") from None
     except vault.VaultError as err:
         raise RegisterError("register refused by the vault daemon: %s" % err) from None
 
