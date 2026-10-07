@@ -1150,15 +1150,15 @@ paths:
                   value: |
                     The response was too large.
         "503":
-          description: The data check or a project folder is unavailable. Nothing was returned.
+          description: The data check or a project folder is unavailable. Nothing was returned. While the vault is locked the error opens with the time of the lock.
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
               examples:
-                the-data-check-is-locked:
+                locked-since-2026-10-07t06:
                   value:
-                    error: The data check is locked. Project content was not returned.
+                    error: "locked since 2026-10-07T06:02:11Z. The data check is locked. Project content was not returned."
                 the-data-check-is-unavailable:
                   value:
                     error: The data check is unavailable. Project content was not returned.

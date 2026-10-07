@@ -6,9 +6,11 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        (awb/rulesync.py), as additional context of a clean prompt.
                                        Exit 2 when the prompt carries a registered name, structured data or a
                                        secret of the gate's classes (the client drops the prompt and shows the
-                                       message to him); exit 0 with a warning in `additionalContext` when the
-                                       name check cannot run, so that a locked vault never blocks typing. The
-                                       rate limit of the vault daemon is not a locked vault: the hook waits up to
+                                       message to him). Exit 2 as well when the name check cannot run (a locked
+                                       vault, no vault daemon, no register, no check module or any other failure
+                                       of the check): the Workbench is locked, nothing reaches the model, and the
+                                       message says since when and that the owner unlocks it (T3). The rate
+                                       limit of the vault daemon is not a locked vault: the hook waits up to
                                        HOOK_RATE_WAIT seconds and then blocks with "send it again in a minute".
                                        The check reads what hides behind a base64 or hex block and under a bidi
                                        override as well
@@ -21,9 +23,9 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        bidi override or (under a deliverables folder at any depth) a blocking
                                        tell of the writing check: class and line only; also when a folder on its
                                        path carries a registered name. Also exit 2 when the name check cannot
-                                       run or the file is over MAX_WRITE_BYTES (MAX_DELIVERABLE_BYTES under
-                                       deliverables): the file is written (the tool ran) and the session is told
-                                       that it is unchecked
+                                       run (with the time of the lock and the unlock) or the file is over
+                                       MAX_WRITE_BYTES (MAX_DELIVERABLE_BYTES under deliverables): the file is
+                                       written (the tool ran) and the session is told that it is unchecked
     stop            Stop               exit 2 with "run the review for: ..." while a deliverable has no valid
                                        review record, and while STATE.md lags behind the project's commits or
                                        lacks its Status: and Next: lines (awb/status.py); exit 0 when
@@ -34,10 +36,11 @@ Each hook reads the hook JSON of the client from standard input and answers the 
     session-start   SessionStart       JSON with `additionalContext`: SCOPE.md, the first 60 lines of STATE.md,
                                        OPEN.md, the count of expired knowledge entries and the days since the last
                                        career update when that is over 90. A section is withheld when it carries
-                                       any hit of the name check and when the name check cannot run at all. It
-                                       also claims the project for the session (T-62) and says when another live
-                                       session holds it, when the project is idle (close it) and when STATE.md is
-                                       over its size (move older layers to history/)
+                                       any hit of the name check. When the name check cannot run at all the
+                                       whole context is one line, that the Workbench is locked, and no file is
+                                       loaded. It also claims the project for the session (T-62) and says when
+                                       another live session holds it, when the project is idle (close it) and
+                                       when STATE.md is over its size (move older layers to history/)
 
 The platform of a project (tcp or hcs, which decides whether vendor names block in a deliverable) comes from
 the prefix of its project code, the name of its folder. A line in SCOPE.md cannot change it.
@@ -45,7 +48,8 @@ the prefix of its project code, the name of its folder. A line in SCOPE.md canno
 The name check is `check.check_text` (it goes to the vault daemon when the register cannot be read here). The
 writing check, the review status, the knowledge base and the career log live in their own modules. Each is
 imported only when a hook needs it; a module that is missing or fails makes its part of the hook step back with
-a warning. A missing module never blocks a session and never crashes a hook.
+a warning and never crashes a hook. The name check is the exception: without it the prompt and the written file
+are refused and the start loads no file.
 
 Exit codes follow the client: 0 go on, 2 block. A usage error or an unexpected error exits 1, which the client
 shows without blocking. A hook that runs longer than HOOK_BUDGET seconds stops itself and fails closed (exit 2
@@ -108,18 +112,31 @@ SECRET_CLASSES = ("secret", "private-key", "token")
 """The classes of the gate that a prompt or a written file must not carry either."""
 """Seconds a hook waits and retries while the vault daemon answers with its rate limit."""
 INSTALLED_AWB = Path("/usr/local/bin/awb")
-"""The command the seal installs for the work user (seal/setup.sh)."""
+"""The command the seal installs for the work user (seal/setup.sh): a root owned wrapper that runs the installed
+interpreter isolated (`python3 -I -m awb`); a symlink to the venv script on a host sealed before T3."""
+SINCE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+"""The one shape of a lock time that goes into a message (vault.SINCE_FORMAT); any other value is "unknown"."""
+UNLOCK_HINT = "as the owner run awb vault unlock (and awb keys unlock)"
+LOCKED_START = ("The Workbench is locked since %s. Every prompt is refused until the owner runs awb vault unlock. "
+                "The project files were not loaded.")
+"""The whole context of a session that starts while the name check cannot run (T3)."""
 HOST_FILE = Path(config.HOST_CONF)
 """The host file of a sealed host; its `work_user` says whose sessions the hooks check."""
 
 
 class Unavailable(Exception):
     """A check could not run. The message is a short reason chosen here, never text of the checked input.
-    `rate` is true when the reason is the rate limit of the vault daemon (it passes within a minute)."""
+    `rate` is true when the reason is the rate limit of the vault daemon (it passes within a minute). `since` is
+    the time the vault daemon became locked when it said so in the fixed shape, else None."""
 
-    def __init__(self, reason: str, rate: bool = False):
+    def __init__(self, reason: str, rate: bool = False, since: str | None = None):
         super().__init__(reason)
         self.rate = rate
+        self.since = since if isinstance(since, str) and SINCE_RE.fullmatch(since) else None
+
+    def locked(self) -> str:
+        """"the Workbench is locked since <time> (<reason>)", "since unknown" without a time."""
+        return "the Workbench is locked since %s (%s)" % (self.since or "unknown", self)
 
 
 # --------------------------------------------------------------------------- client settings
@@ -145,24 +162,72 @@ def client_settings(prefix: str) -> dict:
     }
 
 
+class ForeignPrefix(Exception):
+    """On a sealed host the hook command of a project would not be the installed command."""
+
+
+_EXEC_RE = re.compile(r"^[ \t]*exec[ \t]+(/\S+)[ \t]+-I[ \t]+-m[ \t]+awb[ \t]+\"\$@\"[ \t]*$")
+"""The exec line of the wrapper seal/setup.sh writes: `exec <python> -I -m awb "$@"`."""
+
+
+def _runs_this_python(installed: Path) -> bool:
+    """True when INSTALLED_AWB runs the interpreter of this process: the wrapper whose exec line names an
+    interpreter in the folder of `sys.executable`, or (a host sealed before T3) a symlink to the `awb` script of
+    that folder."""
+    here = Path(sys.executable).parent.resolve()
+    try:
+        if installed.is_symlink():
+            target = installed.resolve(strict=True)
+            return target.parent == here and target.name == "awb"
+        if not installed.is_file() or installed.stat().st_size > 4096:
+            return False
+        lines = installed.read_text(encoding="utf-8").splitlines()
+    except (OSError, RuntimeError, UnicodeDecodeError):
+        return False
+    if not lines or lines[0].strip() != "#!/bin/sh":
+        return False
+    for line in lines[1:]:
+        m = _EXEC_RE.match(line)
+        if m:
+            exe = Path(m.group(1))
+            try:
+                return exe.parent.resolve() == here and exe.name.startswith("python")
+            except (OSError, RuntimeError):
+                return False
+    return False
+
+
+def _sealed() -> bool:
+    """True when the root host file names a work user (the seal ran on this host)."""
+    try:
+        text = Path(HOST_FILE).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return re.search(r"(?m)^[ \t]*work_user[ \t]*=[ \t]*\S+[ \t]*$", text) is not None
+
+
 def command_prefix(executable: str | os.PathLike | None = None) -> str:
     """`<python> -m awb hook` for the settings of a project, `sys.executable` by default.
 
     An interpreter under the home folder is written as "$HOME/..." (the client runs hook commands through a
     shell), so that no project file carries a home path; the commit gate refuses one. Else the absolute path.
+    When this process runs isolated (`python3 -I`) the prefix carries `-I` too, so that the hooks load no
+    package of the invoking user's site folder or PYTHONPATH either.
 
-    On a sealed host (no `executable` given, and INSTALLED_AWB is the `awb` of the running interpreter's own
-    environment) the prefix is `/usr/local/bin/awb hook`, the very command of the work user's settings: the
-    client runs identical hook commands once, so the hooks of a project do not run twice and do not spend the
-    rate budget of the vault daemon twice.
+    When no `executable` is given and INSTALLED_AWB runs the interpreter of this process (the wrapper of the
+    seal, or the symlink of a host sealed before T3) the prefix is `/usr/local/bin/awb hook`, the very command of
+    the work user's settings: the client runs identical hook commands once, so the hooks of a project do not run
+    twice and do not spend the rate budget of the vault daemon twice.
+
+    On a sealed host (the host file names a work user) any other prefix raises ForeignPrefix: a project there
+    runs its hooks through the installed command or not at all (the owner's `awb spawn` from the repository
+    environment is refused, T3).
     """
-    if executable is None:
-        try:
-            installed = INSTALLED_AWB.resolve(strict=True)
-            if installed.parent == Path(sys.executable).parent.resolve() and installed.name == "awb":
-                return "%s hook" % shlex.quote(str(INSTALLED_AWB))
-        except (OSError, RuntimeError):
-            pass
+    if executable is None and _runs_this_python(INSTALLED_AWB):
+        return "%s hook" % shlex.quote(str(INSTALLED_AWB))
+    if _sealed():
+        raise ForeignPrefix("this host is sealed: a project gets the hooks of the installed command only. Run "
+                            "awb from %s, as the work user" % INSTALLED_AWB)
     exe = Path(executable or sys.executable)
     try:
         rel = exe.relative_to(Path.home())
@@ -172,7 +237,8 @@ def command_prefix(executable: str | os.PathLike | None = None) -> str:
         shown = '"$HOME/%s"' % rel.as_posix()
     else:
         shown = shlex.quote(str(exe))
-    return "%s -m awb hook" % shown
+    isolated = " -I" if executable is None and sys.flags.isolated else ""
+    return "%s%s -m awb hook" % (shown, isolated)
 
 
 # --------------------------------------------------------------------------- small helpers
@@ -233,7 +299,7 @@ def _with_rate_wait(mod, call):
                     time.sleep(1.0)
                     continue
                 raise Unavailable(_reason(exc, mod), rate=True) from None
-            raise Unavailable(_reason(exc, mod)) from None
+            raise Unavailable(_reason(exc, mod), since=getattr(exc, "since", None)) from None
 
 
 def _counts(hits: list[dict]) -> str:
@@ -476,11 +542,9 @@ def hook_prompt(data: dict) -> int:
             print("the name check is busy (rate limit of the vault daemon). Nothing was sent: send the prompt "
                   "again in a minute.", file=sys.stderr)
             return BLOCK
-        _emit(EVENTS["prompt"],
-              "Warning from the Workbench: the name check of this prompt did not run (%s). Treat any name in it "
-              "as unregistered: do not repeat it, ask for the code instead." % exc,
-              "awb: the prompt was not checked for names (%s)" % exc)
-        return OK
+        # a guard that switches itself off is no guard (T3): whatever stops the check stops the prompt
+        print("%s: %s, then send the prompt again" % (exc.locked(), UNLOCK_HINT), file=sys.stderr)
+        return BLOCK
     secrets = _secret_hits(text)
     if not hits and not secrets:
         _rules_notice(data)
@@ -631,9 +695,13 @@ def hook_post_write(data: dict) -> int:
     except Unavailable as exc:
         # the file is written (the tool ran), but it must not count as checked: exit 2 puts this in front of the
         # session as an error it has to act on, not as a note
-        problems.append("the written file is not checked: the name check did not run (%s). Keep every name out "
-                        "of it and run `awb check` on it when the check is back; until then it goes nowhere."
-                        % exc)
+        if exc.rate:
+            problems.append("the written file is not checked: the name check did not run (%s). Keep every name "
+                            "out of it and run `awb check` on it when the check is back; until then it goes "
+                            "nowhere." % exc)
+        else:
+            problems.append("the written file is not checked: %s: %s, then run `awb check` on it. Keep every "
+                            "name out of it; until then it goes nowhere." % (exc.locked(), UNLOCK_HINT))
         hits = []
     if hits:
         problems.append("the written file carries %d hits of the name check: %s. Replace them with codes "
@@ -894,15 +962,6 @@ def _section(root: Path, name: str, max_lines: int | None, notes: list[str], dow
     return "## %s\n\n%s\n" % (title, text.strip())
 
 
-def _shown_name(root: Path) -> str:
-    """The folder name of the project for the context, "this project" when it carries a registered name or the
-    check cannot say (the red team of 2026-09-27: the folder name is whatever a shell command chose)."""
-    try:
-        return "this project" if name_hits(root.name) else root.name
-    except Unavailable:
-        return "this project"
-
-
 def _project_notes(p: config.Paths, root: Path, sid, shown: str | None = None) -> list[str]:
     """The claim of the project for this session (T-62), an idle project (T-24) and a STATE.md over its size
     (T-22). Never fails the hook. `shown` is the name of the project as the context may show it."""
@@ -947,9 +1006,18 @@ def hook_session_start(data: dict) -> int:
     if root is None:
         parts.append("No Workbench project here (no SCOPE.md in this folder or above it).\n")
     else:
-        shown = _shown_name(root)
+        try:
+            # the folder name is whatever a shell command chose (the red team of 2026-09-27): checked like a file
+            shown = "this project" if name_hits(root.name) else root.name
+            down: list[str] = []
+        except Unavailable as exc:
+            if not exc.rate:
+                # locked: one line and no file (T3); the claim of the project still runs
+                _project_notes(p, root, data.get("session_id"), "this project")
+                _emit(EVENTS["session-start"], LOCKED_START % (exc.since or "unknown"))
+                return OK
+            shown, down = "this project", [str(exc)]
         parts.append("Workbench project %s. Codes only, never a name.\n" % shown)
-        down: list[str] = []
         parts.append(_section(root, "SCOPE.md", None, notes, down))
         parts.append(_section(root, "STATE.md", STATE_LINES, notes, down))
         parts.append(_section(root, "OPEN.md", None, notes, down))

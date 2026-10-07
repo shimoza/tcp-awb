@@ -10,7 +10,7 @@ User=@OWNER@
 Group=awb
 Environment=AWB_CONF=/etc/awb/paths.conf
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/opt/tcp-awb/venv/bin/python3 -m awb.tcp.web.create_api customers --state /var/lib/awb-customer-write --owner @OWNER@
+ExecStart=/opt/tcp-awb/venv/bin/python3 -I -m awb.tcp.web.create_api customers --state /var/lib/awb-customer-write --owner @OWNER@
 StateDirectory=awb-customer-write
 StateDirectoryMode=0700
 NoNewPrivileges=yes

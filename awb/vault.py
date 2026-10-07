@@ -14,13 +14,14 @@ answer per request:
                   ping, check
 
 States: `plain` (no register.tsv.gpg: the plaintext register is used without unlock), `locked` (the encrypted
-register exists and no passphrase is in memory) and `unlocked`. A check answers start, length and class per
-hit and nothing else; the check socket never sees a code, a form or a count of forms. Every check request is
-logged to `<vault>/log/checks-YYYY-MM.tsv` with time, peer uid (SO_PEERCRED), text length, hit count and
-result, never the text. Requests on the check socket are limited per peer uid; a connection that gets the answer
-"rate" is closed. Each socket has its own cap of open connections (the check socket also per peer uid) and
-every connection has a maximum lifetime, so that no load on the check socket can lock the owner out of the admin
-socket. A text larger than one request is checked in overlapping chunks (`check_remote`).
+register exists and no passphrase is in memory) and `unlocked`. The daemon remembers since when it is locked (UTC,
+SINCE_FORMAT) and says so in the `locked` answer of a check (`since`), in `ping` and in `status`; an unlock clears
+it. A check answers start, length and class per hit and nothing else; the check socket never sees a code, a form or
+a count of forms. Every check request is logged to `<vault>/log/checks-YYYY-MM.tsv` with time, peer uid
+(SO_PEERCRED), text length, hit count and result, never the text. Requests on the check socket are limited per peer
+uid; a connection that gets the answer "rate" is closed. Each socket has its own cap of open connections (the check
+socket also per peer uid) and every connection has a maximum lifetime, so that no load on the check socket can lock
+the owner out of the admin socket. A text larger than one request is checked in overlapping chunks (`check_remote`).
 
 `vault_lock` holds the vault for one intake or one encryption, so that no intake writes a plaintext original
 while `awb vault encrypt` runs.
@@ -97,6 +98,11 @@ CLIENT_TIMEOUT = 60.0
 MAX_CHECK_ANSWER = 64 * 1024 * 1024
 MAX_ADMIN_ANSWER = 1024 * 1024 * 1024
 MAX_PASSPHRASE = 1024
+SINCE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+"""The one shape of the lock time on the wire: UTC, whole seconds, a Z."""
+SINCE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+"""A client takes `since` only in this shape: it is the one daemon supplied text that lands in the output of a
+session and on the board (T3)."""
 MIN_NEW_PASSPHRASE = 12
 
 HIT_KEYS = frozenset(("start", "length", "cls"))
@@ -115,7 +121,12 @@ class VaultError(Exception):
 
 
 class VaultLocked(VaultError):
-    """The register is encrypted and the daemon holds no passphrase."""
+    """The register is encrypted and the daemon holds no passphrase. `since` is the time the daemon became locked
+    as the daemon said it (SINCE_FORMAT), None when it did not say or said something of another shape."""
+
+    def __init__(self, message: str = "vault locked", since: str | None = None):
+        super().__init__(message)
+        self.since = since_or_none(since)
 
 
 class VaultUnavailable(VaultError):
@@ -124,6 +135,11 @@ class VaultUnavailable(VaultError):
 
 class VaultRateLimited(VaultUnavailable):
     """The daemon refused the request: too many requests of this user in the last minute."""
+
+
+def since_or_none(value) -> str | None:
+    """`value` when it is a lock time in SINCE_FORMAT, else None."""
+    return value if isinstance(value, str) and SINCE_RE.fullmatch(value) else None
 
 
 # --------------------------------------------------------------------------- encryption
@@ -411,7 +427,7 @@ def _raise_for(answer: dict, details: bool = True) -> None:
     err = answer.get("error")
     word = err if isinstance(err, str) and err in ERROR_WORDS else "unexpected answer"
     if word == "locked":
-        raise VaultLocked("vault locked")
+        raise VaultLocked("vault locked", answer.get("since"))
     if word == "rate":
         raise VaultRateLimited("rate limit of the vault daemon reached")
     if word == "refused":
@@ -522,7 +538,15 @@ def _check_one(text: str, sock: Path) -> list[dict]:
 
 
 def ping(sock: Path) -> str:
-    """The state of the daemon behind a socket: plain, locked or unlocked. Raises VaultUnavailable."""
+    """The state of the daemon behind a socket: plain, locked or unlocked. Raises VaultUnavailable. Extra keys
+    of the answer are left alone, so an older client works with a newer daemon."""
+    return ping_state(sock)["state"]
+
+
+def ping_state(sock: Path) -> dict:
+    """{"state": plain, locked or unlocked, "since": the lock time in SINCE_FORMAT or None} of the daemon behind a
+    socket, for the board, the portal and `awb vault status`. `since` is None unless the daemon is locked and
+    said since when in the fixed shape. Raises VaultUnavailable."""
     answer = _request(Path(sock), {"op": "ping"}, timeout=10.0)
     if not answer["ok"]:
         try:
@@ -534,7 +558,12 @@ def ping(sock: Path) -> str:
     state = answer.get("state")
     if state not in ("plain", "locked", "unlocked"):
         raise VaultUnavailable("the vault daemon answered in an unexpected form")
-    return state
+    return {"state": state, "since": since_or_none(answer.get("since")) if state == "locked" else None}
+
+
+def locked_line(since: str | None) -> str:
+    """"locked since <time>" for the board, the portal and `awb vault status`; "since unknown" without a time."""
+    return "locked since %s" % (since_or_none(since) or "unknown")
 
 
 def admin_call(op: str, sock: Path | None = None, **fields) -> dict:
@@ -559,11 +588,17 @@ class _Refused(Exception):
         self.detail = detail
 
 
-def _error(word: str, detail: str | None = None) -> dict:
+def _error(word: str, detail: str | None = None, since: str | None = None) -> dict:
     out = {"ok": False, "error": word}
     if detail:
         out["detail"] = detail
+    if word == "locked" and since:
+        out["since"] = since
     return out
+
+
+def _now_since() -> str:
+    return datetime.now(timezone.utc).strftime(SINCE_FORMAT)
 
 
 def _peer_uid(conn: socket.socket) -> int:
@@ -653,6 +688,7 @@ class Daemon:
         self._scan_slots = threading.BoundedSemaphore(MAX_CONCURRENT_SCANS)
         self._conn_lock = threading.Lock()
         self._passphrase: str | None = None
+        self._locked_since: str | None = None
         self._entries: list[register.Entry] | None = None
         self._matcher: Matcher | None = None
         self._plain: tuple | None = None
@@ -686,6 +722,7 @@ class Daemon:
             self._close_servers()
             raise
         self._started = True
+        self.state()      # a start with an encrypted register is locked from now on: _state() notes the time
         for t in self._threads:
             t.start()
 
@@ -829,7 +866,7 @@ class Daemon:
         try:
             return handler(self, req, uid)
         except _Refused as r:
-            return _error(r.word, r.detail)
+            return _error(r.word, r.detail, self._since() if r.word == "locked" else None)
         except VaultError:
             return _error("failed")
         except OSError as err:
@@ -887,10 +924,21 @@ class Daemon:
         if _is_regular(self.p.register_encrypted):
             # the vault is encrypted: a copy of the plain register from before must not outlive it
             self._plain = None
-            return "unlocked" if self._passphrase is not None else "locked"
+            if self._passphrase is not None:
+                self._locked_since = None
+                return "unlocked"
+            if self._locked_since is None:
+                self._locked_since = _now_since()
+            return "locked"
         if self._passphrase is not None:
             self._forget()
+        self._locked_since = None
         return "plain"
+
+    def _since(self) -> str | None:
+        """The lock time while locked, else None."""
+        with self._lock:
+            return self._locked_since if self._state() == "locked" else None
 
     def _plain_register(self) -> tuple[list[register.Entry], Matcher]:
         path = self.p.register
@@ -951,7 +999,11 @@ class Daemon:
     # ----------------------------------------------------------------- check socket ops
 
     def _op_ping(self, req: dict, uid: int) -> dict:
-        return {"ok": True, "state": self.state()}
+        with self._lock:
+            out = {"ok": True, "state": self._state()}
+            if out["state"] == "locked" and self._locked_since:
+                out["since"] = self._locked_since
+            return out
 
     def _op_check(self, req: dict, uid: int) -> dict:
         text = req.get("text")
@@ -965,7 +1017,8 @@ class Daemon:
             raise
         if state == "locked":
             self._log(uid, len(text), None, "locked")
-            return _error("locked")
+            # the time travels in this answer: a hook never pings, a second request would spend the rate budget
+            return _error("locked", since=self._since())
         if len(text) > MAX_CHECK_CHARS:
             self._log(uid, len(text), None, "too-long")
             return _error("bad request", "the text is longer than one check takes, send it in pieces")
@@ -999,19 +1052,27 @@ class Daemon:
             except register.RegisterError as err:
                 raise _Refused("invalid", str(err)) from None
             self._passphrase = pw
+            self._locked_since = None
             self._entries = entries
             self._matcher = Matcher(register.forms_for_matching(entries))
             return {"ok": True, "state": "unlocked"}
 
     def _op_lock(self, req: dict, uid: int) -> dict:
         with self._lock:
+            if self._passphrase is not None:
+                self._locked_since = _now_since()     # locked from now; a lock of a locked vault keeps its time
             self._forget()
-            return {"ok": True, "state": self._state()}
+            out = {"ok": True, "state": self._state()}
+            if out["state"] == "locked":
+                out["since"] = self._locked_since
+            return out
 
     def _op_status(self, req: dict, uid: int) -> dict:
         with self._lock:
             state = self._state()
             out = {"ok": True, "state": state}
+            if state == "locked" and self._locked_since:
+                out["since"] = self._locked_since
             entries = None
             if state == "unlocked":
                 entries = self._entries
@@ -1132,6 +1193,8 @@ def _cmd_lock(args, p: config.Paths) -> int:
 
 def _cmd_status(args, p: config.Paths) -> int:
     answer = admin_call("status", p.admin_sock)
+    if answer.get("state") == "locked":
+        print(locked_line(answer.get("since")))
     print("state: %s" % answer.get("state"))
     for key in ("codes", "forms"):
         if isinstance(answer.get(key), int):

@@ -6,12 +6,17 @@ crashes.
 """
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import os
+import re
 import shutil
+import socket
 import subprocess
 import sys
+import tempfile
+import threading
 import types
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -19,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from awb import check, codes, hooks
+from awb import check, codes, config, hooks
 from tests import fixtures
 from tests.conftest import needs_hook_process
 
@@ -126,29 +131,207 @@ def test_prompt_with_structured_data_is_blocked_by_class_only(home, monkeypatch,
     assert "registered name" not in err
 
 
-def test_missing_vault_never_blocks_the_prompt(home, monkeypatch, capsys):
-    shutil.rmtree(home.vault)
-    prompt = "size the app clusters of %s" % fixtures.CUSTOMER_FORMS[0]
-    code, out, err = run_hook("prompt", {"prompt": prompt}, monkeypatch, capsys)
-    assert code == 0
-    data = context_of(out, "UserPromptSubmit")
-    assert "did not run" in data["hookSpecificOutput"]["additionalContext"]
-    assert "not checked" in data["systemMessage"]
-    assert_clean(out + err, "prompt hook output")
+# --------------------------------------------------------------------------- T3: a locked vault blocks
+# These replace the three tests of the hooks release of 2026-09-22 that pinned "a locked vault never blocks typing"
+# (build/DECISIONS.md, 2026-10-07, D-T3).
+
+SINCE = "2026-10-07T06:02:11Z"
+SINCE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+LOCKED_PROMPT = "size the app clusters of %s" % fixtures.PERSON_FORMS[0]
 
 
-def test_locked_vault_never_blocks_the_prompt(home, monkeypatch, capsys):
-    unavailable = getattr(check, "CheckUnavailable", None) or type("CheckUnavailable", (Exception,), {})
-    monkeypatch.setattr(check, "CheckUnavailable", unavailable, raising=False)
+@contextlib.contextmanager
+def stand_in(answers: dict):
+    """A vault daemon stand-in on a short socket path: it answers each op with answers[op] (a dict or raw bytes)
+    and keeps the ops it was asked, in order."""
+    folder = Path(tempfile.mkdtemp(prefix="awb", dir="/tmp"))
+    sock = folder / "check.sock"
+    asked: list[str] = []
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(str(sock))
+    srv.listen(8)
+    srv.settimeout(0.1)
+    stop = threading.Event()
 
+    def loop():
+        while not stop.is_set():
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                continue
+            with conn:
+                conn.settimeout(5)
+                buf = b""
+                try:
+                    while b"\n" not in buf:
+                        chunk = conn.recv(65536)
+                        if not chunk:
+                            break
+                        buf += chunk
+                    op = json.loads(buf.split(b"\n")[0]).get("op")
+                except (OSError, ValueError):
+                    continue
+                asked.append(op)
+                answer = answers.get(op, {"ok": False, "error": "unknown op"})
+                conn.sendall(answer if isinstance(answer, bytes) else json.dumps(answer).encode() + b"\n")
+
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
+    try:
+        yield sock, asked
+    finally:
+        stop.set()
+        t.join(5)
+        srv.close()
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def remote_side(home, tmp_path, monkeypatch, sock: Path) -> None:
+    """The work side of a sealed host: the register lies encrypted in a vault folder, the check goes to `sock`."""
+    work_vault = tmp_path / "work-vault"
+    work_vault.mkdir()
+    (work_vault / "register.tsv.gpg").write_bytes(b"sealed")
+    monkeypatch.setenv("AWB_VAULT", str(work_vault))
+    monkeypatch.setenv("AWB_CHECK_SOCKET", str(sock))
+
+
+def locked_answers(since) -> dict:
+    check = {"ok": False, "error": "locked"}
+    ping = {"ok": True, "state": "locked"}
+    if since is not None:
+        check["since"] = ping["since"] = since
+    return {"check": check, "ping": ping}
+
+
+def assert_locked_hint(err: str, since: str, reason: str) -> None:
+    assert err.startswith("the Workbench is locked since %s (%s): " % (since, reason)), err
+    assert "as the owner run awb vault unlock (and awb keys unlock), then send the prompt again" in err
+    assert len(err.strip().splitlines()) == 1
+
+
+def test_a_locked_vault_blocks_the_prompt_with_the_hint(home, monkeypatch, capsys):
+    """Planted failure: the hook of 2026-09-22 (exit 0 with a warning); a hint that repeats a value of the prompt."""
     def locked(text, register_path):
-        raise unavailable("name check unavailable: vault locked")
+        raise check.CheckUnavailable("name check unavailable: vault locked")
 
     monkeypatch.setattr(check, "check_text", locked)
-    code, out, err = run_hook("prompt", {"prompt": "call " + fixtures.PERSON_FORMS[0]}, monkeypatch, capsys)
-    assert code == 0
-    assert "vault locked" in context_of(out, "UserPromptSubmit")["hookSpecificOutput"]["additionalContext"]
+    code, out, err = run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys)
+    assert (code, out) == (2, "")
+    assert_locked_hint(err, "unknown", "vault locked")
     assert_clean(out + err, "prompt hook output")
+
+
+def test_no_daemon_blocks_the_prompt(home, monkeypatch, capsys):
+    """Planted failure: a hook that treats "no vault daemon" as a warning."""
+    shutil.rmtree(home.vault)
+    code, out, err = run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys)
+    assert (code, out) == (2, "")
+    assert_locked_hint(err, "unknown", "no vault daemon")
+    assert_clean(out + err, "prompt hook output")
+
+
+@pytest.mark.parametrize("broken", ["missing", "no-check-text", "raises"])
+def test_a_broken_check_module_blocks_the_prompt(home, monkeypatch, capsys, broken):
+    """Planted failure: a check module without check_text, or one that raises another exception, lets the prompt
+    through."""
+    if broken == "missing":
+        missing_module(monkeypatch, "check")
+        reason = "the name check is not installed"
+    elif broken == "no-check-text":
+        fake_module(monkeypatch, "check", CheckUnavailable=check.CheckUnavailable)
+        reason = "the name check is not installed"
+    else:
+        def fails(text, register_path):
+            raise ZeroDivisionError(fixtures.PERSON_FORMS[0])
+
+        monkeypatch.setattr(check, "check_text", fails)
+        reason = "ZeroDivisionError in the name check"
+    code, out, err = run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys)
+    assert (code, out) == (2, "")
+    assert_locked_hint(err, "unknown", reason)
+    assert_clean(out + err, "prompt hook output")
+
+
+@pytest.mark.parametrize("planted", [False, True])
+def test_the_rate_limit_still_says_busy(home, monkeypatch, capsys, planted):
+    """Planted failure: a hook that blocks the rate limit with the locked hint or lets it through. The planted run
+    takes the rate branch away and must fail the same asserts."""
+    def busy(text, register_path):
+        raise check.CheckRateLimited("name check unavailable: rate limit of the vault daemon, try again in a minute")
+
+    monkeypatch.setattr(check, "check_text", busy)
+    monkeypatch.setattr(hooks, "HOOK_RATE_WAIT", 0.0)
+    if planted:
+        monkeypatch.setattr(hooks, "_is_rate", lambda mod, exc: False)
+    code, out, err = run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys)
+    ok = code == 2 and out == "" and "busy" in err and "again in a minute" in err and "locked" not in err
+    assert ok is not planted
+    assert_clean(out + err, "prompt hook output")
+
+
+def test_a_healthy_daemon_passes_quietly(home, tmp_path, monkeypatch, capsys):
+    """Planted failure: a hook that blocks everything."""
+    with stand_in({"check": {"ok": True, "hits": []}}) as (sock, asked):
+        remote_side(home, tmp_path, monkeypatch, sock)
+        assert run_hook("prompt", {"prompt": "size two app clusters"}, monkeypatch, capsys) == (0, "", "")
+    assert asked == ["check"]
+
+
+def test_a_locked_prompt_names_the_time(home, tmp_path, monkeypatch, capsys):
+    """The time comes with the locked answer of the check: one request, no ping (the rate budget)."""
+    with stand_in(locked_answers(SINCE)) as (sock, asked):
+        remote_side(home, tmp_path, monkeypatch, sock)
+        code, out, err = run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys)
+    assert (code, out) == (2, "")
+    assert_locked_hint(err, SINCE, "vault locked")
+    assert asked == ["check"]
+    assert_clean(err, "prompt hook output")
+
+
+@pytest.mark.parametrize("since", [fixtures.CUSTOMER_FORMS[0], "2026-10-07T12:00:00+00:00", "2026-10-07 12:00:00Z",
+                                   "2026-10-07T12:00:00Z\n" + fixtures.PERSON_FORMS[0], 1791382662, None],
+                         ids=["fixture-name", "offset", "space", "second-line", "number", "absent"])
+def test_since_is_a_timestamp_or_nothing(home, tmp_path, monkeypatch, capsys, since):
+    """Planted failure: a client that passes the raw string of the daemon on to the session or the board."""
+    from awb import vault
+    from awb.tcp import board
+
+    with stand_in(locked_answers(since)) as (sock, asked):
+        remote_side(home, tmp_path, monkeypatch, sock)
+        with pytest.raises(vault.VaultLocked) as err:
+            vault.check_remote("a text", sock)
+        assert err.value.since is None
+        assert vault.ping_state(sock) == {"state": "locked", "since": None}
+        code, out, hook_err = run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys)
+        line = board.locked(config.paths())
+    assert code == 2
+    assert_locked_hint(hook_err, "unknown", "vault locked")
+    assert line == "locked since unknown"
+    assert_clean(out + hook_err + line, "hook output and board line")
+
+
+def test_a_real_locked_daemon_blocks_end_to_end(home, tmp_path, monkeypatch, capsys):
+    """The daemon of awb/vault.py with an encrypted register and no unlock. Planted failure: a _reason that maps the
+    real VaultLocked text to a warning."""
+    from awb import vault
+    from tests.test_vault import serving, short_dir
+
+    monkeypatch.setattr(vault, "S2K_COUNT", 65536)
+    homedir = home.vault / ".gnupg"
+    homedir.mkdir(mode=0o700, exist_ok=True)
+    home.register_encrypted.write_bytes(vault.encrypt_bytes(home.register.read_bytes(), "a passphrase of 2 tests",
+                                                            homedir))
+    home.register.unlink()
+    with short_dir() as d:
+        with serving(home, admin_sock=d / "a.sock", check_sock=d / "c.sock") as daemon:
+            assert daemon.state() == "locked"
+            remote_side(home, tmp_path, monkeypatch, d / "c.sock")
+            code, out, err = run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys)
+    assert (code, out) == (2, "")
+    since = err.split("locked since ", 1)[1].split(" ", 1)[0]
+    assert SINCE_RE.fullmatch(since), err
+    assert_locked_hint(err, since, "vault locked")
+    assert_clean(err, "prompt hook output")
 
 
 def test_unreadable_register_goes_through_the_check_module(home, monkeypatch, capsys):
@@ -167,13 +350,6 @@ def test_unreadable_register_goes_through_the_check_module(home, monkeypatch, ca
     code, _, err = run_hook("prompt", {"prompt": "for someone"}, monkeypatch, capsys)
     assert code == 2 and seen == [home.register]
     assert "(1 hits)" in err
-
-
-def test_missing_check_module_never_blocks_the_prompt(home, monkeypatch, capsys):
-    missing_module(monkeypatch, "check")
-    code, out, _ = run_hook("prompt", {"prompt": "call " + fixtures.PERSON_FORMS[0]}, monkeypatch, capsys)
-    assert code == 0
-    assert "not installed" in context_of(out, "UserPromptSubmit")["hookSpecificOutput"]["additionalContext"]
 
 
 def test_input_that_is_not_json_is_a_non_blocking_error(home, monkeypatch, capsys):
@@ -322,6 +498,19 @@ def test_post_write_with_a_locked_vault_tells_the_session_the_file_is_unchecked(
     assert code == 2 and out == ""
     assert "the written file is not checked" in err and "vault locked" in err
     assert_clean(out + err, "post-write output")
+
+
+def test_post_write_while_locked_names_the_unlock(project, home, tmp_path, monkeypatch, capsys, no_writing):
+    """T3. Planted failure: a message without the hint or the time."""
+    f = project / "note.md"
+    f.write_text("to %s\n" % fixtures.ORG_FORMS[0], encoding="utf-8")
+    with stand_in(locked_answers(SINCE)) as (sock, asked):
+        remote_side(home, tmp_path, monkeypatch, sock)
+        code, out, err = run_hook("post-write", write_payload(f), monkeypatch, capsys)
+    assert (code, out) == (2, "")
+    assert "the written file is not checked: the Workbench is locked since %s (vault locked): as the owner run awb " \
+           "vault unlock (and awb keys unlock), then run `awb check` on it" % SINCE in err
+    assert_clean(err, "post-write output")
 
 
 def test_post_write_with_an_unreadable_register_asks_the_check_module(project, home, monkeypatch, capsys,
@@ -482,6 +671,28 @@ def test_session_start_withholds_a_file_with_a_name(project, monkeypatch, capsys
     assert_clean(text + err, "session-start context")
 
 
+def test_session_start_while_locked_gives_one_line_and_no_file_content(project, home, tmp_path, monkeypatch,
+                                                                       capsys):
+    """T3. Planted failure: any text of a file in the context or more than one section. The claim still runs."""
+    from awb import sessions
+
+    missing_module(monkeypatch, "kb")
+    missing_module(monkeypatch, "career")
+    (project / "SCOPE.md").write_text("# Scope\n\n- goal: size the clusters of %s\n" % fixtures.CUSTOMER_FORMS[0],
+                                      encoding="utf-8")
+    with stand_in(locked_answers(SINCE)) as (sock, asked):
+        remote_side(home, tmp_path, monkeypatch, sock)
+        code, out, err = run_hook("session-start", {"cwd": str(project), "session_id": "a-session-of-3"},
+                                  monkeypatch, capsys)
+    assert (code, err) == (0, "")
+    text = context_of(out, "SessionStart")["hookSpecificOutput"]["additionalContext"]
+    assert text == hooks.LOCKED_START % SINCE and len(text.splitlines()) == 1
+    assert "is locked since %s. Every prompt is refused" % SINCE in text and "files were not loaded" in text
+    assert asked == ["check"]
+    assert sessions.owner(home, CODE)["session"] == "a-session-of-3"
+    assert_clean(out, "session-start context")
+
+
 def test_session_start_outside_a_project_still_prints_json(home, tmp_path, monkeypatch, capsys):
     missing_module(monkeypatch, "kb")
     missing_module(monkeypatch, "career")
@@ -530,14 +741,14 @@ def test_command_prefix_keeps_home_paths_out(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------- with the real modules (Release 2)
 
 
-def test_a_vault_folder_without_a_register_warns_and_never_passes_names_quietly(home, monkeypatch, capsys):
-    """The check treats a readable vault folder without a register as an empty register; the hooks must not
-    call a name clean on that ground."""
+def test_a_vault_folder_without_a_register_blocks_the_prompt(home, monkeypatch, capsys):
+    """The check treats a readable vault folder without a register as an empty register; the hooks must not call a
+    name clean on that ground. T3 replaced the warning of Release 2 with the block (build/DECISIONS.md, D-T3)."""
     home.register.unlink()
     prompt = "size the app clusters of %s" % fixtures.CUSTOMER_FORMS[0]
     code, out, err = run_hook("prompt", {"prompt": prompt}, monkeypatch, capsys)
-    assert code == 0
-    assert "no register found" in context_of(out, "UserPromptSubmit")["hookSpecificOutput"]["additionalContext"]
+    assert (code, out) == (2, "")
+    assert_locked_hint(err, "unknown", "no register found")
     assert_clean(out + err, "prompt hook output")
 
 

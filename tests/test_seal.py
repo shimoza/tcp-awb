@@ -122,7 +122,8 @@ def test_setup_dry_run_prints_every_step(fakebin):
     assert has(r"^\+ python3 -m venv --system-site-packages /opt/tcp-awb/venv")
     assert has(r"^\+ /opt/tcp-awb/venv/bin/pip install .*/opt/tcp-awb/src$")
     assert has(r"^\+ chown -R root:root /opt/tcp-awb$")
-    assert has(r"^\+ ln -sfn /opt/tcp-awb/venv/bin/awb /usr/local/bin/awb$")
+    # T3 (build/DECISIONS.md, 2026-10-07, D-T3a): a wrapper in place of the symlink, see the wrapper tests below
+    assert has(r"^\+ write /usr/local/bin/awb \(mode 755, root:root\)$")
     # the host file and the unit
     assert has(r"^\+ write /etc/awb/paths\.conf \(mode 644, root:root\)$")
     for key in ("owner = %s" % USER, "vault = %s" % VAULT, "check_socket = /run/awb/check.sock",
@@ -481,3 +482,167 @@ def test_the_needrestart_rule_matches_the_two_daemons_and_nothing_else():
     res = subprocess.run(["perl", "-e", script] + units, capture_output=True, text=True, check=True)
     assert res.stdout.split() == ["awb-vaultd.service=0", "awb-keyd.service=0", "awb-web.service=1",
                                   "awb-ask.service=1", "awb-vaultdx.service=1"]
+
+
+# --------------------------------------------------------------------------- T3: the installed command runs isolated
+
+WRAPPER_EXEC = 'exec /opt/tcp-awb/venv/bin/python3 -I -m awb "$@"'
+MARKER = "PLANTED-PACKAGE-REACHED"
+
+
+def wrapper_text(fakebin) -> str:
+    """The wrapper as the dry run of setup.sh prints it: the lines under `+ write /usr/local/bin/awb`."""
+    res = run_script(SETUP, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    lines = res.stdout.splitlines()
+    start = lines.index("+ write /usr/local/bin/awb (mode 755, root:root)") + 1
+    body = []
+    for line in lines[start:]:
+        if not line.startswith("    | "):
+            break
+        body.append(line[len("    | "):])
+    return "\n".join(body) + "\n"
+
+
+def plant(tmp_path: Path) -> dict[str, str]:
+    """A package named awb whose cli.main and __main__ print MARKER, on PYTHONPATH, in a user site and in the working
+    folder. Returns the environment that carries the plant."""
+    import sysconfig
+
+    userbase = tmp_path / "userbase"
+    usersite = Path(sysconfig.get_path("purelib", "posix_user", vars={"userbase": str(userbase)}))
+    for folder in (tmp_path / "pythonpath", usersite, tmp_path / "cwd"):
+        pkg = folder / "awb"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        (pkg / "cli.py").write_text("def main(argv=None):\n    print(%r)\n    return 0\n" % MARKER, encoding="utf-8")
+        (pkg / "__main__.py").write_text("print(%r)\n" % MARKER, encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
+    env.update(PYTHONPATH=str(tmp_path / "pythonpath"), PYTHONUSERBASE=str(userbase), HOME=str(tmp_path))
+    return env
+
+
+def wrapper_problems(text: str, tmp_path: Path) -> list[str]:
+    """What is wrong with a wrapper text: its shape, and what it loads with a planted package (the interpreter of
+    the tests stands in for the installed one)."""
+    import sys
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    problems = []
+    lines = text.splitlines()
+    if not lines or lines[0] != "#!/bin/sh":
+        problems.append("first line")
+    if WRAPPER_EXEC not in lines:
+        problems.append("exec line")
+    runnable = tmp_path / "wrapper"
+    runnable.write_text(text.replace("/opt/tcp-awb/venv/bin/python3", sys.executable), encoding="utf-8")
+    runnable.chmod(0o755)
+    env = plant(tmp_path)
+    res = subprocess.run([str(runnable), "vault", "--help"], capture_output=True, text=True, env=env, timeout=60,
+                         cwd=tmp_path / "cwd", stdin=subprocess.DEVNULL)
+    if MARKER in res.stdout + res.stderr:
+        problems.append("loaded the planted package")
+    if res.returncode != 0 or "usage: awb vault" not in res.stdout:
+        problems.append("no usage of the real command")
+    return problems
+
+
+def test_setup_writes_the_wrapper_not_a_symlink(fakebin):
+    """Planted failure: the symlink of today (`ln -sfn` of the bin link) or a wrapper of another shape."""
+    res = run_script(SETUP, ["--dry-run"], fakebin)
+    no_marks(fakebin)
+    assert not re.search(r"^[+=] ln -sfn \S+ /usr/local/bin/awb", res.stdout, re.M)
+    assert wrapper_text(fakebin) == ("#!/bin/sh\n# written by seal/setup.sh: the installed Workbench, run isolated "
+                                     "from the invoking user's packages\n%s\n" % WRAPPER_EXEC)
+    assert res.stdout.count("+ write /usr/local/bin/awb (mode 755, root:root)") == 1
+
+
+def test_the_wrapper_ignores_a_planted_package(fakebin, tmp_path):
+    """The wrapper lines of the dry run, run with a package planted on PYTHONPATH, in a user site and in the working
+    folder: the real command answers. The control, the old symlink (the venv script), loads the plant, which proves
+    the test can fail; a wrapper with -i, without exec or with "$*" fails it."""
+    import sys
+
+    text = wrapper_text(fakebin)
+    assert wrapper_problems(text, tmp_path / "real") == []
+    script = Path(sys.executable).parent / "awb"
+    if not script.exists():
+        pytest.skip("the virtual environment has no awb entry point")
+    control = tmp_path / "control"
+    control.mkdir()
+    res = subprocess.run([str(script), "vault", "--help"], capture_output=True, text=True, env=plant(control),
+                         timeout=60, cwd=control / "cwd", stdin=subprocess.DEVNULL)
+    assert MARKER in res.stdout, "the control did not load the plant: this test cannot fail"
+    for n, bad in enumerate((text.replace(" -I ", " -i "), text.replace("exec ", ""), text.replace('"$@"', '"$*"'))):
+        assert bad != text
+        assert wrapper_problems(bad, tmp_path / ("bad%d" % n)), bad
+
+
+def isolation_problems(text: str) -> list[str]:
+    """ExecStart lines of a unit text that run a python3 without -I."""
+    out = []
+    for line in text.splitlines():
+        m = re.match(r"^ExecStart=(\S*python3)(\s.*)$", line)
+        if m and not m.group(2).startswith(" -I "):
+            out.append(line)
+    return out
+
+
+def test_the_web_units_run_isolated():
+    """Planted failure: a template of seal/web whose python3 line lacks -I."""
+    units = sorted(f for f in (SEAL / "web").rglob("*") if f.suffix in (".service", ".conf"))
+    pythons = [f for f in units if re.search(r"(?m)^ExecStart=\S*python3", f.read_text(encoding="utf-8"))]
+    assert len(pythons) >= 7
+    for f in units:
+        assert isolation_problems(f.read_text(encoding="utf-8")) == [], f.name
+    planted = (SEAL / "web" / "awb-materials.service").read_text(encoding="utf-8").replace(" -I -m ", " -m ")
+    assert isolation_problems(planted)
+    gateway = (SEAL / "web" / "awb-web.service").read_text(encoding="utf-8")
+    assert "ExecStart=/usr/bin/python3 -I /opt/tcp-awb/src/awb/tcp/web/gateway.py " in gateway
+
+
+def test_command_prefix_recognises_the_wrapper(tmp_path, monkeypatch):
+    """A wrapper file in a temporary bin gives `<wrapper> hook`; the symlink of a host sealed before T3 still works;
+    the fallback of an isolated interpreter carries -I; on a sealed host a foreign prefix is refused."""
+    import sys
+    from types import SimpleNamespace
+
+    from awb import projects
+
+    wrapper = tmp_path / "bin" / "awb"
+    wrapper.parent.mkdir()
+    wrapper.write_text("#!/bin/sh\n# a comment\nexec %s -I -m awb \"$@\"\n" % sys.executable, encoding="utf-8")
+    monkeypatch.setattr(hooks, "INSTALLED_AWB", wrapper)
+    assert hooks.command_prefix() == "%s hook" % wrapper
+    for bad in ("exec %s -m awb \"$@\"" % sys.executable, "exec /usr/bin/python3 -I -m awb \"$@\"",
+                "%s -I -m awb \"$@\"" % sys.executable):
+        wrapper.write_text("#!/bin/sh\n%s\n" % bad, encoding="utf-8")
+        assert hooks.command_prefix() != "%s hook" % wrapper, bad
+    script = Path(sys.executable).parent / "awb"
+    if script.exists():
+        link = tmp_path / "bin" / "link"
+        link.symlink_to(script)
+        monkeypatch.setattr(hooks, "INSTALLED_AWB", link)
+        assert hooks.command_prefix() == "%s hook" % link
+    monkeypatch.setattr(hooks, "INSTALLED_AWB", tmp_path / "none" / "awb")
+    monkeypatch.setattr(hooks, "sys", SimpleNamespace(executable="/opt/x/bin/python3",
+                                                      flags=SimpleNamespace(isolated=1)))
+    assert hooks.command_prefix() == "/opt/x/bin/python3 -I -m awb hook"
+    monkeypatch.setattr(hooks, "sys", SimpleNamespace(executable="/opt/x/bin/python3",
+                                                      flags=SimpleNamespace(isolated=0)))
+    assert hooks.command_prefix() == "/opt/x/bin/python3 -m awb hook"
+    monkeypatch.setattr(hooks, "sys", sys)
+    host = tmp_path / "paths.conf"
+    host.write_text("owner = someone\nwork_user = awb\n", encoding="utf-8")
+    monkeypatch.setattr(hooks, "HOST_FILE", host)
+    monkeypatch.setattr(hooks, "INSTALLED_AWB", tmp_path / "none" / "awb")
+    with pytest.raises(hooks.ForeignPrefix):
+        hooks.command_prefix()
+    with pytest.raises(hooks.ForeignPrefix):
+        hooks.command_prefix("/opt/tcp-awb/venv/bin/python")
+    with pytest.raises(projects.ProjectError) as err:
+        projects._settings()
+    assert "sealed" in str(err.value) and "nothing was created" in str(err.value)
+    wrapper.write_text("#!/bin/sh\nexec %s -I -m awb \"$@\"\n" % sys.executable, encoding="utf-8")
+    monkeypatch.setattr(hooks, "INSTALLED_AWB", wrapper)
+    assert hooks.command_prefix() == "%s hook" % wrapper

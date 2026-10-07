@@ -193,14 +193,16 @@ def test_contracted_and_other_negatives_need_two_tries(home, statement):
 # --------------------------------------------------------------------------- red team G3 and G2: session start
 
 
-def test_session_start_withholds_every_section_when_the_check_cannot_run(project, home, monkeypatch, capsys):
+def test_session_start_without_a_register_loads_no_file(project, home, monkeypatch, capsys):
+    """Red team G3: a start that cannot check loads nothing. T3 replaced the three withheld sections with one line
+    (build/DECISIONS.md, 2026-10-07, D-T3)."""
     (project / "SCOPE.md").write_text("# Scope\n\n- goal: size the clusters of %s\n" % FORM, encoding="utf-8")
     home.register.unlink()      # a readable vault folder without a register: the check cannot run
     code, out, err = run_hook("session-start", {"cwd": str(project)}, monkeypatch, capsys)
     assert code == 0
     text = json.loads(out)["hookSpecificOutput"]["additionalContext"]
-    assert text.count("(withheld: the name check did not run") == 3
-    assert "state line" not in text and "size the backup" not in text
+    assert text == hooks.LOCKED_START % "unknown" and len(text.splitlines()) == 1
+    assert "is locked since %s. Every prompt is refused" % "unknown" in text and "files were not loaded" in text
     fixtures.assert_no_fixture_name(out + err, "session-start context")
 
 

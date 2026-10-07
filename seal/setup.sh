@@ -5,7 +5,9 @@
 #
 # Two users. The owner (the user who runs sudo) keeps the vault. The work user awb has no sudo, is in none of the
 # groups of the owner or of the host admins. It runs every working session. Its home holds tcp-shared, tcp-kb and
-# the projects. The code is installed read-only to /opt/tcp-awb, the vault daemon runs as the owner.
+# the projects. The code is installed read-only to /opt/tcp-awb, the vault daemon runs as the owner. The command
+# /usr/local/bin/awb is a root owned wrapper that runs the installed interpreter isolated (python3 -I): no package
+# of the invoking user's site folder, PYTHONPATH or working folder is loaded ahead of the installed code.
 #
 # The client files of the work user are root owned and immutable; the five hooks are also installed as managed
 # settings of the client (a drop-in under /etc/claude-code), which no user or project file can switch off.
@@ -399,7 +401,13 @@ step_code() {
     run "$OPT/venv/bin/pip" install --quiet --no-deps --no-build-isolation --editable "$OPT/src"
     run chown -R root:root "$OPT"
     run chmod -R go-w "$OPT"
-    run ln -sfn "$OPT/venv/bin/awb" "$BIN_LINK"
+    # a wrapper, not a symlink to the venv script: -I ignores the invoking user's site folder, PYTHONPATH and the
+    # working folder, which would otherwise load ahead of the installed code (T3); the AWB_* variables survive
+    write_file "$BIN_LINK" 755 root:root <<EOF
+#!/bin/sh
+# written by seal/setup.sh: the installed Workbench, run isolated from the invoking user's packages
+exec $OPT/venv/bin/python3 -I -m awb "\$@"
+EOF
 }
 
 step_conf() {

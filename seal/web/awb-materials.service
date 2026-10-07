@@ -10,7 +10,7 @@ User=@OWNER@
 Group=awb
 Environment=AWB_CONF=/etc/awb/paths.conf
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/opt/tcp-awb/venv/bin/python3 -m awb.tcp.web.materials_api
+ExecStart=/opt/tcp-awb/venv/bin/python3 -I -m awb.tcp.web.materials_api
 StateDirectory=awb-materials
 StateDirectoryMode=0700
 NoNewPrivileges=yes

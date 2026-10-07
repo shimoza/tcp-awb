@@ -11,6 +11,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -30,6 +31,8 @@ from tests import fixtures
 
 ROOT = Path(__file__).resolve().parent.parent
 PASS = "fixture passphrase of the tests 7"
+SINCE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+"""The shape of the lock time, written here again on purpose: a daemon that drifts from it fails here."""
 WRONG = "not the passphrase of the tests"
 TEXT = "offer to %s, attention %s, host %s\n" % (
     fixtures.CUSTOMER_FORMS[0], fixtures.PERSON_FORMS[0], "198.51.100.20")
@@ -290,12 +293,15 @@ def test_without_a_daemon_encrypt_still_seals_and_says_so(vp, monkeypatch, capsy
     assert vp.register_encrypted.exists() and not vp.register.exists()
 
 
-def test_locked_answers_locked(vp, daemon, monkeypatch, capsys):
+def test_locked_answers_locked_with_its_time(vp, daemon, monkeypatch, capsys):
     assert encrypt_vault(monkeypatch) == 0
     assert vault.main(["lock"]) == 0
     assert daemon.state() == "locked"
     assert vault.ping(vp.check_socket) == "locked"
-    assert raw(vp.check_socket, {"op": "check", "text": TEXT})[0] == {"ok": False, "error": "locked"}
+    answer = raw(vp.check_socket, {"op": "check", "text": TEXT})[0]
+    # T3 (build/DECISIONS.md, 2026-10-07, D-T3b): the locked answer carries the time of the lock
+    assert set(answer) == {"ok", "error", "since"} and answer["ok"] is False and answer["error"] == "locked"
+    assert SINCE_RE.fullmatch(answer["since"])
     with pytest.raises(vault.VaultLocked):
         vault.check_remote(TEXT, vp.check_socket)
     with pytest.raises(check.CheckUnavailable) as err:
@@ -305,6 +311,65 @@ def test_locked_answers_locked(vp, daemon, monkeypatch, capsys):
         vault.admin_call("register_load")
     assert vault.main(["status"]) == 0
     assert capsys.readouterr().out.splitlines()[-1] == "state: locked"
+
+
+def test_the_daemon_answers_since_while_locked_only(vp, monkeypatch, capsys):
+    """T3. Planted failures: a daemon that never sets the time, never clears it on unlock, answers it while unlocked
+    or plain, or writes it in another shape (SINCE_RE is written in this file, not taken from vault.py)."""
+    def answers(sock: Path) -> list[dict]:
+        ping = raw(sock, {"op": "ping"})[0]
+        status = vault.admin_call("status")
+        check_answer = raw(sock, {"op": "check", "text": "a text"})[0]
+        return [ping, status, check_answer]
+
+    with serving(vp) as d:
+        assert all("since" not in a for a in answers(vp.check_socket))              # plain
+        assert encrypt_vault(monkeypatch) == 0                                      # encrypt unlocks
+        assert all("since" not in a for a in answers(vp.check_socket))
+        assert vault.ping_state(vp.check_socket) == {"state": "unlocked", "since": None}
+        assert vault.main(["lock"]) == 0
+        locked = answers(vp.check_socket)
+        since = locked[0].get("since")
+        assert isinstance(since, str) and SINCE_RE.fullmatch(since)
+        assert [a.get("since") for a in locked] == [since] * 3
+        assert locked[2]["error"] == "locked"
+        assert vault.ping_state(vp.check_socket) == {"state": "locked", "since": since}
+        assert abs(datetime.strptime(since, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+                   - time.time()) < 60
+        assert vault.main(["lock"]) == 0                                            # a second lock keeps its time
+        assert vault.ping_state(vp.check_socket)["since"] == since
+        capsys.readouterr()
+        assert vault.main(["status"]) == 0
+        assert capsys.readouterr().out.splitlines()[0] == "locked since %s" % since
+        assert unlock(monkeypatch) == 0
+        assert all("since" not in a for a in answers(vp.check_socket))
+        assert d.state() == "unlocked"
+    # a start with an encrypted register is locked from the start, with its own time
+    with serving(vp) as d:
+        state = vault.ping_state(vp.check_socket)
+        assert state["state"] == "locked" and SINCE_RE.fullmatch(state["since"])
+
+
+def test_the_locked_check_answer_carries_since(vp, daemon, monkeypatch):
+    """T3. Planted failures: _error("locked") without the key; ping_state without it; a client that keeps it from
+    an answer that is not locked."""
+    assert vault._error("locked", since="2026-10-07T06:02:11Z") == {"ok": False, "error": "locked",
+                                                                    "since": "2026-10-07T06:02:11Z"}
+    assert "since" not in vault._error("rate", since="2026-10-07T06:02:11Z")
+    assert encrypt_vault(monkeypatch) == 0
+    assert vault.main(["lock"]) == 0
+    with pytest.raises(vault.VaultLocked) as err:
+        vault.check_remote(TEXT, vp.check_socket)
+    assert SINCE_RE.fullmatch(err.value.since)
+    assert vault.ping_state(vp.check_socket) == {"state": "locked", "since": err.value.since}
+    with pytest.raises(check.CheckUnavailable) as unavailable:
+        check.check_text(TEXT, None)
+    assert unavailable.value.since == err.value.since
+    with short_dir() as d:
+        sock = d / "c.sock"
+        with fake_daemon(sock, b'{"ok":true,"state":"unlocked","since":"2026-10-07T06:02:11Z"}\n'):
+            assert vault.ping_state(sock) == {"state": "unlocked", "since": None}
+            assert vault.ping(sock) == "unlocked"          # an extra key never breaks the plain ping
 
 
 def test_unlock_then_check_answers_start_length_and_class_only(vp, daemon, monkeypatch, capsys):

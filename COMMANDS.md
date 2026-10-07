@@ -261,4 +261,12 @@ a last step and both checks again. After he sends it, `awb voice learn DRAFT SEN
 ## Used by the client, not by hand
 
 `awb hook prompt | pre-write | post-write | stop | session-start` are the hooks of working sessions (a hook that runs
-over 50 seconds stops itself and fails closed). `awb vault serve` is the vault daemon under systemd.
+over 50 seconds stops itself and fails closed). While the vault is locked, or the name check cannot run for any
+other reason, every prompt of a work session is refused with the time of the lock and the unlock to run, and a
+session starts without its project files. `awb vault status`, `awb board` and the portal's `/health` open with
+`locked since <time>`. `awb vault serve` is the vault daemon under systemd.
+
+On a sealed host `/usr/local/bin/awb` is a root owned wrapper that runs `/opt/tcp-awb/venv/bin/python3 -I -m awb`,
+so a package in the invoking user's site folder or on `PYTHONPATH` is never loaded ahead of the installed code. A
+project gets the hooks of that installed command only: `awb spawn` from the repository environment refuses on a
+sealed host (fail closed); run it as the work user.

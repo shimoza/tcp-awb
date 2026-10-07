@@ -470,12 +470,17 @@ SETTINGS_FILE = ".claude/settings.json"
 
 def _settings() -> str:
     """The client settings of a project: the five Workbench hooks, run as `sys.executable -m awb hook NAME`, so
-    that a project has them before the seal exists. The interpreter is written without a home path."""
+    that a project has them before the seal exists. The interpreter is written without a home path. On a sealed
+    host only the installed command passes (hooks.command_prefix): anything else refuses the project."""
     import json
 
     from awb import hooks as _hooks
 
-    return json.dumps(_hooks.client_settings(_hooks.command_prefix()), indent=2) + "\n"
+    try:
+        prefix = _hooks.command_prefix()
+    except _hooks.ForeignPrefix as err:
+        raise ProjectError("%s; nothing was created" % err) from None
+    return json.dumps(_hooks.client_settings(prefix), indent=2) + "\n"
 
 
 def _git(folder: Path, *args: str) -> None:

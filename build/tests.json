@@ -566,8 +566,148 @@
    "name": "rules that change reach every project and every running session: awb projects sync replaces the old template lines of CLAUDE.md and STATE.md and adds the new ones, keeps the project's own notes and the file itself, changes nothing the second time; a new project is current from the start; the session-start hook remembers what a session loaded and the prompt hook tells it once when that changed, or when the session is older than the check",
    "run": ".venv/bin/pytest tests/test_rulesync.py",
    "status": "passing"
+  },
+  {
+   "id": "T3-1",
+   "phase": "T3",
+   "name": "test_a_locked_vault_blocks_the_prompt_with_the_hint: a locked vault blocks the prompt (exit 2) with one line: since when, why and the unlock to run; the line repeats no value of the prompt",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_a_locked_vault_blocks_the_prompt_with_the_hint",
+   "status": "passing"
+  },
+  {
+   "id": "T3-2",
+   "phase": "T3",
+   "name": "test_no_daemon_blocks_the_prompt: no vault daemon blocks the prompt with the hint",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_no_daemon_blocks_the_prompt",
+   "status": "passing"
+  },
+  {
+   "id": "T3-3",
+   "phase": "T3",
+   "name": "test_a_broken_check_module_blocks_the_prompt: a missing check module, one without check_text and one that raises another exception all block the prompt",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_a_broken_check_module_blocks_the_prompt",
+   "status": "passing"
+  },
+  {
+   "id": "T3-4",
+   "phase": "T3",
+   "name": "test_the_rate_limit_still_says_busy: the rate limit still says busy and send it again in a minute, never the locked hint; a hook without the rate branch fails the test",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_the_rate_limit_still_says_busy",
+   "status": "passing"
+  },
+  {
+   "id": "T3-5",
+   "phase": "T3",
+   "name": "test_a_healthy_daemon_passes_quietly: a healthy daemon lets a clean prompt pass quietly with one check request",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_a_healthy_daemon_passes_quietly",
+   "status": "passing"
+  },
+  {
+   "id": "T3-6",
+   "phase": "T3",
+   "name": "test_a_locked_prompt_names_the_time: the block line carries the lock time of the daemon's locked answer; one check request, no ping",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_a_locked_prompt_names_the_time",
+   "status": "passing"
+  },
+  {
+   "id": "T3-7",
+   "phase": "T3",
+   "name": "test_since_is_a_timestamp_or_nothing: a lock time not in the fixed shape (a fixture name, an offset, a space, a second line, a number) becomes None in the client and since unknown in the hook and on the board",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_since_is_a_timestamp_or_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "T3-8",
+   "phase": "T3",
+   "name": "test_a_real_locked_daemon_blocks_end_to_end: the real daemon with an encrypted register and no unlock: the prompt hook exits 2 with the time",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_a_real_locked_daemon_blocks_end_to_end",
+   "status": "passing"
+  },
+  {
+   "id": "T3-9",
+   "phase": "T3",
+   "name": "test_session_start_while_locked_gives_one_line_and_no_file_content: a session start while locked: the context is one line, no file content, the claim of the project still runs",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_session_start_while_locked_gives_one_line_and_no_file_content",
+   "status": "passing"
+  },
+  {
+   "id": "T3-10",
+   "phase": "T3",
+   "name": "test_post_write_while_locked_names_the_unlock: a write while locked is reported unchecked with the time and the unlock",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_post_write_while_locked_names_the_unlock",
+   "status": "passing"
+  },
+  {
+   "id": "T3-11",
+   "phase": "T3",
+   "name": "test_the_daemon_answers_since_while_locked_only: the daemon answers since in ping, status and the locked check answer while locked only, in the fixed shape; set at a start with an encrypted register and on lock, kept by a second lock, cleared by unlock; awb vault status opens with locked since",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_the_daemon_answers_since_while_locked_only",
+   "status": "passing"
+  },
+  {
+   "id": "T3-12",
+   "phase": "T3",
+   "name": "test_the_locked_check_answer_carries_since: _error(locked) carries since, VaultLocked.since and CheckUnavailable.since carry it, ping_state gives it, ping stays lenient about extra keys",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_the_locked_check_answer_carries_since",
+   "status": "passing"
+  },
+  {
+   "id": "T3-13",
+   "phase": "T3",
+   "name": "test_board_and_health_open_with_locked_since: awb board show and write, the portal's /health and the 503 of /api/board open with locked since while the daemon answers locked, never while unlocked",
+   "run": ".venv/bin/pytest tests/test_board.py::test_board_and_health_open_with_locked_since",
+   "status": "passing"
+  },
+  {
+   "id": "T3-14",
+   "phase": "T3",
+   "name": "test_setup_writes_the_wrapper_not_a_symlink: the dry run of setup.sh writes /usr/local/bin/awb as a three-line wrapper (mode 755, root) and no ln -sfn of the bin link",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_writes_the_wrapper_not_a_symlink",
+   "status": "passing"
+  },
+  {
+   "id": "T3-15",
+   "phase": "T3",
+   "name": "test_the_wrapper_ignores_a_planted_package: the wrapper of the dry run ignores a package planted on PYTHONPATH, in a user site and in the working folder; the old symlink loads it (the control); a wrapper with -i, without exec or with \"$*\" fails",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_wrapper_ignores_a_planted_package",
+   "status": "passing"
+  },
+  {
+   "id": "T3-16",
+   "phase": "T3",
+   "name": "test_the_web_units_run_isolated: every python3 ExecStart of seal/web runs with -I, the gateway too",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_web_units_run_isolated",
+   "status": "passing"
+  },
+  {
+   "id": "T3-17",
+   "phase": "T3",
+   "name": "test_command_prefix_recognises_the_wrapper: command_prefix gives <wrapper> hook for the wrapper and the old symlink, -I in the fallback of an isolated interpreter, and refuses a foreign prefix (and awb spawn) on a sealed host",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_command_prefix_recognises_the_wrapper",
+   "status": "passing"
+  },
+  {
+   "id": "T3-18",
+   "phase": "T3",
+   "name": "test_a_vault_folder_without_a_register_blocks_the_prompt: replaces the Release 2 warning: a readable vault folder without a register blocks the prompt",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_a_vault_folder_without_a_register_blocks_the_prompt",
+   "status": "passing"
+  },
+  {
+   "id": "T3-19",
+   "phase": "T3",
+   "name": "test_session_start_without_a_register_loads_no_file: replaces the three withheld sections of Release 2: a start without a register is one line and loads no file",
+   "run": ".venv/bin/pytest tests/test_release2_fixes.py::test_session_start_without_a_register_loads_no_file",
+   "status": "passing"
+  },
+  {
+   "id": "T3-20",
+   "phase": "T3",
+   "name": "test_locked_answers_locked_with_its_time: replaces the exact locked answer: the locked check answer carries since in the fixed shape",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_locked_answers_locked_with_its_time",
+   "status": "passing"
   }
  ],
- "total_tests": 2260,
- "checked": "2026-10-06"
+ "total_tests": 2282,
+ "checked": "2026-10-07"
 }

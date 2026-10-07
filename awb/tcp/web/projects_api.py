@@ -253,8 +253,12 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404,{'error':'No such project endpoint.'});return
         try:
             paths=config.paths()
-            if vault.ping(paths.check_socket)=='locked':
-                raise Unavailable('The data check is locked. Project content was not returned.')
+            state=vault.ping_state(paths.check_socket)
+            if state['state']=='locked':
+                # T3: the board opens with the time of the lock (fixed shape or "unknown"); the project routes keep
+                # their text, which the chat service matches
+                text='The data check is locked. Project content was not returned.'
+                raise Unavailable('%s. %s'%(vault.locked_line(state['since']),text) if path=='/api/board' else text)
             if path=='/api/projects':data=project_list(paths)
             elif path=='/api/board':data=board(paths)
             else:data=project_detail(path.rsplit('/',1)[1],paths)

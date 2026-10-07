@@ -65,7 +65,12 @@ _PLAIN_KINDS = ("text", "html", "csv", "json")
 class CheckUnavailable(register.RegisterError):
     """The name check cannot run: the register is not readable here and the vault daemon did not answer, or
     answered that the vault is locked. A RegisterError, so that every caller that refuses on a register it
-    cannot read refuses here too. The message carries no value."""
+    cannot read refuses here too. The message carries no value. `since` is the lock time the daemon gave with a
+    locked answer (vault.SINCE_FORMAT), else None."""
+
+    def __init__(self, *args, since: str | None = None):
+        super().__init__(*args)
+        self.since = since
 
 
 class CheckRateLimited(CheckUnavailable):
@@ -158,7 +163,7 @@ class RemoteCheck:
                     raise CheckRateLimited(_reason(err)) from None
                 time.sleep(1.0)
             except vault.VaultError as err:
-                raise CheckUnavailable(_reason(err)) from None
+                raise CheckUnavailable(_reason(err), since=getattr(err, "since", None)) from None
 
     def name_spans(self, text: str) -> list[Span]:
         """Name hits of `text` as the daemon found them, positions in the normalised form of `text`."""

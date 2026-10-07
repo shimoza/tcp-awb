@@ -204,6 +204,14 @@ def _money(value, currency: str) -> str:
     return "" if value is None else "%s %s" % (value, currency)
 
 
+def health(p: config.Paths) -> str:
+    """"ok", opened by "locked since <time>" while the vault daemon says it is locked (T3)."""
+    from awb.tcp import board
+
+    line = board.locked(p)
+    return "%s\nok\n" % line if line else "ok\n"
+
+
 # --------------------------------------------------------------------------- the server
 
 
@@ -226,7 +234,7 @@ class Handler(BaseHTTPRequestHandler):
     def _answer(self, body: bool) -> None:
         url = urllib.parse.urlsplit(self.path)
         if url.path == "/health":
-            self._send(200, "ok\n", "text/plain; charset=utf-8", body)
+            self._send(200, health(self.paths or config.paths()), "text/plain; charset=utf-8", body)
             return
         route = ROUTES.get(url.path)
         if route is None:

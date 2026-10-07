@@ -121,3 +121,54 @@ def test_the_gateway_sends_the_board_to_the_projects_service():
             x.shutdown()
             x.server_close()
         LoginTests.tearDownClass()
+
+
+def test_board_and_health_open_with_locked_since(home, monkeypatch, capsys):
+    """T3. Planted failure: a board, a health answer or a board API answer without the line while the stand-in
+    daemon answers locked; a line on them while it answers unlocked."""
+    import http.client
+    import json
+
+    from awb import config
+    from awb.tcp import portal
+    from tests.test_hooks import SINCE, locked_answers, stand_in
+
+    def health() -> str:
+        server = portal.make_server(0, config.paths())
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            c = http.client.HTTPConnection(*server.server_address, timeout=20)
+            c.request("GET", "/health")
+            return c.getresponse().read().decode()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def board_api() -> tuple[int, dict]:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), api.Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            c = http.client.HTTPConnection(*server.server_address, timeout=20)
+            c.request("GET", "/api/board")
+            r = c.getresponse()
+            return r.status, json.loads(r.read())
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    with stand_in(locked_answers(SINCE)) as (sock, _):
+        monkeypatch.setenv("AWB_CHECK_SOCKET", str(sock))
+        for command in ("show", "write"):
+            cli.main(["board", command, "--out", str(home.shared / "board")] if command == "write" else
+                     ["board", command])
+            assert capsys.readouterr().out.splitlines()[0] == "locked since %s" % SINCE
+        assert health() == "locked since %s\nok\n" % SINCE
+        status, answer = board_api()
+        assert status == 503 and answer["error"].startswith("locked since %s. The data check is locked." % SINCE)
+        capsys.readouterr()          # the log line of the board service
+    with stand_in({"ping": {"ok": True, "state": "unlocked"}, "check": {"ok": True, "hits": []}}) as (sock, _):
+        monkeypatch.setenv("AWB_CHECK_SOCKET", str(sock))
+        with patch.object(api, "board", return_value=copy.deepcopy(contract.P_BOARD)):
+            assert cli.main(["board", "show"]) == 0
+        assert capsys.readouterr().out.startswith("# Project status")
+        assert health() == "ok\n"

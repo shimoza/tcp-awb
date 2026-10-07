@@ -12,7 +12,7 @@ Group=awb
 StateDirectory=awb-console-tenants
 StateDirectoryMode=0700
 Environment=AWB_CONF=/etc/awb/paths.conf
-ExecStart=/opt/tcp-awb/venv/bin/python3 -m awb.tcp.web.tenant_api --port 8183 --cache /var/lib/awb-console-tenants/tenants.json
+ExecStart=/opt/tcp-awb/venv/bin/python3 -I -m awb.tcp.web.tenant_api --port 8183 --cache /var/lib/awb-console-tenants/tenants.json
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=yes

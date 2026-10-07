@@ -9,6 +9,8 @@ active project (the Status: and Next: lines of STATE.md) with its time and the c
 project waits on, its first open items, its deliverables by review state and its live resources. A project whose
 status lags behind its commits or has no status line yet is marked, never updated: the session of the project does
 that. Codes only, every text after the data check. The HTML prints on A4 as it is, for a PDF from the browser.
+While the vault is locked both commands open with "locked since <time>" (T3); the project texts wait for the
+unlock, because the data check cannot run.
 """
 from __future__ import annotations
 
@@ -166,6 +168,17 @@ def write(board: dict, out: Path) -> tuple[Path, Path]:
     return md, page_path
 
 
+def locked(p) -> str | None:
+    """"locked since <time>" while the vault daemon says it is locked, else None (also without a daemon)."""
+    from awb import vault
+
+    try:
+        state = vault.ping_state(p.check_socket)
+    except (vault.VaultError, OSError):
+        return None
+    return vault.locked_line(state["since"]) if state["state"] == "locked" else None
+
+
 def main(argv: list[str] | None = None) -> int:
     from awb import config
     from awb.cli import SafeParser
@@ -183,8 +196,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.command not in ("write", "show"):
         ap.print_usage(sys.stderr)
         return 2
+    p = config.paths()
+    line = locked(p)
+    if line:
+        print(line, flush=True)
     try:
-        board = projects_api.board(config.paths())
+        board = projects_api.board(p)
     except projects_api.Unavailable as err:
         print("awb board: %s" % err, file=sys.stderr)
         return 1

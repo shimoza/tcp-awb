@@ -16,6 +16,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -308,17 +309,17 @@ def test_release2_end_to_end(places, daemon, monkeypatch, capsys):
     assert "name check unavailable: vault locked" in err
     code, out, err = con.hook("prompt", {"hook_event_name": "UserPromptSubmit", "cwd": str(project),
                                          "prompt": "size the app clusters of %s" % FULL})
-    assert code == 0 and err == ""
-    warning = json.loads(out)
-    assert "vault locked" in warning["hookSpecificOutput"]["additionalContext"]
-    assert "not checked" in warning["systemMessage"]
+    # T3 (build/DECISIONS.md, 2026-10-07, D-T3): a locked vault blocks the prompt with the time and the unlock
+    assert (code, out) == (2, "")
+    assert re.search(r"^the Workbench is locked since \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z \(vault locked\): as the "
+                     r"owner run awb vault unlock", err)
     if not SEALED_FOR_ANOTHER_USER:     # on a sealed host a hook process is silent for the owner by design
         res = prompt_hook("size the app clusters of %s" % FULL)
-        assert res.returncode == 0 and "vault locked" in res.stdout
+        assert res.returncode == 2 and res.stdout == "" and "(vault locked): as the owner run" in res.stderr
     code, out, err = con.hook("post-write", {"hook_event_name": "PostToolUse", "cwd": str(project),
                                              "tool_input": {"file_path": str(deliverable)}})
     # review of release 2: a file written while the check cannot run is reported as unchecked (exit 2)
-    assert code == 2 and "not checked" in err and "did not run (vault locked)" in err
+    assert code == 2 and "not checked" in err and "(vault locked): as the owner run awb vault unlock" in err
 
     # the owner unlocks again: the check comes back
     p = owner_side(monkeypatch, places)

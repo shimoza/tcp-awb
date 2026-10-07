@@ -52,11 +52,15 @@ user.
    and writes the new project paths into `projects.tsv`. Creates `tcp-kb` as a git repository when it is missing.
 5. Installs the code: `git archive HEAD` of this repository into `/opt/tcp-awb/src`, a virtual environment with
    the system site packages, an editable `pip install` of `/opt/tcp-awb/src` (so that `awb` finds `rules/` and
-   `CLAUDE.md` next to its package), then everything root owned and not writable for others.
+   `CLAUDE.md` next to its package), then everything root owned and not writable for others. `/usr/local/bin/awb`
+   is a root owned wrapper of three lines that runs `/opt/tcp-awb/venv/bin/python3 -I -m awb`: `-I` ignores the
+   invoking user's site folder, `PYTHONPATH` and the working folder, so no package planted there is loaded ahead
+   of the installed code. The `AWB_*` variables are not `PYTHON*` variables and still apply.
 6. Writes `/etc/awb/paths.conf` with the owner, the shared side, the vault, the projects root, the knowledge base
    and the check socket.
 7. Installs, enables and starts the unit. After a code update restart it yourself: the vault locks and needs
-   `awb vault unlock` again. Writes `/etc/needrestart/conf.d/awb.conf`: needrestart, which unattended upgrades run,
+   `awb vault unlock` again. While the vault is locked every prompt of a work session is refused with the time of
+   the lock (`awb hook prompt` exits 2) and a session starts without its project files. Writes `/etc/needrestart/conf.d/awb.conf`: needrestart, which unattended upgrades run,
    leaves the vault daemon and the key service running.
 8. Copies the owner's `~/.ssh/authorized_keys` to the work user.
 9. Installs `work-claude/settings.json` and `work-claude/CLAUDE.md` into the `.claude` folder of the work home,

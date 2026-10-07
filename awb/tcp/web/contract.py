@@ -945,7 +945,10 @@ def _project_paths() -> dict:
         "/api/board": {
             "get": operation("getBoard", "projects", "The status of every active project for management.", {
                 "200": answer("The board.", ref("Board"), {"two-projects": P_BOARD}),
-                "503": read_failed,
+                "503": refusal("The data check or a project folder is unavailable. Nothing was returned. While "
+                               "the vault is locked the error opens with the time of the lock.",
+                               "locked since 2026-10-07T06:02:11Z. " + PROJECT_READ_FAILED[0],
+                               *PROJECT_READ_FAILED[1:]),
             }, description="Read on every request from the project files, like the list: the recorded status with "
                            "the time of STATE.md and the commits newer than it, what the project waits on (the ## "
                            "Waiting on items of STATE.md), the first items of OPEN.md, the deliverables by review "
