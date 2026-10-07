@@ -1,14 +1,88 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
+What changed in the Architect Workbench, one entry per week (ISO week, Monday to Sunday), newest first. The form
+follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and projects appear as codes only.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-
-## [Unreleased]
+## Week 41, 2026-10-05 to 2026-10-11 (in progress)
 
 ### Added
 
-- A project session now asks at most one question per reply, always with the default it takes, and parks every
-  other open decision in the project's OPEN.md instead of asking in the chat.
-- The owner and an architect can see each month how many replies ended with a question with
-  `awb report --by questions`.
+- One deploy command. `sudo awb deploy` brings a commit live as a release of its own, restarts only the services the
+  change touched, brings the rules of every project up to date and ends with the status of each service.
+  `--dry-run`, `--rollback`, `--to COMMIT`, `--only UNIT...` and `awb deploy status`.
+- The vault daemon and the key service survive a code update. `awb vault reload` and `awb keys reload` hand the
+  running service to the new code without a lock, so the name check stays unlocked and the keys stay loaded.
+- The board for management. `awb board show` and `awb board write` give the status of every active project with its
+  time and lag, what it waits on, its open items, its deliverables and its live resources. The console shows the same.
+- Offered services come from the latest service description alone: `awb service check`, `list` and `update`, the
+  list in both chats, a note under an answer that names a service not offered and a finding in the review.
+- `awb projects sync` brings the template lines of every project up to date. A running session hears once when its
+  rules changed.
+- A project's status stays current. `STATE.md` opens with `Status:` and `Next:`, a session cannot end a reply while
+  its commits are newer than that status, the console shows the status with its lag.
+- Sessions ask less. At most one question per reply, at its end, with the default the session takes. Every other
+  open decision goes into `OPEN.md`. `awb report --by questions` counts the replies that ended with a question.
+
+### Changed
+
+- `awb inbox take` finds the file you describe in your own words (the same letters, a kind of file, the newest, a
+  part of the name). None or several matches list both inboxes. `--id` and `--all`.
+- The harvest also asks after Terraform runs, the openstack client and plain calls to the TCP API, besides the
+  Workbench's own calls.
+- The push check lets the owner's own commit identity pass in his own repository.
+
+### Fixed
+
+- A package upgrade no longer locks the Workbench. The project chat says when the name check is locked instead of
+  calling the project unavailable.
+- The deploy no longer reports a restarted socket unit as failed.
+
+### Security
+
+- A locked vault blocks every prompt of a work session instead of warning, with the time of the lock. A session
+  starts without its project files while the name check cannot run.
+- The installed `awb` command runs the interpreter isolated, so a package planted in a user's own folders is never
+  loaded ahead of the installed code.
+- Both daemons refuse to be inspected by other processes of the same user.
+
+## Week 40, 2026-09-28 to 2026-10-04
+
+### Added
+
+- The public edition of the Workbench (2026-09-28), under the Apache License 2.0.
+- A read-only portal over the knowledge, live prices, the projects and the reviews.
+- The Ask page: a question in plain words, answered only from the checked sources, name checked before it leaves,
+  with a daily budget.
+- The Workbench as a plugin for Claude Code, with this repository as its marketplace. Version 0.2.0 adds the
+  exchange skill, the migration skill and its workers.
+- `awb calc`: exact decimal arithmetic, every result recorded. The review takes a computed number only with its
+  recorded calculation.
+- `awb migrate`: Azure to TCP in phases (discover, map, estimate, plan, review). Each machine gets the nearest TCP
+  flavor that is not smaller, priced live.
+- The key service. Keys, logins and passwords of the test tenants stay on the owner's side. Sessions call through it
+  and never see a value.
+- Daily snapshots of the test tenants: what ran where, when and for which project.
+- The harvest: a session that called the TCP API adds what it learned live to the knowledge base.
+- The exchange: two inboxes and a folder per project in object storage. Sessions take files only through the key
+  service, an original only through the owner's intake.
+- Two kinds of work: a query (knowledge base, docs, prices) and a project (also the test tenants).
+  `awb projects kind` switches between them.
+- `awb kb export`: the checked facts as a JSON Lines dataset.
+- `awb projects delete`, `awb projects list` with the goal of each project and `awb vault show` for the private
+  intake report.
+- `awb register review`: the candidates of a blocked intake sorted in one editor pass.
+- The web console in the repository: its API contract (`docs/api/openapi.yaml`, `awb api check`), the handlers and
+  their tests. The project chat reads the sanitised inputs of a project and searches long ones.
+- The README for architects.
+
+### Changed
+
+- Calls to the TCP API keep a pause per host and wait what an HTTP 429 names. `awb cloud usage` reports the calls.
+- Registering a customer opens its outbox folder, so a project can start before the first intake.
+
+### Security
+
+- The key service refuses every write to the identity service and keeps one log line per call.
+- The console reads a test tenant without a project only through its own read-only service user.
+- Knowledge search checks for names in halves, so a broad search never hits the rate limit of the name check.
+- No test writes to the owner's home folder.

@@ -1,14 +1,79 @@
 # Architect Workbench
 
 **A harness for cloud architecture work on T Cloud Public (TCP).** The Workbench sits around an AI assistant (Claude
-Code) and decides what the model may use, checks what it hands out and keeps the record. The model reasons and
-writes. The harness supplies checked facts, live prices and a live tenant. It lets nothing leave unreviewed.
+Code). The model reasons and writes. The Workbench decides what the model may use, checks what it hands out and
+keeps the record: checked facts in place of the model's memory, live prices, exact arithmetic, real test tenants and
+a review before any text leaves.
 
-It is a harness in both senses: it holds the model to checked sources and it tests every result before it leaves.
-With it an architect answers what-if questions from checked facts, prices a whole solution live and builds a proof
-of concept on a real tenant.
+You work in it as with a colleague in a terminal. You ask in plain words. The session looks the facts up, asks the
+price API, builds on a test tenant when the work needs it and writes down what it found with a source for each
+statement. A customer or partner appears only as a code (`CUST-Q7M4`), a piece of work as a project code
+(`tcp-q7m4`).
 
 Most of it is not tied to one cloud. The facts, prices and API details are for TCP.
+
+## Two kinds of work
+
+Every piece of work starts with `awb spawn` and gets its own folder with its goal, its rules, its checkpoints and
+its git history.
+
+| kind | for | reaches |
+|---|---|---|
+| query | a question: can TCP do this, what does it cost, how does a service behave | the knowledge base, the documentation, the service description, live prices, `awb calc` |
+| project | a proof of concept, a lab, a migration plan | everything a query reaches, plus the test tenants |
+
+A query that turns out to need a live test becomes a project with `awb projects kind tcp-xxxx project`. A query
+never touches a tenant: the key service refuses its calls.
+
+## Live tenants through the key service
+
+A project builds and checks on real TCP test tenants. The session never holds a key. The key service runs on
+the owner's side. It keeps the keys, logins and passwords of every test tenant in memory and signs each call a
+session sends. The read key allows reads only. A write needs the lab key and the code of an active project.
+A write to the identity service is always refused. Every answer comes back with every key and secret taken out.
+
+Every resource a project creates carries the project code as a tag and a row in the project's `RESOURCES.md`. A
+daily snapshot tells what ran on which tenant on which day. `awb close` refuses while something is still running.
+What a session learned live on the platform goes into the knowledge base with the grade `live`.
+
+## The exchange: files in and out
+
+Files come in through two inboxes in object storage (OBS). You drop a file there and tell the session in your own
+words which one you mean ("the pdf", "the newest", a part of its name). The session takes it with `awb inbox take`.
+
+| inbox | for | what the session gets |
+|---|---|---|
+| the lab inbox | material without customer content: vendor images, test data, public documents | the file itself, after the name check |
+| the owner inbox | anything that may hold customer material | only the sanitised copies of the owner's intake, never the original |
+
+Results go back with `awb xchg put` into the project's own folder, after the name check and, for a customer
+project, the send gate. A mail tells you about each file.
+
+## The board and the console
+
+Every project keeps its status in the first two lines of `STATE.md` (`Status:` and `Next:`). A session cannot end
+a reply while its commits are newer than that status. `awb board show` turns the status of every active project into
+one page for management: what each project waits on, its open items, its deliverables by review state and its live
+resources, with codes only. `awb board write` keeps it as Markdown and as HTML that prints on A4.
+
+The console is the web side of the same work, behind a sign-in. It lists the projects with their status, files and
+deliverables, shows the board and what runs on the test tenants, creates a new query or project and imports chosen
+files from the buckets into a project. Each project has a chat that reads its sanitised inputs. The Ask page answers
+a general question in plain words only from the knowledge base, the live price API and the tenant snapshots.
+
+## Deploy
+
+A change goes live with one command after its commit:
+
+```bash
+awb deploy --dry-run    # the plan, nothing runs
+sudo awb deploy
+```
+
+The deploy installs the commit as a release of its own and restarts only what the change touched. The name check
+and the key service move to the new code without a lock, so no session stops and no key is loaded again. Changed
+rules reach every project and every running session. The run ends with the status of each service.
+`awb deploy status` shows what runs where, `sudo awb deploy --rollback` goes back to the release before.
 
 ## What it does for an architect
 
@@ -35,14 +100,14 @@ a meeting. In the Workbench every fact carries its weight:
 A negative ("this is not possible") needs two recorded attempts. Facts that go stale (availability, flavors,
 regions) carry an expiry date and are checked again.
 
+**Only what is offered.** A service counts as offered only when the latest service description lists it. The docs,
+an API that answers or a price record do not make it offered. `awb service check` tells, both chats carry the list
+and the review refuses a deliverable that names a service which is not offered.
+
 **Whole-solution prices.** Anyone can look up one price in a calculator. The Workbench prices the whole solution:
 every position fetched live from the public price API and a price sheet recomputed to the cent before it leaves.
 Every total, sum and saving is computed by `awb calc` with exact decimals. The model never adds numbers in its head.
 The review accepts a computed number only together with its recorded calculation.
-
-**Proofs of concept on a live tenant.** A session builds and checks a lab setup on a real TCP tenant. It never holds
-a key: a key service on the owner's side signs every call. Every resource a project creates is listed, tagged with
-the project code and found again by the resource sweep when it was left behind.
 
 **Migrations in phases.** `awb migrate` takes an Azure inventory (a sanitised copy of the customer's spreadsheet) to
 a reviewed plan: discover, map, estimate, plan, review. Every machine gets the nearest TCP flavor that is not smaller
@@ -57,6 +122,10 @@ question, never patched. A send gate lets only the exact reviewed version leave.
 **Texts in the architect's own voice.** `awb write check` measures a text against the architect's style and a
 drafting skill writes mails, offers and PoC documents in that voice, with a check that the voice pass changed no
 fact.
+
+**Few questions.** A session asks at most one question per reply, at its end, with the default it takes. Every other
+open decision goes into the project's `OPEN.md` with its default. `awb report --by questions` counts the replies that
+ended with a question.
 
 ## Install
 
@@ -111,7 +180,9 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 | switch | `awb projects kind tcp-xxxx project` | a query that needs a live test becomes a project (or back) |
 | see the projects | `awb projects list` | every project with its goal and the session that holds it |
 | finish a project | `awb close tcp-xxxx`, then `awb projects delete tcp-xxxx` | close waits for open items and live resources; delete removes the folder and keeps the code |
+| take a file | `awb inbox take the pdf` | the file you described, from either inbox, into the project |
 | look up a fact | `awb kb find "ecs flavor eu-nl"`, `awb kb show KB-XXXX` | ranked facts with grade, source and check date |
+| offered or not | `awb service check dms rds` | the section and revision of the latest service description |
 | a price | `awb price find ecs --grep s3.large` | the live records with every term |
 | check a price sheet | `awb price check sheet.csv` | every price fetched again, every total recomputed |
 | compute | `awb calc "730 * 0.0418 * 3" --places 2` | the exact result, recorded as `K-N` for the review |
@@ -120,26 +191,31 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 | a migration | `awb migrate init --from azure`, then `awb migrate next` | the next phase, its worker and its files |
 | review a text | `awb review init`, `claims`, `l0`, `pass` | the claim list with evidence and a review record |
 | the week | `awb ledger add ...`, `awb report --by customer` | one line per piece of work, reports by customer, technology or project |
+| the status | `awb board show`, `awb board write` | the status of every active project on one page |
+| bring a commit live | `sudo awb deploy` | the new release, only the changed services restarted, the status at the end |
 
 ## A typical day
 
 1. `awb spawn project --goal "Test a virtual firewall appliance on TCP"` and open a Claude Code session in the new
    folder.
-2. Ask in plain words. The session reads the project's SCOPE, STATE and OPEN files, looks facts up with `awb kb`,
+2. Drop the vendor image or the customer's spreadsheet into an inbox and tell the session which file you mean. It
+   takes the file with `awb inbox take`.
+3. Ask in plain words. The session reads the project's SCOPE, STATE and OPEN files, looks facts up with `awb kb`,
    prices with `awb price` and `awb calc` and writes what it found to `evidence/`, with a source for each statement.
-3. When it builds on a tenant, it calls through the key service with the project code. Every resource goes into
+4. When it builds on a tenant, it calls through the key service with the project code. Every resource goes into
    `RESOURCES.md`.
-4. A text for a customer or a partner goes through the drafting skill and `awb review`. Only the reviewed version
+5. A text for a customer or a partner goes through the drafting skill and `awb review`. Only the reviewed version
    leaves.
-5. The session writes its ledger entry, commits and harvests by itself: what it learned live on the platform goes
+6. The session writes its ledger entry, commits and harvests by itself: what it learned live on the platform goes
    into the knowledge base with the grade `live`. When it called the TCP API and added nothing, the stop hook sends
-   it back once to do so. At the end, `awb close` checks that nothing is left running.
+   it back once to do so. It keeps the two status lines of `STATE.md` current for the board. At the end,
+   `awb close` checks that nothing is left running.
 
 ## Test tenants and keys
 
 A working session never sees a key. The key service (`awb keys serve`, a systemd service of the owner) holds the
 keys and secrets of every test tenant in memory and signs the calls the sessions send it. The owner keeps them in
-his password store (`pass`), one folder per tenant alias:
+the password store (`pass`), one folder per tenant alias:
 
 | entry | what it is | what it allows |
 |---|---|---|
@@ -164,16 +240,15 @@ wait when the API gateway says so (HTTP 429).
 
 ## Files in and out
 
-You drop a file into an inbox in the OBS console with no project code and no command. Then you name it in the
-first prompt of a project ("read FILE from the inbox"). The session takes it with `awb inbox take FILE`:
+You drop a file into `inbox/` of the lab bucket or of the owner bucket in the OBS console, with no project code
+and no command. Then you describe it to the session in your own words. `awb inbox take` matches your words against
+the file names inside the key service: the same letters, a kind of file ("the pdf", "the spreadsheet"), "the
+newest" or a part of the name. One match is taken. None or several list both inboxes, without any name of the owner
+inbox. The session takes the one you mean with `--id`. `--all` takes every file of both inboxes. A file of the
+owner inbox goes through your intake and the session gets only the sanitised copies; the original goes to the vault.
 
-| inbox | for | what the session gets |
-|---|---|---|
-| `inbox/` of the lab bucket | material without customer content: vendor images, test data, public documents | the file itself after the name check |
-| `inbox/` of the owner bucket | anything that may hold customer material | only the sanitised copies of your intake; the original goes to the vault |
-
-A file with a name hit or unknown name candidates is held. You get a mail about it. Results come back with `awb xchg put`
-into `<project>/from-session/<date>/` of the lab bucket, after the name check and, for a customer project, the
+A file with a name hit or unknown name candidates is held. You get a mail about it. Results come back with
+`awb xchg put` into `<project>/from-session/<date>/` of the lab bucket, after the name check and, for a customer project, the
 send gate. You fetch them in the OBS console. A mail tells you about each one. The key service signs every object call
 and refuses everything outside the inbox and the project's own folders.
 
@@ -214,7 +289,8 @@ customer data out of the model as far as it can:
 - The register of names lives in a vault on the owner's side. The sealed setup runs every session as a separate
   system user that cannot read it.
 - Five hooks check every prompt, every written file and the start and end of every session, so that a registered
-  name typed by mistake is stopped before the model sees it.
+  name typed by mistake is stopped before the model sees it. While the name check cannot run (a locked vault),
+  every prompt is refused with the time of the lock.
 - A gate checks every commit for names, secrets, home paths and the owner's blocklist. A send gate lets only the
   exact reviewed version of a deliverable leave.
 
@@ -235,14 +311,15 @@ ssh awb@<host>                   # the work user takes your ssh keys
 awb seal check                   # as awb: what the work user can and cannot reach
 ```
 
-The key service is installed once from `seal/awb-keyd.service` (fill in the owner's user name). Things you want no
-commit to carry (names of other workspaces, a naming scheme) go into a local blocklist, one regular expression per
+The setup installs the vault daemon, the key service and the web services from the unit templates of `seal/`.
+Things you want no commit to carry (names of other workspaces, a naming scheme) go into a local blocklist, one regular expression per
 line: `/etc/awb/blocklist.txt` or `~/.config/awb/blocklist.txt`. It never enters the repository.
 
 | when | what to run |
 |---|---|
 | after a reboot | `awb vault unlock`, then `awb keys unlock` (as the owner) |
-| after a code change | `sudo seal/setup.sh`, restart the services (`awb-vaultd`, `awb-keyd` and the portal ones), then both unlocks |
+| after a commit | `sudo awb deploy`: the vault and the keys stay unlocked |
+| after a library upgrade | `sudo awb deploy --only awb-vaultd.service awb-keyd.service` |
 | a new project, close or delete | as `awb`: projects belong to the work user |
 | a customer's material | as the owner: `awb register` the names, `awb intake --customer CUST-XXXX`, then `awb spawn ... --from-outbox` as `awb` |
 
@@ -258,8 +335,10 @@ line: `/etc/awb/blocklist.txt` or `~/.config/awb/blocklist.txt`. It never enters
 | `workflows/` | the review and refresh workflows for Claude Code |
 | `calibration/` | the review calibration set, the red-team pack and the records of the red team and the security review |
 | `tests/` | every test, invented names only |
+| `docs/api/` | the contract of the web API (`awb api check`) |
 | `COMMANDS.md` | every `awb` command by who runs it |
 | `INTERFACES.md` | the interface of every module |
+| `CHANGELOG.md` | what changed, one entry per week |
 
 ## Personal parts
 
