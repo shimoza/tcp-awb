@@ -10,16 +10,21 @@ The seal keeps the register of names away from every working session. It uses tw
 - The owner is in the group `awb`, so that the intake can write the outbox (`tcp-shared/outbox`, mode 3770).
 - The vault daemon (`awb-vaultd.service`) runs as the owner with the group `awb`. Working sessions ask it for the
   name check through `/run/awb/check.sock`. They never see a form or a code of the register.
-- The code runs from `/opt/tcp-awb` (root owned, read-only for the work user, its own virtual environment).
+- The code runs from `/opt/tcp-awb` (root owned, read-only for the work user, its own virtual environment): one
+  folder per commit in `/opt/tcp-awb/releases/`, and `/opt/tcp-awb/src` is a symlink to the live one.
+  `/usr/local/bin/awb` runs it. `/etc/awb/paths.conf` tells every `awb` command where things are.
 - The web side (the gateway, the console data, creation, materials and the project chat) has its own templates
   and switch steps in `web/README.md`; `setup.sh` does not install them.
-  `/usr/local/bin/awb` points at it. `/etc/awb/paths.conf` tells every `awb` command where things are.
+- A code change goes live with one command, `sudo awb deploy` (section "The deploy" below).
 
 ## Files
 
 - `setup.sh`: sets all of the above up. Idempotent, prints every command before it runs it.
 - `verify.sh`: proves the seal as root, one line per check, PASS or FAIL, exit 1 on any FAIL.
-- `awb-vaultd.service`: the unit of the vault daemon. `setup.sh` fills in the owner in the `User=` line.
+- `awb-vaultd.service`, `awb-keyd.service`, `awb-ask.service`, `awb-portal.service`: the units of the vault
+  daemon, the key service, the Ask page and the portal. `setup.sh` installs every `*.service` of this folder and
+  fills in the owner in the `User=` lines. These templates are the unit list of `awb deploy`, with the templates of
+  `web/`.
 - `needrestart-awb.conf`: goes to `/etc/needrestart/conf.d/awb.conf`, so that a package upgrade never restarts
   the vault daemon or the key service: a restart locks them and the console loses projects and chat.
 - `work-claude/settings.json`: the client settings of the work user: the five Workbench hooks
@@ -40,26 +45,35 @@ user.
 3. Prove it: `sudo seal/verify.sh`. `--dry-run` lists the checks.
 4. Unlock the vault as the owner: `awb vault unlock`. Then log in as `awb` (the owner's ssh keys work) and run
    `awb seal check`.
+5. From then on, after every commit: `cd ~/tcp-awb && sudo awb deploy` (`awb deploy --dry-run` shows the plan
+   without root).
 
 ## What setup.sh does
 
-1. Creates the group and the user `awb` and takes the user out of the groups above.
+1. Creates the group and the user `awb` and takes the user out of the groups above. Creates the system user
+   `awb-ask` of the Ask page (no login, no home, the group `awb`).
 2. Adds the owner to the group `awb`.
 3. Sets the home modes. The vault and the password store get mode 700 and nothing else: every other step that
    would touch them is refused. The whole plan is checked once before the first change, so a refused step stops
    the setup before anything changes.
 4. Moves `tcp-shared`, `tcp-kb` and the projects listed in `projects.tsv` from the owner's home to the work home
    and writes the new project paths into `projects.tsv`. Creates `tcp-kb` as a git repository when it is missing.
-5. Installs the code: `git archive HEAD` of this repository into `/opt/tcp-awb/src`, a virtual environment with
-   the system site packages, an editable `pip install` of `/opt/tcp-awb/src` (so that `awb` finds `rules/` and
-   `CLAUDE.md` next to its package), then everything root owned and not writable for others. `/usr/local/bin/awb`
+5. Installs the code: `git archive HEAD` of this repository into `/opt/tcp-awb/releases/<commit>` (through a
+   `.partial` name, not writable for others), a virtual environment with the system site packages and one line in
+   its `awb.pth`, `/opt/tcp-awb/src`, so that `awb` finds `rules/` and `CLAUDE.md` next to its package. pip does not
+   run; the files of an earlier editable install are removed after the `.pth` line is in place. The last step is
+   the flip: a new symlink `src.next` to the release and one `renameat2(RENAME_EXCHANGE)` with `src`, so `src`
+   resolves to a full tree at every instant. On the first run `src` is still a plain folder; the exchange swaps it
+   out and it moves to `releases/pre-deploy`. Nothing ever removes `src`. `/usr/local/bin/awb`
    is a root owned wrapper of three lines that runs `/opt/tcp-awb/venv/bin/python3 -I -m awb`: `-I` ignores the
    invoking user's site folder, `PYTHONPATH` and the working folder, so no package planted there is loaded ahead
    of the installed code. The `AWB_*` variables are not `PYTHON*` variables and still apply.
 6. Writes `/etc/awb/paths.conf` with the owner, the shared side, the vault, the projects root, the knowledge base
    and the check socket.
-7. Installs, enables and starts the unit. After a code update restart it yourself: the vault locks and needs
-   `awb vault unlock` again. While the vault is locked every prompt of a work session is refused with the time of
+7. Installs every `*.service` of this folder, enables and starts them (a failed start only warns: the Ask page
+   waits for its key file, which stays the owner's step). A unit that runs is left running: `sudo awb deploy`
+   restarts what a commit changed. A restart of the vault daemon locks it and the deploy asks the passphrase once.
+   While the vault is locked every prompt of a work session is refused with the time of
    the lock (`awb hook prompt` exits 2) and a session starts without its project files. Writes `/etc/needrestart/conf.d/awb.conf`: needrestart, which unattended upgrades run,
    leaves the vault daemon and the key service running.
 8. Copies the owner's `~/.ssh/authorized_keys` to the work user.
@@ -76,6 +90,41 @@ user.
    the work user, and no project file can allow what a user file denies.
 
 Home folders come from `getent passwd`. No home path is written into any file of this folder.
+
+## The deploy
+
+`sudo awb deploy`, run by the owner in the repository after a commit, brings the commit live and restarts only the
+units whose code changed. `awb deploy --dry-run` prints the plan and every step without root;
+`awb deploy status` prints the journal and the release each daemon runs. What it does, in order:
+
+1. Checks the caller (sudo as the owner of `/etc/awb/paths.conf`, a git work tree in his home, the installed
+   command) and takes the lock `/run/awb-deploy.lock`; a second deploy is refused with the pid of the first.
+2. Plans as the owner, in a child that dropped root for good: the tree must be clean, the target is HEAD (or
+   `--to COMMIT`, or `--rollback`), the changed files since the deployed commit map to units through the imports of
+   each unit's entry module (as systemd shows it). Root validates the plan before it uses it.
+3. Writes the journal `/opt/tcp-awb/DEPLOYED` as `running` (root, 644: commits, unit names, states).
+4. Extracts `git archive <target>` (written by the owner child) into `releases/.<commit>.partial`, checks every
+   entry (files, folders and links only, no setuid bit), drops the group and other write bits and renames it.
+5. Runs `releases/<commit>/seal/setup.sh --update` from the release, never from the working tree. The update mode
+   names its steps one by one: the code (the `.pth` line, the wrapper, the flip), the host file, the units, the
+   needrestart rule, the client files and the managed drop-in. It never touches the users, the homes, the moves or
+   the ssh keys, so the shared tree is not chowned again. `--units-only` installs the unit templates and reloads
+   systemd, nothing else.
+6. Restarts the vault daemon, then the key service, then the Ask page and the portal, then the web units through
+   `releases/<commit>/seal/web/install.sh --only UNIT...` (when the web side was switched). Each must be active
+   and keep its main process for 3 seconds within 20; a socket activated service answers one request on its
+   socket. A unit that does not come back stays pending in the journal and the run exits 1; the next deploy
+   restarts it without a new commit.
+7. Asks the vault passphrase once after a restart of the vault daemon and loads the keys after a restart of the
+   key service (as the owner). Runs `awb projects sync` as the work user when `rules/`, `work-claude/` or
+   `awb/rulesync.py` changed. Prints one status line per daemon: unlocked with its release, `locked since <time>`
+   or `down since <time>`, and names a split between a daemon and the code.
+8. Marks the journal `done`, appends one line to `/opt/tcp-awb/deploy.log` and keeps the current release, the
+   previous one and every release a running unit still uses; older ones are removed.
+
+A run that is interrupted (Ctrl-C, a lost terminal) leaves the journal `running`: the next deploy treats every
+unit of that run as pending. `--only UNIT...` restarts the named units even when nothing changed, `--all` every
+installed unit, `--restart` restarts the two daemons where a reload would do (T2 adds the reload).
 
 ## Needs
 

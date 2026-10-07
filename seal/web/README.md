@@ -31,7 +31,8 @@ belong to `awb-web`, so only the gateway reaches them.
 
 ## The switch (production stays on `/opt/awb-web` until the owner runs it)
 
-1. `sudo seal/setup.sh` installs the committed code into `/opt/tcp-awb` (`git archive HEAD`).
+1. `sudo seal/setup.sh` installs the committed code into `/opt/tcp-awb/releases/<commit>` (`git archive HEAD`)
+   and points `/opt/tcp-awb/src` at it.
 2. Publish the reviewed page of the console to `/srv/awb-web/index.html`, the old one kept as
    `index.html.before-switch`.
 3. `sudo seal/web/install.sh --domain <host name of the site>`, first with `--dry-run`. It creates the system user
@@ -43,6 +44,11 @@ belong to `awb-web`, so only the gateway reaches them.
    load.
 
 To go back: `sudo seal/web/install.sh --rollback`, and the page backup copied over `/srv/awb-web/index.html`.
+
+After the switch `--domain` may be left out: the script reads the host name from the installed `awb-web.service`.
+`sudo awb deploy` runs `releases/<commit>/seal/web/install.sh --only UNIT...` from the release it extracted, once an
+installed web unit points at `/opt/tcp-awb`: the script renders every template as before and restarts the named
+units only, in its own order.
 
 The web adapters in `/opt/awb-web` keep working against a newer `/opt/tcp-awb` until the switch: the private
 names they call (`register._check`, `projects._known_tags`, `projects._locked`, `obs._text`, `obs._child`,

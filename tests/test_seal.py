@@ -15,8 +15,10 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -117,11 +119,13 @@ def test_setup_dry_run_prints_every_step(fakebin):
     assert has(r"^\+ chmod 2750 \S+/tcp-shared$")
     assert has(r"find \S+/tcp-shared/outbox \S+/tcp-shared/tenants -type d -exec chmod 3770")
     assert has(r"git -C \S+/tcp-kb init -q$")
-    # the code
-    assert has(r"git -C %s archive HEAD \| tar -x -C /opt/tcp-awb/src$" % re.escape(str(REPO)))
+    # the code (T1, build/DECISIONS.md row 11): a release folder per commit, one .pth line, the exchange
+    assert has(r"git -C %s archive HEAD \| tar -x --no-same-owner --no-same-permissions -C "
+               r"/opt/tcp-awb/releases/\.<HEAD>\.partial$" % re.escape(str(REPO)))
     assert has(r"^\+ python3 -m venv --system-site-packages /opt/tcp-awb/venv")
-    assert has(r"^\+ /opt/tcp-awb/venv/bin/pip install .*/opt/tcp-awb/src$")
-    assert has(r"^\+ chown -R root:root /opt/tcp-awb$")
+    assert has(r"^\+ write /opt/tcp-awb/venv/lib/python3[^/]*/site-packages/awb\.pth \(mode 644, root:root\)$")
+    assert has(r"^\+ exchange /opt/tcp-awb/src\.next /opt/tcp-awb/src  # renameat2 RENAME_EXCHANGE, one call$")
+    assert not has(r"pip install") and not has(r"rm -rf -- /opt/tcp-awb/src$")
     # T3 (build/DECISIONS.md, 2026-10-07, D-T3a): a wrapper in place of the symlink, see the wrapper tests below
     assert has(r"^\+ write /usr/local/bin/awb \(mode 755, root:root\)$")
     # the host file and the unit
@@ -646,3 +650,268 @@ def test_command_prefix_recognises_the_wrapper(tmp_path, monkeypatch):
     wrapper.write_text("#!/bin/sh\nexec %s -I -m awb \"$@\"\n" % sys.executable, encoding="utf-8")
     monkeypatch.setattr(hooks, "INSTALLED_AWB", wrapper)
     assert hooks.command_prefix() == "%s hook" % wrapper
+
+
+# --------------------------------------------------------------------------- T1: the update mode and the releases
+
+IMPORT_LOOP = r"""
+import importlib, os, sys, time
+src, stop, out = sys.argv[1:4]
+sys.path.insert(0, src)
+n = fails = 0
+while not os.path.exists(stop):
+    for m in [k for k in sys.modules if k == "awb" or k.startswith("awb.")]:
+        del sys.modules[m]
+    importlib.invalidate_caches()
+    try:
+        import awb.config
+        n += 1
+    except Exception:
+        fails += 1
+    time.sleep(0.002)
+with open(out, "w") as fh:
+    fh.write("%d %d" % (n, fails))
+"""
+
+
+def _git(repo, *args):
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.org", GIT_COMMITTER_NAME="t",
+               GIT_COMMITTER_EMAIL="t@example.org")
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True,
+                          env=env).stdout.strip()
+
+
+def _layout(tmp: Path) -> tuple[Path, Path, dict]:
+    """A repository with the seal and the package, an install root with the plain folder of before T1 (with a marker)
+    and the files of an editable install, and the environment of the test-only override."""
+    repo = tmp / "repo"
+    shutil.copytree(SEAL, repo / "seal", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(REPO / "awb", repo / "awb", ignore=shutil.ignore_patterns("__pycache__"))
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "--no-verify", "-m", "one")
+    opt = tmp / "opt"
+    shutil.copytree(REPO / "awb", opt / "src" / "awb", ignore=shutil.ignore_patterns("__pycache__"))
+    (opt / "src" / "MARK").write_text("the plain folder\n")
+    (opt / "venv" / "bin").mkdir(parents=True)
+    (opt / "venv" / "bin" / "python").write_text("")
+    site = opt / "venv" / "lib" / "python3.12" / "site-packages"
+    (site / "tcp_awb-0.1.0.dist-info").mkdir(parents=True)
+    (site / "__editable__.tcp_awb-0.1.0.pth").write_text("import __editable___tcp_awb_0_1_0_finder\n")
+    (site / "__editable___tcp_awb_0_1_0_finder.py").write_text("")
+    (tmp / "bin").mkdir()
+    env = {k: v for k, v in os.environ.items() if k not in ("SUDO_USER",)}
+    env.update(SUDO_USER=USER, AWB_SETUP_OPT=str(opt), AWB_SETUP_BIN=str(tmp / "bin" / "awb"))
+    return repo, opt, env
+
+
+def _with_imports(opt: Path, tmp: Path, run) -> tuple[subprocess.CompletedProcess, int, int]:
+    """Run `run()` while a second process imports awb through opt/src every few milliseconds."""
+    stop, out = tmp / "stop", tmp / "imports"
+    for f in (stop, out):
+        if f.exists():
+            f.unlink()
+    loop = subprocess.Popen([sys.executable, "-I", "-B", "-c", IMPORT_LOOP, str(opt / "src"), str(stop), str(out)])
+    try:
+        time.sleep(0.3)
+        res = run()
+        time.sleep(0.2)
+    finally:
+        stop.write_text("")
+        loop.wait(timeout=30)
+    n, fails = map(int, out.read_text().split())
+    return res, n, fails
+
+
+def _first_case_problems(res, opt: Path) -> list[str]:
+    """What is wrong after the first run over the plain folder."""
+    out = []
+    if res.returncode != 0:
+        return ["exit %d: %s" % (res.returncode, res.stderr.strip()[-200:])]
+    src = opt / "src"
+    cmds = commands(res.stdout)
+    if not src.is_symlink() or not os.readlink(src).startswith("releases/"):
+        out.append("src is not a symlink into releases")
+    if (opt / "releases" / "pre-deploy" / "MARK").read_text() != "the plain folder\n":
+        out.append("the plain folder is not releases/pre-deploy")
+    if not any(c.startswith("+ exchange %s/src.next %s/src" % (opt, opt)) for c in cmds):
+        out.append("no exchange")
+    if [c for c in cmds if re.search(r"\b(mv|rm)\b.* %s/src( |$)" % re.escape(str(opt)), c)]:
+        out.append("src itself was moved or removed")
+    return out
+
+
+def test_setup_update_code_step_for_real(tmp_path):
+    """Under the test-only override: the plain src with a marker becomes a symlink into releases/<commit> and
+    releases/pre-deploy holds the marker; the .pth holds one line; a second run with a new commit keeps two releases
+    and flips while a second process imports awb through the layout every few milliseconds; a fake git that exits 1
+    leaves src untouched. Planted: the migration swapped with the flip, or mv in place of the exchange, fails the
+    first case."""
+    repo, opt, env = _layout(tmp_path)
+    c1 = _git(repo, "rev-parse", "HEAD")
+    run1 = lambda: subprocess.run(["bash", str(repo / "seal" / "setup.sh")], capture_output=True, text=True,  # noqa
+                                  env=env, timeout=120)
+    res, n, fails = _with_imports(opt, tmp_path, run1)
+    assert _first_case_problems(res, opt) == []
+    assert (n, fails) > (0, 0) and fails == 0
+    assert os.readlink(opt / "src") == "releases/%s" % c1
+    site = opt / "venv" / "lib" / "python3.12" / "site-packages"
+    assert (site / "awb.pth").read_text() == "%s/src\n" % opt
+    assert sorted(p.name for p in site.iterdir()) == ["awb.pth"]
+    assert (tmp_path / "bin" / "awb").read_text().splitlines()[-1] == 'exec %s/venv/bin/python3 -I -m awb "$@"' % opt
+    assert not [p for p in (opt / "releases").iterdir() if p.name.startswith(".")]
+    assert not (opt / "src.next").exists() and not (opt / "src.next").is_symlink()
+    # a second commit, extracted the way awb deploy does it, installed with --update from its release folder
+    (repo / "awb" / "config.py").write_text((repo / "awb" / "config.py").read_text() + "\n# two\n")
+    _git(repo, "commit", "-q", "-a", "--no-verify", "-m", "two")
+    c2 = _git(repo, "rev-parse", "HEAD")
+    rel2 = opt / "releases" / c2
+    rel2.mkdir()
+    archive = subprocess.run(["git", "-C", str(repo), "archive", c2], capture_output=True, check=True).stdout
+    subprocess.run(["tar", "-x", "-C", str(rel2)], input=archive, check=True)
+    run2 = lambda: subprocess.run(["bash", str(rel2 / "seal" / "setup.sh"), "--update"], capture_output=True,  # noqa
+                                  text=True, env=env, timeout=120)
+    res, n, fails = _with_imports(opt, tmp_path, run2)
+    assert res.returncode == 0, res.stderr
+    assert n > 0 and fails == 0
+    assert os.readlink(opt / "src") == "releases/%s" % c2
+    assert sorted(p.name for p in (opt / "releases").iterdir()) == sorted([c1, c2, "pre-deploy"])
+    # a git that fails leaves src where it was
+    fake = tmp_path / "fakegit"
+    fake.mkdir()
+    (fake / "git").write_text("#!/bin/sh\nexit 1\n")
+    (fake / "git").chmod(0o755)
+    (repo / "awb" / "config.py").write_text((repo / "awb" / "config.py").read_text() + "\n# three\n")
+    _git(repo, "commit", "-q", "-a", "--no-verify", "-m", "three")
+    res = subprocess.run(["bash", str(repo / "seal" / "setup.sh")], capture_output=True, text=True, timeout=120,
+                         env=dict(env, PATH="%s:%s" % (fake, env["PATH"])))
+    assert res.returncode != 0
+    assert os.readlink(opt / "src") == "releases/%s" % c2
+    # the planted mutations of the flip fail the first case
+    text = (repo / "seal" / "setup.sh").read_text(encoding="utf-8")
+    mutations = {
+        "mv": text.replace('        exchange "$next" "$src"\n', '        run mv -T -- "$next" "$src"\n'),
+        "swapped": text.replace('    run ln -sfn "releases/$release" "$next"\n',
+                                '    migrate_plain "$src"\n    run ln -sfn "releases/$release" "$next"\n'),
+    }
+    for name, mutated in mutations.items():
+        assert mutated != text, name
+        r, o, e = _layout(tmp_path / name)
+        (r / "seal" / "setup.sh").write_text(mutated, encoding="utf-8")
+        res = subprocess.run(["bash", str(r / "seal" / "setup.sh")], capture_output=True, text=True, env=e,
+                             timeout=120)
+        assert _first_case_problems(res, o), name
+
+
+def test_the_test_override_is_refused_as_root_and_alone(tmp_path):
+    """Planted: the override accepted as root, or with one of the two variables only."""
+    text = SETUP.read_text(encoding="utf-8")
+    assert 'refused as root' in text and '[ "$(id -u)" -ne 0 ] || die "AWB_SETUP_OPT' in text
+    env = dict(os.environ, SUDO_USER=USER, AWB_SETUP_OPT=str(tmp_path / "opt"))
+    env.pop("AWB_SETUP_BIN", None)
+    res = subprocess.run(["bash", str(SETUP)], capture_output=True, text=True, env=env, timeout=60)
+    assert res.returncode == 1 and "AWB_SETUP_OPT and AWB_SETUP_BIN" in res.stderr
+    assert not (tmp_path / "opt").exists()
+
+
+def test_setup_update_mode_skips_the_seal_steps(fakebin):
+    """Planted: the full mode prints the chown of the shared tree, the users and the moves (so the checks can fail);
+    the update mode prints none of them, no mount, no rm -rf of src, and prints the .pth line, the exchange, every
+    seal/*.service and the needrestart rule. A grep over the script finds no rm -rf of src."""
+    full = commands(run_script(SETUP, ["--dry-run"], fakebin).stdout)
+
+    def seal_steps(cmds):
+        return [c for c in cmds if re.match(r"^[+=] (chown|chmod|find)\b.*tcp-shared", c)
+                or re.match(r"^[+=] (useradd|groupadd|usermod|gpasswd)\b", c) or c.startswith("+ mv -- ")
+                or re.match(r"^[+=] mount\b", c) or "authorized_keys" in c
+                or re.search(r"rm -rf -- /opt/tcp-awb/src( |$)", c)]
+
+    assert seal_steps(full)
+    res = run_script(SETUP, ["--update", "--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    no_marks(fakebin)
+    cmds = commands(res.stdout)
+    assert seal_steps(cmds) == []
+    joined = "\n".join(cmds)
+    assert re.search(r"^\+ write /opt/tcp-awb/venv/lib/python3[^/]*/site-packages/awb\.pth ", joined, re.M)
+    assert "    | /opt/tcp-awb/src" in res.stdout.splitlines()
+    assert "+ exchange /opt/tcp-awb/src.next /opt/tcp-awb/src  # renameat2 RENAME_EXCHANGE, one call" in cmds
+    for unit in sorted(p.name for p in SEAL.glob("*.service")):
+        assert "+ write /etc/systemd/system/%s (mode 644, root:root)" % unit in cmds
+        assert "+ systemctl enable --now %s" % unit in cmds
+    assert "+ write /etc/needrestart/conf.d/awb.conf (mode 644, root:root)" in cmds
+    assert [c for c in cmds if " mv -T " in c or c.startswith("+ mv -T")] == [
+        "+ mv -T -- /opt/tcp-awb/src.next /opt/tcp-awb/releases/pre-deploy  # if /opt/tcp-awb/src.next is the plain "
+        "folder of before T1, else rm -f"]
+    assert "pip" not in joined and "git" not in joined
+    text = SETUP.read_text(encoding="utf-8")
+    assert not re.search(r'rm -rf[^\n]*\$OPT/src["\s]', text)
+    assert re.search(r"^update_steps\(\) \{\n(    #.*\n)?    if \[ \"\$units_only\" -eq 1 \]; then\n        step_units\n"
+                     r"        return 0\n    fi\n    step_code\n    step_conf\n    step_units\n    step_needrestart\n"
+                     r"    step_client\n    step_managed\n    step_mirrors\n\}", text, re.M)
+    # --units-only: the units and daemon-reload, nothing else
+    res = run_script(SETUP, ["--update", "--units-only", "--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    only = commands(res.stdout)
+    assert only == ["+ write /etc/systemd/system/%s (mode 644, root:root)" % p.name
+                    for p in sorted(SEAL.glob("*.service"))] + ["+ systemctl daemon-reload"]
+    assert run_script(SETUP, ["--units-only", "--dry-run"], fakebin).returncode == 1
+
+
+def test_setup_full_mode_creates_the_ask_user_and_names_the_next_step(fakebin):
+    """Planted: the Ask page's service user left to a hand step, or the old restart line at the end."""
+    res = run_script(SETUP, ["--dry-run"], fakebin)
+    cmds = commands(res.stdout)
+    assert any(re.match(r"^[+=] useradd --system --gid awb --no-create-home -d /nonexistent --shell "
+                        r"/usr/sbin/nologin awb-ask", c) for c in cmds)
+    assert "restart it yourself" not in SETUP.read_text() and "systemctl restart" not in SETUP.read_text()
+    assert 'info "next: sudo awb deploy"' in SETUP.read_text()
+
+
+def _client_snippet(work_home: Path, sentinel_guard: Path) -> str:
+    lines = SETUP.read_text(encoding="utf-8").splitlines(keepends=True)
+    start = next(i for i, x in enumerate(lines) if x.startswith("# ----") and "printing and the guard" in x)
+    end = next(i for i, x in enumerate(lines) if x.startswith("# ----") and x.rstrip().endswith("the steps"))
+    cs = next(i for i, x in enumerate(lines) if x.startswith("clear_target() {"))
+    ce = next(i for i, x in enumerate(lines) if x.startswith("step_managed() {"))
+    return ("set -euo pipefail\ndie() { echo \"setup: $*\" >&2; exit 1; }\ndry_run=0\ntest_root=1\nROOT_UID=0\n"
+            "WORK_USER=awb\nWORK_GROUP=awb\nCLIENT_FILES=\"settings.json CLAUDE.md skills/drafting/SKILL.md\"\n"
+            "work_home=%s\nseal_dir=%s\nprotected=(%s)\n%s\n%s\nstep_client\n"
+            % (work_home, SEAL, sentinel_guard, "".join(lines[start:end]), "".join(lines[cs:ce])))
+
+
+def test_step_client_removes_a_foreign_entry(tmp_path):
+    """Planted: a fake chattr that exits 1 on a symlink (as e2fsprogs does), a symlink at one client file target and
+    a folder at another: exit 0, the sentinel untouched, the targets regular files, chattr +i recorded on them."""
+    work = tmp_path / "work"
+    claude = work / ".claude"
+    claude.mkdir(parents=True)
+    sentinel = tmp_path / "sentinel"
+    sentinel.write_text("keep\n")
+    (claude / "settings.json").symlink_to(sentinel)
+    (claude / "CLAUDE.md").mkdir()
+    (claude / "CLAUDE.md" / "inside").write_text("x")
+    fake = tmp_path / "fake"
+    fake.mkdir()
+    log = tmp_path / "chattr.log"
+    scripts = {
+        "chattr": 'for a; do last="$a"; done; echo "$*" >> "%s"; [ -L "$last" ] && exit 1; exit 0' % log,
+        "chown": "exit 0",
+        "install": ('d=0; while [ $# -gt 0 ]; do case "$1" in -d) d=1; shift ;; -o|-g|-m) shift 2 ;; *) break ;; esac; '
+                    'done; if [ "$d" -eq 1 ]; then mkdir -p "$@"; else cp "$1" "$2"; fi'),
+    }
+    for name, body in scripts.items():
+        (fake / name).write_text("#!/bin/sh\n%s\n" % body)
+        (fake / name).chmod(0o755)
+    env = dict(os.environ, PATH="%s:%s" % (fake, os.environ["PATH"]))
+    res = subprocess.run(["bash", "-c", _client_snippet(work, tmp_path / "vault")], capture_output=True, text=True,
+                         env=env, timeout=60)
+    assert res.returncode == 0, res.stderr + res.stdout
+    assert sentinel.read_text() == "keep\n" and not sentinel.is_symlink()
+    for name in ("settings.json", "CLAUDE.md", "skills/drafting/SKILL.md"):
+        target = claude / name
+        assert target.is_file() and not target.is_symlink(), name
+        assert target.read_bytes() == (SEAL / "work-claude" / name).read_bytes(), name
+        assert "+i %s" % target in log.read_text().splitlines(), name
+    assert "a foreign entry at %s" % (claude / "settings.json") in res.stdout
+    assert "a foreign entry at %s" % (claude / "CLAUDE.md") in res.stdout

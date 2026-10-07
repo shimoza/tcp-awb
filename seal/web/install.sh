@@ -2,8 +2,12 @@
 # The switch of the web side to the code of this repository (seal/web/README.md). Run it with sudo as the owner,
 # after seal/setup.sh installed the current code into /opt/tcp-awb:
 #
-#   sudo seal/web/install.sh --domain <host name of the site> [--dry-run]
+#   sudo seal/web/install.sh [--domain <host name of the site>] [--only UNIT...] [--dry-run]
 #   sudo seal/web/install.sh --rollback [--dry-run]
+#
+# --domain may be left out once the installed awb-web.service carries one: the script reads it from there.
+# --only UNIT... (what `sudo awb deploy` passes, run from the release folder it extracted) restarts the named units
+# only, in the order of the restart lines below; the render, the daemon-reload and the "unchanged" check stay.
 #
 # It creates the system user awb-console once (F2), renders every template of this folder with the values of
 # /etc/awb/paths.conf, keeps each unit it replaces as <unit>.before-switch (an earlier copy stays), retires the
@@ -23,6 +27,7 @@ CONSOLE_USER=awb-console
 dry=0
 rollback=0
 domain=""
+only=""
 
 die() { echo "install.sh: $*" >&2; exit 2; }
 run() {
@@ -30,14 +35,42 @@ run() {
     [ "$dry" -eq 1 ] || "$@"
 }
 
+usage="usage: sudo seal/web/install.sh [--domain HOST] [--only UNIT...] [--dry-run] | --rollback [--dry-run]"
 while [ $# -gt 0 ]; do
     case "$1" in
         --domain) domain="${2:-}"; shift 2 ;;
         --dry-run) dry=1; shift ;;
         --rollback) rollback=1; shift ;;
-        *) die "usage: sudo seal/web/install.sh --domain HOST [--dry-run] | --rollback [--dry-run]" ;;
+        --only)
+            shift
+            while [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; do
+                [[ "$1" =~ ^awb-[a-z0-9-]+\.(service|socket)$ ]] || die "--only takes unit names"
+                only="$only $1"
+                shift
+            done
+            [ -n "$only" ] || die "--only needs at least one unit"
+            ;;
+        *) die "$usage" ;;
     esac
 done
+[ -z "$only" ] || [ "$rollback" -eq 0 ] || die "--only does not go with --rollback"
+
+# restart CMD UNIT...: systemctl CMD on the units, with --only on the named ones only (in this order)
+restart() {
+    local cmd="$1" u keep=()
+    shift
+    if [ "$cmd" = enable ]; then
+        cmd="enable --now"
+        shift
+    fi
+    for u in "$@"; do
+        if [ -z "$only" ] || [[ " $only " == *" $u "* ]]; then
+            keep+=("$u")
+        fi
+    done
+    [ "${#keep[@]}" -gt 0 ] || return 0
+    run systemctl $cmd "${keep[@]}"
+}
 cd "$here"
 templates=$(find . -mindepth 1 -maxdepth 2 -type f \( -name '*.service' -o -name '*.socket' -o -name '*.conf' \) | sort)
 [ -n "$templates" ] || die "no template found next to this script"
@@ -65,6 +98,10 @@ if [ "$rollback" -eq 1 ]; then
     exit 0
 fi
 
+if [ -z "$domain" ] && [ -f "$UNITS/awb-web.service" ]; then
+    domain=$(sed -n 's/^ExecStart=.*--domain[[:space:]]\{1,\}\([^[:space:]]*\).*/\1/p' "$UNITS/awb-web.service" | head -n 1)
+    [ -z "$domain" ] || echo "the site $domain, as the installed awb-web.service names it"
+fi
 [ -n "$domain" ] || die "--domain names the host name of the site, without scheme"
 [[ "$domain" =~ ^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$ ]] || die "the domain is a plain host name in lower case"
 [ -r "$CONF" ] || die "$CONF cannot be read: run seal/setup.sh first"
@@ -128,10 +165,14 @@ if [ -f "$old_dropin" ]; then
 fi
 
 run systemctl daemon-reload
-run systemctl restart awb-keyd.service
-run systemctl stop awb-customers.service awb-project-create.service awb-materials.service
-run systemctl restart awb-customers.socket awb-project-create.socket awb-materials.socket
-run systemctl restart awb-portal.service awb-ask.service awb-console-data.service
-run systemctl enable --now awb-console-tenants.service
-run systemctl restart awb-console-tenants.service awb-web.service
-echo "done: as $owner, run awb keys unlock now; the key service restarted and holds no key"
+restart restart awb-keyd.service
+restart stop awb-customers.service awb-project-create.service awb-materials.service
+restart restart awb-customers.socket awb-project-create.socket awb-materials.socket
+restart restart awb-portal.service awb-ask.service awb-console-data.service
+restart enable --now awb-console-tenants.service
+restart restart awb-console-tenants.service awb-web.service
+if [ -z "$only" ] || [[ " $only " == *" awb-keyd.service "* ]]; then
+    echo "done: as $owner, run awb keys unlock now; the key service restarted and holds no key"
+else
+    echo "done"
+fi

@@ -59,6 +59,21 @@ Seal, once, with sudo: `seal/setup.sh --dry-run` (read the plan), `sudo seal/set
 ~/tcp-mirrors/docs ~/tcp-mirrors/service-description` (your shell expands the `~`), log in again,
 `sudo seal/verify.sh` (every line PASS).
 
+## Deploy (owner side, your own shell)
+
+| command | what it does |
+|---|---|
+| `cd ~/tcp-awb && sudo awb deploy` | after a commit: bring it live, restart only what changed, ask the vault passphrase once when the vault daemon restarted, end with the status lines |
+| `awb deploy --dry-run` | the plan and every step, without root; nothing runs and nothing is asked |
+| `awb deploy status` | the journal, the release each daemon runs, locked or down since when, a split between a daemon and the code |
+| `sudo awb deploy --only awb-vaultd.service awb-keyd.service` | these units only, also when nothing changed (after a library upgrade) |
+| `sudo awb deploy --all` | restart every installed unit |
+| `sudo awb deploy --rollback` | the release that was live before this one |
+| `sudo awb deploy --to COMMIT` | another commit of the repository |
+
+The tree must be clean (commit first). The deploy runs the installed copy of its own code, so a change of
+`awb/deploy.py` is live from the following deploy. `seal/setup.sh` (full) stays for the first seal of a host.
+
 ## Offered services of T Cloud Public (TCP)
 
 Offered is what the latest service description lists, nothing else. The docs, an API that answers, a price record

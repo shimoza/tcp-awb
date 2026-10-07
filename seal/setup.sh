@@ -1,7 +1,19 @@
 #!/usr/bin/env bash
 # Seal the Architect Workbench on this host (INTERFACES.md, section "The seal"). Run by the owner with sudo:
 #
-#   sudo seal/setup.sh [--dry-run] [--mirrors DIR...]
+#   sudo seal/setup.sh [--dry-run] [--mirrors DIR...]                     the first seal of a host, every step
+#   releases/<commit>/seal/setup.sh --update [--units-only] [--dry-run] [--mirrors DIR...]
+#
+# --update is what `sudo awb deploy` runs, from the release folder it has just extracted, never from a working
+# tree. Its steps are an explicit allow list (update_steps): the code, the host file, the units, the needrestart
+# rule, the client files and the managed drop-in. The users, the homes, the moves, the ssh keys and (without
+# --mirrors) the mirrors are left alone, so a deploy never chowns the shared tree again. --units-only renders and
+# installs the unit templates and reloads systemd, nothing else (the flip back of a failed reload uses it).
+#
+# The code lives in one folder per commit, $OPT/releases/<commit>, and $OPT/src is a symlink to the live one. The
+# flip is one renameat2(RENAME_EXCHANGE) of a new symlink with whatever src is, a symlink or the plain folder of
+# before T1, which then moves to releases/pre-deploy. src resolves to a full tree at every instant; nothing ever
+# removes it. The venv finds the package through one .pth line, $OPT/src; pip does not run.
 #
 # Two users. The owner (the user who runs sudo) keeps the vault. The work user awb has no sudo, is in none of the
 # groups of the owner or of the host admins. It runs every working session. Its home holds tcp-shared, tcp-kb and
@@ -24,8 +36,9 @@ OPT=/opt/tcp-awb
 BIN_LINK=/usr/local/bin/awb
 CONF_DIR=/etc/awb
 CONF_FILE=/etc/awb/paths.conf
-UNIT_NAME=awb-vaultd.service
-UNIT_FILE=/etc/systemd/system/awb-vaultd.service
+UNITS_DIR=/etc/systemd/system
+PRE_DEPLOY=pre-deploy
+ROOT_UID=0
 NEEDRESTART_FILE=/etc/needrestart/conf.d/awb.conf
 CHECK_SOCKET=/run/awb/check.sock
 MIRROR_ROOT=/srv/tcp-mirrors
@@ -35,7 +48,7 @@ CLIENT_FILES="settings.json CLAUDE.md skills/drafting/SKILL.md"
 FORBIDDEN_GROUPS=(ubuntu docker adm sudo lxd)
 
 usage() {
-    echo "usage: sudo $0 [--dry-run] [--mirrors DIR...]" >&2
+    echo "usage: sudo $0 [--dry-run] [--update [--units-only]] [--mirrors DIR...]" >&2
     exit 2
 }
 
@@ -48,15 +61,19 @@ dry_run=0
 real=1   # 0 for --dry-run; stays 1 in the silent plan pass of a real run, where checks of the host still apply
 mirrors=0
 mirror_sources=()
+update=0
+units_only=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --dry-run)
             dry_run=1
             real=0
             ;;
+        --update) update=1 ;;
+        --units-only) units_only=1 ;;
         --mirrors) mirrors=1 ;;
         -h | --help)
-            echo "usage: sudo $0 [--dry-run] [--mirrors DIR...]"
+            echo "usage: sudo $0 [--dry-run] [--update [--units-only]] [--mirrors DIR...]"
             exit 0
             ;;
         -*) usage ;;
@@ -70,6 +87,18 @@ done
 if [ "$mirrors" -eq 1 ] && [ "${#mirror_sources[@]}" -eq 0 ]; then
     die "--mirrors needs at least one folder"
 fi
+[ "$units_only" -eq 0 ] || [ "$update" -eq 1 ] || die "--units-only goes with --update"
+
+# a test-only install root and bin link, so that the code step can run for real under pytest: never as root,
+# only the code step runs and git is called directly
+test_root=0
+if [ -n "${AWB_SETUP_OPT:-}" ] || [ -n "${AWB_SETUP_BIN:-}" ]; then
+    [ "$(id -u)" -ne 0 ] || die "AWB_SETUP_OPT and AWB_SETUP_BIN are for the tests and refused as root"
+    [ -n "${AWB_SETUP_OPT:-}" ] && [ -n "${AWB_SETUP_BIN:-}" ] || die "the tests set AWB_SETUP_OPT and AWB_SETUP_BIN"
+    OPT=$AWB_SETUP_OPT
+    BIN_LINK=$AWB_SETUP_BIN
+    test_root=1
+fi
 
 # --------------------------------------------------------------------------- who is who
 
@@ -77,7 +106,7 @@ owner="${SUDO_USER:-}"
 [ -n "$owner" ] || die "run this with sudo as the owner (SUDO_USER is empty)"
 [ "$owner" != root ] || die "the owner must be a user, not root"
 [ "$owner" != "$WORK_USER" ] || die "the owner must not be the work user"
-if [ "$dry_run" -eq 0 ] && [ "$(id -u)" -ne 0 ]; then
+if [ "$dry_run" -eq 0 ] && [ "$(id -u)" -ne 0 ] && [ "$test_root" -eq 0 ]; then
     die "run this with sudo or use --dry-run"
 fi
 
@@ -221,7 +250,7 @@ write_file() {
     [ "$dry_run" -eq 0 ] || return 0
     tmp=$(mktemp "$(dirname -- "$target")/.awb-setup.XXXXXX")
     printf '%s\n' "$content" >"$tmp"
-    chown "$og" "$tmp"
+    [ "$test_root" -eq 1 ] || chown "$og" "$tmp"
     chmod "$mode" "$tmp"
     mv -f -- "$tmp" "$target"
 }
@@ -288,6 +317,14 @@ step_users() {
         done
     else
         info "a new work user is in the group $WORK_GROUP only"
+    fi
+
+    info "the service user of the Ask page (awb-ask.service): no login, no home, the group $WORK_GROUP"
+    if getent passwd awb-ask >/dev/null; then
+        skip "the user exists" useradd --system --gid "$WORK_GROUP" --no-create-home -d /nonexistent \
+            --shell /usr/sbin/nologin awb-ask
+    else
+        run useradd --system --gid "$WORK_GROUP" --no-create-home -d /nonexistent --shell /usr/sbin/nologin awb-ask
     fi
 
     info "the owner joins the group $WORK_GROUP, so that the intake can write the outbox"
@@ -381,26 +418,146 @@ step_moves() {
     run runuser -u "$WORK_USER" -- env HOME="$work_home" git -C "$kb" init -q
 }
 
-archive_code() {
-    # git archive runs as the owner (git refuses a repository of another user), tar unpacks as root
-    guard git "$repo" "$OPT/src"
-    printf '+ %s | %s\n' "$(quote_args runuser -u "$owner" -- env HOME="$owner_home" git -C "$repo" archive HEAD)" \
-        "$(quote_args tar -x -C "$OPT/src")"
-    [ "$dry_run" -eq 1 ] || runuser -u "$owner" -- env HOME="$owner_home" git -C "$repo" archive HEAD |
-        tar -x -C "$OPT/src"
+# renameat2(RENAME_EXCHANGE) through ctypes: swaps the two names in one call, a symlink with a symlink or with a
+# folder, so the path resolves to a full tree at every instant
+EXCHANGE_PY='import ctypes, os, sys
+libc = ctypes.CDLL(None, use_errno=True)
+if libc.renameat2(-100, os.fsencode(sys.argv[1]), -100, os.fsencode(sys.argv[2]), 2) != 0:
+    sys.exit("exchange: " + os.strerror(ctypes.get_errno()))'
+
+exchange() {
+    guard python3 "$1" "$2"
+    printf '+ exchange %s %s  # renameat2 RENAME_EXCHANGE, one call\n' "$1" "$2"
+    [ "$dry_run" -eq 1 ] || python3 -I -c "$EXCHANGE_PY" "$1" "$2"
+}
+
+git_repo() {
+    # git in the working tree runs as the owner (git refuses a repository of another user); the tests call it
+    # directly
+    if [ "$test_root" -eq 1 ]; then
+        git -C "$repo" "$@"
+    else
+        runuser -u "$owner" -- env HOME="$owner_home" git -C "$repo" "$@"
+    fi
+}
+
+archive_release() {
+    # the full mode: HEAD of the working tree into releases/<commit>, through a .partial name; a complete folder
+    # of that commit is reused
+    local commit partial target
+    if [ "$dry_run" -eq 1 ]; then
+        release="<HEAD>"
+        partial="$OPT/releases/.$release.partial"
+        printf '+ %s | %s\n' "$(quote_args runuser -u "$owner" -- env HOME="$owner_home" git -C "$repo" archive HEAD)" \
+            "$(quote_args tar -x --no-same-owner --no-same-permissions -C "$partial")"
+        run chmod -R go-w "$partial"
+        run mv -T -- "$partial" "$OPT/releases/$release"
+        return 0
+    fi
+    commit=$(git_repo rev-parse --verify 'HEAD^{commit}') || die "git cannot read HEAD of the repository"
+    [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || die "git gave no commit id for HEAD"
+    release=$commit
+    target="$OPT/releases/$commit"
+    if [ -d "$target" ] && [ ! -L "$target" ]; then
+        skip "complete from an earlier run" mv -T -- "$OPT/releases/.$commit.partial" "$target"
+        return 0
+    fi
+    partial="$OPT/releases/.$commit.partial"
+    run_if_present "$partial" rm -rf -- "$partial"
+    run mkdir -p "$partial"
+    printf '+ %s | %s\n' "$(quote_args git -C "$repo" archive "$commit")" \
+        "$(quote_args tar -x --no-same-owner --no-same-permissions -C "$partial")"
+    git_repo archive "$commit" | tar -x --no-same-owner --no-same-permissions -C "$partial"
+    run chmod -R go-w "$partial"
+    run mv -T -- "$partial" "$target"
+}
+
+release_of_repo() {
+    # the update mode: the script runs from the release folder awb deploy extracted; its name is the release
+    release=$(basename -- "$repo")
+    if [ "$(dirname -- "$repo")" = "$(cd -- "$OPT/releases" 2>/dev/null && pwd -P)" ] &&
+        [[ "$release" =~ ^([0-9a-f]{40}|$PRE_DEPLOY)$ ]]; then
+        return 0
+    fi
+    if [ "$dry_run" -eq 1 ]; then
+        release="<commit>"
+        info "this copy lies outside $OPT/releases: the release is printed as $release"
+        return 0
+    fi
+    die "setup.sh --update runs from a release folder in $OPT/releases (sudo awb deploy does it)"
+}
+
+site_dir() {
+    local d
+    for d in "$OPT"/venv/lib/python3*/site-packages; do
+        if [ -d "$d" ]; then
+            printf '%s' "$d"
+            return 0
+        fi
+    done
+    printf '%s' "$OPT/venv/lib/python3/site-packages"
+}
+
+remove_editable() {
+    # the three files of the editable pip install of before T1, removed after the .pth line is in place
+    local site="$1" f
+    if [ "$dry_run" -eq 1 ]; then
+        printf '+ rm -rf -- %s/__editable__*tcp_awb* %s/tcp_awb-*.dist-info  # if present\n' "$site" "$site"
+        return 0
+    fi
+    shopt -s nullglob
+    for f in "$site"/__editable__*tcp_awb* "$site"/tcp_awb-*.dist-info; do
+        run rm -rf -- "$f"
+    done
+    shopt -u nullglob
+}
+
+migrate_plain() {
+    # migrate_plain PATH: the plain folder of before T1, swapped out to PATH, moves to releases/pre-deploy; an old
+    # symlink at PATH is removed
+    local folder="$1" dst="$OPT/releases/$PRE_DEPLOY"
+    if [ "$dry_run" -eq 1 ]; then
+        printf '+ mv -T -- %s %s  # if %s is the plain folder of before T1, else rm -f\n' "$folder" "$dst" "$folder"
+        return 0
+    fi
+    if [ -d "$folder" ] && [ ! -L "$folder" ]; then
+        [ ! -e "$dst" ] || dst="$OPT/releases/$PRE_DEPLOY.$(date +%s)"
+        run mv -T -- "$folder" "$dst"
+    elif [ -L "$folder" ]; then
+        run rm -f -- "$folder"
+    fi
+}
+
+flip_to() {
+    # flip_to RELEASE: src points at releases/RELEASE after one exchange. The exchange is the flip; what follows
+    # only tidies the old name
+    local release="$1" next="$OPT/src.next" src="$OPT/src"
+    if [ "$dry_run" -eq 0 ] && [ -d "$next" ] && [ ! -L "$next" ]; then
+        migrate_plain "$next"   # a plain folder an interrupted first run left at src.next
+    fi
+    run ln -sfn "releases/$release" "$next"
+    if [ "$dry_run" -eq 1 ] || [ -e "$src" ] || [ -L "$src" ]; then
+        exchange "$next" "$src"
+    else
+        run mv -T -- "$next" "$src"
+    fi
+    migrate_plain "$next"
 }
 
 step_code() {
-    info "the code, read-only in $OPT with its own virtual environment"
-    run mkdir -p "$OPT"
-    run rm -rf -- "$OPT/src"
-    run mkdir -p "$OPT/src"
-    archive_code
+    local site
+    info "the code: one folder per commit in $OPT/releases, $OPT/src a symlink to the live one, one venv"
+    run mkdir -p "$OPT/releases"
+    if [ "$update" -eq 1 ]; then
+        release_of_repo
+    else
+        archive_release
+    fi
     run_unless_present "$OPT/venv/bin/python" python3 -m venv --system-site-packages "$OPT/venv"
-    # editable, so that awb finds rules/ and CLAUDE.md next to its package in $OPT/src
-    run "$OPT/venv/bin/pip" install --quiet --no-deps --no-build-isolation --editable "$OPT/src"
-    run chown -R root:root "$OPT"
-    run chmod -R go-w "$OPT"
+    site=$(site_dir)
+    info "the venv finds the package through one line, $OPT/src: written first, the editable install removed last"
+    write_file "$site/awb.pth" 644 root:root <<<"$OPT/src"
+    remove_editable "$site"
     # a wrapper, not a symlink to the venv script: -I ignores the invoking user's site folder, PYTHONPATH and the
     # working folder, which would otherwise load ahead of the installed code (T3); the AWB_* variables survive
     write_file "$BIN_LINK" 755 root:root <<EOF
@@ -408,6 +565,8 @@ step_code() {
 # written by seal/setup.sh: the installed Workbench, run isolated from the invoking user's packages
 exec $OPT/venv/bin/python3 -I -m awb "\$@"
 EOF
+    info "the flip, the last step of the code: $OPT/src points at releases/$release"
+    flip_to "$release"
 }
 
 step_conf() {
@@ -427,14 +586,23 @@ mirrors = $MIRROR_ROOT
 EOF
 }
 
-step_daemon() {
-    local unit
-    info "the vault daemon runs as the owner with the group $WORK_GROUP"
-    unit=$(sed -e "s|@OWNER@|$owner|g" "$seal_dir/$UNIT_NAME")
-    write_file "$UNIT_FILE" 644 root:root <<<"$unit"
+step_units() {
+    local f name
+    info "the units of seal/*.service, rendered with the owner: the vault daemon and the key service run as the owner"
+    info "with the group $WORK_GROUP, the Ask page as awb-ask (its key file stays the owner's step), the portal as"
+    info "the work user. A running unit is left running: sudo awb deploy restarts what changed"
+    for f in "$seal_dir"/*.service; do
+        name=$(basename -- "$f")
+        write_file "$UNITS_DIR/$name" 644 root:root < <(sed -e "s|@OWNER@|$owner|g" "$f")
+    done
     run systemctl daemon-reload
-    run systemctl enable --now "$UNIT_NAME"
-    info "after an update of the code run: systemctl restart $UNIT_NAME (the vault locks, unlock it again)"
+    [ "$units_only" -eq 0 ] || return 0
+    for f in "$seal_dir"/*.service; do
+        try_run systemctl enable --now "$(basename -- "$f")"
+    done
+}
+
+step_needrestart() {
     info "needrestart leaves the vault daemon and the key service running after a package upgrade"
     run mkdir -p "$(dirname "$NEEDRESTART_FILE")"
     write_file "$NEEDRESTART_FILE" 644 root:root <"$seal_dir/needrestart-awb.conf"
@@ -449,6 +617,25 @@ step_ssh() {
     run_if_present "$keys" install -o "$WORK_USER" -g "$WORK_GROUP" -m 600 "$keys" "$work_home/.ssh/authorized_keys"
 }
 
+clear_target() {
+    # clear_target PATH f|d: a root owned regular file (f) or folder (d) loses its immutable flag as before;
+    # anything else at PATH (a link, a file or folder of the work user, another type) is removed first, so a
+    # planted entry can neither turn chattr onto another file nor stop the deploy
+    local path="$1" kind="$2"
+    if [ "$dry_run" -eq 1 ]; then
+        printf '+ chattr -i %s  # if present\n' "$path"
+        return 0
+    fi
+    [ -e "$path" ] || [ -L "$path" ] || return 0
+    if [ ! -L "$path" ] && [ "$(stat -c %u -- "$path")" = "$ROOT_UID" ] &&
+        { { [ "$kind" = f ] && [ -f "$path" ]; } || { [ "$kind" = d ] && [ -d "$path" ]; }; }; then
+        run chattr -i "$path"
+    else
+        info "a foreign entry at $path (a link, another owner or another type) is removed first"
+        run rm -rf -- "$path"
+    fi
+}
+
 step_client() {
     local f target
     info "the client settings and instructions of the work user: owned by root and immutable (chattr +i). The"
@@ -460,12 +647,12 @@ step_client() {
     info "the drafting skill goes to skills/drafting, its folders owned by root and immutable as well, so the work"
     info "user can neither rename the folder nor put a skill of its own in its place"
     for d in skills skills/drafting; do
-        run_if_present "$work_home/.claude/$d" chattr -i "$work_home/.claude/$d"
+        clear_target "$work_home/.claude/$d" d
     done
     run install -d -o root -g "$WORK_GROUP" -m 755 "$work_home/.claude/skills" "$work_home/.claude/skills/drafting"
     for f in $CLIENT_FILES; do
         target="$work_home/.claude/$f"
-        run_if_present "$target" chattr -i "$target"
+        clear_target "$target" f
         run install -o root -g "$WORK_GROUP" -m 644 "$seal_dir/work-claude/$f" "$target"
         try_run chattr +i "$target"
     done
@@ -525,13 +712,37 @@ step_mirrors() {
 }
 
 steps() {
+    if [ "$test_root" -eq 1 ]; then
+        step_code
+        return 0
+    fi
+    if [ "$update" -eq 1 ]; then
+        update_steps
+        return 0
+    fi
     step_users
     step_homes
     step_moves
     step_code
     step_conf
-    step_daemon
+    step_units
+    step_needrestart
     step_ssh
+    step_client
+    step_managed
+    step_mirrors
+}
+
+update_steps() {
+    # the steps of a deploy, named one by one: never "every step minus some"
+    if [ "$units_only" -eq 1 ]; then
+        step_units
+        return 0
+    fi
+    step_code
+    step_conf
+    step_units
+    step_needrestart
     step_client
     step_managed
     step_mirrors
@@ -544,7 +755,11 @@ for src in "${mirror_sources[@]}"; do
 done
 
 if [ "$dry_run" -eq 1 ]; then
-    info "dry run for the owner $owner: every command is printed, none is run"
+    if [ "$update" -eq 1 ]; then
+        info "dry run of the update for the owner $owner: every command is printed, none is run"
+    else
+        info "dry run for the owner $owner: every command is printed, none is run"
+    fi
     steps
     info "dry run done, nothing was changed"
     exit 0
@@ -555,6 +770,13 @@ fi
 if ! (dry_run=1 && steps) >/dev/null; then
     die "the plan was refused, nothing was changed"
 fi
-info "seal for the owner $owner"
+if [ "$update" -eq 1 ]; then
+    info "update for the owner $owner"
+else
+    info "seal for the owner $owner"
+fi
 steps
-info "done. Check the seal with: sudo $seal_dir/verify.sh"
+if [ "$update" -eq 0 ] && [ "$test_root" -eq 0 ]; then
+    info "done. Check the seal with: sudo $seal_dir/verify.sh"
+    info "next: sudo awb deploy"
+fi

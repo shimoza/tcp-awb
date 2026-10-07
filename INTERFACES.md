@@ -352,9 +352,10 @@ Integration (change these existing modules, keep every existing test green):
 
 - `seal/setup.sh [--dry-run] [--mirrors]`: everything described above: user and group, home modes, the owner in
   group awb, move `<owner-home>/tcp-shared` to `<work-home>/tcp-shared` if it exists, create `<work-home>/tcp-kb` (git
-  init), install `/opt/tcp-awb` from the repository (`git -C <repo> archive HEAD | tar -x`, venv with system site
-  packages, `pip install .`), `/usr/local/bin/awb`, write `/etc/awb/paths.conf`, install and start
-  `seal/awb-vaultd.service` (User=<owner>, Group=awb, RuntimeDirectory=awb, RuntimeDirectoryMode=0750), copy the
+  init), install `/opt/tcp-awb` from the repository (since T1: `git archive HEAD` into `releases/<commit>`, venv with
+  system site packages, one `.pth` line, the exchange of `src`; see "The deploy" at the end), `/usr/local/bin/awb`,
+  write `/etc/awb/paths.conf`, install and start every `seal/*.service` (the vault daemon: User=<owner>, Group=awb,
+  RuntimeDirectory=awb, RuntimeDirectoryMode=0750), copy the
   owner's `~/.ssh/authorized_keys` to the work user, install `seal/work-claude/settings.json` and
   `seal/work-claude/CLAUDE.md` into `<work-home>/.claude/`. Home folders are read with `getent passwd`, never
   written into the script. `--mirrors` adds read-only bind mounts of the public doc
@@ -845,3 +846,43 @@ endpoint=None, paths_fn=config.paths, log_dir=None)` with `start()`, `stop()`, `
 `fill(body, secrets)`, `request(sock, obj)`, `unlock(sock=None, entries=None, reader=pass_reader)`, `main(argv)`.
 Admin socket ops: ping, status, load, lock. Call socket ops: ping, tenants, call. `awb/tcp/cloud.py` gained
 `call` and `tenants`, which go through the service for every user. The unit is `seal/awb-keyd.service`.
+
+## The deploy (2026-10-07, T1)
+
+`awb/deploy.py`, `awb deploy` (DELEGATED, refused for the work user). `main(argv, *, root=OPT, etc=Path("/etc"),
+run_dir=Path("/run"), runner=subprocess.run, geteuid=os.geteuid, **more)`; `more` fills the other fields of `Host`
+(`environ`, `module_file`, `getpwnam`, `getgrouplist`, `clock`, `sleep`, `cwd`, `bin`, `daemons`). Hidden
+subcommands, run by root as the owner and refused as root: `plan --json [options]`, `archive COMMIT` (the `git
+archive` stream on standard output), `unlock`, `status --json [--probe SOCKET]...`. The root path imports neither
+`getpass` nor `socket` nor `awb.vault` nor `awb.tcp.keys`: every function that does is named `owner_*`.
+
+- Units: `templates(tree) -> {unit: {"kind", "files", "dropins"}}` from `seal/*.service`, `seal/web/*.service`,
+  `seal/web/*.socket` and `seal/web/*.d/*.conf`; no unit name in the module. `unit_map(tree, installed=None,
+  root=OPT) -> UnitMap` with `units`, `imap`, `argvs`, `entries`, `closures`, `reached` and `effects(changed) ->
+  Effects` (`units`, `templates`, `sync`, `unmapped`, `every`). `import_map(tree)` follows every import of the
+  package at module and function level; `DYNAMIC` names the targets of importlib calls (key: file and function),
+  `COMMAND_ONLY` the modules no unit imports, with a reason each; `RULES` the files outside the package. The two
+  daemons are found by their command (`DAEMON_COMMANDS`).
+- Trees: `DirTree(folder)`, `GitTree(repo, commit, runner)`.
+- The plan: `owner_plan(opts, repo, host, tree=None) -> dict` (one JSON object); `validate_plan(plan,
+  allowed_units)` (commit ids of 40 hex characters, units from the template set of the installed release, fixed
+  actions, kinds and states, boolean flags, printable text).
+- Root: `entry_checks(host) -> Caller`, `take_lock(run_dir) -> fd` (`O_CREAT` 0600, `flock`, never unlinked, not
+  inherited), `vault_busy(vault)`, `Run(host, caller, plan, opts)` with the steps `start_journal`, `extract`,
+  `install`, `daemons`, `services`, `wait`, `unlock`, `read_status`, `sync`, `final_check`, `finish`;
+  `flip(root, release)` (the exchange of the flip back), `retain(releases, keep)`, `check_archive(tar)`,
+  `check_tree(folder)`, `status_lines(journal, status, show)`.
+- The drop: `child_env(pw, environ)` (built: `HOME`, `USER`, `LOGNAME`, `SHELL`, `PATH` the secure default,
+  `XDG_RUNTIME_DIR`, `LANG` and `TERM` of the caller, `GPG_TTY`), `drop(pw, getgrouplist)` (`user`, `group`,
+  `extra_groups`), `as_user(runner, cmd, pw, environ, cwd, ...)`.
+- The journal `/opt/tcp-awb/DEPLOYED` (root, 644): `state` (`running`, `done`), `target`, `previous`, `started`,
+  `finished`, `boot`, `flip` (the monotonic clock in microseconds, written before setup.sh runs), `units` (unit:
+  `action`, `kind`, `result`), `units_from`, `pending`, `running` (unit: the release it was last started on,
+  kept by the retention). `/opt/tcp-awb/deploy.log`: one line per run.
+- The releases: `/opt/tcp-awb/releases/<commit>/` (and `pre-deploy`, the plain folder of before T1), `src` a
+  relative symlink to one of them, `venv/lib/python3.X/site-packages/awb.pth` with the one line `/opt/tcp-awb/src`,
+  `/usr/local/bin/awb` the wrapper of T3. `awb/__init__.py` pins `__path__` to its real folder as its first
+  statements, so a running process keeps importing from the release it started on.
+- `seal/setup.sh --update [--units-only] [--mirrors DIR...]` from a release folder; `AWB_SETUP_OPT` and
+  `AWB_SETUP_BIN` move the install root and the bin link for the tests (refused as root; only the code step runs).
+  `seal/web/install.sh [--domain HOST] [--only UNIT...]`.

@@ -143,3 +143,29 @@ def test_the_rollback_puts_back_what_the_switch_replaced(tmp_path):
     calls = log.read_text().splitlines()
     assert "systemctl disable --now awb-console-tenants.service" in calls
     assert calls[-1] == "systemctl restart awb-portal.service awb-ask.service awb-console-data.service awb-web.service"
+
+
+def test_install_sh_only_restarts_the_named_units(tmp_path):
+    """Planted: a dry run with --only awb-ask.service that prints another restart line, or a --domain that is not taken
+    from the installed awb-web.service, fails. A real run with a socket pair keeps the script's order."""
+    env, units, log = _stubs(tmp_path)
+    units.mkdir(parents=True)
+    (units / "awb-web.service").write_text("[Service]\nExecStart=/usr/bin/python3 -I /opt/tcp-awb/src/awb/tcp/web/"
+                                           "gateway.py --auth /etc/awb-web/auth.json --domain awb.example.test\n")
+    dry = _install(env, "--only", "awb-ask.service", "--dry-run")
+    assert dry.returncode == 0, dry.stderr
+    assert "the site awb.example.test, as the installed awb-web.service names it" in dry.stdout
+    systemctl = [x for x in dry.stdout.splitlines() if x.startswith("+ systemctl")]
+    assert systemctl == ["+ systemctl daemon-reload", "+ systemctl restart awb-ask.service"]
+    assert not log.exists()
+    done = _install(env, "--only", "awb-customers.socket", "awb-customers.service", "awb-web.service")
+    assert done.returncode == 0, done.stderr
+    calls = [x for x in log.read_text().splitlines() if x.startswith("systemctl")]
+    assert calls == ["systemctl daemon-reload", "systemctl stop awb-customers.service",
+                     "systemctl restart awb-customers.socket", "systemctl restart awb-web.service"]
+    assert "--domain awb.example.test" in (units / "awb-web.service").read_text()
+    # without the installed unit and without --domain the script still refuses
+    (units / "awb-web.service").unlink()
+    assert _install(env, "--only", "awb-ask.service", "--dry-run").returncode == 2
+    assert _install(env, "--only", "not a unit", "--dry-run").returncode == 2
+    assert _install(env, "--rollback", "--only", "awb-ask.service").returncode == 2
