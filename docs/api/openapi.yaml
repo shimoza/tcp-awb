@@ -3146,6 +3146,173 @@ paths:
           variables:
             owner_host:
               default: owner.example.com
+  /api/owner/publish:
+    post:
+      operationId: publishOwnerRun
+      tags:
+        - owner
+      summary: Publish the newest PASS run of the UI queue.
+      description: Needs a fresh TOTP code besides the owner session and its X-AWB-CSRF. The gateway checks the code, owner-actions checks it again against its own copy of the secret, then hands the run id alone to a root unit that runs the checked publish code with --newest. A rollback stays a command of the owner's terminal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/PublishRequest"
+            examples:
+              newest:
+                value:
+                  run_id: ui-20261008-001
+                  code: "123456"
+      responses:
+        "200":
+          description: "Published; the page before is kept as a backup and the newest 10 backups stay."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PublishResult"
+              examples:
+                published:
+                  value:
+                    published: true
+                    backup: index.html.before-ui-20261008-001
+        "400":
+          description: "The request is not {run_id, code}. The gateway refused the request."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                invalid-publish-request:
+                  value:
+                    error: Invalid publish request.
+            text/html:
+              schema:
+                type: string
+              examples:
+                a-single-content-length-is:
+                  value: |
+                    A single content length is required.
+                incomplete-request:
+                  value: |
+                    Incomplete request.
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "403":
+          description: "The code is missing, wrong, of an older step or used before (the gateway and owner-actions each check it), or the request did not come through the owner host. The gateway refused a request from another site. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-code-is-missing-or:
+                  value:
+                    error: The code is missing or not current.
+                not-allowed:
+                  value:
+                    error: Not allowed.
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-ask-on-the-awb:
+                  value: |
+                    Open Ask on the AWB site to submit a question.
+                cross-site-requests-are-not:
+                  value: |
+                    Cross-site requests are not allowed.
+                the-owner-page-expired-reload:
+                  value: |
+                    The owner page expired. Reload it.
+        "408":
+          description: The body did not arrive in time.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-timed-out:
+                  value: |
+                    Request timed out.
+        "409":
+          description: "The root unit refused the run: not the newest PASS run, not newer than the last published one, the same bytes as the live page, or a check of the page."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                publish-refused-only-the-newest:
+                  value:
+                    error: "Publish refused: only the newest PASS run can be published."
+                publish-refused-the-run-is:
+                  value:
+                    error: "Publish refused: the run is not newer than the last published one."
+                publish-refused-the-page-is:
+                  value:
+                    error: "Publish refused: the page is the same as the live page."
+                publish-refused-the-page-is-2:
+                  value:
+                    error: "Publish refused: the page is refused: name: 1 line."
+        "413":
+          description: The body is larger than 16384 bytes.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-is-too-large:
+                  value: |
+                    Request is too large.
+        "415":
+          description: The body has the wrong content type.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                use-the-ask-form:
+                  value: |
+                    Use the Ask form.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The publish unit did not answer.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-publish-service-is-unavailable:
+                  value:
+                    error: The publish service is unavailable.
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
   /api/owner/tenants:
     get:
       operationId: getOwnerTenants
@@ -4585,6 +4752,35 @@ components:
         - customer
         - waiting
         - time
+    PublishRequest:
+      type: object
+      properties:
+        run_id:
+          type: string
+          description: "The run the owner page offers: the newest PASS run."
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+        code:
+          type: string
+          description: A six-digit code of the owner's authenticator app, of the current 30-second step.
+          pattern: "^[0-9]{6}$"
+      required:
+        - run_id
+        - code
+      additionalProperties: false
+    PublishResult:
+      type: object
+      properties:
+        published:
+          type: boolean
+          description: Always true.
+        backup:
+          type:
+            - string
+            - "null"
+          description: "The name the page before was kept under; null when there was none."
+      required:
+        - published
+        - backup
     OwnerIntake:
       type: object
       properties:

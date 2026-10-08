@@ -27,6 +27,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 CONF=${AWB_INSTALL_CONF:-/etc/awb/paths.conf}
 UNITS=${AWB_INSTALL_UNITS:-/etc/systemd/system}
 FENCE=${AWB_INSTALL_FENCE:-/etc/awb/tunnel-fence.nft}
+OWNER_PUBLISH=${AWB_INSTALL_OWNER_PUBLISH:-/etc/awb/owner-publish.json}
 TUNNEL_DROPIN=cloudflared.service.d/50-awb-fence.conf
 CONSOLE_USER=awb-console
 OWNER_ACTIONS_USER=awb-owner
@@ -164,6 +165,11 @@ if id "$OWNER_ACTIONS_USER" >/dev/null 2>&1; then
 else
     run useradd --system --user-group --no-create-home -d /nonexistent --shell /usr/sbin/nologin "$OWNER_ACTIONS_USER"
 fi
+if [ -f "$OWNER_PUBLISH" ] && { [ "$EUID" -eq 0 ] || [ -n "${AWB_INSTALL_OWNER_PUBLISH:-}" ]; }; then
+    # the copy of the owner secrets that owner-actions checks Publish codes against (awb web user add --level owner)
+    run chown "$OWNER_ACTIONS_USER:$OWNER_ACTIONS_USER" "$OWNER_PUBLISH"
+    run chmod 600 "$OWNER_PUBLISH"
+fi
 if id "$cf_user" >/dev/null 2>&1; then
     echo "the system user $cf_user exists"
 else
@@ -225,8 +231,8 @@ for rel in "${added[@]}"; do
     esac
 done
 restart restart awb-keyd.service
-restart stop awb-customers.service awb-project-create.service awb-materials.service awb-owner-actions.service
-restart restart awb-customers.socket awb-project-create.socket awb-materials.socket awb-owner-actions.socket awb-web.socket awb-web-status.socket
+restart stop awb-customers.service awb-project-create.service awb-materials.service awb-owner-actions.service awb-web-publish.service
+restart restart awb-customers.socket awb-project-create.socket awb-materials.socket awb-owner-actions.socket awb-web-publish.socket awb-web.socket awb-web-status.socket
 restart start awb-owner-status.service
 restart restart awb-portal.service awb-ask.service awb-console-data.service
 restart enable --now awb-console-tenants.service

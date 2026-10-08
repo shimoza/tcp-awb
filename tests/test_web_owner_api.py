@@ -511,3 +511,46 @@ def test_the_contract_has_no_unlock_and_every_owner_operation_needs_the_owner_se
             assert op.get("security") != [{"owner": []}], (method, path)
         assert "awb vault unlock" not in text and "awb keys unlock" not in text
     assert {p for _, p, _ in ops} >= set(OWNER_ROUTES)
+
+
+# --------------------------------------------------------------------------- T9 step 3: Publish through the gateway
+
+
+def test_publish_needs_the_csrf_of_this_session_and_a_fresh_code_before_owner_actions(site, tmp_path):
+    secrets = tmp_path / "owner-publish.json"
+    secrets.write_text(json.dumps({"owner1": site.secret}))
+    site.actions.secrets = secrets
+    unit_sock = gateway.unix_listener(str(tmp_path / "unit.sock"))
+    got = []
+
+    def unit():
+        conn, _ = unit_sock.accept()
+        got.append(conn.recv(1024))
+        conn.sendall(b"published index.html.before-ui-20261008-009\n")
+        conn.close()
+
+    threading.Thread(target=unit, daemon=True).start()
+    site.actions.publish_socket = str(tmp_path / "unit.sock")
+    token, other = site.owner_session(), site.owner_session()
+    good = owner_headers(site, token, post=True)
+    body = lambda code: json.dumps({"run_id": "ui-20261008-009", "code": code})
+    now = time.time()
+    stale = gateway.totp_code(site.secret, int(now // 30) - 1)
+    for headers, payload in ((dict(good, **{"X-AWB-CSRF": ""}), body(site.code())),
+                             (dict(good, **{"X-AWB-CSRF": owner_headers(site, other, post=True)["X-AWB-CSRF"]}),
+                              body(site.code())),
+                             (good, json.dumps({"run_id": "ui-20261008-009"})), (good, body(stale)),
+                             (good, body("12345"))):
+        status, _, raw = site.request("/api/owner/publish", "POST", OWNER, headers, payload)
+        assert status == 403, raw
+    assert got == []
+    status, _, raw = site.request("/api/owner/publish", "POST", OWNER, good, body(site.code()))
+    assert status == 200 and json.loads(raw) == {"published": True, "backup": "index.html.before-ui-20261008-009"}
+    assert got == [b"ui-20261008-009\n"]
+    # the same code again is refused by the gateway itself
+    status, _, raw = site.request("/api/owner/publish", "POST", OWNER, good, body(site.code()))
+    assert status == 403 and json.loads(raw) == {"error": "The code is missing or not current."}
+    # never on the main host
+    reader = {"Cookie": "__Host-awb-session=" + site.reader_session(), "Origin": "https://" + DOMAIN,
+              "Content-Type": "application/json"}
+    assert site.request("/api/owner/publish", "POST", DOMAIN, reader, body(site.code()))[0] == 404

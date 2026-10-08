@@ -87,7 +87,7 @@ def ui_runs(queue: Path | None = None) -> list[dict]:
         return []
     con = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
     try:
-        rows = con.execute("SELECT id, state, finished, apply_changes FROM jobs ORDER BY created DESC LIMIT ?",
+        rows = con.execute("SELECT id, state, finished, apply_changes FROM jobs ORDER BY created DESC, id DESC LIMIT ?",
                            (MAX_RUNS,)).fetchall()
     except sqlite3.Error:
         return []

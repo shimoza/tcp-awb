@@ -652,7 +652,7 @@ OWNER_COOKIE = '__Host-awb-owner'
 OWNER_LOGIN_COOKIE = '__Host-awb-owner-login'
 OWNER_FAIL_TEXT = 'The username, password or code is incorrect.'
 OWNER_ACTIONS = ('/api/owner/state', '/api/owner/ui-runs', '/api/owner/intake')
-OWNER_POSTS = ()
+OWNER_POSTS = ('/api/owner/publish',)
 
 
 def is_moved(path, method):
@@ -972,6 +972,17 @@ class Gateway(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------------------------------------- the owner host
 
+    def fresh_code(self, body):
+        """Publish needs a TOTP code of the signed-in owner of the current step (or the next), used once."""
+        try:
+            code = json.loads(body).get('code')
+        except (ValueError, AttributeError, UnicodeError):
+            return False
+        account = self.server.auth.accounts()[1].get(self.owner_login)
+        now = self.server.auth.clock()
+        step = totp_step(account.totp if account else None, code, now)
+        return step is not None and step >= int(now // TOTP_STEP) and self.server.auth.use_code(self.owner_login, step, now)
+
     def owner_origin(self):
         return 'https://' + self.server.owner_host
 
@@ -1058,6 +1069,14 @@ class Gateway(BaseHTTPRequestHandler):
                 return
             body = self.read_body('application/json')
             if body is None:
+                return
+            if path == '/api/owner/publish' and not self.fresh_code(body):
+                self.refusal = 'owner-code'
+                self.reply(403, b'{"error":"The code is missing or not current."}',
+                           {'Content-Type': 'application/json; charset=utf-8'})
+                return
+            if path == '/api/owner/publish':
+                self.forward(('unix', self.server.owner_socket), path, body)
                 return
         if path in OWNER_ACTIONS and self.command in {'GET', 'HEAD'}:
             extra = None

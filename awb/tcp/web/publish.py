@@ -3,6 +3,8 @@
     sudo awb web publish --from-queue ID [--dry-run]
     sudo awb web publish FILE [--dry-run]
     sudo awb web publish --rollback [NAME]
+    sudo awb web publish --from-queue ID --newest
+    awb web publish --from-socket --newest          (the root unit awb-web-publish.service, never by hand)
     awb web status
     sudo awb web user add|reset|remove LOGIN, sudo awb web user list    (awb/tcp/web/users.py)
     sudo awb web host HOST
@@ -14,6 +16,12 @@ with PASS; or FILE. It checks the page (registered names, the gate's secret, tok
 one with mode 644, owned by root. Under sudo every read and every check runs in a child that dropped root to
 SUDO_USER (`awb web check --emit`); root only keeps the backup and installs the bytes the child handed back. A
 refusal names the class of the finding and nothing else.
+
+`--newest` (T9 step 3, the Publish of the owner host) takes a run only when it is the newest PASS run among the
+completed and the ready runs, its id comes after the last published one and its bytes differ from the live page; it
+keeps the newest 10 backups. `--from-socket` is the root unit behind the owner host's Publish: it takes one
+connection on the socket systemd hands over, reads one run id from it, publishes it with `--newest` as the owner of
+/etc/awb/paths.conf (in place of SUDO_USER) and answers one line, `published BACKUP` or `refused REASON`.
 
 `--rollback` installs a backup back (the newest without NAME); the page it replaces is kept as a backup too.
 `status` prints the size and time of the page, the last backup and the answers of the gateway and of /health, and
@@ -58,6 +66,8 @@ STATUS_SOCKET = "/run/awb-web-status.sock"
 HEALTH_PORT = 8180
 HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$")
 SIGNIN_LOG = Path("/var/lib/awb-web/signin.log")
+PUBLISH_STATE = Path("/var/lib/awb-web-publish")
+KEEP_BACKUPS = 10
 MAX_PAGE = 4 * 1024 * 1024
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 CLASSES = ("name", "secret", "token", "private-key")
@@ -277,13 +287,46 @@ def _page_as_owner(a, host: Host) -> bytes:
     from awb import deploy
 
     pw = _owner_pw(host)
-    cmd = [host.bin, "web", "check", "--emit"]
+    cmd = [host.bin, "web", "check", "--emit"] + (["--newest"] if getattr(a, "newest", False) else [])
     cmd += ["--from-queue", a.from_queue] if a.from_queue else [os.path.abspath(a.file)]
     res = deploy.as_user(host.runner, cmd, pw, host.environ, pw.pw_dir, capture_output=True)
     if res.returncode != 0:
         msg = (res.stderr or b"").decode("utf-8", "replace").strip().splitlines()
         raise Refused(msg[-1].removeprefix("awb web: ") if msg else "the check as the owner failed")
     return res.stdout
+
+
+def newest_publishable(queue: Path | None = None) -> str | None:
+    """The run Publish takes: the newest PASS run among the completed and the ready (candidate-only) runs."""
+    from awb import owner
+
+    return next((r["id"] for r in owner.ui_runs(queue or queue_dir()) if r["publishable"]), None)
+
+
+def publish_state(environ: dict) -> Path:
+    return Path(environ.get("AWB_WEB_PUBLISH_STATE") or PUBLISH_STATE)
+
+
+def last_published(environ: dict) -> str:
+    try:
+        value = (publish_state(environ) / "last-run").read_text(encoding="ascii").strip()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    return value if ID_RE.match(value) else ""
+
+
+def _record_published(environ: dict, run_id: str) -> None:
+    folder = publish_state(environ)
+    folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+    tmp = folder / ".last-run.next"
+    tmp.write_text(run_id + "\n", encoding="ascii")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, folder / "last-run")
+
+
+def prune_backups(root: Path, keep: int = KEEP_BACKUPS) -> None:
+    for old in backups(root)[:-keep]:
+        old.unlink()
 
 
 def _publish(a, host: Host) -> int:
@@ -294,17 +337,82 @@ def _publish(a, host: Host) -> int:
         return _rollback(root, a.rollback, a.dry_run, host)
     if bool(a.from_queue) == bool(a.file):
         raise Refused("give either --from-queue ID or FILE")
+    newest = getattr(a, "newest", False)
+    if newest and not a.from_queue:
+        raise Refused("--newest goes with --from-queue ID")
+    if newest and not ID_RE.match(a.from_queue):
+        raise Refused("the run id has a form the queue never gives")
+    if newest and a.from_queue <= last_published(host.environ):
+        raise Refused("the run is not newer than the last published one")
     is_root = host.geteuid() == 0
     if not is_root and not a.dry_run and root == SRV:
         raise Refused("run it with sudo: sudo awb web publish (--dry-run works without)")
-    data = _page_as_owner(a, host) if is_root else checked_page(a.from_queue, a.file and Path(a.file))
+    if is_root:
+        data = _page_as_owner(a, host)
+    else:
+        if newest and a.from_queue != newest_publishable():
+            raise Refused("only the newest PASS run can be published")
+        data = checked_page(a.from_queue, a.file and Path(a.file))
+    if newest:
+        try:
+            if (root / INDEX).read_bytes() == data:
+                raise Refused("the page is the same as the live page")
+        except FileNotFoundError:
+            pass
     label = a.from_queue or _stamp()
     if a.dry_run:
         _say("dry run: the page passes, %d bytes; the current page would be kept as %s"
              % (len(data), backup_name(root, label)))
         return 0
     name = install(root, data, label, host)
+    if newest:
+        prune_backups(root)
+        _record_published(host.environ, a.from_queue)
     _say("published: %d bytes, backup %s" % (len(data), name or "none (there was no page)"))
+    a.backup = name
+    return 0
+
+
+def _from_socket(a, host: Host, sock=None) -> int:
+    """The root unit behind the owner host's Publish: one connection, one run id, one answer line."""
+    import socket
+
+    if host.geteuid() != 0 and sock is None:
+        raise Refused("the publish unit runs as root")
+    owner = config.host_conf().get("owner", "")
+    if sock is None:
+        if host.environ.get("LISTEN_PID") != str(os.getpid()) or host.environ.get("LISTEN_FDS") != "1":
+            raise Refused("the publish unit needs the socket of systemd")
+        sock = socket.socket(fileno=3)
+    sock.settimeout(10)
+    conn, _ = sock.accept()
+    try:
+        conn.settimeout(10)
+        raw = b""
+        while b"\n" not in raw and len(raw) < 80:
+            chunk = conn.recv(80)
+            if not chunk:
+                break
+            raw += chunk
+        run_id = raw.split(b"\n", 1)[0].decode("ascii", "replace").strip()
+        try:
+            if not ID_RE.match(run_id):
+                raise Refused("the run id has a form the queue never gives")
+            if not owner:
+                raise Refused("/etc/awb/paths.conf names no owner")
+            env = dict(host.environ, SUDO_USER=owner)
+            sub = argparse.Namespace(root=a.root, rollback=None, from_queue=run_id, file=None, newest=True,
+                                     dry_run=False, backup=None)
+            _publish(sub, Host(host.geteuid, host.runner, env, host.chown, host.bin))
+            answer = "published %s" % (sub.backup or "none")
+        except Refused as err:
+            answer = "refused %s" % err
+        except (OSError, register.RegisterError):
+            answer = "refused the publish failed on the host"
+        conn.sendall((answer + "\n").encode("utf-8", "replace"))
+        _say(answer)
+    finally:
+        conn.close()
     return 0
 
 
@@ -330,9 +438,12 @@ def _rollback(root: Path, name: str, dry_run: bool, host: Host) -> int:
 
 
 def _check(a) -> int:
-    """The owner's side of a publish under sudo; also usable alone. --emit writes the page to standard output."""
+    """The owner's side of a publish under sudo; also usable alone. --emit writes the page to standard output.
+    --newest refuses a run that is not the newest PASS run."""
     if bool(a.from_queue) == bool(a.file):
         raise Refused("give either --from-queue ID or FILE")
+    if getattr(a, "newest", False) and (not a.from_queue or a.from_queue != newest_publishable()):
+        raise Refused("only the newest PASS run can be published")
     data = checked_page(a.from_queue, a.file and Path(a.file))
     if a.emit:
         sys.stdout.buffer.write(data)
@@ -473,11 +584,15 @@ def _parser():
     p.add_argument("--dry-run", action="store_true", help="check only, install nothing")
     p.add_argument("--rollback", nargs="?", const="", default=None, metavar="NAME",
                    help="install a backup back (the newest without NAME)")
+    p.add_argument("--newest", action="store_true",
+                   help="only the newest PASS run, newer than the last published, other bytes; keeps 10 backups")
+    p.add_argument("--from-socket", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--root", help=argparse.SUPPRESS)
     c = sub.add_parser("check", help="check a queue run or a file as this user")
     c.add_argument("file", nargs="?", metavar="FILE")
     c.add_argument("--from-queue", metavar="ID")
     c.add_argument("--emit", action="store_true", help="write the checked page to standard output")
+    c.add_argument("--newest", action="store_true", help="refuse a run that is not the newest PASS run")
     s = sub.add_parser("status", help="the page, the last backup, the gateway and /health")
     s.add_argument("--root", help=argparse.SUPPRESS)
     h = sub.add_parser("host", help="set the host name of the owner level in /etc/awb/paths.conf (sudo)")
@@ -502,7 +617,7 @@ def main(argv: list[str] | None = None, host: Host | None = None) -> int:
         return 0 if exc.code in (0, None) else 2
     try:
         if a.cmd == "publish":
-            return _publish(a, host)
+            return _from_socket(a, host) if a.from_socket else _publish(a, host)
         if a.cmd == "check":
             return _check(a)
         if a.cmd == "host":

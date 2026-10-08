@@ -1,0 +1,30 @@
+# Template of the web side (seal/web/README.md). Publish from the owner host (T9 step 3, D-PUBLISH): root takes one
+# connection, reads one run id and runs the checked publish code with --newest; the page is read and checked by a
+# child dropped to the owner of /etc/awb/paths.conf; the page stays root owned. It ends after each connection.
+[Unit]
+Description=AWB publish of the console page (one run id per start)
+Requires=awb-web-publish.socket
+After=awb-vaultd.service
+
+[Service]
+User=root
+Environment=AWB_CONF=/etc/awb/paths.conf
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/local/bin/awb web publish --from-socket --newest
+StateDirectory=awb-web-publish
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/awb-web
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_CHOWN
+LimitCORE=0
+TimeoutStartSec=150

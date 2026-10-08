@@ -15,7 +15,11 @@ does not exist the single login of `auth.json` works; `add` creates the file and
 leaves an empty file: nobody signs in, the single login does not come back. The gateway reads the file again on
 every change and ends the sessions of a removed login and of a login with a new password.
 
-AWB_WEB_USERS points the commands at another file; such a file needs no sudo (the tests use it).
+For Publish (T9 step 3) owner-actions checks the code again against its own copy of the owner entries' secrets,
+`/etc/awb/owner-publish.json` (awb-owner, 600): `add`, `reset` and `remove` of an owner entry keep it in step.
+
+AWB_WEB_USERS points the commands at another file; such a file needs no sudo (the tests use it). AWB_OWNER_PUBLISH
+does the same for the copy of the secrets.
 """
 from __future__ import annotations
 
@@ -35,6 +39,8 @@ from pathlib import Path
 from awb.tcp.web.gateway import DEFAULT_ROUNDS, LEVELS, LOGIN_RE
 
 USERS = Path("/etc/awb-web/users.json")
+OWNER_PUBLISH = Path("/etc/awb/owner-publish.json")
+OWNER_ACTIONS_USER = "awb-owner"
 GROUP = "awb-web"
 LENGTH = 20
 ALPHABET = string.ascii_letters + string.digits
@@ -73,6 +79,41 @@ def save(path: Path, data: dict, as_root: bool) -> None:
             os.fsync(fh.fileno())
         if as_root:
             os.chown(tmp, 0, grp.getgrnam(GROUP).gr_gid)
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
+def publish_path(environ: dict) -> Path:
+    """The copy of the owner secrets: AWB_OWNER_PUBLISH, else next to a users file of AWB_WEB_USERS, else the host's."""
+    if environ.get("AWB_OWNER_PUBLISH"):
+        return Path(environ["AWB_OWNER_PUBLISH"])
+    if environ.get("AWB_WEB_USERS"):
+        return Path(environ["AWB_WEB_USERS"]).with_name("owner-publish.json")
+    return OWNER_PUBLISH
+
+
+def sync_publish(users_file: Path, path: Path, as_root: bool) -> None:
+    """Write owner-actions' copy of the TOTP secrets of the owner entries (login: secret), mode 600, owned by
+    awb-owner when root writes it."""
+    secrets_of = {login: u["totp"] for login, u in load(users_file)["users"].items()
+                  if u.get("level") == "owner" and u.get("totp")}
+    tmp = path.with_name(".%s.new-%d" % (path.name, os.getpid()))
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(secrets_of, fh, sort_keys=True)
+            fh.write("\n")
+            fh.flush()
+            os.fchmod(fh.fileno(), 0o600)
+        if as_root:
+            import pwd
+            try:
+                entry = pwd.getpwnam(OWNER_ACTIONS_USER)
+                os.chown(tmp, entry.pw_uid, entry.pw_gid)
+            except KeyError:
+                pass        # owner-actions is not installed yet: root keeps the file until install.sh made the user
         os.replace(tmp, path)
     finally:
         if tmp.exists():
@@ -158,7 +199,10 @@ def main(a, environ: dict, geteuid=os.geteuid, say=print) -> int:
         raise Refused("never inside an assistant session: run it in your own terminal")
     if path == USERS and not as_root:
         raise Refused("run it with sudo: sudo awb web user %s LOGIN" % a.action)
+    before = load(path)["users"].get(a.login, {}).get("level")
     password = change(path, a.action, a.login, as_root, level=getattr(a, "level", None))
+    if "owner" in (before, getattr(a, "level", None)) or publish_path(environ).exists():
+        sync_publish(path, publish_path(environ), as_root)
     if password is None:
         say("removed %s; its sessions end" % a.login)
         return 0

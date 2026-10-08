@@ -120,6 +120,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   are no longer on the main site. Behind the owner routes a service of its own user reads one status file that
   `awb owner status --write` writes every minute. File names of the inbox show as ids with their type, and readers
   see a tenant's account number instead of its domain name.
+- Publish from the owner page. The newest run of the UI queue that passed its checks goes live with one click and a
+  fresh code from the owner's phone; the code is checked twice, by the front door and by the owner service, and a
+  small root service publishes only the newest passing run, never an older one or the same page again, and keeps the
+  last 10 pages. `sudo awb web publish --from-queue ID --newest` does the same in the terminal.
 
 ## Week 40, 2026-09-28 to 2026-10-04
 

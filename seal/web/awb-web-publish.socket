@@ -1,0 +1,14 @@
+# Template of the web side (seal/web/README.md). The socket of Publish (T9 step 3, D-PUBLISH): root owns it, its
+# group is owner-actions', so only owner-actions hands a run id to the root unit.
+[Unit]
+Description=AWB publish socket (owner-actions only)
+
+[Socket]
+ListenStream=/run/awb-web-publish.sock
+SocketUser=root
+SocketGroup=awb-owner
+SocketMode=0660
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

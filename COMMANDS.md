@@ -93,6 +93,7 @@ The tree must be clean (commit first). The deploy runs the installed copy of its
 | Command | What it does |
 |---|---|
 | `sudo awb web publish --from-queue ID` | publish the page of a UI queue run: the applied source of a completed run or the candidate of a `--candidate-only` run in state ready, only with a validation that starts with PASS. Checks names, secrets, tokens, private keys, one `<title>` and no external script, keeps the current page as `index.html.before-ID`, installs the new one 644 root:root, prints the size and the backup |
+| `sudo awb web publish --from-queue ID --newest` | the same, but only for the newest PASS run among the completed and the ready runs, with an id after the last published one and bytes other than the live page; keeps the newest 10 backups. The owner host's Publish runs exactly this through a root unit |
 | `sudo awb web publish FILE` | the same for a file; the backup is `index.html.before-<date-time>` |
 | `awb web publish --dry-run --from-queue ID` | the checks only, without sudo; nothing is installed |
 | `sudo awb web publish --rollback [NAME]` | put a backup back (the newest without NAME); the replaced page is kept as a backup too |

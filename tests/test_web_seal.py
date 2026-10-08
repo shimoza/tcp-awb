@@ -235,7 +235,8 @@ WEB_UNITS = ["awb-ask.service.d/95-project-chat.conf", "awb-console-data.service
              "awb-customers.service", "awb-customers.socket", "awb-materials.service", "awb-materials.socket",
              "awb-owner-actions.service", "awb-owner-actions.socket", "awb-owner-status.service",
              "awb-owner-status.timer", "awb-portal.service.d/90-awb-web.conf", "awb-project-create.service",
-             "awb-project-create.socket", "awb-web-status.socket", "awb-web.service", "awb-web.socket"]
+             "awb-project-create.socket", "awb-web-publish.service", "awb-web-publish.socket",
+             "awb-web-status.socket", "awb-web.service", "awb-web.socket"]
 
 
 def test_every_module_a_template_starts_exists_with_owner_actions():
@@ -253,22 +254,6 @@ def test_every_module_a_template_starts_exists_with_owner_actions():
             assert (REPO / name).is_file(), name
         else:
             importlib.import_module(name)
-
-
-def test_the_templates_name_no_host_and_only_documented_placeholders_with_the_owner_level():
-    """Replaces test_the_templates_name_no_host_and_only_documented_placeholders_with_the_front (T9 step 2 adds the
-    owner-actions socket and service and the owner's status timer): the exact set of templates, each naming no host
-    and only placeholders the README documents."""
-    readme = (WEB / "README.md").read_text(encoding="utf-8")
-    assert [p.relative_to(WEB).as_posix() for p in templates()] == WEB_UNITS
-    assert [p.name for p in tunnel_templates()] == ["cloudflared.conf", "tunnel-fence.nft"]
-    for path in templates() + tunnel_templates():
-        text = path.read_text(encoding="utf-8")
-        assert "/home/" not in text and "/opt/awb-web" not in text, path.name
-        assert set(re.findall(r"@[A-Z_]+@", text)) <= PLACEHOLDERS, path.name
-        assert path.name in readme or path.parent.name in readme, path.name
-    for placeholder in PLACEHOLDERS:
-        assert "`%s`" % placeholder in readme
 
 
 def test_owner_actions_runs_as_its_own_user_without_network_and_the_status_as_the_owner(tmp_path):
@@ -296,10 +281,25 @@ def test_owner_actions_runs_as_its_own_user_without_network_and_the_status_as_th
     assert "systemctl enable --now awb-owner-actions.service" not in calls
 
 
-def test_the_switch_script_renders_backs_up_retires_and_restarts_in_order_with_the_owner_level(tmp_path):
-    """Replaces test_the_switch_script_renders_backs_up_retires_and_restarts_in_order_with_the_front (T9 step 2: the
-    owner-actions user, its socket and the status timer are made and enabled, owner-actions restarts with the other
-    sockets, the status runs once)."""
+def test_the_templates_name_no_host_and_only_documented_placeholders_with_publish():
+    """Replaces test_the_templates_name_no_host_and_only_documented_placeholders_with_the_owner_level (T9 step 3 adds
+    the publish socket and service): the exact set of templates, each naming no host and only placeholders the
+    README documents."""
+    readme = (WEB / "README.md").read_text(encoding="utf-8")
+    assert [p.relative_to(WEB).as_posix() for p in templates()] == WEB_UNITS
+    assert [p.name for p in tunnel_templates()] == ["cloudflared.conf", "tunnel-fence.nft"]
+    for path in templates() + tunnel_templates():
+        text = path.read_text(encoding="utf-8")
+        assert "/home/" not in text and "/opt/awb-web" not in text, path.name
+        assert set(re.findall(r"@[A-Z_]+@", text)) <= PLACEHOLDERS, path.name
+        assert path.name in readme or path.parent.name in readme, path.name
+    for placeholder in PLACEHOLDERS:
+        assert "`%s`" % placeholder in readme
+
+
+def test_the_switch_script_renders_backs_up_retires_and_restarts_in_order_with_publish(tmp_path):
+    """Replaces test_the_switch_script_renders_backs_up_retires_and_restarts_in_order_with_the_owner_level (T9 step
+    3: the publish socket is enabled and restarts with the other sockets after its service stopped)."""
     env, units, log, fence = _stubs_t9(tmp_path)
     (units / "awb-ask.service.d").mkdir(parents=True)
     (units / "awb-web.service").write_text("the unit of before\n")
@@ -324,13 +324,13 @@ def test_the_switch_script_renders_backs_up_retires_and_restarts_in_order_with_t
     enabled = [c for c in calls if c.startswith("systemctl enable --now ") and c.endswith((".socket", ".timer"))]
     assert enabled == ["systemctl enable --now %s" % u for u in (
         "awb-customers.socket", "awb-materials.socket", "awb-owner-actions.socket", "awb-owner-status.timer",
-        "awb-project-create.socket", "awb-web-status.socket", "awb-web.socket")]
+        "awb-project-create.socket", "awb-web-publish.socket", "awb-web-status.socket", "awb-web.socket")]
     rest = calls[4 + len(enabled):]
     assert rest == ["systemctl restart awb-keyd.service",
                     "systemctl stop awb-customers.service awb-project-create.service awb-materials.service "
-                    "awb-owner-actions.service",
+                    "awb-owner-actions.service awb-web-publish.service",
                     "systemctl restart awb-customers.socket awb-project-create.socket awb-materials.socket "
-                    "awb-owner-actions.socket awb-web.socket awb-web-status.socket",
+                    "awb-owner-actions.socket awb-web-publish.socket awb-web.socket awb-web-status.socket",
                     "systemctl start awb-owner-status.service",
                     "systemctl restart awb-portal.service awb-ask.service awb-console-data.service",
                     "systemctl enable --now awb-console-tenants.service",
@@ -338,3 +338,25 @@ def test_the_switch_script_renders_backs_up_retires_and_restarts_in_order_with_t
                     "systemctl restart cloudflared.service"]
     again = _install(env, "--domain", "awb.example.test")
     assert again.returncode == 0 and "write " not in again.stdout and "useradd" not in again.stdout
+
+
+def test_the_publish_unit_is_root_with_one_socket_owner_actions_may_open(tmp_path):
+    env, units, log, fence = _stubs_t9(tmp_path)
+    secrets = tmp_path / "owner-publish.json"
+    secrets.write_text("{}")
+    assert _install(env, "--domain", "awb.example.test").returncode == 0
+    env["AWB_INSTALL_OWNER_PUBLISH"] = str(secrets)
+    sock = (units / "awb-web-publish.socket").read_text().splitlines()
+    for line in ("ListenStream=/run/awb-web-publish.sock", "SocketUser=root", "SocketGroup=awb-owner",
+                 "SocketMode=0660"):
+        assert line in sock, line
+    assert "Accept=yes" not in sock
+    service = (units / "awb-web-publish.service").read_text().splitlines()
+    for line in ("User=root", "ExecStart=/usr/local/bin/awb web publish --from-socket --newest",
+                 "ReadWritePaths=/srv/awb-web", "ProtectSystem=strict", "CapabilityBoundingSet=CAP_SETUID CAP_SETGID "
+                 "CAP_CHOWN", "RestrictAddressFamilies=AF_UNIX"):
+        assert line in service, line
+    calls = (tmp_path / "calls.log").read_text().splitlines()
+    assert "systemctl enable --now awb-web-publish.socket" in calls
+    out = _install(env, "--domain", "awb.example.test", "--dry-run").stdout
+    assert "+ chown awb-owner:awb-owner %s" % secrets in out and "+ chmod 600 %s" % secrets in out

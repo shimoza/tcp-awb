@@ -40,7 +40,8 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 <header><h1>AWB owner level</h1><form method="post" action="/logout" id="logout"><button class="plain" type="submit">Sign out</button></form></header>
 <main>
 <section class="wide" aria-labelledby="h-state"><h2 id="h-state">State</h2><div class="tiles" id="state"><p class="muted">Loading.</p></div><p class="note" id="state-note" role="status"></p></section>
-<section class="wide" aria-labelledby="h-runs"><h2 id="h-runs">UI runs</h2><div class="scroll"><table><thead><tr><th>Run</th><th>State</th><th>Finished</th><th>Validation</th><th>Diff</th><th></th></tr></thead><tbody id="runs"></tbody></table></div><p class="note" id="runs-note" role="status"></p></section>
+<section class="wide" aria-labelledby="h-runs"><h2 id="h-runs">UI runs</h2><div class="scroll"><table><thead><tr><th>Run</th><th>State</th><th>Finished</th><th>Validation</th><th>Diff</th><th></th></tr></thead><tbody id="runs"></tbody></table></div><form id="publish" class="row"><div><label for="pub-code">Code of your authenticator app</label><input id="pub-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required></div><div><button type="submit" id="pub-button" disabled>Publish the newest PASS run</button></div></form>
+<p class="note" id="runs-note" role="status"></p></section>
 <section aria-labelledby="h-intake"><h2 id="h-intake">Intake</h2><table><thead><tr><th>Customer</th><th>Waiting for review</th><th>Last report</th></tr></thead><tbody id="intake"></tbody></table></section>
 <section aria-labelledby="h-customers"><h2 id="h-customers">Customers</h2><table><thead><tr><th>Code</th><th>State</th><th>Projects</th></tr></thead><tbody id="customers"></tbody></table><p class="note muted">New customers are registered in your own terminal.</p></section>
 <section aria-labelledby="h-new"><h2 id="h-new">New project</h2>
@@ -59,7 +60,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 <script>
 (function(){
 "use strict";
-var csrf="";
+var csrf="",publishable="";
 function el(id){return document.getElementById(id);}
 function cell(row,text,cls){var td=document.createElement("td");td.textContent=text==null?"-":String(text);if(cls){td.className=cls;}row.appendChild(td);return td;}
 function clear(node){while(node.firstChild){node.removeChild(node.firstChild);}}
@@ -98,7 +99,10 @@ function loadState(){
 }
 function loadRuns(){
   return api("/api/owner/ui-runs").then(function(d){
-    var body=el("runs");clear(body);
+    var body=el("runs");clear(body);publishable="";
+    d.runs.forEach(function(r){if(r.publishable){publishable=r.id;}});
+    el("pub-button").disabled=!publishable;
+    el("pub-button").textContent=publishable?"Publish "+publishable:"No run to publish";
     if(!d.runs.length){empty(body,6,"No runs.");return;}
     d.runs.forEach(function(r){var tr=document.createElement("tr");cell(tr,r.id);cell(tr,r.state);cell(tr,when(r.finished));cell(tr,r.validation,r.validation==="PASS"?"ok":r.validation?"bad":"");cell(tr,bytes(r.diff_bytes));cell(tr,r.publishable?"newest PASS":"",r.publishable?"ok":"");body.appendChild(tr);});
   }).catch(function(e){el("runs-note").textContent=e.message;});
@@ -182,6 +186,17 @@ function loadTenants(){
     d.tenants.forEach(function(t){var tr=document.createElement("tr");cell(tr,t.alias);cell(tr,t.domain_name);cell(tr,t.status);cell(tr,t.counts?t.counts.ecs:null);cell(tr,t.counts?t.counts.evs:null);body.appendChild(tr);});
   }).catch(function(){empty(el("tenants"),5,"Not available.");});
 }
+function publishRun(ev){
+  ev.preventDefault();
+  if(!publishable){return;}
+  var code=el("pub-code").value.trim();
+  el("pub-button").disabled=true;el("runs-note").textContent="Publishing "+publishable+".";
+  api("/api/owner/publish",{method:"POST",body:{run_id:publishable,code:code}}).then(function(d){
+    el("runs-note").textContent="Published "+publishable+(d.backup?"; the page before is kept as "+d.backup+".":".");
+    el("pub-code").value="";loadState();loadRuns();
+  }).catch(function(e){el("runs-note").textContent=e.message;el("pub-button").disabled=false;});
+}
+el("publish").addEventListener("submit",publishRun);
 el("new-project").addEventListener("submit",createProject);
 el("m-list").addEventListener("click",listSource);
 el("m-import").addEventListener("click",importChosen);

@@ -794,6 +794,15 @@ def _schemas() -> dict:
             "waiting": integer("Candidates that wait for awb register review.", nullable=True),
             "time": string("The time of the last report.", nullable=True),
         }),
+        "PublishRequest": obj({
+            "run_id": string("The run the owner page offers: the newest PASS run.", pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"),
+            "code": string("A six-digit code of the owner's authenticator app, of the current 30-second step.",
+                           pattern=r"^[0-9]{6}$"),
+        }, closed=True),
+        "PublishResult": obj({
+            "published": boolean("Always true."),
+            "backup": string("The name the page before was kept under; null when there was none.", nullable=True),
+        }),
         "OwnerIntake": obj({"customers": array(ref("IntakeCount"), "Ordered by code."),
                             "written": string(format="date-time"), "stale": boolean()}),
         "ChatTurn": obj({
@@ -1311,6 +1320,28 @@ def _owner_paths() -> dict:
             "listOwnerIntake", "Per customer code the candidates that wait for a review.", "OwnerIntake",
             {"customers": [{"customer": "CUST-Q7M4", "waiting": 3, "time": "2026-10-08T09:12:40Z"}]},
             "From <vault>/intake-counts.json through the status file; no report is opened to count.")},
+        "/api/owner/publish": {"post": operation(
+            "publishOwnerRun", "owner", "Publish the newest PASS run of the UI queue.", {
+                "200": answer("Published; the page before is kept as a backup and the newest 10 backups stay.",
+                              ref("PublishResult"), {"published": {"published": True,
+                                                                   "backup": "index.html.before-ui-20261008-001"}}),
+                "400": refusal("The request is not {run_id, code}.", "Invalid publish request."),
+                "403": refusal("The code is missing, wrong, of an older step or used before (the gateway and "
+                               "owner-actions each check it), or the request did not come through the owner host.",
+                               "The code is missing or not current.", "Not allowed."),
+                "409": refusal("The root unit refused the run: not the newest PASS run, not newer than the last "
+                               "published one, the same bytes as the live page, or a check of the page.",
+                               "Publish refused: only the newest PASS run can be published.",
+                               "Publish refused: the run is not newer than the last published one.",
+                               "Publish refused: the page is the same as the live page.",
+                               "Publish refused: the page is refused: name: 1 line."),
+                "503": refusal("The publish unit did not answer.", "The publish service is unavailable."),
+            }, description="Needs a fresh TOTP code besides the owner session and its X-AWB-CSRF. The gateway checks "
+                           "the code, owner-actions checks it again against its own copy of the secret, then hands "
+                           "the run id alone to a root unit that runs the checked publish code with --newest. A "
+                           "rollback stays a command of the owner's terminal.",
+            body=json_body("PublishRequest", {"newest": {"run_id": "ui-20261008-001", "code": "123456"}}),
+            post=True)},
         "/api/owner/tenants": {"get": operation(
             "getOwnerTenants", "owner", "The test tenants with the IAM domain names.", {
                 "200": answer("The snapshot.", ref("TenantInventory"), {"one-tenant": dict(INVENTORY, tenants=[

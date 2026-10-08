@@ -12,6 +12,7 @@ copies in `/opt/awb-web` is a step of its own, done once, by the owner.
 | `awb-web-status.socket` | root, 0666 | GET /health and nothing else, for `awb web status`, the publish code and the deploy | `/run/awb-web-status.sock` |
 | `awb-owner-actions.socket` and `.service` | `awb-owner`, no network | `awb.tcp.web.owner_actions`: GET /api/owner/state, ui-runs and intake from the status file alone; it answers the gateway's uid only | `/run/awb-owner.sock` (root, group awb-web, 0660) |
 | `awb-owner-status.service` and `.timer` | the owner, group awb-owner | `awb owner status --write` every minute: the codes-only status file; the deploy never restarts it, the timer runs the new code | `/var/lib/awb-owner-status/status.json` (0640) |
+| `awb-web-publish.socket` and `.service` | root | `awb web publish --from-socket --newest`: one connection, one run id from owner-actions, one answer line; the page is read and checked as the owner and stays root owned (D-PUBLISH) | `/run/awb-web-publish.sock` (root, group awb-owner, 0660) |
 | `tunnel/cloudflared.conf` | the tunnel's user | cloudflared's drop-in `cloudflared.service.d/50-awb-fence.conf`: its own user, root copies the token into its runtime folder (0700) and loads the fence first, metrics pinned to 127.0.0.1:20241 | |
 | `tunnel/tunnel-fence.nft` | root | `/etc/awb/tunnel-fence.nft`: the tunnel's user opens no new loopback TCP connection but the resolver (53) and, for one release, 8080 and 8081; nobody else reaches its metrics port | |
 | `awb-console-data.service` | `awb` | `awb.tcp.web.projects_api`: the projects, read only | 127.0.0.1:8182 |
@@ -78,6 +79,11 @@ entry's password and a TOTP code, the cookie `__Host-awb-owner` is Strict, witho
 minutes and after one hour, and GET / is `awb/tcp/web/owner.html` of the release. On the main host the owner routes,
 the customers, the customer and project operations, POST /api/projects and every materials route answer 404. In the
 Cloudflare dashboard the owner host needs its DNS name and one ingress line to the front socket.
+
+Publish (T9 step 3): the owner page offers the newest PASS run of the UI queue; the gateway checks the session, its
+CSRF and a fresh TOTP code, owner-actions checks the code again against `/etc/awb/owner-publish.json` (its own copy,
+written by `sudo awb web user add|reset|remove` for an owner entry, awb-owner 600) and hands the run id alone to
+the root unit. A rollback stays `sudo awb web publish --rollback` in the terminal.
 
 ## The front door (T9 step 1)
 

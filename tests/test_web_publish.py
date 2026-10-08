@@ -216,3 +216,182 @@ def test_status_names_the_page_and_the_last_backup(web, monkeypatch, capsys):
     assert "page: %d bytes" % len(_page("new")) in out
     assert "last backup: index.html.before-ui-20261007-011" in out
     assert "gateway: not installed" in out and "health: no answer" in out
+
+
+# --------------------------------------------------------------------------- T9 step 3: Publish from the owner host
+
+import argparse
+import json
+import socket
+import threading
+import time
+
+from awb.tcp.web import gateway, owner_actions
+
+
+@pytest.fixture
+def state(tmp_path, monkeypatch):
+    folder = tmp_path / "publish-state"
+    monkeypatch.setenv("AWB_WEB_PUBLISH_STATE", str(folder))
+    return folder
+
+
+def test_newest_takes_only_the_newest_pass_run_newer_than_the_last_and_other_bytes(web, state, capsys):
+    _run("ui-20261008-001", _page("first"))
+    _run("ui-20261008-002", _page("second"))
+    _run("ui-20261008-003", _page("third"), state="ready", validation="FAIL: contrast", applies=False)
+    for run_id, why in (("ui-20261008-003", "only the newest PASS run"), ("ui-20261008-001", "only the newest PASS run"),
+                        ("../etc", "a form the queue never gives")):
+        assert publish.main(["publish", "--from-queue", run_id, "--newest"]) == 1
+        assert why in capsys.readouterr().err
+    assert (web / "index.html").read_bytes() == _page("old") and publish.backups(web) == []
+    assert publish.main(["publish", "--from-queue", "ui-20261008-002", "--newest"]) == 0
+    assert (web / "index.html").read_bytes() == _page("second")
+    assert (state / "last-run").read_text() == "ui-20261008-002\n"
+    capsys.readouterr()
+    assert publish.main(["publish", "--from-queue", "ui-20261008-002", "--newest"]) == 1
+    assert "not newer than the last published one" in capsys.readouterr().err
+    _run("ui-20261008-004", _page("second"))
+    assert publish.main(["publish", "--from-queue", "ui-20261008-004", "--newest"]) == 1
+    assert "the same as the live page" in capsys.readouterr().err
+    assert [p.name for p in publish.backups(web)] == ["index.html.before-ui-20261008-002"]
+
+
+def test_newest_keeps_the_newest_ten_backups(web, state):
+    for i in range(12):
+        (web / ("index.html.before-old-%02d" % i)).write_bytes(b"x")
+        os.utime(web / ("index.html.before-old-%02d" % i), (1000 + i, 1000 + i))
+    _run("ui-20261008-005", _page("fifth"))
+    assert publish.main(["publish", "--from-queue", "ui-20261008-005", "--newest"]) == 0
+    names = [p.name for p in publish.backups(web)]
+    assert len(names) == 10 and names[-1] == "index.html.before-ui-20261008-005"
+    assert "index.html.before-old-00" not in names and "index.html.before-old-11" in names
+
+
+def _publish_unit(web, run_line, monkeypatch, tmp_path):
+    """The root unit's path as a plain user: one connection on a listening socket, the answer line back."""
+    monkeypatch.setattr(publish.config, "host_conf", lambda: {"owner": "someone"})
+    listener = gateway.unix_listener(str(tmp_path / "publish.sock"))
+    answer = []
+
+    def client():
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.connect(str(tmp_path / "publish.sock"))
+        s.sendall(run_line)
+        answer.append(s.recv(1024))
+        s.close()
+
+    t = threading.Thread(target=client)
+    t.start()
+    a = argparse.Namespace(root=None, from_socket=True)
+    assert publish._from_socket(a, publish.Host(geteuid=lambda: 1000), sock=listener) == 0
+    t.join(5)
+    listener.close()
+    (tmp_path / "publish.sock").unlink()
+    return answer[0].decode()
+
+
+def test_the_root_unit_reads_one_run_id_and_answers_one_line(web, state, monkeypatch, tmp_path):
+    _run("ui-20261008-006", _page("sixth"))
+    assert _publish_unit(web, b"ui-20261008-006\n", monkeypatch, tmp_path) == \
+        "published index.html.before-ui-20261008-006\n"
+    assert (web / "index.html").read_bytes() == _page("sixth")
+    assert _publish_unit(web, b"ui-20261008-006\n", monkeypatch, tmp_path) == \
+        "refused the run is not newer than the last published one\n"
+    assert _publish_unit(web, b"../../srv/x\n", monkeypatch, tmp_path).startswith("refused the run id has a form")
+    with pytest.raises(publish.Refused, match="runs as root"):
+        publish._from_socket(argparse.Namespace(root=None), publish.Host(geteuid=lambda: 1000))
+
+
+class FakeUnit:
+    """The root unit's socket as owner-actions sees it: records what arrives, answers a fixed line."""
+
+    def __init__(self, path, line):
+        self.got, self.line = [], line
+        self.sock = gateway.unix_listener(str(path))
+        threading.Thread(target=self.serve, daemon=True).start()
+
+    def serve(self):
+        while True:
+            try:
+                conn, _ = self.sock.accept()
+            except OSError:
+                return
+            self.got.append(conn.recv(1024))
+            conn.sendall(self.line)
+            conn.close()
+
+
+def _owner_post(server, body, level="owner"):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(5)
+    s.connect(server.server_address)
+    raw = json.dumps(body).encode()
+    s.sendall(b"POST /api/owner/publish HTTP/1.0\r\nX-AWB-Level: " + level.encode() + b"\r\nContent-Type: "
+              b"application/json\r\nContent-Length: " + str(len(raw)).encode() + b"\r\n\r\n" + raw)
+    data = b""
+    while chunk := s.recv(65536):
+        data += chunk
+    s.close()
+    head, _, payload = data.partition(b"\r\n\r\n")
+    return int(head.split()[1]), json.loads(payload)
+
+
+def test_owner_actions_checks_the_code_itself_and_hands_on_the_run_id_alone(tmp_path):
+    """A fake gateway that skips the code check is refused by owner-actions: a wrong, an old or a used code never
+    reaches the root unit; a fresh code hands on the run id and nothing else."""
+    secret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+    secrets = tmp_path / "owner-publish.json"
+    secrets.write_text(json.dumps({"owner1": secret}))
+    unit = FakeUnit(tmp_path / "unit.sock", b"published index.html.before-ui-20261008-007\n")
+    server = owner_actions.Server(gateway.unix_listener(str(tmp_path / "actions.sock")), os.getuid(),
+                                  tmp_path / "status.json", tmp_path / "log", secrets=secrets,
+                                  publish_socket=str(tmp_path / "unit.sock"))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        now = time.time()
+        code = gateway.totp_code(secret, int(now // 30))
+        old = gateway.totp_code(secret, int(now // 30) - 1)
+        wrong = "000000" if code != "000000" else "111111"
+        for body in ({"run_id": "ui-20261008-007", "code": wrong}, {"run_id": "ui-20261008-007", "code": old}):
+            assert _owner_post(server, body) == (403, {"error": owner_actions.CODE_REFUSED})
+        assert _owner_post(server, {"run_id": "ui-20261008-007", "code": code}, level="reader")[0] == 403
+        assert _owner_post(server, {"run_id": "../x", "code": code})[0] == 400
+        assert _owner_post(server, {"run_id": "ui-20261008-007", "code": code, "more": 1})[0] == 400
+        assert unit.got == []
+        assert _owner_post(server, {"run_id": "ui-20261008-007", "code": code}) == (
+            200, {"published": True, "backup": "index.html.before-ui-20261008-007"})
+        assert unit.got == [b"ui-20261008-007\n"]
+        assert _owner_post(server, {"run_id": "ui-20261008-007", "code": code}) == (403, {"error":
+                                                                                         owner_actions.CODE_REFUSED})
+        unit.line = b"refused only the newest PASS run can be published\n"
+        server.used.clear()
+        assert _owner_post(server, {"run_id": "ui-20261008-007", "code": code}) == (
+            409, {"error": "Publish refused: only the newest PASS run can be published."})
+        server.used.clear()
+        server.publish_socket = str(tmp_path / "missing.sock")
+        assert _owner_post(server, {"run_id": "ui-20261008-007", "code": code}) == (503, {"error":
+                                                                                         owner_actions.PUBLISH_DOWN})
+    finally:
+        server.shutdown()
+        server.server_close()
+        unit.sock.close()
+
+
+def test_awb_web_user_keeps_the_copy_of_the_owner_secrets_in_step(tmp_path, monkeypatch):
+    from awb.tcp.web import users
+
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+    monkeypatch.setattr(users.shutil, "which", lambda name: None)
+    env = {"AWB_WEB_USERS": str(tmp_path / "users.json")}
+    copy = tmp_path / "owner-publish.json"
+    users.main(argparse.Namespace(action="add", login="reader1", level=None), env, lambda: 1000, lambda line: None)
+    assert not copy.exists()
+    users.main(argparse.Namespace(action="add", login="owner1", level="owner"), env, lambda: 1000, lambda line: None)
+    first = json.loads(copy.read_text())
+    assert list(first) == ["owner1"] and stat.S_IMODE(copy.stat().st_mode) == 0o600
+    users.main(argparse.Namespace(action="reset", login="owner1", level=None), env, lambda: 1000, lambda line: None)
+    assert json.loads(copy.read_text())["owner1"] != first["owner1"]
+    users.main(argparse.Namespace(action="remove", login="owner1", level=None), env, lambda: 1000, lambda line: None)
+    assert json.loads(copy.read_text()) == {}
