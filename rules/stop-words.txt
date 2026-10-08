@@ -201,6 +201,11 @@ Cloud Native Network
 Financial Dashboard
 Ethernet Connect
 Deutsche Telekom
+# the partner's own names: a session must be able to name the partner, so no rule wipes them (wipe mode, decision 11)
+T-Systems International GmbH
+Telekom Deutschland GmbH
+Deutsche Telekom AG
+T-Systems
 Backup Migration
 Container Edition
 EXTERNAL SCHEMA

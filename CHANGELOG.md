@@ -47,6 +47,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   longer stop the prompt, while names, mails and secrets still do, and `awb paste` puts a long output into the
   project with its addresses masked.
 
+- The word lists that keep a text readable when the intake wipes names: the capitalised words and two-word phrases
+  of the public TCP documentation and service description, German and Russian words of tender and architecture
+  texts, first names, the products of the usual source platforms and vendors, standards, German function words and
+  the jargon of migration and contract texts. The partner's own company names are never taken for another company.
+
 ### Changed
 
 - `awb inbox take` finds the file you describe in your own words (the same letters, a kind of file, the newest, a
