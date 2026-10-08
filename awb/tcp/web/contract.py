@@ -99,7 +99,8 @@ LISTING_ERRORS = [
     "The inventory is incomplete.",
     "The inventory exceeds the supported page limit.",
 ]
-GATEWAY_LINES = ["Invalid host.", "Invalid request target.", "Not found.", "Method not allowed."]
+GATEWAY_LINES = ["Invalid host.", "Invalid request target.", "Not found.", "Method not allowed.",
+                 "The site is busy. Try again in a moment."]
 IMPORT_MESSAGES = [
     "Waiting for processing.",
     "Downloading and checking the selected version.",
@@ -185,7 +186,8 @@ DESCRIPTION = "\n".join((
     "- Without a session every /api/ route answers 401 and a page answers 303 to /login.",
     "- Any path: a wrong host gets 400 Invalid host., a target that is not a path 400 Invalid request target.,",
     "  an unknown path 404 Not found. and a method other than GET, HEAD or POST 405 Method not allowed., each as",
-    "  one line of text/html (info.x-awb-texts).",
+    "  one line of text/html (info.x-awb-texts). Without a session, when 64 requests without a session are already",
+    "  open, any path gets 503 The site is busy. Try again in a moment. with Retry-After: 5.",
     "",
     "The gateway also serves the older server-rendered pages /kb, /price, /projects, /reviews, /tenants, /health",
     "and /portal. They are HTML, the console does not call them and they are not part of this contract.",
@@ -782,8 +784,8 @@ def _session_paths() -> dict:
     sign_in = "<!doctype html><html lang=\"en\"><head><title>Sign in · AWB</title></head><body>" \
               "<form action=\"/login\" method=\"post\">...</form></body></html>"
     form = obj({
-        "csrf": string("The hidden field of the sign-in page; it must equal the __Host-awb-login cookie and is "
-                       "valid for 600 seconds."),
+        "csrf": string("The hidden field of the sign-in page; it must equal the __Host-awb-login cookie, is "
+                       "valid for 600 seconds and is taken once."),
         "username": string(maxLength=100),
         "password": string(maxLength=200),
         "next": string("Where to go after the sign-in.", enum=PORTAL_PAGES),
@@ -811,7 +813,15 @@ def _session_paths() -> dict:
                                    media="text/html")},
                     {"403": gateway("The form was not sent from the site.", "Open this form on the AWB site.")},
                 )["403"],
-                "429": answer("Eight failed attempts from one address within a minute, or a cooldown: the login "
+                "503": answer("No pbkdf2 slot came free within 3 seconds (not counted as a failure), or the session "
+                              "table is full: the form again, with the reason.", page,
+                              {"busy": sign_in.replace("<form", "<p role=\"alert\" class=\"error\">The sign-in is "
+                                                       "busy. Try again in a moment.</p><form"),
+                               "full": sign_in.replace("<form", "<p role=\"alert\" class=\"error\">The workspace "
+                                                       "has too many open sessions. Try again later.</p><form")},
+                              media="text/html"),
+                "429": answer("Eight failed attempts from one address (the /64 of an IPv6 address) within a minute or "
+                              "a sign-in of that address still running, or a cooldown: the login "
                               "failed 5 times within 15 minutes (it waits 15 minutes, doubled for each further "
                               "series up to 24 hours), or the site had 30 failures within the hour.", page,
                               {"page": sign_in.replace("<form", "<p role=\"alert\" class=\"error\">Too many "

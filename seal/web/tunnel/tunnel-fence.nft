@@ -1,0 +1,14 @@
+# The fence of the tunnel's user (D-FRONT, RT-09), rendered by install.sh to /etc/awb/tunnel-fence.nft and loaded
+# by root before cloudflared starts. Its own table, replaced as a whole on every load.
+# 1. A new loopback TCP connection of the tunnel's user is refused, IPv4 and IPv6, but for the resolver (53) and,
+#    for the one release of the switch, the old ingress ports 8080 and 8081 (the release after drops them).
+# 2. Nobody else connects to the tunnel's metrics port.
+table inet awb_tunnel_fence
+delete table inet awb_tunnel_fence
+table inet awb_tunnel_fence {
+    chain output {
+        type filter hook output priority filter; policy accept;
+        oifname "lo" meta l4proto tcp ct state new meta skuid "@CLOUDFLARED_USER@" tcp dport != { 53, 8080, 8081 } counter reject with tcp reset
+        oifname "lo" meta l4proto tcp ct state new tcp dport 20241 meta skuid != "@CLOUDFLARED_USER@" counter reject with tcp reset
+    }
+}

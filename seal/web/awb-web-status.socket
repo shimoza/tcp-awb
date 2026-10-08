@@ -1,0 +1,14 @@
+# Template of the web side (seal/web/README.md). The status socket of the gateway: it answers GET /health and
+# nothing else, for awb web status, the publish code and the deploy's probe.
+[Unit]
+Description=AWB gateway status socket (/health only)
+
+[Socket]
+ListenStream=/run/awb-web-status.sock
+SocketUser=root
+SocketGroup=root
+SocketMode=0666
+Service=awb-web.service
+
+[Install]
+WantedBy=sockets.target

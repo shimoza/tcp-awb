@@ -1,16 +1,21 @@
 # Template of the web side of the Workbench (seal/web/README.md). Placeholders: @OWNER@ the owner user,
 # @DOMAIN@ the host name of the site, @VAULT@ and @SHARED@ the folders of /etc/awb/paths.conf, @WORK_HOME@ the
-# home of the work user. Not installed by setup.sh: the switch is a step of its own.
+# home of the work user, @OWNER_HOST@, @FRONT_SOCKET@ and @CLOUDFLARED_USER@ the values of the same names in
+# /etc/awb/paths.conf. Not installed by setup.sh: the switch is a step of its own.
+# The site comes in on the front socket only (awb-web.socket). --ports 8080 8081 stay for one release, until the
+# tunnel's ingress points at unix:@FRONT_SOCKET@; the release after drops them (seal/web/README.md).
 [Unit]
 Description=AWB authenticated web gateway
-After=network.target awb-portal.service awb-ask.service
+After=network.target awb-portal.service awb-ask.service awb-web.socket awb-web-status.socket
 Wants=awb-portal.service awb-ask.service
+Requires=awb-web.socket awb-web-status.socket
 
 [Service]
 Type=simple
 User=awb-web
 Group=awb-web
-ExecStart=/usr/bin/python3 -I /opt/tcp-awb/src/awb/tcp/web/gateway.py --auth /etc/awb-web/auth.json --users /etc/awb-web/users.json --signin-log /var/lib/awb-web/signin.log --index /srv/awb-web/index.html --domain @DOMAIN@
+ExecStart=/usr/bin/python3 -I /opt/tcp-awb/src/awb/tcp/web/gateway.py --auth /etc/awb-web/auth.json --users /etc/awb-web/users.json --signin-log /var/lib/awb-web/signin.log --index /srv/awb-web/index.html --domain @DOMAIN@ --owner-host @OWNER_HOST@ --front-socket @FRONT_SOCKET@ --front-peer @CLOUDFLARED_USER@ --status-socket /run/awb-web-status.sock --ports 8080 8081
+Sockets=awb-web.socket awb-web-status.socket
 StateDirectory=awb-web
 StateDirectoryMode=0700
 Restart=on-failure

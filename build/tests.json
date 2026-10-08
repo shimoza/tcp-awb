@@ -1868,8 +1868,71 @@
    "name": "the wipe pack: nine dimensions of 45 cases, EXPECTED.md lists cases that exist, the harness shows it can fail, a sample of every dimension runs with the recorded outcome, the false-positive dimension loses no term",
    "run": ".venv/bin/pytest tests/test_redteam_pack.py -k wipe",
    "status": "passing"
+  },
+  {
+   "id": "T9-1",
+   "phase": "T9",
+   "name": "the front socket closes a connection from another uid before reading a byte, logged as the word peer; the cloudflared uid gets the site",
+   "run": ".venv/bin/pytest tests/test_web_gateway.py::test_the_front_socket_refuses_another_peer_before_reading_a_byte",
+   "status": "passing"
+  },
+  {
+   "id": "T9-2",
+   "phase": "T9",
+   "name": "the gateway without --ports has no TCP listener (none of its sockets in /proc/net/tcp or tcp6), the front socket is 0660, the status socket answers /health only; planted --ports 0 is found",
+   "run": ".venv/bin/pytest tests/test_web_gateway.py::test_the_gateway_without_ports_opens_no_tcp_listener_and_answers_health_on_the_status_socket",
+   "status": "passing"
+  },
+  {
+   "id": "T9-3",
+   "phase": "T9",
+   "name": "the limiter: the address key is the /64; 8 failures from one /64 limit that /64 only; one sign-in in flight per address; a busy slot answers busy and counts nothing; 200 parallel bad logins from one /64 do not stop the owner within 5 s; an owner entry waits 1 to 60 s and is never locked, not even by the site cap",
+   "run": ".venv/bin/pytest tests/test_web_gateway.py -k 'address_key or slash_64 or in_flight or owner_entry'",
+   "status": "passing"
+  },
+  {
+   "id": "T9-4",
+   "phase": "T9",
+   "name": "a login form is taken once; a full session table answers 503 and evicts nobody; 64 requests without a session at most; a malformed foreign cookie does not hide the session; 5 sessions per login, a reset or a removal ends them",
+   "run": ".venv/bin/pytest tests/test_web_gateway.py -k 'taken_once or FrontLoginTests or five_sessions'",
+   "status": "passing"
+  },
+  {
+   "id": "T9-5",
+   "phase": "T9",
+   "name": "the log line names host, level and one refusal word, never an address or a user name; V1 logs whether a forged CF-Connecting-IP arrived, never the address; TOTP follows RFC 6238",
+   "run": ".venv/bin/pytest tests/test_web_gateway.py -k 'log_line or v1_logs or totp'",
+   "status": "passing"
+  },
+  {
+   "id": "T9-6",
+   "phase": "T9",
+   "name": "users.json: level, generation, a TOTP secret for an owner entry printed once (key, otpauth line, qrencode on standard input); awb web host writes owner_host and refuses the site's own name and a run without sudo",
+   "run": ".venv/bin/pytest tests/test_web_users.py -k 'owner or qr or host'",
+   "status": "passing"
+  },
+  {
+   "id": "T9-7",
+   "phase": "T9",
+   "name": "the rendered gateway sockets, the cloudflared drop-in and the nftables fence; a missing or odd owner_host, front_socket or cloudflared_user stops install.sh before anything changes; added sockets are enabled; cloudflared restarts only when its files changed; the rollback lifts the fence; four install tests replaced",
+   "run": ".venv/bin/pytest tests/test_web_seal.py",
+   "status": "passing"
+  },
+  {
+   "id": "T9-8",
+   "phase": "T9",
+   "name": "a code change restarts the gateway and never the sockets it holds (Sockets=); a socket only another user may open is not probed by the deploy",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_map_from_changed_files_with_the_held_sockets",
+   "status": "passing"
+  },
+  {
+   "id": "T9-9",
+   "phase": "T9",
+   "name": "the host file keeps front_socket, cloudflared_user and owner_host when setup.sh writes it again",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_host_file_names_the_front_socket_and_the_tunnel_user",
+   "status": "passing"
   }
  ],
- "total_tests": 267,
+ "total_tests": 276,
  "checked": "2026-10-08"
 }

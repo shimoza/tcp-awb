@@ -569,10 +569,24 @@ EOF
     flip_to "$release"
 }
 
+# kept_conf KEY DEFAULT: the value of KEY in the host file of before, else DEFAULT (the web keys of D-FRONT and
+# D-HOST outlive a rewrite: owner_host is his, set once with sudo awb web host HOST)
+kept_conf() {
+    local value=""
+    [ ! -r "$CONF_FILE" ] || value=$(sed -n "s/^$1[[:space:]]*=[[:space:]]*//p" "$CONF_FILE" | head -n 1)
+    printf '%s' "${value:-$2}"
+}
+
 step_conf() {
+    local web_keys owner_host
     info "the host file of the Workbench paths"
     run mkdir -p "$CONF_DIR"
     run chmod 755 "$CONF_DIR"
+    owner_host=$(kept_conf owner_host "")
+    web_keys="front_socket = $(kept_conf front_socket /run/awb-web/front.sock)
+cloudflared_user = $(kept_conf cloudflared_user cloudflared)"
+    [ -z "$owner_host" ] || web_keys="$web_keys
+owner_host = $owner_host"
     write_file "$CONF_FILE" 644 root:root <<EOF
 # written by seal/setup.sh, read by awb/config.py
 owner = $owner
@@ -583,6 +597,7 @@ projects = $work_home
 kb = $work_home/tcp-kb
 check_socket = $CHECK_SOCKET
 mirrors = $MIRROR_ROOT
+$web_keys
 EOF
 }
 

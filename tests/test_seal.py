@@ -966,3 +966,15 @@ def test_the_work_gitconfig_names_the_workbench():
     text = (SEAL / "work-gitconfig").read_text(encoding="utf-8")
     from awb import projects
     assert text == "[user]\n\tname = %s\n\temail = %s\n" % (projects._GIT_NAME, projects._GIT_EMAIL)
+
+
+def test_the_host_file_names_the_front_socket_and_the_tunnel_user(fakebin):
+    """T9 step 1: the host file carries front_socket and cloudflared_user (kept when set, else the defaults) and
+    keeps an owner_host it had; install.sh stops without them."""
+    res = run_script(SETUP, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    lines = res.stdout.splitlines()
+    assert any(re.fullmatch(r"    \| front_socket = /run/[a-z0-9._-]+/[a-z0-9._-]+\.sock", x) for x in lines)
+    assert any(re.fullmatch(r"    \| cloudflared_user = [a-z_][a-z0-9_-]*", x) for x in lines)
+    text = SETUP.read_text(encoding="utf-8")
+    assert 'owner_host=$(kept_conf owner_host "")' in text and "kept_conf front_socket /run/awb-web/front.sock" in text

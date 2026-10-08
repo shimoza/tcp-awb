@@ -269,3 +269,76 @@ def test_status_shows_the_counts_of_the_last_day_and_the_logins_in_cooldown(site
     lines = publish.signin_lines(tmp_path / "signin.log", clock())
     assert any(line.startswith("site closed: 30 failures within the hour") for line in lines)
     assert publish.signin_lines(tmp_path / "none.log", clock()) == ["sign-ins: no log yet"]
+
+
+# --------------------------------------------------------------------------- 6) T9 step 1: levels, generation, TOTP
+
+
+def test_an_owner_entry_gets_a_totp_secret_and_a_reset_raises_the_generation(tmp_path):
+    path = tmp_path / "users.json"
+    users.change(path, "add", "reader1", False, rounds=ROUNDS)
+    users.change(path, "add", "owner1", False, rounds=ROUNDS, level="owner")
+    data = json.loads(path.read_text())["users"]
+    assert data["reader1"]["level"] == "reader" and "totp" not in data["reader1"]
+    assert data["owner1"]["level"] == "owner" and re.fullmatch(r"[A-Z2-7]{32}", data["owner1"]["totp"])
+    assert data["owner1"]["generation"] == 1
+    secret = data["owner1"]["totp"]
+    users.change(path, "reset", "owner1", False, rounds=ROUNDS)
+    again = json.loads(path.read_text())["users"]["owner1"]
+    assert again["generation"] == 2 and again["level"] == "owner" and again["totp"] != secret
+    with pytest.raises(users.Refused, match="--level"):
+        users.change(path, "reset", "owner1", False, rounds=ROUNDS, level="reader")
+    with pytest.raises(users.Refused, match="--level"):
+        users.change(path, "add", "x1", False, rounds=ROUNDS, level="admin")
+    auth = gateway.Auth(tmp_path / "missing-auth.json", path)
+    assert auth.accounts()[1]["owner1"].totp == again["totp"] and auth.accounts()[1]["reader1"].totp is None
+
+
+def test_the_owner_enrolment_is_printed_once_with_the_key_and_the_otpauth_line(tmp_path, monkeypatch):
+    path = tmp_path / "users.json"
+    out = []
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+    monkeypatch.setattr(users.shutil, "which", lambda name: None)
+    a = argparse.Namespace(action="add", login="owner1", level="owner")
+    assert users.main(a, {"AWB_WEB_USERS": str(path)}, lambda: 1000, out.append) == 0
+    secret = json.loads(path.read_text())["users"]["owner1"]["totp"]
+    assert out[1].endswith(" ".join(secret[i:i + 4] for i in range(0, 32, 4)))
+    assert out[2] == users.enrolment("owner1", secret)
+    assert out[2].startswith("otpauth://totp/AWB:owner1?secret=%s&issuer=AWB" % secret)
+    assert "passphrase" in out[-1]
+    out.clear()
+    users.main(argparse.Namespace(action="list", login=None), {"AWB_WEB_USERS": str(path)}, lambda: 1000, out.append)
+    assert out == ["logins: owner1 (owner)"]
+
+
+def test_the_qr_code_comes_from_qrencode_on_standard_input_only(monkeypatch):
+    seen = {}
+
+    def runner(cmd, **kw):
+        seen.update(cmd=cmd, input=kw.get("input"))
+        return argparse.Namespace(returncode=0, stdout="██ █\n█ ██\n".encode())
+
+    monkeypatch.setattr(users.shutil, "which", lambda name: "/usr/bin/qrencode")
+    assert users.qr_lines("otpauth://totp/x", runner) == ["██ █", "█ ██"]
+    assert seen["cmd"] == ["/usr/bin/qrencode", "-t", "ANSIUTF8", "-o", "-"] and seen["input"] == b"otpauth://totp/x"
+    monkeypatch.setattr(users.shutil, "which", lambda name: None)
+    assert users.qr_lines("otpauth://totp/x", runner) == []
+
+
+def test_awb_web_host_writes_the_owner_host_once(tmp_path, monkeypatch, capsys):
+    conf = tmp_path / "paths.conf"
+    conf.write_text("owner = ownr\nowner_host = old.example.test\nwork_user = awb\n")
+    host = publish.Host(geteuid=lambda: 1000, environ={"AWB_CONF": str(conf)})
+    monkeypatch.setattr(publish, "GATEWAY_UNIT", tmp_path / "none.service")
+    assert publish.main(["host", "Owner.Example.Test"], host) == 0
+    assert conf.read_text() == "owner = ownr\nwork_user = awb\nowner_host = owner.example.test\n"
+    assert publish.main(["host", "https://x.example.test"], host) == 1
+    unit = tmp_path / "awb-web.service"
+    unit.write_text("ExecStart=/usr/bin/python3 -I gateway.py --domain awb.example.test\n")
+    monkeypatch.setattr(publish, "GATEWAY_UNIT", unit)
+    assert publish.main(["host", "awb.example.test"], host) == 1
+    assert "of its own" in capsys.readouterr().err
+    real = publish.Host(geteuid=lambda: 1000, environ={})
+    assert publish.main(["host", "owner.example.test"], real) == 1
+    assert "sudo awb web host" in capsys.readouterr().err

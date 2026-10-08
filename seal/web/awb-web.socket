@@ -1,0 +1,17 @@
+# Template of the web side (seal/web/README.md). The front door of the gateway (D-FRONT): root owns the socket, its
+# group is the tunnel's own user, so only cloudflared and the gateway can open it; the folder is root 750 with the
+# same group. The gateway checks the peer's uid again (SO_PEERCRED) before it reads a byte.
+[Unit]
+Description=AWB gateway front socket (cloudflared only)
+
+[Socket]
+ExecStartPre=/usr/bin/install -d -m 0750 -o root -g @CLOUDFLARED_USER@ @FRONT_DIR@
+ListenStream=@FRONT_SOCKET@
+SocketUser=root
+SocketGroup=@CLOUDFLARED_USER@
+SocketMode=0660
+DirectoryMode=0750
+Service=awb-web.service
+
+[Install]
+WantedBy=sockets.target

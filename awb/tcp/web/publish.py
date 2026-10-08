@@ -5,6 +5,7 @@
     sudo awb web publish --rollback [NAME]
     awb web status
     sudo awb web user add|reset|remove LOGIN, sudo awb web user list    (awb/tcp/web/users.py)
+    sudo awb web host HOST
 
 `publish` takes the page a run of the UI queue produced: the applied source for a run in state completed, the
 run's workspace candidate for a candidate-only run in state ready, both only when the run's validation.txt starts
@@ -18,6 +19,10 @@ refusal names the class of the finding and nothing else.
 `status` prints the size and time of the page, the last backup and the answers of the gateway and of /health, and
 from the sign-in log the attempts of the last day by result and every login that waits (the log belongs to the
 gateway: under sudo, or AWB_WEB_SIGNIN_LOG for another file).
+
+`host` writes `owner_host = HOST` into /etc/awb/paths.conf (D-HOST): the host name of the owner level, one level
+under the zone of the site and not the site itself. The next deploy renders it; until it is there the web side's
+installer stops. AWB_CONF points it at another file (the tests).
 
 AWB_WEB_ROOT (or --root) points the commands at another folder than /srv/awb-web; such a folder needs no sudo.
 AWB_UI_QUEUE and AWB_UI_SOURCE point at another queue state folder and applied source (the tests use both).
@@ -49,8 +54,9 @@ QUEUE_DIR = Path(".local/state/awb-ui-handoff")                               # 
 SOURCE = Path("Documents/Codex/2026-10-01/new-chat/outputs/architect-workbench.html")   # under the owner's home
 CANDIDATE = "workspace/architect-workbench.html"                                # in the run folder
 GATEWAY_UNIT = Path("/etc/systemd/system/awb-web.service")
-GATEWAY_PORT = 8080
+STATUS_SOCKET = "/run/awb-web-status.sock"
 HEALTH_PORT = 8180
+HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$")
 SIGNIN_LOG = Path("/var/lib/awb-web/signin.log")
 MAX_PAGE = 4 * 1024 * 1024
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -362,6 +368,55 @@ def _ask(url: str, host_header: str | None = None) -> str:
         return "no answer"
 
 
+def _ask_socket(path: str) -> str:
+    """GET /health on the gateway's status socket: the status line and the first line of the body."""
+    import socket
+
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(3)
+    try:
+        s.connect(path)
+        s.sendall(b"GET /health HTTP/1.0\r\nHost: localhost\r\n\r\n")
+        data = b""
+        while len(data) < 400:
+            chunk = s.recv(400)
+            if not chunk:
+                break
+            data += chunk
+    except OSError:
+        return "no answer"
+    finally:
+        s.close()
+    head, _, body = data.decode("utf-8", "replace").partition("\r\n\r\n")
+    m = re.match(r"HTTP/1\.[01] (\d{3})", head)
+    return "%s %s" % (m.group(1), body.strip().splitlines()[0] if body.strip() else "") if m else "no answer"
+
+
+def _owner_host(a, host: Host) -> int:
+    name = a.name.strip().lower()
+    if not HOST_RE.fullmatch(name):
+        raise Refused("a host name in lower case without scheme, such as owner.example.com")
+    domain = _domain(GATEWAY_UNIT)
+    if domain and name == domain.lower():
+        raise Refused("the owner level needs a host name of its own, not the site's")
+    path = Path(host.environ.get("AWB_CONF") or config.HOST_CONF)
+    if path == Path(config.HOST_CONF) and host.geteuid() != 0:
+        raise Refused("run it with sudo: sudo awb web host HOST")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise Refused("%s is missing: run seal/setup.sh first" % path) from None
+    lines = [line for line in text.splitlines() if not re.match(r"\s*owner_host\s*=", line)]
+    lines.append("owner_host = %s" % name)
+    tmp = path.with_name(".%s.new-%d" % (path.name, os.getpid()))
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+    _say("owner_host = %s in %s; the next sudo awb deploy renders it. In Cloudflare: the DNS name %s and one "
+         "ingress line to the front socket" % (name, path, name))
+    return 0
+
+
 def _status(a, host: Host) -> int:
     root = web_root(a.root, host.environ)
     index = root / INDEX
@@ -373,7 +428,7 @@ def _status(a, host: Host) -> int:
     found = backups(root) if root.is_dir() else []
     _say("last backup: %s" % ("%s, %s" % (found[-1].name, stamp(found[-1])) if found else "none"))
     domain = _domain(GATEWAY_UNIT)
-    gw = _ask("http://127.0.0.1:%d/health" % GATEWAY_PORT, domain) if domain else "not installed"
+    gw = _ask_socket(host.environ.get("AWB_WEB_STATUS_SOCKET") or STATUS_SOCKET) if domain else "not installed"
     _say("gateway: %s" % gw)
     _say("health: %s" % _ask("http://127.0.0.1:%d/health" % HEALTH_PORT))
     for line in signin_lines(Path(host.environ.get("AWB_WEB_SIGNIN_LOG") or SIGNIN_LOG)):
@@ -425,9 +480,13 @@ def _parser():
     c.add_argument("--emit", action="store_true", help="write the checked page to standard output")
     s = sub.add_parser("status", help="the page, the last backup, the gateway and /health")
     s.add_argument("--root", help=argparse.SUPPRESS)
+    h = sub.add_parser("host", help="set the host name of the owner level in /etc/awb/paths.conf (sudo)")
+    h.add_argument("name", metavar="HOST")
     u = sub.add_parser("user", help="the logins of the console: add, reset (a new password), remove, list (sudo)")
     u.add_argument("action", choices=("add", "reset", "remove", "list"))
     u.add_argument("login", nargs="?", metavar="LOGIN")
+    u.add_argument("--level", choices=("reader", "owner"), default=None,
+                   help="with add: reader (the default) or owner (also a TOTP code for the owner host)")
     return ap
 
 
@@ -446,6 +505,8 @@ def main(argv: list[str] | None = None, host: Host | None = None) -> int:
             return _publish(a, host)
         if a.cmd == "check":
             return _check(a)
+        if a.cmd == "host":
+            return _owner_host(a, host)
         if a.cmd == "user":
             from awb.tcp.web import users
 

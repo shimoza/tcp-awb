@@ -10,23 +10,17 @@ from awb.tcp import sweep
 
 REPO = Path(__file__).resolve().parent.parent
 WEB = REPO / "seal" / "web"
-PLACEHOLDERS = {"@OWNER@", "@DOMAIN@", "@VAULT@", "@SHARED@", "@WORK_HOME@"}
+PLACEHOLDERS = {"@OWNER@", "@DOMAIN@", "@VAULT@", "@SHARED@", "@WORK_HOME@", "@OWNER_HOST@", "@FRONT_SOCKET@",
+                "@FRONT_DIR@", "@CLOUDFLARED_USER@"}
 
 
 def templates():
-    return sorted(p for p in WEB.rglob("*") if p.is_file() and p.suffix in (".service", ".socket", ".conf"))
+    return sorted(p for p in WEB.rglob("*") if p.is_file() and p.suffix in (".service", ".socket", ".timer", ".conf")
+                  and p.parent.name != "tunnel")
 
 
-def test_the_templates_name_no_host_and_only_documented_placeholders():
-    readme = (WEB / "README.md").read_text(encoding="utf-8")
-    assert len(templates()) == 11
-    for path in templates():
-        text = path.read_text(encoding="utf-8")
-        assert "/home/" not in text and "/opt/awb-web" not in text, path.name
-        assert set(re.findall(r"@[A-Z_]+@", text)) <= PLACEHOLDERS, path.name
-        assert path.name in readme or path.parent.name in readme, path.name
-    for placeholder in PLACEHOLDERS:
-        assert "`%s`" % placeholder in readme
+def tunnel_templates():
+    return sorted((WEB / "tunnel").iterdir())
 
 
 def test_every_module_a_template_starts_exists():
@@ -89,36 +83,6 @@ def _install(env, *args):
     return subprocess.run(["bash", str(INSTALL), *args], env=env, capture_output=True, text=True, timeout=60)
 
 
-def test_the_switch_script_renders_backs_up_retires_and_restarts_in_order(tmp_path):
-    env, units, log = _stubs(tmp_path)
-    (units / "awb-ask.service.d").mkdir(parents=True)
-    (units / "awb-web.service").write_text("the unit of before\n")
-    (units / "awb-ask.service.d" / "90-awb-web.conf").write_text("[Service]\n")
-    dry = _install(env, "--domain", "awb.example.test", "--dry-run")
-    assert dry.returncode == 0, dry.stderr
-    assert (units / "awb-web.service").read_text() == "the unit of before\n" and not log.exists()
-    done = _install(env, "--domain", "awb.example.test")
-    assert done.returncode == 0, done.stderr
-    written = sorted(p.relative_to(units).as_posix() for p in units.rglob("*") if p.is_file()
-                     and not p.name.endswith((".before-switch", ".off")))
-    assert written == sorted(p.relative_to(WEB).as_posix() for p in templates())
-    for rel in written:
-        text = (units / rel).read_text()
-        assert "@" not in text and "/opt/awb-web" not in text, rel
-    assert "--domain awb.example.test" in (units / "awb-web.service").read_text()
-    assert "ReadWritePaths=/srv/vault-test /srv/shared-test/outbox" in (units / "awb-customers.service").read_text()
-    assert "User=ownr" in (units / "awb-materials.service").read_text()
-    assert (units / "awb-web.service.before-switch").read_text() == "the unit of before\n"
-    assert (units / "awb-ask.service.d" / "90-awb-web.conf.off").exists()
-    calls = log.read_text().splitlines()
-    assert calls[0].startswith("useradd --system --gid awb") and calls[0].endswith(" awb-console")
-    assert calls[1] == "systemctl daemon-reload" and calls[2] == "systemctl restart awb-keyd.service"
-    assert calls[-1] == "systemctl restart awb-console-tenants.service awb-web.service"
-    again = _install(env, "--domain", "awb.example.test")
-    assert again.returncode == 0 and "write " not in again.stdout and "useradd" not in again.stdout
-    assert (units / "awb-web.service.before-switch").read_text() == "the unit of before\n"
-
-
 def test_the_switch_script_refuses_a_missing_or_odd_domain_and_another_user(tmp_path):
     env, units, log = _stubs(tmp_path)
     assert _install(env).returncode == 2
@@ -128,8 +92,170 @@ def test_the_switch_script_refuses_a_missing_or_odd_domain_and_another_user(tmp_
     assert not units.exists() and not log.exists()
 
 
-def test_the_rollback_puts_back_what_the_switch_replaced(tmp_path):
-    env, units, log = _stubs(tmp_path)
+
+
+# --------------------------------------------------------------------------- T9 step 1: the front socket and the fence
+
+CONF_T9 = ("owner = ownr\nwork_user = awb\nvault = /srv/vault-test\nshared = /srv/shared-test\n"
+           "owner_host = owner.example.test\nfront_socket = /run/awb-web/front.sock\ncloudflared_user = cloudflared\n")
+
+
+def _stubs_t9(tmp_path, conf=CONF_T9):
+    """systemctl, useradd, getent, id and nft that log their arguments; a user exists once useradd made it."""
+    bin_dir, log, made = tmp_path / "bin", tmp_path / "calls.log", tmp_path / "made"
+    bin_dir.mkdir()
+    made.mkdir()
+    scripts = {
+        "systemctl": 'echo "systemctl $*" >> "%s"' % log,
+        "nft": 'echo "nft $*" >> "%s"' % log,
+        "useradd": 'echo "useradd $*" >> "%s"; for a; do last=$a; done; touch "%s/$last"' % (log, made),
+        "getent": 'echo "awb:x:1001:1001::/srv/work-home:/bin/sh"',
+        "id": '[ "$1" = "-gn" ] && { echo awb; exit 0; }; [ -e "%s/$1" ]' % made,
+    }
+    for name, body in scripts.items():
+        f = bin_dir / name
+        f.write_text("#!/bin/sh\n" + body + "\n")
+        f.chmod(f.stat().st_mode | stat.S_IXUSR)
+    (tmp_path / "paths.conf").write_text(conf)
+    units, fence = tmp_path / "units", tmp_path / "etc-awb" / "tunnel-fence.nft"
+    env = dict(os.environ, PATH="%s:%s" % (bin_dir, os.environ["PATH"]), AWB_INSTALL_CONF=str(tmp_path / "paths.conf"),
+               AWB_INSTALL_UNITS=str(units), AWB_INSTALL_FENCE=str(fence), SUDO_USER="ownr")
+    return env, units, log, fence
+
+
+def test_the_templates_name_no_host_and_only_documented_placeholders_with_the_front():
+    """Replaces test_the_templates_name_no_host_and_only_documented_placeholders (T9 step 1 adds the two gateway
+    sockets, the tunnel's drop-in and fence, and four placeholders): every template, the tunnel's two included,
+    names no host and only placeholders the README documents."""
+    readme = (WEB / "README.md").read_text(encoding="utf-8")
+    assert [p.name for p in templates() if p.name.startswith("awb-web")] == [
+        "awb-web-status.socket", "awb-web.service", "awb-web.socket"]
+    assert len(templates()) == 13 and [p.name for p in tunnel_templates()] == ["cloudflared.conf", "tunnel-fence.nft"]
+    for path in templates() + tunnel_templates():
+        text = path.read_text(encoding="utf-8")
+        assert "/home/" not in text and "/opt/awb-web" not in text, path.name
+        assert set(re.findall(r"@[A-Z_]+@", text)) <= PLACEHOLDERS, path.name
+        assert path.name in readme or path.parent.name in readme, path.name
+    for placeholder in PLACEHOLDERS:
+        assert "`%s`" % placeholder in readme
+
+
+def test_the_rendered_front_units_and_the_fence(tmp_path):
+    """The gateway listens on the front socket (root, group of the tunnel's user, 0660, its folder 0750) and the
+    status socket, takes the peer from paths.conf and keeps 8080 and 8081 for the one release of the switch;
+    cloudflared runs as its own user with a copy of the token in its own runtime folder, root loads the fence first; the fence refuses
+    every new loopback TCP connection of that user but the resolver and the two old ports, IPv4 and IPv6 (inet), and
+    keeps everyone else off the metrics port."""
+    env, units, log, fence = _stubs_t9(tmp_path)
+    done = _install(env, "--domain", "awb.example.test")
+    assert done.returncode == 0, done.stderr
+    web = (units / "awb-web.service").read_text()
+    assert ("--domain awb.example.test --owner-host owner.example.test --front-socket /run/awb-web/front.sock "
+            "--front-peer cloudflared --status-socket /run/awb-web-status.sock --ports 8080 8081") in web
+    assert "Sockets=awb-web.socket awb-web-status.socket" in web and "Requires=awb-web.socket awb-web-status.socket" in web
+    front = (units / "awb-web.socket").read_text()
+    for line in ("ListenStream=/run/awb-web/front.sock", "SocketUser=root", "SocketGroup=cloudflared", "SocketMode=0660",
+                 "ExecStartPre=/usr/bin/install -d -m 0750 -o root -g cloudflared /run/awb-web",
+                 "Service=awb-web.service"):
+        assert line in front.splitlines(), line
+    assert "ListenStream=/run/awb-web-status.sock" in (units / "awb-web-status.socket").read_text()
+    tunnel = (units / "cloudflared.service.d" / "50-awb-fence.conf").read_text().splitlines()
+    for line in ("User=cloudflared", "Group=cloudflared", "RuntimeDirectoryMode=0700",
+                 "ExecStartPre=+/usr/sbin/nft -f /etc/awb/tunnel-fence.nft",
+                 "ExecStartPre=+/usr/bin/install -m 0400 -o cloudflared -g cloudflared /etc/cloudflared/token "
+                 "/run/cloudflared-awb/tunnel", "ExecStart=",
+                 "ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel --metrics 127.0.0.1:20241 run --token-file "
+                 "/run/cloudflared-awb/tunnel"):
+        assert line in tunnel, line
+    rules = [x.strip() for x in fence.read_text().splitlines() if x.strip() and not x.strip().startswith("#")]
+    assert rules[:3] == ["table inet awb_tunnel_fence", "delete table inet awb_tunnel_fence",
+                         "table inet awb_tunnel_fence {"]
+    assert ('oifname "lo" meta l4proto tcp ct state new meta skuid "cloudflared" tcp dport != { 53, 8080, 8081 } '
+            'counter reject with tcp reset') in rules
+    assert ('oifname "lo" meta l4proto tcp ct state new tcp dport 20241 meta skuid != "cloudflared" counter reject '
+            'with tcp reset') in rules
+    calls = log.read_text().splitlines()
+    assert "useradd --system --user-group --no-create-home -d /nonexistent --shell /usr/sbin/nologin cloudflared" in calls
+    assert calls[-1] == "systemctl restart cloudflared.service"
+    for unit in ("awb-web.socket", "awb-web-status.socket", "awb-customers.socket"):
+        assert "systemctl enable --now %s" % unit in calls
+    assert calls.index("systemctl daemon-reload") < calls.index("systemctl enable --now awb-web.socket")
+    # unchanged on a second run: nothing written, cloudflared not restarted, nothing enabled again
+    log.unlink()
+    again = _install(env, "--domain", "awb.example.test")
+    assert again.returncode == 0 and "write " not in again.stdout
+    calls = log.read_text().splitlines()
+    assert "systemctl restart cloudflared.service" not in calls and not any("enable --now awb-web" in c for c in calls)
+
+
+def test_a_missing_or_odd_web_key_of_paths_conf_stops_before_anything_changes(tmp_path):
+    for conf, word in ((CONF_T9.replace("owner_host = owner.example.test\n", ""), "owner_host"),
+                       (CONF_T9.replace("front_socket = /run/awb-web/front.sock\n", ""), "front_socket"),
+                       (CONF_T9.replace("cloudflared_user = cloudflared\n", ""), "cloudflared_user"),
+                       (CONF_T9.replace("owner.example.test", "awb.example.test"), "owner_host"),
+                       (CONF_T9.replace("/run/awb-web/front.sock", "/tmp/front.sock"), "front_socket")):
+        case = tmp_path / word / str(len(conf))
+        case.mkdir(parents=True)
+        env, units, log, fence = _stubs_t9(case, conf)
+        res = _install(env, "--domain", "awb.example.test")
+        assert res.returncode == 2 and word in res.stderr, (word, res.stderr)
+        assert not units.exists() and not fence.exists() and not log.exists()
+    (tmp_path / "msg").mkdir()
+    res = _install(_stubs_t9(tmp_path / "msg", CONF_T9.replace("owner_host = owner.example.test\n", ""))[0],
+                   "--domain", "awb.example.test")
+    assert "sudo awb web host HOST" in res.stderr
+
+
+def test_the_switch_script_renders_backs_up_retires_and_restarts_in_order_with_the_front(tmp_path):
+    """Replaces test_the_switch_script_renders_backs_up_retires_and_restarts_in_order (T9 step 1: paths.conf names
+    the web keys, the tunnel's user is made, added sockets are enabled, the gateway's sockets restart with the
+    others and cloudflared restarts last)."""
+    env, units, log, fence = _stubs_t9(tmp_path)
+    (units / "awb-ask.service.d").mkdir(parents=True)
+    (units / "awb-web.service").write_text("the unit of before\n")
+    (units / "awb-ask.service.d" / "90-awb-web.conf").write_text("[Service]\n")
+    dry = _install(env, "--domain", "awb.example.test", "--dry-run")
+    assert dry.returncode == 0, dry.stderr
+    assert (units / "awb-web.service").read_text() == "the unit of before\n" and not log.exists()
+    assert not fence.exists()
+    done = _install(env, "--domain", "awb.example.test")
+    assert done.returncode == 0, done.stderr
+    written = sorted(p.relative_to(units).as_posix() for p in units.rglob("*") if p.is_file()
+                     and not p.name.endswith((".before-switch", ".off")))
+    assert written == sorted([p.relative_to(WEB).as_posix() for p in templates()] +
+                             ["cloudflared.service.d/50-awb-fence.conf"])
+    for rel in written:
+        text = (units / rel).read_text()
+        assert "@" not in text and "/opt/awb-web" not in text, rel
+    assert "ReadWritePaths=/srv/vault-test /srv/shared-test/outbox" in (units / "awb-customers.service").read_text()
+    assert "User=ownr" in (units / "awb-materials.service").read_text()
+    assert (units / "awb-web.service.before-switch").read_text() == "the unit of before\n"
+    assert (units / "awb-ask.service.d" / "90-awb-web.conf.off").exists()
+    calls = log.read_text().splitlines()
+    assert calls[0].startswith("useradd --system --gid awb") and calls[0].endswith(" awb-console")
+    assert calls[1].endswith(" cloudflared") and calls[2] == "systemctl daemon-reload"
+    enabled = [c for c in calls if c.startswith("systemctl enable --now ") and c.endswith(".socket")]
+    assert enabled == ["systemctl enable --now %s" % u for u in (
+        "awb-customers.socket", "awb-materials.socket", "awb-project-create.socket", "awb-web-status.socket",
+        "awb-web.socket")]
+    rest = calls[3 + len(enabled):]
+    assert rest == ["systemctl restart awb-keyd.service",
+                    "systemctl stop awb-customers.service awb-project-create.service awb-materials.service",
+                    "systemctl restart awb-customers.socket awb-project-create.socket awb-materials.socket "
+                    "awb-web.socket awb-web-status.socket",
+                    "systemctl restart awb-portal.service awb-ask.service awb-console-data.service",
+                    "systemctl enable --now awb-console-tenants.service",
+                    "systemctl restart awb-console-tenants.service awb-web.service",
+                    "systemctl restart cloudflared.service"]
+    again = _install(env, "--domain", "awb.example.test")
+    assert again.returncode == 0 and "write " not in again.stdout and "useradd" not in again.stdout
+    assert (units / "awb-web.service.before-switch").read_text() == "the unit of before\n"
+
+
+def test_the_rollback_puts_back_what_the_switch_replaced_and_lifts_the_fence(tmp_path):
+    """Replaces test_the_rollback_puts_back_what_the_switch_replaced (T9 step 1): the rollback also retires the
+    tunnel's drop-in and fence, drops the fence's table and restarts cloudflared as before."""
+    env, units, log, fence = _stubs_t9(tmp_path)
     (units / "awb-ask.service.d").mkdir(parents=True)
     (units / "awb-web.service").write_text("the unit of before\n")
     (units / "awb-ask.service.d" / "90-awb-web.conf").write_text("[Service]\n")
@@ -140,31 +266,40 @@ def test_the_rollback_puts_back_what_the_switch_replaced(tmp_path):
     assert not (units / "awb-web.service.before-switch").exists()
     assert (units / "awb-ask.service.d" / "90-awb-web.conf").exists()
     assert not (units / "awb-console-tenants.service").exists() and (units / "awb-console-tenants.service.off").exists()
+    assert not (units / "awb-web.socket").exists() and (units / "awb-web.socket.off").exists()
+    assert (units / "cloudflared.service.d" / "50-awb-fence.conf.off").exists() and not fence.exists()
     calls = log.read_text().splitlines()
     assert "systemctl disable --now awb-console-tenants.service" in calls
-    assert calls[-1] == "systemctl restart awb-portal.service awb-ask.service awb-console-data.service awb-web.service"
+    assert "nft delete table inet awb_tunnel_fence" in calls
+    assert calls[-2:] == ["systemctl restart awb-portal.service awb-ask.service awb-console-data.service awb-web.service",
+                          "systemctl restart cloudflared.service"]
 
 
-def test_install_sh_only_restarts_the_named_units(tmp_path):
-    """Planted: a dry run with --only awb-ask.service that prints another restart line, or a --domain that is not taken
-    from the installed awb-web.service, fails. A real run with a socket pair keeps the script's order."""
-    env, units, log = _stubs(tmp_path)
+def test_install_sh_only_restarts_the_named_units_with_the_front(tmp_path):
+    """Replaces test_install_sh_only_restarts_the_named_units (T9 step 1: paths.conf names the web keys; the
+    sockets the run adds are enabled whatever --only names). Planted: a dry run with --only awb-ask.service that
+    prints another restart line, or a --domain not taken from the installed awb-web.service, fails."""
+    env, units, log, fence = _stubs_t9(tmp_path)
     units.mkdir(parents=True)
     (units / "awb-web.service").write_text("[Service]\nExecStart=/usr/bin/python3 -I /opt/tcp-awb/src/awb/tcp/web/"
                                            "gateway.py --auth /etc/awb-web/auth.json --domain awb.example.test\n")
     dry = _install(env, "--only", "awb-ask.service", "--dry-run")
     assert dry.returncode == 0, dry.stderr
     assert "the site awb.example.test, as the installed awb-web.service names it" in dry.stdout
-    systemctl = [x for x in dry.stdout.splitlines() if x.startswith("+ systemctl")]
-    assert systemctl == ["+ systemctl daemon-reload", "+ systemctl restart awb-ask.service"]
+    systemctl = [x for x in dry.stdout.splitlines() if x.startswith("+ systemctl") and "enable --now" not in x]
+    assert systemctl == ["+ systemctl daemon-reload", "+ systemctl restart awb-ask.service",
+                         "+ systemctl restart cloudflared.service"]
     assert not log.exists()
     done = _install(env, "--only", "awb-customers.socket", "awb-customers.service", "awb-web.service")
     assert done.returncode == 0, done.stderr
-    calls = [x for x in log.read_text().splitlines() if x.startswith("systemctl")]
+    calls = [x for x in log.read_text().splitlines() if x.startswith("systemctl") and "enable --now" not in x]
     assert calls == ["systemctl daemon-reload", "systemctl stop awb-customers.service",
-                     "systemctl restart awb-customers.socket", "systemctl restart awb-web.service"]
+                     "systemctl restart awb-customers.socket", "systemctl restart awb-web.service",
+                     "systemctl restart cloudflared.service"]
     assert "--domain awb.example.test" in (units / "awb-web.service").read_text()
-    # without the installed unit and without --domain the script still refuses
+    log.unlink()
+    assert _install(env, "--only", "awb-web.service").returncode == 0
+    assert log.read_text().splitlines() == ["systemctl daemon-reload", "systemctl restart awb-web.service"]
     (units / "awb-web.service").unlink()
     assert _install(env, "--only", "awb-ask.service", "--dry-run").returncode == 2
     assert _install(env, "--only", "not a unit", "--dry-run").returncode == 2

@@ -303,6 +303,27 @@ def exec_start(text: str, base: list[str] | None = None) -> list[str] | None:
     return argv
 
 
+def socket_service(tree, units: dict[str, dict], unit: str) -> str:
+    """The service a socket unit starts: its template's Service= line, else the unit of the same name."""
+    for rel in units.get(unit, {}).get("files", []):
+        m = re.search(r"^Service=(\S+)\s*$", tree.read(rel), re.M)
+        if m:
+            return m.group(1)
+    return unit[:-len(".socket")] + ".service"
+
+
+def held_sockets(tree, units: dict[str, dict]) -> set[str]:
+    """The socket units a service template names in its Sockets= line: the service is started on its own and keeps
+    the listening sockets when it restarts, so a code change restarts the service and never the socket."""
+    out = set()
+    for unit, info in units.items():
+        if unit.endswith(".service"):
+            for rel in info["files"] + info["dropins"]:
+                for m in re.finditer(r"^Sockets=(.+)$", tree.read(rel), re.M):
+                    out |= {s for s in m.group(1).split() if s in units}
+    return out
+
+
 def template_entries(tree, units: dict[str, dict]) -> dict[str, list[str] | None]:
     """{unit: argv} from the templates and their drop-ins (the map a host gets once install.sh ran)."""
     out = {}
@@ -580,7 +601,7 @@ class UnitMap:
 
 def unit_map(tree, installed: dict[str, list[str] | None] | None = None, root: Path = OPT) -> UnitMap:
     """The units of a tree and the closure of each, from the installed ExecStart lines (`installed`, None for the
-    template map). A socket unit starts the service of its name."""
+    template map). A socket unit starts the service its Service= line names, else the one of its name."""
     units = templates(tree)
     imap = import_map(tree)
 
@@ -588,13 +609,16 @@ def unit_map(tree, installed: dict[str, list[str] | None] | None = None, root: P
         argv = dict(argv)
         for u in units:
             if u.endswith(".socket"):
-                argv[u] = argv.get(u[:-len(".socket")] + ".service")
+                argv[u] = argv.get(socket_service(tree, units, u))
         return argv
 
     t_argv = with_sockets(template_entries(tree, units))
     argvs = with_sockets(installed) if installed is not None else t_argv
     entries = {u: entry_files(argvs.get(u), imap, root) for u in units}
     closures = {u: imap.closure(entries[u]) if entries[u] else None for u in units}
+    for u in held_sockets(tree, units):
+        # the service holds this socket itself (Sockets=) and keeps it across its own restart: no code restarts it
+        entries[u], closures[u] = None, set()
     reached = set().union(*[c for c in closures.values() if c])
     for u in units:
         e = entry_files(t_argv.get(u), imap, root)
@@ -832,7 +856,8 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
     for u, info in units.items():
         if u.endswith(".socket") and is_installed(show[u]):
             m = re.match(r"(/run/[A-Za-z0-9._/-]+)", show[u].get("Listen", ""))
-            if m:
+            # a socket only another user may open (the gateway's front, cloudflared's alone) is not probed
+            if m and not (os.path.exists(m.group(1)) and not os.access(m.group(1), os.W_OK)):
                 probes[u] = m.group(1)
     keep = sorted({r for r in (journal or {}).get("running", {}).values() if isinstance(r, str)}
                   | {d["release"] for d in daemons.values() if d.get("release")})

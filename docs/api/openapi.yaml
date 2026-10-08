@@ -32,7 +32,8 @@ info:
     - Without a session every /api/ route answers 401 and a page answers 303 to /login.
     - Any path: a wrong host gets 400 Invalid host., a target that is not a path 400 Invalid request target.,
       an unknown path 404 Not found. and a method other than GET, HEAD or POST 405 Method not allowed., each as
-      one line of text/html (info.x-awb-texts).
+      one line of text/html (info.x-awb-texts). Without a session, when 64 requests without a session are already
+      open, any path gets 503 The site is busy. Try again in a moment. with Retry-After: 5.
 
     The gateway also serves the older server-rendered pages /kb, /price, /projects, /reviews, /tenants, /health
     and /portal. They are HTML, the console does not call them and they are not part of this contract.
@@ -42,6 +43,7 @@ info:
     - Invalid request target.
     - Not found.
     - Method not allowed.
+    - The site is busy. Try again in a moment.
 servers:
   - url: /
     description: "The site itself: the console and the API share one origin."
@@ -119,7 +121,7 @@ paths:
               properties:
                 csrf:
                   type: string
-                  description: "The hidden field of the sign-in page; it must equal the __Host-awb-login cookie and is valid for 600 seconds."
+                  description: "The hidden field of the sign-in page; it must equal the __Host-awb-login cookie, is valid for 600 seconds and is taken once."
                 username:
                   type: string
                   maxLength: 100
@@ -218,7 +220,7 @@ paths:
                   value: |
                     Use the sign-in form.
         "429":
-          description: "Eight failed attempts from one address within a minute, or a cooldown: the login failed 5 times within 15 minutes (it waits 15 minutes, doubled for each further series up to 24 hours), or the site had 30 failures within the hour."
+          description: "Eight failed attempts from one address (the /64 of an IPv6 address) within a minute or a sign-in of that address still running, or a cooldown: the login failed 5 times within 15 minutes (it waits 15 minutes, doubled for each further series up to 24 hours), or the site had 30 failures within the hour."
           content:
             text/html:
               schema:
@@ -228,6 +230,17 @@ paths:
                   value: "<!doctype html><html lang=\"en\"><head><title>Sign in · AWB</title></head><body><p role=\"alert\" class=\"error\">Too many attempts. Try again in one minute.</p><form action=\"/login\" method=\"post\">...</form></body></html>"
                 cooldown:
                   value: "<!doctype html><html lang=\"en\"><head><title>Sign in · AWB</title></head><body><p role=\"alert\" class=\"error\">Too many failed sign-ins. Try again later.</p><form action=\"/login\" method=\"post\">...</form></body></html>"
+        "503":
+          description: "No pbkdf2 slot came free within 3 seconds (not counted as a failure), or the session table is full: the form again, with the reason."
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                busy:
+                  value: "<!doctype html><html lang=\"en\"><head><title>Sign in · AWB</title></head><body><p role=\"alert\" class=\"error\">The sign-in is busy. Try again in a moment.</p><form action=\"/login\" method=\"post\">...</form></body></html>"
+                full:
+                  value: "<!doctype html><html lang=\"en\"><head><title>Sign in · AWB</title></head><body><p role=\"alert\" class=\"error\">The workspace has too many open sessions. Try again later.</p><form action=\"/login\" method=\"post\">...</form></body></html>"
       security: []
       x-awb-state: deployed
   /logout:

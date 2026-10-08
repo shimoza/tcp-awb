@@ -9,16 +9,20 @@ import hashlib
 import hmac
 import http.client
 import html
+import ipaddress
 import secrets
-from http.cookies import SimpleCookie, CookieError
 import json
 import os
 import re
+import pwd
 import socket
+import socketserver
+import stat
+import struct
 import sys
 import threading
 import time
-from collections import OrderedDict, deque
+from collections import OrderedDict, deque, namedtuple
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs, urlencode
@@ -48,6 +52,7 @@ MAX_WAIT = 24*3600
 SITE_CAP = 30               # failures of the whole site within SITE_WINDOW close every sign-in
 SITE_WINDOW = 3600
 COOLDOWN_TEXT = 'Too many failed sign-ins. Try again later.'
+BUSY_TEXT = 'The sign-in is busy. Try again in a moment.'
 LOG_MAX = 2*1024*1024
 DEFAULT_ROUNDS = 600_000
 
@@ -99,6 +104,58 @@ class Limiter:
         return {k: s['until'] for k, s in self.logins.items() if s['until'] > now}
 
 
+TOTP_STEP = 30
+TOTP_DIGITS = 6
+
+
+def totp_code(secret, step):
+    """The RFC 6238 code of a base32 secret for one time step (HMAC-SHA1, 6 digits)."""
+    key = base64.b32decode(secret.upper() + '=' * (-len(secret) % 8))
+    mac = hmac.new(key, struct.pack('>Q', step), 'sha1').digest()
+    offset = mac[-1] & 15
+    return '%0*d' % (TOTP_DIGITS, (struct.unpack('>I', mac[offset:offset+4])[0] & 0x7fffffff) % 10**TOTP_DIGITS)
+
+
+def totp_step(secret, code, now, skew=1):
+    """The time step `code` belongs to within one step of skew, or None."""
+    if not secret or not isinstance(code, str) or not re.fullmatch(r'\d{%d}' % TOTP_DIGITS, code):
+        return None
+    current = int(now // TOTP_STEP)
+    for step in range(current - skew, current + skew + 1):
+        if hmac.compare_digest(totp_code(secret, step), code):
+            return step
+    return None
+
+
+class Delays:
+    """The per-name limiter of the owner (design section 2 item 4): after each failure the name's next allowed time
+    moves 1, 2, 4 ... 60 seconds ahead; a try before it is answered like a wrong password without a pbkdf2 and is not
+    counted. Never a hard lock. The times live in a fixed array indexed by a keyed hash, so a flood of junk names
+    cannot evict a real one (it can at worst share a cell and delay it, never longer than 60 seconds)."""
+    CELLS = 4096
+    MAX = 60
+
+    def __init__(self):
+        self.key = secrets.token_bytes(32)
+        self.until = [0.0] * self.CELLS
+        self.level = [0] * self.CELLS
+
+    def cell(self, name):
+        return int.from_bytes(hmac.new(self.key, name.encode('utf-8', 'replace'), 'sha256').digest()[:4], 'big') % self.CELLS
+
+    def waiting(self, name, now):
+        return self.until[self.cell(name)] > now
+
+    def failure(self, name, now):
+        i = self.cell(name)
+        self.until[i] = now + min(2 ** self.level[i], self.MAX)
+        self.level[i] = min(self.level[i] + 1, 6)
+
+    def success(self, name):
+        i = self.cell(name)
+        self.until[i], self.level[i] = 0.0, 0
+
+
 def log_time(t):
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(t))
 
@@ -136,9 +193,44 @@ def replay(entries):
     return limiter
 
 
+Account = namedtuple('Account', 'salt hash rounds level totp generation')
+LEVELS = ('reader', 'owner')
+SLOT_WAIT = 3.0             # a sign-in waits this long for a free pbkdf2 slot, then answers busy (never counted)
+UNAUTHENTICATED = 64        # requests without a session at once
+SESSIONS_PER_USER = 5
+SESSION_TABLE = 128
+READER_TTL = 8*3600
+
+
+def address_key(client):
+    """The key of the per-address limit: the /64 of an IPv6 address, an IPv4 address whole, anything else as given."""
+    try:
+        ip = ipaddress.ip_address(client.strip())
+    except ValueError:
+        return client[:100]
+    if ip.version == 6:
+        if ip.ipv4_mapped:
+            return str(ip.ipv4_mapped)
+        return str(ipaddress.ip_network(str(ip) + '/64', strict=False))
+    return str(ip)
+
+
+def parse_cookie(header, name):
+    """The value of the first cookie called exactly `name`; a malformed neighbour never hides it (RT-20)."""
+    for part in (header or '').split(';'):
+        key, sep, value = part.strip().partition('=')
+        if sep and key.strip() == name:
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] == '"':
+                value = value[1:-1]
+            return value
+    return ''
+
+
 class Auth:
-    """The sign-in. The users file (one salt and PBKDF2 digest per login, `awb web user`) is read on every change;
-    while it does not exist the single login of `path` works as before, with the per-address limit only."""
+    """The sign-in. The users file (per login a salt and PBKDF2 digest, a level, a generation and for an owner entry
+    a TOTP secret; `awb web user`) is read on every change; while it does not exist the single login of `path`
+    works as before, with the per-address limit only."""
 
     def __init__(self, path, users=None, log=None, clock=time.time):
         self.path = Path(path)
@@ -148,8 +240,11 @@ class Auth:
         self.lock = threading.Lock()
         self.log_lock = threading.Lock()
         self.failures = OrderedDict()
+        self.inflight = set()
         self.cache_key = secrets.token_bytes(32)
         self.slots = threading.BoundedSemaphore(4)
+        self.unauthenticated = threading.BoundedSemaphore(UNAUTHENTICATED)
+        self.used_csrf = OrderedDict()
         self.sessions = OrderedDict()
         self.owners = {}
         self.stamp = None
@@ -159,13 +254,15 @@ class Auth:
         if self.path.exists() or not self.users_path.exists():
             data = json.loads(self.path.read_text())
             self.username = data['username']
-            self.legacy = {data['username']: (bytes.fromhex(data['salt']), bytes.fromhex(data['hash']), data['rounds'])}
+            self.legacy = {data['username']: Account(bytes.fromhex(data['salt']), bytes.fromhex(data['hash']),
+                                                     data['rounds'], 'reader', None, 0)}
         now = clock()
         self.limiter = replay(read_log(self.log_path, now-2*MAX_WAIT)) if self.log_path else Limiter()
+        self.delays = Delays()
 
     def accounts(self):
-        """(per-user mode, {login: (salt, digest, rounds)}), the users file read again when it changed. A users
-        file that cannot be read lets nobody in."""
+        """(per-user mode, {login: Account}), the users file read again when it changed. A users file that cannot
+        be read lets nobody in."""
         try:
             st = os.stat(self.users_path)
         except FileNotFoundError:
@@ -178,8 +275,13 @@ class Auth:
                 return True, self.users
         try:
             data = json.loads(self.users_path.read_text())
-            users = {login: (bytes.fromhex(u['salt']), bytes.fromhex(u['hash']), int(u['rounds']))
-                     for login, u in data['users'].items() if LOGIN_RE.fullmatch(login)}
+            users = {}
+            for login, u in data['users'].items():
+                level = u.get('level', 'reader')
+                if not LOGIN_RE.fullmatch(login) or level not in LEVELS:
+                    continue
+                users[login] = Account(bytes.fromhex(u['salt']), bytes.fromhex(u['hash']), int(u['rounds']), level,
+                                       u.get('totp') if level == 'owner' else None, int(u.get('generation', 0)))
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             print('AWB gateway: the users file cannot be read; nobody signs in', flush=True)
             users = {}
@@ -202,48 +304,76 @@ class Auth:
             except OSError:
                 print('AWB gateway: the sign-in log cannot be written', flush=True)
 
+    def password(self, account, password, rounds=DEFAULT_ROUNDS):
+        """The PBKDF2 of one attempt in a slot: True, False, or None when no slot came free within SLOT_WAIT. An
+        unknown login runs the same PBKDF2 with `rounds` and is False."""
+        if not self.slots.acquire(timeout=SLOT_WAIT):
+            return None
+        try:
+            salt, digest, rounds = (account.salt, account.hash, account.rounds) if account else (
+                b'\0'*16, b'\0'*32, rounds)
+            computed = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8', 'replace'), salt, rounds)
+            return account is not None and hmac.compare_digest(computed, digest)
+        finally:
+            self.slots.release()
+
     def sign_in(self, login, password, client):
         """'ok', 'fail' (wrong password or unknown login, the same answer), 'cooldown' (the login waits or the site
-        is closed), 'limited' (this address failed 8 times within a minute) or 'busy' (no free slot)."""
+        is closed), 'limited' (this address key failed 8 times within a minute or has a sign-in in flight) or
+        'busy' (no free slot within SLOT_WAIT; not counted)."""
         login = login[:100]
         now = self.clock()
         per_user, accounts = self.accounts()
         key = login if LOGIN_RE.fullmatch(login) else 'h:'+hashlib.sha256(login.encode()).hexdigest()[:24]
+        client = address_key(client)
+        # an owner entry is never locked: no per-login cooldown and no site cap, the growing delay of Delays instead
+        owner = per_user and getattr(accounts.get(login), 'level', '') == 'owner'
         with self.lock:
             recent = [t for t in self.failures.get(client, []) if now-t < 60]
-            if len(recent) >= 8:
+            if len(recent) >= 8 or client in self.inflight:
                 result = 'limited'
-            elif per_user and self.limiter.refused(key, now):
+            elif owner and self.delays.waiting(login, now):
+                result = 'delayed'
+            elif per_user and not owner and self.limiter.refused(key, now):
                 result = 'cooldown'
                 self.failures[client] = recent + [now]
             else:
                 result = ''
-        if result:
-            self.log(now, login, result if result != 'cooldown' else
-                     ('site-cap' if self.limiter.site_closed_until(now) else 'cooldown'))
-            return result
-        if not self.slots.acquire(blocking=False):
-            self.log(now, login, 'busy')
-            return 'busy'
-        try:
-            account = accounts.get(login)
-            salt, digest, rounds = account or (b'\0'*16, b'\0'*32, next(iter(accounts.values()), (0, 0, DEFAULT_ROUNDS))[2])
-            computed = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8', 'replace'), salt, rounds)
-            valid = account is not None and hmac.compare_digest(computed, digest)
-        finally:
-            self.slots.release()
-        with self.lock:
-            if valid:
-                self.failures.pop(client, None)
-                if per_user:
-                    self.limiter.success(key)
-            else:
+                # the failure is counted before the pbkdf2 starts and taken back on a success or a busy slot
+                self.inflight.add(client)
                 self.failures[client] = recent + [now]
                 self.failures.move_to_end(client)
                 while len(self.failures) > 2048:
                     self.failures.popitem(last=False)
-                if per_user:
-                    self.limiter.failure(key, now)
+        if result:
+            self.log(now, login, result if result != 'cooldown' else
+                     ('site-cap' if self.limiter.site_closed_until(now) else 'cooldown'))
+            return 'fail' if result == 'delayed' else result
+        try:
+            account = accounts.get(login)
+            valid = self.password(account, password,
+                                  next(iter(accounts.values())).rounds if accounts else DEFAULT_ROUNDS)
+        finally:
+            with self.lock:
+                self.inflight.discard(client)
+        with self.lock:
+            if valid is None or valid:
+                kept = self.failures.get(client, [])
+                if now in kept:
+                    kept.remove(now)
+            if valid:
+                self.failures.pop(client, None)
+                if owner:
+                    self.delays.success(login)
+                elif per_user:
+                    self.limiter.success(key)
+            elif valid is False and owner:
+                self.delays.failure(login, now)
+            elif valid is False and per_user:
+                self.limiter.failure(key, now)
+        if valid is None:
+            self.log(now, login, 'busy')
+            return 'busy'
         self.log(now, login, 'ok' if valid else 'fail')
         return 'ok' if valid else 'fail'
 
@@ -277,43 +407,70 @@ class Auth:
         except (ValueError, TypeError):
             return False
 
+    def use_csrf(self, token):
+        """A valid login token, taken once: a second use of the same token is refused (RT2-01)."""
+        if not self.valid_csrf(token):
+            return False
+        now = time.time()
+        with self.lock:
+            while self.used_csrf and next(iter(self.used_csrf.values())) < now-600:
+                self.used_csrf.popitem(last=False)
+            if token in self.used_csrf:
+                return False
+            self.used_csrf[token] = now
+            while len(self.used_csrf) > 20000:
+                self.used_csrf.popitem(last=False)
+        return True
+
     def new_session(self, login=None):
-        """A session; one bound to a login ends when that login is removed or gets a new password."""
+        """A session token, or None when the table is full. One bound to a login ends when that login is removed,
+        gets a new password or a new generation; a login keeps at most SESSIONS_PER_USER, its oldest goes first;
+        a full table refuses and never evicts another user's session (RT-19)."""
         token = secrets.token_urlsafe(32)
         key = hashlib.sha256(token.encode()).digest()
         bound = None
         if login is not None:
             account = self.accounts()[1].get(login)
-            bound = (login, account[1] if account else b'')
+            bound = (login, account.hash if account else b'', account.level if account else 'reader',
+                     account.generation if account else 0)
         with self.lock:
             now = time.monotonic()
-            self.sessions = OrderedDict((k,v) for k,v in self.sessions.items() if v > now)
-            self.sessions[key] = now + 8*3600
+            self.sessions = OrderedDict((k, v) for k, v in self.sessions.items() if v > now)
+            self.owners = {k: v for k, v in self.owners.items() if k in self.sessions}
+            if bound:
+                mine = [k for k in self.sessions if k in self.owners and self.owners[k][0] == login]
+                for old in mine[:max(0, len(mine) - SESSIONS_PER_USER + 1)]:
+                    self.sessions.pop(old, None)
+                    self.owners.pop(old, None)
+            if len(self.sessions) >= SESSION_TABLE:
+                return None
+            self.sessions[key] = now + READER_TTL
             if bound:
                 self.owners[key] = bound
-            while len(self.sessions) > 128:
-                self.sessions.popitem(last=False)
-            self.owners = {k: v for k, v in self.owners.items() if k in self.sessions}
         return token
 
-    def session_valid(self, token):
+    def session_user(self, token):
+        """(login, level) of a valid session, ('', 'reader') for an unbound one, None when not valid."""
         if not token or len(token) > 100:
-            return False
+            return None
         key = hashlib.sha256(token.encode()).digest()
         with self.lock:
             expires = self.sessions.get(key, 0)
             if expires <= time.monotonic():
                 self.sessions.pop(key, None)
-                return False
+                return None
             bound = self.owners.get(key)
         per_user, accounts = self.accounts()
         if bound is None:
-            return not per_user
+            return None if per_user else ('', 'reader')
         account = accounts.get(bound[0])
-        if account and hmac.compare_digest(account[1], bound[1]):
-            return True
+        if account and hmac.compare_digest(account.hash, bound[1]) and account.generation == bound[3]:
+            return bound[0], account.level
         self.revoke_session(token)
-        return False
+        return None
+
+    def session_valid(self, token):
+        return self.session_user(token) is not None
 
     def revoke_session(self, token):
         key = hashlib.sha256(token.encode()).digest()
@@ -360,12 +517,7 @@ class Gateway(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def cookie(self, name):
-        try:
-            cookies = SimpleCookie()
-            cookies.load(self.headers.get('Cookie', ''))
-            return cookies[name].value if name in cookies else ''
-        except CookieError:
-            return ''
+        return parse_cookie(self.headers.get('Cookie', ''), name)
 
     def safe_next(self, value):
         return value if value in BACKEND_ROUTES | {'/'} else '/'
@@ -407,6 +559,35 @@ class Gateway(BaseHTTPRequestHandler):
             return None
 
     def dispatch(self):
+        self.refusal, self.level = '', '-'
+        session = self.cookie('__Host-awb-session')
+        self.user = self.server.auth.session_user(session)
+        if self.user is None:
+            if not self.server.auth.unauthenticated.acquire(blocking=False):
+                self.refusal = 'busy'
+                self.reply(503, b'The site is busy. Try again in a moment.\n', {'Retry-After': '5'})
+                return
+            try:
+                self.route(session)
+            finally:
+                self.server.auth.unauthenticated.release()
+        else:
+            self.level = self.user[1]
+            self.route(session)
+
+    def client_key(self):
+        """The client address for the limiter: CF-Connecting-IP behind the tunnel, else the TCP peer."""
+        if isinstance(self.client_address, tuple) and self.client_address:
+            fallback = str(self.client_address[0])
+        else:
+            fallback = 'local'
+        return self.headers.get('CF-Connecting-IP', fallback)[:100]
+
+    def route(self, session):
+        v1 = self.server.v1_marker
+        if v1 and self.headers.get('X-AWB-V1') == v1:
+            print('v1: CF-Connecting-IP %s' % ('arrived as the client sent it' if self.headers.get('CF-Connecting-IP') == v1
+                                               else 'was replaced by the edge'), flush=True)
         if self.headers.get('Host', '').lower() != self.server.domain:
             self.reply(400, b'Invalid host.\n')
             return
@@ -421,9 +602,8 @@ class Gateway(BaseHTTPRequestHandler):
         if path == '/favicon.ico':
             self.reply(204)
             return
-        peer = self.headers.get('CF-Connecting-IP', self.client_address[0])[:100]
-        session = self.cookie('__Host-awb-session')
-        authenticated = self.server.auth.session_valid(session)
+        peer = self.client_key()
+        authenticated = self.user is not None
         if path == '/login':
             if self.command in {'GET', 'HEAD'}:
                 try:
@@ -441,7 +621,7 @@ class Gateway(BaseHTTPRequestHandler):
             if form is None:
                 return
             csrf = (form.get('csrf') or [''])[0]
-            if not csrf or not hmac.compare_digest(csrf.encode(), self.cookie('__Host-awb-login').encode()) or not self.server.auth.valid_csrf(csrf):
+            if not csrf or not hmac.compare_digest(csrf.encode(), self.cookie('__Host-awb-login').encode()) or not self.server.auth.use_csrf(csrf):
                 self.login_page(error='The sign-in form expired. Please try again.', status=403)
                 return
             username = (form.get('username') or [''])[0]
@@ -449,10 +629,17 @@ class Gateway(BaseHTTPRequestHandler):
             next_path = self.safe_next((form.get('next') or ['/'])[0])
             result = self.server.auth.sign_in(username, password, peer)
             if result != 'ok':
-                text = {'fail': 'The username or password is incorrect.', 'cooldown': COOLDOWN_TEXT}.get(result, 'Too many attempts. Try again in one minute.')
-                self.login_page(next_path, text, 200 if result == 'fail' else 429)
+                text = {'fail': 'The username or password is incorrect.', 'cooldown': COOLDOWN_TEXT,
+                        'busy': BUSY_TEXT}.get(result, 'Too many attempts. Try again in one minute.')
+                if result != 'fail':
+                    self.refusal = 'busy' if result == 'busy' else 'limited'
+                self.login_page(next_path, text, {'fail': 200, 'busy': 503}.get(result, 429))
                 return
             token = self.server.auth.new_session(username)
+            if token is None:
+                self.refusal = 'busy'
+                self.login_page(next_path, 'The workspace has too many open sessions. Try again later.', 503)
+                return
             self.reply(303, headers={'Location': next_path, 'Set-Cookie': '__Host-awb-session='+token+'; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=28800'})
             return
         if not authenticated:
@@ -554,13 +741,14 @@ class Gateway(BaseHTTPRequestHandler):
     do_GET = do_HEAD = do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = dispatch
 
     def log_message(self, fmt, *args):
-        # No question text, credentials, query strings or backend data in access logs.
+        # No question text, credentials, query strings, addresses, user names or backend data in access logs: the
+        # method, the status, the host (main or owner), the level and one word on a refusal.
         status = str(args[1]) if len(args) > 1 else '-'
-        print(self.command, status, flush=True)
+        print(self.command, status, getattr(self, 'host_label', 'main'), getattr(self, 'level', '-'),
+              getattr(self, 'refusal', '') or '-', flush=True)
 
 
-def make_server(port, auth, index, portal_port, ask_port, projects_port=8182, tenants_port=8183, *, domain):
-    server = ThreadingHTTPServer(('127.0.0.1', port), Gateway)
+def _configure(server, auth, index, portal_port, ask_port, projects_port, tenants_port, domain):
     server.domain = domain.lower()
     server.daemon_threads = True
     server.auth = auth
@@ -572,7 +760,104 @@ def make_server(port, auth, index, portal_port, ask_port, projects_port=8182, te
     server.customer_socket = '/run/awb-customers.sock'
     server.project_socket = '/run/awb-project-create.sock'
     server.materials_socket = '/run/awb-materials.sock'
+    server.v1_marker = None
+    server.owner_host = None
     return server
+
+
+def make_server(port, auth, index, portal_port, ask_port, projects_port=8182, tenants_port=8183, *, domain):
+    """A TCP listener on 127.0.0.1 (the tests, and the one release of the switch to the front socket)."""
+    server = ThreadingHTTPServer(('127.0.0.1', port), Gateway)
+    return _configure(server, auth, index, portal_port, ask_port, projects_port, tenants_port, domain)
+
+
+def peer_uid(sock):
+    """The uid of the process at the other end of a Unix socket (SO_PEERCRED)."""
+    cred = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize('3i'))
+    return struct.unpack('3i', cred)[1]
+
+
+def unix_listener(path, mode=0o660):
+    """A Unix stream socket bound at `path` (a stale socket file replaced), for a run without socket activation."""
+    if os.path.exists(path) and stat.S_ISSOCK(os.lstat(path).st_mode):
+        os.unlink(path)
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    old = os.umask(0o777 & ~mode)
+    try:
+        sock.bind(path)
+    finally:
+        os.umask(old)
+    os.chmod(path, mode)
+    sock.listen(64)
+    return sock
+
+
+class UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    """An HTTP server on a listening Unix socket. With `peer` set, a connection from any other uid is closed before
+    a byte is read (D-FRONT: only cloudflared's own user reaches the gateway)."""
+    daemon_threads = True
+    allow_reuse_address = False
+
+    def __init__(self, sock, handler, peer=None):
+        socketserver.BaseServer.__init__(self, sock.getsockname(), handler)
+        self.socket = sock
+        self.peer = peer
+
+    def verify_request(self, request, client_address):
+        if self.peer is None:
+            return True
+        try:
+            if peer_uid(request) == self.peer:
+                return True
+        except OSError:
+            pass
+        print('-', '-', 'main', '-', 'peer', flush=True)
+        return False
+
+
+def make_front_server(sock, auth, index, portal_port, ask_port, projects_port=8182, tenants_port=8183, *, domain,
+                      peer):
+    """The front door: the site on a Unix socket that only the uid `peer` (cloudflared's user) may use."""
+    if peer is None:
+        raise TypeError('the front socket needs the uid of its one peer')
+    server = UnixServer(sock, Gateway, peer)
+    return _configure(server, auth, index, portal_port, ask_port, projects_port, tenants_port, domain)
+
+
+class StatusHandler(BaseHTTPRequestHandler):
+    """The status socket: GET /health and nothing else, for awb web status, the publish code and the deploy."""
+    server_version = 'AWB'
+    sys_version = ''
+
+    def answer(self):
+        body = b'{"status":"ok"}\n' if self.path == '/health' and self.command in ('GET', 'HEAD') else b'Not found.\n'
+        self.send_response(200 if body.startswith(b'{') else 404)
+        self.send_header('Content-Type', 'application/json' if body.startswith(b'{') else 'text/plain')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(body)
+
+    do_GET = do_HEAD = do_POST = answer
+
+    def log_message(self, fmt, *args):
+        pass
+
+
+def make_status_server(sock):
+    return UnixServer(sock, StatusHandler)
+
+
+def inherited_sockets(environ=os.environ):
+    """{path: socket} of the listening Unix sockets systemd handed over (LISTEN_FDS), empty without activation."""
+    if environ.get('LISTEN_PID') != str(os.getpid()):
+        return {}
+    out = {}
+    for fd in range(3, 3 + int(environ.get('LISTEN_FDS', '0') or 0)):
+        sock = socket.socket(fileno=fd)
+        out[sock.getsockname()] = sock
+    return out
 
 
 def main():
@@ -582,14 +867,42 @@ def main():
     ap.add_argument('--signin-log', help='where every sign-in attempt is logged (time, login, result)')
     ap.add_argument('--domain', required=True, help='the host name of the site, without scheme')
     ap.add_argument('--index', required=True)
-    ap.add_argument('--ports', nargs='+', type=int, default=[8080, 8081])
+    ap.add_argument('--owner-host', help='the host name of the owner level, one level under the zone of the site')
+    ap.add_argument('--front-socket', help='the Unix socket of the site (from systemd, else bound here)')
+    ap.add_argument('--front-peer', help='the one user whose processes may connect to the front socket')
+    ap.add_argument('--status-socket', help='a Unix socket that answers GET /health only')
+    ap.add_argument('--ports', nargs='*', type=int, default=[],
+                    help='TCP listeners on 127.0.0.1 (only for the one release of the switch to the front socket)')
+    ap.add_argument('--v1-marker', help=argparse.SUPPRESS)
     ap.add_argument('--portal-port', type=int, default=8180)
     ap.add_argument('--ask-port', type=int, default=8181)
     ap.add_argument('--projects-port', type=int, default=8182)
     ap.add_argument('--tenants-port', type=int, default=8183)
     args = ap.parse_args()
+    if not args.front_socket and not args.ports:
+        ap.error('give --front-socket (and --ports only for the switch)')
+    peer = None
+    if args.front_socket:
+        if not args.front_peer:
+            ap.error('--front-socket needs --front-peer')
+        try:
+            peer = pwd.getpwnam(args.front_peer).pw_uid
+        except KeyError:
+            print('AWB gateway: the user %s of --front-peer does not exist' % args.front_peer, flush=True)
+            sys.exit(2)
     auth = Auth(args.auth, args.users, args.signin_log)
-    servers = [make_server(port, auth, args.index, args.portal_port, args.ask_port, args.projects_port, args.tenants_port, domain=args.domain) for port in args.ports]
+    rest = (args.portal_port, args.ask_port, args.projects_port, args.tenants_port)
+    handed = inherited_sockets()
+    servers = []
+    if args.front_socket:
+        sock = handed.get(args.front_socket) or unix_listener(args.front_socket)
+        servers.append(make_front_server(sock, auth, args.index, *rest, domain=args.domain, peer=peer))
+    if args.status_socket:
+        servers.append(make_status_server(handed.get(args.status_socket) or unix_listener(args.status_socket, 0o666)))
+    servers += [make_server(port, auth, args.index, *rest, domain=args.domain) for port in args.ports]
+    for server in servers:
+        server.v1_marker = args.v1_marker
+        server.owner_host = (args.owner_host or '').lower() or None
     for server in servers[1:]:
         threading.Thread(target=server.serve_forever, daemon=True).start()
     print('AWB authenticated gateway ready', flush=True)

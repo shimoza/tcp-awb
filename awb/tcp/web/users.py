@@ -1,11 +1,16 @@
 """The logins of the console (F4, owner side).
 
-    sudo awb web user add|reset|remove LOGIN
+    sudo awb web user add LOGIN [--level reader|owner]
+    sudo awb web user reset|remove LOGIN
     sudo awb web user list
 
 The gateway reads `/etc/awb-web/users.json` (root, group awb-web, mode 640): per login a salt and a PBKDF2 digest,
-nothing else. `add` and `reset` make a random password of 20 characters, print it once to his terminal and store
-only the digest; the command refuses inside an assistant session, so no session ever sees a password. While the file
+the level (reader, the default, or owner), a generation that grows with every reset and, for an owner entry, a TOTP
+secret (T9, the owner host signs in with the password and a code from his phone). `add` and `reset` make a random
+password of 20 characters, print it once to his terminal and store only the digest; for an owner entry they also
+make a new TOTP secret and print its enrolment once (the key, the otpauth line and, when qrencode is on the host, a
+QR code in the terminal). The command refuses inside an assistant session, so no session ever sees a password or a
+secret. While the file
 does not exist the single login of `auth.json` works; `add` creates the file and ends it. `remove` of the last login
 leaves an empty file: nobody signs in, the single login does not come back. The gateway reads the file again on
 every change and ends the sessions of a removed login and of a login with a new password.
@@ -18,12 +23,16 @@ import grp
 import hashlib
 import json
 import os
+import base64
 import secrets
+import shutil
 import string
+import subprocess
+from urllib.parse import quote
 from datetime import datetime, timezone
 from pathlib import Path
 
-from awb.tcp.web.gateway import DEFAULT_ROUNDS, LOGIN_RE
+from awb.tcp.web.gateway import DEFAULT_ROUNDS, LEVELS, LOGIN_RE
 
 USERS = Path("/etc/awb-web/users.json")
 GROUP = "awb-web"
@@ -74,15 +83,25 @@ def new_password() -> str:
     return "".join(secrets.choice(ALPHABET) for _ in range(LENGTH))
 
 
-def entry(password: str, rounds: int = DEFAULT_ROUNDS) -> dict:
+def new_totp_secret() -> str:
+    return base64.b32encode(secrets.token_bytes(20)).decode("ascii")
+
+
+def entry(password: str, rounds: int = DEFAULT_ROUNDS, level: str = "reader", generation: int = 1) -> dict:
     salt = secrets.token_bytes(16)
-    return {"salt": salt.hex(), "rounds": rounds,
-            "hash": hashlib.pbkdf2_hmac("sha256", password.encode(), salt, rounds).hex(),
-            "changed": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    out = {"salt": salt.hex(), "rounds": rounds,
+           "hash": hashlib.pbkdf2_hmac("sha256", password.encode(), salt, rounds).hex(),
+           "changed": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+           "level": level, "generation": generation}
+    if level == "owner":
+        out["totp"] = new_totp_secret()
+    return out
 
 
-def change(path: Path, action: str, login: str, as_root: bool, rounds: int = DEFAULT_ROUNDS) -> str | None:
-    """Apply add, reset or remove. Returns the new password (add, reset) or None (remove)."""
+def change(path: Path, action: str, login: str, as_root: bool, rounds: int = DEFAULT_ROUNDS,
+           level: str | None = None) -> str | None:
+    """Apply add, reset or remove. Returns the new password (add, reset) or None (remove). `level` is for add
+    (reader when left out); a reset keeps the level and raises the generation."""
     if not LOGIN_RE.fullmatch(login):
         raise Refused("a login is 2 to 32 characters: a small letter first, then small letters, digits, . _ -")
     data = load(path)
@@ -91,14 +110,37 @@ def change(path: Path, action: str, login: str, as_root: bool, rounds: int = DEF
         raise Refused("the login exists: use reset for a new password")
     if action in ("reset", "remove") and login not in users:
         raise Refused("no such login")
+    if level is not None and (action != "add" or level not in LEVELS):
+        raise Refused("--level goes with add and is reader or owner")
     password = None
     if action == "remove":
         del users[login]
     else:
         password = new_password()
-        users[login] = entry(password, rounds)
+        old = users.get(login, {})
+        users[login] = entry(password, rounds, level or old.get("level", "reader"),
+                             int(old.get("generation", 0)) + 1)
     save(path, data, as_root)
     return password
+
+
+def enrolment(login: str, secret: str, issuer: str = "AWB") -> str:
+    """The otpauth line an authenticator app reads (RFC 6238 defaults: SHA1, 6 digits, 30 seconds)."""
+    return "otpauth://totp/%s:%s?secret=%s&issuer=%s&algorithm=SHA1&digits=6&period=30" % (
+        quote(issuer), quote(login), secret, quote(issuer))
+
+
+def qr_lines(text: str, runner=subprocess.run) -> list[str]:
+    """`text` as a QR code for the terminal when qrencode is on the host (the text on standard input, never in an
+    argument or a file); no lines without it."""
+    tool = shutil.which("qrencode")
+    if not tool:
+        return []
+    try:
+        res = runner([tool, "-t", "ANSIUTF8", "-o", "-"], input=text.encode(), capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return res.stdout.decode("utf-8", "replace").splitlines() if res.returncode == 0 else []
 
 
 def main(a, environ: dict, geteuid=os.geteuid, say=print) -> int:
@@ -108,17 +150,26 @@ def main(a, environ: dict, geteuid=os.geteuid, say=print) -> int:
     as_root = geteuid() == 0
     if a.action == "list":
         users = load(path)["users"]
-        say("logins: %s" % (", ".join(sorted(users)) if users else "none")
+        say("logins: %s" % (", ".join("%s (%s)" % (k, users[k].get("level", "reader")) for k in sorted(users))
+                            if users else "none")
             + ("" if path.exists() else " (the single login of auth.json works)"))
         return 0
     if vault.in_assistant_session():
         raise Refused("never inside an assistant session: run it in your own terminal")
     if path == USERS and not as_root:
         raise Refused("run it with sudo: sudo awb web user %s LOGIN" % a.action)
-    password = change(path, a.action, a.login, as_root)
+    password = change(path, a.action, a.login, as_root, level=getattr(a, "level", None))
     if password is None:
         say("removed %s; its sessions end" % a.login)
-    else:
-        say("%s %s. Password (shown once, not stored): %s" % ("added" if a.action == "add" else "new password for",
-                                                             a.login, password))
+        return 0
+    say("%s %s. Password (shown once, not stored): %s" % ("added" if a.action == "add" else "new password for",
+                                                         a.login, password))
+    secret = load(path)["users"][a.login].get("totp")
+    if secret:
+        say("Owner entry: add this key to the authenticator app on your phone now (shown once): %s"
+            % " ".join(secret[i:i + 4] for i in range(0, len(secret), 4)))
+        say(enrolment(a.login, secret))
+        for line in qr_lines(enrolment(a.login, secret)):
+            say(line)
+        say("Never use the vault passphrase as a console password.")
     return 0

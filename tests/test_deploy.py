@@ -173,8 +173,9 @@ def test_every_module_has_a_unit_or_is_listed(tmp_path):
     assert problems(deploy.DirTree(copy)) == ["dynamic: awb/newthing.py:load"]
 
 
-def test_the_map_from_changed_files(tmp_path):
-    """Planted: each row of the task's table. On the invented package (where only the vault entry imports the
+def test_the_map_from_changed_files_with_the_held_sockets(tmp_path):
+    """Replaces test_the_map_from_changed_files (T9 step 1): the gateway holds its two socket units (Sockets=),
+    so awb/cli.py restarts every unit but the gateway and those two. Planted: each row of the task's table. On the invented package (where only the vault entry imports the
     vault module): awb/vault.py restarts awb-vaultd only, the gateway the gateway only, rules/work.md the Ask page
     and the chat plus projects sync, awb/cli.py every unit that starts through the package (the gateway is a plain
     script that imports none of it), a changed unit file its unit and as a restart, never a reload."""
@@ -187,7 +188,9 @@ def test_the_map_from_changed_files(tmp_path):
     assert set(eff.units) == {"awb-ask.service"} and eff.sync
     ask_page = dict(deploy.template_entries(tree, units), **{"awb-ask.service": [BIN, "ask", "serve"]})
     assert restarted(tree, ["rules/work.md"], ask_page) == {"awb-ask.service"}
-    assert restarted(tree, ["awb/cli.py"]) == set(units) - {"awb-web.service"}
+    held = {"awb-web.service", "awb-web.socket", "awb-web-status.socket"}
+    assert restarted(tree, ["awb/cli.py"]) == set(units) - held
+    assert restarted(tree, ["seal/web/awb-web.socket"]) == {"awb-web.socket"}
     assert restarted(tree, ["tests/test_vault.py", "docs/x.md", "COMMANDS.md", "seal/setup.sh"]) == set()
     assert restarted(tree, ["pyproject.toml"]) == set(units)
     eff = um.effects(["seal/awb-vaultd.service"])
@@ -205,7 +208,6 @@ def test_the_map_from_changed_files(tmp_path):
     assert deploy._reload_or_restart("vault", "u", show, state, tk, imap, opts, False, "x")[0] == "reload"
     action, reason = deploy._reload_or_restart("vault", "u", show, state, tk, imap, opts, True, "x")
     assert action == "restart" and "the unit file changed" in reason
-
 
 def test_the_entry_module_comes_from_the_installed_unit(tmp_path):
     """Planted: systemd answers `awb ask serve` for awb-ask while the template drop-in names the chat service: a

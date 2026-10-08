@@ -106,6 +106,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   within 15 minutes, twice as long after each further series up to 24 hours, and the whole site pauses sign-in after
   30 failures within an hour. Every attempt is logged without the password, and `sudo awb web status` shows the
   last day and every login that waits.
+- The console's front door is a Unix socket only the tunnel's own user may open: the gateway checks the peer's uid
+  before it reads a byte, cloudflared runs as its own user, and a firewall rule keeps that user off every local TCP
+  port, so neither a local process nor a changed tunnel route reaches the gateway any other way. One address (an
+  IPv6 /64) gets one sign-in at a time, a busy sign-in answers "try again" without counting, a sign-in form works
+  once, a login keeps five sessions and a full table refuses instead of evicting. An owner login is never locked out,
+  it only waits up to a minute after a failure, and it gets a TOTP key for the owner level
+  (`sudo awb web user add LOGIN --level owner`). `sudo awb web host HOST` names the owner level's host.
 
 ## Week 40, 2026-09-28 to 2026-10-04
 
