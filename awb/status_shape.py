@@ -11,6 +11,10 @@ COMMIT_RE = re.compile(r"^(?:[0-9a-f]{7,40}|pre-deploy|plain)$")
 TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$")
 DAEMON_STATES = ("unlocked", "locked", "plain", "down", "unknown")
 RUN_STATES = ("queued", "running", "ready", "completed", "failed", "cancelled", "unknown")
+WITHHELD_RE = re.compile(r"^(?:unavailable|(?:name|secret|token|private-key)(?:,(?:secret|token|private-key))*)$")
+SUMMARY_MAX = 300
+RUN_KEYS = {"id", "state", "created", "finished", "validation", "diff_bytes", "candidate_only", "publishable",
+            "summary", "withheld"}
 
 
 class StatusError(Exception):
@@ -19,6 +23,14 @@ class StatusError(Exception):
 
 def _word(value, words) -> bool:
     return value in words
+
+
+def summary_ok(summary, withheld) -> bool:
+    """A run summary is one printable line of at most SUMMARY_MAX characters, or None; withheld is None or the
+    classes that withheld it, never both a summary and a class."""
+    if withheld is not None:
+        return summary is None and isinstance(withheld, str) and bool(WITHHELD_RE.match(withheld))
+    return summary is None or (isinstance(summary, str) and 0 < len(summary) <= SUMMARY_MAX and summary.isprintable())
 
 
 def validate(status: dict) -> None:
@@ -49,11 +61,11 @@ def validate(status: dict) -> None:
             d["time"]) or not time_or_none(d["backup_time"]) or not count_or_none(d["backups"]):
         bad("page")
     for run in status["ui_runs"]:
-        if set(run) != {"id", "state", "finished", "validation", "diff_bytes", "candidate_only", "publishable"} or \
-                not RUN_RE.match(run["id"]) or not _word(run["state"], RUN_STATES) or not time_or_none(
-                run["finished"]) or run["validation"] not in ("PASS", "FAIL", None) or not count_or_none(
-                run["diff_bytes"]) or not isinstance(run["candidate_only"], bool) or not isinstance(
-                run["publishable"], bool):
+        if set(run) != RUN_KEYS or not RUN_RE.match(run["id"]) or not _word(run["state"], RUN_STATES) or not \
+                time_or_none(run["created"]) or not time_or_none(run["finished"]) or run["validation"] not in (
+                "PASS", "FAIL", None) or not count_or_none(run["diff_bytes"]) or not isinstance(
+                run["candidate_only"], bool) or not isinstance(run["publishable"], bool) or not summary_ok(
+                run["summary"], run["withheld"]):
             bad("ui_runs")
     for row in status["intake"]:
         if set(row) != {"customer", "waiting", "time"} or not CUSTOMER_RE.match(row["customer"]) or not \

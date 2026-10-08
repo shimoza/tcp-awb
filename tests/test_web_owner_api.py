@@ -64,7 +64,8 @@ def status_doc(**over):
            "deployed": {"release": "0123456789abcdef0123456789abcdef01234567", "journal": "done"},
            "page": {"size": 1200, "time": "2026-10-06T15:02:11Z", "backup_time": None, "backups": 0},
            "ui_runs": [{"id": "ui-20261008-001", "state": "completed", "finished": "2026-10-08T11:20:04+00:00",
-                        "validation": "PASS", "diff_bytes": 10, "candidate_only": False, "publishable": True}],
+                        "validation": "PASS", "diff_bytes": 10, "candidate_only": False, "publishable": True,
+                        "created": "2026-10-08T11:16:00+00:00", "summary": "Added a panel.", "withheld": None}],
            "intake": [{"customer": fx.CUSTOMER_CODE, "waiting": 3, "time": "2026-10-08T09:12:40Z"}]}
     doc.update(over)
     return doc
@@ -496,22 +497,25 @@ def test_the_reader_view_of_the_tenants_carries_digits_never_the_domain_name():
     assert tenant_api.domain_digits("no-digits") is None and tenant_api.domain_digits(None) is None
 
 
-def test_the_contract_has_no_unlock_and_every_owner_operation_needs_the_owner_session():
+def test_the_contract_has_no_unlock_and_every_owner_operation_with_the_ui_runs_needs_the_owner_session():
+    # replaces test_the_contract_has_no_unlock_and_every_owner_operation_needs_the_owner_session: T7 part 2 adds
+    # GET /api/ui-runs, an owner operation outside /api/owner/
     doc = contract.build()
     ops = list(contract.operations(doc))
     for method, path, op in ops:
         text = json.dumps(op).lower()
         assert not re.search(r"\b(unlock|lock|passphrase)\b", op["operationId"].lower()), op["operationId"]
         owner_side = path.startswith("/api/owner/") or path in (
-            "/api/customers", "/api/customer-operations/{request_id}", "/api/project-operations/{request_id}") or \
-            path.startswith("/api/projects/{code}/materials") or (path == "/api/projects" and method == "post")
+            "/api/customers", "/api/customer-operations/{request_id}", "/api/project-operations/{request_id}",
+            "/api/ui-runs") or path.startswith("/api/projects/{code}/materials") or (
+            path == "/api/projects" and method == "post")
         if owner_side:
             assert op["security"] == [{"owner": []}] and op["x-awb-state"] == "repository", (method, path)
             assert op["servers"][0]["url"] == "https://{owner_host}/"
         else:
             assert op.get("security") != [{"owner": []}], (method, path)
         assert "awb vault unlock" not in text and "awb keys unlock" not in text
-    assert {p for _, p, _ in ops} >= set(OWNER_ROUTES)
+    assert {p for _, p, _ in ops} >= set(OWNER_ROUTES) | {"/api/ui-runs"}
 
 
 # --------------------------------------------------------------------------- T9 step 3: Publish through the gateway
@@ -555,3 +559,123 @@ def test_publish_needs_the_csrf_of_this_session_and_a_fresh_code_before_owner_ac
     reader = {"Cookie": "__Host-awb-session=" + site.reader_session(), "Origin": "https://" + DOMAIN,
               "Content-Type": "application/json"}
     assert site.request("/api/owner/publish", "POST", DOMAIN, reader, body(site.code()))[0] == 404
+
+
+# --------------------------------------------------------------------------- T7 part 2: GET /api/ui-runs
+
+
+def ui_queue(root: Path, runs) -> Path:
+    """A temporary queue: the jobs table of the bridge and a run folder per run (validation.txt, result.json)."""
+    root.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(root / "queue.sqlite3")
+    db.execute("CREATE TABLE jobs (id TEXT PRIMARY KEY, text TEXT NOT NULL, hash TEXT NOT NULL, state TEXT NOT NULL, "
+               "created TEXT NOT NULL, started TEXT, finished TEXT, detail TEXT NOT NULL DEFAULT '', "
+               "apply_changes INTEGER NOT NULL DEFAULT 1)")
+    for run_id, state, created, finished, validation, summary in runs:
+        db.execute("INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,1)", (run_id, "Task text of %s." % run_id, "h", state,
+                                                                   created, created, finished, "Detail text."))
+        folder = root / "runs" / run_id
+        folder.mkdir(parents=True)
+        if validation:
+            (folder / "validation.txt").write_text(validation + ": six pages at desktop\n")
+        if summary is not None:
+            (folder / "result.json").write_text(json.dumps({"summary": summary, "limitations": ["Limit text."]}))
+    db.commit()
+    db.close()
+    return root
+
+
+def test_ui_runs_answer_on_the_owner_host_newest_first_and_owner_only(site):
+    runs = [dict(status_doc()["ui_runs"][0], id="ui-20261008-002", state="running", created="2026-10-08T12:00:00Z",
+                 finished=None, validation=None, diff_bytes=None, publishable=False, summary=None),
+            dict(status_doc()["ui_runs"][0], summary=None, withheld="name")]
+    site.status.write_text(json.dumps(status_doc(ui_runs=runs)))
+    status, h, raw = site.request("/api/ui-runs", host=OWNER, headers=owner_headers(site, site.owner_session()))
+    body = json.loads(raw)
+    assert status == 200 and h["Content-Type"].startswith("application/json")
+    assert [r["id"] for r in body["runs"]] == ["ui-20261008-002", "ui-20261008-001"]
+    for r in body["runs"]:
+        assert set(r) == {"id", "state", "created", "finished", "validation", "summary", "withheld"}
+    assert body["runs"][1] == {"id": "ui-20261008-001", "state": "completed", "created": "2026-10-08T11:16:00+00:00",
+                               "finished": "2026-10-08T11:20:04+00:00", "validation": "PASS", "summary": None,
+                               "withheld": "name"}
+    assert "written" in body and "stale" in body
+    # the owner page's own route keeps its shape
+    _, _, raw = site.request("/api/owner/ui-runs", host=OWNER, headers=owner_headers(site, site.owner_session()))
+    assert set(json.loads(raw)["runs"][1]) == {"id", "state", "finished", "validation", "diff_bytes",
+                                               "candidate_only", "publishable"}
+    # a reader session of the main host: 403 before any backend; no session: 401
+    reader = {"Cookie": "__Host-awb-session=" + site.reader_session()}
+    assert site.request("/api/ui-runs", headers=reader)[::2] == (403, b'{"error":"Owner only."}')
+    assert site.request("/api/ui-runs")[0] == 401
+    assert site.request("/api/ui-runs", host=OWNER, headers=reader)[0] == 401
+    assert site.tcp.calls == [] and all(b.calls == [] for b in site.unix.values())
+    # owner-actions itself refuses a request whose level is not owner
+    assert owner_actions.answer("/api/ui-runs", None, time.time())[0] == 503
+
+
+def test_owner_actions_refuses_the_ui_runs_to_a_reader_level(tmp_path):
+    status = tmp_path / "status.json"
+    status.write_text(json.dumps(status_doc()))
+    server = owner_actions.Server(gateway.unix_listener(str(tmp_path / "o.sock")), os.getuid(), status,
+                                  tmp_path / "log")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        def ask(level):
+            s = socket.socket(socket.AF_UNIX)
+            s.connect(str(tmp_path / "o.sock"))
+            s.sendall(("GET /api/ui-runs HTTP/1.0\r\nX-AWB-Level: %s\r\n\r\n" % level).encode())
+            data = b""
+            while chunk := s.recv(65536):
+                data += chunk
+            s.close()
+            return data
+        assert ask("reader").startswith(b"HTTP/1.0 403")
+        assert ask("owner").startswith(b"HTTP/1.0 200")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_the_ui_runs_come_from_a_temporary_queue_and_a_registered_form_in_a_summary_is_withheld_by_class(
+        tmp_path, home, monkeypatch):
+    form = fx.CUSTOMER_FORMS[0]
+    queue = ui_queue(tmp_path / "queue", [
+        ("ui-20261008-001", "completed", "2026-10-08T09:00:00+00:00", "2026-10-08T09:04:00+00:00", "PASS",
+         "Updated architect-workbench.html and presentations/ui-tasks/x.txt for the\nowner routes."),
+        ("ui-20261008-002", "completed", "2026-10-08T10:00:00+00:00", "2026-10-08T10:03:00+00:00", "FAIL",
+         "Built the page for %s." % form),
+        ("ui-20261008-003", "running", "2026-10-08T11:00:00+00:00", None, None, None)])
+    before = (queue / "queue.sqlite3").read_bytes()
+    runs = owner.ui_runs(queue, screen=owner.summary_screen())
+    assert (queue / "queue.sqlite3").read_bytes() == before
+    assert [r["id"] for r in runs] == ["ui-20261008-003", "ui-20261008-002", "ui-20261008-001"]
+    assert runs[0]["created"] == "2026-10-08T11:00:00+00:00" and runs[0]["summary"] is None \
+        and runs[0]["withheld"] is None
+    assert runs[1]["summary"] is None and runs[1]["withheld"] == "name"
+    assert runs[2]["summary"] == "Updated [file] and [file] for the owner routes." and runs[2]["withheld"] is None
+    doc = status_doc(ui_runs=runs)
+    out = tmp_path / "status.json"
+    assert owner.write(doc, out) == "passed"
+    code, body = owner_actions.answer("/api/ui-runs", owner_actions.read_status(out), time.time())
+    text = json.dumps(body)
+    assert code == 200 and [r["withheld"] for r in body["runs"]] == [None, "name", None]
+    for f in fx.ALL_REGISTERED:
+        assert f not in text
+    for leak in ("architect-workbench", "ui-tasks", "Task text", "Detail text", "Limit text", "six pages"):
+        assert leak not in text, leak
+    # a check that cannot run withholds every summary
+    from awb.tcp.web import publish
+
+    def refused():
+        raise publish.Refused("no register: names cannot be checked")
+
+    monkeypatch.setattr(publish, "name_matcher", refused)
+    runs = owner.ui_runs(queue, screen=owner.summary_screen())
+    assert [(r["summary"], r["withheld"]) for r in runs] == [(None, None), (None, "unavailable"),
+                                                            (None, "unavailable")]
+    # a summary and a class together, a long or multi-line summary or another class word never pass the shape
+    for bad in ({"summary": "x", "withheld": "name"}, {"summary": "x" * 301, "withheld": None},
+                {"summary": "a\nb", "withheld": None}, {"summary": None, "withheld": "homepath"}):
+        with pytest.raises(status_shape.StatusError):
+            status_shape.validate(status_doc(ui_runs=[dict(status_doc()["ui_runs"][0], **bad)]))

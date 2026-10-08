@@ -9,6 +9,9 @@ nothing else, holds no key, reaches no vault and runs no command.
 
     GET /api/owner/state      the vault and the key service (state and since), the deployed release, the page
     GET /api/owner/ui-runs    the newest runs of the UI queue, the one Publish would take marked
+    GET /api/ui-runs          the same runs for the UI runs page (T7 part 2): id, state, created, finished,
+                              validation and the summary the owner's timer let pass the name check, else withheld
+                              with its class
     GET /api/owner/intake     per customer code the candidates that wait for a review and the time of the report
     POST /api/owner/publish   {run_id, code}: Publish (T9 step 3). The TOTP code is checked again here against this
                               service's own copy of the secret (/etc/awb/owner-publish.json, awb-owner 600), fresh
@@ -47,7 +50,9 @@ MAX_STATUS = 256 * 1024
 STALE = 300
 REQUEST_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 UNAVAILABLE = "The owner status is not available yet."
-ROUTES = ("/api/owner/state", "/api/owner/ui-runs", "/api/owner/intake")
+ROUTES = ("/api/owner/state", "/api/owner/ui-runs", "/api/owner/intake", "/api/ui-runs")
+OWNER_RUN_KEYS = ("id", "state", "finished", "validation", "diff_bytes", "candidate_only", "publishable")
+PAGE_RUN_KEYS = ("id", "state", "created", "finished", "validation", "summary", "withheld")
 PUBLISH = "/api/owner/publish"
 
 
@@ -90,7 +95,9 @@ def answer(route: str, status: dict | None, now: float) -> tuple[int, dict]:
         return 200, {"vault": status["vault"], "keys": status["keys"], "deployed": status["deployed"],
                      "page": status["page"], **meta}
     if route == "/api/owner/ui-runs":
-        return 200, {"runs": status["ui_runs"], **meta}
+        return 200, {"runs": [{k: r[k] for k in OWNER_RUN_KEYS} for r in status["ui_runs"]], **meta}
+    if route == "/api/ui-runs":
+        return 200, {"runs": [{k: r[k] for k in PAGE_RUN_KEYS} for r in status["ui_runs"]], **meta}
     return 200, {"customers": status["intake"], **meta}
 
 

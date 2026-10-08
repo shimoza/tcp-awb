@@ -25,7 +25,7 @@ from pathlib import Path
 
 from awb import config
 from awb.intake_counts import now_text, read_counts
-from awb.status_shape import DAEMON_STATES, RUN_RE, RUN_STATES, TIME_RE, StatusError, validate
+from awb.status_shape import DAEMON_STATES, RUN_RE, RUN_STATES, SUMMARY_MAX, TIME_RE, StatusError, validate
 
 STATUS = Path("/var/lib/awb-owner-status/status.json")
 MAX_RUNS = 20
@@ -76,9 +76,11 @@ def page(root: Path | None = None) -> dict:
     return out
 
 
-def ui_runs(queue: Path | None = None) -> list[dict]:
-    """The newest runs of the UI queue: id, state, finish time, PASS or FAIL, the size of the diff and whether it is
-    the one run Publish would take (the newest PASS run that is completed or ready)."""
+def ui_runs(queue: Path | None = None, screen=None) -> list[dict]:
+    """The newest runs of the UI queue: id, state, creation and finish time, PASS or FAIL, the size of the diff and
+    whether it is the one run Publish would take (the newest PASS run that is completed or ready). With `screen`
+    (see summary_screen) each run also carries the summary of its result.json as the screen lets it pass, else
+    summary and withheld are None. The queue is opened read only."""
     from awb.tcp.web import publish
 
     queue = queue or publish.queue_dir()
@@ -87,14 +89,14 @@ def ui_runs(queue: Path | None = None) -> list[dict]:
         return []
     con = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
     try:
-        rows = con.execute("SELECT id, state, finished, apply_changes FROM jobs ORDER BY created DESC, id DESC LIMIT ?",
-                           (MAX_RUNS,)).fetchall()
+        rows = con.execute("SELECT id, state, created, finished, apply_changes FROM jobs ORDER BY created DESC, id "
+                           "DESC LIMIT ?", (MAX_RUNS,)).fetchall()
     except sqlite3.Error:
         return []
     finally:
         con.close()
     out = []
-    for run_id, state, finished, applies in rows:
+    for run_id, state, created, finished, applies in rows:
         if not isinstance(run_id, str) or not RUN_RE.match(run_id):
             continue
         folder = queue / "runs" / run_id
@@ -106,15 +108,67 @@ def ui_runs(queue: Path | None = None) -> list[dict]:
             diff = (folder / "change.diff").stat().st_size
         except OSError:
             diff = None
+        summary, withheld = screen(run_summary(folder)) if screen else (None, None)
         out.append({"id": run_id, "state": state if state in RUN_STATES else "unknown",
+                    "created": created if isinstance(created, str) and TIME_RE.match(created) else None,
                     "finished": finished if isinstance(finished, str) and TIME_RE.match(finished) else None,
                     "validation": "PASS" if first == "PASS" else "FAIL" if first else None,
-                    "diff_bytes": diff, "candidate_only": not applies, "publishable": False})
+                    "diff_bytes": diff, "candidate_only": not applies, "publishable": False,
+                    "summary": summary, "withheld": withheld})
     for run in out:     # the newest first: the first PASS run whose state lets it be published
         if run["validation"] == "PASS" and run["state"] == ("ready" if run["candidate_only"] else "completed"):
             run["publishable"] = True
             break
     return out
+
+
+FILE_RE = re.compile(r"(?:[\w.~-]*/)+[\w.-]*|\b[\w-]+(?:\.[\w-]+)*\.[A-Za-z][A-Za-z0-9]{0,7}\b")
+
+
+def run_summary(folder: Path) -> str | None:
+    """The summary of a run's result.json on one line, a path or a file name in it masked as [file], at most
+    SUMMARY_MAX characters; None when there is none."""
+    try:
+        with open(folder / "result.json", "rb") as fh:
+            data = json.loads(fh.read(65536).decode("utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return None
+    text = data.get("summary") if isinstance(data, dict) else None
+    if not isinstance(text, str):
+        return None
+    text = FILE_RE.sub("[file]", " ".join("".join(c if c.isprintable() else " " for c in text).split()))
+    if len(text) > SUMMARY_MAX:
+        text = text[:SUMMARY_MAX - 3].rstrip() + "..."
+    return text or None
+
+
+def summary_screen():
+    """A screen for run summaries: text -> (summary, None) when the name check passes it, (None, classes) when it
+    finds a name, a secret, a token or a private key, (None, "unavailable") when the check cannot run."""
+    from awb import check, gate, register
+    from awb.tcp.web import publish
+
+    state = {}
+
+    def screen(text: str | None) -> tuple[str | None, str | None]:
+        if text is None:
+            return None, None
+        if "matcher" not in state:
+            try:
+                state["matcher"] = publish.name_matcher()
+            except (publish.Refused, check.CheckUnavailable, register.RegisterError, OSError):
+                state["matcher"] = None
+        if state["matcher"] is None:
+            return None, "unavailable"
+        try:
+            found = {f.cls for f in gate._scan_text("summary", text, state["matcher"]) if f.cls in publish.CLASSES}
+        except check.CheckUnavailable:
+            return None, "unavailable"
+        if found:
+            return None, ",".join(c for c in publish.CLASSES if c in found)
+        return text, None
+
+    return screen
 
 
 def intake(p: config.Paths) -> list[dict]:
@@ -126,7 +180,7 @@ def intake(p: config.Paths) -> list[dict]:
 def collect(p: config.Paths | None = None) -> dict:
     p = p or config.paths()
     return {"version": 1, "written": now_text(), **daemons(), "deployed": deployed(), "page": page(),
-            "ui_runs": ui_runs(), "intake": intake(p)}
+            "ui_runs": ui_runs(screen=summary_screen()), "intake": intake(p)}
 
 
 # --------------------------------------------------------------------------- the checks before the write

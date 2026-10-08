@@ -3071,6 +3071,102 @@ paths:
           variables:
             owner_host:
               default: owner.example.com
+  /api/ui-runs:
+    get:
+      operationId: listUiRuns
+      tags:
+        - owner
+      summary: The runs of the UI queue for the UI runs page.
+      description: "On the owner host. The main host answers 403 Owner only to a signed-in session. The owner's timer reads queue.sqlite3 read only and the summary of each run's result.json through the name check; a summary with a finding is withheld with its class only. No file name and no other text of the queue crosses."
+      responses:
+        "200":
+          description: From the status file of the owner's timer.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/UiRunsPage"
+              examples:
+                sample:
+                  value:
+                    runs:
+                      - id: ui-20261008-002
+                        state: running
+                        created: "2026-10-08T19:02:11+00:00"
+                        finished: null
+                        validation: null
+                        summary: null
+                        withheld: null
+                      - id: ui-20261008-001
+                        state: completed
+                        created: "2026-10-08T18:22:05+00:00"
+                        finished: "2026-10-08T18:26:40+00:00"
+                        validation: PASS
+                        summary: "Updated [file] for owner-route compatibility."
+                        withheld: null
+                      - id: ui-20261006-003
+                        state: failed
+                        created: "2026-10-06T14:50:02+00:00"
+                        finished: "2026-10-06T14:58:40+00:00"
+                        validation: FAIL
+                        summary: null
+                        withheld: name
+                    written: "2026-10-08T12:00:00Z"
+                    stale: false
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "403":
+          description: A session of the main host (a reader's), or a request that did not come through the gateway's owner host.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                owner-only:
+                  value:
+                    error: Owner only.
+                not-allowed:
+                  value:
+                    error: Not allowed.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The owner's timer has not written its status yet, or it cannot be read.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-owner-status-is-not:
+                  value:
+                    error: The owner status is not available yet.
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
   /api/owner/intake:
     get:
       operationId: listOwnerIntake
@@ -4724,6 +4820,76 @@ components:
           description: The newest first, at most 20.
           items:
             "$ref": "#/components/schemas/UiRun"
+        written:
+          type: string
+          format: date-time
+        stale:
+          type: boolean
+      required:
+        - runs
+        - written
+        - stale
+    UiRunsPageRun:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The run id of the UI queue.
+        state:
+          type: string
+          enum:
+            - queued
+            - running
+            - ready
+            - completed
+            - failed
+            - cancelled
+            - unknown
+        created:
+          type:
+            - string
+            - "null"
+          description: When the run was submitted.
+        finished:
+          type:
+            - string
+            - "null"
+        validation:
+          type:
+            - string
+            - "null"
+          description: The first word of the run's validation.
+          enum:
+            - PASS
+            - FAIL
+            - null
+        summary:
+          type:
+            - string
+            - "null"
+          description: "The summary of the run's result.json, one line of at most 300 characters, a path or a file name in it shown as [file]; null when there is none or it is withheld."
+        withheld:
+          type:
+            - string
+            - "null"
+          description: "Why the summary is withheld: the classes the name check found (name, secret, token, private-key, comma separated) or unavailable (the check could not run); null when nothing is withheld."
+      required:
+        - id
+        - state
+        - created
+        - finished
+        - validation
+        - summary
+        - withheld
+      additionalProperties: false
+    UiRunsPage:
+      type: object
+      properties:
+        runs:
+          type: array
+          description: The newest first, at most 20.
+          items:
+            "$ref": "#/components/schemas/UiRunsPageRun"
         written:
           type: string
           format: date-time

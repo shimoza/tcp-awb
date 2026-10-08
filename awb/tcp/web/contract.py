@@ -789,6 +789,21 @@ def _schemas() -> dict:
         }),
         "UiRuns": obj({"runs": array(ref("UiRun"), "The newest first, at most 20."),
                        "written": string(format="date-time"), "stale": boolean()}),
+        "UiRunsPageRun": obj({
+            "id": string("The run id of the UI queue."),
+            "state": string(enum=["queued", "running", "ready", "completed", "failed", "cancelled", "unknown"]),
+            "created": string("When the run was submitted.", nullable=True),
+            "finished": string(nullable=True),
+            "validation": string("The first word of the run's validation.", nullable=True, enum=["PASS", "FAIL", None]),
+            "summary": string("The summary of the run's result.json, one line of at most 300 characters, a path or "
+                              "a file name in it shown as [file]; null when there is none or it is withheld.",
+                              nullable=True),
+            "withheld": string("Why the summary is withheld: the classes the name check found (name, secret, "
+                               "token, private-key, comma separated) or unavailable (the check could not run); "
+                               "null when nothing is withheld.", nullable=True),
+        }, closed=True),
+        "UiRunsPage": obj({"runs": array(ref("UiRunsPageRun"), "The newest first, at most 20."),
+                           "written": string(format="date-time"), "stale": boolean()}),
         "IntakeCount": obj({
             "customer": ref("CustomerCode"),
             "waiting": integer("Candidates that wait for awb register review.", nullable=True),
@@ -1316,6 +1331,25 @@ def _owner_paths() -> dict:
                 {"id": "ui-20261006-003", "state": "completed", "finished": "2026-10-06T14:58:40+00:00",
                  "validation": "PASS", "diff_bytes": 9120, "candidate_only": False, "publishable": False}]},
             "publishable marks the one run Publish would take.")},
+        "/api/ui-runs": {"get": operation(
+            "listUiRuns", "owner", "The runs of the UI queue for the UI runs page.", {
+                "200": answer("From the status file of the owner's timer.", ref("UiRunsPage"), {"sample": {"runs": [
+                    {"id": "ui-20261008-002", "state": "running", "created": "2026-10-08T19:02:11+00:00",
+                     "finished": None, "validation": None, "summary": None, "withheld": None},
+                    {"id": "ui-20261008-001", "state": "completed", "created": "2026-10-08T18:22:05+00:00",
+                     "finished": "2026-10-08T18:26:40+00:00", "validation": "PASS",
+                     "summary": "Updated [file] for owner-route compatibility.", "withheld": None},
+                    {"id": "ui-20261006-003", "state": "failed", "created": "2026-10-06T14:50:02+00:00",
+                     "finished": "2026-10-06T14:58:40+00:00", "validation": "FAIL", "summary": None,
+                     "withheld": "name"}], **meta}}),
+                "403": refusal("A session of the main host (a reader's), or a request that did not come through "
+                               "the gateway's owner host.", "Owner only.", "Not allowed."),
+                "503": refusal("The owner's timer has not written its status yet, or it cannot be read.",
+                               OWNER_UNAVAILABLE),
+            }, description="On the owner host. The main host answers 403 Owner only to a signed-in session. The "
+                           "owner's timer reads queue.sqlite3 read only and the summary of each run's result.json "
+                           "through the name check; a summary with a finding is withheld with its class only. No "
+                           "file name and no other text of the queue crosses.")},
         "/api/owner/intake": {"get": owner_op(
             "listOwnerIntake", "Per customer code the candidates that wait for a review.", "OwnerIntake",
             {"customers": [{"customer": "CUST-Q7M4", "waiting": 3, "time": "2026-10-08T09:12:40Z"}]},
@@ -1364,7 +1398,7 @@ def _owner_only(paths: dict) -> None:
             moved = (path in ("/api/customers", "/api/customer-operations/{request_id}",
                               "/api/project-operations/{request_id}") or path.startswith("/api/projects/{code}/materials")
                      or (path == "/api/projects" and method == "post"))
-            if not (moved or path.startswith("/api/owner/")):
+            if not (moved or path.startswith("/api/owner/") or path == "/api/ui-runs"):
                 continue
             op["security"] = [{"owner": []}]
             op["servers"] = [OWNER_SERVER]

@@ -651,7 +651,8 @@ class Auth:
 OWNER_COOKIE = '__Host-awb-owner'
 OWNER_LOGIN_COOKIE = '__Host-awb-owner-login'
 OWNER_FAIL_TEXT = 'The username, password or code is incorrect.'
-OWNER_ACTIONS = ('/api/owner/state', '/api/owner/ui-runs', '/api/owner/intake')
+OWNER_ACTIONS = ('/api/owner/state', '/api/owner/ui-runs', '/api/owner/intake', '/api/ui-runs')
+OWNER_ONLY_TEXT = b'{"error":"Owner only."}'
 OWNER_POSTS = ('/api/owner/publish',)
 
 
@@ -886,6 +887,11 @@ class Gateway(BaseHTTPRequestHandler):
         if path.startswith('/api/owner/') or is_moved(path, self.command):
             # T9 step 2: the owner routes and the routes that show or take customer data live on the owner host
             self.reply(404, b'Not found.\n')
+            return
+        if path == '/api/ui-runs':
+            # T7 part 2: the UI runs answer on the owner host only; a session of the main host is a reader's
+            self.refusal = 'level'
+            self.reply(403, OWNER_ONLY_TEXT, {'Content-Type': 'application/json; charset=utf-8'})
             return
         if self.command == 'POST':
             # Cookie sessions require the exact HTTPS origin for submitted questions.

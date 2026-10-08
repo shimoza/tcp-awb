@@ -1415,6 +1415,34 @@
    "status": "passing"
   },
   {
+   "id": "T7-13",
+   "phase": "T7",
+   "name": "GET /api/ui-runs answers on the owner host newest first with id, state, created, finished, validation, summary, withheld; 403 Owner only for a reader session of the main host before any backend, 401 without a session; /api/owner/ui-runs keeps its shape",
+   "run": ".venv/bin/pytest tests/test_web_owner_api.py::test_ui_runs_answer_on_the_owner_host_newest_first_and_owner_only",
+   "status": "passing"
+  },
+  {
+   "id": "T7-14",
+   "phase": "T7",
+   "name": "owner-actions refuses /api/ui-runs to a request whose level is not owner",
+   "run": ".venv/bin/pytest tests/test_web_owner_api.py::test_owner_actions_refuses_the_ui_runs_to_a_reader_level",
+   "status": "passing"
+  },
+  {
+   "id": "T7-15",
+   "phase": "T7",
+   "name": "the UI runs from a temporary queue opened read only: a planted registered form in a summary is withheld by class, a file name is masked, no task, detail, limitation or validation text crosses, a check that cannot run withholds every summary, the shape refuses a summary with a class",
+   "run": ".venv/bin/pytest tests/test_web_owner_api.py::test_the_ui_runs_come_from_a_temporary_queue_and_a_registered_form_in_a_summary_is_withheld_by_class",
+   "status": "passing"
+  },
+  {
+   "id": "T7-16",
+   "phase": "T7",
+   "name": "the contract: every owner operation, /api/ui-runs included, needs the owner session; no unlock (replaces the T9 contract test)",
+   "run": ".venv/bin/pytest tests/test_web_owner_api.py::test_the_contract_has_no_unlock_and_every_owner_operation_with_the_ui_runs_needs_the_owner_session",
+   "status": "passing"
+  },
+  {
    "id": "T12-1",
    "phase": "T12",
    "name": "code view: twenty dotted Terraform references give no url hit",
@@ -2136,6 +2164,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 305,
+ "total_tests": 309,
  "checked": "2026-10-08"
 }
