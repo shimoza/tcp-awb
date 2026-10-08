@@ -43,7 +43,7 @@ from awb.tcp import price
 
 NAME = "TCP Facts"
 SLUG = "tcp-facts"
-REGIONS = ("eu-de", "eu-nl", "eu-ch2")
+REGIONS = ("eu-de", "eu-nl")            # eu-ch2 is the Swiss offering, not a region of the TCP service description
 BEST_BEFORE_DAYS = 30                   # the re-check period of an availability fact
 OLD_AFTER_DAYS = 90
 LICENCE = "CC BY 4.0"
@@ -121,7 +121,7 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
     return [
         ("h1", "%s %s: how to use it" % (NAME, day)),
         ("p", "%d checked factsabout T Cloud Public (TCP) with the list of "
-              "orderable services and the public price list of three regions. Made to be dropped into any AI "
+              "orderable services and the public price list of two regions. Made to be dropped into any AI "
               "assistant." % n_facts),
         ("p", "%d facts were tested live on a TCP tenant, %d come from the vendor documentation and %d from the "
               "service description (revision %s). No fact from hearsay, no expired fact, no customer, no project, "
