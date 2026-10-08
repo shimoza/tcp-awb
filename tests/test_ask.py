@@ -56,6 +56,26 @@ def test_the_answer_comes_from_the_tools_and_names_the_entry(facts):
     assert ask.budget_left() == (ask.DAILY_QUESTIONS - 1, ask.DAILY_TOKENS - 470)
 
 
+def test_kb_find_withholds_a_form_registered_after_the_add(facts, monkeypatch):
+    """TM0 item 6: the tool hands the model no entry whose form was registered after the add, and nothing at all
+    when the check cannot run."""
+    from awb import register
+
+    kb.add("The invented node flavors also run in %s." % fixtures.CONTROL_UNREGISTERED, scope="tcp", tags=["cce"],
+           grade="live", cls="stable", source="an invented live check", where=facts, register_path=facts.register)
+    assert fixtures.CONTROL_UNREGISTERED in ask.run_tool(facts, "kb_find", {"query": "node flavors"})
+    register.add(facts.register, fixtures.CUSTOMER_CODE + "-SITE-2", "SITE", fixtures.CONTROL_UNREGISTERED)
+    out = ask.run_tool(facts, "kb_find", {"query": "node flavors"})
+    assert fixtures.CONTROL_UNREGISTERED not in out and "three node flavors" in out
+
+    def broken(*a, **k):
+        raise kb.KBError("name check unavailable")
+
+    monkeypatch.setattr(kb, "screen", broken)
+    out = ask.run_tool(facts, "kb_find", {"query": "node flavors"})
+    assert "flavors" not in out and "cannot run" in out
+
+
 def test_a_registered_name_or_structured_data_never_leaves(facts):
     api = Api()
     for q in ("What does %s run on the cluster service?" % fixtures.CUSTOMER_FORMS[0],

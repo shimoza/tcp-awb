@@ -94,6 +94,10 @@ def run_tool(p: config.Paths, name: str, args: dict) -> str:
         from awb import kb
 
         hits = [e for _, e in kb.find(str(args.get("query", ""))[:200], where=p) if not e.is_retired][:6]
+        try:
+            hits, _ = kb.screen(hits, p.register)     # a name registered after the add never reaches the model
+        except kb.KBError:
+            return json.dumps({"error": "the name check cannot run, so no fact is handed out"})
         today = datetime.date.today().isoformat()
         return json.dumps([{"id": e.id, "fact": e.statement, "grade": e.grade, "class": e.cls, "checked": e.checked,
                             "expired": bool(e.expires and e.expires < today)} for e in hits]) or "[]"

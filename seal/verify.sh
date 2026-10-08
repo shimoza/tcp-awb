@@ -214,6 +214,12 @@ allowed "the managed client settings carry the Workbench hooks" \
 allowed "the host file names the work user, so the hooks leave other users alone" \
     sh -c 'grep -Eq "^[[:space:]]*work_user[[:space:]]*=[[:space:]]*$2[[:space:]]*$" "$1"' verify "$CONF_FILE" \
     "$WORK_USER"
+kb=$(conf_value kb)
+kb="${kb:-$work_home/tcp-kb}"
+for h in pre-commit commit-msg pre-push; do
+    allowed "the knowledge base carries the $h hook of the commit gate" \
+        grep -qF -- "# awb commit gate, written by awb gate --install" "$kb/.git/hooks/$h"
+done
 allowed "the owner is in the group $WORK_GROUP" sh -c 'id -nG "$1" | tr " " "\n" | grep -qx "$2"' verify \
     "$owner" "$WORK_GROUP"
 

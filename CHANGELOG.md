@@ -141,6 +141,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - Ledger texts leak nothing and are not lost. A ledger text with a name registered after it was written is withheld
   from the career candidates, and a session hears once when the draft of its commits was refused and adds the entry
   itself.
+- The knowledge page and the questions page check every fact against today's register, so a fact with a name
+  registered later is withheld, and the knowledge base refuses a commit that skips the checks of `awb kb add`.
 
 ## Week 40, 2026-09-28 to 2026-10-04
 

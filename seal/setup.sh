@@ -643,6 +643,13 @@ step_holds() {
     done
 }
 
+step_kb_hooks() {
+    info "the knowledge base gets the commit gate as the work user: pre-commit (with awb kb verify --staged),"
+    info "commit-msg and pre-push; seal/verify.sh checks the three are there"
+    try_run runuser -u "$WORK_USER" -- env HOME="$work_home" "$BIN_LINK" gate --install --kb \
+        --repo "$work_home/tcp-kb"
+}
+
 step_ssh() {
     local keys="$owner_home/.ssh/authorized_keys"
     info "the owner's ssh keys open the work user too"
@@ -768,6 +775,7 @@ steps() {
     step_units
     step_needrestart
     step_holds
+    step_kb_hooks
     step_ssh
     step_client
     step_managed
@@ -785,6 +793,7 @@ update_steps() {
     step_units
     step_needrestart
     step_holds
+    step_kb_hooks
     step_client
     step_managed
     step_mirrors

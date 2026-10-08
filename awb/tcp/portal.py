@@ -90,8 +90,15 @@ def knowledge(p: config.Paths, q: dict) -> str:
     if not query:
         return page("Knowledge", form)
     hits = [e for _, e in kb.find(query, where=p) if not e.is_retired][:MAX_HITS]
+    # every entry passes the name check of today's register first: a name registered after its add is withheld,
+    # and without the check nothing is shown
+    try:
+        hits, withheld = kb.screen(hits, p.register)
+    except kb.KBError:
+        return page("Knowledge", form + "<p>The name check cannot run, so no fact is shown.</p>")
+    note = '<p class="muted">%d fact(s) withheld by the name check</p>' % withheld if withheld else ""
     if not hits:
-        return page("Knowledge", form + "<p>No checked fact carries these words.</p>")
+        return page("Knowledge", form + note + "<p>No checked fact carries these words.</p>")
     rows = "".join(
         '<tr><td>%s</td><td class="grade">%s</td><td>%s</td><td>%s%s</td><td class="muted">%s</td></tr>'
         % (_e(e.statement), _e(e.grade), _e(e.cls), _e(e.checked),
@@ -99,7 +106,7 @@ def knowledge(p: config.Paths, q: dict) -> str:
         for e in hits)
     table = ("<table><tr><th>fact</th><th>grade</th><th>class</th><th>checked</th><th>entry</th></tr>%s</table>"
              % rows)
-    return page("Knowledge", form + "<p class=\"muted\">%d facts, best match first</p>" % len(hits) + table)
+    return page("Knowledge", form + note + "<p class=\"muted\">%d facts, best match first</p>" % len(hits) + table)
 
 
 def prices(p: config.Paths, q: dict) -> str:

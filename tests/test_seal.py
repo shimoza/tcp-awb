@@ -948,8 +948,10 @@ def test_the_dry_run_holds_cloudflared_and_terraform_in_the_seal_and_in_a_deploy
     assert "apt-mark" not in res.stdout
 
 
-def test_setup_update_mode_skips_the_seal_steps_and_holds_the_packages(fakebin):
-    """Replaces test_setup_update_mode_skips_the_seal_steps (T9 step 4: the update holds cloudflared and terraform,
+def test_setup_update_mode_skips_the_seal_steps_holds_the_packages_and_hooks_the_kb(fakebin):
+    """Replaces test_setup_update_mode_skips_the_seal_steps_and_holds_the_packages (TM0 item 7: the update installs
+    the commit gate of the knowledge base, step_kb_hooks after step_holds), which replaced
+    test_setup_update_mode_skips_the_seal_steps (T9 step 4: the update holds cloudflared and terraform,
     step_holds after step_needrestart). Planted: the full mode prints the chown of the shared tree, the users and the moves (so the checks can fail);
     the update mode prints none of them, no mount, no rm -rf of src, and prints the .pth line, the exchange, every
     seal/*.service and the needrestart rule. A grep over the script finds no rm -rf of src."""
@@ -983,7 +985,7 @@ def test_setup_update_mode_skips_the_seal_steps_and_holds_the_packages(fakebin):
     assert not re.search(r'rm -rf[^\n]*\$OPT/src["\s]', text)
     assert re.search(r"^update_steps\(\) \{\n(    #.*\n)?    if \[ \"\$units_only\" -eq 1 \]; then\n        step_units\n"
                      r"        return 0\n    fi\n    step_code\n    step_conf\n    step_units\n    step_needrestart\n"
-                     r"    step_holds\n    step_client\n    step_managed\n    step_mirrors\n\}", text, re.M)
+                     r"    step_holds\n    step_kb_hooks\n    step_client\n    step_managed\n    step_mirrors\n\}", text, re.M)
     # --units-only: the units and daemon-reload, nothing else
     res = run_script(SETUP, ["--update", "--units-only", "--dry-run"], fakebin)
     assert res.returncode == 0, res.stderr
@@ -991,3 +993,35 @@ def test_setup_update_mode_skips_the_seal_steps_and_holds_the_packages(fakebin):
     assert only == ["+ write /etc/systemd/system/%s (mode 644, root:root)" % p.name
                     for p in sorted(SEAL.glob("*.service"))] + ["+ systemctl daemon-reload"]
     assert run_script(SETUP, ["--units-only", "--dry-run"], fakebin).returncode == 1
+
+
+def test_the_seal_installs_the_commit_gate_of_the_knowledge_base_and_verify_checks_it(fakebin, tmp_path):
+    """TM0 item 7: the first seal and every update run awb gate --install --kb as the work user on its tcp-kb;
+    verify.sh checks the three hooks by their mark. Planted: a knowledge base without its commit-msg hook fails."""
+    for args in (["--dry-run"], ["--update", "--dry-run"]):
+        res = run_script(SETUP, args, fakebin)
+        assert res.returncode == 0, res.stderr
+        lines = [x for x in res.stdout.splitlines() if " gate --install --kb --repo " in x]
+        assert len(lines) == 1 and lines[0].startswith("+ runuser -u awb -- env HOME="), args
+        assert lines[0].endswith("/tcp-kb")
+    res = run_script(SETUP, ["--update", "--units-only", "--dry-run"], fakebin)
+    assert "gate --install" not in res.stdout
+    res = run_script(VERIFY, ["--dry-run"], fakebin)
+    checks = [line[6:] for line in res.stdout.splitlines() if line.startswith("CHECK ")]
+    for h in ("pre-commit", "commit-msg", "pre-push"):
+        assert "the knowledge base carries the %s hook of the commit gate" % h in checks
+    from awb import gate
+
+    kb = tmp_path / "tcp-kb"
+    subprocess.run(["git", "init", "-q", str(kb)], check=True)
+    gate.install_hook(kb, kb=True)
+    text = VERIFY.read_text(encoding="utf-8")
+    mark = re.search(r'grep -qF -- "([^"]+)" "\$kb/\.git/hooks/\$h"', text).group(1)
+    assert mark == gate.HOOK_MARK
+
+    def present(h):
+        return subprocess.run(["grep", "-qF", "--", mark, str(kb / ".git" / "hooks" / h)]).returncode == 0
+
+    assert all(present(h) for h in gate.HOOK_NAMES)
+    (kb / ".git" / "hooks" / "commit-msg").unlink()
+    assert not present("commit-msg")

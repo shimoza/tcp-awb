@@ -47,6 +47,27 @@ def test_the_knowledge_page_finds_a_fact_with_its_grade(served):
     assert get(served, "/kb?q=nothingmatcheszzz")[2].count("No checked fact") == 1
 
 
+def test_the_knowledge_page_withholds_a_form_registered_after_the_add(served, home, monkeypatch):
+    """TM0 item 6: an entry with a form registered after its add is withheld; without the check nothing shows."""
+    from awb import register
+
+    kb.add("The invented cluster service runs a second site in %s." % fixtures.CONTROL_UNREGISTERED, scope="tcp",
+           tags=["cce"], grade="live", cls="stable", source="an invented live check", where=home,
+           register_path=home.register)
+    assert fixtures.CONTROL_UNREGISTERED in get(served, "/kb?q=cluster+site")[2]
+    register.add(home.register, fixtures.CUSTOMER_CODE + "-SITE-2", "SITE", fixtures.CONTROL_UNREGISTERED)
+    body = get(served, "/kb?q=cluster+site")[2]
+    assert fixtures.CONTROL_UNREGISTERED not in body and "withheld by the name check" in body
+    assert "three flavors" in get(served, "/kb?q=cluster+flavors")[2]
+
+    def broken(*a, **k):
+        raise kb.KBError("name check unavailable")
+
+    monkeypatch.setattr(kb, "screen", broken)
+    body = get(served, "/kb?q=cluster+flavors")[2]
+    assert "three flavors" not in body and "cannot run" in body
+
+
 def test_every_value_is_escaped(served):
     body = get(served, "/kb?q=%3Cscript%3Ealert(1)%3C/script%3E")[2]
     assert "<script>" not in body and "&lt;script&gt;" in body
