@@ -76,6 +76,9 @@ _TOOL_RULES = (                                   # the Workbench's own commands
     (re.compile(r"\b(?:Architect )?Workbench\b"), "the tooling"),
 )
 _TOOL_LEFT_RE = re.compile(r"\bawb\b|key service|lab bucket|workbench", re.I)
+_HOST_RE = re.compile(r"[a-z0-9.-]*otc\.t-systems\.com|opentelekomcloud|open-telekom-cloud\.com|otc-service\.com|"
+                      r"open-telekom-price-api", re.I)
+_OPERATOR_RE = re.compile(r"t-systems|deutsche telekom|telekom deutschland", re.I)
 _PLANT_TOOL = "awb cloud call against a TCP test tenant, then a DELETE through the key service into the lab bucket"
 _PLANT = "the read key of test tenant test-10491 and a call on test-10497"
 
@@ -281,6 +284,17 @@ def not_offered(catalog: offered.Catalog, today: str, *names: str) -> bool:
 _NEG_RE = re.compile(r"not offered|no longer|ramped down|withdrawn|not orderable|not be ordered|cannot be ordered|"
                      r"end of life|no entry|does not list|not listed|not in the service description|discontinued|"
                      r"retired|dropped|drops |removed|no proof|is not offered|absent", re.I)
+
+
+def operator_named(records: list[dict]) -> list[str]:
+    """Ids of the facts whose statement, source or tried texts name the operator outside a host name or the
+    provider's package name. Reported, not refused: the owner decides the wording."""
+    out = []
+    for r in records:
+        text = _HOST_RE.sub("", " ".join([r["statement"], r["source"], *r.get("tried", [])]))
+        if _OPERATOR_RE.search(text):
+            out.append(r["id"])
+    return out
 
 
 def facts_check(records: list[dict], catalog: offered.Catalog, day: str) -> tuple[list[dict], list[tuple[str, list[str]]]]:
@@ -495,6 +509,8 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
 
     check_lines = price_check(kept_rows, sample=sample, seed=day) if live and kept_rows else \
         ["live price check skipped"]
+    named = operator_named(records)
+    check_lines.append("operator named in prose: %s" % (", ".join(named) if named else "none"))
     blocks = _how_to_blocks(day, best_before, len(records), grades, len(svc), revision, counts)
     (root / "PROMPT.md").write_text(blocks_to_markdown(blocks), encoding="utf-8")
     (root / "HOW-TO.pdf").write_bytes(pdf_bytes(blocks, "%s %s: how to use it" % (NAME, day)))

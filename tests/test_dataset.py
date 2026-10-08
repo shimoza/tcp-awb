@@ -83,6 +83,9 @@ def test_build_writes_every_file_with_the_rules_and_no_tenant_alias(home, facts,
     assert "3 facts (docs 1, live 2)" in out and "3 topics" in out and "prices eu-de 1" in out
     assert "best before 2026-11-07" in out and "left out: grade 1" in out
     assert "live price check eu-de: 1 rows of 1 services match the API" in out
+    assert "operator named in prose: none" in out
+    assert dataset.operator_named([{"id": "KB-X", "statement": "the host iam.eu-de.otc.t-systems.com answers", "source": "", "tried": []}]) == []
+    assert dataset.operator_named([{"id": "KB-Y", "statement": "fine", "source": "a page of T-Systems", "tried": []}]) == ["KB-Y"]
     root = tmp_path / "ds" / "tcp-facts-2026-10-08"
     names = {str(x.relative_to(root)) for x in root.rglob("*") if x.is_file()}
     assert {"README.md", "PROMPT.md", "HOW-TO.pdf", "facts.md", "facts.jsonl", "services.md", "MANIFEST.json",
