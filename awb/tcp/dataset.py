@@ -34,6 +34,7 @@ import hashlib
 import io
 import json
 import os
+import random
 import re
 import shutil
 import sys
@@ -259,6 +260,83 @@ def not_offered(catalog: offered.Catalog, today: str, *names: str) -> bool:
     return False
 
 
+# --------------------------------------------------------------------------- the checks of a build
+
+_NEG_RE = re.compile(r"not offered|no longer|ramped down|withdrawn|not orderable|not be ordered|cannot be ordered|"
+                     r"end of life|no entry|does not list|not listed|not in the service description|discontinued|"
+                     r"retired|dropped|drops |removed|no proof|is not offered|absent", re.I)
+
+
+def facts_check(records: list[dict], catalog: offered.Catalog, day: str) -> tuple[list[dict], list[tuple[str, list[str]]]]:
+    """(kept, flagged). A fact that names a service the service description does not offer, without saying that it
+    is not offered, is flagged: the documentation and the API still know such services, the dataset must not read
+    as if they could be ordered."""
+    kept, flagged = [], []
+    for r in records:
+        named = offered.mentions(r["statement"], catalog, day)
+        if named and not (r.get("negative") or _NEG_RE.search(r["statement"])):
+            flagged.append((r["id"], named))
+        else:
+            kept.append(r)
+    return kept, flagged
+
+
+def _prove_facts_check(catalog: offered.Catalog, day: str) -> None:
+    plants = [{"id": "KB-PLNT", "statement": "Bare Metal Server (BMS) is offered in eu-de with three flavors.",
+               "negative": False},
+              {"id": "KB-PLN2", "statement": "ECS flavor s3.large.2 is offered in eu-de.", "negative": False},
+              {"id": "KB-PLN3", "statement": "Bare Metal Server (BMS) is ramped down on TCP.", "negative": False}]
+    _, flagged = facts_check(plants, catalog, day)
+    if [f[0] for f in flagged] != ["KB-PLNT"]:
+        raise DatasetError("the offered check over the facts failed its own test; nothing was built")
+
+
+def _prove_price_filter(catalog: offered.Catalog, day: str) -> None:
+    if not not_offered(catalog, day, "bms", "BARE METAL") or not_offered(catalog, day, "ecs", "ELASTIC CLOUD SERVER"):
+        raise DatasetError("the price filter failed its own test; nothing was built")
+
+
+def price_check(kept: dict[str, list], *, sample: int, seed: str, fetch=None) -> list[str]:
+    """A few rows of every region fetched again from the live price API and compared by record id and PAYG price,
+    after the comparison proved on a planted wrong price that it can fail. Raises DatasetError on a mismatch or a
+    row the API no longer serves; returns one line per region."""
+    fetch = fetch or price.fetch
+    rng = random.Random(seed)
+    lines = []
+    for region, recs in kept.items():
+        picks = rng.sample(recs, min(sample, len(recs)))
+        if not picks:
+            continue
+        by_service: dict[str, list] = {}
+        for r in picks:
+            by_service.setdefault(r.service, []).append(r)
+        live: dict[str, price.Record] = {}
+        for service in by_service:
+            got = fetch(service, region)
+            live.update({x.id: x for x in got.records})
+
+        def mismatches(rows) -> list[str]:
+            out = []
+            for r in rows:
+                want = r.price("PAYG")
+                got_r = live.get(r.id)
+                if got_r is None:
+                    out.append("%s not served live" % r.id)
+                elif got_r.price("PAYG") != want:
+                    out.append("%s snapshot %s live %s" % (r.id, want, got_r.price("PAYG")))
+            return out
+
+        planted = price.Record.from_raw(dict(picks[0].raw, priceAmount="9.999999 EUR"))
+        if not mismatches([planted]):
+            raise DatasetError("the live price check failed its own test; nothing was built")
+        bad = mismatches(picks)
+        if bad:
+            raise DatasetError("live price check of %s: %s; take a new price snapshot and build again"
+                               % (region, "; ".join(bad)))
+        lines.append("live price check %s: %d rows of %d services match the API" % (region, len(picks), len(by_service)))
+    return lines
+
+
 # --------------------------------------------------------------------------- the build
 
 
@@ -285,7 +363,7 @@ def _sha(path: Path) -> str:
 
 
 def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | None = None,
-          force: bool = False) -> Built:
+          force: bool = False, live: bool = True, sample: int = 3) -> Built:
     """The folder tcp-facts-<date>/ and the zip beside it. Refused without facts, over an existing folder
     unless `force`, and when a tenant alias is left in any file."""
     _prove_rewrite()
@@ -295,6 +373,13 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
     records, left = kb.export(p, today=today)
     if not records:
         raise DatasetError("no fact fit to leave: nothing to build")
+    catalog = offered.load()
+    _prove_facts_check(catalog, day)
+    _prove_price_filter(catalog, day)
+    records, flagged = facts_check(records, catalog, day)
+    left["names a service not offered"] = len(flagged)
+    if not records:
+        raise DatasetError("no fact left after the offered check: nothing to build")
     for r in records:
         r["statement"] = tenant_free(r["statement"])
         r["source"] = tenant_free(r["source"])
@@ -307,7 +392,6 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
         bytag.setdefault((r["tags"] or ["other"])[0], []).append(r)
     tags = sorted(bytag, key=lambda t: (-len(bytag[t]), t))
 
-    catalog = offered.load()
     revision = offered.revision_label(catalog) or "unknown"
     snapshots: dict[str, tuple[dict, list[price.Record]]] = {}
     for region in REGIONS:
@@ -318,7 +402,6 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
     for meta, _ in snapshots.values():
         fetched = max(fetched, str(meta.get("fetched_at") or ""))
     counts = {r: len(recs) for r, (_, recs) in snapshots.items()}
-    left_out: dict[str, dict[str, int]] = {}
 
     base = out or config.make_dir(datasets_dir(p), 0o2775, shared=True)
     root = base / ("%s-%s" % (SLUG, day))
@@ -328,6 +411,19 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
         shutil.rmtree(root)
     (root / "topics").mkdir(parents=True)
     (root / "prices").mkdir()
+    try:
+        return _write(root, p, day, best_before, fetched, records, flagged, left, grades, bytag, tags, catalog, revision,
+                      snapshots, counts, live, sample)
+    except Exception:
+        shutil.rmtree(root, ignore_errors=True)      # a refused build leaves no half-written folder behind
+        raise
+
+
+def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str, records: list[dict], flagged,
+           left: dict, grades: dict, bytag: dict, tags: list[str], catalog, revision: str, snapshots: dict,
+           counts: dict, live: bool, sample: int) -> Built:
+    left_out: dict[str, dict[str, int]] = {}
+    kept_rows: dict[str, list] = {}
     head = header(day, best_before, fetched)
 
     parts = [head, "# %s %s" % (NAME, day), "",
@@ -365,6 +461,7 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
             else:
                 keep.append(rec)
         left_out[region] = dict(gone)
+        kept_rows[region] = keep
         counts[region] = len(keep)
         with (root / "prices" / (region + ".csv")).open("w", encoding="utf-8", newline="") as f:
             f.write("# TCP price list %s, public price API, fetched %s. Prices per unit in EUR, net. payg = pay as "
@@ -379,6 +476,8 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
             for rec in keep:
                 w.writerow([str(rec.raw.get(k, "")).replace(" EUR", "") for _, k in PRICE_COLUMNS])
 
+    check_lines = price_check(kept_rows, sample=sample, seed=day) if live and kept_rows else \
+        ["live price check skipped"]
     blocks = _how_to_blocks(day, best_before, len(records), grades, len(svc), revision, counts)
     (root / "PROMPT.md").write_text(blocks_to_markdown(blocks), encoding="utf-8")
     (root / "HOW-TO.pdf").write_bytes(pdf_bytes(blocks, "%s %s: how to use it" % (NAME, day)))
@@ -390,13 +489,13 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
     for path in sorted(root.rglob("*")):
         if path.is_file() and path.suffix in (".md", ".jsonl", ".csv"):
             if _LEFT_RE.search(path.read_text(encoding="utf-8")):
-                shutil.rmtree(root)
                 raise DatasetError("a tenant alias was left in %s; the folder was removed" % path.name)
 
     files = sorted(x for x in root.rglob("*") if x.is_file())
     manifest = {"dataset": NAME, "date": day, "best_before": best_before, "facts": len(records), "grades": grades,
                 "topics": {t: len(bytag[t]) for t in tags}, "services": len(svc), "service_description": revision,
-                "prices": {"fetched": fetched, "records": counts, "left_out": left_out}, "licence": LICENCE, "author": author(),
+                "prices": {"fetched": fetched, "records": counts, "left_out": left_out},
+                "facts_left_out": [{"id": i, "names": n} for i, n in flagged], "licence": LICENCE, "author": author(),
                 "files": {str(x.relative_to(root)): {"bytes": x.stat().st_size, "sha256": _sha(x)} for x in files}}
     (root / "MANIFEST.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -409,7 +508,10 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
     built.lines = ["%s: %d facts (%s), %d topics, %d services of revision %s, prices %s"
                    % (root.name, len(records), ", ".join("%s %d" % kv for kv in sorted(grades.items())), len(tags),
                       len(svc), revision, ", ".join("%s %d" % kv for kv in counts.items()) or "none"),
-                   "left out: " + ", ".join("%s %d" % kv for kv in left.items() if kv[1]),
+                   "left out: " + ", ".join("%s %d" % kv for kv in left.items() if kv[1])
+                   + ("; facts naming a service not offered: %s" % ", ".join("%s (%s)" % (i, ", ".join(n)) for i, n in flagged)
+                      if flagged else ""),
+                   *check_lines,
                    "zip %s, %d bytes, best before %s" % (zpath.name, zpath.stat().st_size, best_before)]
     return built
 
@@ -459,6 +561,8 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--out", type=Path, default=None, help="where the folder goes (default: <shared>/datasets)")
     b.add_argument("--date", default=None, help="the date of the dataset (default: today)")
     b.add_argument("--force", action="store_true", help="build again over the folder of that date")
+    b.add_argument("--no-live", action="store_true", help="skip the live price check (offline)")
+    b.add_argument("--price-sample", type=int, default=3, help="rows per region checked against the live API")
     u = sub.add_parser("put", help="the zip, the how-to PDF and the manifest into the owner's bucket")
     u.add_argument("--out", type=Path, default=None, help="where the folders are (default: <shared>/datasets)")
     u.add_argument("--date", default=None, help="the dataset of that date (default: the newest)")
@@ -476,7 +580,8 @@ def main(argv: list[str] | None = None) -> int:
             raise DatasetError("the date reads YYYY-MM-DD")
         if args.command == "build":
             today = datetime.date.fromisoformat(args.date) if args.date else None
-            built = build(p, out=args.out, today=today, force=args.force)
+            built = build(p, out=args.out, today=today, force=args.force, live=not args.no_live,
+                          sample=max(1, args.price_sample))
             for line in built.lines:
                 print("awb dataset build: " + line)
             return 0

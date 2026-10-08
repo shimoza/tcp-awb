@@ -89,3 +89,29 @@ def test_the_hooks_remember_at_the_start_and_tell_on_a_clean_prompt(home, regist
     assert code == 0 and json.loads(out)["hookSpecificOutput"]["additionalContext"] == rulesync.NOTICE
     assert run_hook("prompt", dict(payload, prompt="size the clusters"), monkeypatch, capsys) == (0, "", "")
     assert os.path.exists(home.shared / "sessions" / "rules-a-session.json")
+
+
+def test_the_sync_brings_the_import_line_into_a_project_of_the_intake(tmp_path):
+    """T4: a project made before wipe mode names `awb intake` for the copies of the outbox; the sync names his
+    `awb import` and the notice of new input."""
+    root = old_project(tmp_path)
+    rulesync.sync_project(root)
+    before = (root / "CLAUDE.md").read_text(encoding="utf-8")
+    (root / "CLAUDE.md").write_text(before.replace("`awb import` wait in the outbox (the prompt says \"new input\" when "
+                                                   "they come)", "`awb intake` wait in the outbox"), encoding="utf-8")
+    assert rulesync.sync_project(root) == ["CLAUDE.md"]
+    text = (root / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "Copies of his own `awb import` wait in the outbox" in text and "`awb intake`" not in text
+
+
+def test_the_rules_notice_and_the_input_notice_come_in_one_text(home, tmp_path, monkeypatch):
+    from tests import fixtures as fx
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    root = old_project(tmp_path)
+    (home.outbox / fx.CUSTOMER_CODE).mkdir(parents=True, exist_ok=True)
+    (home.outbox / fx.CUSTOMER_CODE / "F-ABCD.md").write_text("x", encoding="utf-8")
+    rulesync.post_input(home, fx.CUSTOMER_CODE, root.name, ["F-ABCD"])
+    said = rulesync.notice(home, "a-session", root)
+    assert said.startswith(rulesync.NOTICE) and said.endswith(rulesync.INPUT % (1, fx.CUSTOMER_CODE))
+    assert rulesync.notice(home, "a-session", root) is None

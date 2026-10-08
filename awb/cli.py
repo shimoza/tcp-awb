@@ -32,6 +32,8 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     awb images list|release                                  awb/images.py
     awb hook prompt|pre-write|post-write|stop|session-start  awb/hooks.py
     awb seal check                                           awb/seal.py
+    awb import CODE [FILE...] [--customer C|new] [--review] [--redo]    awb/importcmd.py (owner side)
+    awb words update                                         awb/words.py    (owner side)
     awb bucket sync|folder|pull|put|move                     awb/bucket.py   (owner side)
     awb reveal FILE --out PATH                               awb/reveal.py   (owner side)
     awb price find|snapshot|diff|check                       awb/tcp/price.py
@@ -521,6 +523,8 @@ DELEGATED = {
     "images": ("images", "pictures of the intake, held on the vault side: list, release"),
     "seal": ("seal", "checks of the seal between the vault and working sessions"),
     "bucket": ("bucket", "the owner's bucket: sync, folder, pull, put, move"),
+    "import": ("importcmd", "customer material into a project in one command: the bucket, the vault inbox or files"),
+    "words": ("words", "the vocabulary of the public corpus for the intake: update (owner side)"),
     "reveal": ("reveal", "put the real names back into a finished text (owner side)"),
     "price": ("tcp.price", "live prices of T Cloud Public (TCP): find, snapshot, diff, check a sheet"),
     "cloud": ("tcp.cloud", "read-only calls to the TCP API with the owner's key"),

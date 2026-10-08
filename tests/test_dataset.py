@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from types import SimpleNamespace
+
 from awb import cli, kb
 from awb.tcp import dataset, price
 from tests import fixtures as fx
@@ -42,7 +44,17 @@ def snapshot(home, region: str, day: str, records: list[dict]) -> Path:
 
 
 @pytest.fixture
-def facts(home):
+def live(monkeypatch):
+    """The live price API answers with the records of the snapshot of 2026-10-07 (the same values)."""
+    def fetch(service, region):
+        rows = [dict(RAW, priceAmount="0.051000 EUR")]
+        return SimpleNamespace(records=[price.Record.from_raw(r) for r in rows if r["productIdParameter"] == service])
+    monkeypatch.setattr(price, "fetch", fetch)
+    return fetch
+
+
+@pytest.fixture
+def facts(home, live):
     live = new(S_ECS, grade="live", source="live API call on test-10491, eu-de")
     new(S_OBS, grade="docs", tags=["obs", "storage"])
     new(S_IAM, grade="live", tags=["iam"], source="the read key of test tenant test-10497 in eu-de")
@@ -66,6 +78,7 @@ def test_build_writes_every_file_with_the_rules_and_no_tenant_alias(home, facts,
     out = capsys.readouterr().out
     assert "3 facts (docs 1, live 2)" in out and "3 topics" in out and "prices eu-de 1" in out
     assert "best before 2026-11-07" in out and "left out: grade 1" in out
+    assert "live price check eu-de: 1 rows of 1 services match the API" in out
     root = tmp_path / "ds" / "tcp-facts-2026-10-08"
     names = {str(x.relative_to(root)) for x in root.rglob("*") if x.is_file()}
     assert {"README.md", "PROMPT.md", "HOW-TO.pdf", "facts.md", "facts.jsonl", "services.md", "MANIFEST.json",
@@ -187,3 +200,50 @@ def test_the_refresh_builds_the_dataset_after_a_clean_run_and_not_after_an_error
     ds = next(p for p in parts if p.name == "dataset")
     assert ds.lines == ["not built: knowledge ended in an error"]
     assert not (dataset.datasets_dir(home) / "tcp-facts-2026-10-09.zip").exists()
+
+
+def test_a_fact_that_presents_a_service_not_offered_stays_out_and_a_negative_about_it_stays_in(home, facts, tmp_path, capsys):
+    offered_bms = new("Bare Metal Server (BMS) is offered in eu-de with three flavors", grade="live", tags=["bms"],
+                      source="live call on a test tenant, eu-de")
+    gone_bms = new("Bare Metal Server (BMS) is ramped down on TCP and no longer orderable", grade="live", tags=["bms"],
+                   source="live call on a test tenant, eu-de", tried=("flavor listing, eu-de", "console order form, eu-de"))
+    assert cli.main(["dataset", "build", "--out", str(tmp_path / "ds"), "--date", "2026-10-08"]) == 0
+    out = capsys.readouterr().out
+    assert "facts naming a service not offered: %s (Bare Metal Server)" % offered_bms.id in out
+    facts_md = (tmp_path / "ds" / "tcp-facts-2026-10-08" / "facts.md").read_text()
+    assert offered_bms.id not in facts_md and gone_bms.id in facts_md
+    manifest = json.loads((tmp_path / "ds" / "tcp-facts-2026-10-08" / "MANIFEST.json").read_text())
+    assert manifest["facts_left_out"] == [{"id": offered_bms.id, "names": ["Bare Metal Server"]}]
+    assert manifest["facts"] == 4
+
+
+def test_the_checks_of_a_build_prove_themselves_first(home, facts, tmp_path, monkeypatch):
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(dataset.offered, "mentions", lambda *a, **k: [])
+        with pytest.raises(dataset.DatasetError, match="offered check over the facts failed its own test"):
+            dataset.build(home, out=tmp_path / "a", today=TODAY)
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(dataset, "not_offered", lambda *a, **k: False)
+        with pytest.raises(dataset.DatasetError, match="price filter failed its own test"):
+            dataset.build(home, out=tmp_path / "b", today=TODAY)
+    with pytest.MonkeyPatch.context() as m:
+        # the comparison that cannot tell a planted wrong price is refused
+        m.setattr(price.Record, "price", lambda self, term: None)
+        with pytest.raises(dataset.DatasetError, match="live price check failed its own test"):
+            dataset.build(home, out=tmp_path / "c", today=TODAY)
+    for name in ("a", "b", "c"):
+        assert not (tmp_path / name / "tcp-facts-2026-10-08").exists()
+
+
+def test_a_live_price_that_differs_from_the_snapshot_refuses_the_build(home, facts, tmp_path, monkeypatch, capsys):
+    def fetch(service, region):
+        return SimpleNamespace(records=[price.Record.from_raw(dict(RAW, priceAmount="0.052000 EUR"))])
+    monkeypatch.setattr(price, "fetch", fetch)
+    with pytest.raises(dataset.DatasetError, match="live price check of eu-de: OTC_ECS_S3L2 snapshot 0.051000 live 0.052000"):
+        dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    monkeypatch.setattr(price, "fetch", lambda service, region: SimpleNamespace(records=[]))
+    with pytest.raises(dataset.DatasetError, match="OTC_ECS_S3L2 not served live"):
+        dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    # offline: the check is skipped and says so
+    assert cli.main(["dataset", "build", "--out", str(tmp_path / "ds"), "--date", "2026-10-08", "--no-live"]) == 0
+    assert "live price check skipped" in capsys.readouterr().out

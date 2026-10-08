@@ -10,6 +10,12 @@ its project's CLAUDE.md and the rules it had loaded at its start predated the bu
 - The session-start hook remembers a digest of the rules a session loaded (the work rules of the seal and the
   project's CLAUDE.md); the prompt hook compares it with the files of now and, when they changed or the session
   started before this check existed, tells the session once to read them again.
+
+A second kind of notice tells a running session about new input without his message: `awb import` leaves a notice
+in <shared>/notices/ with the customer code, the project code and the file ids of its copies (codes only), and the
+next prompt of a session of that project or of a project of that customer reads "new input: N copies in the
+outbox of CUST-XXXX, report intake-report.md" once ("replaced" after `awb import --redo`). A notice whose copies
+have all left the outbox is not shown any more.
 """
 from __future__ import annotations
 
@@ -17,6 +23,8 @@ import hashlib
 import json
 import os
 import re
+import secrets
+from datetime import datetime, timezone
 from pathlib import Path
 
 from awb import config
@@ -27,8 +35,14 @@ CLAUDE_FIXES = (
      "after every step that changes the status, in the same commit."),
     ("- Customer material comes in only through `awb intake` and moves from the outbox into input/.",
      "- Files from him come through the bucket inboxes: when he says a file is in the inbox, run `awb inbox take "
+     "<his words>`, never look in the vault. Copies of his own `awb import` wait in the outbox (the prompt says "
+     "\"new input\" when they come): move them into input/."),
+    ("- Files from him come through the bucket inboxes: when he says a file is in the inbox, run `awb inbox take "
      "<his words>`, never look in the vault. Copies of his own `awb intake` wait in the outbox: move them into "
-     "input/."),
+     "input/.",
+     "- Files from him come through the bucket inboxes: when he says a file is in the inbox, run `awb inbox take "
+     "<his words>`, never look in the vault. Copies of his own `awb import` wait in the outbox (the prompt says "
+     "\"new input\" when they come): move them into input/."),
 )
 CLAUDE_ADD = (
     ("- Proof goes to evidence/, results to deliverables/, review records to reviews/.",
@@ -125,31 +139,125 @@ def _mark(p: config.Paths, session_id: str) -> Path:
     return p.shared / "sessions" / ("rules-%s.json" % sid)
 
 
-def remember(p: config.Paths, session_id: str | None, root: Path | None) -> None:
-    """The session-start hook: what this session loaded."""
-    if not session_id:
-        return
-    path = _mark(p, session_id)
+def _read_mark(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_mark(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_symlink():
         return
     tmp = path.with_name(".%s.tmp" % path.name)
-    tmp.write_text(json.dumps({"digest": digest(root)}) + "\n", encoding="utf-8")
+    tmp.write_text(json.dumps(data) + "\n", encoding="utf-8")
     os.replace(tmp, path)
+
+
+def remember(p: config.Paths, session_id: str | None, root: Path | None) -> None:
+    """The session-start hook: what this session loaded. The input notices it was told stay told."""
+    if not session_id:
+        return
+    path = _mark(p, session_id)
+    seen = _read_mark(path).get("inputs") or []
+    _write_mark(path, {"digest": digest(root), "inputs": [x for x in seen if isinstance(x, str)][-200:]})
 
 
 def notice(p: config.Paths, session_id: str | None, root: Path | None) -> str | None:
     """The prompt hook: NOTICE once when the rules changed since the session loaded them, or when the session is
-    older than this check; None otherwise and for a prompt without a session id."""
+    older than this check, and once every input notice of its project (`input_notices`); None when there is
+    nothing to say and for a prompt without a session id."""
     if not session_id:
         return None
-    path = _mark(p, session_id)
-    try:
-        seen = json.loads(path.read_text(encoding="utf-8")).get("digest")
-    except (OSError, ValueError, AttributeError):
-        seen = None
-    now = digest(root)
-    if seen == now:
+    said = [t for t in (_rules_changed(p, session_id, root),) if t] + input_notices(p, session_id, root)
+    return "\n".join(said) or None
+
+
+def _rules_changed(p: config.Paths, session_id: str, root: Path | None) -> str | None:
+    seen = _read_mark(_mark(p, session_id)).get("digest")
+    if seen == digest(root):
         return None
     remember(p, session_id, root)
     return NOTICE
+
+
+# --------------------------------------------------------------------------- new input (awb import)
+
+INPUT = "new input: %d copies in the outbox of %s, report intake-report.md"
+REPLACED = ("replaced: %d copies in the outbox of %s under the file ids they had, report intake-report.md; move them "
+            "into input/ over the earlier ones")
+_NOTICE_RE = re.compile(r"input-[0-9TZ-]+-[0-9a-f]{8}\.json")
+_FILE_ID_RE = re.compile(r"F-[A-Z2-7]{4}")
+
+
+def notices_dir(p: config.Paths) -> Path:
+    return p.shared / "notices"
+
+
+def post_input(p: config.Paths, customer: str, project: str, file_ids: list[str], replaced: bool = False) -> Path:
+    """Leave the notice of one import for the sessions (owner side): codes and file ids only."""
+    from awb import codes
+
+    if not codes.is_code(customer) or not codes.is_project_code(project):
+        raise ValueError("a notice carries a customer code and a project code")
+    ids = [f for f in file_ids if _FILE_ID_RE.fullmatch(f)]
+    folder = config.make_dir(notices_dir(p), 0o750, shared=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = folder / ("input-%s-%s.json" % (stamp, secrets.token_hex(4)))
+    data = {"customer": customer, "project": project, "ids": ids, "replaced": bool(replaced)}
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(data) + "\n")
+    return path
+
+
+def _project_customer(p: config.Paths, code: str) -> str | None:
+    from awb import projects
+
+    try:
+        for pr in projects.load(p):
+            if pr.code == code:
+                return pr.customer
+    except projects.ProjectError:
+        pass
+    return None
+
+
+def input_notices(p: config.Paths, session_id: str | None, root: Path | None) -> list[str]:
+    """The lines of the input notices this session has not been told yet: a notice of its project, or of the
+    customer of its project, whose copies still wait in the outbox. Each is told once per session."""
+    if not session_id or root is None:
+        return []
+    code = Path(root).name
+    customer = _project_customer(p, code)
+    try:
+        names = sorted(f.name for f in notices_dir(p).iterdir() if _NOTICE_RE.fullmatch(f.name))
+    except OSError:
+        return []
+    path = _mark(p, session_id)
+    mark = _read_mark(path)
+    seen = [x for x in (mark.get("inputs") or []) if isinstance(x, str)]
+    out: list[str] = []
+    for name in names:
+        if name in seen:
+            continue
+        f = notices_dir(p) / name
+        if f.is_symlink():
+            continue
+        data = _read_mark(f)
+        cust, proj, ids = data.get("customer"), data.get("project"), data.get("ids") or []
+        if not isinstance(cust, str) or not (proj == code or (customer and cust == customer)):
+            continue
+        waiting = [i for i in ids if isinstance(i, str) and _FILE_ID_RE.fullmatch(i)
+                   and (p.outbox / cust / ("%s.md" % i)).is_file()]
+        if not waiting:
+            continue
+        out.append((REPLACED if data.get("replaced") else INPUT) % (len(waiting), cust))
+        seen.append(name)
+    if out:
+        mark["inputs"] = seen[-200:]
+        mark.setdefault("digest", digest(root))
+        _write_mark(path, mark)
+    return out

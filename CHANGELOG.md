@@ -12,7 +12,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   price list of each region as CSV, a one-line prompt in `PROMPT.md` and `HOW-TO.pdf`, each text file opening
   with the rules for the assistant that reads it and a best-before date. Its price lists carry only services the
   service description offers: rows of withdrawn services and of the hand-kept not-offered list are left out and named
-  in the CSV header. `awb refresh` builds it at the end of a clean run, `awb dataset put` sends it into the bucket.
+  in the CSV header. The build checks itself: a fact that presents a service the service description does not
+  offer stays out and is named, and a few price rows per region are fetched again from the live API, each check
+  proved on a planted wrong case first. `awb refresh` builds it at the end of a clean run, `awb dataset put` sends it
+  into the bucket.
 - One deploy command. `sudo awb deploy` brings a commit live as a release of its own, restarts only the services the
   change touched, brings the rules of every project up to date and ends with the status of each service.
   `--dry-run`, `--rollback`, `--to COMMIT`, `--only UNIT...` and `awb deploy status`.
@@ -48,6 +51,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   longer stop the prompt, while names, mails and secrets still do, and `awb paste` puts a long output into the
   project with its addresses masked.
 
+- `awb import CODE` brings customer material into a project in one command, from the command line, the project's
+  bucket folder or the vault inbox. It asks once for a new customer's names on your terminal and prints counts only.
+  `--redo` runs the last import again after `awb register keep` repaired a wiped term. The project's session hears
+  of the new copies at its next prompt. `awb words update` rebuilds the word lists from the public mirrors.
 - The word lists that keep a text readable when the intake wipes names: the capitalised words and two-word phrases
   of the public TCP documentation and service description, German and Russian words of tender and architecture
   texts, first names, the products of the usual source platforms and vendors, standards, German function words and
