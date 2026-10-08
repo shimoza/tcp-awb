@@ -23,7 +23,8 @@ its git history.
 | project | a proof of concept, a lab, a migration plan | everything a query reaches, plus the test tenants |
 
 A query that turns out to need a live test becomes a project with `awb projects kind tcp-xxxx project`. A query
-never touches a tenant: the key service refuses its calls.
+never touches a tenant: the key service refuses its calls. A session's switch changes its row only; the key service
+also wants the owner's grant, which the same command writes when the owner runs it in his own terminal.
 
 ## Live tenants through the key service
 
@@ -233,7 +234,7 @@ key, the register, the key service and the first snapshot) and a second run chan
 
 ```bash
 pass insert awb/admin/test-1/domain     # and user, password
-awb tenant setup test-1 --domain-id ID [--lab-key] [--alerts]
+awb tenant setup test-1 --domain-id ID [--lab-key | --lab-user] [--alerts]
 awb keys unlock                  # after every start of the service
 ```
 

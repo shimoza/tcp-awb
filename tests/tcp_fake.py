@@ -289,6 +289,11 @@ class FakeIAM(_Server):
         self.admin_id = "u-admin"
         self.roles = [{"id": "r-guest", "name": "readonly", "display_name": "Tenant Guest"},
                       {"id": "r-admin", "name": "te_admin", "display_name": "Tenant Administrator"}]
+        self.roles += [{"id": "r-%d" % i, "name": "system_%d" % i, "display_name": name} for i, name in enumerate(
+            ("ECS FullAccess", "EVS Admin", "VPC FullAccess", "ELB FullAccess", "NAT FullAccess", "DNS FullAccess",
+             "IMS FullAccess", "OBS OperateAccess", "IAM FullAccess"))]
+        self.project_grants: set[tuple[str, str, str]] = set()
+        self.domain_grants: set[tuple[str, str]] = set()
         self.groups: dict[str, dict] = {}
         self.users: dict[str, dict] = {self.admin_id: {"id": self.admin_id, "name": user}}
         self.inherited: set[tuple[str, str]] = set()
@@ -321,6 +326,23 @@ class FakeIAM(_Server):
         parts = path.strip("/").split("/")
         if path == "/v3/roles":
             return 200, {"roles": [r for r in self.roles if r["name"] == q.get("name", r["name"])]}, {}
+        if path == "/v3/projects":
+            projects = [{"id": self.PROJECT_ID, "name": "eu-de"}, {"id": "f" * 32, "name": "eu-nl"}]
+            return 200, {"projects": [p for p in projects if p["name"] == q.get("name", p["name"])]}, {}
+        if len(parts) == 7 and parts[:2] == ["v3", "projects"] and parts[3] == "groups" and parts[5] == "roles":
+            key = (parts[2], parts[4], parts[6])
+            if method == "PUT":
+                self.project_grants.add(key)
+                return 204, {}, {}
+            return (204 if key in self.project_grants else 404), {}, {}
+        if len(parts) == 7 and parts[:2] == ["v3", "domains"] and parts[3] == "groups" and parts[5] == "roles":
+            key = (parts[4], parts[6])
+            if parts[2] != self.DOMAIN_ID:
+                return 403, {"error": {"code": 403}}, {}
+            if method == "PUT":
+                self.domain_grants.add(key)
+                return 204, {}, {}
+            return (204 if key in self.domain_grants else 404), {}, {}
         if path == "/v3/groups":
             if method == "POST":
                 g = dict(body["group"], id=self._id("g"))

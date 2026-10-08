@@ -287,3 +287,55 @@ def test_setup_refuses_a_missing_admin_login_and_a_bad_domain_id(home, tmp_path)
         tenants.setup(home, "test-1", "d" * 32, store=store, iam=tenants.Iam(endpoint="http://127.0.0.1:9"))
     with pytest.raises(tenants.TenantError, match="32 hex"):
         tenants.setup(home, "test-1", "not-an-id", store=store)
+
+
+# --------------------------------------------------------------------------- --lab-user (T12 part 3, P1)
+
+
+def test_the_lab_user_gets_the_terraform_services_in_the_lab_project_and_no_iam(home, iam_world):
+    fake, runner, state, run = iam_world
+    lines, changed = run(lab_user=True)
+    assert changed
+    group = [g for g in fake.groups.values() if g["name"] == "awb-lab"][0]
+    by_name = {r["display_name"]: r["id"] for r in fake.roles}
+    project_wide = {by_name[n] for s, n in tenants.LAB_POLICIES if s != "obs"}
+    assert fake.project_grants == {(FakeIAM.PROJECT_ID, group["id"], rid) for rid in project_wide}
+    assert fake.domain_grants == {(group["id"], by_name["OBS OperateAccess"])}
+    assert by_name["IAM FullAccess"] not in {g[2] for g in fake.project_grants} | {g[1] for g in fake.domain_grants}
+    assert not any(g[0] == group["id"] for g in fake.inherited)
+    lab = [u for u in fake.users.values() if u["name"] == "awb-lab-4711"][0]
+    assert lab["access_mode"] == "programmatic" and (group["id"], lab["id"]) in fake.members
+    stored = runner.entries["awb/tenant/%s/lab/ak" % ALIAS]
+    assert fake.credentials[stored]["user_id"] == lab["id"]
+    assert state["loaded"][ALIAS]["roles"] == ["read", "lab"]
+    text = "\n".join(lines)
+    assert "group awb-lab: created" in text and "OBS OperateAccess on the account: granted" in text
+    assert "ECS FullAccess on eu-de: granted" in text and stored not in text
+    before = len(fake.creates())
+    lines, changed = run(lab_user=True)
+    assert not changed and len(fake.creates()) == before and "lab key: present, of awb-lab-4711" in "\n".join(lines)
+
+
+def test_the_lab_user_replaces_a_lab_key_of_the_admin(home, iam_world):
+    fake, runner, state, run = iam_world
+    run(lab_key=True)
+    admin_key = runner.entries["awb/tenant/%s/lab/ak" % ALIAS]
+    assert fake.credentials[admin_key]["user_id"] == fake.admin_id
+    lines, changed = run(lab_user=True)
+    new_key = runner.entries["awb/tenant/%s/lab/ak" % ALIAS]
+    lab = [u for u in fake.users.values() if u["name"] == "awb-lab-4711"][0]
+    assert changed and new_key != admin_key and fake.credentials[new_key]["user_id"] == lab["id"]
+    replaced = [a for a, _ in runner.calls if a[:2] == ["pass", "insert"] and a[-1] == "-f"]
+    assert [a[3] for a in replaced] == ["awb/tenant/%s/lab/ak" % ALIAS, "awb/tenant/%s/lab/sk" % ALIAS]
+    assert "stays in IAM until you delete it" in "\n".join(lines) and admin_key not in "\n".join(lines)
+
+
+def test_the_lab_user_is_refused_with_the_lab_key_and_without_its_policies(home, iam_world):
+    fake, runner, state, run = iam_world
+    with pytest.raises(tenants.TenantError, match="choose one"):
+        run(lab_key=True, lab_user=True)
+    fake.roles = [r for r in fake.roles if r["display_name"] != "NAT FullAccess"]
+    with pytest.raises(tenants.TenantError, match="no system policy NAT FullAccess"):
+        run(lab_user=True)
+    assert not fake.project_grants and not fake.domain_grants
+    assert not any(u["name"] == "awb-lab-4711" for u in fake.users.values())

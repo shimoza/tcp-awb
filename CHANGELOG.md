@@ -124,6 +124,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   fresh code from the owner's phone; the code is checked twice, by the front door and by the owner service, and a
   small root service publishes only the newest passing run, never an older one or the same page again, and keeps the
   last 10 pages. `sudo awb web publish --from-queue ID --newest` does the same in the terminal.
+- A session can no longer give its own project access to a test tenant. The key service takes the project's kind
+  from the owner's grant, which `awb projects kind CODE project` writes when the owner runs it in his own terminal,
+  and from the project's row only to take access away.
+- The lab key can be a user of its own. `awb tenant setup ALIAS --lab-user` makes awb-lab-<number> with full rights
+  on the compute, network, load balancer, NAT, DNS and image services of the lab project only and on the storage of
+  the account, without any right on identities, and puts its key in place of the admin's.
 - The routine upgrade no longer updates cloudflared and Terraform: the seal and every deploy hold both packages, so
   an upgrade of either is a deliberate step.
 

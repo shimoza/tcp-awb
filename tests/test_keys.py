@@ -304,25 +304,6 @@ def test_no_service_is_a_plain_error(monkeypatch, capsys):
     assert "the key service is not running" in capsys.readouterr().err
 
 
-def test_a_session_reaches_a_tenant_only_from_a_project_of_the_kind_project(svc, gw):
-    from types import SimpleNamespace
-
-    load(svc)
-    rows = {"tcp-ab2c": SimpleNamespace(code="tcp-ab2c", kind="project"),
-            "tcp-qu3r": SimpleNamespace(code="tcp-qu3r", kind="query"),
-            "tcp-1ab4": SimpleNamespace(code="tcp-1ab4", kind="lab")}
-    svc._project_row = lambda code: rows.get(code)
-    session = __import__("os").getuid() + 1          # any uid but the service's own is a session
-    req = {"tenant": "test-1", "method": "GET", "service": "vpc", "path": "/v1/{project_id}/vpcs"}
-    with pytest.raises(keys.Refused, match="is a query"):
-        svc._call(dict(req, project="tcp-qu3r"), session)
-    with pytest.raises(keys.Refused, match="folder of an active project"):
-        svc._call(dict(req), session)
-    assert svc._call(dict(req, project="tcp-ab2c"), session)["status"] == 200
-    assert svc._call(dict(req, project="tcp-1ab4"), session)["status"] == 200      # a lab of before counts
-    assert svc._call(dict(req), __import__("os").getuid())["status"] == 200       # the owner needs no project
-
-
 def test_the_console_user_reads_a_tenant_without_a_project_and_nothing_more(svc, gw):
     """F2: the tenant inventory of the console runs as its own system user, which alone may read without a project."""
     load(svc)
@@ -548,3 +529,82 @@ def test_the_key_service_is_not_dumpable_says_ready_and_answers_ops(tmp_path, mo
             proc.wait(timeout=20)
             note.close()
         assert not (d / "admin.sock").exists()
+
+
+def test_a_session_reaches_a_tenant_only_from_a_project_the_owner_granted(svc, gw):
+    """Replaces test_a_session_reaches_a_tenant_only_from_a_project_of_the_kind_project (T12 part 3, P0): besides an
+    active row of the kind project, a session needs the owner's grant; the row alone is the work user's file."""
+    from types import SimpleNamespace
+
+    load(svc)
+    rows = {"tcp-ab2c": SimpleNamespace(code="tcp-ab2c", kind="project"),
+            "tcp-qu3r": SimpleNamespace(code="tcp-qu3r", kind="query"),
+            "tcp-1ab4": SimpleNamespace(code="tcp-1ab4", kind="lab"),
+            "tcp-nogr": SimpleNamespace(code="tcp-nogr", kind="project")}
+    svc._project_row = lambda code: rows.get(code)
+    svc._granted = lambda code: code in {"tcp-ab2c", "tcp-1ab4", "tcp-qu3r"}
+    session = __import__("os").getuid() + 1          # any uid but the service's own is a session
+    req = {"tenant": "test-1", "method": "GET", "service": "vpc", "path": "/v1/{project_id}/vpcs"}
+    with pytest.raises(keys.Refused, match="is a query"):
+        svc._call(dict(req, project="tcp-qu3r"), session)
+    with pytest.raises(keys.Refused, match="folder of an active project"):
+        svc._call(dict(req), session)
+    with pytest.raises(keys.Refused, match="no grant of the owner"):
+        svc._call(dict(req, project="tcp-nogr"), session)
+    assert svc._call(dict(req, project="tcp-ab2c"), session)["status"] == 200
+    assert svc._call(dict(req, project="tcp-1ab4"), session)["status"] == 200      # a lab of before counts
+    assert svc._call(dict(req), __import__("os").getuid())["status"] == 200       # the owner needs no project
+
+
+def test_a_session_that_edits_projects_tsv_to_kind_project_gets_no_tenant_call(svc, gw, home):
+    """P0: the work user writes kind project into its own row; without the owner's grant in the vault the key
+    service refuses its read and its write; `awb projects kind` as the owner writes the grant (mode 600) and the
+    same calls pass. The grant of a query gives nothing."""
+    import os
+
+    from awb import cli, grants, projects
+
+    load(svc)
+    folder = str(home.projects_root / PROJECT)
+    home.projects_register.parent.mkdir(parents=True, exist_ok=True)
+    projects._save(home, [projects.Project(PROJECT, "project", projects.NO_CUSTOMER, "tcp", folder,
+                                           projects.memory_key(folder), "active", "2026-10-08")])
+    svc.paths_fn = lambda: home
+    svc._project_row = keys.Service._project_row.__get__(svc)
+    svc._granted = keys.Service._granted.__get__(svc)
+    session = os.getuid() + 1
+    read = {"tenant": "test-1", "method": "GET", "service": "vpc", "path": "/v1/{project_id}/vpcs",
+            "project": PROJECT}
+    write = dict(read, role="lab", method="POST", service="ecs", path="/v1/{project_id}/cloudservers",
+                 body={"server": {"name": "lab-1"}})
+    for req in (read, write):
+        with pytest.raises(keys.Refused, match="no grant of the owner"):
+            svc._call(dict(req), session)
+    assert cli.main(["projects", "kind", PROJECT, "query"]) == 0
+    assert not grants.granted(home, PROJECT)
+    with pytest.raises(keys.Refused, match="is a query"):
+        svc._call(dict(read), session)
+    assert cli.main(["projects", "kind", PROJECT, "project"]) == 0
+    assert grants.granted(home, PROJECT) and oct(grants.path(home).stat().st_mode & 0o777) == "0o600"
+    assert svc._call(dict(read), session)["status"] == 200
+    lab_gateway(gw)
+    assert svc._call(dict(write), session)["status"] == 200
+    # a grant of a code that is not an active row gives nothing
+    projects._save(home, [projects.Project(PROJECT, "project", projects.NO_CUSTOMER, "tcp", folder,
+                                           projects.memory_key(folder), "closed", "2026-10-08")])
+    with pytest.raises(keys.Refused, match="folder of an active project"):
+        svc._call(dict(read), session)
+
+
+def test_the_grant_is_the_owners(home, monkeypatch):
+    from awb import grants
+
+    monkeypatch.setattr(grants.config, "is_work_user", lambda: True)
+    with pytest.raises(grants.GrantError, match="the owner's"):
+        grants.grant(home, "tcp-ab2c", "project")
+    monkeypatch.setattr(grants.config, "is_work_user", lambda: False)
+    with pytest.raises(grants.GrantError):
+        grants.grant(home, "not-a-code", "project")
+    assert grants.grant(home, "tcp-ab2c", "project") is None and grants.grant(home, "tcp-ab2c", "query") == "project"
+    grants.path(home).write_text('{"tcp-ab2c": {"kind": "admin"}, "../x": {"kind": "project"}}')
+    assert grants.load(home) == {} and not grants.granted(home, "tcp-ab2c")

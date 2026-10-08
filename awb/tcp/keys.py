@@ -646,6 +646,15 @@ class Service:
         except Exception:
             return {}
 
+    def _granted(self, code: str) -> bool:
+        """The owner's grant of tenant access for `code` (P0): never the kind of the work user's projects.tsv."""
+        from awb import grants
+
+        try:
+            return grants.granted(self.paths_fn(), code)
+        except Exception:
+            return False
+
     def _active_project(self, code: str) -> bool:
         from awb import projects
 
@@ -695,6 +704,9 @@ class Service:
             if not _projects.tenant_access(row.kind):
                 raise Refused("%s is a query: it has no test tenant; the owner switches it with awb projects kind "
                               "%s project" % (project, project))
+            if not self._granted(project):
+                raise Refused("%s has no grant of the owner: he runs awb projects kind %s project in his own "
+                              "terminal" % (project, project))
         if method in WRITE_METHODS:
             if not (isinstance(project, str) and _PROJECT_RE.match(project) and self._active_project(project)):
                 raise Refused("a write needs the code of an active project")

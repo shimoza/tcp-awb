@@ -1,6 +1,6 @@
 """Resources on the test tenants, tracked over time (T-63).
 
-    awb tenant setup ALIAS --domain-id ID [--region R] [--lab-key] [--alerts [--topic URN]]
+    awb tenant setup ALIAS --domain-id ID [--region R] [--lab-key | --lab-user] [--alerts [--topic URN]]
                                                                         owner side: a new tenant in one command
     awb tenant add ALIAS --keys pass:ENTRY|file:PATH [--region R]...   owner side: a tenant and its read-only key
     awb tenant snapshot [ALIAS]...                                      owner side: list the tenant, GET only
@@ -278,6 +278,15 @@ ADMIN_PREFIX = "awb/admin"
 TENANT_PREFIX = "awb/tenant"
 READ_GROUP = "awb-read"
 READ_ROLE = "readonly"
+LAB_GROUP = "awb-lab"
+# The lab user of --lab-user (T12 part 3, P1): the system policies of the services a project's Terraform set may use
+# (tf_services), by their display names in the IAM permissions reference of the docs mirror
+# (identity-access-management/doc/permissions). Each is granted on the region's project only, but OBS, a global
+# service, which IAM grants on the account. No IAM policy: the lab key creates no identity.
+LAB_POLICIES = (("ecs", "ECS FullAccess"), ("evs", "EVS Admin"), ("vpc", "VPC FullAccess"), ("elb", "ELB FullAccess"),
+                ("nat", "NAT FullAccess"), ("dns", "DNS FullAccess"), ("ims", "IMS FullAccess"),
+                ("obs", "OBS OperateAccess"))
+GLOBAL_SERVICES = ("obs",)
 """The system role shown as Tenant Guest: list and read rights on every service, nothing else."""
 ALERT_NAME = "awb_new_access_key"
 ALERT_OPERATIONS = [{"service_type": "IAM", "resource_type": "credential", "trace_names": ["createCredential"]}]
@@ -307,10 +316,10 @@ class Store:
             raise TenantError("the password store gives nothing for %s" % entry)
         return lines[0].strip()
 
-    def insert(self, entry: str, value: str) -> None:
+    def insert(self, entry: str, value: str, replace: bool = False) -> None:
         try:
-            r = self.run(["pass", "insert", "-m", entry], input=value + "\n", capture_output=True, text=True,
-                         timeout=60, check=False)
+            r = self.run(["pass", "insert", "-m", entry] + (["-f"] if replace else []), input=value + "\n",
+                         capture_output=True, text=True, timeout=60, check=False)
         except (OSError, subprocess.SubprocessError) as err:
             raise TenantError("the password store cannot be written (%s)" % type(err).__name__) from None
         if r.returncode != 0:
@@ -391,6 +400,82 @@ def read_user_name(alias: str) -> str:
     return "awb-read-%s" % (m.group(1) if m else alias)
 
 
+def lab_user_name(alias: str) -> str:
+    m = re.search(r"(\d+)$", alias)
+    return "awb-lab-%s" % (m.group(1) if m else alias)
+
+
+def _lab_user(iam: "Iam", store: "Store", domain_id: str, region: str, alias: str, prefix: str,
+              done: list[str]) -> bool:
+    """The lab user (P1): group awb-lab with the policies of LAB_POLICIES on the region's project (OBS on the
+    account), the user awb-lab-<number> in it, its key under prefix/ak|sk. A lab key of another user there (the admin
+    of --lab-key) is replaced; that key stays in IAM until the owner deletes it. True when anything changed."""
+    changed = False
+    _, data = iam.call("GET", "iam", "/v3/projects", query={"name": region, "domain_id": domain_id})
+    project = _one(data.get("projects") or [], region)
+    if not project:
+        raise TenantError("IAM knows no project %s in this account" % region)
+    _, data = iam.call("GET", "iam", "/v3/roles")
+    by_name = {r.get("display_name"): r for r in data.get("roles") or [] if isinstance(r, dict)}
+    missing = [name for _, name in LAB_POLICIES if name not in by_name]
+    if missing:
+        raise TenantError("IAM knows no system policy %s" % ", ".join(missing))
+    _, data = iam.call("GET", "iam", "/v3/groups", query={"name": LAB_GROUP, "domain_id": domain_id})
+    group = _one(data.get("groups") or [], LAB_GROUP)
+    if group:
+        done.append("group %s: present" % LAB_GROUP)
+    else:
+        _, data = iam.call("POST", "iam", "/v3/groups", {"group": {
+            "name": LAB_GROUP, "domain_id": domain_id,
+            "description": "Workbench lab key: the Terraform services in the lab project, no IAM"}})
+        group, changed = data["group"], True
+        done.append("group %s: created" % LAB_GROUP)
+    for service, name in LAB_POLICIES:
+        rid = by_name[name]["id"]
+        where = ("/v3/domains/%s" % domain_id) if service in GLOBAL_SERVICES else ("/v3/projects/%s" % project["id"])
+        path = "%s/groups/%s/roles/%s" % (where, group["id"], rid)
+        status, _ = iam.call("HEAD", "iam", path, ok=(204, 404))
+        if status == 404:
+            iam.call("PUT", "iam", path)
+            changed = True
+            done.append("%s on %s: granted" % (name, "the account" if service in GLOBAL_SERVICES else region))
+    name = lab_user_name(alias)
+    _, data = iam.call("GET", "iam", "/v3/users", query={"name": name, "domain_id": domain_id})
+    user = _one(data.get("users") or [], name)
+    if user:
+        done.append("user %s: present" % name)
+    else:
+        _, data = iam.call("POST", "iam", "/v3/users", {"user": {
+            "name": name, "domain_id": domain_id, "enabled": True, "description": "Workbench lab key, no IAM"}})
+        user, changed = data["user"], True
+        iam.call("PUT", "iam", "/v3.0/OS-USER/users/%s" % user["id"], {"user": {"access_mode": "programmatic"}})
+        done.append("user %s: created, programmatic access" % name)
+    member = "/v3/groups/%s/users/%s" % (group["id"], user["id"])
+    status, _ = iam.call("HEAD", "iam", member, ok=(204, 404))
+    if status == 404:
+        iam.call("PUT", "iam", member)
+        changed = True
+        done.append("user %s: put into %s" % (name, LAB_GROUP))
+    has = [store.has(prefix + "/ak"), store.has(prefix + "/sk")]
+    if all(has):
+        _, data = iam.call("GET", "iam", "/v3.0/OS-CREDENTIAL/credentials", query={"user_id": user["id"]})
+        owned = {c.get("access") for c in data.get("credentials") or [] if isinstance(c, dict)}
+        if store.show(prefix + "/ak") in owned:
+            done.append("lab key: present, of %s" % name)
+            return changed
+        _, data = iam.call("POST", "iam", "/v3.0/OS-CREDENTIAL/credentials",
+                           {"credential": {"user_id": user["id"], "description": "awb lab key"}})
+        cred = data.get("credential") or {}
+        if not cred.get("access") or not cred.get("secret"):
+            raise TenantError("IAM gave no key for the lab user")
+        store.insert(prefix + "/ak", cred["access"], replace=True)
+        store.insert(prefix + "/sk", cred["secret"], replace=True)
+        done.append("lab key: replaced by the key of %s, written to %s; the key there before stays in IAM until "
+                    "you delete it in the console" % (name, prefix))
+        return True
+    return _key(iam, store, user["id"], prefix, "lab key", done) or changed
+
+
 def _one(items: list, name: str) -> dict | None:
     hits = [i for i in items if isinstance(i, dict) and i.get("name") == name]
     return hits[0] if hits else None
@@ -421,7 +506,7 @@ def _key(iam: Iam, store: Store, user_id: str, prefix: str, what: str, done: lis
 
 
 def setup(p: config.Paths, alias: str, domain_id: str, *, region: str = "eu-de", lab_key: bool = False,
-          alerts: bool = False, topic: str | None = None, store: Store | None = None, iam: Iam | None = None,
+          lab_user: bool = False, alerts: bool = False, topic: str | None = None, store: Store | None = None, iam: Iam | None = None,
           loaded: Callable[[], dict] | None = None, unlock: Callable[[], dict] | None = None,
           make_lister: Callable[[Tenant, str], Lister] | None = None) -> tuple[list[str], bool]:
     """Set a test tenant up from the admin login in the password store: the read group, the read user and its key,
@@ -431,6 +516,8 @@ def setup(p: config.Paths, alias: str, domain_id: str, *, region: str = "eu-de",
         raise TenantError("an alias reads like test-1: small letters, digits and dashes")
     if not _DOMAIN_ID_RE.match(domain_id or ""):
         raise TenantError("--domain-id is the 32 hex characters of the account's domain")
+    if lab_key and lab_user:
+        raise TenantError("--lab-key and --lab-user are two ways to the lab key: choose one")
     from awb.tcp.cloud import CloudError, check_region
 
     try:
@@ -502,6 +589,8 @@ def setup(p: config.Paths, alias: str, domain_id: str, *, region: str = "eu-de",
         if not admin_id:
             raise TenantError("the admin token names no user")
         changed |= _key(iam, store, admin_id, entry + "/lab", "lab key", done)
+    if lab_user:
+        changed |= _lab_user(iam, store, domain_id, region, alias, entry + "/lab", done)
 
     if alerts:
         changed |= _alert(iam, project_tok, region, topic, done)
@@ -692,6 +781,9 @@ def main(argv: list[str] | None = None) -> int:
     su.add_argument("--domain-id", required=True)
     su.add_argument("--region", default="eu-de")
     su.add_argument("--lab-key", action="store_true", help="also a key of the admin user, the lab role")
+    su.add_argument("--lab-user", action="store_true",
+                    help="the lab role as its own user awb-lab-N: the Terraform services in the region's project, no "
+                         "IAM; replaces a lab key of the admin")
     su.add_argument("--alerts", action="store_true", help="the CTS alert of a new access key")
     su.add_argument("--topic", help="the SMN topic urn of the alert (default: notify_topic of keys.conf)")
     s = sub.add_parser("snapshot", help="list the tenants now, GET only (owner side)")
@@ -743,7 +835,8 @@ def main(argv: list[str] | None = None) -> int:
                     raise TenantError("awb keys unlock: %s" % err) from None
 
             lines, _ = setup(p, args.alias, args.domain_id, region=args.region, lab_key=args.lab_key,
-                             alerts=args.alerts, topic=args.topic, loaded=loaded, unlock=unlock)
+                             lab_user=args.lab_user, alerts=args.alerts, topic=args.topic, loaded=loaded,
+                             unlock=unlock)
             print("\n".join(lines))
         elif args.command == "snapshot":
             if config.is_work_user():

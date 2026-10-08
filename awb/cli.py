@@ -355,9 +355,30 @@ def _cmd_projects_list(args, p: config.Paths) -> int:
 
 
 def _cmd_projects_kind(args, p: config.Paths) -> int:
-    from awb import projects
+    from awb import grants, projects
 
-    pr, before = projects.set_kind(p, args.code, args.kind)
+    if not config.is_work_user():
+        # the owner: the grant the key service reads (P0); the work user's row follows where he may write it
+        row = next((r for r in projects.load(p) if r.code == args.code and r.state == "active"), None)
+        if row is None:
+            print("awb projects: %s is not an active project" % args.code, file=sys.stderr)
+            return EXIT_ERROR
+        try:
+            granted_before = grants.grant(p, args.code, args.kind)
+        except grants.GrantError as err:
+            print("awb projects: %s" % err, file=sys.stderr)
+            return EXIT_ERROR
+        print("%s: the owner's grant is %s (was %s)%s" % (args.code, args.kind, granted_before or "none",
+                                                          ": it reaches the test tenants"
+                                                          if projects.tenant_access(args.kind) else ": no test tenant"))
+        try:
+            pr, before = projects.set_kind(p, args.code, args.kind)
+        except (OSError, projects.ProjectError):
+            return EXIT_OK
+    else:
+        pr, before = projects.set_kind(p, args.code, args.kind)
+        if projects.tenant_access(pr.kind):
+            print("%s reaches a test tenant once the owner grants it in his own terminal" % pr.code)
     if before == pr.kind:
         print("%s is a %s already" % (pr.code, pr.kind))
         return EXIT_OK

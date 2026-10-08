@@ -2022,8 +2022,22 @@
    "name": "the seal and every update hold cloudflared and terraform with an info line; --units-only does not; the update names step_holds after step_needrestart (one seal test replaced)",
    "run": ".venv/bin/pytest tests/test_seal.py -k 'holds or update_mode'",
    "status": "passing"
+  },
+  {
+   "id": "T12-31",
+   "phase": "T12",
+   "name": "P0: a session that writes kind project into projects.tsv gets no tenant read and no write without the owner's grant; awb projects kind as the owner writes the grant (600) and the calls pass; a closed row ends access; the grant is refused for the work user and ignores an odd entry; the session test of the kind replaced",
+   "run": ".venv/bin/pytest tests/test_keys.py -k 'granted or edits_projects or grant_is_the_owners'",
+   "status": "passing"
+  },
+  {
+   "id": "T12-32",
+   "phase": "T12",
+   "name": "P1: --lab-user makes group awb-lab with the Terraform services' system policies on the region's project and OBS on the account, never IAM, the user awb-lab-N with its key in lab/ak|sk, a second run changes nothing; a lab key of the admin is replaced with pass insert -f; with --lab-key or without a policy it is refused before a grant",
+   "run": ".venv/bin/pytest tests/test_tenants.py -k lab_user",
+   "status": "passing"
   }
  ],
- "total_tests": 289,
+ "total_tests": 291,
  "checked": "2026-10-08"
 }
