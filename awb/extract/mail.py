@@ -49,7 +49,7 @@ from email.message import Message
 from pathlib import Path
 
 from awb.extract import INCOMPLETE, MAX_ARCHIVE_DEPTH, MBOX_SEPARATOR_RE, Extraction, looks_mbox, make_temp_dir
-from awb.extract.text import decode_bytes, html_attribute_values, strip_html
+from awb.extract.text import decode_bytes, html_attribute_values, strip_html, unfold_calendar
 
 OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 MSG_NOTE = "outlook msg file: no reader, save the mail as eml and run intake again"
@@ -417,6 +417,8 @@ class _Walk:
             self.detect.extend(html_attribute_values(text))
             text = strip_html(text)
         text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+        if ctype == "text/calendar":
+            text = unfold_calendar(text)
         if ctype == "text/plain":
             text = self._inline_blocks(text)
         if text:

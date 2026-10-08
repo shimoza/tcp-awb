@@ -347,6 +347,15 @@ PATTERNS: list[tuple[str, re.Pattern, Callable[[str], bool] | None, re.Pattern |
 ]
 
 _PRIORITY = {kind: i for i, kind in enumerate(dict.fromkeys(k for k, _, _, _ in PATTERNS))}
+_FLAVOR_TAIL = re.compile(r"\.(?:[a-z0-9-]*\d[a-z0-9-]*|[a-z0-9-]+\.[a-z0-9-]+)(?![\w])", re.IGNORECASE)
+_SCHEME_START = re.compile(r"(?i)[a-z]+://")
+_HOST_NUMBER_IP = re.compile(r"\d{1,4}[ \t|]+((?:\d{1,3}\.){3}\d{1,3})")
+
+
+def _host_number_ip(value: str) -> bool:
+    """A number, a cell border or blanks, then a dotted quad whose four parts are octets."""
+    m = _HOST_NUMBER_IP.fullmatch(value)
+    return bool(m) and all(int(x) <= 255 for x in m.group(1).split("."))
 _IBAN_SHAPE = re.compile(r"\b[A-Za-z]{2}\d{2}(?: ?[A-Za-z0-9]{4}){2,7}(?: ?[A-Za-z0-9]{1,3})?\b")
 """The strict shape of an IBAN, for the rule that digits inside it are never a phone number: the loose pattern
 above would swallow any spaced number between two letters."""
@@ -497,6 +506,13 @@ def _find(text: str) -> list[Span]:
     found = [t for t in found if not (t[2] == "IP" and _SECTION_REF.search(text[max(0, t[0] - 28):t[0]])
                                        and not (_WEAK_SECTION_RE.search(text[max(0, t[0] - 28):t[0]])
                                                 and max(_octets(text[t[0]:t[1]]) or [0]) >= 100))]
+    # a bare host that a dot and a label with a digit (or two more labels) follow is the head of a flavor id,
+    # not a host: rds.pg.c6.large.4 is no address under .pg (pptx-table-services of the red team of 2026-10-07)
+    found = [t for t in found if not (t[2] == "URL" and _FLAVOR_TAIL.match(text, t[1])
+                                       and not _SCHEME_START.match(text, t[0]))]
+    # the number at the end of a host name in the cell before an IP (srv-db-01 | 10.0.0.5) is no phone number:
+    # the address is an IP and the number belongs to the host (xlsx-host-number-before-ip)
+    found = [t for t in found if not (t[2] == "PHONE" and _host_number_ip(text[t[0]:t[1]]))]
     # longer first, then priority, then position; keep a span only when it overlaps nothing kept so far
     found.sort(key=lambda t: (-(t[1] - t[0]), _PRIORITY[t[2]], t[0]))
     kept: list[tuple[int, int, str]] = []

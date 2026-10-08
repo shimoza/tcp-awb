@@ -61,6 +61,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   calling the project unavailable.
 - The deploy no longer reports a restarted socket unit as failed.
 - `awb web status` without sudo says the sign-in log needs sudo instead of stopping with an error.
+- A calendar invite whose lines are folded is read whole before names are looked for. A flavor id such as
+  `rds.pg.c6.large.4` is no longer taken for a web address and the number at the end of a host name next to an IP
+  address is no longer taken for a phone number.
 
 ### Security
 

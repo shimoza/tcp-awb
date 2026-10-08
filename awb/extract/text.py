@@ -464,6 +464,21 @@ def _md_cell(value: str) -> str:
 # --------------------------------------------------------------------------- entry point
 
 
+_CALENDAR_RE = re.compile(r"^\s*BEGIN:(?:VCALENDAR|VEVENT|VTODO|VJOURNAL|VFREEBUSY)\b", re.IGNORECASE | re.MULTILINE)
+_FOLD_RE = re.compile(r"\n[ \t]")
+
+
+def is_calendar(text: str, name: str = "") -> bool:
+    """A calendar file or part (RFC 5545): the .ics or .ifb suffix or a BEGIN line of a calendar component."""
+    return name.lower().endswith((".ics", ".ifb", ".vcs")) or bool(_CALENDAR_RE.search(text[:4096]))
+
+
+def unfold_calendar(text: str) -> str:
+    """The content lines of a calendar unfolded (RFC 5545 section 3.1): a line break followed by one space or tab
+    continues the line before it, so a name split by the fold reads whole again. Line breaks are newlines here."""
+    return _FOLD_RE.sub("", text)
+
+
 def extract_text(path: Path, kind: str = "text") -> Extraction:
     """Read a text-like file. `kind` is one of text, html, csv, json."""
     path = Path(path)
@@ -471,6 +486,8 @@ def extract_text(path: Path, kind: str = "text") -> Extraction:
     data = path.read_bytes()
     raw, encoding = decode_bytes(data)
     raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+    if kind == "text" and is_calendar(raw, path.name):
+        raw = unfold_calendar(raw)
     ex.meta["encoding"] = encoding
     detect_extra: list[str] = []
 
