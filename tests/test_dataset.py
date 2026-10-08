@@ -3,6 +3,7 @@ how-to PDF, and the put into a stand-in bucket."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import zipfile
 from datetime import date, timedelta
@@ -57,7 +58,7 @@ def live(monkeypatch):
 def facts(home, live):
     live = new(S_ECS, grade="live", source="live API call on test-10491, eu-de")
     new(S_OBS, grade="docs", tags=["obs", "storage"])
-    new(S_IAM, grade="live", tags=["iam"], source="the read key of test tenant test-10497 in eu-de")
+    new(S_IAM, grade="live", tags=["iam"], source="awb cloud call with the read key of test tenant test-10497 in eu-de")
     new("GPU flavor p2 needs a quota increase in eu-nl", grade="said", tags=["gpu"])
     snapshot(home, "eu-de", "2026-10-01", [RAW])
     bms = dict(RAW, id="OTC_BMS_EL_BLST_SAS", productIdParameter="bms", productId="BARE METAL", productName="EVS High I/O",
@@ -71,6 +72,9 @@ def test_the_rewrite_of_a_tenant_alias_is_proven_on_a_plant_and_covers_both_form
     assert dataset.tenant_free("the key of test tenant test-10497 got 403") == "the key of a TCP test tenant got 403"
     assert dataset.tenant_free("the key of the test tenant test-10497") == "the key of a TCP test tenant"
     assert "test-1049" not in dataset.tenant_free(dataset._PLANT)
+    assert dataset.tenant_free("awb cloud call against test-10491, a DELETE through the key service") == \
+        "a scripted call against a TCP test tenant, a DELETE through a signed call"
+    assert not dataset._TOOL_LEFT_RE.search(dataset.tenant_free(dataset._PLANT_TOOL))
 
 
 def test_build_writes_every_file_with_the_rules_and_no_tenant_alias(home, facts, tmp_path, capsys):
@@ -94,6 +98,7 @@ def test_build_writes_every_file_with_the_rules_and_no_tenant_alias(home, facts,
     rows = [json.loads(l) for l in (root / "facts.jsonl").read_text().splitlines()]
     assert rows[0]["dataset"] == "TCP Facts" and rows[0]["count"] == 3
     assert next(r for r in rows[1:] if r["id"] == facts.id)["source"] == "live API call on a TCP test tenant, eu-de"
+    assert not any(re.search(r"\bawb\b|key service", r["source"]) for r in rows[1:])
     topic = (root / "topics" / "iam.md").read_text()
     assert topic.startswith("<!-- TCP Facts") and S_IAM in topic and S_OBS not in topic
     csv_lines = (root / "prices" / "eu-de.csv").read_text().splitlines()

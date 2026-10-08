@@ -21,8 +21,9 @@ Price rows of a service the service description withdrew or the hand-kept not-of
 CSBS) are left out of the CSV files and named in their header, because the price API still serves them.
 
 What leaves: the grades live, contract and docs, no retired and no expired entry, every one name checked again by
-the export. The alias of a test tenant in a source line or a statement is replaced by "a TCP test tenant"; the
-build proves that rewrite on a planted alias first and refuses to write a folder in which one is left. No project,
+the export. The alias of a test tenant in a source line or a statement is replaced by "a TCP test tenant", the names of
+the Workbench's own commands and parts (awb ..., the key service, the lab bucket) by plain words; the build proves
+both rewrites on planted text first and refuses to write a folder in which one is left. No project,
 no customer code, no snapshot of a tenant and no review is part of the dataset.
 """
 from __future__ import annotations
@@ -67,6 +68,15 @@ PRICE_COLUMNS = (("id", "id"), ("service", "productId"), ("product", "productNam
                  ("reserved_upfront_36m", "RU36"))
 _TENANT_RE = re.compile(r"\b(?:(?:the\s+)?test\s+tenant\s+)?test-\d{5}\b")
 _LEFT_RE = re.compile(r"\btest-\d{5}\b")      # the scan after the build: its own pattern, so a weak rewrite cannot hide
+_TOOL_RULES = (                                   # the Workbench's own commands and parts, named in source lines
+    (re.compile(r"\bawb\s+[a-z]+(?:\s+[a-z]+)?(?:\s+--[a-z-]+(?:\s+[^\s,;.)]+)?)*"), "a scripted call"),
+    (re.compile(r"\bthe key service\b", re.I), "a signed call"),
+    (re.compile(r"\bkey service\b", re.I), "signing service"),
+    (re.compile(r"\blab bucket\b", re.I), "test bucket"),
+    (re.compile(r"\b(?:Architect )?Workbench\b"), "the tooling"),
+)
+_TOOL_LEFT_RE = re.compile(r"\bawb\b|key service|lab bucket|workbench", re.I)
+_PLANT_TOOL = "awb cloud call against a TCP test tenant, then a DELETE through the key service into the lab bucket"
 _PLANT = "the read key of test tenant test-10491 and a call on test-10497"
 
 
@@ -75,14 +85,20 @@ class DatasetError(Exception):
 
 
 def tenant_free(text: str) -> str:
-    """The alias of a test tenant replaced by plain words."""
-    return _TENANT_RE.sub("a TCP test tenant", text)
+    """The alias of a test tenant and the names of the Workbench's own commands and parts replaced by plain words."""
+    text = _TENANT_RE.sub("a TCP test tenant", text)
+    for rx, plain in _TOOL_RULES:
+        text = rx.sub(plain, text)
+    return text
 
 
 def _prove_rewrite() -> None:
     got = tenant_free(_PLANT)
     if "test-1049" in got or got.count("a TCP test tenant") != 2:
         raise DatasetError("the tenant rewrite failed its own test; nothing was built")
+    got = tenant_free(_PLANT_TOOL)
+    if _TOOL_LEFT_RE.search(got) or "a scripted call" not in got or "a signed call" not in got:
+        raise DatasetError("the tooling rewrite failed its own test; nothing was built")
 
 
 # --------------------------------------------------------------------------- the texts
@@ -491,8 +507,11 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
 
     for path in sorted(root.rglob("*")):
         if path.is_file() and path.suffix in (".md", ".jsonl", ".csv"):
-            if _LEFT_RE.search(path.read_text(encoding="utf-8")):
+            text = path.read_text(encoding="utf-8")
+            if _LEFT_RE.search(text):
                 raise DatasetError("a tenant alias was left in %s; the folder was removed" % path.name)
+            if _TOOL_LEFT_RE.search(text):
+                raise DatasetError("a name of the tooling was left in %s; the folder was removed" % path.name)
 
     files = sorted(x for x in root.rglob("*") if x.is_file())
     manifest = {"dataset": NAME, "date": day, "built_at": built_at, "best_before": best_before, "facts": len(records),
