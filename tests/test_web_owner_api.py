@@ -16,7 +16,8 @@ from urllib.parse import urlencode
 import pytest
 
 from tests import fixtures as fx
-from awb import intake, intake_counts, owner, status_shape
+from awb import intake, intake_counts, status_shape
+from awb.tcp import owner
 from awb.tcp.web import contract, gateway, materials_api, owner_actions, tenant_api, users
 
 DOMAIN = "awb.example.test"

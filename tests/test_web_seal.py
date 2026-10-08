@@ -256,31 +256,6 @@ def test_every_module_a_template_starts_exists_with_owner_actions():
             importlib.import_module(name)
 
 
-def test_owner_actions_runs_as_its_own_user_without_network_and_the_status_as_the_owner(tmp_path):
-    env, units, log, fence = _stubs_t9(tmp_path)
-    assert _install(env, "--domain", "awb.example.test").returncode == 0
-    socket_unit = (units / "awb-owner-actions.socket").read_text().splitlines()
-    for line in ("ListenStream=/run/awb-owner.sock", "SocketUser=root", "SocketGroup=awb-web", "SocketMode=0660"):
-        assert line in socket_unit, line
-    service = (units / "awb-owner-actions.service").read_text().splitlines()
-    for line in ("User=awb-owner", "PrivateNetwork=yes", "RestrictAddressFamilies=AF_UNIX", "ProtectHome=yes",
-                 "ProtectSystem=strict", "NoNewPrivileges=yes", "CapabilityBoundingSet=",
-                 "ReadOnlyPaths=/var/lib/awb-owner-status"):
-        assert line in service, line
-    assert any("-m awb.tcp.web.owner_actions --peer awb-web --status /var/lib/awb-owner-status/status.json" in x
-               for x in service)
-    status = (units / "awb-owner-status.service").read_text().splitlines()
-    for line in ("Type=oneshot", "User=ownr", "Group=awb-owner", "ExecStart=/usr/local/bin/awb owner status --write",
-                 "StateDirectory=awb-owner-status", "StateDirectoryMode=0750", "UMask=0027"):
-        assert line in status, line
-    assert "OnUnitActiveSec=1min" in (units / "awb-owner-status.timer").read_text()
-    calls = log.read_text().splitlines()
-    assert "useradd --system --user-group --no-create-home -d /nonexistent --shell /usr/sbin/nologin awb-owner" in calls
-    for unit in ("awb-owner-actions.socket", "awb-owner-status.timer"):
-        assert "systemctl enable --now %s" % unit in calls
-    assert "systemctl enable --now awb-owner-actions.service" not in calls
-
-
 def test_the_templates_name_no_host_and_only_documented_placeholders_with_publish():
     """Replaces test_the_templates_name_no_host_and_only_documented_placeholders_with_the_owner_level (T9 step 3 adds
     the publish socket and service): the exact set of templates, each naming no host and only placeholders the
@@ -360,3 +335,31 @@ def test_the_publish_unit_is_root_with_one_socket_owner_actions_may_open(tmp_pat
     assert "systemctl enable --now awb-web-publish.socket" in calls
     out = _install(env, "--domain", "awb.example.test", "--dry-run").stdout
     assert "+ chown awb-owner:awb-owner %s" % secrets in out and "+ chmod 600 %s" % secrets in out
+
+
+def test_owner_actions_runs_as_its_own_user_without_network_before_the_status_exists(tmp_path):
+    """Replaces test_owner_actions_runs_as_its_own_user_without_network_and_the_status_as_the_owner (the status folder
+    is made by the timer's first run: owner-actions must start before it exists, so its ReadOnlyPaths line carries
+    the minus that lets a missing path pass)."""
+    env, units, log, fence = _stubs_t9(tmp_path)
+    assert _install(env, "--domain", "awb.example.test").returncode == 0
+    socket_unit = (units / "awb-owner-actions.socket").read_text().splitlines()
+    for line in ("ListenStream=/run/awb-owner.sock", "SocketUser=root", "SocketGroup=awb-web", "SocketMode=0660"):
+        assert line in socket_unit, line
+    service = (units / "awb-owner-actions.service").read_text().splitlines()
+    for line in ("User=awb-owner", "PrivateNetwork=yes", "RestrictAddressFamilies=AF_UNIX", "ProtectHome=yes",
+                 "ProtectSystem=strict", "NoNewPrivileges=yes", "CapabilityBoundingSet=",
+                 "ReadOnlyPaths=-/var/lib/awb-owner-status"):
+        assert line in service, line
+    assert any("-m awb.tcp.web.owner_actions --peer awb-web --status /var/lib/awb-owner-status/status.json" in x
+               for x in service)
+    status = (units / "awb-owner-status.service").read_text().splitlines()
+    for line in ("Type=oneshot", "User=ownr", "Group=awb-owner", "ExecStart=/usr/local/bin/awb owner status --write",
+                 "StateDirectory=awb-owner-status", "StateDirectoryMode=0750", "UMask=0027"):
+        assert line in status, line
+    assert "OnUnitActiveSec=1min" in (units / "awb-owner-status.timer").read_text()
+    calls = log.read_text().splitlines()
+    assert "useradd --system --user-group --no-create-home -d /nonexistent --shell /usr/sbin/nologin awb-owner" in calls
+    for unit in ("awb-owner-actions.socket", "awb-owner-status.timer"):
+        assert "systemctl enable --now %s" % unit in calls
+    assert "systemctl enable --now awb-owner-actions.service" not in calls

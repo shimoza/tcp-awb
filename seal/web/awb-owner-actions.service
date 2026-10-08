@@ -13,7 +13,7 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/opt/tcp-awb/venv/bin/python3 -I -m awb.tcp.web.owner_actions --peer awb-web --status /var/lib/awb-owner-status/status.json --log /var/lib/awb-owner-actions/log
 StateDirectory=awb-owner-actions
 StateDirectoryMode=0700
-ReadOnlyPaths=/var/lib/awb-owner-status
+ReadOnlyPaths=-/var/lib/awb-owner-status
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

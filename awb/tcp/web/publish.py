@@ -298,7 +298,7 @@ def _page_as_owner(a, host: Host) -> bytes:
 
 def newest_publishable(queue: Path | None = None) -> str | None:
     """The run Publish takes: the newest PASS run among the completed and the ready (candidate-only) runs."""
-    from awb import owner
+    from awb.tcp import owner
 
     return next((r["id"] for r in owner.ui_runs(queue or queue_dir()) if r["publishable"]), None)
 
