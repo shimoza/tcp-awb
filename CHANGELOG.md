@@ -55,6 +55,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   bucket folder or the vault inbox. It asks once for a new customer's names on your terminal and prints counts only.
   `--redo` runs the last import again after `awb register keep` repaired a wiped term. The project's session hears
   of the new copies at its next prompt. `awb words update` rebuilds the word lists from the public mirrors.
+- The red-team pack of wipe mode: 405 invented cases in mails, chats, decks, code, tables, German and Russian text
+  and typical TCP texts, run against the intake as built, with what is left written down.
 - The word lists that keep a text readable when the intake wipes names: the capitalised words and two-word phrases
   of the public TCP documentation and service description, German and Russian words of tender and architecture
   texts, first names, the products of the usual source platforms and vendors, standards, German function words and

@@ -394,3 +394,58 @@ Clipped, not by design (the marker lost its first letter to the form before it):
 - s3-placeholder-word-inside: found nothing. a placeholder word inside the value reads as a placeholder (design limit)
 - s3-your-inside: found nothing. a placeholder word inside the value reads as a placeholder (design limit)
 - n4-pdf-octal-escape: found opaque. a PDF is opaque by suffix, reported as opaque (by design)
+
+## wipe-overview
+
+The nine dimensions of wipe mode (calibration/redteam/wipe/, 405 cases, run against the built intake on
+2026-10-08 with `calibration/redteam/wipe/harness.py`): 7 cases leak a value and 7 lose a term, no output is
+withheld, 20 values carry another class than the case expects (the value is wiped, only the hint differs). The
+prototype of the red team stood at 9 and 11; every case it marked fixable is clean. One line per leftover below,
+each a limit, an artefact or a structured pattern; the record is presentations/names/REDTEAM.md outside the
+repository.
+
+## wipe-transcripts
+
+- none: every case clean
+
+## wipe-mail-chains
+
+- none: every case clean
+
+## wipe-decks
+
+- none: every case clean
+
+## wipe-code-files
+
+- tf-resource-label-lower-surname: leak. a surname in lower case in a Terraform resource label with no capitalised form anywhere in the file (limit)
+- tf-acr-vm-glued-hostname: leak. the registered acronym glued to vm and digits, vm is no glue affix (limit; adding vm to rules/glue-affixes.txt is a one-line change for his word)
+- tf-comment-lower-surname: leak. a surname in lower case in a comment with no capitalised form anywhere in the file (limit)
+- py-module-path-brand-surname: leak. a lower-case dotted module path: no shape tells a brand from a package name (limit)
+- py-attr-access-read-as-host: loss. config.name and os.run read as bare hosts by the structured patterns (limit of patterns.py: a two-label host under a word-like top level)
+- md-readme-julia-line-start: loss. Julia at a line start is a first name of the list (limit; the keep list repairs it)
+
+## wipe-tables
+
+- md-keyvalue-steckbrief: loss. a system name under Verantwortlich: whose rest is one unknown word, the shape of a surname (limit; keep list)
+- md-sql-qualified-columns: loss. table.column of SQL read as a bare host by the structured patterns (limit of patterns.py)
+- docx-sql-keyword-outside-stoplist: loss. SQL keywords the stop list does not carry, in a document (limit; keep list or stop words)
+- docx-keyvalue-team-values: loss. a team under Name: in a key-value table whose rest is one unknown word (limit; keep list)
+
+## wipe-german
+
+- de-legal-footer-eml: loss. the commercial register number in the keep list is a structured token on purpose (case artefact)
+- de-surname-klein: leak. the planted surname equals the adjective the case keeps on purpose (harness artefact, the output is right)
+- de-lone-after-preposition: leak. a lone unknown capitalised word after a preposition in German prose (limit)
+
+## wipe-russian
+
+- ru-customer-translit-short-alone: leak. the registered customer transliterated into Cyrillic: the register decides forms (decisions 19 and 23)
+
+## wipe-disguised
+
+- none: every case clean
+
+## wipe-losses
+
+- none: every case clean

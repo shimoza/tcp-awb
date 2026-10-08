@@ -356,3 +356,63 @@ def test_the_harness_restores_the_environment(modules, tmp_path, monkeypatch):
     import os
     assert os.environ["AWB_SHARED"] == str(tmp_path / "before")
     assert "AWB_VAULT" not in os.environ
+
+
+# --------------------------------------------------------------------------- the wipe pack (T4, 2026-10-08)
+
+from calibration.redteam.wipe import harness as wipe_harness  # noqa: E402
+
+WIPE_SAMPLE = {
+    "transcripts": (("teams-seconds", "clean"), ("speech-nickname", "clean")),
+    "mail_chains": (("ics-folded-name", "clean"), ("hdr-wrapped-list", "clean")),
+    "decks": (("pptx-table-services", "clean"), ("pptx-cover-erstellt-von", "clean")),
+    "code_files": (("tf-comment-lower-surname", "leak"), ("tf-ident-known-first-suffix-surname", "clean"),
+                   ("csv-inventory-owner-lower", "clean")),
+    "tables": (("md-host-number-before-ip-cell", "clean"), ("docx-keyvalue-team-values", "loss")),
+    "german": (("de-lone-after-preposition", "leak"), ("de-particle-known-first", "clean")),
+    "russian": (("ru-customer-translit-short-alone", "leak"), ("ru-title-gn-gzha-prose", "clean")),
+    "disguised": (("pdf-two-columns-first-last", "clean"), ("md-bold-each-word", "clean")),
+    "losses": (("fp-title-dr", "clean"), ("fp-learned-report-word", "clean")),
+}
+
+
+@pytest.fixture(scope="module")
+def wipe_cases():
+    return {dim: {c["id"]: c for c in wipe_harness.load_cases(wipe_harness.module_path(dim))}
+            for dim in wipe_harness.DIMENSIONS}
+
+
+def test_the_wipe_pack_holds_nine_dimensions_of_45_cases(wipe_cases):
+    assert sorted(wipe_cases) == sorted(WIPE_SAMPLE)
+    assert all(len(cases) == 45 for cases in wipe_cases.values())
+    for cases in wipe_cases.values():
+        for c in cases.values():
+            assert {"id", "values", "keep", "build"} <= set(c) and ID_RE.fullmatch(c["id"])
+
+
+def test_expected_lists_every_wipe_dimension_and_only_cases_that_exist(wipe_cases):
+    path = PACK / "EXPECTED.md"
+    for dim, cases in wipe_cases.items():
+        section = "wipe-" + dim.replace("_", "-")
+        assert "\n## %s\n" % section in path.read_text(encoding="utf-8"), section
+        listed = harness.expected_ids(path, section) - {"none"}
+        assert listed <= set(cases), "EXPECTED.md names cases %s does not have" % section
+
+
+def test_the_wipe_harness_reports_a_planted_leak_and_a_forced_loss_first(tmp_path):
+    assert wipe_harness.selfcheck(tmp_path) == []
+
+
+@pytest.mark.parametrize("dim", sorted(WIPE_SAMPLE))
+def test_a_sample_of_every_wipe_dimension_runs_with_the_recorded_outcome(dim, wipe_cases, tmp_path):
+    listed = harness.expected_ids(PACK / "EXPECTED.md", "wipe-" + dim.replace("_", "-"))
+    for cid, want in WIPE_SAMPLE[dim]:
+        entry = wipe_harness.run_case(wipe_cases[dim][cid], tmp_path)
+        assert wipe_harness.outcome(entry) == want, cid
+        assert (want != "clean") == (cid in listed), "%s: EXPECTED.md and the sample disagree" % cid
+
+
+def test_the_false_positive_dimension_loses_no_term_and_leaks_no_name(wipe_cases, tmp_path):
+    bad = [cid for cid, case in wipe_cases["losses"].items()
+           if wipe_harness.outcome(wipe_harness.run_case(case, tmp_path)) != "clean"]
+    assert bad == []

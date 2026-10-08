@@ -1763,8 +1763,113 @@
    "name": "dataset: the folder and the zip with every file opening with the rules and the best-before date, facts.md by topic, topics/, facts.jsonl, services.md, prices/<region>.csv from the latest snapshot, MANIFEST.json with sha256; a tenant alias rewritten, the rewrite proven on a plant, a folder with an alias left removed; refused without facts and over an existing folder; HOW-TO.pdf readable by pdftotext over several pages; put sends zip, PDF and manifest and marks LATEST, refuses a second time without --replace; the refresh builds the dataset after a clean run and not after an error",
    "run": ".venv/bin/pytest tests/test_dataset.py",
    "status": "passing"
+  },
+  {
+   "id": "T4-1",
+   "phase": "T4",
+   "name": "the readers: a folded calendar line is unfolded before detection (.ics files and text/calendar parts); a flavor head is no host; a host number before an IP is no phone",
+   "run": ".venv/bin/pytest tests/test_wipe_readers.py",
+   "status": "passing"
+  },
+  {
+   "id": "T4-2",
+   "phase": "T4",
+   "name": "awb words update writes known-words.txt and known-phrases.txt from a mirror, refuses an empty one and the work user; the lists load with their threshold; a missing list gives fewer exemptions",
+   "run": ".venv/bin/pytest tests/test_words.py",
+   "status": "passing"
+  },
+  {
+   "id": "T4-3",
+   "phase": "T4",
+   "name": "every rule of DESIGN.md section 2 finds its shape with its class and comes out as a token of that class",
+   "run": ".venv/bin/pytest tests/test_wipe.py::test_every_rule_finds_its_shape tests/test_wipe.py::test_every_shape_comes_out_as_a_token_of_its_class",
+   "status": "passing"
+  },
+  {
+   "id": "T4-4",
+   "phase": "T4",
+   "name": "the terms of FALSE-POSITIVES.md section 2 and the false-positive shapes of the red team survive in a sentence, a table cell and a heading",
+   "run": ".venv/bin/pytest tests/test_wipe.py::test_the_terms_a_session_needs_survive tests/test_wipe.py::test_the_false_positive_shapes_lose_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "T4-5",
+   "phase": "T4",
+   "name": "learned forms: a surname wiped once is wiped alone, glued into a host, with a genitive and a Russian case ending; a run word in lower case in the prose is not learned; a weak form never matches spread out below eight letters; a person's mail domain teaches the company, a provider and a role address nothing; a file name teaches nothing",
+   "run": ".venv/bin/pytest tests/test_wipe.py -k learn",
+   "status": "passing"
+  },
+  {
+   "id": "T4-6",
+   "phase": "T4",
+   "name": "tokens numbered per class and value; a token before a bracket is no link; a company after the customer code merges into it, a heading does not; codes and tokens are never part of a candidate; a kept phrase is never wiped",
+   "run": ".venv/bin/pytest tests/test_wipe.py -k token",
+   "status": "passing"
+  },
+  {
+   "id": "T4-7",
+   "phase": "T4",
+   "name": "the final check never reads the header lines; a candidate left after the passes withholds the output and the original stays; the public report carries counts and rules, never a value, and a word of its template never withholds it",
+   "run": ".venv/bin/pytest tests/test_wipe.py -k final",
+   "status": "passing"
+  },
+  {
+   "id": "T4-8",
+   "phase": "T4",
+   "name": "the self-test refuses an engine without candidates, with the stop phrases wiped, without the merge or without learned forms",
+   "run": ".venv/bin/pytest tests/test_wipe.py::test_the_self_test_refuses_a_broken_engine",
+   "status": "passing"
+  },
+  {
+   "id": "T4-9",
+   "phase": "T4",
+   "name": "the intake in wipe mode end to end: a new customer, states and ids, a clean run, the keep list, the stop of --review sealed in an encrypted vault, the second check behind a blind matcher and blind rules (replacements of the stop tests)",
+   "run": ".venv/bin/pytest tests/test_intake.py",
+   "status": "passing"
+  },
+  {
+   "id": "T4-10",
+   "phase": "T4",
+   "name": "the review of the stop of --review: names registered, the rest kept, the next run uses them; the editor is vim when neither VISUAL nor EDITOR names one",
+   "run": ".venv/bin/pytest tests/test_candidates.py",
+   "status": "passing"
+  },
+  {
+   "id": "T4-11",
+   "phase": "T4",
+   "name": "awb import: the vault inbox, the bucket folder in/ and FILE arguments, a file once, counts only and no name; --customer new from the project's characters or random; the forms prompt on a terminal only; --redo under the same file ids; --review registers one PERS code and wipes what is left for later; refused for the work user and in an assistant session; the notice of the next prompt once per session of that project",
+   "run": ".venv/bin/pytest tests/test_import.py",
+   "status": "passing"
+  },
+  {
+   "id": "T4-12",
+   "phase": "T4",
+   "name": "the owner take wipes and holds only a file that gives no copy, with the one line of the command and the customer code; bucket pull prints the wiped counts; the web customer path wipes a name, the brief path wipes",
+   "run": ".venv/bin/pytest tests/test_xchg.py tests/test_bucket.py tests/test_web_materials_api.py",
+   "status": "passing"
+  },
+  {
+   "id": "T4-13",
+   "phase": "T4",
+   "name": "register new issues CUST and PART only and names --review for PERS, ORG, SITE; awb intake wipes, has no --force; awb vault show finds the newest private report",
+   "run": ".venv/bin/pytest tests/test_cli.py tests/test_vault.py::test_show_without_a_path_finds_the_newest_private_report",
+   "status": "passing"
+  },
+  {
+   "id": "T4-14",
+   "phase": "T4",
+   "name": "the work rules name his awb import, the hold line and the promise within the 60-line budget; the sync brings the import line into an older project; the rules notice and the input notice come in one text",
+   "run": ".venv/bin/pytest tests/test_work_rules.py tests/test_rulesync.py",
+   "status": "passing"
+  },
+  {
+   "id": "T4-15",
+   "phase": "T4",
+   "name": "the wipe pack: nine dimensions of 45 cases, EXPECTED.md lists cases that exist, the harness shows it can fail, a sample of every dimension runs with the recorded outcome, the false-positive dimension loses no term",
+   "run": ".venv/bin/pytest tests/test_redteam_pack.py -k wipe",
+   "status": "passing"
   }
  ],
- "total_tests": 252,
+ "total_tests": 267,
  "checked": "2026-10-08"
 }
