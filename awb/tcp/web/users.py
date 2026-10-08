@@ -206,6 +206,10 @@ def main(a, environ: dict, geteuid=os.geteuid, say=print) -> int:
     if password is None:
         say("removed %s; its sessions end" % a.login)
         return 0
+    if a.action == "reset":
+        say("RESET %s: the old password%s no longer work%s; sign in with the new one%s below, its sessions end"
+            % (a.login, " and the old phone key" if before == "owner" else "", "" if before == "owner" else "s",
+               "s" if before == "owner" else ""))
     say("%s %s. Password (shown once, not stored): %s" % ("added" if a.action == "add" else "new password for",
                                                          a.login, password))
     secret = load(path)["users"][a.login].get("totp")

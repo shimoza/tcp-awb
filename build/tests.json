@@ -2036,8 +2036,92 @@
    "name": "P1: --lab-user makes group awb-lab with the Terraform services' system policies on the region's project and OBS on the account, never IAM, the user awb-lab-N with its key in lab/ak|sk, a second run changes nothing; a lab key of the admin is replaced with pass insert -f; with --lab-key or without a policy it is refused before a grant",
    "run": ".venv/bin/pytest tests/test_tenants.py -k lab_user",
    "status": "passing"
+  },
+  {
+   "id": "TM0-1",
+   "phase": "TM0",
+   "name": "xchg put checks the effective name (--as or the source) also for --image; the key is <code>/from-session/<date>/<file id>; a raw socket put can neither choose the key nor carry a name into the mail (two put tests replaced)",
+   "run": ".venv/bin/pytest tests/test_xchg.py -k 'planted_form_as_the_put_name or lands_under_its_id or put_under_its_id'",
+   "status": "passing"
+  },
+  {
+   "id": "TM0-2",
+   "phase": "TM0",
+   "name": "the exchange mails are built from fixed fields: a planted intake error text and planted fields reach no mail",
+   "run": ".venv/bin/pytest tests/test_xchg.py -k fixed_fields_only",
+   "status": "passing"
+  },
+  {
+   "id": "TM0-3",
+   "phase": "TM0",
+   "name": "the exchange log keeps the method from a fixed set and the project only as a project code, for the owner's uid too",
+   "run": ".venv/bin/pytest tests/test_xchg.py -k exchange_log_keeps",
+   "status": "passing"
+  },
+  {
+   "id": "TM0-4",
+   "phase": "TM0",
+   "name": "career update: the ledger candidates go through ledger.withhold; a form registered after the add is withheld",
+   "run": ".venv/bin/pytest tests/test_career.py -k ledger_candidates_withhold",
+   "status": "passing"
+  },
+  {
+   "id": "TM0-5",
+   "phase": "TM0",
+   "name": "draft_ledger moves its marker only after ledger.add; a refused draft is said once in the stop message and drafted again with the next commit",
+   "run": ".venv/bin/pytest tests/test_hooks.py -k refused_ledger_draft",
+   "status": "passing"
+  },
+  {
+   "id": "TM0-6",
+   "phase": "TM0",
+   "name": "the portal /kb page and the Ask kb_find tool screen every entry with kb.screen; a form registered after the add is withheld, no check means nothing shown",
+   "run": ".venv/bin/pytest tests/test_portal.py tests/test_ask.py -k registered_after_the_add",
+   "status": "passing"
+  },
+  {
+   "id": "TM0-7",
+   "phase": "TM0",
+   "name": "the seal and every update run awb gate --install --kb as the work user on tcp-kb; verify.sh checks the three hooks by their mark (the update-mode seal test replaced)",
+   "run": ".venv/bin/pytest tests/test_seal.py -k 'commit_gate_of_the_knowledge_base or hooks_the_kb'",
+   "status": "passing"
+  },
+  {
+   "id": "TM0-8",
+   "phase": "TM0",
+   "name": "the harvest message asks for a tenant alias and a date in --source, a source kb add takes",
+   "run": ".venv/bin/pytest tests/test_harvest.py -k source_kb_add_takes",
+   "status": "passing"
+  },
+  {
+   "id": "TM0-9",
+   "phase": "TM0",
+   "name": "tenant snapshot keeps awb-project and awb-expiry only in the Workbench form, else - and counted",
+   "run": ".venv/bin/pytest tests/test_tenants.py -k foreign_tag_value",
+   "status": "passing"
+  },
+  {
+   "id": "TM0-10",
+   "phase": "TM0",
+   "name": "spawn --from-outbox commits through the gate hook installed before its first git add; a lab take puts an opaque file into input/opaque/, listed in .gitignore",
+   "run": ".venv/bin/pytest tests/test_projects.py tests/test_xchg.py -k 'outbox_commits_through or opaque_file_of_the_lab'",
+   "status": "passing"
+  },
+  {
+   "id": "TM0-11",
+   "phase": "TM0",
+   "name": "the commit message gate and ledger.screen run the strong rules and a listed-first-name pair after the register check: class and line, a reword hint, rules/allowed-terms.txt the way out",
+   "run": ".venv/bin/pytest tests/test_gate.py tests/test_ledger.py -k name_shaped",
+   "status": "passing"
+  },
+  {
+   "id": "T9-23",
+   "phase": "T9",
+   "name": "awb web user reset says on its first line that the old password (and the old phone key of an owner entry) no longer work",
+   "run": ".venv/bin/pytest tests/test_web_users.py -k reset_says_first",
+   "status": "passing"
   }
  ],
- "total_tests": 291,
+ "total_tests": 303,
  "checked": "2026-10-08"
 }

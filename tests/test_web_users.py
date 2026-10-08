@@ -342,3 +342,21 @@ def test_awb_web_host_writes_the_owner_host_once(tmp_path, monkeypatch, capsys):
     real = publish.Host(geteuid=lambda: 1000, environ={})
     assert publish.main(["host", "owner.example.test"], real) == 1
     assert "sudo awb web host" in capsys.readouterr().err
+
+
+def test_a_reset_says_first_that_the_old_password_and_key_are_gone(tmp_path, monkeypatch):
+    """His ask of 2026-10-08: he typed the old password after a reset; the first line now says it plainly."""
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+    monkeypatch.setattr(users.shutil, "which", lambda name: None)
+    env = {"AWB_WEB_USERS": str(tmp_path / "users.json")}
+    for login, level in (("reader1", None), ("owner1", "owner")):
+        users.main(argparse.Namespace(action="add", login=login, level=level), env, lambda: 1000, lambda line: None)
+    out = []
+    users.main(argparse.Namespace(action="reset", login="owner1", level=None), env, lambda: 1000, out.append)
+    assert out[0] == ("RESET owner1: the old password and the old phone key no longer work; sign in with the new ones "
+                      "below, its sessions end")
+    assert out[1].startswith("new password for owner1.") and out[2].startswith("Owner entry: add this key")
+    out.clear()
+    users.main(argparse.Namespace(action="reset", login="reader1", level=None), env, lambda: 1000, out.append)
+    assert out[0] == "RESET reader1: the old password no longer works; sign in with the new one below, its sessions end"

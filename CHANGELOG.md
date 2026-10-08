@@ -112,7 +112,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   IPv6 /64) gets one sign-in at a time, a busy sign-in answers "try again" without counting, a sign-in form works
   once, a login keeps five sessions and a full table refuses instead of evicting. An owner login is never locked out,
   it only waits up to a minute after a failure, and it gets a TOTP key for the owner level
-  (`sudo awb web user add LOGIN --level owner`). `sudo awb web host HOST` names the owner level's host.
+  (`sudo awb web user add LOGIN --level owner`). `sudo awb web host HOST` names the owner level's host. A reset
+  says on its first line that the old password and phone key no longer work.
 - The console has an owner level on a host name of its own. The owner signs in there with his password and a code
   from his phone; the session ends after 15 idle minutes and after an hour. The owner page is a fixed file of the
   release and shows the vault and key service state, the UI runs, the intake counts, the customers, new projects,
