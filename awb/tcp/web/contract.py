@@ -608,8 +608,9 @@ def _schemas() -> dict:
         }, required=["status"]),
         "Customer": obj({
             "code": ref("CustomerCode"),
-            "name": string("The first registered form: a name, for the owner only."),
-            "aliases": array(string(), "The other active forms."),
+            "name": string("The customer code again (D-NOW, 2026-10-08): the forms of the register never reach the "
+                           "console; the field stays for the page of 2026-10-06."),
+            "aliases": array(string(), "Always empty since D-NOW."),
             "active": boolean("false when every form is retired."),
         }),
         "CustomerList": obj({"customers": array(ref("Customer"), "Ordered by code.")}),
@@ -982,14 +983,17 @@ def _project_paths() -> dict:
 def _customer_paths() -> dict:
     return {
         "/api/customers": {
-            "get": operation("listCustomers", "customers", "The customer register for the owner's console.", {
-                "200": answer("Every customer code with its registered forms.", ref("CustomerList"), {
-                    "one-customer": {"customers": [{"code": "CUST-Q7M4", "name": "<registered name>",
-                                                    "aliases": ["<short form>"], "active": True}]}}),
+            "get": operation("listCustomers", "customers", "The customer codes for the console.", {
+                "200": answer("Every customer code, active or retired; no registered form.", ref("CustomerList"), {
+                    "one-customer": {"customers": [{"code": "CUST-Q7M4", "name": "CUST-Q7M4",
+                                                    "aliases": [], "active": True}]}}),
                 "503": refusal("The register cannot be read.", LOCKED_REGISTER, BUSY_REGISTER, NOT_FINISHED),
-            }, description="The only route that carries registered names. It answers the signed-in owner only. "
-                           "A name read here never goes into a project, a chat, a task or a log."),
-            "post": operation("createCustomer", "customers", "Register a new customer.", {
+            }, description="Codes only since D-NOW (2026-10-08, his decision D-F3 = no): no registered name crosses "
+                           "Cloudflare to the browser.", state="repository"),
+            "post": operation("createCustomer", "customers", "Register a new customer: refused from the web since "
+                              "D-NOW; customers are registered with awb register add on the owner's terminal.", {
+                "403": refusal("Since D-NOW every submission of the web is refused, valid or not.",
+                               "New customers are registered on the owner's terminal, not in the console."),
                 "201": answer("Registered, or the result of the first submission with this request_id.",
                               ref("CreationResult"), {"created": {"code": "CUST-Q7M4", "created": True}}),
                 "400": refusal("The content is refused.", "Unsupported form fields.", "A valid request ID is required.",
@@ -1011,7 +1015,7 @@ def _customer_paths() -> dict:
                            "code. A name that exists already is never merged: the answer names the existing codes.",
                 body=json_body("CustomerCreateRequest", {
                     "new-customer": {"request_id": REQ, "name": "<registered name>", "aliases": ["<short form>"]}}),
-                post=True),
+                post=True, state="repository"),
         },
         "/api/customer-operations/{request_id}": {
             "get": operation("getCustomerOperation", "customers", "The state of a customer submission, for a retry "

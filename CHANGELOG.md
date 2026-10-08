@@ -63,6 +63,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - The installed `awb` command runs the interpreter isolated, so a package planted in a user's own folders is never
   loaded ahead of the installed code.
 - Both daemons refuse to be inspected by other processes of the same user.
+- The console's customer list shows codes only and the console no longer registers customers: no customer name
+  crosses Cloudflare to the browser. New customers are registered with `awb register add` on the owner's terminal.
 
 ## Week 40, 2026-09-28 to 2026-10-04
 

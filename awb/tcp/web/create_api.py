@@ -30,6 +30,7 @@ CUSTOMER_SOCKET = '/run/awb-customers.sock'
 PROJECT_SOCKET = '/run/awb-project-create.sock'
 REQUEST = re.compile(r'[a-f0-9]{32}')
 CUSTOMER = re.compile(r'CUST-[A-Z2-7]{4}')
+WEB_REGISTER_OFF = "New customers are registered on the owner's terminal, not in the console."
 
 
 class Problem(Exception):
@@ -143,6 +144,11 @@ class CustomerStore:
                               'aliases': [e.form for e in rows[1:] if e.status == 'active'],
                               'active': any(e.status == 'active' for e in rows)}
                              for code, rows in sorted(grouped.items())]}
+
+    def codes(self):
+        # D-NOW (2026-10-08): what the console gets. The forms of the register never leave the owner side; `name`
+        # carries the code so that the deployed page keeps working.
+        return {'customers': [dict(c, name=c['code'], aliases=[]) for c in self.list()['customers']]}
 
     def active(self, code):
         return any(e.code == code and e.status == 'active' for e in register.load(self.p.register))
@@ -365,13 +371,15 @@ class Handler(BaseHTTPRequestHandler):
                 if status_route and status_route[1] + 's' == self.server.mode:
                     return self.reply(200, store.journal.status(status_route[2]))
                 if self.server.mode == 'customers' and self.path == '/api/customers':
-                    return self.reply(200, store.list())
+                    return self.reply(200, store.codes())
                 if self.server.mode == 'projects' and self.path == '/api/project-options':
                     return self.reply(200, store.options())
                 raise Problem(404, 'Not found.')
             route = '/api/customers' if self.server.mode == 'customers' else '/api/projects'
             if self.path != route:
                 raise Problem(404, 'Not found.')
+            if self.server.mode == 'customers':
+                raise Problem(403, WEB_REGISTER_OFF)  # D-F3 = no: names never come in through the web
             lengths = self.headers.get_all('Content-Length', [])
             if len(lengths) != 1 or self.headers.get('Transfer-Encoding'):
                 raise Problem(400, 'Invalid request length.')

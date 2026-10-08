@@ -1651,8 +1651,22 @@
    "name": "the work rules send a long terminal output through awb paste",
    "run": ".venv/bin/pytest tests/test_work_rules.py",
    "status": "passing"
+  },
+  {
+   "id": "DNOW-1",
+   "phase": "DNOW",
+   "name": "D-NOW: the console's customer list answers codes only; no registered form in the answer (web peer, planted forms)",
+   "run": ".venv/bin/pytest tests/test_web_create_api.py",
+   "status": "passing"
+  },
+  {
+   "id": "DNOW-2",
+   "phase": "DNOW",
+   "name": "D-NOW: a web submission of a new customer is refused with 403, the register and the journal stay unchanged; replaces test_unix_peer_cannot_read_names (its POST step pinned 400)",
+   "run": ".venv/bin/pytest tests/test_web_create_api.py",
+   "status": "passing"
   }
  ],
- "total_tests": 236,
+ "total_tests": 238,
  "checked": "2026-10-08"
 }

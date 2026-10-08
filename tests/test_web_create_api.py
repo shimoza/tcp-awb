@@ -184,39 +184,78 @@ def test_invalid_fields_and_kind(home, tmp_path):
     assert not projects.load(home)
 
 
-def test_unix_peer_cannot_read_names(home, tmp_path):
+def _customer_server(home, tmp_path, web_uid):
     path = str(tmp_path / "api.sock")
     s = Server(path, Handler)
     s.mode = "customers"
     s.store = CustomerStore(home, tmp_path / "state")
-    s.web_uid = os.getuid() + 10000
+    s.web_uid = web_uid
     s.work_uid = os.getuid()
-    t = threading.Thread(target=s.serve_forever, daemon=True)
-    t.start()
+    threading.Thread(target=s.serve_forever, daemon=True).start()
+    return s, path
+
+
+def _ask(path, method, route, body=None):
+    c = UnixConnection(path)
     try:
-        c = UnixConnection(path)
-        c.request("GET", "/api/customers")
+        c.request(method, route, body=body, headers={"Content-Type": "application/json"} if body is not None else {})
         r = c.getresponse()
-        assert r.status == 403
-        r.read()
+        return r.status, r.read()
+    finally:
         c.close()
+
+
+def test_unix_peer_cannot_read_names_and_the_web_cannot_register(home, tmp_path):
+    # D-NOW (2026-10-08): replaces test_unix_peer_cannot_read_names, whose last step pinned a POST of the web
+    # reaching the form check (400); since D-F3 = no a new customer is never registered from the web (403)
+    s, path = _customer_server(home, tmp_path, os.getuid() + 10000)
+    try:
+        assert _ask(path, "GET", "/api/customers")[0] == 403
         code = next(e.code for e in register.load(home.register) if e.kind == "CUST")
-        c = UnixConnection(path)
-        c.request("POST", "/internal/customers/" + code)
-        r = c.getresponse()
-        assert r.status == 200
-        assert json.loads(r.read()) == {"active": True}
-        c.close()
+        status, raw = _ask(path, "POST", "/internal/customers/" + code)
+        assert status == 200 and json.loads(raw) == {"active": True}
         s.web_uid = os.getuid()
-        c = UnixConnection(path)
-        c.request("POST", "/api/customers", body="[]", headers={"Content-Type": "application/json"})
-        r = c.getresponse()
-        assert r.status == 400
-        r.read()
-        c.close()
+        for body in ("[]", json.dumps(customer_payload())):
+            status, raw = _ask(path, "POST", "/api/customers", body)
+            assert status == 403
+            assert json.loads(raw) == {"error": create_api.WEB_REGISTER_OFF}
     finally:
         s.shutdown()
         s.server_close()
+
+
+def test_the_web_list_carries_codes_and_never_a_name(home, tmp_path):
+    # D-NOW: the console's customer list answers codes; the forms of the register stay on the owner side
+    s, path = _customer_server(home, tmp_path, os.getuid())
+    try:
+        status, raw = _ask(path, "GET", "/api/customers")
+    finally:
+        s.shutdown()
+        s.server_close()
+    assert status == 200
+    text = raw.decode()
+    assert all(form not in text for form in fixtures.CUSTOMER_FORMS)
+    assert all(form.casefold() not in text.casefold() for form in fixtures.CUSTOMER_FORMS)
+    rows = json.loads(raw)["customers"]
+    codes = sorted({e.code for e in register.load(home.register) if e.kind == "CUST"})
+    assert [r["code"] for r in rows] == codes
+    assert all(r["name"] == r["code"] and r["aliases"] == [] for r in rows)
+    assert contract.validate(contract.build(), json.loads(raw), contract.ref("CustomerList")) == []
+
+
+def test_the_web_register_refusal_leaves_the_register_and_journal_alone(home, tmp_path):
+    store = empty_customers(home, tmp_path)
+    s = Server(str(tmp_path / "api2.sock"), Handler)
+    s.mode, s.store, s.web_uid, s.work_uid = "customers", store, os.getuid(), os.getuid() + 1
+    threading.Thread(target=s.serve_forever, daemon=True).start()
+    try:
+        status, _ = _ask(str(tmp_path / "api2.sock"), "POST", "/api/customers", json.dumps(customer_payload()))
+    finally:
+        s.shutdown()
+        s.server_close()
+    assert status == 403
+    assert register.load(home.register) == []
+    assert store.journal.codes() == set()
 
 
 def test_the_adapter_does_not_start_without_the_owner(monkeypatch, tmp_path):

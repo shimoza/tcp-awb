@@ -1316,11 +1316,11 @@ paths:
       operationId: listCustomers
       tags:
         - customers
-      summary: The customer register for the owner's console.
-      description: The only route that carries registered names. It answers the signed-in owner only. A name read here never goes into a project, a chat, a task or a log.
+      summary: The customer codes for the console.
+      description: "Codes only since D-NOW (2026-10-08, his decision D-F3 = no): no registered name crosses Cloudflare to the browser."
       responses:
         "200":
-          description: Every customer code with its registered forms.
+          description: "Every customer code, active or retired; no registered form."
           content:
             application/json:
               schema:
@@ -1330,9 +1330,8 @@ paths:
                   value:
                     customers:
                       - code: CUST-Q7M4
-                        name: "<registered name>"
-                        aliases:
-                          - "<short form>"
+                        name: CUST-Q7M4
+                        aliases: []
                         active: true
         "401":
           description: No valid session. Sign in first.
@@ -1373,12 +1372,12 @@ paths:
                 the-operation-could-not-finish:
                   value:
                     error: The operation could not finish. Retry the same submission to check its result.
-      x-awb-state: deployed
+      x-awb-state: repository
     post:
       operationId: createCustomer
       tags:
         - customers
-      summary: Register a new customer.
+      summary: "Register a new customer: refused from the web since D-NOW; customers are registered with awb register add on the owner's terminal."
       description: "The name and its other forms go into the owner's register and the customer gets a new code. A name that exists already is never merged: the answer names the existing codes."
       requestBody:
         required: true
@@ -1451,8 +1450,15 @@ paths:
                   value:
                     error: Sign in to open the project data.
         "403":
-          description: The gateway refused a request from another site.
+          description: Since D-NOW every submission of the web is refused, valid or not. The gateway refused a request from another site.
           content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                new-customers-are-registered-on:
+                  value:
+                    error: New customers are registered on the owner's terminal, not in the console.
             text/html:
               schema:
                 type: string
@@ -1551,7 +1557,7 @@ paths:
                 the-operation-could-not-finish:
                   value:
                     error: The operation could not finish. Retry the same submission to check its result.
-      x-awb-state: deployed
+      x-awb-state: repository
   "/api/customer-operations/{request_id}":
     get:
       operationId: getCustomerOperation
@@ -3324,10 +3330,10 @@ components:
           "$ref": "#/components/schemas/CustomerCode"
         name:
           type: string
-          description: "The first registered form: a name, for the owner only."
+          description: "The customer code again (D-NOW, 2026-10-08): the forms of the register never reach the console; the field stays for the page of 2026-10-06."
         aliases:
           type: array
-          description: The other active forms.
+          description: Always empty since D-NOW.
           items:
             type: string
         active:
