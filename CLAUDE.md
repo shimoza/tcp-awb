@@ -16,6 +16,8 @@ The instructions for a Claude Code session that works on this repository.
   is never edited to make it pass.
 - Commits carry the owner as author and nothing else: no co-author line and no "generated with" line. The
   commit-msg hook refuses a message that names an assistant as co-author.
+- A commit that adds or changes a command or a behaviour adds a line to this week's entry in `CHANGELOG.md` and
+  fixes the README where it describes that part.
 - English. No em-dash. No comma before "and" or "or". Plain words.
 
 ## Commands
