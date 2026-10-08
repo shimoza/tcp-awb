@@ -384,12 +384,17 @@ def masked(text: str) -> str:
 
 
 def ledger_candidates(p: config.Paths, since: date | None) -> str:
-    """T-46: the ledger entries since `since` that may be worth a career line, codes masked. Input for him, not
-    a part of the checked draft."""
+    """T-46: the ledger entries since `since` that may be worth a career line, every text through the name check
+    of today's register first (a name registered after the entry is withheld), then codes masked. Input for him,
+    not a part of the checked draft."""
     try:
         entries = [e for e in ledger.load(p, start=since) if e.kind in CANDIDATE_KINDS]
     except ledger.LedgerError:
         return "## From the ledger\n\nThe ledger could not be read.\n"
+    try:
+        entries, _ = ledger.withhold(entries, ledger.register_path(p))
+    except ledger.LedgerError:
+        return "## From the ledger\n\nThe name check cannot run: the ledger entries are withheld.\n"
     head = "## From the ledger%s\n\n" % (" since %s" % since.isoformat() if since else "")
     if not entries:
         return head + "No ledger entry of kind %s.\n" % ", ".join(CANDIDATE_KINDS)

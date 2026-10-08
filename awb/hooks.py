@@ -820,7 +820,9 @@ def _git_lines(root: Path, *args: str) -> list[str] | None:
 
 def draft_ledger(p: config.Paths, root: Path, now: datetime.datetime | None = None) -> bool:
     """T-41: a ledger entry drafted from the commits of the project since the last draft, at most every
-    DRAFT_HOURS. Commit subjects passed the commit gate; the ledger checks them again. True when written."""
+    DRAFT_HOURS. Commit subjects passed the commit gate; the ledger checks them again. True when written. The
+    marker moves only after the entry is in: a draft the ledger refuses raises ledger.Refused, is noted in
+    <code>.refused beside the marker and is tried again with the next commit."""
     from awb import ledger, projects
     now = now or datetime.datetime.now(datetime.timezone.utc)
     code = root.name
@@ -839,18 +841,37 @@ def draft_ledger(p: config.Paths, root: Path, now: datetime.datetime | None = No
             return False
     except (KeyError, TypeError, ValueError):
         pass
-    span = ["%s..HEAD" % state["head"]] if state.get("head") else ["--since=%s" % now.date().isoformat()]
+    # a bare date means "since this time of day" to git: the first draft starts at midnight UTC of the day
+    span = (["%s..HEAD" % state["head"]] if state.get("head")
+            else ["--since=%s 00:00:00 +0000" % now.date().isoformat()])
     subjects = [s for s in (_git_lines(root, "log", "--format=%s", *span) or []) if not s.startswith("Spawn tcp-")]
+    refused = marker.with_suffix(".refused")
+    try:
+        if refused.read_text(encoding="utf-8").strip() == head[0]:
+            return False                    # this draft was refused and said once; the next commit tries again
+    except OSError:
+        pass
+    written = False
+    if subjects:
+        row = next((r for r in projects.load(p) if r.code == code), None)
+        done = "%s: %d commit(s): %s" % (code, len(subjects), "; ".join(reversed(subjects)))
+        try:
+            ledger.add("other", done[:ledger.MAX_TEXT], project=code,
+                       customer=None if row is None or row.customer == projects.NO_CUSTOMER else row.customer,
+                       outcome="drafted at session end from the commits; correct it with awb ledger add when "
+                               "needed", p=p)
+        except ledger.Refused:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            refused.write_text(head[0] + "\n", encoding="utf-8")
+            raise
+        written = True
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(json.dumps({"head": head[0], "at": now.isoformat()}) + "\n", encoding="utf-8")
-    if not subjects:
-        return False
-    row = next((r for r in projects.load(p) if r.code == code), None)
-    done = "%s: %d commit(s): %s" % (code, len(subjects), "; ".join(reversed(subjects)))
-    ledger.add("other", done[:ledger.MAX_TEXT], project=code,
-               customer=None if row is None or row.customer == projects.NO_CUSTOMER else row.customer,
-               outcome="drafted at session end from the commits; correct it with awb ledger add when needed", p=p)
-    return True
+    try:
+        refused.unlink()
+    except OSError:
+        pass
+    return written
 
 
 def _quietly(fn, *args) -> None:
@@ -869,7 +890,15 @@ def hook_stop(data: dict) -> int:
     _quietly(questions.capture, config.paths(), data.get("transcript_path"), root)
     if root is None:
         return OK
-    _quietly(draft_ledger, config.paths(), root)
+    draft_msg = None
+    try:
+        draft_ledger(config.paths(), root)
+    except Exception as exc:
+        from awb import ledger
+        if isinstance(exc, ledger.Refused):
+            # the refusal names the field and the counts, never a value
+            draft_msg = ("the ledger refused the draft of this session's commits (%s): add the entry yourself with "
+                         "awb ledger add, in plain words" % exc)
     harvest_msg = None
     try:
         from awb import harvest
@@ -899,13 +928,13 @@ def hook_stop(data: dict) -> int:
         name = _field(row, "file", "deliverable", "name", "path", default="")
         (unreadable if state == "unreadable" else pending).append(Path(str(name)).name or "unnamed")
     if not pending and not unreadable:
-        said = [m for m in (harvest_msg, late_msg) if m]
+        said = [m for m in (draft_msg, harvest_msg, late_msg) if m]
         if said:
             print("\n".join(said), file=sys.stderr)
             return BLOCK
         return OK
     shown = _safe_names(pending + unreadable)
-    lines = [m for m in (harvest_msg, late_msg) if m]
+    lines = [m for m in (draft_msg, harvest_msg, late_msg) if m]
     if pending:
         lines.append("run the review for: %s" % ", ".join(shown[:len(pending)]))
     if unreadable:

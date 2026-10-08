@@ -138,6 +138,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   an upgrade of either is a deliberate step.
 - The exchange names no file. A result goes into the bucket under an id, its name is checked also for a picture and
   for the name given with `--as`, and the mails and the log of the exchange carry only codes, ids, sizes and states.
+- Ledger texts leak nothing and are not lost. A ledger text with a name registered after it was written is withheld
+  from the career candidates, and a session hears once when the draft of its commits was refused and adds the entry
+  itself.
 
 ## Week 40, 2026-09-28 to 2026-10-04
 

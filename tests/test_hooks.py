@@ -566,6 +566,33 @@ def test_stop_with_a_stale_record_is_blocked(project, monkeypatch, capsys):
     assert calls == [project]
 
 
+def test_a_refused_ledger_draft_moves_no_marker_and_is_said_once(project, home, monkeypatch, capsys):
+    """TM0 item 5: a commit subject the ledger refuses leaves the marker where it was, the stop hook says so once,
+    and the next commit is drafted again."""
+    import subprocess
+
+    from awb import ledger
+
+    fake_review(monkeypatch, [])
+    monkeypatch.setattr(hooks, "DRAFT_HOURS", 0)
+    git = ["git", "-C", str(project), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    subprocess.run(git[:3] + ["init", "-q"], check=True)
+    (project / "notes.md").write_text("x\n", encoding="utf-8")
+    subprocess.run(git + ["add", "notes.md"], check=True)
+    subprocess.run(git + ["commit", "-qm", "call with %s" % fixtures.PERSON_FORMS[0]], check=True)
+    marker = home.ledger / ".drafts" / (CODE + ".json")
+    code, _, err = run_hook("stop", {"cwd": str(project)}, monkeypatch, capsys)
+    assert code == 2 and "the ledger refused the draft" in err and "awb ledger add" in err
+    assert_clean(err, "the stop message")
+    assert not marker.exists() and not ledger.load(home)
+    _, _, err = run_hook("stop", {"cwd": str(project)}, monkeypatch, capsys)
+    assert "refused" not in err
+    (project / "notes.md").write_text("y\n", encoding="utf-8")
+    subprocess.run(git + ["commit", "-qam", "Sizing of the two clusters"], check=True)
+    code, _, err = run_hook("stop", {"cwd": str(project)}, monkeypatch, capsys)
+    assert code == 2 and "refused" in err
+
+
 def test_stop_hook_active_never_loops(project, monkeypatch, capsys):
     calls = fake_review(monkeypatch, [{"file": "deliverables/%s-offer.md" % CODE, "state": "stale"}])
     payload = {"cwd": str(project), "stop_hook_active": True}

@@ -257,6 +257,20 @@ def test_the_draft_withholds_a_text_with_a_name_registered_later(home, capsys, m
     assert "1 texts withheld" in err
 
 
+def test_the_ledger_candidates_withhold_a_name_registered_after_the_add(home, capsys, monkeypatch, today):
+    """TM0 item 4: a ledger line that carries a form registered after the add never reaches the career update."""
+    from awb import ledger
+
+    fake_writing(monkeypatch)
+    ledger.add("proof", "Linked the office in %s" % fixtures.CONTROL_UNREGISTERED, outcome="Clean outcome",
+               day="2026-09-20", p=home)
+    register.add(home.register, fixtures.CUSTOMER_CODE + "-SITE-2", "SITE", fixtures.CONTROL_UNREGISTERED)
+    code, out, err = run(["career", "update"], capsys)
+    assert code == 0, err
+    assert fixtures.CONTROL_UNREGISTERED not in out + err
+    assert ledger.WITHHELD in err and "Clean outcome" in err
+
+
 def test_update_with_no_entries(home, capsys, monkeypatch, today):
     fake_writing(monkeypatch)
     code, out, err = run(["career", "update"], capsys)
