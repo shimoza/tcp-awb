@@ -46,6 +46,7 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     awb board write [--out DIR] | show                       awb/tcp/board.py
     sudo awb deploy [--dry-run] [--only UNIT...] ..., awb deploy status    awb/deploy.py   (owner side)
     sudo awb web publish --from-queue ID|FILE|--rollback [NAME], awb web status    awb/tcp/web/publish.py (owner side)
+    awb ui submit TASKFILE [--mail], awb ui status [--ended], awb ui watch ID      awb/tcp/ui.py   (owner side)
 
 Exit codes: 0 ok, 1 findings or blocked, 2 usage or error.
 
@@ -527,6 +528,7 @@ DELEGATED = {
     "service": ("tcp.services", "offered services: the latest service description and nothing else (check, list, update)"),
     "board": ("tcp.board", "the status of every active project for management, as Markdown and HTML"),
     "web": ("tcp.web.publish", "publish the console page with a backup: sudo awb web publish; awb web status"),
+    "ui": ("tcp.ui", "the UI queue: submit a task, list the runs, a result note when a run ends (owner side)"),
     "deploy": ("deploy", "bring a commit live: sudo awb deploy; awb deploy --dry-run and awb deploy status as the owner"),
 }
 

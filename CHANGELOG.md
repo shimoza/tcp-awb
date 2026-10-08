@@ -26,6 +26,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   platform id, so a cleanup can address it exactly, and `awb cloud sweep` marks the resources a project lists.
 - One command publishes the console page. `sudo awb web publish --from-queue ID` checks a finished UI run and puts
   it live with a backup, `--rollback` puts the old page back and `awb web status` shows what is live.
+- The UI queue reports back. `awb ui submit` checks a UI task and hands it to Codex, and a result note with the
+  validation, the summary and the publish command appears in `presentations/ui-tasks/` when the run ends, without
+  anyone asking. `awb ui status` lists the runs and `--mail` sends a mail when one ends.
 
 ### Changed
 

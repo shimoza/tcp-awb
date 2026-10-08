@@ -1329,8 +1329,92 @@
    "name": "status names the page and the last backup",
    "run": ".venv/bin/pytest tests/test_web_publish.py::test_status_names_the_page_and_the_last_backup",
    "status": "passing"
+  },
+  {
+   "id": "T7-1",
+   "phase": "T7",
+   "name": "submit refuses a task file with a registered form, class only",
+   "run": ".venv/bin/pytest tests/test_ui.py::test_submit_refuses_a_task_file_with_a_registered_form_with_the_class_only",
+   "status": "passing"
+  },
+  {
+   "id": "T7-2",
+   "phase": "T7",
+   "name": "submit refuses a task file with a planted secret, token or private key",
+   "run": ".venv/bin/pytest tests/test_ui.py::test_submit_refuses_a_task_file_with_a_planted_secret",
+   "status": "passing"
+  },
+  {
+   "id": "T7-3",
+   "phase": "T7",
+   "name": "submit refuses a task file out of the form",
+   "run": ".venv/bin/pytest tests/test_ui.py::test_submit_refuses_a_task_file_out_of_the_form",
+   "status": "passing"
+  },
+  {
+   "id": "T7-4",
+   "phase": "T7",
+   "name": "submit hands a clean task to the bridge and starts the watch",
+   "run": ".venv/bin/pytest tests/test_ui.py::test_submit_hands_a_clean_task_to_the_bridge_and_starts_the_watch",
+   "status": "passing"
+  },
+  {
+   "id": "T7-5",
+   "phase": "T7",
+   "name": "submit without a bridge in the settings is refused",
+   "run": ".venv/bin/pytest tests/test_ui.py::test_submit_without_a_bridge_in_the_settings_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "T7-6",
+   "phase": "T7",
+   "name": "watch writes the result note when the run flips to completed, with the publish line",
+   "run": ".venv/bin/pytest tests/test_ui.py::test_watch_writes_the_result_note_when_the_run_flips_to_completed",
+   "status": "passing"
+  },
+  {
+   "id": "T7-7",
+   "phase": "T7",
+   "name": "watch names a run that cannot be published and withholds a text with a finding",
+   "run": ".venv/bin/pytest tests/test_ui.py::test_watch_names_a_run_that_cannot_be_published_and_withholds_a_text_with_a_finding",
+   "status": "passing"
+  },
+  {
+   "id": "T7-8",
+   "phase": "T7",
+   "name": "watch with mail sends codes only",
+   "run": ".venv/bin/pytest tests/test_ui.py::test_watch_with_mail_sends_codes_only",
+   "status": "passing"
+  },
+  {
+   "id": "T7-9",
+   "phase": "T7",
+   "name": "watch gives up after its timeout without a note",
+   "run": ".venv/bin/pytest tests/test_ui.py::test_watch_gives_up_after_its_timeout_without_a_note",
+   "status": "passing"
+  },
+  {
+   "id": "T7-10",
+   "phase": "T7",
+   "name": "status prints one line per run with id, state and finish time, codes only",
+   "run": ".venv/bin/pytest tests/test_ui.py::test_status_prints_one_line_per_run_with_id_state_and_finish_time_codes_only",
+   "status": "passing"
+  },
+  {
+   "id": "T7-11",
+   "phase": "T7",
+   "name": "status --ended names a run once after it ended",
+   "run": ".venv/bin/pytest tests/test_ui.py::test_status_ended_names_a_run_once_after_it_ended",
+   "status": "passing"
+  },
+  {
+   "id": "T7-12",
+   "phase": "T7",
+   "name": "the key service sends an owner mail through its notify operation",
+   "run": ".venv/bin/pytest tests/test_ui.py::test_the_key_service_sends_an_owner_mail_through_its_notify_operation",
+   "status": "passing"
   }
  ],
- "total_tests": 2396,
- "checked": "2026-10-07"
+ "total_tests": 2410,
+ "checked": "2026-10-08"
 }

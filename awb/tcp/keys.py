@@ -81,7 +81,8 @@ _SECRET_FIELD_RE = re.compile(r"(?i)^(?:admin_?pass(?:word)?|password|passwd|use
 MASK = "<secret>"
 LEAVE_WAIT = 70.0
 """Seconds a handed-over service waits for its calls in flight (a cloud call takes at most 60) before it exits."""
-ADMIN_OPS = ("load", "lock", "ping", "reload", "status")
+ADMIN_OPS = ("load", "lock", "notify", "ping", "reload", "status")
+NOTIFY_MAX = 4000      # characters of an owner mail through the admin socket (awb ui watch --mail)
 CONSOLE_USER = "awb-console"
 """The system user of the console's tenant inventory (F2, his decision of 2026-10-04): it alone reads a test tenant
 without a project, with the read key only. Sessions run as the work user and keep the query/project rule."""
@@ -470,22 +471,24 @@ class Service:
         except Exception:
             return None
 
-    def _notify(self, subject: str, message: str) -> None:
-        """A mail to the owner through the SMN topic of keys.conf; quietly nothing when none is set."""
+    def _notify(self, subject: str, message: str) -> bool:
+        """A mail to the owner through the SMN topic of keys.conf; quietly nothing when none is set. True when
+        the topic took it."""
         from awb.tcp import cloud
 
         topic = self.settings.get("notify_topic")
         alias = self.settings.get("bucket_tenant")
         keys_ = self._lab_keys(alias) if alias else None
         if not topic or keys_ is None:
-            return
+            return False
         try:
             client = cloud.Client(keys_, self.settings.get("region") or "eu-de", endpoint=self.endpoint,
                                   label=alias, timeout=30.0)
             client.request("POST", "smn", "/v2/{project_id}/notifications/topics/%s/publish" % topic,
                            body={"subject": subject[:100], "message": message})
         except Exception:
-            pass
+            return False
+        return True
 
     @staticmethod
     def _send(conn: socket.socket, answer: dict) -> None:
@@ -521,6 +524,11 @@ class Service:
             return {"ok": True, "tenants": self._summary()}
         if op == "reload":
             return self._reload()
+        if op == "notify":
+            subject, message = req.get("subject"), req.get("message")
+            if not isinstance(subject, str) or not isinstance(message, str) or len(message) > NOTIFY_MAX:
+                return {"ok": False, "error": "notify needs a subject and a message of at most %d" % NOTIFY_MAX}
+            return {"ok": True, "sent": self._notify(subject, message)}
         return {"ok": False, "error": "unknown operation"}
 
     def _reload(self) -> dict:
