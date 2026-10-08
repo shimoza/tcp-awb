@@ -3,7 +3,7 @@
     awb init
     awb intake --customer CODE|new [--review] [FILE...]     (no FILE: every file in the vault inbox)
     awb register add CODE KIND FORM                          (FORM "-" reads the form from standard input)
-    awb register new KIND [--parent CODE]
+    awb register new CUST|PART
     awb register list [--forms]
     awb register retire CODE
     awb register keep PHRASE                                 (PHRASE "-" reads the phrase from standard input)
@@ -173,8 +173,11 @@ def _cmd_register_add(args, p: config.Paths) -> int:
 def _cmd_register_new(args, p: config.Paths) -> int:
     from awb import intake
 
-    if args.kind not in codes.ENTITY_KINDS:
-        return _err("register new: kind must be one of %s" % ", ".join(codes.ENTITY_KINDS))
+    if args.kind in ("PERS", "ORG", "SITE"):
+        return _err("register new: %s codes are issued by the review of awb import CODE --review, never by hand"
+                    % args.kind)
+    if args.kind not in ("CUST", "PART"):
+        return _err("register new: kind must be CUST or PART")
     entries = register.load(p.register)
     if args.parent:
         if not codes.is_code(args.parent) or args.parent.count("-") != 1:
@@ -439,9 +442,9 @@ def _build() -> argparse.ArgumentParser:
     s.add_argument("kind")
     s.add_argument("form", help="the written form or - to read it from standard input")
     s.set_defaults(func=_cmd_register_add)
-    s = rsub.add_parser("new", help="print a fresh code of a kind")
+    s = rsub.add_parser("new", help="print a fresh code: CUST or PART (PERS, ORG, SITE only through --review)")
     s.add_argument("kind")
-    s.add_argument("--parent", default=None, help="a top-level code for a sub code such as CUST-Q7M4-PERS-2")
+    s.add_argument("--parent", default=None, help=argparse.SUPPRESS)
     s.set_defaults(func=_cmd_register_new)
     s = rsub.add_parser("list", help="codes, kinds and counts of forms")
     s.add_argument("--forms", action="store_true", help="also print the written forms (vault side only)")
@@ -453,9 +456,9 @@ def _build() -> argparse.ArgumentParser:
     s.add_argument("phrase", nargs="?", default=None, help="the phrase or - to read it from standard input")
     s.add_argument("--list", action="store_true", help="print the kept phrases (vault side only)")
     s.set_defaults(func=_cmd_register_keep)
-    s = rsub.add_parser("review", help="sort the candidates of a blocked intake in one pass in an editor: mark the "
+    s = rsub.add_parser("review", help="sort the candidates of an intake stopped by --review in an editor: mark the "
                                        "real names, the rest is kept as not a name (owner's terminal)")
-    s.add_argument("customer", help="the CUST code of the blocked intake")
+    s.add_argument("customer", help="the CUST code of the stopped intake")
     s.add_argument("--report", default=None, help="a private report other than the latest of the customer")
     s.set_defaults(func=_cmd_register_review)
 

@@ -1711,13 +1711,58 @@ def _cmd_show(args, p: config.Paths) -> int:
     if not sys.stdout.isatty():
         print("awb vault: show prints to a terminal only, never to a pipe or a file", file=sys.stderr)
         return 2
-    answer = admin_call("open_file", path=str(Path(args.file).expanduser().resolve()))
+    if args.file:
+        path = Path(args.file).expanduser().resolve()
+    else:
+        path = newest_report(p, args.customer)
+        if path.suffix != ".gpg":
+            text = path.read_text(encoding="utf-8")
+            sys.stdout.write(text if text.endswith("\n") else text + "\n")
+            return 0
+    answer = admin_call("open_file", path=str(path))
     try:
         text = base64.b64decode(answer.get("data") or "", validate=True).decode("utf-8")
     except (ValueError, UnicodeDecodeError):
         raise VaultError("the vault daemon answered in an unexpected form") from None
     sys.stdout.write(text if text.endswith("\n") else text + "\n")
     return 0
+
+
+REPORT_NAME_RE = re.compile(r"\d{4}-\d\d-\d\d-\d{6}(?:-\d+)?\.md(?:\.gpg)?")
+
+
+def newest_report(p: config.Paths, customer: str | None = None, now: float | None = None) -> Path:
+    """The newest private intake report of `customer`, or of the only customer with a report of the last day."""
+    from awb import codes
+
+    def reports(folder: Path) -> list[Path]:
+        try:
+            return sorted(f for f in folder.iterdir() if f.is_file() and REPORT_NAME_RE.fullmatch(f.name))
+        except OSError:
+            return []
+
+    if customer:
+        if not (codes.is_code(customer) and codes.kind_of(customer) == "CUST" and customer.count("-") == 1):
+            raise VaultError("a customer code reads CUST-XXXX")
+        found = reports(p.private_reports / customer)
+        if not found:
+            raise VaultError("%s has no private report" % customer)
+        return found[-1]
+    limit = (time.time() if now is None else now) - 24 * 3600
+    recent = []
+    try:
+        folders = [d for d in p.private_reports.iterdir() if d.is_dir() and codes.is_code(d.name)]
+    except OSError:
+        folders = []
+    for d in folders:
+        found = [f for f in reports(d) if f.stat().st_mtime >= limit]
+        if found:
+            recent.append(found[-1])
+    if len(recent) != 1:
+        raise VaultError("%s: name the customer with --customer CUST-XXXX" % (
+            "no customer has a report of the last day" if not recent
+            else "%d customers have a report of the last day" % len(recent)))
+    return recent[0]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1742,8 +1787,10 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(func=_cmd_lock)
     s = sub.add_parser("status", help="state, count of codes and forms")
     s.set_defaults(func=_cmd_status)
-    s = sub.add_parser("show", help="a sealed file of the vault, such as a private intake report, on your terminal")
-    s.add_argument("file")
+    s = sub.add_parser("show", help="a sealed file of the vault, such as a private intake report, on your terminal; "
+                                     "without FILE the newest private report of --customer or of the last day")
+    s.add_argument("file", nargs="?", default=None)
+    s.add_argument("--customer", default=None, metavar="CUST-XXXX")
     s.set_defaults(func=_cmd_show)
     s = sub.add_parser("encrypt", help="encrypt a plain vault once, then unlock the daemon")
     s.add_argument("--stdin", action="store_true", help="read the new passphrase twice from standard input")

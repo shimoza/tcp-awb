@@ -62,6 +62,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   rules that fired. `--force` is gone and `--review` stops once for the rare name that must keep a code. The owner
   inbox take, the bucket pull and the console's materials import hold no file for a name any more. The review opens
   vim when no editor is set.
+- `awb register new` issues customer and partner codes only: person, company and place codes come from the review
+  of `--review`. `awb vault show` without a path shows the newest private report of `--customer` or of the only
+  customer with a report of the last day.
 - `awb inbox take` finds the file you describe in your own words (the same letters, a kind of file, the newest, a
   part of the name). None or several matches list both inboxes. `--id` and `--all`.
 - The harvest also asks after Terraform runs, the openstack client and plain calls to the TCP API, besides the

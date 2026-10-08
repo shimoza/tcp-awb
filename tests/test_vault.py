@@ -1373,3 +1373,32 @@ def test_the_module_text_promise_still_holds():
                 for n in ast.walk(r):
                     word = n.id if isinstance(n, ast.Name) else n.attr if isinstance(n, ast.Attribute) else None
                     assert word not in banned, "%s:%d carries %s" % (rel, node.lineno, word)
+
+
+def test_show_without_a_path_finds_the_newest_private_report(home, monkeypatch):
+    """T4 point 3 of the audit: awb vault show without a path shows the newest private report of --customer, or of
+    the only customer with a report of the last day."""
+    import os as _os
+
+    from tests import fixtures as fx
+
+    folder = home.private_reports / fx.CUSTOMER_CODE
+    folder.mkdir(parents=True, exist_ok=True)
+    old = folder / "2026-10-01-090000.md"
+    new = folder / "2026-10-08-090000.md.gpg"
+    old.write_text("old", encoding="utf-8")
+    new.write_bytes(b"sealed")
+    (folder / "notes.txt").write_text("x", encoding="utf-8")
+    assert vault.newest_report(home, fx.CUSTOMER_CODE) == new
+    assert vault.newest_report(home) == new
+    other = home.private_reports / "CUST-ABCD"
+    other.mkdir()
+    (other / "2026-10-08-100000.md").write_text("r", encoding="utf-8")
+    with pytest.raises(vault.VaultError, match="2 customers"):
+        vault.newest_report(home)
+    for f in (new, other / "2026-10-08-100000.md", old):
+        _os.utime(f, (1, 1))
+    with pytest.raises(vault.VaultError, match="no customer has a report"):
+        vault.newest_report(home)
+    with pytest.raises(vault.VaultError, match="CUST-XXXX"):
+        vault.newest_report(home, fx.ORG_CODE)

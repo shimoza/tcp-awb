@@ -65,15 +65,20 @@ def test_init_creates_both_places(tmp_path, monkeypatch, capsys):
     assert "register: 1 forms of 1 codes" in capsys.readouterr().out
 
 
-def test_register_commands(con, home):
+def test_register_commands_in_wipe_mode(con, home):
+    """Replaces test_register_commands (wipe mode, T4, decision 4): register new issues CUST and PART codes only;
+    PERS, ORG and SITE codes come from the review of --review."""
     code, out, _ = con.run("register", "new", "CUST")
     assert code == 0
     fresh = out.strip()
     assert codes.is_code(fresh) and codes.kind_of(fresh) == "CUST"
     assert fresh not in register.codes(register.load(home.register))
+    code, out, _ = con.run("register", "new", "PART")
+    assert code == 0 and codes.kind_of(out.strip()) == "PART"
 
-    code, out, _ = con.run("register", "new", "PERS", "--parent", fx.CUSTOMER_CODE)
-    assert code == 0 and out.strip() == fx.CUSTOMER_CODE + "-PERS-2"
+    for kind in ("PERS", "ORG", "SITE"):
+        code, _, err = con.run("register", "new", kind, "--parent", fx.CUSTOMER_CODE)
+        assert code == 2 and "--review" in err and "never by hand" in err
 
     sub = fx.CUSTOMER_CODE + "-PERS-2"
     code, out, _ = con.run("register", "add", sub, "PERS", fx.PLANTED_PERSON)
