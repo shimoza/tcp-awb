@@ -3,7 +3,7 @@
     awb inbox take WORDS... [--project CODE] [--customer CUST-XXXX]   the file the owner describes, from either inbox
     awb inbox take --all | --id ID...                                 every file of both inboxes, or the ones named
     awb inbox list                                                    both inboxes: id, kind, size, time
-    awb xchg put FILE [--as NAME] [--image --reason TEXT]         a result into <code>/from-session/<date>/
+    awb xchg put FILE [--as NAME] [--image --reason TEXT]         a result into <code>/from-session/<date>/<id>
     awb xchg list                                                 what this project put
     awb xchg clean CODE [--older-than DATE] --dry-run|--go        delete what this project put, rows in RESOURCES.md
 
@@ -294,12 +294,18 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
     if method == "PUT":
         if body_path is None:
             raise XchgError("a put needs its bytes")
-        c.put_file(key, body_path, req.get("content_type") or "application/octet-stream")
+        sent = key.startswith("%s/%s" % (project, FROM))
+        if sent and not put_key_ok(key, project):
+            raise XchgError("a put goes to <code>/from-session/<date>/<file id>")
+        c.put_file(key, body_path, "application/octet-stream")
         size = body_path.stat().st_size
-        if key.startswith("%s/%s" % (project, FROM)):
-            ctx.notify("Workbench: %s put a file" % project,
-                       "Project %s put a file of %d bytes into %s. Fetch it in the OBS console, bucket %s."
-                       % (project, size, "/".join(key.split("/")[:3]) + "/", ctx.settings["lab_bucket"]))
+        if sent:
+            ident = key.rsplit("/", 1)[-1]
+            # the name travels only when the name check of the service passes it, else the id stands for it
+            name = req.get("name")
+            if not (valid_name(name) and not _name_hits([name], ctx.paths_fn())):
+                name = ident
+            ctx.notify(*exchange_mail("put", project, ident=ident, size=size, name=name))
         return {"ok": True, "size": size}, None
     h = c.head(key)
     if h is None:
@@ -310,6 +316,44 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
     tmp = Path(tempfile.mkstemp(prefix="awb-xchg-", dir=_tmp_dir(ctx))[1])
     c.get(key, tmp)
     return {"ok": True, "exists": True, "size": tmp.stat().st_size}, tmp
+
+
+_PUT_ID_RE = re.compile(r"^put-[0-9a-f]{12}(?:\.[a-z0-9]{1,5})?$")
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+HOLD_REASONS = {"intake": "the intake stopped", "withheld": "the final check withheld the copy",
+                "unreadable": "the file cannot be read as text"}
+
+
+def put_id(digest: str, name: str) -> str:
+    """The object id of a put: put- and twelve hex digits of its bytes, and the extension when it is a plain one."""
+    ext = os.path.splitext(name)[1].lower()
+    return "put-%s%s" % (digest[:12], ext if re.fullmatch(r"\.[a-z0-9]{1,5}", ext) else "")
+
+
+def put_key_ok(key: str, project: str) -> bool:
+    """A put of a session lands at <code>/from-session/<date>/<file id> and nowhere else under from-session/."""
+    parts = key.split("/")
+    return (len(parts) == 4 and parts[0] == project and parts[1] + "/" == FROM and bool(_DATE_RE.match(parts[2]))
+            and bool(_PUT_ID_RE.match(parts[3])))
+
+
+def exchange_mail(state: str, project: str, ident: str | None = None, size: int | None = None,
+                  name: str | None = None, customer: str | None = None, why: str | None = None) -> tuple[str, str]:
+    """The subject and the message of an exchange mail, built from fixed fields only: the project code, the object
+    id, the size, the state (and for a hold the customer code and a reason of HOLD_REASONS). A field that does not
+    read as its kind is sent as -; no key, no prefix, no error text, no file name the service did not pass."""
+    code = project if isinstance(project, str) and _CODE_RE.match(project) else "-"
+    if state == "put":
+        ident = ident if isinstance(ident, str) and _PUT_ID_RE.match(ident) else "-"
+        shown = name if isinstance(name, str) and name else ident
+        return ("Workbench: %s put a file" % code,
+                "Project %s put %s (id %s, %d bytes) into its from-session folder of the lab bucket. Fetch it in the "
+                "OBS console." % (code, shown, ident, int(size or 0)))
+    cust = customer if isinstance(customer, str) and _CUST_RE.match(customer) else "-"
+    reason = HOLD_REASONS.get(why or "", "held")
+    return ("Workbench: a take for %s is held" % code,
+            "A take for %s (%s) is held: %s. The original is in the project's in/ folder of the owner bucket and in "
+            "the vault inbox. %s." % (code, cust, reason, hold_line(code)))
 
 
 def _tmp_dir(ctx: Context) -> str:
@@ -444,13 +488,12 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
     try:
         res = intake.run([dst], customer, p)
     except intake.IntakeError:
-        return _hold(ctx, code, customer, "the intake stopped")
+        return _hold(ctx, code, customer, "intake")
     outputs = [o.name for o in res.outputs if o.name != "intake-report.md"]
     if not outputs:
         # wipe mode never holds for a name; a file that cannot be read as text, or one the final check withheld,
         # gives no copy, and the owner looks at it
-        return _hold(ctx, code, customer, "the final check withheld the copy" if res.held
-                     else "the file cannot be read as text")
+        return _hold(ctx, code, customer, "withheld" if res.held else "unreadable")
     return {"ok": True, "state": "taken", "customer": customer, "outputs": outputs}
 
 
@@ -460,10 +503,8 @@ def hold_line(code: str) -> str:
 
 
 def _hold(ctx: Context, code: str, customer: str, why: str) -> dict:
-    ctx.notify("Workbench: a take for %s is held" % code,
-               "A take for %s (%s) is held: %s. The original is in the project's in/ folder of the owner bucket and "
-               "in the vault inbox. %s." % (code, customer, why, hold_line(code)))
-    return {"ok": True, "state": "held", "why": why, "customer": customer}
+    ctx.notify(*exchange_mail("held", code, customer=customer, why=why))
+    return {"ok": True, "state": "held", "why": HOLD_REASONS[why], "customer": customer}
 
 
 WEB_MONTH_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])/$")
@@ -591,6 +632,22 @@ def _ok(answer: dict) -> dict:
     if not answer.get("ok"):
         raise XchgError(answer.get("error") or "the key service said no")
     return answer
+
+
+def name_problems(name: str) -> list[str]:
+    """Why an object name must not cross: a hit of the name check in the name itself (the --as name or the
+    source name), whatever kind of file it names."""
+    from awb import check
+
+    try:
+        hits = check.check_text(name, config.paths().register)
+    except Exception as err:
+        return ["the name check cannot run (%s)" % type(err).__name__]
+    if hits:
+        classes = sorted({h.get("cls", "unknown") for h in hits if isinstance(h, dict)})
+        return ["the name check found %d hit(s) in the object name: %s; put it --as a plain name" % (
+            len(hits), ", ".join(classes))]
+    return []
 
 
 def check_problems(path: Path, image: bool = False) -> list[str]:
@@ -735,27 +792,27 @@ def put(path: Path, as_name: str | None = None, image: bool = False, reason: str
         raise XchgError("a name without a folder")
     if image and not (reason and len(reason.strip()) >= 10):
         raise XchgError("--image needs a reason of one line: what it shows and that you checked it for names")
-    problems = check_problems(path, image=image)
+    problems = name_problems(name) or check_problems(path, image=image)
     if problems:
         raise XchgError("; ".join(problems))
     if customer not in (projects.NO_CUSTOMER, "", None):
-        verdict, message = review.send_check(root, path, True)
+        verdict, message = review.send_check(root, path, True, name=name)
         if verdict == review.SEND_REFUSE:
             raise XchgError("the send gate refused the file: %s" % message)
-    key = "%s/%s%s/%s" % (code, FROM, datetime.date.today().isoformat(), name)
     with tempfile.TemporaryDirectory(prefix="awb-put-") as tmp:
-        copy = Path(tmp) / name
+        copy = Path(tmp) / "upload"
         shutil.copyfile(path, copy)
-        a = _ok(_call({"op": "obs", "method": "PUT", "key": key, "project": code,
-                       "content_type": "application/octet-stream"}, upload=copy))
+        ident = put_id(hashlib.sha256(copy.read_bytes()).hexdigest(), name)
+        key = "%s/%s%s/%s" % (code, FROM, datetime.date.today().isoformat(), ident)
+        a = _ok(_call({"op": "obs", "method": "PUT", "key": key, "project": code, "name": name}, upload=copy))
     if image:
-        _log_image(root, name, reason)
-    return "put: %s (%d bytes); the owner gets a mail" % (key, a.get("size", 0))
+        _log_image(root, ident, reason)
+    return "put: %s as %s (%d bytes); the owner gets a mail" % (name, key, a.get("size", 0))
 
 
-def _log_image(root: Path, name: str, reason: str) -> None:
+def _log_image(root: Path, ident: str, reason: str) -> None:
     with open(root / "evidence" / "images-put.log", "a", encoding="utf-8") as f:
-        f.write("%s\t%s\t%s\n" % (datetime.datetime.now().isoformat(timespec="seconds"), name,
+        f.write("%s\t%s\t%s\n" % (datetime.datetime.now().isoformat(timespec="seconds"), ident,
                                   " ".join(reason.split())))
 
 

@@ -189,17 +189,93 @@ def test_a_project_without_a_customer_takes_nothing_from_the_owner_inbox_without
 # --------------------------------------------------------------------------- put
 
 
-def test_a_put_lands_in_from_session_and_tells_the_owner(svc, buckets, lab_project, capsys, tmp_path):
+def test_a_put_lands_under_its_id_and_tells_the_owner(svc, buckets, lab_project, capsys, tmp_path):
+    """Replaces test_a_put_lands_in_from_session_and_tells_the_owner (TM0 item 1): the object key is
+    <code>/from-session/<date>/<file id>, the name travels in the mail only after the service's name check."""
     lab, _ = buckets
     f = Path(lab_project.path) / "evidence" / "result.md"
     f.write_text("The image imported in four minutes.\n", encoding="utf-8")
     code, out, err = run(["xchg", "put", str(f)], capsys)
     assert code == 0, err
     keys_ = [k for k in lab.objects if k.startswith("%s/from-session/" % lab_project.code)]
-    assert len(keys_) == 1 and keys_[0].endswith("/result.md")
-    assert svc.notes and lab_project.code in svc.notes[-1][0]
+    assert len(keys_) == 1 and xchg.put_key_ok(keys_[0], lab_project.code) and "result" not in keys_[0]
+    ident = keys_[0].rsplit("/", 1)[-1]
+    assert ident.startswith("put-") and ident.endswith(".md") and "result.md" in out
+    subject, message = svc.notes[-1]
+    assert lab_project.code in subject and ident in message and "result.md" in message
+    assert "from-session/" not in message and "awb-lab" not in message
     code, out, _ = run(["xchg", "list"], capsys)
-    assert "result.md" in out
+    assert ident in out
+
+
+def test_a_planted_form_as_the_put_name_is_refused_also_for_a_picture(svc, buckets, lab_project, capsys, tmp_path):
+    """TM0 item 1: --as and the source name go through the name check, --image does not skip it, and a raw socket
+    put can neither choose the key nor carry a name into the mail."""
+    lab, _ = buckets
+    root = Path(lab_project.path)
+    f = root / "evidence" / "result.md"
+    f.write_text("The image imported in four minutes.\n", encoding="utf-8")
+    planted = "offer %s.md" % fx.CUSTOMER_FORMS[0]
+    code, _, err = run(["xchg", "put", str(f), "--as", planted], capsys)
+    assert code == 1 and "object name" in err and "--as" in err
+    shot = root / "evidence" / "shot.png"
+    shot.write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg=="))
+    code, _, err = run(["xchg", "put", str(shot), "--image", "--reason", "console screenshot, checked: no names",
+                        "--as", "shot %s.png" % fx.CUSTOMER_FORMS[0]], capsys)
+    assert code == 1 and "object name" in err
+    assert not [k for k in lab.objects if "/from-session/" in k]
+    fx.assert_no_fixture_name(err, "the refusal")
+    up = tmp_path / "x"
+    up.write_bytes(b"x")
+    bad = keys.request(svc.call_path, {"op": "obs", "method": "PUT", "project": lab_project.code,
+                                       "key": "%s/from-session/2026-10-08/%s" % (lab_project.code, planted)},
+                       upload=up)
+    assert not bad["ok"] and not [k for k in lab.objects if "/from-session/" in k]
+    key = "%s/from-session/2026-10-08/put-0123456789ab.md" % lab_project.code
+    good = keys.request(svc.call_path, {"op": "obs", "method": "PUT", "project": lab_project.code, "key": key,
+                                        "name": planted, "content_type": "text/" + fx.CUSTOMER_FORMS[0]}, upload=up)
+    assert good["ok"] and key in lab.objects
+    subject, message = svc.notes[-1]
+    assert "put-0123456789ab.md" in message
+    fx.assert_no_fixture_name(subject + message, "the put mail")
+
+
+def test_the_exchange_mails_carry_fixed_fields_only(svc, buckets, cust_project, capsys, monkeypatch):
+    """TM0 item 2: a planted error text of the intake and a planted name never reach a mail; the hold mail carries
+    the codes, a fixed reason and the owner's line."""
+    from awb import intake
+
+    _, own = buckets
+    own.objects["inbox/kickoff.txt"] = b"Kick-off notes.\n"
+
+    def stop(*a, **k):
+        raise intake.IntakeError("could not read inbox/kickoff.txt of %s" % fx.CUSTOMER_FORMS[0])
+
+    monkeypatch.setattr(intake, "run", stop)
+    code, out, err = run(["inbox", "take", "kickoff.txt"], capsys)
+    assert code == 0 and "held" in out
+    subject, message = svc.notes[-1]
+    assert "the intake stopped" in message and cust_project.code in message and fx.CUSTOMER_CODE in message
+    assert "kickoff" not in message and "could not read" not in message and "inbox/" not in message
+    fx.assert_no_fixture_name(subject + message + out + err, "the hold mail")
+    subject, message = xchg.exchange_mail("held", "tcp-" + fx.CUSTOMER_FORMS[1], customer=fx.CUSTOMER_FORMS[0],
+                                          why="planted error text")
+    fx.assert_no_fixture_name(subject + message, "a mail of planted fields")
+    assert "planted" not in message
+
+
+def test_the_exchange_log_keeps_method_and_project_from_fixed_sets(svc, buckets, lab_project, tmp_path):
+    """TM0 item 3: the owner's own uid sends a planted method and a planted project; the log line carries -."""
+    planted = "PUT %s" % fx.CUSTOMER_FORMS[0]
+    keys.request(svc.call_path, {"op": "obs", "method": planted, "project": "tcp-%s" % fx.CUSTOMER_FORMS[1]})
+    keys.request(svc.call_path, {"op": "inbox_find", "what": planted, "project": fx.CUSTOMER_FORMS[0]})
+    lines = [l for p in (tmp_path / "log").glob("*.tsv") for l in p.read_text().splitlines()]
+    assert len(lines) >= 2
+    for line in lines[-2:]:
+        fields = line.split("\t")
+        assert fields[4] in keys.EXCHANGE_METHODS + ("-",) and fields[8] == "-"
+    fx.assert_no_fixture_name("\n".join(lines), "the exchange log")
 
 
 def test_a_put_with_a_registered_name_or_an_unchecked_picture_is_refused(svc, buckets, lab_project, capsys):
@@ -250,7 +326,9 @@ def test_object_calls_outside_the_allowed_folders_are_refused_before_signing(svc
 
 
 
-def test_a_terraform_file_without_addresses_or_names_is_put(svc, buckets, lab_project, capsys):
+def test_a_terraform_file_without_addresses_or_names_is_put_under_its_id(svc, buckets, lab_project, capsys):
+    """Replaces test_a_terraform_file_without_addresses_or_names_is_put (TM0 item 1): the key is the file id with
+    the extension, never the file name."""
     lab, _ = buckets
     d = Path(lab_project.path) / "terraform" / "https-vm"
     d.mkdir(parents=True)
@@ -262,7 +340,7 @@ def test_a_terraform_file_without_addresses_or_names_is_put(svc, buckets, lab_pr
                  '  az     = data.opentelekomcloud_compute_availability_zone_v2.az.name\n}\n', encoding="utf-8")
     code, _, err = run(["xchg", "put", str(f)], capsys)
     assert code == 0, err
-    assert [k for k in lab.objects if k.endswith("/main.tf")]
+    assert [k for k in lab.objects if "/from-session/" in k and k.endswith(".tf") and "main" not in k]
     f.write_text(f.read_text() + '# owner tobias.beispielmann@%s\n' % fx.CUSTOMER_DOMAIN, encoding="utf-8")
     code, _, err = run(["xchg", "put", str(f), "--as", "second.tf"], capsys)
     assert code == 1 and "mail" in err

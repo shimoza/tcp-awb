@@ -1554,13 +1554,14 @@ def _content_hits(f: Path, register_path) -> tuple[int, Counter]:
 
 
 def send_check(project: Path, file: Path, for_customer: bool, register_path=None, workbench=None,
-               digest_out: list | None = None) -> tuple[str, str]:
+               digest_out: list | None = None, name: str | None = None) -> tuple[str, str]:
     """The send gate (decision 15), run before a file leaves the machine through the bucket: (verdict, message),
     the verdict ok, warn or refuse.
 
     Both paths are taken as the kernel opens them (real paths, links followed), so the file that is judged is
     the file that leaves; `digest_out` receives the hash of the bytes judged, so that the caller can prove it
-    uploads the same bytes. A deliverable is the file itself under deliverables/, a file with the same bytes as
+    uploads the same bytes; `name`, the name the file leaves under when it is not its own (`xchg put --as`), is
+    checked like the file's own name. A deliverable is the file itself under deliverables/, a file with the same bytes as
     one, or a file that carries its text: the whole text and more, a part of it, a changed copy, also inside a
     container (an office file, a pdf, an archive, a mail). Matched, the deliverable's record decides: for a
     project with a customer or partner (`for_customer`) the gate refuses one without a valid record, a changed
@@ -1602,7 +1603,7 @@ def send_check(project: Path, file: Path, for_customer: bool, register_path=None
         from awb import check
 
         reg = register_path if register_path is not None else config.paths().register
-        if any(h.get("cls") == "name" for h in check.check_text(f.name, reg)):
+        if any(h.get("cls") == "name" for n in {f.name, name or f.name} for h in check.check_text(n, reg)):
             return SEND_REFUSE, "the file name carries a registered name"
     except Exception:
         return SEND_REFUSE, "the name check did not run, nothing leaves unchecked"

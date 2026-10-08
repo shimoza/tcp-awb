@@ -136,6 +136,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   the account, without any right on identities, and puts its key in place of the admin's.
 - The routine upgrade no longer updates cloudflared and Terraform: the seal and every deploy hold both packages, so
   an upgrade of either is a deliberate step.
+- The exchange names no file. A result goes into the bucket under an id, its name is checked also for a picture and
+  for the name given with `--as`, and the mails and the log of the exchange carry only codes, ids, sizes and states.
 
 ## Week 40, 2026-09-28 to 2026-10-04
 
