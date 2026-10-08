@@ -37,6 +37,20 @@ info:
 
     The gateway also serves the older server-rendered pages /kb, /price, /projects, /reviews, /tenants, /health
     and /portal. They are HTML, the console does not call them and they are not part of this contract.
+
+    The owner host (T9 step 2, repository): a second host name, owner_host of /etc/awb/paths.conf, served by the
+    same gateway with its own exact Origin. Its sign-in is /login there with the username, the password and a
+    six-digit code of the owner's authenticator app (fields csrf, username, password, code); a wrong password, a
+    wrong or used code and a name that waits get one answer, The username, password or code is incorrect., and
+    each failure moves that name's next try 1 to 60 seconds ahead, never a lock. It sets __Host-awb-owner
+    (Secure, HttpOnly, SameSite=Strict, no Max-Age: 15 minutes idle, one hour at most); the main host never sets
+    it and the owner host never accepts __Host-awb-session. GET / there is the owner page of the release. The
+    operations with the server owner_host and the security owner live there only: on the main host GET and POST
+    /api/customers, /api/customer-operations/{request_id}, POST /api/projects, /api/project-operations/{request_id},
+    every /api/projects/{code}/materials route and every /api/owner/ route answer 404 Not found. before any
+    backend is asked. The reader routes answer on both hosts. A POST on the owner host also needs Sec-Fetch-Site
+    same-origin and the header X-AWB-CSRF with the csrf of GET /api/owner/state. No operation unlocks, locks or
+    takes a passphrase or a key.
   x-awb-deployed: "2026-10-02"
   x-awb-texts:
     - Invalid host.
@@ -64,6 +78,8 @@ tags:
     description: Inputs from the buckets, copied into a project.
   - name: chat
     description: Questions about a project, answered from checked sources only.
+  - name: owner
+    description: "The owner level on its own host: states and counts, never a name."
 paths:
   /login:
     get:
@@ -724,7 +740,7 @@ paths:
       tags:
         - projects
       summary: Create a project.
-      description: Creates the project folder with its files and registers it. No AI call and no cloud resource. The engagement rule (a customer is required) exists in the deployed backend only.
+      description: "Creates the project folder with its files and registers it. No AI call and no cloud resource. The engagement rule (a customer is required) exists in the deployed backend only. On the owner host only since T9 step 2; the main host answers 404 Not found."
       requestBody:
         required: true
         content:
@@ -823,7 +839,7 @@ paths:
                   value:
                     error: Sign in to open the project data.
         "403":
-          description: The gateway refused a request from another site.
+          description: "The gateway refused a request from another site. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
           content:
             text/html:
               schema:
@@ -835,6 +851,9 @@ paths:
                 cross-site-requests-are-not:
                   value: |
                     Cross-site requests are not allowed.
+                the-owner-page-expired-reload:
+                  value: |
+                    The owner page expired. Reload it.
         "408":
           description: The body did not arrive in time.
           content:
@@ -918,7 +937,15 @@ paths:
                 the-operation-could-not-finish:
                   value:
                     error: The operation could not finish. Retry the same submission to check its result.
-      x-awb-state: deployed
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
   "/api/projects/{code}":
     get:
       operationId: getProject
@@ -1325,14 +1352,23 @@ paths:
                 the-operation-could-not-finish:
                   value:
                     error: The operation could not finish. Retry the same submission to check its result.
-      x-awb-state: deployed
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
+      description: "On the owner host only since T9 step 2; the main host answers 404 Not found."
   /api/customers:
     get:
       operationId: listCustomers
       tags:
         - customers
       summary: The customer codes for the console.
-      description: "Codes only since D-NOW (2026-10-08, his decision D-F3 = no): no registered name crosses Cloudflare to the browser."
+      description: "Codes only since D-NOW (2026-10-08, his decision D-F3 = no): no registered name crosses Cloudflare to the browser. On the owner host only since T9 step 2; the main host answers 404 Not found."
       responses:
         "200":
           description: "Every customer code, active or retired; no registered form."
@@ -1348,6 +1384,8 @@ paths:
                         name: CUST-Q7M4
                         aliases: []
                         active: true
+                        state: active
+                        projects: 2
         "401":
           description: No valid session. Sign in first.
           content:
@@ -1388,12 +1426,20 @@ paths:
                   value:
                     error: The operation could not finish. Retry the same submission to check its result.
       x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
     post:
       operationId: createCustomer
       tags:
         - customers
       summary: "Register a new customer: refused from the web since D-NOW; customers are registered with awb register add on the owner's terminal."
-      description: "The name and its other forms go into the owner's register and the customer gets a new code. A name that exists already is never merged: the answer names the existing codes."
+      description: "The name and its other forms go into the owner's register and the customer gets a new code. A name that exists already is never merged: the answer names the existing codes. On the owner host only since T9 step 2; the main host answers 404 Not found."
       requestBody:
         required: true
         content:
@@ -1465,7 +1511,7 @@ paths:
                   value:
                     error: Sign in to open the project data.
         "403":
-          description: Since D-NOW every submission of the web is refused, valid or not. The gateway refused a request from another site.
+          description: "Since D-NOW every submission of the web is refused, valid or not. The gateway refused a request from another site. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
           content:
             application/json:
               schema:
@@ -1484,6 +1530,9 @@ paths:
                 cross-site-requests-are-not:
                   value: |
                     Cross-site requests are not allowed.
+                the-owner-page-expired-reload:
+                  value: |
+                    The owner page expired. Reload it.
         "408":
           description: The body did not arrive in time.
           content:
@@ -1573,6 +1622,14 @@ paths:
                   value:
                     error: The operation could not finish. Retry the same submission to check its result.
       x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
   "/api/customer-operations/{request_id}":
     get:
       operationId: getCustomerOperation
@@ -1646,7 +1703,16 @@ paths:
                 the-operation-could-not-finish:
                   value:
                     error: The operation could not finish. Retry the same submission to check its result.
-      x-awb-state: deployed
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
+      description: "On the owner host only since T9 step 2; the main host answers 404 Not found."
   /api/tenants:
     get:
       operationId: getTenants
@@ -1677,7 +1743,7 @@ paths:
                       - alias: test-1
                         regions:
                           - eu-de
-                        domain_name: sample-domain
+                        domain_digits: "00000001"
                         domain_status: available
                         scope: accessible
                         scope_label: All resources visible to the connected account
@@ -1797,7 +1863,7 @@ paths:
       tags:
         - materials
       summary: The imports of a project.
-      description: "The imports of this service, latest first, then the text copies that reached the project's input/ folder another way (the owner's intake on the command line, a take of the exchange): ready, version 1, source customer in a project with a customer and brief in one without, with a stable id. Both kinds can be read and used in the chat. The copies of the project folder come with the repository version."
+      description: "The imports of this service, latest first, then the text copies that reached the project's input/ folder another way (the owner's intake on the command line, a take of the exchange): ready, version 1, source customer in a project with a customer and brief in one without, with a stable id. Both kinds can be read and used in the chat. The copies of the project folder come with the repository version. On the owner host only since T9 step 2; the main host answers 404 Not found."
       parameters:
         - name: code
           in: path
@@ -1818,7 +1884,7 @@ paths:
                   value:
                     items:
                       - id: M-BCDEFGHIJKLMNOPQRSTUVWXY
-                        name: network.xlsx
+                        name: M-BCDEFGHIJKLMNOPQRSTUVWXY.xlsx
                         source: customer
                         state: held
                         message: Unrecognised names require owner review in the intake report. Register or approve them, then retry.
@@ -1826,8 +1892,9 @@ paths:
                         version: 1
                         filename: M-BCDEFGHIJKLMNOPQRSTUVWXY.md
                         size: 52211
+                        extension: ".xlsx"
                       - id: M-ABCDEFGHIJKLMNOPQRSTUVWX
-                        name: requirements.pdf
+                        name: M-ABCDEFGHIJKLMNOPQRSTUVWX.pdf
                         source: customer
                         state: ready
                         message: Ready text copy. Embedded images are not included.
@@ -1835,6 +1902,7 @@ paths:
                         version: 1
                         filename: M-ABCDEFGHIJKLMNOPQRSTUVWX.md
                         size: 182344
+                        extension: ".pdf"
                     busy: false
         "401":
           description: No valid session. Sign in first.
@@ -1889,14 +1957,22 @@ paths:
                 the-input-service-is-unavailable:
                   value:
                     error: The input service is unavailable. Check the bucket connection and vault.
-      x-awb-state: deployed
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
   "/api/projects/{code}/materials/sources":
     get:
       operationId: listMaterialSources
       tags:
         - materials
       summary: The files of one source, with their versions.
-      description: "brief lists the unassigned lab inbox. customer lists the unassigned owner inbox and the project's own in/ folders under every month; it needs a project with a customer. In the repository version the buckets are read through the owner's key service, so this service holds no key; its two refusals about the key service come with that version."
+      description: "brief lists the unassigned lab inbox. customer lists the unassigned owner inbox and the project's own in/ folders under every month; it needs a project with a customer. In the repository version the buckets are read through the owner's key service, so this service holds no key; its two refusals about the key service come with that version. On the owner host only since T9 step 2; the main host answers 404 Not found."
       parameters:
         - name: code
           in: path
@@ -1927,21 +2003,23 @@ paths:
                     source: customer
                     files:
                       - id: eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-                        name: requirements.pdf
+                        name: file 1.pdf
                         etag: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                         size: 182344
                         modified: "2026-10-03T07:58:12.000Z"
                         status: imported
                         supported: true
                         location: Project folder
+                        extension: ".pdf"
                       - id: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-                        name: diagram.vsdx
+                        name: file 2.vsdx
                         etag: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
                         size: 52211
                         modified: "2026-10-03T07:59:40.000Z"
                         status: new
                         supported: false
                         location: Unassigned inbox
+                        extension: ".vsdx"
                     limit_mb: 25
         "400":
           description: No source, or an unknown one.
@@ -2064,18 +2142,26 @@ paths:
                     error: The input service is unavailable. Check the bucket connection and vault.
                 the-key-service-is-locked:
                   value:
-                    error: "The key service is locked: the owner runs awb keys unlock."
+                    error: The key service is locked. The owner unlocks it in his terminal.
                 the-key-service-is-unavailable:
                   value:
                     error: The key service is unavailable. Try again later.
-      x-awb-state: deployed
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
   "/api/projects/{code}/materials/imports":
     post:
       operationId: importMaterials
       tags:
         - materials
       summary: Import chosen files into the project.
-      description: "Copies the chosen versions; the originals stay in the bucket. Each file is read at the version of the listing, so a changed file is refused. It is checked, sanitised through the intake when it comes from the customer source and added to the project's input/ as <id>.md. The same version imported again keeps its first id. Nothing starts an AI call. In the repository version each file is read through the owner's key service at its version."
+      description: "Copies the chosen versions; the originals stay in the bucket. Each file is read at the version of the listing, so a changed file is refused. It is checked, sanitised through the intake when it comes from the customer source and added to the project's input/ as <id>.md. The same version imported again keeps its first id. Nothing starts an AI call. In the repository version each file is read through the owner's key service at its version. On the owner host only since T9 step 2; the main host answers 404 Not found."
       parameters:
         - name: code
           in: path
@@ -2149,7 +2235,7 @@ paths:
                   value:
                     error: Sign in to open the project data.
         "403":
-          description: The gateway refused a request from another site.
+          description: "The gateway refused a request from another site. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
           content:
             text/html:
               schema:
@@ -2161,6 +2247,9 @@ paths:
                 cross-site-requests-are-not:
                   value: |
                     Cross-site requests are not allowed.
+                the-owner-page-expired-reload:
+                  value: |
+                    The owner page expired. Reload it.
         "404":
           description: No such project.
           content:
@@ -2263,7 +2352,15 @@ paths:
                 the-input-service-is-unavailable:
                   value:
                     error: The input service is unavailable. Check the bucket connection and vault.
-      x-awb-state: deployed
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
   "/api/projects/{code}/materials/{material_id}":
     get:
       operationId: getMaterial
@@ -2298,6 +2395,7 @@ paths:
                     id: M-ABCDEFGHIJKLMNOPQRSTUVWX
                     version: 1
                     filename: M-ABCDEFGHIJKLMNOPQRSTUVWX.md
+                    extension: ".md"
                     imported: "2026-10-03T08:15:00+00:00"
                     text: |
                       # Requirements
@@ -2378,7 +2476,16 @@ paths:
                 the-input-service-is-unavailable:
                   value:
                     error: The input service is unavailable. Check the bucket connection and vault.
-      x-awb-state: deployed
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
+      description: "On the owner host only since T9 step 2; the main host answers 404 Not found."
   "/api/projects/{code}/chat":
     get:
       operationId: getChat
@@ -2791,6 +2898,407 @@ paths:
                   value:
                     error: The local response exceeds the size limit.
       x-awb-state: deployed
+  /api/owner/state:
+    get:
+      operationId: getOwnerState
+      tags:
+        - owner
+      summary: The vault, the key service, the release and the page, with the csrf of the owner session.
+      description: "Codes and states only. When the vault is locked the page says so; it is unlocked in the owner's terminal, never here. csrf and shared_password_active come from the gateway, the rest from the status file owner-actions reads."
+      responses:
+        "200":
+          description: From the status file of the owner's timer.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/OwnerState"
+              examples:
+                sample:
+                  value:
+                    vault:
+                      state: locked
+                      since: "2026-10-08T07:40:00Z"
+                    keys:
+                      state: unlocked
+                      since: null
+                    deployed:
+                      release: "0123456789abcdef0123456789abcdef01234567"
+                      journal: done
+                    page:
+                      size: 210345
+                      time: "2026-10-06T15:02:11Z"
+                      backup_time: "2026-10-06T15:02:11Z"
+                      backups: 4
+                    csrf: "1791892800.<hmac>"
+                    shared_password_active: false
+                    written: "2026-10-08T12:00:00Z"
+                    stale: false
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "403":
+          description: The request did not come through the gateway's owner host.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                not-allowed:
+                  value:
+                    error: Not allowed.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The owner's timer has not written its status yet, or it cannot be read.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-owner-status-is-not:
+                  value:
+                    error: The owner status is not available yet.
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
+  /api/owner/ui-runs:
+    get:
+      operationId: listOwnerUiRuns
+      tags:
+        - owner
+      summary: The newest runs of the UI queue.
+      description: publishable marks the one run Publish would take.
+      responses:
+        "200":
+          description: From the status file of the owner's timer.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/UiRuns"
+              examples:
+                sample:
+                  value:
+                    runs:
+                      - id: ui-20261008-001
+                        state: completed
+                        finished: "2026-10-08T11:20:04+00:00"
+                        validation: PASS
+                        diff_bytes: 18234
+                        candidate_only: false
+                        publishable: true
+                      - id: ui-20261006-003
+                        state: completed
+                        finished: "2026-10-06T14:58:40+00:00"
+                        validation: PASS
+                        diff_bytes: 9120
+                        candidate_only: false
+                        publishable: false
+                    written: "2026-10-08T12:00:00Z"
+                    stale: false
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "403":
+          description: The request did not come through the gateway's owner host.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                not-allowed:
+                  value:
+                    error: Not allowed.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The owner's timer has not written its status yet, or it cannot be read.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-owner-status-is-not:
+                  value:
+                    error: The owner status is not available yet.
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
+  /api/owner/intake:
+    get:
+      operationId: listOwnerIntake
+      tags:
+        - owner
+      summary: Per customer code the candidates that wait for a review.
+      description: "From <vault>/intake-counts.json through the status file; no report is opened to count."
+      responses:
+        "200":
+          description: From the status file of the owner's timer.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/OwnerIntake"
+              examples:
+                sample:
+                  value:
+                    customers:
+                      - customer: CUST-Q7M4
+                        waiting: 3
+                        time: "2026-10-08T09:12:40Z"
+                    written: "2026-10-08T12:00:00Z"
+                    stale: false
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "403":
+          description: The request did not come through the gateway's owner host.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                not-allowed:
+                  value:
+                    error: Not allowed.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The owner's timer has not written its status yet, or it cannot be read.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-owner-status-is-not:
+                  value:
+                    error: The owner status is not available yet.
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
+  /api/owner/tenants:
+    get:
+      operationId: getOwnerTenants
+      tags:
+        - owner
+      summary: The test tenants with the IAM domain names.
+      description: As GET /api/tenants, with domain_name (RT-17).
+      parameters:
+        - name: refresh
+          in: query
+          required: false
+          description: "1 starts a refresh in the background, at most every 30 seconds."
+          schema:
+            type: string
+            enum:
+              - "1"
+      responses:
+        "200":
+          description: The snapshot.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/TenantInventory"
+              examples:
+                one-tenant:
+                  value:
+                    tenants:
+                      - alias: test-1
+                        regions:
+                          - eu-de
+                        domain_digits: "00000001"
+                        domain_status: available
+                        scope: accessible
+                        scope_label: All resources visible to the connected account
+                        ownership_verified: false
+                        collected_at: "2026-10-04T09:25:03+00:00"
+                        coverage:
+                          - region: eu-de
+                            kind: ecs
+                            status: complete
+                            count: 1
+                          - region: eu-de
+                            kind: evs
+                            status: complete
+                            count: 1
+                          - region: eu-de
+                            kind: eip
+                            status: complete
+                            count: 0
+                          - region: eu-de
+                            kind: vpc
+                            status: complete
+                            count: 1
+                          - region: eu-de
+                            kind: ims
+                            status: unavailable
+                            count: null
+                            error: Read access unavailable (HTTP 403).
+                        resources:
+                          - handle: ecs-1a2b3c4d
+                            kind: ecs
+                            region: eu-de
+                            state: ACTIVE
+                            size: s3.large.2
+                            amount: null
+                            project: tcp-m3fx
+                            project_source: tag
+                            expiry: "2026-10-31"
+                            created: "2026-09-30T10:12:44+00:00"
+                          - handle: evs-5e6f7a8b
+                            kind: evs
+                            region: eu-de
+                            state: in-use
+                            size: "40 GiB"
+                            amount: 40
+                            project: tcp-m3fx
+                            project_source: tag
+                            expiry: "2026-10-31"
+                            created: "2026-09-30T10:12:40+00:00"
+                          - handle: vpc-9c0d1e2f
+                            kind: vpc
+                            region: eu-de
+                            state: OK
+                            size: ""
+                            amount: null
+                            project: ""
+                            project_source: null
+                            expiry: ""
+                            created: null
+                        errors: []
+                        counts:
+                          ecs: 1
+                          evs: 1
+                          eip: 0
+                          vpc: 1
+                          ims: null
+                          running: 1
+                          stopped: 0
+                          attached_disks: 1
+                          disk_gib: 40
+                        status: partial
+                        domain_name: sample-domain-00000001
+                    collected_at: "2026-10-04T09:25:03+00:00"
+                    timestamp: 1791105903.0
+                    refreshing: false
+                    stale: false
+                    error: ""
+                    registered_count: 1
+                    refresh_interval_seconds: 300
+                    scope_note: Counts cover resources visible to the connected account in the configured regions. They are not filtered by creator.
+                    coverage_note: "Coverage: ECS servers, EVS disks, elastic IPs, VPCs and private images. Other services are not included."
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The inventory cannot be read.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-tenant-inventory-is-unavailable:
+                  value:
+                    error: The tenant inventory is unavailable.
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
 components:
   securitySchemes:
     session:
@@ -2798,6 +3306,11 @@ components:
       in: cookie
       name: __Host-awb-session
       description: Set by POST /login. Valid for 8 hours, Secure, HttpOnly, SameSite=Lax.
+    owner:
+      type: apiKey
+      in: cookie
+      name: __Host-awb-owner
+      description: "Set by POST /login on the owner host after the password and a TOTP code. Secure, HttpOnly, SameSite=Strict, no Max-Age: 15 minutes idle, one hour at most."
   schemas:
     Error:
       type: object
@@ -3354,6 +3867,17 @@ components:
         active:
           type: boolean
           description: false when every form is retired.
+        state:
+          type: string
+          description: "active or retired (D-F3 = no: code, state and project count)."
+          enum:
+            - active
+            - retired
+        projects:
+          type:
+            - integer
+            - "null"
+          description: "The projects of this customer that are not deleted; null when the project register cannot be read."
       required:
         - code
         - name
@@ -3552,7 +4076,12 @@ components:
           type:
             - string
             - "null"
-          description: "The IAM domain name of the account; null when it cannot be read."
+          description: "The IAM domain name of the account; null when it cannot be read. Only in GET /api/owner/tenants on the owner host (RT-17)."
+        domain_digits:
+          type:
+            - string
+            - "null"
+          description: "The digits that end the IAM domain name (its account number); null without them."
         domain_status:
           type: string
           enum:
@@ -3596,7 +4125,6 @@ components:
       required:
         - alias
         - regions
-        - domain_name
         - domain_status
         - scope
         - scope_label
@@ -3658,7 +4186,7 @@ components:
           "$ref": "#/components/schemas/MaterialId"
         name:
           type: string
-          description: The file name in the bucket.
+          description: "The import id and the extension of the source file (D-F3 = no: no file name crosses)."
         source:
           type: string
           description: "brief: the lab inbox. customer: the owner's bucket, through the intake."
@@ -3714,7 +4242,7 @@ components:
             - Project not found.
             - Reopen this project before importing files.
             - The customer is unavailable or retired.
-            - "The key service is locked: the owner runs awb keys unlock."
+            - The key service is locked. The owner unlocks it in his terminal.
             - The key service is unavailable. Try again later.
             - Ready text copy from the project folder.
         created:
@@ -3725,10 +4253,13 @@ components:
           description: The version of this source file in the project.
         filename:
           type: string
-          description: "The working copy in the project: <id>.md."
+          description: "The working copy in the project as its id and extension: <id>.md."
         size:
           type: integer
           description: Bytes of the source file.
+        extension:
+          type: string
+          description: The extension of the source file in lower case, empty without one.
       required:
         - id
         - name
@@ -3762,6 +4293,10 @@ components:
           pattern: "^[a-f0-9]{64}$"
         name:
           type: string
+          description: file and its place in the listing with the extension, file 3.pdf (D-F3 = no).
+        extension:
+          type: string
+          description: The extension in lower case, empty without one.
         etag:
           type: string
           description: The version of the file in the bucket.
@@ -3860,6 +4395,9 @@ components:
           type: integer
         filename:
           type: string
+          description: The id and the extension of the working copy.
+        extension:
+          type: string
         imported:
           type: string
           format: date-time
@@ -3872,6 +4410,198 @@ components:
         - filename
         - imported
         - text
+    OwnerDaemon:
+      type: object
+      properties:
+        state:
+          type: string
+          description: "From the daemon's ping: unlocked, locked, plain (no encryption), down or unknown."
+          enum:
+            - unlocked
+            - locked
+            - plain
+            - down
+            - unknown
+        since:
+          type:
+            - string
+            - "null"
+          description: "Since when it is in this state; null when the daemon does not say."
+      required:
+        - state
+        - since
+    OwnerState:
+      type: object
+      properties:
+        vault:
+          "$ref": "#/components/schemas/OwnerDaemon"
+        keys:
+          "$ref": "#/components/schemas/OwnerDaemon"
+        deployed:
+          type: object
+          properties:
+            release:
+              type:
+                - string
+                - "null"
+              description: "The live release: a commit, pre-deploy or plain."
+            journal:
+              type:
+                - string
+                - "null"
+              description: The state of the last deploy's journal.
+          required:
+            - release
+            - journal
+        page:
+          type: object
+          properties:
+            size:
+              type:
+                - integer
+                - "null"
+              description: Bytes of the live page.
+            time:
+              type:
+                - string
+                - "null"
+              description: When the live page was installed.
+            backup_time:
+              type:
+                - string
+                - "null"
+              description: When the newest backup was made.
+            backups:
+              type: integer
+              description: The backups kept.
+          required:
+            - size
+            - time
+            - backup_time
+            - backups
+        written:
+          type: string
+          description: When the owner's timer wrote the status (every minute).
+          format: date-time
+        stale:
+          type: boolean
+          description: true when the status is older than five minutes.
+        csrf:
+          type: string
+          description: The value of X-AWB-CSRF for the POSTs of this owner session, valid 10 minutes.
+        shared_password_active:
+          type: boolean
+          description: true while the single login of auth.json still works (no users file yet).
+      required:
+        - vault
+        - keys
+        - deployed
+        - page
+        - written
+        - stale
+        - csrf
+        - shared_password_active
+    UiRun:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The run id of the UI queue.
+        state:
+          type: string
+          enum:
+            - queued
+            - running
+            - ready
+            - completed
+            - failed
+            - cancelled
+            - unknown
+        finished:
+          type:
+            - string
+            - "null"
+        validation:
+          type:
+            - string
+            - "null"
+          description: The first word of the run's validation.
+          enum:
+            - PASS
+            - FAIL
+            - null
+        diff_bytes:
+          type:
+            - integer
+            - "null"
+          description: Bytes of the run's change.diff.
+        candidate_only:
+          type: boolean
+          description: A run that leaves the applied source alone (state ready when done).
+        publishable:
+          type: boolean
+          description: "true for the one run Publish takes: the newest PASS run that is completed (ready for a candidate-only run)."
+      required:
+        - id
+        - state
+        - finished
+        - validation
+        - diff_bytes
+        - candidate_only
+        - publishable
+    UiRuns:
+      type: object
+      properties:
+        runs:
+          type: array
+          description: The newest first, at most 20.
+          items:
+            "$ref": "#/components/schemas/UiRun"
+        written:
+          type: string
+          format: date-time
+        stale:
+          type: boolean
+      required:
+        - runs
+        - written
+        - stale
+    IntakeCount:
+      type: object
+      properties:
+        customer:
+          "$ref": "#/components/schemas/CustomerCode"
+        waiting:
+          type:
+            - integer
+            - "null"
+          description: Candidates that wait for awb register review.
+        time:
+          type:
+            - string
+            - "null"
+          description: The time of the last report.
+      required:
+        - customer
+        - waiting
+        - time
+    OwnerIntake:
+      type: object
+      properties:
+        customers:
+          type: array
+          description: Ordered by code.
+          items:
+            "$ref": "#/components/schemas/IntakeCount"
+        written:
+          type: string
+          format: date-time
+        stale:
+          type: boolean
+      required:
+        - customers
+        - written
+        - stale
     ChatTurn:
       type: object
       properties:

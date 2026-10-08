@@ -1,0 +1,14 @@
+# Template of the web side (seal/web/README.md). The socket of owner-actions (T9 step 2): root owns it, its group is
+# the gateway's, so the gateway may connect but cannot change its mode (RT-03).
+[Unit]
+Description=AWB owner-actions socket (the gateway only)
+
+[Socket]
+ListenStream=/run/awb-owner.sock
+SocketUser=root
+SocketGroup=awb-web
+SocketMode=0660
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

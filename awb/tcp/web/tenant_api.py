@@ -193,8 +193,24 @@ class Inventory:
             with self.lock:self.refreshing=False
 
 
+def domain_digits(name):
+    """The digits that end an IAM domain name (its account number), None without them."""
+    m = re.search(r'(\d{4,})$', name or '')
+    return m.group(1) if m else None
+
+
+def reader_view(data):
+    """GET /api/tenants for every signed-in reader: the IAM domain name stays on the owner level (RT-17, T9 step 2),
+    the reader sees its digits."""
+    out = dict(data)
+    out['tenants'] = [{**{k: v for k, v in t.items() if k != 'domain_name'},
+                       'domain_digits': domain_digits(t.get('domain_name'))} for t in data.get('tenants', [])]
+    return out
+
+
 class Handler(BaseHTTPRequestHandler):
-    """GET /api/tenants, refresh=1 starts a refresh in the background. Read only."""
+    """GET /api/tenants (the reader view), GET /api/owner/tenants (with the IAM domain names, reached only through
+    the gateway's owner host), refresh=1 starts a refresh in the background. Read only."""
 
     def reply(self, status, data):
         raw = json.dumps(data, ensure_ascii=False).encode()
@@ -208,11 +224,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         url = urlsplit(self.path)
-        if url.path != '/api/tenants':
+        if url.path not in ('/api/tenants', '/api/owner/tenants'):
             self.reply(404, {'error': 'Not found.'})
             return
         try:
-            self.reply(200, self.server.inventory.get(refresh=parse_qs(url.query).get('refresh') == ['1']))
+            data = self.server.inventory.get(refresh=parse_qs(url.query).get('refresh') == ['1'])
+            if url.path == '/api/tenants':
+                data = reader_view(data)
+            else:
+                data = dict(data, tenants=[{**t, 'domain_digits': domain_digits(t.get('domain_name'))}
+                                           for t in data.get('tenants', [])])
+            self.reply(200, data)
         except Exception:
             self.reply(503, {'error': 'The tenant inventory is unavailable.'})
     do_HEAD = do_GET

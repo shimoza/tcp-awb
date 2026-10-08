@@ -196,6 +196,7 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 | publish the console page | `sudo awb web publish --from-queue ID` | the checked page of a UI run live, the old one kept as a backup |
 | a login for the console | `sudo awb web user add LOGIN [--level owner]` | a random password, shown once (an owner entry also gets a TOTP key for his phone); `reset`, `remove`, `list`; `sudo awb web status` shows failed sign-ins and waits |
 | the owner host name | `sudo awb web host HOST` | once: the host name of the owner level, kept in `/etc/awb/paths.conf` |
+| the owner level's status | `awb owner status` | what the owner page shows: vault, key service, release, page, UI runs, intake counts; a timer writes it every minute |
 | hand a UI task to Codex | `awb ui submit presentations/ui-tasks/ID.txt`, `awb ui status` | the task checked and queued; a result note in `presentations/ui-tasks/` when the run ends |
 
 ## A typical day

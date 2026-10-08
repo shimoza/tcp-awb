@@ -113,6 +113,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   once, a login keeps five sessions and a full table refuses instead of evicting. An owner login is never locked out,
   it only waits up to a minute after a failure, and it gets a TOTP key for the owner level
   (`sudo awb web user add LOGIN --level owner`). `sudo awb web host HOST` names the owner level's host.
+- The console has an owner level on a host name of its own. The owner signs in there with his password and a code
+  from his phone; the session ends after 15 idle minutes and after an hour. The owner page is a fixed file of the
+  release and shows the vault and key service state, the UI runs, the intake counts, the customers, new projects,
+  the materials and the tenants, codes only and never a command to copy. Customers, project creation and imports
+  are no longer on the main site. Behind the owner routes a service of its own user reads one status file that
+  `awb owner status --write` writes every minute. File names of the inbox show as ids with their type, and readers
+  see a tenant's account number instead of its domain name.
 
 ## Week 40, 2026-09-28 to 2026-10-04
 

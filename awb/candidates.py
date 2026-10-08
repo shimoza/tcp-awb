@@ -236,7 +236,9 @@ def review(p: config.Paths, customer: str, report: Path | None = None, *, edit=N
     `next_step` the closing line that names the next command is left out (`--review` goes on by itself)."""
     path = report or latest_report(p, customer)
     candidates = still_open(p, parse_candidates(read_report(path)))
+    from awb import intake_counts
     if not candidates:
+        intake_counts.record_intake(p, customer, 0)
         out("every candidate of %s is sorted%s" % (customer, ": run awb import CODE" if next_step else ""))
         return 0
     tmp_dir = p.vault / "tmp"
@@ -275,6 +277,7 @@ def review(p: config.Paths, customer: str, report: Path | None = None, *, edit=N
         out("nothing was changed")
         return 1
     counts, kept = apply(p, customer, decisions)
+    intake_counts.record_intake(p, customer, decisions.later)
     out("registered %d people, %d companies, %d places, %d more forms of %s; kept %d as not a name; %d left for "
         "later" % (counts["PERS"], counts["ORG"], counts["SITE"], counts["CUST forms"], customer, kept,
                    decisions.later))

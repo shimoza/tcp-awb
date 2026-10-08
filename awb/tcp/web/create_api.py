@@ -146,9 +146,19 @@ class CustomerStore:
                              for code, rows in sorted(grouped.items())]}
 
     def codes(self):
-        # D-NOW (2026-10-08): what the console gets. The forms of the register never leave the owner side; `name`
-        # carries the code so that the deployed page keeps working.
-        return {'customers': [dict(c, name=c['code'], aliases=[]) for c in self.list()['customers']]}
+        # D-NOW and D-F3 = no (2026-10-08): what the console gets, on the owner host only (T9 step 2): the code, its
+        # state and the count of its projects. The forms of the register never leave the owner side; `name`
+        # carries the code so that a page of before keeps working.
+        try:
+            counts = {}
+            for p in projects.load(self.p):
+                if p.state != 'deleted':
+                    counts[p.customer] = counts.get(p.customer, 0) + 1
+        except (OSError, ValueError, projects.ProjectError):
+            counts = None
+        return {'customers': [dict(c, name=c['code'], aliases=[], state='active' if c['active'] else 'retired',
+                                   projects=counts.get(c['code'], 0) if counts is not None else None)
+                              for c in self.list()['customers']]}
 
     def active(self, code):
         return any(e.code == code and e.status == 'active' for e in register.load(self.p.register))

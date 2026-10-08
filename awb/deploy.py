@@ -96,7 +96,6 @@ DYNAMIC: dict[tuple[str, str], object] = {
 
 # Modules no unit imports: they run as a command and in no daemon, so a change of one restarts nothing.
 COMMAND_ONLY: dict[str, str] = {
-    "awb/deploy.py": "this command; root runs the installed copy, so a change is live from the following deploy",
     "awb/seal.py": "awb seal check, run by the work user against the host",
     "awb/paste.py": "awb paste, run in a working session with a terminal output on standard input",
     "awb/importcmd.py": "awb import, run by the owner in his own terminal",
@@ -105,8 +104,6 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/refresh.py": "awb refresh, run by the owner or a timer of his",
     "awb/tcp/dataset.py": "awb dataset build|put, run by the owner or by the refresh",
     "awb/tcp/web/contract.py": "awb api write|check, writes and checks docs/api/openapi.yaml",
-    "awb/tcp/web/publish.py": "awb web publish|status, run by the owner with sudo",
-    "awb/tcp/web/users.py": "awb web user, run by the owner with sudo in his own terminal",
     "awb/tcp/ui.py": "awb ui submit|status|watch, run by the owner; a watch runs as his own background process",
 }
 
@@ -310,6 +307,13 @@ def socket_service(tree, units: dict[str, dict], unit: str) -> str:
         if m:
             return m.group(1)
     return unit[:-len(".socket")] + ".service"
+
+
+def oneshot_units(tree, units: dict[str, dict]) -> set[str]:
+    """The services of Type=oneshot (a timer starts them): a deploy never restarts one, which would wait for it to
+    stay active; the next run of the timer takes the new code."""
+    return {unit for unit, info in units.items() if unit.endswith(".service") and any(
+        re.search(r"^Type=oneshot\s*$", tree.read(rel), re.M) for rel in info["files"] + info["dropins"])}
 
 
 def held_sockets(tree, units: dict[str, dict]) -> set[str]:
@@ -819,6 +823,7 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
                         and u not in eff.units:
                     stale.add(u)
     daemons = (host.daemons or owner_daemon_states)()
+    timed = oneshot_units(tree, units)
     plan_units = []
     for u, info in units.items():
         kind = daemon_kind(argvs[u]) if info["kind"] == "service" else None
@@ -843,6 +848,8 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
                     action, reason = "restart", "named with --only"
             elif action != "not installed":
                 action, reason = "unchanged", "not named with --only"
+        if action == "restart" and u in timed:
+            action, reason = "unchanged", "a timer starts it; the next run takes the new code"
         if action == "restart" and kind in DAEMON_ORDER:
             action, reason = _reload_or_restart(kind, u, show[u], daemons.get(kind) or {}, tree, imap, opts,
                                                 u in eff.templates, reason)

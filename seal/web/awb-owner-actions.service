@@ -1,0 +1,33 @@
+# Template of the web side (seal/web/README.md). owner-actions (T9 step 2, RT-02): the service behind the owner routes
+# runs as its own system user, never as the owner, has no network and reads one file, the status the owner's timer
+# writes (codes, numbers, states and times).
+[Unit]
+Description=AWB owner-actions (the owner routes of the console, codes only)
+Requires=awb-owner-actions.socket
+After=awb-owner-actions.socket
+
+[Service]
+User=awb-owner
+Group=awb-owner
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/tcp-awb/venv/bin/python3 -I -m awb.tcp.web.owner_actions --peer awb-web --status /var/lib/awb-owner-status/status.json --log /var/lib/awb-owner-actions/log
+StateDirectory=awb-owner-actions
+StateDirectoryMode=0700
+ReadOnlyPaths=/var/lib/awb-owner-status
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+UMask=0077
+LimitCORE=0
+TasksMax=16
+MemoryMax=128M

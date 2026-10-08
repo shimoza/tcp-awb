@@ -74,6 +74,7 @@ SYNTH = {
     "awb/tcp/web/tenant_api.py": "from awb import cli\n",
     "awb/tcp/web/create_api.py": "from awb import cli\n",
     "awb/tcp/web/materials_api.py": "from awb import cli\n",
+    "awb/tcp/web/owner_actions.py": "from awb import cli\n",
     "awb/tcp/web/gateway.py": "import json\n",
 }
 

@@ -43,6 +43,32 @@ MAX_TEXT=256*1024
 MAX_OBJECTS=2000
 SUPPORTED={'.md','.txt','.csv','.tsv','.json','.yaml','.yml','.pdf','.docx','.xlsx','.pptx','.odt','.ods','.odp'}
 
+# D-F3 = no (his decision of 2026-10-08): no file name crosses Cloudflare. The web answers show a file as its id and
+# its extension; the owner's terminal and the internal reads keep the names.
+NAMES_CROSS=False
+EXT=re.compile(r'\.[a-z0-9]{1,8}')
+
+
+def extension(name):
+    ext=Path(str(name or '')).suffix.lower()
+    return ext if EXT.fullmatch(ext) else ''
+
+
+def without_names(answer,kind):
+    """A web answer of the materials service in the codes-only shape: every file name becomes the item's id with
+    its extension (the history and one item) or `file N` with its extension (a source listing)."""
+    if NAMES_CROSS:return answer
+    if kind=='browse':
+        files=[dict(f,name='file %d%s'%(i+1,extension(f.get('name'))),extension=extension(f.get('name')))
+               for i,f in enumerate(answer.get('files',[]))]
+        return dict(answer,files=files)
+    if kind=='history':
+        items=[dict(i,name=i['id']+extension(i.get('name')),filename=i['id']+extension(i.get('filename')),
+                    extension=extension(i.get('name'))) for i in answer.get('items',[])]
+        return dict(answer,items=items)
+    return dict(answer,filename=answer['id']+extension(answer.get('filename')),extension=extension(answer.get('filename')))
+
+
 class Problem(Exception):
     def __init__(self,status,message): self.status=status;self.message=message
 
@@ -62,7 +88,7 @@ def local_call(path,route,method='GET',data=None,limit=2*1024*1024):
         return result
     finally:c.close()
 
-KEYS_LOCKED='The key service is locked: the owner runs awb keys unlock.'
+KEYS_LOCKED='The key service is locked. The owner unlocks it in his terminal.'
 KEYS_DOWN='The key service is unavailable. Try again later.'
 NOT_READ='The bucket could not be read. Try again later.'
 
@@ -368,9 +394,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.command=='GET':
                 if action=='sources':
                     q=urllib.parse.parse_qs(url.query,strict_parsing=True,max_num_fields=1)
-                    return self.reply(200,self.server.store.browse(code,(q.get('source') or [''])[0]))
-                if action is None:return self.reply(200,self.server.store.history(code))
-                if IDENT.fullmatch(action):return self.reply(200,self.server.store.text(code,action))
+                    return self.reply(200,without_names(self.server.store.browse(code,(q.get('source') or [''])[0]),'browse'))
+                if action is None:return self.reply(200,without_names(self.server.store.history(code),'history'))
+                if IDENT.fullmatch(action):return self.reply(200,without_names(self.server.store.text(code,action),'item'))
             if self.command=='POST' and action=='imports':
                 lengths=self.headers.get_all('Content-Length',[])
                 if len(lengths)!=1 or self.headers.get('Transfer-Encoding') or self.headers.get('Content-Type','').split(';')[0]!='application/json':raise Problem(400,'Invalid request.')

@@ -62,7 +62,7 @@ CUSTOMER_RETIRED = "The customer is unavailable or retired."
 REOPEN = "Reopen this project before importing files."
 CUSTOMER_CHANGED = "The project customer changed. This input cannot be used in its new context."
 NOT_READY = "The selected input is not ready in this project."
-KEYS_LOCKED = "The key service is locked: the owner runs awb keys unlock."
+KEYS_LOCKED = "The key service is locked. The owner unlocks it in his terminal."
 KEYS_DOWN = "The key service is unavailable. Try again later."
 PROJECT_READ_FAILED = (
     "The data check is locked. Project content was not returned.",
@@ -191,6 +191,20 @@ DESCRIPTION = "\n".join((
     "",
     "The gateway also serves the older server-rendered pages /kb, /price, /projects, /reviews, /tenants, /health",
     "and /portal. They are HTML, the console does not call them and they are not part of this contract.",
+    "",
+    "The owner host (T9 step 2, repository): a second host name, owner_host of /etc/awb/paths.conf, served by the",
+    "same gateway with its own exact Origin. Its sign-in is /login there with the username, the password and a",
+    "six-digit code of the owner's authenticator app (fields csrf, username, password, code); a wrong password, a",
+    "wrong or used code and a name that waits get one answer, The username, password or code is incorrect., and",
+    "each failure moves that name's next try 1 to 60 seconds ahead, never a lock. It sets __Host-awb-owner",
+    "(Secure, HttpOnly, SameSite=Strict, no Max-Age: 15 minutes idle, one hour at most); the main host never sets",
+    "it and the owner host never accepts __Host-awb-session. GET / there is the owner page of the release. The",
+    "operations with the server owner_host and the security owner live there only: on the main host GET and POST",
+    "/api/customers, /api/customer-operations/{request_id}, POST /api/projects, /api/project-operations/{request_id},",
+    "every /api/projects/{code}/materials route and every /api/owner/ route answer 404 Not found. before any",
+    "backend is asked. The reader routes answer on both hosts. A POST on the owner host also needs Sec-Fetch-Site",
+    "same-origin and the header X-AWB-CSRF with the csrf of GET /api/owner/state. No operation unlocks, locks or",
+    "takes a passphrase or a key.",
 ))
 
 
@@ -436,7 +450,7 @@ RESOURCES = [
 ]
 INVENTORY = {
     "tenants": [{
-        "alias": "test-1", "regions": ["eu-de"], "domain_name": "sample-domain", "domain_status": "available",
+        "alias": "test-1", "regions": ["eu-de"], "domain_digits": "00000001", "domain_status": "available",
         "scope": "accessible", "scope_label": "All resources visible to the connected account",
         "ownership_verified": False, "collected_at": "2026-10-04T09:25:03+00:00",
         "coverage": [{"region": "eu-de", "kind": "ecs", "status": "complete", "count": 1},
@@ -453,17 +467,18 @@ INVENTORY = {
     "stale": False, "error": "", "registered_count": 1, "refresh_interval_seconds": 300,
     "scope_note": SCOPE_NOTE, "coverage_note": COVERAGE_NOTE,
 }
-IMPORT_READY = {"id": MAT, "name": "requirements.pdf", "source": "customer", "state": "ready",
+IMPORT_READY = {"id": MAT, "name": MAT + ".pdf", "source": "customer", "state": "ready",
                 "message": "Ready text copy. Embedded images are not included.",
-                "created": "2026-10-03T08:15:00+00:00", "version": 1, "filename": MAT + ".md", "size": 182344}
-IMPORT_HELD = {"id": MAT2, "name": "network.xlsx", "source": "customer", "state": "held",
+                "created": "2026-10-03T08:15:00+00:00", "version": 1, "filename": MAT + ".md", "size": 182344,
+                "extension": ".pdf"}
+IMPORT_HELD = {"id": MAT2, "name": MAT2 + ".xlsx", "source": "customer", "state": "held",
                "message": IMPORT_MESSAGES[6], "created": "2026-10-03T08:16:21+00:00", "version": 1,
-               "filename": MAT2 + ".md", "size": 52211}
+               "filename": MAT2 + ".md", "size": 52211, "extension": ".xlsx"}
 FILES = [
-    {"id": SOURCE, "name": "requirements.pdf", "etag": ETAG, "size": 182344, "modified": "2026-10-03T07:58:12.000Z",
-     "status": "imported", "supported": True, "location": "Project folder"},
-    {"id": SOURCE2, "name": "diagram.vsdx", "etag": "b" * 32, "size": 52211, "modified": "2026-10-03T07:59:40.000Z",
-     "status": "new", "supported": False, "location": "Unassigned inbox"},
+    {"id": SOURCE, "name": "file 1.pdf", "etag": ETAG, "size": 182344, "modified": "2026-10-03T07:58:12.000Z",
+     "status": "imported", "supported": True, "location": "Project folder", "extension": ".pdf"},
+    {"id": SOURCE2, "name": "file 2.vsdx", "etag": "b" * 32, "size": 52211, "modified": "2026-10-03T07:59:40.000Z",
+     "status": "new", "supported": False, "location": "Unassigned inbox", "extension": ".vsdx"},
 ]
 
 
@@ -614,7 +629,11 @@ def _schemas() -> dict:
                            "console; the field stays for the page of 2026-10-06."),
             "aliases": array(string(), "Always empty since D-NOW."),
             "active": boolean("false when every form is retired."),
-        }),
+            "state": string("active or retired (D-F3 = no: code, state and project count).",
+                            enum=["active", "retired"]),
+            "projects": integer("The projects of this customer that are not deleted; null when the project register "
+                                "cannot be read.", nullable=True),
+        }, required=["code", "name", "aliases", "active"]),
         "CustomerList": obj({"customers": array(ref("Customer"), "Ordered by code.")}),
         "CustomerCreateRequest": obj({
             "request_id": ref("RequestId"),
@@ -650,8 +669,10 @@ def _schemas() -> dict:
         "Tenant": obj({
             "alias": string("The tenant alias, for example test-1."),
             "regions": array(string()),
-            "domain_name": string("The IAM domain name of the account; null when it cannot be read.",
-                                  nullable=True),
+            "domain_name": string("The IAM domain name of the account; null when it cannot be read. Only in "
+                                  "GET /api/owner/tenants on the owner host (RT-17).", nullable=True),
+            "domain_digits": string("The digits that end the IAM domain name (its account number); null without "
+                                    "them.", nullable=True),
             "domain_status": string(enum=["available", "unavailable"]),
             "scope": string(enum=["accessible"]),
             "scope_label": string(),
@@ -662,7 +683,8 @@ def _schemas() -> dict:
             "errors": {**array(string()), "x-awb-texts": ["The full IAM domain name is unavailable."]},
             "counts": ref("Counts"),
             "status": string(enum=["complete", "partial"]),
-        }),
+        }, required=["alias", "regions", "domain_status", "scope", "scope_label",
+                     "ownership_verified", "collected_at", "coverage", "resources", "errors", "counts", "status"]),
         "TenantInventory": obj({
             "tenants": array(ref("Tenant"), "Only the tenants that are still registered."),
             "collected_at": string(nullable=True, format="date-time"),
@@ -680,7 +702,7 @@ def _schemas() -> dict:
                      "refresh_interval_seconds", "scope_note", "coverage_note"]),
         "MaterialImport": obj({
             "id": ref("MaterialId"),
-            "name": string("The file name in the bucket."),
+            "name": string("The import id and the extension of the source file (D-F3 = no: no file name crosses)."),
             "source": string("brief: the lab inbox. customer: the owner's bucket, through the intake.",
                              enum=["brief", "customer"]),
             "state": string("queued, processing and publishing run. ready: the working copy is in input/. "
@@ -690,16 +712,18 @@ def _schemas() -> dict:
             "message": {**string("One sentence on the state."), "x-awb-texts": list(IMPORT_MESSAGES)},
             "created": string(format="date-time"),
             "version": integer("The version of this source file in the project."),
-            "filename": string("The working copy in the project: <id>.md."),
+            "filename": string("The working copy in the project as its id and extension: <id>.md."),
             "size": integer("Bytes of the source file."),
-        }),
+            "extension": string("The extension of the source file in lower case, empty without one."),
+        }, required=["id", "name", "source", "state", "message", "created", "version", "filename", "size"]),
         "MaterialHistory": obj({
             "items": array(ref("MaterialImport"), "Latest first, at most 500."),
             "busy": boolean("true while an import runs."),
         }),
         "SourceFile": obj({
             "id": string("Stable for this project, source and file.", pattern=SOURCE_ID),
-            "name": string(),
+            "name": string("file and its place in the listing with the extension, file 3.pdf (D-F3 = no)."),
+            "extension": string("The extension in lower case, empty without one."),
             "etag": string("The version of the file in the bucket."),
             "size": integer(),
             "modified": string("As the bucket reports it."),
@@ -708,7 +732,7 @@ def _schemas() -> dict:
                              enum=["new", "updated", "imported", "processing"]),
             "supported": boolean("false for an unknown type, an empty file or one above the limit."),
             "location": string(enum=["Unassigned inbox", "Project folder"]),
-        }),
+        }, required=["id", "name", "etag", "size", "modified", "status", "supported", "location"]),
         "MaterialSources": obj({
             "source": string(enum=["brief", "customer"]),
             "files": array(ref("SourceFile")),
@@ -728,10 +752,50 @@ def _schemas() -> dict:
         "MaterialText": obj({
             "id": ref("MaterialId"),
             "version": integer(),
-            "filename": string(),
+            "filename": string("The id and the extension of the working copy."),
+            "extension": string(),
             "imported": string(format="date-time"),
             "text": string("The checked working copy, at most 256 KiB."),
+        }, required=["id", "version", "filename", "imported", "text"]),
+        "OwnerDaemon": obj({
+            "state": string("From the daemon's ping: unlocked, locked, plain (no encryption), down or unknown.",
+                            enum=["unlocked", "locked", "plain", "down", "unknown"]),
+            "since": string("Since when it is in this state; null when the daemon does not say.", nullable=True),
         }),
+        "OwnerState": obj({
+            "vault": ref("OwnerDaemon"),
+            "keys": ref("OwnerDaemon"),
+            "deployed": obj({"release": string("The live release: a commit, pre-deploy or plain.", nullable=True),
+                             "journal": string("The state of the last deploy's journal.", nullable=True)}),
+            "page": obj({"size": integer("Bytes of the live page.", nullable=True),
+                         "time": string("When the live page was installed.", nullable=True),
+                         "backup_time": string("When the newest backup was made.", nullable=True),
+                         "backups": integer("The backups kept.")}),
+            "written": string("When the owner's timer wrote the status (every minute).", format="date-time"),
+            "stale": boolean("true when the status is older than five minutes."),
+            "csrf": string("The value of X-AWB-CSRF for the POSTs of this owner session, valid 10 minutes."),
+            "shared_password_active": boolean("true while the single login of auth.json still works (no users "
+                                              "file yet)."),
+        }),
+        "UiRun": obj({
+            "id": string("The run id of the UI queue."),
+            "state": string(enum=["queued", "running", "ready", "completed", "failed", "cancelled", "unknown"]),
+            "finished": string(nullable=True),
+            "validation": string("The first word of the run's validation.", nullable=True, enum=["PASS", "FAIL", None]),
+            "diff_bytes": integer("Bytes of the run's change.diff.", nullable=True),
+            "candidate_only": boolean("A run that leaves the applied source alone (state ready when done)."),
+            "publishable": boolean("true for the one run Publish takes: the newest PASS run that is completed "
+                                   "(ready for a candidate-only run)."),
+        }),
+        "UiRuns": obj({"runs": array(ref("UiRun"), "The newest first, at most 20."),
+                       "written": string(format="date-time"), "stale": boolean()}),
+        "IntakeCount": obj({
+            "customer": ref("CustomerCode"),
+            "waiting": integer("Candidates that wait for awb register review.", nullable=True),
+            "time": string("The time of the last report.", nullable=True),
+        }),
+        "OwnerIntake": obj({"customers": array(ref("IntakeCount"), "Ordered by code."),
+                            "written": string(format="date-time"), "stale": boolean()}),
         "ChatTurn": obj({
             "id": ref("RequestId"),
             "project": ref("ProjectCode"),
@@ -1000,7 +1064,8 @@ def _customer_paths() -> dict:
             "get": operation("listCustomers", "customers", "The customer codes for the console.", {
                 "200": answer("Every customer code, active or retired; no registered form.", ref("CustomerList"), {
                     "one-customer": {"customers": [{"code": "CUST-Q7M4", "name": "CUST-Q7M4",
-                                                    "aliases": [], "active": True}]}}),
+                                                    "aliases": [], "active": True, "state": "active",
+                                                    "projects": 2}]}}),
                 "503": refusal("The register cannot be read.", LOCKED_REGISTER, BUSY_REGISTER, NOT_FINISHED),
             }, description="Codes only since D-NOW (2026-10-08, his decision D-F3 = no): no registered name crosses "
                            "Cloudflare to the browser.", state="repository"),
@@ -1135,7 +1200,8 @@ def _material_paths() -> dict:
         "/api/projects/{code}/materials/{material_id}": {
             "get": operation("getMaterial", "materials", "The working copy of a ready import.", {
                 "200": answer("The checked text.", ref("MaterialText"), {"ready": {
-                    "id": MAT, "version": 1, "filename": MAT + ".md", "imported": "2026-10-03T08:15:00+00:00",
+                    "id": MAT, "version": 1, "filename": MAT + ".md", "extension": ".md",
+                    "imported": "2026-10-03T08:15:00+00:00",
                     "text": "# Requirements\n\nThe workloads move to the region eu-de.\n"}}),
                 "404": refusal("No such project or no such ready import.", NO_PROJECT, NOT_READY),
                 "409": refusal("The customer of the project changed or is retired.", CUSTOMER_CHANGED,
@@ -1200,12 +1266,94 @@ def _chat_paths() -> dict:
     }
 
 
+OWNER_SERVER = {"url": "https://{owner_host}/", "description": "The owner host (D-HOST): owner_host of "
+                "/etc/awb/paths.conf, one level under the zone of the site.",
+                "variables": {"owner_host": {"default": "owner.example.com"}}}
+OWNER_POST = {"403": gateway("The owner host refused the request: another origin, Sec-Fetch-Site other than "
+                             "same-origin, or no valid X-AWB-CSRF of this owner session.",
+                             "Cross-site requests are not allowed.", "The owner page expired. Reload it.")}
+OWNER_STALE = "2026-10-08T12:00:00Z"
+OWNER_UNAVAILABLE = "The owner status is not available yet."
+
+
+def _owner_paths() -> dict:
+    meta = {"written": OWNER_STALE, "stale": False}
+
+    def owner_op(op_id, summary, schema, example, description):
+        return operation(op_id, "owner", summary, {
+            "200": answer("From the status file of the owner's timer.", ref(schema), {"sample": {**example, **meta}}),
+            "403": refusal("The request did not come through the gateway's owner host.", "Not allowed."),
+            "503": refusal("The owner's timer has not written its status yet, or it cannot be read.",
+                           OWNER_UNAVAILABLE),
+        }, description=description)
+
+    return {
+        "/api/owner/state": {"get": owner_op(
+            "getOwnerState", "The vault, the key service, the release and the page, with the csrf of the owner "
+            "session.", "OwnerState", {
+                "vault": {"state": "locked", "since": "2026-10-08T07:40:00Z"},
+                "keys": {"state": "unlocked", "since": None},
+                "deployed": {"release": "0123456789abcdef0123456789abcdef01234567", "journal": "done"},
+                "page": {"size": 210345, "time": "2026-10-06T15:02:11Z", "backup_time": "2026-10-06T15:02:11Z",
+                         "backups": 4},
+                "csrf": "1791892800.<hmac>", "shared_password_active": False},
+            "Codes and states only. When the vault is locked the page says so; it is unlocked in the owner's "
+            "terminal, never here. csrf and shared_password_active come from the gateway, the rest from the status "
+            "file owner-actions reads.")},
+        "/api/owner/ui-runs": {"get": owner_op(
+            "listOwnerUiRuns", "The newest runs of the UI queue.", "UiRuns", {"runs": [
+                {"id": "ui-20261008-001", "state": "completed", "finished": "2026-10-08T11:20:04+00:00",
+                 "validation": "PASS", "diff_bytes": 18234, "candidate_only": False, "publishable": True},
+                {"id": "ui-20261006-003", "state": "completed", "finished": "2026-10-06T14:58:40+00:00",
+                 "validation": "PASS", "diff_bytes": 9120, "candidate_only": False, "publishable": False}]},
+            "publishable marks the one run Publish would take.")},
+        "/api/owner/intake": {"get": owner_op(
+            "listOwnerIntake", "Per customer code the candidates that wait for a review.", "OwnerIntake",
+            {"customers": [{"customer": "CUST-Q7M4", "waiting": 3, "time": "2026-10-08T09:12:40Z"}]},
+            "From <vault>/intake-counts.json through the status file; no report is opened to count.")},
+        "/api/owner/tenants": {"get": operation(
+            "getOwnerTenants", "owner", "The test tenants with the IAM domain names.", {
+                "200": answer("The snapshot.", ref("TenantInventory"), {"one-tenant": dict(INVENTORY, tenants=[
+                    dict(INVENTORY["tenants"][0], domain_name="sample-domain-00000001")])}),
+                "503": refusal("The inventory cannot be read.", "The tenant inventory is unavailable."),
+            }, description="As GET /api/tenants, with domain_name (RT-17).",
+            parameters=[{"name": "refresh", "in": "query", "required": False,
+                         "description": "1 starts a refresh in the background, at most every 30 seconds.",
+                         "schema": {"type": "string", "enum": ["1"]}}])},
+    }
+
+
+def _owner_only(paths: dict) -> None:
+    """The operations of the owner host: its server, the owner session, repository state, and the owner host's own
+    refusals on a POST."""
+    for path, item in paths.items():
+        for method, op in item.items():
+            if method not in METHODS:
+                continue
+            moved = (path in ("/api/customers", "/api/customer-operations/{request_id}",
+                              "/api/project-operations/{request_id}") or path.startswith("/api/projects/{code}/materials")
+                     or (path == "/api/projects" and method == "post"))
+            if not (moved or path.startswith("/api/owner/")):
+                continue
+            op["security"] = [{"owner": []}]
+            op["servers"] = [OWNER_SERVER]
+            op["x-awb-state"] = "repository"
+            if moved:
+                op["description"] = (op.get("description", "") + " On the owner host only since T9 step 2; the main "
+                                     "host answers 404 Not found.").strip()
+            if method == "post":
+                op["responses"] = dict(sorted(merge(op["responses"], OWNER_POST).items()))
+
+
 def build() -> dict:
     """The whole document."""
     paths: dict = {}
     for part in (_session_paths, _page_paths, _project_paths, _customer_paths, _tenant_paths, _material_paths,
-                 _chat_paths):
+                 _chat_paths, _owner_paths):
         paths.update(part())
+    _owner_only(paths)
+    # the owner view of the tenants refuses exactly as the reader view: one answer, kept as one object
+    paths["/api/owner/tenants"]["get"]["responses"]["503"] = paths["/api/tenants"]["get"]["responses"]["503"]
     return {
         "openapi": "3.1.0",
         "info": {"title": "Architect Workbench web API", "version": VERSION, "description": DESCRIPTION,
@@ -1220,12 +1368,17 @@ def build() -> dict:
             {"name": "tenants", "description": "The test tenants, read only."},
             {"name": "materials", "description": "Inputs from the buckets, copied into a project."},
             {"name": "chat", "description": "Questions about a project, answered from checked sources only."},
+            {"name": "owner", "description": "The owner level on its own host: states and counts, never a name."},
         ],
         "paths": paths,
         "components": {
             "securitySchemes": {"session": {
                 "type": "apiKey", "in": "cookie", "name": "__Host-awb-session",
-                "description": "Set by POST /login. Valid for 8 hours, Secure, HttpOnly, SameSite=Lax."}},
+                "description": "Set by POST /login. Valid for 8 hours, Secure, HttpOnly, SameSite=Lax."},
+                "owner": {
+                "type": "apiKey", "in": "cookie", "name": "__Host-awb-owner",
+                "description": "Set by POST /login on the owner host after the password and a TOTP code. Secure, "
+                               "HttpOnly, SameSite=Strict, no Max-Age: 15 minutes idle, one hour at most."}},
             "schemas": _schemas(),
         },
     }

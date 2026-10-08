@@ -1,0 +1,32 @@
+# Template of the web side (seal/web/README.md). The owner's status for owner-actions (T9 step 2): run by its timer
+# every minute as the owner, it pings the vault and the key service and writes codes, numbers, states and times to
+# /var/lib/awb-owner-status/status.json, readable by the group awb-owner. A deploy never restarts it: the timer runs
+# the new code the next minute.
+[Unit]
+Description=AWB owner status for the owner level of the console
+After=awb-vaultd.service awb-keyd.service
+
+[Service]
+Type=oneshot
+User=@OWNER@
+Group=awb-owner
+Environment=AWB_CONF=/etc/awb/paths.conf
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/local/bin/awb owner status --write
+StateDirectory=awb-owner-status
+StateDirectoryMode=0750
+UMask=0027
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+LimitCORE=0
+TimeoutStartSec=50

@@ -10,6 +10,8 @@ copies in `/opt/awb-web` is a step of its own, done once, by the owner.
 | `awb-web.service` | `awb-web` | `awb/tcp/web/gateway.py`: sign-in, sessions, the checks of every request | the two sockets below; 127.0.0.1:8080 and 8081 for one release |
 | `awb-web.socket` | root, group of the tunnel's user, 0660 | the front door: the gateway accepts a peer only when its uid is the tunnel's user (`SO_PEERCRED`) | `@FRONT_SOCKET@` (folder root 0750, same group) |
 | `awb-web-status.socket` | root, 0666 | GET /health and nothing else, for `awb web status`, the publish code and the deploy | `/run/awb-web-status.sock` |
+| `awb-owner-actions.socket` and `.service` | `awb-owner`, no network | `awb.tcp.web.owner_actions`: GET /api/owner/state, ui-runs and intake from the status file alone; it answers the gateway's uid only | `/run/awb-owner.sock` (root, group awb-web, 0660) |
+| `awb-owner-status.service` and `.timer` | the owner, group awb-owner | `awb owner status --write` every minute: the codes-only status file; the deploy never restarts it, the timer runs the new code | `/var/lib/awb-owner-status/status.json` (0640) |
 | `tunnel/cloudflared.conf` | the tunnel's user | cloudflared's drop-in `cloudflared.service.d/50-awb-fence.conf`: its own user, root copies the token into its runtime folder (0700) and loads the fence first, metrics pinned to 127.0.0.1:20241 | |
 | `tunnel/tunnel-fence.nft` | root | `/etc/awb/tunnel-fence.nft`: the tunnel's user opens no new loopback TCP connection but the resolver (53) and, for one release, 8080 and 8081; nobody else reaches its metrics port | |
 | `awb-console-data.service` | `awb` | `awb.tcp.web.projects_api`: the projects, read only | 127.0.0.1:8182 |
@@ -68,6 +70,14 @@ before the PBKDF2 runs. A sign-in waits up to 3 seconds for one of four PBKDF2 s
 counted) when none came free; at most 64 requests without a session are open at once; a login form is taken once;
 a login keeps at most 5 sessions and a full table of 128 refuses a new one. The gateway logs every attempt (time, login, result) to `/var/lib/awb-web/signin.log` and
 rebuilds the waits from it after a restart; `sudo awb web status` reads it.
+
+## The owner host (T9 step 2)
+
+The gateway serves a second host name, `owner_host`, with its own exact Origin: the sign-in there takes an owner
+entry's password and a TOTP code, the cookie `__Host-awb-owner` is Strict, without Max-Age, ends after 15 idle
+minutes and after one hour, and GET / is `awb/tcp/web/owner.html` of the release. On the main host the owner routes,
+the customers, the customer and project operations, POST /api/projects and every materials route answer 404. In the
+Cloudflare dashboard the owner host needs its DNS name and one ingress line to the front socket.
 
 ## The front door (T9 step 1)
 

@@ -200,6 +200,9 @@ UNAUTHENTICATED = 64        # requests without a session at once
 SESSIONS_PER_USER = 5
 SESSION_TABLE = 128
 READER_TTL = 8*3600
+OWNER_IDLE = 15*60
+OWNER_MAX = 3600
+OWNER_TABLE = 8
 
 
 def address_key(client):
@@ -259,6 +262,12 @@ class Auth:
         now = clock()
         self.limiter = replay(read_log(self.log_path, now-2*MAX_WAIT)) if self.log_path else Limiter()
         self.delays = Delays()
+        self.owner_slots = threading.BoundedSemaphore(2)
+        self.owner_failures = {}
+        self.owner_inflight = set()
+        self.owner_sessions = OrderedDict()
+        self.used_path = self.log_path.parent / 'totp-used.json' if self.log_path else None
+        self.used = self.load_used(now)
 
     def accounts(self):
         """(per-user mode, {login: Account}), the users file read again when it changed. A users file that cannot
@@ -472,11 +481,185 @@ class Auth:
     def session_valid(self, token):
         return self.session_user(token) is not None
 
+    # ------------------------------------------------------------------------------------- the owner level
+
+    def load_used(self, now):
+        """{login: [time steps]} of the TOTP codes used and not yet over, kept across a restart."""
+        if not self.used_path:
+            return {}
+        try:
+            data = json.loads(self.used_path.read_text())
+            current = int(now // TOTP_STEP)
+            return {k: [int(s) for s in v if int(s) >= current - 1] for k, v in data.items() if LOGIN_RE.fullmatch(k)}
+        except (OSError, ValueError, TypeError, AttributeError):
+            return {}
+
+    def use_code(self, login, step, now):
+        """Take a TOTP step for `login` once: False when it was used before (also before a restart)."""
+        current = int(now // TOTP_STEP)
+        with self.lock:
+            steps = [s for s in self.used.get(login, []) if s >= current - 1]
+            if step in steps:
+                return False
+            self.used[login] = steps + [step]
+            snapshot = json.dumps(self.used)
+        if self.used_path:
+            try:
+                tmp = self.used_path.with_name('.totp-used.next')
+                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, 'w') as fh:
+                    fh.write(snapshot)
+                os.replace(tmp, self.used_path)
+            except OSError:
+                print('AWB gateway: the used codes cannot be written', flush=True)
+        return True
+
+    def sign_in_owner(self, login, password, code, client):
+        """The owner host's sign-in: an owner entry's password, then a current TOTP code that was not used before.
+        'ok', 'fail' (a wrong password, a wrong or used code and a waiting name answer alike), 'limited' (this
+        address key failed 8 times within a minute or has a sign-in in flight) or 'busy'. Every failure moves the
+        name's next try 1 ... 60 seconds ahead (Delays), never a lock; the code counts only after the password
+        matched. The owner host has its own PBKDF2 slots."""
+        login = login[:100]
+        now = self.clock()
+        per_user, accounts = self.accounts()
+        account = accounts.get(login) if per_user else None
+        if account is not None and account.level != 'owner':
+            account = None
+        client = address_key(client)
+        name = 'owner:' + login
+        with self.lock:
+            recent = [t for t in self.owner_failures.get(client, []) if now-t < 60]
+            if len(recent) >= 8 or client in self.owner_inflight:
+                result = 'limited'
+            elif self.delays.waiting(name, now):
+                result = 'delayed'
+            else:
+                result = ''
+                self.owner_inflight.add(client)
+                self.owner_failures[client] = recent + [now]
+                while len(self.owner_failures) > 2048:
+                    self.owner_failures.pop(next(iter(self.owner_failures)))
+        if result:
+            self.log(now, login, 'owner-' + result)
+            return 'fail' if result == 'delayed' else result
+        try:
+            if not self.owner_slots.acquire(timeout=SLOT_WAIT):
+                valid = None
+            else:
+                try:
+                    salt, digest, rounds = (account.salt, account.hash, account.rounds) if account else (
+                        b'\0'*16, b'\0'*32, next(iter(accounts.values())).rounds if accounts else DEFAULT_ROUNDS)
+                    computed = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8', 'replace'), salt, rounds)
+                    valid = account is not None and hmac.compare_digest(computed, digest)
+                finally:
+                    self.owner_slots.release()
+        finally:
+            with self.lock:
+                self.owner_inflight.discard(client)
+        word = 'owner-ok'
+        if valid:
+            step = totp_step(account.totp, code, now)
+            if step is None or not self.use_code(login, step, now):
+                valid, word = False, 'owner-code'
+        elif valid is False:
+            word = 'owner-fail'
+        with self.lock:
+            if valid is None or valid:
+                kept = self.owner_failures.get(client, [])
+                if now in kept:
+                    kept.remove(now)
+            if valid:
+                self.owner_failures.pop(client, None)
+                self.delays.success(name)
+            elif valid is False:
+                self.delays.failure(name, now)
+        if valid is None:
+            self.log(now, login, 'owner-busy')
+            return 'busy'
+        self.log(now, login, word)
+        return 'ok' if valid else 'fail'
+
+    def new_owner_session(self, login):
+        """An owner session: 15 minutes idle and one hour at most; None when the owner table is full."""
+        account = self.accounts()[1].get(login)
+        if account is None or account.level != 'owner':
+            return None
+        token = secrets.token_urlsafe(32)
+        key = hashlib.sha256(token.encode()).digest()
+        with self.lock:
+            now = time.monotonic()
+            self.owner_sessions = OrderedDict((k, v) for k, v in self.owner_sessions.items()
+                                              if now - v['seen'] < OWNER_IDLE and now - v['created'] < OWNER_MAX)
+            mine = [k for k, v in self.owner_sessions.items() if v['login'] == login]
+            for old in mine[:max(0, len(mine) - SESSIONS_PER_USER + 1)]:
+                self.owner_sessions.pop(old, None)
+            if len(self.owner_sessions) >= OWNER_TABLE:
+                return None
+            self.owner_sessions[key] = {'login': login, 'hash': account.hash, 'generation': account.generation,
+                                        'created': now, 'seen': now}
+        return token
+
+    def owner_session(self, token):
+        """The login of a valid owner session (its idle time starts again), else None."""
+        if not token or len(token) > 100:
+            return None
+        key = hashlib.sha256(token.encode()).digest()
+        now = time.monotonic()
+        with self.lock:
+            s = self.owner_sessions.get(key)
+            if s is None:
+                return None
+            if now - s['seen'] >= OWNER_IDLE or now - s['created'] >= OWNER_MAX:
+                self.owner_sessions.pop(key, None)
+                return None
+        account = self.accounts()[1].get(s['login'])
+        if account is None or account.level != 'owner' or not hmac.compare_digest(account.hash, s['hash']) \
+                or account.generation != s['generation']:
+            self.revoke_owner_session(token)
+            return None
+        with self.lock:
+            s['seen'] = now
+        return s['login']
+
+    def revoke_owner_session(self, token):
+        with self.lock:
+            self.owner_sessions.pop(hashlib.sha256((token or '').encode()).digest(), None)
+
+    def owner_csrf(self, token):
+        """A CSRF token bound to one owner session, valid for 10 minutes."""
+        stamp = str(int(time.time()))
+        bound = hashlib.sha256((token or '').encode()).hexdigest()
+        return stamp + '.' + hmac.new(self.cache_key, ('owner\0' + bound + '\0' + stamp).encode(), 'sha256').hexdigest()
+
+    def valid_owner_csrf(self, token, value):
+        try:
+            stamp, sig = value.split('.')
+            bound = hashlib.sha256((token or '').encode()).hexdigest()
+            expected = hmac.new(self.cache_key, ('owner\0' + bound + '\0' + stamp).encode(), 'sha256').hexdigest()
+            return 0 <= time.time() - int(stamp) < 600 and hmac.compare_digest(sig, expected)
+        except (ValueError, TypeError, AttributeError):
+            return False
+
     def revoke_session(self, token):
         key = hashlib.sha256(token.encode()).digest()
         with self.lock:
             self.sessions.pop(key, None)
             self.owners.pop(key, None)
+
+
+OWNER_COOKIE = '__Host-awb-owner'
+OWNER_LOGIN_COOKIE = '__Host-awb-owner-login'
+OWNER_FAIL_TEXT = 'The username, password or code is incorrect.'
+OWNER_ACTIONS = ('/api/owner/state', '/api/owner/ui-runs', '/api/owner/intake')
+OWNER_POSTS = ()
+
+
+def is_moved(path, method):
+    """The routes that show or take customer data or create something: on the owner host only (T9 step 2)."""
+    return (path == '/api/customers' or (path == '/api/projects' and method == 'POST')
+            or bool(re.fullmatch(r'/api/(?:customer|project)-operations/[a-f0-9]{32}', path))
+            or bool(re.fullmatch(r'/api/projects/tcp-[a-z2-7]{4}/materials(?:/(?:sources|imports|M-[A-Z]{24}))?', path)))
 
 
 def document_csp(data):
@@ -531,8 +714,9 @@ class Gateway(BaseHTTPRequestHandler):
             '<form action="/login" method="post"><input type="hidden" name="csrf" value="'+html.escape(token)+'"><input type="hidden" name="next" value="'+html.escape(next_path)+'"><label for="username">Username</label><input id="username" name="username" autocomplete="username" required maxlength="100" autofocus><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="200"><button type="submit">Sign in</button></form><p class="foot">Private access · Your session lasts up to 8 hours.</p></main></body></html>').encode()
         self.reply(status, content, {'Content-Security-Policy': document_csp(content), 'Set-Cookie': '__Host-awb-login='+token+'; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=600'})
 
-    def read_form(self):
-        if self.headers.get('Origin') != 'https://' + self.server.domain or self.headers.get('Sec-Fetch-Site') not in {None, 'same-origin', 'none'}:
+    def read_form(self, origin=None):
+        origin = origin or 'https://' + self.server.domain
+        if self.headers.get('Origin') != origin or self.headers.get('Sec-Fetch-Site') not in {None, 'same-origin', 'none'}:
             self.reply(403, b'Open this form on the AWB site.\n')
             return None
         lengths = self.headers.get_all('Content-Length', [])
@@ -558,22 +742,56 @@ class Gateway(BaseHTTPRequestHandler):
             self.reply(400, b'Invalid form.\n')
             return None
 
+    def read_body(self, expected_type):
+        """The body of a POST after the length and type checks, or None when a refusal was sent."""
+        lengths = self.headers.get_all('Content-Length', [])
+        if self.headers.get('Transfer-Encoding') or len(lengths) != 1:
+            self.reply(400, b'A single content length is required.\n')
+            return None
+        try:
+            length = int(lengths[0])
+        except ValueError:
+            length = -1
+        if not 0 <= length <= MAX_BODY:
+            self.reply(413, b'Request is too large.\n')
+            return None
+        if self.headers.get('Content-Type', '').split(';')[0].lower() != expected_type:
+            self.reply(415, b'Use the Ask form.\n')
+            return None
+        try:
+            body = self.rfile.read(length)
+        except (socket.timeout, OSError):
+            self.reply(408, b'Request timed out.\n')
+            return None
+        if len(body) != length:
+            self.reply(400, b'Incomplete request.\n')
+            return None
+        return body
+
     def dispatch(self):
-        self.refusal, self.level = '', '-'
-        session = self.cookie('__Host-awb-session')
-        self.user = self.server.auth.session_user(session)
-        if self.user is None:
-            if not self.server.auth.unauthenticated.acquire(blocking=False):
-                self.refusal = 'busy'
-                self.reply(503, b'The site is busy. Try again in a moment.\n', {'Retry-After': '5'})
-                return
-            try:
-                self.route(session)
-            finally:
-                self.server.auth.unauthenticated.release()
+        self.refusal, self.level, self.host_label = '', '-', 'main'
+        self.user = self.owner_login = None
+        owner_side = bool(self.server.owner_host) and self.headers.get('Host', '').lower() == self.server.owner_host
+        if owner_side:
+            self.host_label = 'owner'
+            session = self.cookie(OWNER_COOKIE)
+            self.owner_login = self.server.auth.owner_session(session)
+            signed_in = self.owner_login is not None
         else:
-            self.level = self.user[1]
-            self.route(session)
+            session = self.cookie('__Host-awb-session')
+            self.user = self.server.auth.session_user(session)
+            signed_in = self.user is not None
+        if signed_in:
+            self.level = 'owner' if owner_side else self.user[1]
+            return self.owner_route(session) if owner_side else self.route(session)
+        if not self.server.auth.unauthenticated.acquire(blocking=False):
+            self.refusal = 'busy'
+            self.reply(503, b'The site is busy. Try again in a moment.\n', {'Retry-After': '5'})
+            return
+        try:
+            return self.owner_route(session) if owner_side else self.route(session)
+        finally:
+            self.server.auth.unauthenticated.release()
 
     def client_key(self):
         """The client address for the limiter: CF-Connecting-IP behind the tunnel, else the TCP peer."""
@@ -583,25 +801,32 @@ class Gateway(BaseHTTPRequestHandler):
             fallback = 'local'
         return self.headers.get('CF-Connecting-IP', fallback)[:100]
 
-    def route(self, session):
+    def first_checks(self):
+        """The method and the request target; the path, or None when a refusal was sent."""
         v1 = self.server.v1_marker
         if v1 and self.headers.get('X-AWB-V1') == v1:
             print('v1: CF-Connecting-IP %s' % ('arrived as the client sent it' if self.headers.get('CF-Connecting-IP') == v1
                                                else 'was replaced by the edge'), flush=True)
-        if self.headers.get('Host', '').lower() != self.server.domain:
-            self.reply(400, b'Invalid host.\n')
-            return
         if self.command not in {'GET', 'HEAD', 'POST'}:
             self.reply(405, b'Method not allowed.\n', {'Allow': 'GET, HEAD, POST'})
-            return
+            return None
         url = urlsplit(self.path)
         if url.scheme or url.netloc or self.path.startswith('//'):
             self.reply(400, b'Invalid request target.\n')
+            return None
+        if url.path == '/favicon.ico':
+            self.reply(204)
+            return None
+        return url
+
+    def route(self, session):
+        if self.headers.get('Host', '').lower() != self.server.domain:
+            self.reply(400, b'Invalid host.\n')
+            return
+        url = self.first_checks()
+        if url is None:
             return
         path = url.path
-        if path == '/favicon.ico':
-            self.reply(204)
-            return
         peer = self.client_key()
         authenticated = self.user is not None
         if path == '/login':
@@ -658,11 +883,14 @@ class Gateway(BaseHTTPRequestHandler):
                 self.server.auth.revoke_session(session)
                 self.reply(303, headers={'Location': '/login', 'Set-Cookie': '__Host-awb-session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0'})
             return
+        if path.startswith('/api/owner/') or is_moved(path, self.command):
+            # T9 step 2: the owner routes and the routes that show or take customer data live on the owner host
+            self.reply(404, b'Not found.\n')
+            return
         if self.command == 'POST':
             # Cookie sessions require the exact HTTPS origin for submitted questions.
             is_chat = bool(re.fullmatch(r'/api/projects/tcp-[a-z0-9]{4}/chat', path))
-            is_creation = path in {'/api/projects', '/api/customers'} or bool(re.fullmatch(r'/api/projects/tcp-[a-z2-7]{4}/materials/imports',path))
-            if path != '/ask' and not is_chat and not is_creation:
+            if path != '/ask' and not is_chat:
                 self.reply(405, b'Method not allowed.\n')
                 return
             if self.headers.get('Origin') != 'https://' + self.server.domain:
@@ -671,28 +899,8 @@ class Gateway(BaseHTTPRequestHandler):
             if self.headers.get('Sec-Fetch-Site') not in {None, 'same-origin', 'none'}:
                 self.reply(403, b'Cross-site requests are not allowed.\n')
                 return
-            lengths = self.headers.get_all('Content-Length', [])
-            if self.headers.get('Transfer-Encoding') or len(lengths) != 1:
-                self.reply(400, b'A single content length is required.\n')
-                return
-            try:
-                length = int(lengths[0])
-            except ValueError:
-                length = -1
-            if not 0 <= length <= MAX_BODY:
-                self.reply(413, b'Request is too large.\n')
-                return
-            expected_type = 'application/json' if is_chat or is_creation else 'application/x-www-form-urlencoded'
-            if self.headers.get('Content-Type', '').split(';')[0].lower() != expected_type:
-                self.reply(415, b'Use the Ask form.\n')
-                return
-            try:
-                body = self.rfile.read(length)
-            except (socket.timeout, OSError):
-                self.reply(408, b'Request timed out.\n')
-                return
-            if len(body) != length:
-                self.reply(400, b'Incomplete request.\n')
+            body = self.read_body('application/json' if is_chat else 'application/x-www-form-urlencoded')
+            if body is None:
                 return
         else:
             body = None
@@ -704,25 +912,43 @@ class Gateway(BaseHTTPRequestHandler):
                 return
             self.reply(200, content, {'Content-Security-Policy': document_csp(content)})
             return
-        if path == '/favicon.ico':
-            self.reply(204)
-            return
-        is_tenant_api = path == '/api/tenants'
-        is_project_api = bool(re.fullmatch(r'/api/projects(?:/tcp-[a-z0-9]{4})?', path)) or path == '/api/board'
-        is_chat_api = bool(re.fullmatch(r'/api/projects/tcp-[a-z0-9]{4}/chat', path))
-        is_materials_api = bool(re.fullmatch(r'/api/projects/tcp-[a-z2-7]{4}/materials(?:/(?:sources|imports|M-[A-Z]{24}))?',path))
-        is_creation_api = bool(re.fullmatch(r'/api/(?:customer|project)-operations/[a-f0-9]{32}', path)) or path in {'/api/customers', '/api/project-options'} or (path == '/api/projects' and self.command == 'POST')
-        if path not in BACKEND_ROUTES and not is_project_api and not is_tenant_api and not is_chat_api and not is_creation_api and not is_materials_api:
+        backend = self.backend(path, reader_pages=True)
+        if backend is None:
             self.reply(404, b'Not found.\n')
             return
-        port = self.server.projects_port if is_project_api else self.server.tenants_port if is_tenant_api else self.server.ask_port if path == '/ask' or is_chat_api else self.server.portal_port
-        target = '/' if path == '/portal' else self.path
-        forwarded = {'Host': self.server.domain, 'X-Forwarded-Proto': 'https'}
+        self.forward(backend, '/' if path == '/portal' else self.path, body)
+
+    def backend(self, path, reader_pages=False):
+        """Where a route goes: ('tcp', port) or ('unix', socket path); None for a path no backend serves."""
+        s = self.server
+        if reader_pages and path in BACKEND_ROUTES:
+            return ('tcp', s.ask_port if path == '/ask' else s.portal_port)
+        if path == '/api/tenants':
+            return ('tcp', s.tenants_port)
+        if re.fullmatch(r'/api/projects(?:/tcp-[a-z0-9]{4})?', path) or path == '/api/board':
+            if path == '/api/projects' and self.command == 'POST':
+                return ('unix', s.project_socket)
+            return ('tcp', s.projects_port)
+        if reader_pages and re.fullmatch(r'/api/projects/tcp-[a-z0-9]{4}/chat', path):
+            return ('tcp', s.ask_port)
+        if re.fullmatch(r'/api/projects/tcp-[a-z2-7]{4}/materials(?:/(?:sources|imports|M-[A-Z]{24}))?', path):
+            return ('unix', s.materials_socket)
+        if path == '/api/customers' or re.fullmatch(r'/api/customer-operations/[a-f0-9]{32}', path):
+            return ('unix', s.customer_socket)
+        if path == '/api/project-options' or re.fullmatch(r'/api/project-operations/[a-f0-9]{32}', path):
+            return ('unix', s.project_socket)
+        return None
+
+    def forward(self, backend, target, body, extra=None):
+        """Hand the request to its backend and its answer back. Never forwards Authorization, cookies or a forwarding
+        header of the client; adds the level and a fresh request id."""
+        kind, where = backend
+        forwarded = {'Host': self.server.domain, 'X-Forwarded-Proto': 'https', 'X-AWB-Level': self.level,
+                     'X-AWB-Request': secrets.token_hex(16)}
         if self.command == 'POST':
-            forwarded.update({'Origin': 'https://' + self.server.domain, 'Content-Type': 'application/json' if is_chat_api or is_creation_api or is_materials_api else 'application/x-www-form-urlencoded'})
-        # Never forward Authorization, cookies or user-supplied forwarding headers.
-        conn = (UnixConnection(self.server.materials_socket) if is_materials_api else UnixConnection(self.server.customer_socket if path == '/api/customers' or path.startswith('/api/customer-operations/') else self.server.project_socket)
-                if is_creation_api else http.client.HTTPConnection('127.0.0.1', port, timeout=150))
+            forwarded.update({'Origin': 'https://' + self.server.domain,
+                              'Content-Type': self.headers.get('Content-Type', '').split(';')[0].lower()})
+        conn = UnixConnection(where) if kind == 'unix' else http.client.HTTPConnection('127.0.0.1', where, timeout=150)
         try:
             conn.request('GET' if self.command == 'HEAD' else self.command, target, body=body, headers=forwarded)
             response = conn.getresponse()
@@ -730,6 +956,12 @@ class Gateway(BaseHTTPRequestHandler):
             if len(data) > MAX_RESPONSE:
                 self.reply(502, b'The response was too large.\n')
                 return
+            if extra and response.status == 200:
+                try:
+                    data = json.dumps({**json.loads(data), **extra}).encode()
+                except (ValueError, TypeError):
+                    self.reply(502, b'The AWB service is temporarily unavailable.\n')
+                    return
             permitted = {'content-type', 'content-security-policy', 'allow'}
             headers = {k: v for k, v in response.getheaders() if k.lower() in permitted}
             self.reply(response.status, data, headers)
@@ -737,6 +969,114 @@ class Gateway(BaseHTTPRequestHandler):
             self.reply(502, b'The AWB service is temporarily unavailable.\n')
         finally:
             conn.close()
+
+    # ------------------------------------------------------------------------------------------- the owner host
+
+    def owner_origin(self):
+        return 'https://' + self.server.owner_host
+
+    def owner_login_page(self, error='', status=200):
+        token = self.server.auth.csrf_token()
+        message = '<p role="alert" class="error">'+html.escape(error)+'</p>' if error else ''
+        content = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Owner sign in · AWB</title><style>'
+                   '*{box-sizing:border-box}body{margin:0;background:#1d2530;color:#121a24;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;min-height:100vh;display:grid;place-items:center;padding:24px}.box{width:100%;max-width:400px;background:white;border-radius:12px;padding:34px}h1{font-size:23px;margin:0 0 6px}.muted{color:#636d78;font-size:13px;margin:0 0 20px}label{display:block;font-size:13px;margin:14px 0 6px}input{width:100%;padding:11px 12px;border:1px solid #d8dfe8;border-radius:7px;font:inherit}button{width:100%;padding:12px;border:0;border-radius:7px;background:#c4006a;color:white;font:600 14px inherit;margin-top:22px;cursor:pointer}input:focus-visible,button:focus-visible{outline:2px solid #c4006a;outline-offset:3px}.error{color:#b33a31;background:#f8e7e5;border-radius:7px;padding:12px;font-size:13px}</style></head>'
+                   '<body><main class="box"><h1>Owner level</h1><p class="muted">Your password and the code of your authenticator app.</p>' + message +
+                   '<form action="/login" method="post"><input type="hidden" name="csrf" value="'+html.escape(token)+'"><label for="username">Username</label><input id="username" name="username" autocomplete="username" required maxlength="100" autofocus><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="200"><label for="code">Code</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required maxlength="6" pattern="[0-9]{6}"><button type="submit">Sign in</button></form></main></body></html>').encode()
+        self.reply(status, content, {'Content-Security-Policy': document_csp(content), 'Cross-Origin-Opener-Policy': 'same-origin',
+                                     'Set-Cookie': OWNER_LOGIN_COOKIE+'='+token+'; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=600'})
+
+    def owner_route(self, session):
+        url = self.first_checks()
+        if url is None:
+            return
+        path = url.path
+        origin = self.owner_origin()
+        if path == '/login':
+            if self.command in {'GET', 'HEAD'}:
+                if self.owner_login is not None:
+                    self.reply(303, headers={'Location': '/'})
+                else:
+                    self.owner_login_page()
+                return
+            form = self.read_form(origin)
+            if form is None:
+                return
+            csrf = (form.get('csrf') or [''])[0]
+            if not csrf or not hmac.compare_digest(csrf.encode(), self.cookie(OWNER_LOGIN_COOKIE).encode()) or not self.server.auth.use_csrf(csrf):
+                self.owner_login_page('The sign-in form expired. Please try again.', 403)
+                return
+            username = (form.get('username') or [''])[0]
+            result = self.server.auth.sign_in_owner(username, (form.get('password') or [''])[0],
+                                                    (form.get('code') or [''])[0], self.client_key())
+            if result != 'ok':
+                if result != 'fail':
+                    self.refusal = 'busy' if result == 'busy' else 'limited'
+                self.owner_login_page({'fail': OWNER_FAIL_TEXT, 'busy': BUSY_TEXT}.get(
+                    result, 'Too many attempts. Try again in one minute.'), {'fail': 200, 'busy': 503}.get(result, 429))
+                return
+            token = self.server.auth.new_owner_session(username)
+            if token is None:
+                self.refusal = 'busy'
+                self.owner_login_page('Too many owner sessions are open. Sign out elsewhere first.', 503)
+                return
+            self.reply(303, headers={'Location': '/', 'Set-Cookie': OWNER_COOKIE+'='+token+'; Path=/; Secure; HttpOnly; SameSite=Strict'})
+            return
+        if self.owner_login is None:
+            if path.startswith('/api/'):
+                self.reply(401, b'{"error":"Sign in to open the project data."}', {'Content-Type': 'application/json; charset=utf-8'})
+            elif self.command in {'GET', 'HEAD'}:
+                self.reply(303, headers={'Location': '/login'})
+            else:
+                self.reply(403, b'Sign in before submitting a question.\n')
+            return
+        if path == '/logout':
+            if self.command in {'GET', 'HEAD'}:
+                self.reply(200, b'<html><head><title>Sign out - AWB owner</title></head><body><form method="post" action="/logout"><button>Sign out</button></form></body></html>')
+            elif self.read_form(origin) is not None:
+                self.server.auth.revoke_owner_session(session)
+                self.reply(303, headers={'Location': '/login', 'Set-Cookie': OWNER_COOKIE+'=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0'})
+            return
+        if path == '/' and self.command in {'GET', 'HEAD'}:
+            page = self.server.owner_page
+            if page is None:
+                self.reply(503, b'The workspace is temporarily unavailable.\n')
+                return
+            self.reply(200, page[0], {'Content-Security-Policy': page[1], 'Cross-Origin-Opener-Policy': 'same-origin'})
+            return
+        body = None
+        if self.command == 'POST':
+            if self.headers.get('Origin') != origin or self.headers.get('Sec-Fetch-Site') != 'same-origin':
+                self.refusal = 'owner-origin'
+                self.reply(403, b'Cross-site requests are not allowed.\n')
+                return
+            if not self.server.auth.valid_owner_csrf(session, self.headers.get('X-AWB-CSRF', '')):
+                self.refusal = 'owner-csrf'
+                self.reply(403, b'The owner page expired. Reload it.\n')
+                return
+            if not (path == '/api/projects' or is_moved(path, 'POST') or path in OWNER_POSTS):
+                self.reply(405, b'Method not allowed.\n')
+                return
+            body = self.read_body('application/json')
+            if body is None:
+                return
+        if path in OWNER_ACTIONS and self.command in {'GET', 'HEAD'}:
+            extra = None
+            if path == '/api/owner/state':
+                extra = {'csrf': self.server.auth.owner_csrf(session),
+                         'shared_password_active': not self.server.auth.accounts()[0]}
+            self.forward(('unix', self.server.owner_socket), path, None, extra)
+            return
+        if path == '/api/owner/tenants' and self.command in {'GET', 'HEAD'}:
+            self.forward(('tcp', self.server.tenants_port), self.path, None)
+            return
+        if path.startswith('/api/owner/'):
+            self.reply(404, b'Not found.\n')
+            return
+        backend = self.backend(path)
+        if backend is None or not path.startswith('/api/'):
+            self.reply(404, b'Not found.\n')
+            return
+        self.forward(backend, self.path, body)
 
     do_GET = do_HEAD = do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = dispatch
 
@@ -762,7 +1102,18 @@ def _configure(server, auth, index, portal_port, ask_port, projects_port, tenant
     server.materials_socket = '/run/awb-materials.sock'
     server.v1_marker = None
     server.owner_host = None
+    server.owner_socket = '/run/awb-owner.sock'
+    server.owner_page = owner_page()
     return server
+
+
+def owner_page(path=None):
+    """(bytes, CSP) of the owner page of this release, the script hashes computed once at start; None without it."""
+    try:
+        data = Path(path or Path(__file__).with_name('owner.html')).read_bytes()
+    except OSError:
+        return None
+    return data, document_csp(data)
 
 
 def make_server(port, auth, index, portal_port, ask_port, projects_port=8182, tenants_port=8183, *, domain):

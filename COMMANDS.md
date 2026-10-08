@@ -102,6 +102,7 @@ The tree must be clean (commit first). The deploy runs the installed copy of its
 | `sudo awb web user reset LOGIN` | a new password for the login (and a new TOTP secret for an owner entry), printed once; its generation grows and its sessions end |
 | `sudo awb web user remove LOGIN` | the login goes and its sessions end; without logins nobody signs in |
 | `awb web user list` | the logins with their level, never a digest |
+| `awb owner status [--write]` | the owner level's status: the vault and the key service, the release, the page, the UI runs and the intake counts per customer code, codes and states only; `--write` checks every field and the names and writes `/var/lib/awb-owner-status/status.json` for owner-actions (its timer runs it every minute as you) |
 | `sudo awb web host HOST` | the host name of the owner level in `/etc/awb/paths.conf` (`owner_host`), one level under the zone of the site and not the site itself; once, before the deploy that brings the owner level (the web side's installer stops without it) |
 
 A refusal names the class of the finding (name, secret, token, private-key, html) and never the text. Under sudo the

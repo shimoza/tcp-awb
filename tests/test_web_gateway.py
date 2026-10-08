@@ -116,7 +116,9 @@ class LoginTests(unittest.TestCase):
         self.assertNotIn("Set-Cookie", h)
         self.assertNotIn("Location", h)
 
-    def test_project_api_requires_session_and_limits_writes(self):
+    def test_project_api_requires_session_and_the_main_host_creates_nothing(self):
+        """Replaces test_project_api_requires_session_and_limits_writes (T9 step 2: POST /api/projects moved to the
+        owner host, so the main host answers 404 where it answered 403 before the origin check)."""
         before = len(Backend.calls)
         for path in ["/api/projects", "/api/projects/tcp-q7m4", "/api/tenants", "/api/tenants?refresh=1"]:
             status, h, b = self.request(path)
@@ -124,7 +126,7 @@ class LoginTests(unittest.TestCase):
             self.assertIn("application/json", h["Content-Type"])
             self.assertNotIn("WWW-Authenticate", h)
             self.assertEqual(json.loads(b), {"error": "Sign in to open the project data."})
-            expected = 403 if path == "/api/projects" else 405
+            expected = 404 if path == "/api/projects" else 405
             self.assertEqual(self.request(path, "POST", self.session_headers(), body="")[0], expected)
         self.assertEqual(len(Backend.calls), before)
 
@@ -294,78 +296,6 @@ def test_the_gateway_does_not_start_without_the_host(monkeypatch, tmp_path):
     assert exc.value.code == 2
     with pytest.raises(TypeError):
         gateway.make_server(0, None, "index.html", 1, 1)
-
-
-class CreationRouteTests(unittest.TestCase):
-    class Created(BaseHTTPRequestHandler):
-        calls = []
-
-        def do_GET(self):
-            self.respond()
-
-        def do_POST(self):
-            self.respond()
-
-        def respond(self):
-            length = int(self.headers.get("Content-Length", 0))
-            self.calls.append((self.command, self.path, dict(self.headers), self.rfile.read(length)))
-            self.send_response(201)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(b'{"code":"tcp-q7m4"}')
-
-        def log_message(self, *args):
-            pass
-
-    def test_private_routes_require_login_origin_json_and_never_forward_credentials(self):
-        calls = self.Created.calls
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            write_auth(root / "auth", "test", "test", salt=b"test")
-            (root / "index").write_text("test")
-            backend = Server(str(root / "socket"), self.Created)
-            auth = gateway.Auth(root / "auth")
-            s = gateway.make_server(0, auth, root / "index", 1, 1, domain=DOMAIN)
-            s.customer_socket = s.project_socket = s.materials_socket = str(root / "socket")
-            for x in (backend, s):
-                threading.Thread(target=x.serve_forever, daemon=True).start()
-
-            def request(path, method="GET", headers=None, body=None):
-                c = http.client.HTTPConnection("127.0.0.1", s.server_port)
-                c.request(method, path, headers={"Host": DOMAIN, **(headers or {})}, body=body)
-                r = c.getresponse()
-                status = r.status
-                r.read()
-                c.close()
-                return status
-
-            try:
-                for route in ["/api/customers", "/api/project-options", "/api/customer-operations/" + "a" * 32,
-                              "/api/project-operations/" + "b" * 32, "/api/projects/tcp-q7m4/materials",
-                              "/api/projects/tcp-q7m4/materials/sources?source=brief"]:
-                    assert request(route) == 401
-                headers = {"Cookie": "__Host-awb-session=" + auth.new_session(), "Content-Type": "application/json"}
-                for route in ["/api/customers", "/api/projects", "/api/projects/tcp-q7m4/materials/imports"]:
-                    assert request(route, "POST", body="{}") == 401
-                    assert request(route, "POST", headers, "{}") == 403
-                    assert request(route, "POST", {**headers, "Origin": "https://evil.invalid"}, "{}") == 403
-                    valid = {**headers, "Origin": "https://" + DOMAIN}
-                    assert request(route, "POST", {**valid, "Sec-Fetch-Site": "cross-site"}, "{}") == 403
-                    assert request(route, "POST", {**valid, "Content-Type": "text/plain"}, "{}") == 415
-                    assert request(route, "POST", valid, "x" * 20000) == 413
-                    assert request(route, "POST", valid, "{}") == 201
-                    sent = calls[-1]
-                    assert sent[0:2] == ("POST", route) and sent[3] == b"{}"
-                    assert "Cookie" not in sent[2] and "Authorization" not in sent[2]
-                assert request("/api/project-options", "GET", headers) == 201
-                assert request("/api/projects/tcp-q7m4/materials", "GET", headers) == 201
-                assert request("/api/projects/tcp-q7m4/materials/sources?source=brief", "GET", headers) == 201
-                assert request("/internal/customers/CUST-Q7M4", "POST",
-                               {**headers, "Origin": "https://" + DOMAIN}, "{}") == 405
-            finally:
-                for x in (s, backend):
-                    x.shutdown()
-                    x.server_close()
 
 
 # --------------------------------------------------------------------------- T9 step 1: the front door

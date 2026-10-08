@@ -9,7 +9,7 @@
 # --only UNIT... (what `sudo awb deploy` passes, run from the release folder it extracted) restarts the named units
 # only, in the order of the restart lines below; the render, the daemon-reload and the "unchanged" check stay.
 #
-# It creates the system users awb-console (F2) and the tunnel's own user (cloudflared_user, D-FRONT) once, renders
+# It creates the system users awb-console (F2), awb-owner (T9) and the tunnel's own user (cloudflared_user, D-FRONT) once, renders
 # every template of this folder with the values of /etc/awb/paths.conf (owner_host, front_socket and
 # cloudflared_user are required: a missing one stops it before anything changes), keeps each unit it replaces as
 # <unit>.before-switch (an earlier copy stays), retires the drop-in awb-ask.service.d/90-awb-web.conf (renamed to
@@ -29,6 +29,7 @@ UNITS=${AWB_INSTALL_UNITS:-/etc/systemd/system}
 FENCE=${AWB_INSTALL_FENCE:-/etc/awb/tunnel-fence.nft}
 TUNNEL_DROPIN=cloudflared.service.d/50-awb-fence.conf
 CONSOLE_USER=awb-console
+OWNER_ACTIONS_USER=awb-owner
 dry=0
 rollback=0
 domain=""
@@ -158,6 +159,11 @@ else
     run useradd --system --gid "$work_group" --no-create-home -d /nonexistent --shell /usr/sbin/nologin \
         "$CONSOLE_USER"
 fi
+if id "$OWNER_ACTIONS_USER" >/dev/null 2>&1; then
+    echo "the system user $OWNER_ACTIONS_USER exists"
+else
+    run useradd --system --user-group --no-create-home -d /nonexistent --shell /usr/sbin/nologin "$OWNER_ACTIONS_USER"
+fi
 if id "$cf_user" >/dev/null 2>&1; then
     echo "the system user $cf_user exists"
 else
@@ -219,8 +225,9 @@ for rel in "${added[@]}"; do
     esac
 done
 restart restart awb-keyd.service
-restart stop awb-customers.service awb-project-create.service awb-materials.service
-restart restart awb-customers.socket awb-project-create.socket awb-materials.socket awb-web.socket awb-web-status.socket
+restart stop awb-customers.service awb-project-create.service awb-materials.service awb-owner-actions.service
+restart restart awb-customers.socket awb-project-create.socket awb-materials.socket awb-owner-actions.socket awb-web.socket awb-web-status.socket
+restart start awb-owner-status.service
 restart restart awb-portal.service awb-ask.service awb-console-data.service
 restart enable --now awb-console-tenants.service
 restart restart awb-console-tenants.service awb-web.service

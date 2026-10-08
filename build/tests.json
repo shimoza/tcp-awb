@@ -1931,8 +1931,57 @@
    "name": "the host file keeps front_socket, cloudflared_user and owner_host when setup.sh writes it again",
    "run": ".venv/bin/pytest tests/test_seal.py::test_the_host_file_names_the_front_socket_and_the_tunnel_user",
    "status": "passing"
+  },
+  {
+   "id": "T9-10",
+   "phase": "T9",
+   "name": "the main host answers 404 on every owner route and every moved route (customers, operations, POST /api/projects, materials) before a backend; reader routes answer on both hosts; the cookies of one host mean nothing on the other; the owner page is the fixed file with its script hash, COOP and no command text",
+   "run": ".venv/bin/pytest tests/test_web_owner_api.py -k 'routes or owner_page'",
+   "status": "passing"
+  },
+  {
+   "id": "T9-11",
+   "phase": "T9",
+   "name": "the owner sign-in: password then a current unused TOTP code, one answer for every failure, a used code refused after a restart, 30 wrong codes delay and never lock, a wrong code without the password is not checked, a reader never enters; the cookie is Strict without Max-Age, 15 minutes idle, one hour at most",
+   "run": ".venv/bin/pytest tests/test_web_owner_api.py -k 'sign_in or codes or reader_never or session_ends'",
+   "status": "passing"
+  },
+  {
+   "id": "T9-12",
+   "phase": "T9",
+   "name": "owner POSTs need the owner Origin, Sec-Fetch-Site same-origin, the CSRF of that session and JSON; the state carries the CSRF and the shared-password flag and fits the contract",
+   "run": ".venv/bin/pytest tests/test_web_owner_api.py -k 'owner_posts or state_answer'",
+   "status": "passing"
+  },
+  {
+   "id": "T9-13",
+   "phase": "T9",
+   "name": "owner-actions answers the gateway's uid only, opens no file but its status file (a link is refused), never shows a word of a report next to it, refuses a non-owner level and answers 503 without the status; a status of another shape is never served",
+   "run": ".venv/bin/pytest tests/test_web_owner_api.py -k 'owner_actions or another_shape'",
+   "status": "passing"
+  },
+  {
+   "id": "T9-14",
+   "phase": "T9",
+   "name": "awb owner status --write: the shape and the name check before the write, mode 640; the newest PASS run alone is publishable; the intake and the review write the counts per code, mode 600",
+   "run": ".venv/bin/pytest tests/test_web_owner_api.py -k 'status_is_written or ui_runs or intake_and_the_review'",
+   "status": "passing"
+  },
+  {
+   "id": "T9-15",
+   "phase": "T9",
+   "name": "D-F3 = no: a planted registered form in an inbox file name or an import name never appears; readers see the domain digits only; the contract has no unlock and every owner operation needs the owner session on the owner host",
+   "run": ".venv/bin/pytest tests/test_web_owner_api.py -k 'no_file_name or reader_view or no_unlock'",
+   "status": "passing"
+  },
+  {
+   "id": "T9-16",
+   "phase": "T9",
+   "name": "the owner units: owner-actions as awb-owner without network, its socket root:awb-web 0660, the status timer as the owner with group awb-owner; the exact template set; install.sh order with the owner user; a deploy never restarts a oneshot unit",
+   "run": ".venv/bin/pytest tests/test_web_seal.py tests/test_deploy.py",
+   "status": "passing"
   }
  ],
- "total_tests": 276,
+ "total_tests": 283,
  "checked": "2026-10-08"
 }

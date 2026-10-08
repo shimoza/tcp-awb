@@ -946,6 +946,8 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, reviewed: int = 0
     except _Undo as undo:
         _undo(p, cust, moved, outputs, [public_written, undo.path])
         raise IntakeError(UNDONE) from None
+    from awb import intake_counts
+    intake_counts.record_intake(p, cust, len(rec.candidates))
     wiped: Counter = Counter()
     for f in rec.files:
         for part in f.parts:

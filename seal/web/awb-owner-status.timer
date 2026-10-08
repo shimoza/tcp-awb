@@ -1,0 +1,11 @@
+# Template of the web side (seal/web/README.md). Runs awb-owner-status.service every minute.
+[Unit]
+Description=AWB owner status, every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
