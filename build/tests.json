@@ -2120,8 +2120,22 @@
    "name": "awb web user reset says on its first line that the old password (and the old phone key of an owner entry) no longer work",
    "run": ".venv/bin/pytest tests/test_web_users.py -k reset_says_first",
    "status": "passing"
+  },
+  {
+   "id": "T12-33",
+   "phase": "T12",
+   "name": "the lease: a temporary key of the lab key for 15 to 60 minutes with the Terraform services allowed and IAM denied, the log keeps 4 characters of it; refused outside its bounds, without a lab key, for a session without the owner's grant or from a query, for the console; an IAM refusal names its status and code",
+   "run": ".venv/bin/pytest tests/test_keys.py -k lease",
+   "status": "passing"
+  },
+  {
+   "id": "T12-34",
+   "phase": "T12",
+   "name": "the lease check: every call carries the token, everything made is deleted newest first and checked gone, a resource that stays is named, a 403 reads as not accepted, Terraform gets the key in its environment only, the dry run makes nothing",
+   "run": ".venv/bin/pytest tests/test_leasecheck.py",
+   "status": "passing"
   }
  ],
- "total_tests": 303,
+ "total_tests": 305,
  "checked": "2026-10-08"
 }

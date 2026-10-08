@@ -128,6 +128,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - A session can no longer give its own project access to a test tenant. The key service takes the project's kind
   from the owner's grant, which `awb projects kind CODE project` writes when the owner runs it in his own terminal,
   and from the project's row only to take access away.
+- The key service can lend a session a temporary key: for at most an hour, for the services of a Terraform set only,
+  never for identities, and only for a project the owner granted. `awb cloud lease-check ALIAS --yes` checks once on
+  a test tenant that such a key works for every service, creating and deleting one small resource each.
 - The lab key can be a user of its own. `awb tenant setup ALIAS --lab-user` makes awb-lab-<number> with full rights
   on the compute, network, load balancer, NAT, DNS and image services of the lab project only and on the storage of
   the account, without any right on identities, and puts its key in place of the admin's.

@@ -7,6 +7,8 @@
     awb cloud tenants                                       the tenants of the key service (awb/tcp/keys.py)
     awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role read|lab] [--region R] [--query K=V]... [--body FILE]
                    [--project CODE]                         one call through the key service, for every user
+    awb cloud lease-check ALIAS [--region R] [--yes] [--no-terraform]
+                                                            the live check of a leased key (awb/tcp/leasecheck.py, owner)
 
 PATH may carry `{project_id}`: the id of the project named like the region. `--list KEY` reads a paged list under
 KEY and answers one of three states (awb/jobs.py): list, empty or unknown. The command line sends GET only: a
@@ -242,6 +244,12 @@ def _pairs(values: list[str]) -> dict[str, list[str]]:
     return out
 
 
+def _keys_error():
+    from awb.tcp import keys
+
+    return keys.KeysError
+
+
 def main(argv: list[str] | None = None) -> int:
     """`awb cloud projects|get|sweep`. Exit 0 answered, 1 the API said no (4xx or 5xx), 2 no answer, unknown or usage."""
     from awb.cli import SafeParser
@@ -274,6 +282,11 @@ def main(argv: list[str] | None = None) -> int:
     k.add_argument("--query", action="append", default=[], metavar="K=V")
     k.add_argument("--body", default=None, metavar="FILE", help="a JSON file; a password field may hold {{secret:NAME}}")
     k.add_argument("--project", default=None, help="the project code (default: the project of the working folder)")
+    lc = sub.add_parser("lease-check", help="the live check of a leased key: P2 and P3 of T12 part 3 (owner side)")
+    lc.add_argument("alias")
+    lc.add_argument("--region", default=None)
+    lc.add_argument("--yes", action="store_true", help="make and delete the throw-away resources (else a dry run)")
+    lc.add_argument("--no-terraform", action="store_true")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -292,6 +305,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command in ("tenants", "call"):
         return _through_service(args)
+    if args.command == "lease-check":
+        from awb.tcp import leasecheck
+
+        if config.is_work_user():
+            print("awb cloud: the lease check is the owner's", file=sys.stderr)
+            return 2
+        try:
+            return leasecheck.main(args.alias, args.region, args.yes, not args.no_terraform)
+        except (CloudError, _keys_error()) as err:
+            print("awb cloud: %s" % err, file=sys.stderr)
+            return 1
     try:
         keys, endpoint = settings()
         job = jobs.Job("cloud", None)

@@ -52,7 +52,7 @@ from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 
-from awb import config, obs
+from awb import codes, config, obs
 
 CALL_SOCKET_ENV = "AWB_KEYS_SOCKET"
 ADMIN_SOCKET_ENV = "AWB_KEYS_ADMIN"
@@ -61,6 +61,10 @@ STORE_PREFIX = "awb/tenant"
 ROLES = {"read": ("GET", "HEAD"), "lab": ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")}
 WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
 NO_WRITE_SERVICES = frozenset({"iam"})
+# the lease (T12 part 3, Variant B): a temporary AK/SK of the lab key for the services a project's Terraform set may
+# use (keys.conf tf_services), IAM denied, 15 to 60 minutes
+TF_SERVICES = ("ecs", "evs", "vpc", "elb", "nat", "dns", "obs", "ims")
+LEASE_MINUTES = (15, 60)
 """Services the lab key never writes to: a new access key, user or agency would come back in a form the answer
 mask does not know. Identities and credentials are made on the owner's side, never from a session."""
 MAX_REQUEST = 512 * 1024
@@ -82,6 +86,8 @@ MASK = "<secret>"
 LEAVE_WAIT = 70.0
 """Seconds a handed-over service waits for its calls in flight (a cloud call takes at most 60) before it exits."""
 ADMIN_OPS = ("load", "lock", "notify", "ping", "reload", "status")
+EXCHANGE_METHODS = ("GET", "HEAD", "PUT", "DELETE", "LIST", "COPY", "MONTHS", "OBS", "OWNER_HAS", "TAKE_OWNER", "INBOX_FIND",
+                    "WEB_READ")
 NOTIFY_MAX = 4000      # characters of an owner mail through the admin socket (awb ui watch --mail)
 CONSOLE_USER = "awb-console"
 """The system user of the console's tenant inventory (F2, his decision of 2026-10-04): it alone reads a test tenant
@@ -598,6 +604,11 @@ class Service:
                 return {"ok": False, "error": str(err)}
             except KeysError as err:
                 return {"ok": False, "error": str(err)}
+        if op == "lease":
+            try:
+                return self._lease(req, uid)
+            except Refused as err:
+                return {"ok": False, "error": str(err)}
         if op in ("obs", "owner_has", "take_owner", "inbox_find"):
             return self._exchange(op, req, uid, upload)
         if op == "web_read":
@@ -632,10 +643,16 @@ class Service:
             answer, status = {"ok": False, "error": str(err)}, "refused"
         except Exception as err:
             answer, status = {"ok": False, "error": "the exchange failed (%s)" % type(err).__name__}, "failed"
+        # the log carries no string of the request as written: the method from a fixed set, the project only as a
+        # project code, for every uid
         method = str(req.get("method") or req.get("what") or op).upper()
+        method = method if method in EXCHANGE_METHODS else "-"
+        project = req.get("project") or answer.get("project")
+        project = project if isinstance(project, str) and codes.is_project_code(project) else "-"
+        size = answer.get("size", "")
         self._log(uid, self.settings.get("bucket_tenant") or "-", "lab", method, "obs" if op == "obs" else op,
                   self.settings.get("region") or "eu-de", status if not answer.get("ok") else
-                  "%s %s" % (status, answer.get("size", "")), req.get("project") or answer.get("project"))
+                  "%s %s" % (status, size if isinstance(size, int) else ""), project)
         return (answer, stream) if stream is not None else answer
 
     def _registered(self) -> dict[str, tuple[str, ...]]:
@@ -735,6 +752,74 @@ class Service:
             answer = {"ok": True, "status": err.status or 0, "data": None, "text": str(err)}
         self._log(uid, alias, role, method, service, region, answer["status"], project)
         return self._mask(answer, tenant)
+
+    def lease_policy(self) -> dict:
+        """The policy of a leased key: the tf_services of keys.conf (all their actions), every IAM action denied."""
+        listed = [s.strip() for s in str(self.settings.get("tf_services") or ",".join(TF_SERVICES)).split(",")]
+        services = [s for s in listed if re.match(r"^[a-z][a-z0-9]{1,20}$", s) and s != "iam"]
+        return {"Version": "1.1", "Statement": [
+            {"Effect": "Allow", "Action": ["%s:*:*" % s for s in services]},
+            {"Effect": "Deny", "Action": ["iam:*:*"]}]}
+
+    def _lease(self, req: dict, uid: int) -> dict:
+        """A temporary AK/SK and security token of the tenant's lab key (Variant B of DESIGN-terraform.md): for a
+        session only from the folder of an active project of the kind project that the owner granted (P0), for the
+        owner for any project; 15 to 60 minutes; the policy of lease_policy. The answer carries the key: the
+        session reads it, by design, for at most an hour."""
+        from awb.tcp import cloud
+
+        alias, project = req.get("tenant"), req.get("project") or ""
+        minutes = req.get("minutes")
+        if not (isinstance(minutes, int) and not isinstance(minutes, bool) and
+                LEASE_MINUTES[0] <= minutes <= LEASE_MINUTES[1]):
+            raise Refused("a lease lasts 15 to 60 minutes")
+        with self.lock:
+            if not self.tenants:
+                raise Refused("the key service is locked: the owner runs awb keys unlock")
+            tenant = self.tenants.get(alias) if isinstance(alias, str) else None
+        if tenant is None:
+            raise Refused("the key service holds no tenant of that alias")
+        pair = tenant.get("roles", {}).get("lab")
+        if not pair:
+            raise Refused("the tenant has no lab key")
+        if uid != os.getuid():
+            from awb import projects as _projects
+
+            if uid == self._console_uid():
+                raise Refused("the console takes no lease")
+            row = self._project_row(project)
+            if row is None:
+                raise Refused("a lease is for the folder of an active project")
+            if not _projects.tenant_access(row.kind) or not self._granted(project):
+                raise Refused("%s has no grant of the owner: he runs awb projects kind %s project in his own "
+                              "terminal" % (project, project))
+        regions = self._registered().get(alias)
+        if not regions:
+            raise Refused("the tenant is not registered (awb tenant add)")
+        region = req.get("region") or regions[0]
+        if region not in regions:
+            raise Refused("the region is not one of the tenant's")
+        body = {"auth": {"identity": {"methods": ["token"], "token": {"duration_seconds": minutes * 60},
+                                      "policy": self.lease_policy()}}}
+        client = cloud.Client(obs.Keys(pair["ak"], pair["sk"]), region, endpoint=self.endpoint, label=alias,
+                              timeout=60.0)
+        try:
+            r = client.request("POST", "iam", "/v3.0/OS-CREDENTIAL/securitytokens", body=body)
+        except cloud.CloudError as err:
+            self._log(uid, alias, "lab", "LEASE", "iam", region, err.status or 0, project)
+            raise Refused("the lease failed: no answer from IAM") from None
+        cred = (r.data or {}).get("credential") if isinstance(r.data, dict) else None
+        if not r.ok or not isinstance(cred, dict) or not all(isinstance(cred.get(k), str) and cred.get(k)
+                                                             for k in ("access", "secret", "securitytoken")):
+            self._log(uid, alias, "lab", "LEASE", "iam", region, r.status, project)
+            code = (r.data or {}).get("error", {}).get("code") if isinstance(r.data, dict) and isinstance(
+                (r.data or {}).get("error"), dict) else None
+            raise Refused("the lease failed: IAM answered HTTP %d%s" % (
+                r.status, " %s" % code if isinstance(code, str) and re.match(r"^[A-Za-z0-9._]{1,30}$", code) else ""))
+        self._log(uid, alias, "lab", "LEASE", "iam", region, "%d %s %dmin" % (r.status, cred["access"][:4], minutes),
+                  project)
+        return {"ok": True, "tenant": alias, "region": region, "minutes": minutes, "ak": cred["access"],
+                "sk": cred["secret"], "token": cred["securitytoken"], "expires_at": cred.get("expires_at")}
 
     def _mask(self, answer: dict, tenant: dict) -> dict:
         text = json.dumps(answer, ensure_ascii=False)

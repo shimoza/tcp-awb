@@ -608,3 +608,96 @@ def test_the_grant_is_the_owners(home, monkeypatch):
     assert grants.grant(home, "tcp-ab2c", "project") is None and grants.grant(home, "tcp-ab2c", "query") == "project"
     grants.path(home).write_text('{"tcp-ab2c": {"kind": "admin"}, "../x": {"kind": "project"}}')
     assert grants.load(home) == {} and not grants.granted(home, "tcp-ab2c")
+
+
+# --------------------------------------------------------------------------- the lease (T12 part 3, Variant B)
+
+
+class _Minted:
+    """IAM's securitytokens call as the lease sees it: records the request, answers a temporary key or a refusal."""
+
+    def __init__(self, status=201):
+        self.status, self.sent = status, []
+
+    def method(self):
+        """A plain function for Client.request, so the client comes in as self."""
+        return lambda client, *a, **k: self(client, *a, **k)
+
+    def __call__(self, client, method, service, path, query=None, body=None, headers=None):
+        from awb.tcp.cloud import Response
+
+        self.sent.append((client.keys.ak, method, service, path, body))
+        if self.status != 201:
+            return Response(self.status, {"error": {"code": "IAM.0001", "message": "no"}}, "no")
+        return Response(201, {"credential": {"access": "TMPAKX7Q9", "secret": "tmp-secret-value",
+                                             "securitytoken": "tmp-token-value", "expires_at": "2026-10-08T21:00:00Z"}},
+                        "")
+
+
+def test_a_lease_mints_a_temporary_key_of_the_lab_key_with_iam_denied(svc, monkeypatch, tmp_path):
+    from awb.tcp import cloud
+
+    load(svc)
+    minted = _Minted()
+    monkeypatch.setattr(cloud.Client, "request", minted.method())
+    a = keys.request(svc.call_path, {"op": "lease", "tenant": "test-1", "minutes": 60})
+    assert a["ok"] and (a["ak"], a["sk"], a["token"]) == ("TMPAKX7Q9", "tmp-secret-value", "tmp-token-value")
+    ak, method, service, path, body = minted.sent[0]
+    assert (ak, method, service, path) == (LAB_AK, "POST", "iam", "/v3.0/OS-CREDENTIAL/securitytokens")
+    identity = body["auth"]["identity"]
+    assert identity["methods"] == ["token"] and identity["token"] == {"duration_seconds": 3600}
+    allow, deny = identity["policy"]["Statement"]
+    assert allow == {"Effect": "Allow", "Action": ["%s:*:*" % s for s in keys.TF_SERVICES]}
+    assert deny == {"Effect": "Deny", "Action": ["iam:*:*"]}
+    log = "".join(p.read_text() for p in (tmp_path / "log").glob("*.tsv"))
+    assert "LEASE" in log and "TMPA" in log and "TMPAKX7Q9" not in log and "tmp-secret" not in log
+    svc.settings["tf_services"] = "vpc, iam ,ecs"
+    assert [s["Action"] for s in svc.lease_policy()["Statement"]] == [["vpc:*:*", "ecs:*:*"], ["iam:*:*"]]
+
+
+@pytest.mark.parametrize("req, error", [
+    ({"minutes": 10}, "15 to 60 minutes"), ({"minutes": 90}, "15 to 60 minutes"), ({"minutes": True}, "15 to 60"),
+    ({"minutes": 30, "tenant": "test-2"}, "no lab key"), ({"minutes": 30, "tenant": "test-9"}, "no tenant"),
+])
+def test_a_lease_is_refused_outside_its_bounds(svc, monkeypatch, req, error):
+    from awb.tcp import cloud
+
+    load(svc)
+    monkeypatch.setattr(cloud.Client, "request", _Minted().method())
+    a = keys.request(svc.call_path, dict({"op": "lease", "tenant": "test-1"}, **req))
+    assert not a["ok"] and error in a["error"]
+
+
+def test_a_session_gets_a_lease_only_for_a_granted_project_and_never_for_a_query(svc, monkeypatch):
+    import os
+    from types import SimpleNamespace
+
+    from awb.tcp import cloud
+
+    load(svc)
+    monkeypatch.setattr(cloud.Client, "request", _Minted().method())
+    rows = {"tcp-ab2c": SimpleNamespace(code="tcp-ab2c", kind="project"),
+            "tcp-qu3r": SimpleNamespace(code="tcp-qu3r", kind="query"),
+            "tcp-nogr": SimpleNamespace(code="tcp-nogr", kind="project")}
+    svc._project_row = lambda code: rows.get(code)
+    svc._granted = lambda code: code in {"tcp-ab2c", "tcp-qu3r"}
+    session, console = os.getuid() + 1, os.getuid() + 2
+    svc._console_uid = lambda: console
+    req = {"tenant": "test-1", "minutes": 15}
+    for project, error in (("tcp-nogr", "no grant of the owner"), ("tcp-qu3r", "no grant of the owner"),
+                           ("", "folder of an active project")):
+        with pytest.raises(keys.Refused, match=error):
+            svc._lease(dict(req, project=project), session)
+    with pytest.raises(keys.Refused, match="console takes no lease"):
+        svc._lease(dict(req, project="tcp-ab2c"), console)
+    assert svc._lease(dict(req, project="tcp-ab2c"), session)["ok"]
+    assert svc._lease(dict(req), os.getuid())["ok"]          # the owner, for the live check
+
+
+def test_an_iam_refusal_of_the_lease_names_its_status_and_code_only(svc, monkeypatch):
+    from awb.tcp import cloud
+
+    load(svc)
+    monkeypatch.setattr(cloud.Client, "request", _Minted(status=403).method())
+    a = keys.request(svc.call_path, {"op": "lease", "tenant": "test-1", "minutes": 15})
+    assert a == {"ok": False, "error": "the lease failed: IAM answered HTTP 403 IAM.0001"}
