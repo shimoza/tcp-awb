@@ -38,6 +38,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - Fewer commands to copy. The owner's session runs the work-side commands that carry no name and change nothing in
   the cloud itself. `awb projects open CODE` starts a project session in the current terminal and a project session
   hands an architect at most one command block per reply.
+- Pasted terminal output and background agent results reach the session. Addresses and web addresses in them no
+  longer stop the prompt, while names, mails and secrets still do, and `awb paste` puts a long output into the
+  project with its addresses masked.
 
 ### Changed
 

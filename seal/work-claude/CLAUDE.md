@@ -5,10 +5,10 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 
 ## Names
 
-- Every text you write carries codes (`CUST-Q7M4`, `PART-KX2A`, `tcp-q7m4`) and never a real name of a customer,
-  partner or person: files, commits, notes, agent prompts and chat alike.
+- Every text you write carries codes (`CUST-Q7M4`, `tcp-q7m4`), never a real name: files, commits, agent prompts, chat.
 - The prompt hook stops a prompt with a registered name and every prompt while the Workbench is locked (the owner
   unlocks it). For a name the register does not know yet, never repeat it: ask him to register it, use his code.
+  A long terminal output goes through `awb paste`, not into the chat: read the file it writes.
 - When a document points to a customer in another way (a logo, a product, a description), say which kind and
   where, never what it says. Never invent a code: take it from SCOPE.md, from the outbox or from him.
 - Customer material enters only through `awb intake` on his side: you never see an original. "The inbox" means

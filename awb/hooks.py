@@ -13,7 +13,13 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        limit of the vault daemon is not a locked vault: the hook waits up to
                                        HOOK_RATE_WAIT seconds and then blocks with "send it again in a minute".
                                        The check reads what hides behind a base64 or hex block and under a bidi
-                                       override as well
+                                       override as well. Structured data of SOFT_CLASSES (url, phone, ip, mac)
+                                       inside a pasted block (`<pasted_content>`) passes when the typed text has
+                                       none, and in a background agent's result or a CI event (the whole prompt
+                                       is the client's `<task-notification>` or `<ci-monitor-event>`): the model
+                                       gets a context line with the counts instead (D-T8). A registered name, a
+                                       secret and the other classes still block; an event is refused with the
+                                       agent id and the classes
     pre-write       PreToolUse         exit 2 when Write, Edit, MultiEdit or NotebookEdit targets a file inside
                                        the knowledge base, also through a link or a hard link to one of its
                                        files: facts go in through `awb kb add`, `amend` and `retire` only. A path
@@ -517,16 +523,67 @@ def _beat(data: dict) -> None:
         pass
 
 
-def _rules_notice(data: dict) -> None:
-    """Tell a running session once that the rules it loaded at its start changed (awb/rulesync.py)."""
+def _rules_text(data: dict) -> str | None:
+    """The notice that the rules a running session loaded at its start changed (awb/rulesync.py), once."""
     try:
         from awb import rulesync
 
-        said = rulesync.notice(config.paths(), data.get("session_id"), project_root(_session_folder(data)))
+        return rulesync.notice(config.paths(), data.get("session_id"), project_root(_session_folder(data))) or None
     except Exception:
-        return
+        return None
+
+
+def _rules_notice(data: dict, extra: str | None = None) -> None:
+    """Tell a running session once that its rules changed; `extra` is a context line of its own (T8)."""
+    said = "\n".join(t for t in (extra, _rules_text(data)) if t)
     if said:
         _emit(EVENTS["prompt"], said)
+
+
+SOFT_CLASSES = ("url", "phone", "ip", "mac")
+"""Structured data that a pasted block, a background agent's result or a CI event may carry (D-T8): terminal
+output is full of addresses, resource names and times. A registered name, a mail, bank data, a register number,
+a tax number and a secret still block; text he typed keeps the strict rule."""
+_PASTE_RE = re.compile(r'<pasted_content(?P<attr>(?: id="[^"<>\n]{1,80}")?)>(?P<body>.*?)</pasted_content(?P=attr)>',
+                       re.S)
+"""A block the client marks as pasted: `<pasted_content id="X">...</pasted_content id="X">` or without the id."""
+_EVENT_RE = re.compile(r"\A\s*(?:<system-reminder>[^<]{0,400})?<(?P<tag>task-notification|ci-monitor-event)>"
+                       r".*</(?P=tag)>\s*(?:</system-reminder>\s*)?\Z", re.S)
+"""A whole prompt that is the client's own event: a finished background agent or a CI event. A prompt that
+merely carries the tag in the middle is his prompt."""
+_TASK_ID_RE = re.compile(r"<task-id>\s*([A-Za-z0-9_-]*\d[A-Za-z0-9_-]*)\s*</task-id>")
+"""The agent id of a task notification; named in a message only in this shape (letters, digits, at least one
+digit, up to 64 characters), so no word of the result is repeated."""
+
+
+def _prompt_kind(text: str) -> str:
+    """"agent" or "ci" for the client's events, "paste" for a prompt with a pasted block, else "typed"."""
+    m = _EVENT_RE.match(text)
+    if m:
+        return "agent" if m.group("tag") == "task-notification" else "ci"
+    return "paste" if _PASTE_RE.search(text) else "typed"
+
+
+def _typed_has_data(text: str) -> bool:
+    """True when the text outside the pasted blocks carries structured data of its own (checked here, with the
+    patterns alone: no name is in the text at this point). True as well when the patterns cannot run."""
+    try:
+        from awb import check, normalize, patterns
+
+        typed = check.with_hidden_views(_PASTE_RE.sub("\n", text))
+        return bool(patterns.find_structured(normalize.normalize(typed).text))
+    except Exception:
+        return True
+
+
+def _event_source(text: str, kind: str) -> str:
+    """"the result of background agent ID", "the CI event": the agent id only when it has the shape of one."""
+    if kind == "ci":
+        return "the CI event"
+    m = _TASK_ID_RE.search(text)
+    if m and len(m.group(1)) <= 64:
+        return "the result of background agent %s" % m.group(1)
+    return "the result of a background agent"
 
 
 def hook_prompt(data: dict) -> int:
@@ -551,6 +608,21 @@ def hook_prompt(data: dict) -> int:
         return OK
     names = [h for h in hits if h.get("cls") == "name"]
     other = [h for h in hits if h.get("cls") != "name"]
+    kind = _prompt_kind(text)
+    soft = [h for h in other if h.get("cls") in SOFT_CLASSES]
+    if (kind != "typed" and not names and not secrets and len(soft) == len(other)
+            and (kind != "paste" or not _typed_has_data(text))):
+        what = {"paste": "The paste", "agent": "The agent result", "ci": "The CI event"}[kind]
+        _rules_notice(data, "%s carries %d data items (%s); never repeat them, refer to them by line."
+                      % (what, len(soft), _counts(soft)))
+        return OK
+    if kind in ("agent", "ci"):
+        blocked = ([{"cls": "registered name"} for _ in names]
+                   + [h for h in other if h.get("cls") not in SOFT_CLASSES] + secrets)
+        rerun = " Run the agent again with the rule \"codes only\"." if kind == "agent" else ""
+        print("%s was not delivered: it carries %s.%s" % (_event_source(text, kind), _counts(blocked), rerun),
+              file=sys.stderr)
+        return BLOCK
     parts: list[str] = []
     if names:
         msg = ("the prompt carries a registered name (%d hits). Register new names with `awb register` in your "

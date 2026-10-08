@@ -1567,8 +1567,92 @@
    "name": "awb projects open is refused where sudo -n is not allowed",
    "run": ".venv/bin/pytest tests/test_projects.py::test_open_is_refused_where_sudo_n_is_not_allowed",
    "status": "passing"
+  },
+  {
+   "id": "T8-1",
+   "phase": "T8",
+   "name": "a pasted block with three urls and no name passes with a context line; the same text typed still blocks",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_t8_a_pasted_block_with_three_urls_passes_with_a_context_line",
+   "status": "passing"
+  },
+  {
+   "id": "T8-2",
+   "phase": "T8",
+   "name": "a pasted block with a registered form blocks",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_t8_a_pasted_block_with_a_registered_form_blocks",
+   "status": "passing"
+  },
+  {
+   "id": "T8-3",
+   "phase": "T8",
+   "name": "a pasted block with a planted secret or a mail blocks",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_t8_a_pasted_block_with_a_secret_or_a_mail_blocks",
+   "status": "passing"
+  },
+  {
+   "id": "T8-4",
+   "phase": "T8",
+   "name": "an ls -lt listing and a sub-second timestamp give no phone hit, a real phone number in the same text does",
+   "run": ".venv/bin/pytest tests/test_hooks_redteam.py::test_t8_an_ls_listing_and_a_sub_second_timestamp_give_no_phone_hit",
+   "status": "passing"
+  },
+  {
+   "id": "T8-5",
+   "phase": "T8",
+   "name": "awb paste masks the softened classes in the file and refuses a text with a name hit",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_t8_awb_paste_masks_the_soft_classes_and_refuses_a_name",
+   "status": "passing"
+  },
+  {
+   "id": "T8-6",
+   "phase": "T8",
+   "name": "awb paste on the command line: path and counts, refused with exit 2 for a name and outside a project",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_t8_awb_paste_command_line",
+   "status": "passing"
+  },
+  {
+   "id": "T8-7",
+   "phase": "T8",
+   "name": "a task notification or a CI event with addresses and no name passes with a context line",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_t8_a_task_notification_with_addresses_reaches_the_session",
+   "status": "passing"
+  },
+  {
+   "id": "T8-8",
+   "phase": "T8",
+   "name": "a task notification with a registered form blocks with the agent named",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_t8_a_task_notification_with_a_registered_form_blocks_with_the_agent_named",
+   "status": "passing"
+  },
+  {
+   "id": "T8-9",
+   "phase": "T8",
+   "name": "a typed prompt that carries the tag text in the middle is still his prompt",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_t8_the_tag_in_the_middle_of_a_typed_prompt_is_still_his_prompt",
+   "status": "passing"
+  },
+  {
+   "id": "T8-10",
+   "phase": "T8",
+   "name": "a forged paste or event tag does not soften typed text",
+   "run": ".venv/bin/pytest tests/test_hooks_redteam.py::test_t8_a_forged_paste_or_event_tag_does_not_soften_typed_text",
+   "status": "passing"
+  },
+  {
+   "id": "T8-11",
+   "phase": "T8",
+   "name": "a name behind base64 inside a paste or an agent result still blocks",
+   "run": ".venv/bin/pytest tests/test_hooks_redteam.py::test_t8_a_name_behind_base64_inside_a_paste_or_an_event_still_blocks",
+   "status": "passing"
+  },
+  {
+   "id": "T8-12",
+   "phase": "T8",
+   "name": "the work rules send a long terminal output through awb paste",
+   "run": ".venv/bin/pytest tests/test_work_rules.py",
+   "status": "passing"
   }
  ],
- "total_tests": 224,
+ "total_tests": 236,
  "checked": "2026-10-08"
 }

@@ -28,6 +28,7 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     awb migrate init|status|next|inventory|map|estimate|done awb/tcp/migrate.py
     awb keys serve|unlock|lock|status                        awb/tcp/keys.py
     awb inbox take|list, awb xchg put|list                   awb/tcp/xchg.py
+    awb paste [--as NAME]                                    awb/paste.py
     awb images list|release                                  awb/images.py
     awb hook prompt|pre-write|post-write|stop|session-start  awb/hooks.py
     awb seal check                                           awb/seal.py
@@ -530,6 +531,7 @@ DELEGATED = {
     "ask": ("tcp.ask", "questions in plain words, answered only from the checked sources (the Ask page)"),
     "inbox": ("tcp.inbox", "take a file the owner dropped into an inbox into this project"),
     "xchg": ("tcp.xchg", "put a result of this project into the owner's from-session folder"),
+    "paste": ("paste", "put a long terminal output into the project, masked, instead of the chat"),
     "keys": ("tcp.keys", "the key service: keys, logins and passwords of the test tenants, never shown to a session"),
     "migrate": ("tcp.migrate", "a migration to TCP in phases: inventory, mapping, estimate, plan, review"),
     "tenant": ("tcp.tenants", "resources on the test tenants over time: add, snapshot, list, now, history, at, project"),

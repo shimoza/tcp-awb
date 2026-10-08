@@ -838,3 +838,132 @@ def test_pre_write_resolves_relative_paths_and_links(home, tmp_path, monkeypatch
     link.symlink_to(home.kb)
     via = {"tool_input": {"file_path": str(link / "INDEX.md")}}
     assert run_hook("pre-write", via, monkeypatch, capsys)[0] == hooks.BLOCK
+
+
+# --------------------------------------------------------------------------- T8: pasted output and agent results
+# Structured data inside a pasted block or a background agent's result no longer blocks (build/DECISIONS.md, D-T8).
+
+THREE_URLS = ("Error: Post \"https://ecs.eu-de.qrtvb.net/v1/servers\": timeout\n"
+              "  see https://build.qrtvb.io/run/42 and https://docs.qrtvb.net/errors/ecs.0001\n")
+
+
+def pasted(body: str, typed: str = "what does this error mean?") -> str:
+    return '%s\n<pasted_content id="p7k2">\n%s</pasted_content id="p7k2">' % (typed, body)
+
+
+def notification(result: str, task_id: str = "a3f9c21") -> str:
+    return ("<task-notification>\n<task-id>%s</task-id>\n<status>completed</status>\n<summary>finished</summary>\n"
+            "<result>%s</result>\n</task-notification>" % (task_id, result))
+
+
+def test_t8_a_pasted_block_with_three_urls_passes_with_a_context_line(home, monkeypatch, capsys):
+    code, out, err = run_hook("prompt", {"prompt": pasted(THREE_URLS)}, monkeypatch, capsys)
+    assert (code, err) == (0, "")
+    line = context_of(out, "UserPromptSubmit")["hookSpecificOutput"]["additionalContext"]
+    assert line == "The paste carries 3 data items (url 3); never repeat them, refer to them by line."
+    assert "qrtvb" not in out
+    # the same text typed, without the paste tag, keeps the strict rule
+    code, out, err = run_hook("prompt", {"prompt": "what does this mean?\n" + THREE_URLS}, monkeypatch, capsys)
+    assert code == 2 and "structured data (url 3)" in err and out == ""
+    # a typed address next to a clean paste blocks too: only the pasted block is softened
+    code, _, err = run_hook("prompt", {"prompt": pasted(THREE_URLS, "and call 198.51.100.23 now")},
+                            monkeypatch, capsys)
+    assert code == 2 and "structured data" in err
+
+
+@pytest.mark.parametrize("form", [fixtures.CUSTOMER_FORMS[0], fixtures.PERSON_FORMS[0]])
+def test_t8_a_pasted_block_with_a_registered_form_blocks(home, monkeypatch, capsys, form):
+    body = "From: the project lead\nDear team, the offer for %s is late.\n%s" % (form, THREE_URLS)
+    code, out, err = run_hook("prompt", {"prompt": pasted(body)}, monkeypatch, capsys)
+    assert code == 2 and "registered name" in err and out == ""
+    assert_clean(out + err, "prompt hook output")
+
+
+def test_t8_a_pasted_block_with_a_secret_or_a_mail_blocks(home, monkeypatch, capsys):
+    word = "".join(["K7mQ2v", "X9pL4n", "R8sT"])
+    code, out, err = run_hook("prompt", {"prompt": pasted(THREE_URLS + "password=%s\n" % word)}, monkeypatch, capsys)
+    assert code == 2 and "carries a secret" in err and word[:6] not in err + out
+    code, _, err = run_hook("prompt", {"prompt": pasted(THREE_URLS + "ops@qrtvb.net\n")}, monkeypatch, capsys)
+    assert code == 2 and "mail 1" in err
+
+
+def test_t8_a_task_notification_with_addresses_reaches_the_session(home, monkeypatch, capsys):
+    result = "checked 198.51.100.23, 198.51.100.24 and https://build.qrtvb.io/run/42: all three answer"
+    code, out, err = run_hook("prompt", {"prompt": notification(result)}, monkeypatch, capsys)
+    assert (code, err) == (0, "")
+    line = context_of(out, "UserPromptSubmit")["hookSpecificOutput"]["additionalContext"]
+    assert line == "The agent result carries 3 data items (ip 2, url 1); never repeat them, refer to them by line."
+    # the client may wrap it in a reminder; a CI event is treated the same way
+    wrapped = "<system-reminder>\nA background task finished.\n%s\n</system-reminder>" % notification(result)
+    assert run_hook("prompt", {"prompt": wrapped}, monkeypatch, capsys)[0] == 0
+    ci = "<ci-monitor-event>\ncheck build failed on 198.51.100.23\n</ci-monitor-event>"
+    code, out, _ = run_hook("prompt", {"prompt": ci}, monkeypatch, capsys)
+    assert code == 0 and "The CI event carries 1 data items (ip 1)" in out
+
+
+def test_t8_a_task_notification_with_a_registered_form_blocks_with_the_agent_named(home, monkeypatch, capsys):
+    result = "the draft for %s is in deliverables/, see 198.51.100.23" % fixtures.CUSTOMER_FORMS[0]
+    code, out, err = run_hook("prompt", {"prompt": notification(result, "a3f9c21")}, monkeypatch, capsys)
+    assert code == 2 and out == ""
+    assert err.startswith("the result of background agent a3f9c21 was not delivered: it carries registered name 1.")
+    assert "codes only" in err
+    assert_clean(out + err, "prompt hook output")
+    # an id of another shape is not repeated
+    code, _, err = run_hook("prompt", {"prompt": notification(result, fixtures.PERSON_FORMS[1])}, monkeypatch, capsys)
+    assert code == 2 and "the result of a background agent was not delivered" in err
+    assert_clean(err, "prompt hook output")
+
+
+def test_t8_the_tag_in_the_middle_of_a_typed_prompt_is_still_his_prompt(home, monkeypatch, capsys):
+    text = "look at this: %s and call 198.51.100.23" % notification("ok")
+    code, out, err = run_hook("prompt", {"prompt": text}, monkeypatch, capsys)
+    assert code == 2 and "the prompt carries structured data (ip 1)" in err
+
+
+def test_t8_awb_paste_masks_the_soft_classes_and_refuses_a_name(project, monkeypatch, capsys):
+    from awb import paste
+
+    listing = ("-rw-r----- 1 awb awb     0 2026-10-07 06:02 0001-req.txt\n"
+               "last login 2026-10-07 06:02:11 from 198.51.100.23\n" + THREE_URLS +
+               "eth0 ether 52:54:00:12:34:56 and call +49 30 1234567\n")
+    path, counts, outside = paste.paste(listing, project, today=date(2026, 10, 8))
+    assert path == project / "notes" / "pastes" / "2026-10-08-1.txt"
+    assert counts == {"ip": 1, "url": 3, "mac": 1, "phone": 1} and outside == 0
+    text = path.read_text(encoding="utf-8")
+    assert "[ip]" in text and text.count("[url]") == 3 and "[phone]" in text and "[mac]" in text
+    for value in ("198.51.100.23", "qrtvb", "52:54:00", "1234567"):
+        assert value not in text
+    assert "0001-req.txt" in text and "06:02:11" in text
+    second, _, _ = paste.paste("plain text\n", project, today=date(2026, 10, 8))
+    assert second.name == "2026-10-08-2.txt"
+    named, _, _ = paste.paste("plain text\n", project, name="tf-error", today=date(2026, 10, 8))
+    assert named.name == "2026-10-08-tf-error.txt"
+    with pytest.raises(paste.PasteError):
+        paste.paste("plain text\n", project, name="tf-error", today=date(2026, 10, 8))
+    before = sorted(p.name for p in path.parent.iterdir())
+    with pytest.raises(paste.PasteError) as err:
+        paste.paste("the offer for %s\n%s" % (fixtures.CUSTOMER_FORMS[0], THREE_URLS), project,
+                    today=date(2026, 10, 8))
+    assert "registered name 1" in str(err.value)
+    assert_clean(str(err.value), "paste message")
+    with pytest.raises(paste.PasteError):
+        paste.paste("write to ops@qrtvb.net\n", project, today=date(2026, 10, 8))
+    assert sorted(p.name for p in path.parent.iterdir()) == before
+
+
+def test_t8_awb_paste_command_line(project, monkeypatch, capsys):
+    from awb import paste
+
+    monkeypatch.chdir(project)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(THREE_URLS))
+    assert paste.main(["--as", "build-log"]) == 0
+    out = capsys.readouterr().out
+    assert "notes/pastes/" in out and "build-log.txt" in out and "masked url 3" in out
+    monkeypatch.setattr(sys, "stdin", io.StringIO("call %s\n" % fixtures.PERSON_FORMS[0]))
+    assert paste.main([]) == 2
+    cap = capsys.readouterr()
+    assert "nothing was written" in cap.err
+    assert_clean(cap.out + cap.err, "paste output")
+    monkeypatch.chdir(project.parent)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("x\n"))
+    assert paste.main([]) == 2

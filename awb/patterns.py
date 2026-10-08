@@ -237,9 +237,21 @@ def _iban_ok(s: str) -> int | bool:
 _PHONE_SEP = r"(?:\\?[ \t\u00a0./\-\u2010\u2011\u2013]{1,3}|\n)"
 _PHONE_SEP2 = r"(?:\\?[ \t\u00a0.\-\u2010\u2011\u2013]{1,3}|\n)"
 """Between the groups of the subscriber number: no slash, which separates one number from the next."""
-_PHONE_START = r"(?:(?<![\w./,+(\uff0b])|(?<=[A-Za-z]\.)|(?<=\d/))"
+_PHONE_START = r"(?<!\d:)(?:(?<![\w./,+(\uff0b])|(?<=[A-Za-z]\.)|(?<=\d/))"
 """Where a phone number may begin: not glued to a word or a number, but right after "Tel." or after the slash
-that separates two numbers."""
+that separates two numbers. Never right after the colon of a clock: the minutes, seconds and fraction of a time
+(`ls -l`, a sub-second timestamp) are not a number to call (T8)."""
+_CLOCK_BEFORE = re.compile(r"\d:\d\d(?::\d\d)?(?:[.,]\d{1,9})?[ \t]$")
+"""A clock time right before a zone offset: `12:00:00.123456789 +0200` (`ls --full-time`)."""
+
+
+def _listing_part(text: str, start: int, end: int) -> bool:
+    """True for a phone-shaped span that is part of a listing (T8): it ends in the hour of a time
+    (`0 2026-10-07 06:02`, the size and date columns of `ls -l`), it is the stem of a file name
+    (`0002-2026-10-07-1.txt`) or it is the zone offset after a time."""
+    if re.match(r":\d\d(?!\d)|\.[A-Za-z][A-Za-z0-9]{0,4}(?![\w.])", text[end:end + 7]):
+        return True
+    return text[start:start + 1] in ("+", "-") and bool(_CLOCK_BEFORE.search(text[max(0, start - 24):start]))
 _DATE_RE = re.compile(r"0?\d{1,2}[ ./-]0?\d{1,2}[ ./-]\d{2,4}|0\d[ ./-]\d{4}")
 """dd.mm.yyyy, dd mm yyyy and mm/yyyy: a date, not a number to call."""
 
@@ -320,7 +332,7 @@ PATTERNS: list[tuple[str, re.Pattern, Callable[[str], bool] | None, re.Pattern |
      _P(r"(?i)(?:mac|hwaddr|ether|lladdr)[\s:=-]*")),
     ("PHONE", _P(r"(?<![\w+\uff0b])(?:[+\uff0b]\d{1,3}|\(\+\d{1,3}\))%s?(?:\(0?\d{0,5}\)%s?)?\d{1,5}(?:%s?\d{2,}){1,5}(?!\d)"
                  % (_PHONE_SEP, _PHONE_SEP, _PHONE_SEP)), _phone_ok, None),
-    ("PHONE", _P(r"(?<![\w+.,/])00[ \t]?[1-9]\d{0,2}%s(?:\(0\)%s?)?\d{1,5}(?:%s?\d{2,}){1,5}(?!\d)"
+    ("PHONE", _P(r"(?<!\d:)(?<![\w+.,/])00[ \t]?[1-9]\d{0,2}%s(?:\(0\)%s?)?\d{1,5}(?:%s?\d{2,}){1,5}(?!\d)"
                  % (_PHONE_SEP, _PHONE_SEP, _PHONE_SEP)), _phone_ok, None),
     ("PHONE", _P(r"%s(?:\(0\d{1,5}\)|\(0\)[ \t]?\d{1,5}|0[ \t.]\d{1,5}|0\d{1,5})%s?\d{1,5}+(?:%s?\d{1,5}+){0,12}(?![\d.,]\d)(?!\w)"
                  % (_PHONE_START, _PHONE_SEP, _PHONE_SEP2)), _phone_ok, None),
@@ -478,6 +490,8 @@ def _find(text: str) -> list[Span]:
     # digits inside something shaped like an IBAN are never a phone number, even when the IBAN is invalid
     iban_shaped = [(m.start(), m.end()) for m in _IBAN_SHAPE.finditer(text)]
     found = [t for t in found if not (t[2] == "PHONE" and any(a <= t[0] and t[1] <= b for a, b in iban_shaped))]
+    # the size, date and clock columns of a listing, a file name and the zone offset of a time are not a number
+    found = [t for t in found if not (t[2] == "PHONE" and _listing_part(text, t[0], t[1]))]
     # a dotted number announced as a section of a document is a section, not an address: service
     # descriptions and contracts are full of "section 3.1.4.2" and every one of them parses as an IP
     found = [t for t in found if not (t[2] == "IP" and _SECTION_REF.search(text[max(0, t[0] - 28):t[0]])

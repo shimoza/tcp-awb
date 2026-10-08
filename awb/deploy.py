@@ -98,6 +98,7 @@ DYNAMIC: dict[tuple[str, str], object] = {
 COMMAND_ONLY: dict[str, str] = {
     "awb/deploy.py": "this command; root runs the installed copy, so a change is live from the following deploy",
     "awb/seal.py": "awb seal check, run by the work user against the host",
+    "awb/paste.py": "awb paste, run in a working session with a terminal output on standard input",
     "awb/tcp/inbox.py": "awb inbox take, run in a working session",
     "awb/tcp/migrate.py": "awb migrate, run in a working session",
     "awb/tcp/refresh.py": "awb refresh, run by the owner or a timer of his",
