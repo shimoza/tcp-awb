@@ -17,6 +17,9 @@ date.
 The author named in the files is AWB_DATASET_AUTHOR or `dataset_author` of the host file (the account name
 without either); the code carries no person's name.
 
+Price rows of a service the service description withdrew or the hand-kept not-offered list names (BMS, DIS, VBS,
+CSBS) are left out of the CSV files and named in their header, because the price API still serves them.
+
 What leaves: the grades live, contract and docs, no retired and no expired entry, every one name checked again by
 the export. The alias of a test tenant in a source line or a statement is replaced by "a TCP test tenant"; the
 build proves that rewrite on a planted alias first and refuses to write a folder in which one is left. No project,
@@ -24,6 +27,7 @@ no customer code, no snapshot of a tenant and no review is part of the dataset.
 """
 from __future__ import annotations
 
+import collections
 import csv
 import datetime
 import hashlib
@@ -239,6 +243,22 @@ def pdf_bytes(blocks: list[tuple[str, str]], title: str) -> bytes:
     return out.getvalue()
 
 
+def not_offered(catalog: offered.Catalog, today: str, *names: str) -> bool:
+    """True when one of the names is a service the service description withdrew or the hand-kept list of services
+    not offered names. A name the catalogue simply does not know (a billing name such as a flavor family) is not
+    judged: the price API's product names are not service names."""
+    banned = {offered.key(f) for row in catalog.not_offered for f in row}
+    for n in names:
+        if not n:
+            continue
+        if offered.key(n) in banned:
+            return True
+        v = offered.check(n, catalog, today)
+        if v.services and not v.offered:
+            return True
+    return False
+
+
 # --------------------------------------------------------------------------- the build
 
 
@@ -298,6 +318,7 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
     for meta, _ in snapshots.values():
         fetched = max(fetched, str(meta.get("fetched_at") or ""))
     counts = {r: len(recs) for r, (_, recs) in snapshots.items()}
+    left_out: dict[str, dict[str, int]] = {}
 
     base = out or config.make_dir(datasets_dir(p), 0o2775, shared=True)
     root = base / ("%s-%s" % (SLUG, day))
@@ -337,13 +358,25 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
         % (revision, len(svc), "\n".join(svc)), encoding="utf-8")
 
     for region, (meta, recs) in snapshots.items():
+        keep, gone = [], collections.Counter()
+        for rec in recs:
+            if not_offered(catalog, day, rec.raw.get("productIdParameter", ""), rec.raw.get("productId", "")):
+                gone[str(rec.raw.get("productId", "")) or rec.service] += 1
+            else:
+                keep.append(rec)
+        left_out[region] = dict(gone)
+        counts[region] = len(keep)
         with (root / "prices" / (region + ".csv")).open("w", encoding="utf-8", newline="") as f:
             f.write("# TCP price list %s, public price API, fetched %s. Prices per unit in EUR, net. payg = pay as "
                     "you go, reserved_* = reserved term per month, reserved_upfront_* = paid up front. The live "
-                    "API is the source of truth before any quote.\n" % (region, meta.get("fetched_at") or day))
+                    "API is the source of truth before any quote.%s\n"
+                    % (region, meta.get("fetched_at") or day,
+                       " Rows of services the service description of %s does not offer are left out, although the "
+                       "API still serves them: %s." % (revision, ", ".join("%s (%d)" % kv for kv in sorted(gone.items())))
+                       if gone else ""))
             w = csv.writer(f)
             w.writerow([c for c, _ in PRICE_COLUMNS])
-            for rec in recs:
+            for rec in keep:
                 w.writerow([str(rec.raw.get(k, "")).replace(" EUR", "") for _, k in PRICE_COLUMNS])
 
     blocks = _how_to_blocks(day, best_before, len(records), grades, len(svc), revision, counts)
@@ -363,7 +396,7 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
     files = sorted(x for x in root.rglob("*") if x.is_file())
     manifest = {"dataset": NAME, "date": day, "best_before": best_before, "facts": len(records), "grades": grades,
                 "topics": {t: len(bytag[t]) for t in tags}, "services": len(svc), "service_description": revision,
-                "prices": {"fetched": fetched, "records": counts}, "licence": LICENCE, "author": author(),
+                "prices": {"fetched": fetched, "records": counts, "left_out": left_out}, "licence": LICENCE, "author": author(),
                 "files": {str(x.relative_to(root)): {"bytes": x.stat().st_size, "sha256": _sha(x)} for x in files}}
     (root / "MANIFEST.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 

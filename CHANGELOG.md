@@ -10,8 +10,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - The knowledge leaves as a dataset. `awb dataset build` writes the folder `tcp-facts-<date>/` and its zip: every
   fact on one line grouped by topic, one file per topic, the export with its metadata, the orderable services, the
   price list of each region as CSV, a one-line prompt in `PROMPT.md` and `HOW-TO.pdf`, each text file opening
-  with the rules for the assistant that reads it and a best-before date. `awb refresh` builds it at the end of a
-  clean run, `awb dataset put` sends it into the bucket.
+  with the rules for the assistant that reads it and a best-before date. Its price lists carry only services the
+  service description offers: rows of withdrawn services and of the hand-kept not-offered list are left out and named
+  in the CSV header. `awb refresh` builds it at the end of a clean run, `awb dataset put` sends it into the bucket.
 - One deploy command. `sudo awb deploy` brings a commit live as a release of its own, restarts only the services the
   change touched, brings the rules of every project up to date and ends with the status of each service.
   `--dry-run`, `--rollback`, `--to COMMIT`, `--only UNIT...` and `awb deploy status`.

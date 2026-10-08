@@ -48,7 +48,9 @@ def facts(home):
     new(S_IAM, grade="live", tags=["iam"], source="the read key of test tenant test-10497 in eu-de")
     new("GPU flavor p2 needs a quota increase in eu-nl", grade="said", tags=["gpu"])
     snapshot(home, "eu-de", "2026-10-01", [RAW])
-    snapshot(home, "eu-de", "2026-10-07", [dict(RAW, priceAmount="0.051000 EUR")])
+    bms = dict(RAW, id="OTC_BMS_EL_BLST_SAS", productIdParameter="bms", productId="BARE METAL", productName="EVS High I/O",
+               opiFlavour="vss.sas", priceAmount="0.066000 EUR")
+    snapshot(home, "eu-de", "2026-10-07", [dict(RAW, priceAmount="0.051000 EUR"), bms])
     return live
 
 
@@ -86,11 +88,18 @@ def test_build_writes_every_file_with_the_rules_and_no_tenant_alias(home, facts,
     assert csv_lines[1].startswith("id,service,product,flavor,os,vcpu,ram,unit,currency,payg,reserved_12m")
     assert csv_lines[2] == "OTC_ECS_S3L2,Elastic Cloud Server,s3.large.2 linux,s3.large.2,Linux,2,4 GiB,h,EUR,0.051000," \
                            "0.040000,0.038000,0.036000,0.030000,0.028000,0.026000"
+    # a service the service description does not offer stays out of the price list, named in the header
+    assert len(csv_lines) == 3 and "OTC_BMS" not in (root / "prices" / "eu-de.csv").read_text()
+    assert "does not offer are left out" in csv_lines[0] and "BARE METAL (1)" in csv_lines[0]
+    assert dataset.not_offered(dataset.offered.load(), "2026-10-08", "bms", "BARE METAL")
+    assert dataset.not_offered(dataset.offered.load(), "2026-10-08", "csbs", "CLOUD SERVER BACKUP SERVICE")
+    assert not dataset.not_offered(dataset.offered.load(), "2026-10-08", "ecsflex", "ELASTIC CLOUD SERVER (Flexible)")
     services = (root / "services.md").read_text()
     assert "Elastic Cloud Server (ECS)" in services and "revision" in services
     manifest = json.loads((root / "MANIFEST.json").read_text())
     assert manifest["author"] == "shimoza" and "Author shimoza" in (root / "README.md").read_text()
     assert manifest["facts"] == 3 and manifest["grades"] == {"docs": 1, "live": 2} and manifest["best_before"] == "2026-11-07"
+    assert manifest["prices"]["records"] == {"eu-de": 1} and manifest["prices"]["left_out"] == {"eu-de": {"BARE METAL": 1}}
     assert manifest["files"]["facts.md"]["bytes"] == (root / "facts.md").stat().st_size
     assert len(manifest["files"]["HOW-TO.pdf"]["sha256"]) == 64 and "MANIFEST.json" not in manifest["files"]
     with zipfile.ZipFile(tmp_path / "ds" / "tcp-facts-2026-10-08.zip") as z:

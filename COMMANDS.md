@@ -1,6 +1,6 @@
 # Commands
 
-`awb` is the one command of the Architect Workbench. Exit codes: 0 ok, 1 findings or blocked, 2 usage or error.
+`awb` is the one command of the Architect Workbench. Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 `awb <command> --help` shows the options of any command.
 
 Two sides. The owner side holds the register of names and the originals and is run by you in your own shell. The
@@ -12,19 +12,19 @@ side.
 | command | what it does |
 |---|---|
 | `awb init` | create `~/tcp-shared`, `~/tcp-vault` and an empty register (done once) |
-| `awb register new CUST` | print a fresh code of a kind: CUST, PART, ORG, PERS, DOM, SITE, REF |
-| `awb register new PERS --parent CUST-XXXX` | a sub code such as `CUST-XXXX-PERS-2` |
-| `awb register add CUST-XXXX CUST "full company name"` | register one written form of a code; add every short form too. `-` reads the form from standard input |
+| `awb import tcp-xxxx [FILE...]` | the one door for customer material: takes the FILE arguments, else every new file of the project's `in/` folder in the bucket, else everything in `~/tcp-vault/inbox`, and runs the intake for the project's customer in wipe mode. The copies go to `~/tcp-shared/outbox/CUST-XXXX/` and carry the customer as its code and every other name the rules recognise as a token (`[person 1]`, `[company 1]`, `[place 1]`, `[name 1]`, numbered within the import); nothing stops, no editor opens. It prints the files taken, the copies written, the values wiped per class, the pictures held and the files withheld, never a name, and the sessions of the project read "new input" at their next prompt. Your own terminal only |
+| `awb import tcp-xxxx --customer CUST-XXXX` or `--customer new` | for a project without a customer: `new` issues `CUST-` and the project's four characters (a random code when that one is taken). A customer without a registered form is asked for its written forms on the terminal, one per line, an empty line ends |
+| `awb import tcp-xxxx --redo` | the repair of a wiped term: after `awb register keep "the term"`, the originals of the customer's last import run again from the vault and the copies replace the earlier ones under the same file ids; the session reads "replaced" |
+| `awb import tcp-xxxx --review` | the rare case where a person, a partner or a place must keep a code: the run stops once, an editor opens with the candidates (`p` person, `o` company, `c` this customer, `s` place, `+` one more form, `-` later, no mark: keep), then it goes on in wipe mode and a candidate left for later is a token |
+| `awb vault show` | the newest private report (what was wiped, by class and rule, and the forms the run learned) of `--customer CUST-XXXX` or of the only customer with a report of the last day; a FILE shows that file. Your own terminal only, never to a pipe or inside an assistant session |
+| `awb register keep "phrase"` | a term that was wiped by mistake is never wiped again, in any customer's material (then `awb import --redo`) |
+| `awb register keep --list` | the kept phrases (vault side only) |
+| `awb register add CUST-XXXX CUST "full company name"` | register one written form of a code; add every short form too. `-` reads the form from standard input; `awb import` asks for the forms of a new customer itself |
+| `awb register new CUST` or `PART` | print a fresh code; `PERS`, `ORG` and `SITE` codes come from `--review` only |
 | `awb register list` | codes, kinds and counts of forms, no names |
 | `awb register list --forms` | the same with the written forms (vault side only) |
 | `awb register retire CUST-XXXX` | retire every form of a code; the code is never reused |
-| `awb vault show ~/tcp-vault/reports/CUST-XXXX/FILE.md.gpg` | the private report of an intake (the candidates with the words found) on your own terminal; refused inside an assistant session, to a pipe or a file |
-| `awb register keep "phrase"` | a phrase you reviewed as harmless is no longer a name candidate |
-| `awb register keep --list` | the kept phrases (vault side only) |
-| `awb intake --customer CUST-XXXX FILE...` | sanitised Markdown copies to `~/tcp-shared/outbox/CUST-XXXX/`, originals into the vault. No FILE: everything in `~/tcp-vault/inbox` |
-| `awb intake --customer new FILE...` | the same for a new customer, a code is created |
-| `awb intake --customer CUST-XXXX --force FILE...` | write the copies even when unknown name candidates were found (after you reviewed them) |
-| `awb register review CUST-XXXX` | sort the candidates of a blocked intake in one pass: an editor opens with them, one per line; mark the real names (`p` person, `o` company, `c` this customer, `s` place, `+` one more form, `-` later), every unmarked line goes to the keep list; the counts are confirmed before anything is written; your own terminal only, never inside an assistant session |
+| `awb words update` | rebuild `rules/known-words.txt` and `rules/known-phrases.txt` (the capitalised words and two-word phrases of the public mirrors, which the intake reads as terms) after `awb mirror docs` or a new service description |
 | `awb images list [CUST-XXXX]` | the pictures the intake held on the vault side (office media, pdf images, image files), per file: held, released, left out |
 | `awb images release CUST-XXXX FILEID N...` | after you looked at them: copy the chosen pictures to `~/tcp-shared/outbox/CUST-XXXX/images/`; `--all` for every held picture of the file |
 | `awb reveal FILE --out PATH` | put the real names back into a finished text: every code becomes its first active form; the named file gets mode 600 and never goes where a session reads |
@@ -34,9 +34,21 @@ side.
 | `awb vault lock` | drop the passphrase and the register from the daemon's memory |
 | `awb vault reload` | hand the vault daemon to a new process of the installed code without a lock (what `awb deploy` and `systemctl reload awb-vaultd.service` run): `vault <state>, pid <n>, release <commit>`. While it runs, a write to the vault (unlock, lock, a register save, a seal) answers `busy`: the vault daemon is reloading, try again. A stop, a crash or a reboot still lock the vault |
 
-Every `awb intake` first runs its self-test over the planted cases of `awb/planted.py` and takes nothing in
-when one of them is no longer found. Every output passes two checks: the matcher and a second check by another
-method (the letters of whole words against every registered form).
+Every import first runs its self-test over the planted cases of `awb/planted.py` and takes nothing in when one of
+them is no longer found, when a planted name of the wipe cases comes out unwiped, when a control term is wiped or
+when the customer inside a company shape does not become the code. Every output passes the final check: the matcher,
+the structured patterns and the candidate rules over its body, and a second check by another method (the letters of
+whole words against every registered form and every form the run learned). A file that fails it is withheld and its
+original stays in the inbox. What the rules do not recognise passes: a first name alone in prose, a name only glued
+into an identifier, a name in a picture (the pictures stay held, `awb images`).
+
+The pieces behind `awb import`, one line each:
+
+| command | what it does |
+|---|---|
+| `awb intake --customer CUST-XXXX [--review] [FILE...]` | the intake alone, in wipe mode (no FILE: the vault inbox; `--customer new` issues a random code) |
+| `awb bucket pull CODE` | new files of `in/` into the vault inbox, then the intake |
+| `awb register review CUST-XXXX` | the review of the newest stop of `--review` by hand |
 
 ## The bucket (owner side)
 
@@ -48,7 +60,7 @@ project was created. A drifted folder is renamed in the bucket, never the projec
 |---|---|
 | `awb bucket sync` | create the folders of every active project; report folders that match no project (count per month, no name) |
 | `awb bucket folder CODE` | the folder of one project, created when missing |
-| `awb bucket pull CODE` | new files of `in/` into the vault inbox, then the intake for the project's customer; a file is taken once (`--again` takes it again). Your own shell |
+| `awb bucket pull CODE` | new files of `in/` into the vault inbox, then the intake for the project's customer, in wipe mode; it prints the values wiped per class. A file is taken once (`--again` takes it again). `awb import CODE` does the same and more. Your own shell |
 | `awb bucket put CODE FILE` | FILE into `out/`; `--replace` overwrites, `--reveal` puts the real names back first (your own shell). The send gate runs first: for a project with a customer or partner it refuses a deliverable without a valid review at tier 3 (or a tier he lowered) and a tier 3 review without the request check; an internal file leaves with a warning |
 | `awb dataset put [--date D] [--replace]` | the zip, the how-to PDF and the manifest of the newest built dataset (or the one of `--date`) into `datasets/tcp-facts/<date>/` of the bucket and the date into `datasets/tcp-facts/LATEST`. Your own shell, it takes the bucket key |
 | `awb bucket move <YYYY-MM>/<NAME>/ CODE` | rename a drifted folder: copy inside the object storage, compare names and sizes, then delete the old objects |
@@ -180,7 +192,7 @@ The work user of the seal reads the mirrors read-only under `/srv/tcp-mirrors/`:
 | `awb portal serve [--port 8080]` | a read-only web page over the knowledge, live prices, the projects and the reviews, on 127.0.0.1 only; reached through a tunnel with an access check in front, never directly |
 | `awb keys unlock` | load the keys and secrets of every tenant from your password store into the key service (`awb/tenant/<alias>/ak`, `sk`, `lab/ak`, `lab/sk`, `secret/<name>`); after every start of the service. `awb keys lock` forgets them, `awb keys status` shows aliases, roles and secret names, never a value. `awb keys reload` hands the service to a new process of the installed code and keeps the keys (what `awb deploy` and `systemctl reload awb-keyd.service` run). Your own shell |
 | `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role read\|lab] [--region R] [--query K=V] [--body FILE] [--project CODE]` | one call through the key service, for sessions too: the service signs, a write needs the lab key and an active project, a body may fill a password field with `{{secret:NAME}}`, the answer comes back with every key and secret taken out. `awb cloud tenants` lists the tenants |
-| `awb inbox take WORDS...` | a session takes the file you described, from either inbox: your words as they are ("the pdf", "эксель", "the newest", a part of the name; `|` between several ways of saying it) are matched against the file names inside the key service, so no exact name is needed. One file found: from the lab inbox (`<lab bucket>/inbox/`) after the name check into `input/` and the project's `in/`, from the owner inbox (`awb/inbox/`) only through your intake, the session gets the sanitised copies; a hit or an unknown name holds the file and you get a mail. None or several: both inboxes are listed (id, kind, size, time; names of the owner inbox are never shown) and the session takes the one you mean with `--id ID`. `--all` takes every file of both inboxes; `--customer CUST-XXXX` for a project without a customer. `awb inbox list` shows both inboxes |
+| `awb inbox take WORDS...` | a session takes the file you described, from either inbox: your words as they are ("the pdf", "эксель", "the newest", a part of the name; `|` between several ways of saying it) are matched against the file names inside the key service, so no exact name is needed. One file found: from the lab inbox (`<lab bucket>/inbox/`) after the name check into `input/` and the project's `in/`, from the owner inbox (`awb/inbox/`) only through your intake in wipe mode, the session gets the sanitised copies; a registered name in a lab inbox file holds it, and a file of the owner inbox that cannot be read as text is held with a mail that says `held: run awb import tcp-xxxx as the owner in your own terminal`. None or several: both inboxes are listed (id, kind, size, time; names of the owner inbox are never shown) and the session takes the one you mean with `--id ID`. `--all` takes every file of both inboxes; `--customer CUST-XXXX` for a project without a customer. `awb inbox list` shows both inboxes |
 | `awb xchg put FILE [--as NAME] [--image --reason TEXT]` | a result into `<lab bucket>/<code>/from-session/<date>/` after the name check and, for a customer project, the send gate; you get a mail. `awb xchg list` |
 | `awb paste [--as NAME]` | a long terminal output into the project instead of the chat: the text on standard input passes the name check and the secret check, addresses, web addresses, phone numbers and MAC addresses are masked (`[ip]`, `[url]`, `[phone]`, `[mac]`) and it lands in `notes/pastes/<date>-<n>.txt` (`<date>-<NAME>.txt`); a registered name, a mail, bank data or a secret refuses it and nothing is written. The session reads the file |
 | `~/.config/awb/keys.conf` | your settings of the exchange, sent with `awb keys unlock`: `bucket_tenant` (the alias whose lab key reaches both buckets), `lab_bucket`, `owner_bucket`, `region`, `max_mb` (default 100), `notify_topic` (an SMN topic urn for the mails) |
@@ -236,7 +248,7 @@ The same for forms, derived, office, pdf, mail_archive and nontext. `tests/test_
 | `awb kb scope TAG` | a briefing on one technology: facts by grade, negatives with what was tried, expired entries |
 | `awb kb expired` | entries past their re-check date |
 | `awb kb export --out facts.jsonl` | the facts fit to leave as a dataset, one JSON object per line (id, statement, grade, source, checked, expires, tags, tried); by default live, contract and docs only, no retired and no expired entry, every one name checked again. `--grade said` after a clearance, `--include-expired`, `--tag T`, `--scope hcs` |
-| `awb dataset build [--out DIR] [--date D] [--force]` | the dataset TCP Facts (author: `AWB_DATASET_AUTHOR` or `dataset_author` of the host file, else the account name) as a folder `tcp-facts-<date>/` and its zip under `~/tcp-shared/datasets/` (or `--out`): README.md and PROMPT.md (how to use it, the one-line prompt "Use the attached TCP Facts. Answer: ..."), HOW-TO.pdf, facts.md (every fact on one line, grouped by topic, small enough for one chat), topics/<tag>.md, facts.jsonl (the export with its metadata), services.md (what the latest service description lists), prices/<region>.csv (the latest snapshot of each region), MANIFEST.json (counts, dates, sha256). Every text file opens with the rules for the assistant and the best-before date (30 days). The facts come from `awb kb export` (live, contract, docs; name checked); a test tenant alias is rewritten to "a TCP test tenant", proven on a planted alias first, and a folder with one left is removed again |
+| `awb dataset build [--out DIR] [--date D] [--force]` | the dataset TCP Facts, its price lists without the services the service description does not offer (withdrawn sections and `rules/services-not-offered.txt`, named in the CSV header; author: `AWB_DATASET_AUTHOR` or `dataset_author` of the host file, else the account name) as a folder `tcp-facts-<date>/` and its zip under `~/tcp-shared/datasets/` (or `--out`): README.md and PROMPT.md (how to use it, the one-line prompt "Use the attached TCP Facts. Answer: ..."), HOW-TO.pdf, facts.md (every fact on one line, grouped by topic, small enough for one chat), topics/<tag>.md, facts.jsonl (the export with its metadata), services.md (what the latest service description lists), prices/<region>.csv (the latest snapshot of each region), MANIFEST.json (counts, dates, sha256). Every text file opens with the rules for the assistant and the best-before date (30 days). The facts come from `awb kb export` (live, contract, docs; name checked); a test tenant alias is rewritten to "a TCP test tenant", proven on a planted alias first, and a folder with one left is removed again |
 | `awb kb add --scope tcp --tag T --grade G --class C --source "..." "statement"` | add one checked fact. Grades live, contract, docs, said, assumed. Classes availability (30 days), api (180), stable (365). A negative needs two `--tried "..."`. `--checked DATE` for an older check, `--force-new` over a near duplicate |
 | `awb kb amend KB-XXXX "the new statement"` | correct the statement of an entry, keeping its id. Every check of `add` runs again, a negative against the tried texts the entry already carries. New ones given with `--tried "..."` (twice) replace them. `--checked DATE` when the fact itself was checked again (the date does not move by itself), `--force-new` over a near duplicate, `-` reads the statement from standard input |
 | `awb kb recheck KB-XXXX --grade G --source "..."` | record a fresh check of an entry whose statement still holds: grade, source and date become those of the new check (today unless `--checked DATE`). A negative needs two `--tried "..."` of the new check |

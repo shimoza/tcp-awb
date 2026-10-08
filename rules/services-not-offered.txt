@@ -3,3 +3,10 @@
 # per line, its other names after a |.
 Bare Metal Server | BMS
 Data Ingestion Service | DIS
+# Price-API families with no entry in the service description revision 17.08.2026 (checked 2026-10-08 against the
+# mirror text: no section, no price row; PLAS appears in the abbreviation list only). KB-PRGT and the dataset review.
+Cloud Service Engine | CSE
+Mobile Storage Solution | MSS
+Bucket Service | BUC
+Mail IP Service | MIP
+Private Line Access Service | PLAS | Private Link Access Service
