@@ -169,7 +169,18 @@ def _local_name(rel: str, folder: Path) -> str:
 def pull(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> dict:
     """The new files of in/ into the vault inbox, then the intake for the project's customer. A file counts as
     new until it was downloaded once (object name and etag, kept on the vault side)."""
-    from awb import intake, projects
+    from awb import intake
+
+    result = fetch(p, c, code, again=again)
+    if result["files"]:
+        result["intake"] = intake.run(result["files"], _project(p, code).customer, p)
+    return result
+
+
+def fetch(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> dict:
+    """The new files of in/ into the vault inbox, without the intake (`awb import` runs it): the counts and the
+    downloaded files under "files"."""
+    from awb import projects
     project = _project(p, code)
     if project.customer == projects.NO_CUSTOMER:
         raise BucketError("%s has no customer: pull hands its files to the intake of a customer" % code)
@@ -181,7 +192,8 @@ def pull(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> d
     outside = [o for o in objects if not o[0].startswith((folder + IN, folder + OUT))]
     done = set() if again else pulled(p)
     fresh = [o for o in incoming if (o[0], o[2]) not in done and "\t" not in o[0] and "\n" not in o[0]]
-    result = {"new": len(fresh), "known": len(incoming) - len(fresh), "outside": len(outside), "intake": None}
+    result = {"new": len(fresh), "known": len(incoming) - len(fresh), "outside": len(outside), "intake": None,
+              "files": []}
     if not fresh:
         return result
     config.ensure_layout(p)
@@ -192,7 +204,7 @@ def pull(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> d
         os.chmod(dst, 0o600)
         files.append(dst)
         _remember(p, key, etag)
-    result["intake"] = intake.run(files, project.customer, p)
+    result["files"] = files
     return result
 
 
@@ -273,7 +285,8 @@ def move(p: config.Paths, c: obs.Client, old: str, code: str) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """`awb bucket sync|folder|pull|put|move`. Exit 0 done, 1 the intake blocked, 2 refused or an error."""
+    """`awb bucket sync|folder|pull|put|move`. Exit 0 done, 1 the final check withheld a file, 2 refused or an
+    error."""
     from awb import intake
     from awb.cli import SafeParser
 
@@ -322,12 +335,11 @@ def main(argv: list[str] | None = None) -> int:
             res = r["intake"]
             if res is None:
                 return 0
-            if res.blocked:
-                print("intake for %s blocked: %d name candidates, see the private report %s; after your review "
-                      "run awb intake --customer %s --force" % (res.customer, res.candidates, res.private_report,
-                                                                 res.customer))
+            print("intake for %s: %d outputs in the outbox, wiped %s" % (res.customer, len(res.outputs),
+                                                                       intake.wiped_text(res.wiped)))
+            if res.held:
+                print("withheld by the final check: %d file(s), the originals stay in the inbox" % len(res.held))
                 return 1
-            print("intake for %s: %d outputs in the outbox" % (res.customer, len(res.outputs)))
             return 0
         if args.command == "put":
             key, stats = put(p, c, args.code, args.file, replace=args.replace, reveal=args.reveal)

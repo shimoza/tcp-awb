@@ -203,6 +203,49 @@ CASES: tuple[tuple[str, str, str, bool], ...] = (
 )
 
 
+# --------------------------------------------------------------------------- wipe mode (T4)
+
+# the self-test's own customer: its short form inside a company shape must become the code (tests/fixtures.py
+# carries the same strings as SELFTEST_CUSTOMER_*)
+CUSTOMER_CODE = "CUST-SELF"
+CUSTOMER_SHORT = "Wqyzt"
+CUSTOMER_FORM = CUSTOMER_SHORT + " Spedition GmbH"
+
+# (label, text, the words that must be unreadable after the sanitising, the token class the text must carry). The
+# names are the invented ones of tests/fixtures.py: PLANTED_PERSON, SECOND_PERSON, PLANTED_CANDIDATE,
+# CYRILLIC_PERSON and PLANTED_STREET
+_P1, _P2 = "Xqarv", "Pomblet"
+_S1, _S2 = "Ulvrad", "Qesmotz"
+WIPE_CASES: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
+    ("person after a title", "Termin mit Herrn %s %s am Montag." % (_P1, _P2), (_P1, _P2), "person"),
+    ("person in a run", "Gestern haben wir %s %s informiert." % (_S1, _S2), (_S1, _S2), "name"),
+    ("company before a legal form", "Das Angebot der Nrgtz Beratung GmbH liegt vor.", ("Nrgtz",), "company"),
+    ("display name of a mail header", "Von: %s %s <x.%s@nrgtz.example>\nBetreff: Angebot\n\nDer Text folgt.\n"
+     % (_P1, _P2, _P2.lower()), (_P1, _P2, "nrgtz"), "person"),
+    ("salutation with a first name", "Hallo %s,\n\nder Load Balancer steht.\n" % _S1, (_S1,), "person"),
+    ("speaker label", "%s: Das passt so.\nModerator: Gut.\n%s: Dann machen wir das so.\n" % (_S2, _S2), (_S2,),
+     "person"),
+    ("name over two table cells", "| Vorname | Nachname |\n| --- | --- |\n| %s | %s |\n" % (_S1, _S2), (_S1, _S2),
+     "person"),
+    ("German genitive", "Herr %s %s schreibt. %ss Vorschlag gilt." % (_P1, _P2, _P2), (_P2,), "person"),
+    ("Russian name with a case ending", "Уважаемый Ксарв Помблет, спасибо. Письмо Помблета пришло вчера.",
+     ("Помблет",), "person"),
+    ("name glued into a host", "Herr %s %s betreibt den Server srv-%s-02 im Netz." % (_P1, _P2, _P2.lower()), (_P2,),
+     "person"),
+    ("street and number", "Die Lieferung geht in die Xqarvstraße 12.", (_P1,), "place"),
+)
+CUSTOMER_CASE = ("customer form in a company shape", "Die %s Spedition Nord GmbH liefert." % CUSTOMER_SHORT)
+"""Must read "Die CUST-SELF liefert.": the short form becomes the code and the rest of the company merges into it."""
+
+CONTROL_TERMS: tuple[str, ...] = (
+    "Load Balancer", "Elastic Cloud Server", "Terraform", "Windows Server 2022", "Executive Summary",
+    "404 Not Found", "LEFT OUTER JOIN",
+)
+"""Terms that must come out of the sanitising untouched, each in a text of its own."""
+
+
 def entries() -> list[register.Entry]:
-    """The register of the self-test: the invented form and its short form, nothing else."""
-    return [register.Entry(CODE, "ORG", FORM, ADDED, "active"), register.Entry(CODE, "ORG", SHORT, ADDED, "active")]
+    """The register of the self-test: the invented form and its short form, and the self-test's customer."""
+    return [register.Entry(CODE, "ORG", FORM, ADDED, "active"), register.Entry(CODE, "ORG", SHORT, ADDED, "active"),
+            register.Entry(CUSTOMER_CODE, "CUST", CUSTOMER_FORM, ADDED, "active"),
+            register.Entry(CUSTOMER_CODE, "CUST", CUSTOMER_SHORT, ADDED, "active")]

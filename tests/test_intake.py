@@ -144,6 +144,13 @@ def replacements(private: str) -> list[tuple[str, str, str]]:
     return rows
 
 
+def wiped(private: str) -> list[str]:
+    """The values of the Wiped table of a private report."""
+    body = _section(private, "Wiped")
+    return [_unescape(m.group(1)) for m in re.finditer(r"^\| ((?:[^|\\]|\\.)*?) \| (?:person|company|place|unknown) \|",
+                                                      body, re.M)]
+
+
 def candidates(private: str) -> list[str]:
     body = _section(private, "Candidates")
     return [_unescape(m.group(2)) for m in re.finditer(r"^\| (F-[A-Z2-7]{4}[.\d]*[^|]*?) \| (.*) \|$", body, re.M)]
@@ -152,37 +159,30 @@ def candidates(private: str) -> list[str]:
 # --------------------------------------------------------------------------- end to end
 
 
-def test_blocked_without_force_writes_only_the_private_report(home):
+def test_a_new_customer_with_candidates_gets_its_copies_without_a_stop(home):
+    """Replaces test_blocked_without_force_writes_only_the_private_report (wipe mode, T4): nothing stops."""
     files = build_inbox(home)
     res = intake.run(list(files.values()), "new", home)
 
-    assert res.blocked is True
-    assert res.outputs == []
-    assert res.candidates >= 1
+    assert res.blocked is False and res.candidates >= 1 and res.outputs
     assert codes.is_code(res.customer) and codes.kind_of(res.customer) == "CUST"
     assert res.customer not in register.codes(register.load(home.register))
-    assert not res.public_report.exists()
-    assert not (home.outbox / res.customer).exists()
-    assert not (home.originals / res.customer).exists()
-    assert res.private_report.is_file()
-    assert stat.S_IMODE(res.private_report.stat().st_mode) == 0o600
-    assert list(home.private_reports.joinpath(res.customer).iterdir()) == [res.private_report]
-    for f in files.values():
-        assert f.is_file(), "a blocked run moves no original"
+    assert res.public_report.is_file()
+    assert res.private_report.is_file() and stat.S_IMODE(res.private_report.stat().st_mode) == 0o600
     private = res.private_report.read_text(encoding="utf-8")
-    assert fx.PLANTED_CANDIDATE in candidates(private)
-    assert "blocked: yes" in private
+    assert "mode: wipe" in private and "## Candidates" not in private
+    assert fx.PLANTED_CANDIDATE in wiped(private)
+    for out in res.outputs:
+        assert fx.PLANTED_CANDIDATE not in out.read_text(encoding="utf-8")
     assert set(res.states) == set(files_table(private))
+    assert list(home.inbox.iterdir()) == [], "every original moved into the vault"
 
 
-def test_forced_run_end_to_end(home):
+def test_wipe_run_end_to_end(home):
+    """Replaces test_forced_run_end_to_end (wipe mode, T4): the same run, without the stop and without --force."""
     files = build_inbox(home)
-    first = intake.run(list(files.values()), "new", home)
-    assert first.blocked
-
-    res = intake.run(list(files.values()), first.customer, home, force=True)
+    res = intake.run(list(files.values()), "new", home)
     assert res.blocked is False
-    assert res.customer == first.customer
     out_dir = home.outbox / res.customer
     private = res.private_report.read_text(encoding="utf-8")
     public = res.public_report.read_text(encoding="utf-8")
@@ -205,7 +205,7 @@ def test_forced_run_end_to_end(home):
     planted = {f.casefold() for f in fx.ALL_REGISTERED + [DOMAIN, fx.FILE_NUMBER, fx.TENDER_ID]}
     found = {" ".join(v.split()).casefold() for _, cls, v in replacements(private) if cls == "name"}
     assert len(found & planted) >= 10, "only %d distinct planted forms replaced" % len(found & planted)
-    assert fx.PLANTED_CANDIDATE in candidates(private)
+    assert fx.PLANTED_CANDIDATE in wiped(private)
 
     # the image is unreadable in the public report
     png_id = by_name[files["png"].name]
@@ -221,14 +221,15 @@ def test_forced_run_end_to_end(home):
         assert moved.is_file(), "original of %s missing in the vault" % fid
         assert stat.S_IMODE(moved.stat().st_mode) == 0o600
 
-    # the private report is mode 600 and holds the original names, the public report none of them
+    # the private report is mode 600 and holds the original names, the public report none of them; the public
+    # report counts the wiped values per rule and never names one
     assert stat.S_IMODE(res.private_report.stat().st_mode) == 0o600
     for f in files.values():
         assert f.name in private
         assert f.name not in public
         assert f.stem not in public
-    assert "%d candidates were reviewed." % res.candidates in public
-    for c in candidates(private):
+    assert "candidates were reviewed" not in public and "## Wiped" in public
+    for c in wiped(private):
         assert c not in public
 
     # the same mail address got the same token in two files
@@ -261,9 +262,10 @@ def test_forced_run_end_to_end(home):
     assert "_Netzplan.txt" in zip_out and fx.CUSTOMER_CODE in zip_out
 
 
-def test_states_and_ids(home):
+def test_states_and_ids_in_wipe_mode(home):
+    """Replaces test_states_and_ids (wipe mode, T4: no --force)."""
     files = build_inbox(home)
-    res = intake.run(list(files.values()), fx.CUSTOMER_CODE, home, force=True)
+    res = intake.run(list(files.values()), fx.CUSTOMER_CODE, home)
     assert res.customer == fx.CUSTOMER_CODE
     assert len(res.states) == len(files)
     assert all(FILE_ID.fullmatch(fid) for fid in res.states)
@@ -296,16 +298,18 @@ def test_missing_file_error_names_position_not_path(home):
     fx.assert_no_fixture_name(str(err.value), "an error")
 
 
-def test_clean_run_with_known_customer_needs_no_force(home):
+def test_a_clean_run_with_a_known_customer_wipes_nothing(home):
+    """Replaces test_clean_run_with_known_customer_needs_no_force (wipe mode, T4: the reviewed count is gone)."""
     f = home.inbox / "notiz.txt"
     f.write_text("termin mit %s am Standort %s, Server 198.51.100.4\n" % (SURNAME, PLACE), encoding="utf-8")
     res = intake.run([f], fx.CUSTOMER_CODE, home)
-    assert not res.blocked and res.candidates == 0
+    assert not res.blocked and res.candidates == 0 and not res.wiped
     (out,) = res.outputs
     text = out.read_text(encoding="utf-8")
     assert fx.PERSON_CODE in text and fx.PLACE_CODE in text and re.search(r"\bIP-[A-Z2-7]{4}\b", text)
     fx.assert_no_fixture_name(text)
-    assert "0 candidates were reviewed." in res.public_report.read_text(encoding="utf-8")
+    public = res.public_report.read_text(encoding="utf-8")
+    assert "## Wiped" not in public and "candidates were reviewed" not in public
 
 
 def test_same_value_same_token_and_different_values_differ(home):
@@ -704,11 +708,14 @@ def test_new_candidate_rules_leave_ordinary_text(text):
     assert intake.unknown_candidates(text, []) == []
 
 
-def test_new_candidate_rules_block_an_intake(home):
+def test_new_candidate_rules_wipe_in_an_intake(home):
+    """Replaces test_new_candidate_rules_block_an_intake (wipe mode, T4): the candidate becomes a token."""
     f = home.inbox / "note.txt"
     f.write_text("sehr geehrter " + "Herr " + LAST + ",\nwir liefern.\n", encoding="utf-8")
     res = intake.run([f], fx.CUSTOMER_CODE, home)
-    assert res.blocked and res.outputs == []
+    (out,) = res.outputs
+    text = out.read_text(encoding="utf-8")
+    assert LAST not in text and "[person 1]" in text and res.wiped["person"] == 1
 
 
 # --------------------------------------------------------------------------- candidate rules of release 2
@@ -882,17 +889,18 @@ def test_keep_phrase_refuses_only_an_empty_phrase_and_never_echoes(home):
     assert len(intake.load_keep(home)) == 4
 
 
-def test_a_kept_phrase_is_no_candidate_in_the_next_intake(home):
+def test_a_kept_phrase_is_never_wiped_in_the_next_intake(home):
+    """Replaces test_a_kept_phrase_is_no_candidate_in_the_next_intake (wipe mode, T4): wiped first, kept after."""
     f = home.inbox / "konzept.txt"
-    f.write_text("anbei das %s, bitte pruefen.\n" % KEPT, encoding="utf-8")
+    f.write_text("anbei das angebot der %s, bitte pruefen.\n" % fx.PLANTED_CANDIDATE, encoding="utf-8")
     first = intake.run([f], fx.CUSTOMER_CODE, home)
-    assert first.blocked and first.candidates == 1
-    assert KEPT in candidates(first.private_report.read_text(encoding="utf-8"))
-    intake.keep_phrase(home, KEPT)
+    assert first.candidates == 1 and fx.PLANTED_CANDIDATE in wiped(first.private_report.read_text(encoding="utf-8"))
+    intake.keep_phrase(home, fx.PLANTED_CANDIDATE)
+    f.write_text("anbei das angebot der %s, bitte pruefen.\n" % fx.PLANTED_CANDIDATE, encoding="utf-8")
     second = intake.run([f], fx.CUSTOMER_CODE, home)
-    assert not second.blocked and second.candidates == 0
-    (out,) = second.outputs
-    assert KEPT in out.read_text(encoding="utf-8"), "a kept phrase is not a name: it stays in the output"
+    assert second.candidates == 0
+    (out,) = [o for o in second.outputs]
+    assert fx.PLANTED_CANDIDATE in out.read_text(encoding="utf-8"), "a kept phrase is not a name: it stays"
 
 
 def _fake_daemon(home, monkeypatch, fail_seal: bool = False):
@@ -1012,17 +1020,21 @@ def test_intake_in_an_encrypted_vault_seals_originals_and_the_private_report(sea
     fx.assert_no_fixture_name(str(res.private_report), "private report path")
 
 
-def test_a_blocked_intake_in_an_encrypted_vault_seals_its_private_report(sealed_vault):
+def test_the_review_stop_in_an_encrypted_vault_seals_its_private_report(sealed_vault):
+    """Replaces test_a_blocked_intake_in_an_encrypted_vault_seals_its_private_report (wipe mode, T4): the one stop
+    left is the one of --review; its report is sealed like the report of the run that follows."""
     p = sealed_vault
     f = p.inbox / "notiz.txt"
     f.write_text("das angebot geht an die %s morgen.\n" % fx.PLANTED_CANDIDATE, encoding="utf-8")
-    res = intake.run([f], fx.CUSTOMER_CODE, p)
-    assert res.blocked and res.candidates >= 1 and res.unsealed == 0
-    assert f.exists(), "a blocked run leaves the file in the inbox"
-    assert res.private_report.name.endswith(".md.gpg")
-    assert _names_under(p.private_reports) == [res.private_report.name]
-    assert fx.PLANTED_CANDIDATE in _opened(p, res.private_report).decode("utf-8")
-    assert not (p.outbox / fx.CUSTOMER_CODE).exists() or not list((p.outbox / fx.CUSTOMER_CODE).iterdir())
+    res = intake.run([f], fx.CUSTOMER_CODE, p, review=True, edit=lambda path: None, confirm=lambda q: False)
+    assert res.reviewed >= 1 and res.unsealed == 0
+    names = _names_under(p.private_reports)
+    assert len(names) == 2 and all(n.endswith(".md.gpg") for n in names)
+    stop = sorted(p.private_reports.rglob("*.md.gpg"))[0]
+    assert fx.PLANTED_CANDIDATE in _opened(p, stop).decode("utf-8")
+    assert not f.exists(), "the run after the stop took the file"
+    (out,) = res.outputs
+    assert fx.PLANTED_CANDIDATE not in out.read_text(encoding="utf-8")
 
 
 def test_a_second_report_in_the_same_second_never_replaces_a_sealed_one(home):
@@ -1072,17 +1084,19 @@ def test_a_failed_seal_is_counted_and_reported_without_a_value(sealed_vault, mon
     assert "original not sealed (no vault daemon)" in report.read_text(encoding="utf-8")
 
 
-def test_keep_list_with_a_real_daemon_in_an_encrypted_vault(sealed_vault):
+def test_keep_list_with_a_real_daemon_in_an_encrypted_vault_in_wipe_mode(sealed_vault):
+    """Replaces test_keep_list_with_a_real_daemon_in_an_encrypted_vault (wipe mode, T4: the first run wipes)."""
     p = sealed_vault
     f = p.inbox / "konzept.txt"
-    f.write_text("anbei das %s, bitte pruefen.\n" % KEPT, encoding="utf-8")
-    assert intake.run([f], fx.CUSTOMER_CODE, p).blocked
-    assert intake.keep_phrase(p, KEPT) == (True, 1)
+    f.write_text("anbei das angebot der %s, bitte pruefen.\n" % fx.PLANTED_CANDIDATE, encoding="utf-8")
+    assert intake.run([f], fx.CUSTOMER_CODE, p).candidates == 1
+    assert intake.keep_phrase(p, fx.PLANTED_CANDIDATE) == (True, 1)
     assert not p.keep_list.exists() and (p.vault / "keep.tsv.gpg").is_file()
-    assert KEPT.encode("utf-8") not in (p.vault / "keep.tsv.gpg").read_bytes()
-    assert intake.load_keep(p) == [KEPT]
+    assert fx.PLANTED_CANDIDATE.encode("utf-8") not in (p.vault / "keep.tsv.gpg").read_bytes()
+    assert intake.load_keep(p) == [fx.PLANTED_CANDIDATE]
+    f.write_text("anbei das angebot der %s, bitte pruefen.\n" % fx.PLANTED_CANDIDATE, encoding="utf-8")
     second = intake.run([f], fx.CUSTOMER_CODE, p)
-    assert not second.blocked and second.unsealed == 0
+    assert second.candidates == 0 and second.unsealed == 0
     assert all(n.endswith(".gpg") for n in _names_under(p.originals) + _names_under(p.private_reports))
 
 
@@ -1117,13 +1131,16 @@ def test_the_self_test_refuses_a_blind_matcher(monkeypatch):
     assert failed and all("does not report" in f or "clean" not in f for f in failed)
 
 
-def test_the_second_check_catches_what_a_blind_matcher_lets_through(home, monkeypatch):
+def test_the_second_check_catches_what_a_blind_matcher_and_blind_rules_let_through(home, monkeypatch):
+    """Replaces test_the_second_check_catches_what_a_blind_matcher_lets_through (wipe mode, T4): the candidate
+    rules now wipe a registered form the matcher missed, so they are made blind too, where they run now."""
+    from awb import wipe
     from awb.matcher import Matcher
     f = home.inbox / "leak.txt"
     f.write_text("vertrag mit %s\n" % FULL, encoding="utf-8")
     monkeypatch.setattr(intake, "selftest", lambda: [])          # a blind matcher is what is simulated here
     monkeypatch.setattr(Matcher, "find", lambda self, text: [])   # the matcher finds no registered form at all
-    monkeypatch.setattr(intake, "unknown_candidates", lambda *a, **k: [])
+    monkeypatch.setattr(wipe, "candidate_spans", lambda state, text, known: [])
     res = intake.run([f], fx.CUSTOMER_CODE, home)
     (fid,) = res.states
     assert res.states[fid] == "failed" and res.outputs == []

@@ -152,15 +152,28 @@ def test_a_take_from_the_owner_inbox_hands_the_session_the_sanitised_copy_only(s
     assert any(home.originals.rglob("*")), "the vault keeps the original"
 
 
-def test_unknown_name_candidates_hold_the_file_and_tell_the_owner_only(svc, buckets, cust_project, capsys):
+def test_a_take_from_the_owner_inbox_wipes_unknown_names_and_holds_nothing(svc, buckets, cust_project, capsys):
+    """Replaces test_unknown_name_candidates_hold_the_file_and_tell_the_owner_only (wipe mode, T4): the owner take
+    runs wipe mode, the name becomes a token and nobody gets a hold mail."""
     _, own = buckets
     own.objects["inbox/memo.txt"] = ("Call %s about the migration of the database.\n"
                                      % fx.PLANTED_CANDIDATE).encode()
     code, out, err = run(["inbox", "take", "memo.txt"], capsys)
-    assert code == 0 and "held on the owner's side" in out
-    assert fx.PLANTED_CANDIDATE not in out + err
-    assert svc.notes and "name candidate" in svc.notes[-1][1]
-    assert fx.PLANTED_CANDIDATE not in json.dumps(svc.notes)
+    assert code == 0 and "through the intake" in out and "held" not in out
+    assert fx.PLANTED_CANDIDATE not in out + err and not svc.notes
+    (copy,) = [f for f in (Path(cust_project.path) / "input").iterdir() if f.name != ".gitkeep"]
+    text = copy.read_text(encoding="utf-8")
+    assert fx.PLANTED_CANDIDATE not in text and "[company 1]" in text
+
+
+def test_a_file_that_cannot_be_read_is_held_with_the_one_line_of_the_owner(svc, buckets, cust_project, capsys):
+    _, own = buckets
+    own.objects["inbox/scan.png"] = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + b"\x00" * 17
+    code, out, err = run(["inbox", "take", "scan.png"], capsys)
+    line = "held: run awb import %s as the owner in your own terminal" % cust_project.code
+    assert code == 0 and "held on the owner's side" in out and line in out
+    assert svc.notes and line in svc.notes[-1][1] and fx.CUSTOMER_CODE in svc.notes[-1][1]
+    assert "/" not in svc.notes[-1][1].replace("in/ folder", ""), "the mail names no path"
     assert not [f for f in (Path(cust_project.path) / "input").iterdir() if f.name != ".gitkeep"]
 
 

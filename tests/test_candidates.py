@@ -1,5 +1,5 @@
-"""awb register review: the candidates of a blocked intake sorted in one pass, the names into the register, the
-rest into the keep list, the next intake passes with codes in place of the names and nothing printed but counts."""
+"""awb register review: the candidates of the stop of --review sorted in one pass, the names into the register,
+the rest into the keep list, the run that follows has codes in place of the names and nothing printed but counts."""
 from __future__ import annotations
 
 import pytest
@@ -7,17 +7,18 @@ import pytest
 from awb import candidates, intake, register
 from tests import fixtures as fx
 
-PLACE = "Region Nord Standort"
-HEADING = "Technisches Konzept"
-TEXT = ("%s\n\nNotes of the training. %s from %s explained the setup at %s. Terraform plans were reviewed.\n"
-        % (HEADING, fx.PLANTED_PERSON, fx.PLANTED_CANDIDATE, PLACE))
+
+TERM = " ".join(("Zentrix", "Vorlauf"))
+STOP_TEXT = ("Notes of the training. %s from %s explained the setup in the %s. The %s count is 3.\n"
+             % (fx.PLANTED_PERSON, fx.PLANTED_CANDIDATE, fx.PLANTED_STREET, TERM))
 
 
-def _blocked(home, tmp_path):
+def _stopped(home, tmp_path):
+    """The stop of --review (wipe mode): the candidates of the file in a private report, nothing written."""
     f = tmp_path / "notes.txt"
-    f.write_text(TEXT, encoding="utf-8")
-    res = intake.run([f], fx.CUSTOMER_CODE, home)
-    assert res.blocked and res.candidates >= 3
+    f.write_text(STOP_TEXT, encoding="utf-8")
+    _, report, n = intake._review_stop([f], fx.CUSTOMER_CODE, home)
+    assert n >= 4 and report.is_file() and f.is_file()
     return f
 
 
@@ -33,32 +34,34 @@ def _marker(marks):
     return edit
 
 
-def test_a_review_registers_the_names_keeps_the_rest_and_the_intake_passes(home, tmp_path):
-    f = _blocked(home, tmp_path)
+def test_a_review_registers_the_names_keeps_the_rest_and_the_next_run_uses_them(home, tmp_path):
+    """Replaces test_a_review_registers_the_names_keeps_the_rest_and_the_intake_passes (wipe mode, T4): the stop of
+    --review lists the candidates, the review sorts them, the run that follows uses the codes and the keep list."""
+    f = _stopped(home, tmp_path)
     said = []
     code = candidates.review(home, fx.CUSTOMER_CODE, edit=_marker({fx.PLANTED_PERSON: "p", fx.PLANTED_CANDIDATE: "o",
-                                                                   PLACE: "s"}),
+                                                                   fx.PLANTED_STREET: "s"}),
                              confirm=lambda question: True, out=said.append)
     assert code == 0
     entries = register.load(home.register)
-    kinds = {e.kind: e.code for e in entries if e.form in (fx.PLANTED_PERSON, fx.PLANTED_CANDIDATE, PLACE)}
+    kinds = {e.kind: e.code for e in entries
+             if e.form in (fx.PLANTED_PERSON, fx.PLANTED_CANDIDATE, fx.PLANTED_STREET)}
     assert kinds["PERS"].startswith(fx.CUSTOMER_CODE + "-PERS-") and kinds["SITE"].startswith(fx.CUSTOMER_CODE + "-SITE-")
     assert kinds["ORG"].startswith("ORG-") and kinds["ORG"].count("-") == 1
-    kept = intake.load_keep(home)
-    assert kept == [HEADING]
+    assert intake.load_keep(home) == [TERM]
     for line in said:
-        for name in (fx.PLANTED_PERSON, fx.PLANTED_CANDIDATE, PLACE, HEADING):
+        for name in (fx.PLANTED_PERSON, fx.PLANTED_CANDIDATE, fx.PLANTED_STREET, TERM):
             assert name not in line
     assert not list((home.vault / "tmp").glob("review-*"))
     again = intake.run([f], fx.CUSTOMER_CODE, home)
-    assert not again.blocked, "the second intake is still blocked"
     out = "".join(o.read_text(encoding="utf-8") for o in again.outputs if o.name != "intake-report.md")
-    assert fx.PLANTED_PERSON not in out and fx.PLANTED_CANDIDATE not in out and PLACE not in out and HEADING in out
-    assert kinds["PERS"] in out
+    assert fx.PLANTED_PERSON not in out and fx.PLANTED_CANDIDATE not in out and fx.PLANTED_STREET not in out
+    assert TERM in out and kinds["PERS"] in out and kinds["SITE"] in out
 
 
-def test_a_review_without_confirmation_changes_nothing(home, tmp_path):
-    _blocked(home, tmp_path)
+def test_a_review_of_the_stop_without_confirmation_changes_nothing(home, tmp_path):
+    """Replaces test_a_review_without_confirmation_changes_nothing (wipe mode, T4: the stop of --review)."""
+    _stopped(home, tmp_path)
     before = register.load(home.register)
     said = []
     assert candidates.review(home, fx.CUSTOMER_CODE, edit=lambda path: None, confirm=lambda q: False,
@@ -67,16 +70,17 @@ def test_a_review_without_confirmation_changes_nothing(home, tmp_path):
     assert said == ["nothing was changed"]
 
 
-def test_the_second_review_shows_only_what_is_still_open(home, tmp_path):
-    _blocked(home, tmp_path)
+def test_the_second_review_of_a_stop_shows_only_what_is_still_open(home, tmp_path):
+    """Replaces test_the_second_review_shows_only_what_is_still_open (wipe mode, T4: the stop of --review)."""
+    _stopped(home, tmp_path)
     candidates.review(home, fx.CUSTOMER_CODE, edit=_marker({fx.PLANTED_PERSON: "p", fx.PLANTED_CANDIDATE: "-",
-                                                            PLACE: "-"}),
+                                                            fx.PLANTED_STREET: "-"}),
                       confirm=lambda q: True, out=lambda s: None)
     open_now = candidates.still_open(home, candidates.parse_candidates(
         candidates.read_report(candidates.latest_report(home, fx.CUSTOMER_CODE))))
     assert any(fx.PLANTED_CANDIDATE in c for c in open_now)
     assert not any(c == fx.PLANTED_PERSON for c in open_now)
-    assert HEADING not in open_now and PLACE in open_now
+    assert TERM not in open_now and fx.PLANTED_STREET in open_now
 
 
 def test_the_marks_of_a_review_file():
@@ -116,11 +120,12 @@ def test_the_command_runs_only_on_the_owners_own_terminal(home, monkeypatch, cap
     assert "needs a terminal" in capsys.readouterr().err
 
 
-def test_a_mistyped_mark_keeps_the_marks_and_opens_the_editor_again(home, tmp_path, monkeypatch):
-    """The terminal path with a real editor process: a wrong letter first, the same file again with the reason on
-    top and the marks still there, then the fix."""
+def test_a_mistyped_mark_in_the_review_of_a_stop_opens_the_editor_again(home, tmp_path, monkeypatch):
+    """Replaces test_a_mistyped_mark_keeps_the_marks_and_opens_the_editor_again (wipe mode, T4: the stop of
+    --review). The terminal path with a real editor process: a wrong letter first, the same file again with the
+    reason on top and the marks still there, then the fix."""
     import sys
-    _blocked(home, tmp_path)
+    _stopped(home, tmp_path)
     state = tmp_path / "rounds"
     script = tmp_path / "editor.py"
     script.write_text(
@@ -145,3 +150,15 @@ def test_a_mistyped_mark_keeps_the_marks_and_opens_the_editor_again(home, tmp_pa
     forms = {e.form: e.kind for e in register.load(home.register)}
     assert forms[fx.PLANTED_PERSON] == "PERS" and forms[fx.PLANTED_CANDIDATE] == "ORG"
     assert not list((home.vault / "tmp").glob("review-*"))
+
+
+def test_the_editor_is_vim_when_neither_visual_nor_editor_names_one(monkeypatch):
+    monkeypatch.delenv("VISUAL", raising=False)
+    monkeypatch.delenv("EDITOR", raising=False)
+    monkeypatch.setattr(candidates.shutil, "which", lambda name: "/usr/bin/" + name)
+    assert candidates._editor() == ["vim"]
+    monkeypatch.setattr(candidates.shutil, "which", lambda name: "/usr/bin/nano" if name == "nano" else None)
+    assert candidates._editor() == ["nano"]
+    monkeypatch.setenv("EDITOR", "vi -n")
+    assert candidates._editor() == ["vi", "-n"]
+

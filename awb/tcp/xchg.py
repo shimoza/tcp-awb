@@ -443,19 +443,27 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
     c.delete(src)
     try:
         res = intake.run([dst], customer, p)
-    except intake.IntakeError as err:
-        ctx.notify("Workbench: a take for %s stopped" % code,
-                   "The intake for %s stopped: %s. The original is in the project's in/ folder of the owner "
-                   "bucket and in the vault inbox." % (code, err))
-        return {"ok": True, "state": "held", "why": "the intake stopped"}
-    if res.blocked:
-        ctx.notify("Workbench: a take for %s is held" % code,
-                   "The intake for %s found %d name candidate(s). Read the private report with awb vault show, "
-                   "register or keep the candidates, then run awb intake --customer %s in your own shell."
-                   % (code, res.candidates, customer))
-        return {"ok": True, "state": "held", "why": "name candidates for the owner", "customer": customer}
-    return {"ok": True, "state": "taken", "customer": customer,
-            "outputs": [o.name for o in res.outputs if o.name != "intake-report.md"]}
+    except intake.IntakeError:
+        return _hold(ctx, code, customer, "the intake stopped")
+    outputs = [o.name for o in res.outputs if o.name != "intake-report.md"]
+    if not outputs:
+        # wipe mode never holds for a name; a file that cannot be read as text, or one the final check withheld,
+        # gives no copy, and the owner looks at it
+        return _hold(ctx, code, customer, "the final check withheld the copy" if res.held
+                     else "the file cannot be read as text")
+    return {"ok": True, "state": "taken", "customer": customer, "outputs": outputs}
+
+
+def hold_line(code: str) -> str:
+    """The one line of a hold: what the owner runs, in his own terminal (the work rules hand out nothing else)."""
+    return "held: run awb import %s as the owner in your own terminal" % code
+
+
+def _hold(ctx: Context, code: str, customer: str, why: str) -> dict:
+    ctx.notify("Workbench: a take for %s is held" % code,
+               "A take for %s (%s) is held: %s. The original is in the project's in/ folder of the owner bucket and "
+               "in the vault inbox. %s." % (code, customer, why, hold_line(code)))
+    return {"ok": True, "state": "held", "why": why, "customer": customer}
 
 
 WEB_MONTH_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])/$")
@@ -625,8 +633,8 @@ def _take_one(root: Path, code: str, e: dict, customer: str | None) -> str:
     if e["bucket"] == "owner":
         a = _ok(_call({"op": "take_owner", "id": e["id"], "project": code, "customer": customer}))
         if a.get("state") == "held":
-            return "%s from the owner inbox: held on the owner's side (%s); the owner has been told" % (
-                what, a.get("why", "held"))
+            return "%s from the owner inbox: held on the owner's side (%s); the owner has been told. %s" % (
+                what, a.get("why", "held"), hold_line(code))
         if a.get("state") != "taken":
             raise XchgError("the file left the owner inbox before the take")
         outbox = config.paths().outbox / a["customer"]

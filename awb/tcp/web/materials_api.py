@@ -292,7 +292,6 @@ CREATE INDEX IF NOT EXISTS import_project ON imports(project,created);
                     job_shared=self.root/'jobs'/ident;job_shared.mkdir(parents=True,mode=0o700,exist_ok=True)
                     job_paths=replace(self.p,shared=job_shared)
                     result=intake.run([original],row['customer'],job_paths)
-                    if result.blocked:raise Problem(422,'Unrecognised names require owner review in the intake report. Register or approve them, then retry.')
                     if result.unsealed:raise Problem(422,'The original could not be sealed. Owner review is required before release.')
                     if not result.states or any(v not in ('ok','empty') for v in result.states.values()):raise Problem(422,'The document could not be read completely. Review it or provide a supported text version.')
                     approved=[f for f in result.outputs if f.name!='intake-report.md']
@@ -302,8 +301,9 @@ CREATE INDEX IF NOT EXISTS import_project ON imports(project,created);
                     with extract.temp_root(Path(folder)):
                         ex=extract.extract(original)
                     if ex.state!='ok' or ex.meta.get(extract.INCOMPLETE):raise Problem(422,'The document could not be read completely. Provide a supported text version.')
-                    if check.check_file(original,self.p.register) or intake.unknown_candidates(row['name']+'\n'+ex.text,[]):raise Problem(422,'This task description may contain private information. Use the customer source or ask the owner to review it.')
-                    text=ex.text
+                    if check.check_file(original,self.p.register):raise Problem(422,'This task description may contain private information. Use the customer source or ask the owner to review it.')
+                    # wipe mode (decision 16): a name the candidate rules recognise becomes a token, nothing holds
+                    text=intake.wipe_text(ex.text,self.p)
                 if not text.strip():raise Problem(422,'This file contains no readable text.')
                 self.checked(text)
                 with self.db() as db:version=db.execute("SELECT coalesce(max(version),0)+1 FROM imports WHERE project=? AND object_id=? AND state='ready'",(row['project'],row['object_id'])).fetchone()[0]

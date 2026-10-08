@@ -1,14 +1,16 @@
-"""The candidates of a blocked intake, sorted in one pass (`awb register review CUST-XXXX`, owner side).
+"""The candidates of an intake stopped for the review, sorted in one pass (owner side).
 
-An intake that finds words looking like names it does not know stops, and its private report lists them as
-candidates: real names of people and companies next to brands, products, terms and headings. This command opens
+Wipe mode replaces every candidate by a token and never stops. `awb import CODE --review` (and `awb intake
+--review`) stops once: the private report of the stop lists the candidates, real names of people and companies
+next to brands, products, terms and headings, and this review opens them before the run goes on (`awb register
+review CUST-XXXX` opens the newest such report by hand). This command opens
 the candidates still open in an editor on the owner's own terminal, one per line. He marks the real names and
 leaves every other line as it is:
 
     p  a person: a new PERS code under the customer     o  another company or organisation: a new ORG code
     c  one more written form of this customer           s  a place: a new SITE code under the customer
     +  one more form of the name on the marked line above (the same person, company or place)
-    -  decide later: the candidate stays open
+    -  decide later: the candidate stays open (the run that follows wipes it as a token)
     no mark: not a name; it goes to the keep list and is never a candidate again
 
 Before anything is written he sees the counts and confirms them. Then the marked names go into the register in one
@@ -206,11 +208,15 @@ def apply(p: config.Paths, customer: str, d: Decisions) -> tuple[Counter, int]:
     return d.summary(), kept
 
 
+EDITORS = ("vim", "vi", "nano")
+"""The editors tried in this order when neither VISUAL nor EDITOR names one (the owner uses vim)."""
+
+
 def _editor() -> list[str]:
     chosen = os.environ.get("VISUAL") or os.environ.get("EDITOR")
     if chosen:
         return shlex.split(chosen)
-    for name in ("nano", "vi"):
+    for name in EDITORS:
         if shutil.which(name):
             return [name]
     raise ReviewError("no editor found: set EDITOR")
@@ -224,13 +230,14 @@ def _ask(question: str) -> bool:
 
 
 def review(p: config.Paths, customer: str, report: Path | None = None, *, edit=None, confirm=None,
-           out=print) -> int:
+           out=print, next_step: bool = True) -> int:
     """One review: the open candidates into a private file, the editor, the counts to confirm, then the register
-    and the keep list. `edit` and `confirm` stand in for the editor and the question in the tests."""
+    and the keep list. `edit` and `confirm` stand in for the editor and the question in the tests. Without
+    `next_step` the closing line that names the next command is left out (`--review` goes on by itself)."""
     path = report or latest_report(p, customer)
     candidates = still_open(p, parse_candidates(read_report(path)))
     if not candidates:
-        out("every candidate of %s is sorted: run awb intake --customer %s" % (customer, customer))
+        out("every candidate of %s is sorted%s" % (customer, ": run awb import CODE" if next_step else ""))
         return 0
     tmp_dir = p.vault / "tmp"
     tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -271,7 +278,8 @@ def review(p: config.Paths, customer: str, report: Path | None = None, *, edit=N
     out("registered %d people, %d companies, %d places, %d more forms of %s; kept %d as not a name; %d left for "
         "later" % (counts["PERS"], counts["ORG"], counts["SITE"], counts["CUST forms"], customer, kept,
                    decisions.later))
-    out("now run: awb intake --customer %s" % customer)
+    if next_step:
+        out("now run: awb import CODE for the project of %s" % customer)
     return 0
 
 

@@ -69,6 +69,7 @@ class Hit:
     value: str
     where: dict = field(default_factory=dict)   # "F-ABCD.1 text" -> list of positions
     count: int = 0
+    rule: str = ""            # the rule that found a wiped value (awb.wipe.RULE_LABELS, or "learned form")
 
 
 @dataclass
@@ -79,13 +80,13 @@ class Run:
     time: str
     customer: str
     new_customer: bool
-    force: bool
-    blocked: bool
     files: list[FileRecord] = field(default_factory=list)
     hits: list[Hit] = field(default_factory=list)
     candidates: list[tuple[str, str]] = field(default_factory=list)   # (part id, candidate): private
-    candidate_count: int = 0
     register_forms: int = 0
+    stopped: bool = False     # the stop of --review: candidates listed, nothing written
+    reviewed: int = 0         # candidates handed to the review before this run
+    learned: list[tuple[str, str, str]] = field(default_factory=list)   # (form, class, from value): private
 
 
 # --------------------------------------------------------------------------- helpers
@@ -104,6 +105,23 @@ def counts_text(counts: Counter) -> str:
 
 def _notes_text(notes: list[str]) -> str:
     return "; ".join(n for n in notes if n) or "none"
+
+
+TOKEN_CLASSES = (("person", "person"), ("company", "company"), ("place", "place"), ("unknown", "name"))
+"""The classes of wipe mode and the word of their token ([person 1], [name 2])."""
+
+
+def wiped_by_rule(run: Run) -> list[tuple[str, list[tuple[str, int]]]]:
+    """(token word, [(rule, replacements)]) for every token class of the run, the rules most frequent first."""
+    out = []
+    for cls, word in TOKEN_CLASSES:
+        counts: Counter = Counter()
+        for h in run.hits:
+            if h.rule and h.cls == cls:
+                counts[h.rule] += h.count
+        if counts:
+            out.append((word, sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))))
+    return out
 
 
 # --------------------------------------------------------------------------- public report
@@ -152,7 +170,15 @@ def render_public(run: Run) -> str:
     unread = [f.file_id for f in run.files if f.state in ("unreadable", "unsupported")]
     if unread:
         lines += ["Not read as text, review the original in the vault: %s." % ", ".join(unread), ""]
-    lines += ["%d candidates were reviewed." % run.candidate_count, ""]
+    rules = wiped_by_rule(run)
+    if rules:
+        lines += ["## Wiped", "",
+                  "Every name the candidate rules recognised is a token of its class, numbered in this run. A "
+                  "[name] that a rule of capitalised words found may be a term: say so in one line.", "",
+                  "| token | rules that fired |", "| --- | --- |"]
+        lines += ["| [%s] | %s |" % (word, _cell(", ".join("%s %d" % kv for kv in counts)))
+                  for word, counts in rules]
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -171,12 +197,16 @@ def render_minimal(run: Run) -> str:
         "",
         "The detailed report was withheld because it did not pass the final check, see the private report.",
         "",
-        "%d candidates were reviewed." % run.candidate_count,
-        "",
     ])
 
 
 # --------------------------------------------------------------------------- private report
+
+
+def _where(h: Hit) -> str:
+    return "; ".join(
+        "%s at %s" % (k, ", ".join(str(p) for p in v[:MAX_POSITIONS]) + (" ..." if len(v) > MAX_POSITIONS else ""))
+        for k, v in h.where.items())
 
 
 def render_private(run: Run) -> str:
@@ -188,19 +218,18 @@ def render_private(run: Run) -> str:
         "",
         "- date: %s %s" % (run.date, run.time),
         "- customer: %s%s" % (run.customer, " (new code issued by this run)" if run.new_customer else ""),
-        "- force: %s" % ("yes" if run.force else "no"),
-        "- blocked: %s" % ("yes" if run.blocked else "no"),
+        "- mode: %s" % ("stopped for the review" if run.stopped else "wipe"),
         "- register forms used: %d" % run.register_forms,
-        "- candidates: %d" % run.candidate_count,
+        "- candidates: %d" % len(run.candidates),
+        "- reviewed before this run: %d" % run.reviewed,
         "",
     ]
-    if run.blocked:
+    if run.stopped:
         lines += [
-            "Blocked: the candidates below look like names that are not in the register. Nothing was written to "
-            "the outbox and no original was moved. Sort them in one pass with `awb register review %s` "
-            "(mark the real names, the rest goes to the keep list), or register one name with "
-            "`awb register add CODE KIND FORM`; then run again with `--customer %s`. When every candidate "
-            "is harmless, run again with `--force`." % (run.customer, run.customer),
+            "Stopped for the review (--review): the candidates below look like names that are not in the register. "
+            "Nothing was written to the outbox and no original was moved. The review registers the marked names "
+            "and keeps the rest; the run then goes on in wipe mode, where a candidate left for later becomes a "
+            "token.",
             "",
         ]
 
@@ -242,21 +271,40 @@ def render_private(run: Run) -> str:
               "into the original file.", "",
               "| token | class | value | count | where and positions |",
               "| --- | --- | --- | --- | --- |"]
-    for h in sorted(run.hits, key=lambda h: (h.token, h.value.casefold())):
-        where = "; ".join(
-            "%s at %s" % (k, ", ".join(str(p) for p in v[:MAX_POSITIONS]) + (" ..." if len(v) > MAX_POSITIONS else ""))
-            for k, v in h.where.items()
-        )
-        lines.append("| %s | %s | %s | %d | %s |" % (h.token, h.cls, _cell(h.value), h.count, _cell(where)))
+    for h in sorted((h for h in run.hits if not h.rule), key=lambda h: (h.token, h.value.casefold())):
+        lines.append("| %s | %s | %s | %d | %s |" % (h.token, h.cls, _cell(h.value), h.count, _cell(_where(h))))
     lines.append("")
 
-    lines += ["## Candidates", ""]
-    if run.candidates:
-        lines += ["| part id | candidate |", "| --- | --- |"]
-        lines += ["| %s | %s |" % (pid, _cell(c)) for pid, c in run.candidates]
+    lines += ["## Wiped", "",
+              "Every value the candidate rules recognised as a name, with its class, its token, the rule that found it "
+              "and where. A term wiped by mistake goes to the keep list (awb register keep), then awb import --redo.",
+              ""]
+    wiped = sorted((h for h in run.hits if h.rule), key=lambda h: (h.cls, h.token, h.value.casefold()))
+    if wiped:
+        lines += ["| value | class | token | rule | count | where and positions |",
+                  "| --- | --- | --- | --- | --- | --- |"]
+        lines += ["| %s | %s | %s | %s | %d | %s |" % (_cell(h.value), h.cls, h.token, _cell(h.rule), h.count,
+                                                      _cell(_where(h))) for h in wiped]
     else:
         lines.append("none")
     lines.append("")
+
+    lines += ["## Learned forms", ""]
+    if run.learned:
+        lines += ["| form | class | from |", "| --- | --- | --- |"]
+        lines += ["| %s | %s | %s |" % (_cell(form), cls, _cell(src)) for form, cls, src in run.learned]
+    else:
+        lines.append("none")
+    lines.append("")
+
+    if run.stopped:
+        lines += ["## Candidates", ""]
+        if run.candidates:
+            lines += ["| part id | candidate |", "| --- | --- |"]
+            lines += ["| %s | %s |" % (pid, _cell(c)) for pid, c in run.candidates]
+        else:
+            lines.append("none")
+        lines.append("")
 
     lines += ["## Dropped items and reasons", ""]
     reasons = [(f.file_id, r) for f in run.files for r in f.reasons]

@@ -54,6 +54,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The intake no longer stops for a name it does not know. Every name its rules recognise becomes a token of its
+  class, numbered within the run (`[person 1]`, `[company 1]`, `[place 1]`, `[name 1]`). The other shapes of a wiped
+  name are found again in the rest of the run: alone, inside a host name, with German or Russian endings. The private
+  report lists every wiped value with its class and rule and the forms the run learned. The public report counts the
+  rules that fired. `--force` is gone and `--review` stops once for the rare name that must keep a code. The owner
+  inbox take, the bucket pull and the console's materials import hold no file for a name any more. The review opens
+  vim when no editor is set.
 - `awb inbox take` finds the file you describe in your own words (the same letters, a kind of file, the newest, a
   part of the name). None or several matches list both inboxes. `--id` and `--all`.
 - The harvest also asks after Terraform runs, the openstack client and plain calls to the TCP API, besides the

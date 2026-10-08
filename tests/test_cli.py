@@ -127,21 +127,19 @@ def _plant(home) -> list[Path]:
     return [a, b]
 
 
-def test_intake_blocked_then_forced_then_checked(con, home):
+def test_intake_wipes_then_checks(con, home):
+    """Replaces test_intake_blocked_then_forced_then_checked (wipe mode, T4): no stop and no --force; the copies of
+    a new customer pass the name check."""
     files = _plant(home)
     code, out, _ = con.run("intake", "--customer", "new", *map(str, files))
-    assert code == 1 and "blocked" in out
-    cust = re.search(r"\bCUST-[A-Z2-7]{4}\b", out).group(0)
-    assert not (home.outbox / cust).exists()
-    assert all(f.is_file() for f in files)
-
-    # no FILE: the whole inbox is taken in
-    code, out, _ = con.run("intake", "--customer", cust, "--force")
     assert code == 0, out
-    assert "2 files, 2 outputs" in out
+    assert "2 files, 2 outputs" in out and "wiped company 1" in out
+    cust = re.search(r"\bCUST-[A-Z2-7]{4}\b", out).group(0)
     outputs = sorted((home.outbox / cust).glob("F-*.md"))
     assert len(outputs) == 2
     assert list(home.inbox.iterdir()) == []
+    code, _, err = con.run("intake", "--customer", cust, "--force")
+    assert code == 2, "--force is gone"
 
     code, out, _ = con.run("check", "--register", str(home.register), *map(str, outputs))
     assert code == 0 and out == ""
@@ -309,17 +307,19 @@ def test_register_keep_list_prints_the_phrases_on_the_vault_side_only(con, home)
     con.assert_clean()
 
 
-def test_a_kept_phrase_is_no_candidate_in_the_next_intake(con, home):
+def test_a_kept_phrase_is_never_wiped_in_the_next_intake(con, home):
+    """Replaces test_a_kept_phrase_is_no_candidate_in_the_next_intake (wipe mode, T4): wiped first, kept after."""
     f = home.inbox / "konzept.txt"
-    f.write_text("anbei das %s, bitte pruefen.\n" % KEPT, encoding="utf-8")
+    f.write_text("anbei das angebot der %s, bitte pruefen.\n" % fx.PLANTED_CANDIDATE, encoding="utf-8")
     code, out, _ = con.run("intake", "--customer", fx.CUSTOMER_CODE, str(f))
-    assert code == 1 and "blocked: 1 candidates" in out
-    code, out, _ = con.run("register", "keep", KEPT)
-    assert code == 0 and KEPT not in out
+    assert code == 0 and "wiped company 1" in out
+    code, out, _ = con.run("register", "keep", fx.PLANTED_CANDIDATE)
+    assert code == 0 and fx.PLANTED_CANDIDATE not in out
+    f.write_text("anbei das angebot der %s, bitte pruefen.\n" % fx.PLANTED_CANDIDATE, encoding="utf-8")
     code, out, _ = con.run("intake", "--customer", fx.CUSTOMER_CODE, str(f))
-    assert code == 0 and "0 candidates reviewed" in out
-    (output,) = sorted((home.outbox / fx.CUSTOMER_CODE).glob("F-*.md"))
-    assert KEPT in output.read_text(encoding="utf-8")
+    assert code == 0 and "wiped nothing" in out
+    outputs = sorted((home.outbox / fx.CUSTOMER_CODE).glob("F-*.md"))
+    assert any(fx.PLANTED_CANDIDATE in o.read_text(encoding="utf-8") for o in outputs)
     con.assert_clean()
 
 

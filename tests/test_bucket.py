@@ -143,3 +143,17 @@ def test_the_command_line_end_to_end(home, fake, project, tmp_path, monkeypatch,
     monkeypatch.delenv("AWB_BUCKET_KEYS")
     assert cli.main(["bucket", "sync"]) == 2
     assert "AWB_BUCKET_KEYS" in capsys.readouterr().err
+
+
+def test_pull_prints_the_wiped_counts_and_never_blocked(home, fake, project, monkeypatch, capsys):
+    """T4: the pull runs the intake in wipe mode; its line names the counts per class, never a stop or --force."""
+    folder, _ = bucket.ensure_folder(fake.client(), project)
+    fake.objects[folder + "in/memo.txt"] = ("Termin mit Herrn %s bei der %s.\n"
+                                            % (fx.PLANTED_PERSON, fx.PLANTED_CANDIDATE)).encode("utf-8")
+    monkeypatch.setattr(bucket, "client", lambda: fake.client())
+    assert bucket.main(["pull", project.code]) == 0
+    out = capsys.readouterr().out
+    assert "1 outputs in the outbox, wiped person 1, company 1" in out
+    assert "blocked" not in out and "--force" not in out
+    fx.assert_no_fixture_name(out, "the output of the pull")
+    assert fx.PLANTED_CANDIDATE not in out

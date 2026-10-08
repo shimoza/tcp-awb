@@ -1,9 +1,13 @@
 """The intake: the only way customer material enters the Workbench.
 
 `run` takes files from the vault inbox (or anywhere), reads each one with `awb.extract`, finds registered
-forms and structured data in everything detection can see, looks for strings that look like unregistered
-names and then either blocks (candidates found, no force) or writes one sanitised Markdown copy per file to
-`<shared>/outbox/<CUST>/<file id>.md`. Every output is checked once more before it counts. Originals move to
+forms and structured data in everything detection can see and writes one sanitised Markdown copy per file to
+`<shared>/outbox/<CUST>/<file id>.md`: the registered forms become their codes, structured data its tokens and
+every string the candidate rules of `awb.wipe` recognise as a name a token of its class ([person 1], [company 1],
+[place 1], [name 1]), numbered per run; the forms of every wiped person and company are learned and wiped wherever
+they stand again in the run (wipe mode, T4). Nothing stops for a name: `run(..., review=True)` is the one stop, for
+the rare case where a name must stay distinguishable by a code. Every output is checked once more before it
+counts. Originals move to
 `<vault>/originals/<CUST>/` under their file id, only after that check passed. The public report goes next to
 the outputs and carries codes, classes and counts. The private report goes to the vault and carries the rest.
 
@@ -25,13 +29,12 @@ import re
 import secrets
 import shutil
 import tempfile
-import unicodedata
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from awb import codes, config, normalize, patterns, register
+from awb import codes, config, normalize, patterns, register, wipe
 from awb import extract as _extract
 from awb import images as _images
 from awb import report as _report
@@ -42,25 +45,18 @@ FILE_ID_RE = re.compile(r"F-[A-Z2-7]{4}")
 """The shape of a file id. A member or attachment adds .1, .2 ... to the id of its file."""
 
 MAX_PASSES = 4
+"""How often the sanitiser normalises and replaces before it gives up and leaves the rest to the final check."""
 SECOND_CLASS = "possible-name"
 """The class of a hit of the second check: a registered form found by its letters across word boundaries."""
-_SKELETON_WORD_RE = re.compile(r"[^\W_]+")
+_SKELETON_WORD_RE = wipe._SKELETON_WORD_RE
 _SKELETON_MIN = 3
 _SKELETON_CASE_FREE = 6
 """A single word shorter than this counts only when it does not stand in lower case: short forms that are also
 ordinary words stay with the case rules of the matcher."""
 
 
-def _fold(word: str) -> str:
-    """Case folded, accents dropped: the letters a reader would still read as the same word."""
-    decomposed = unicodedata.normalize("NFKD", word)
-    return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
-
-
-def skeleton(text: str) -> str:
-    """The letters and digits of `text`, normalised, folded and joined: the same for every way of writing it."""
-    return "".join(_fold(w) for w in _SKELETON_WORD_RE.findall(normalize.normalize(text).text))
-"""How often the sanitiser normalises and replaces before it gives up and leaves the rest to the final check."""
+_fold = wipe._fold
+skeleton = wipe.skeleton
 
 NEW = "new"
 
@@ -73,573 +69,48 @@ class IntakeError(Exception):
 class IntakeResult:
     customer: str
     outputs: list[Path]
-    public_report: Path       # not written when the run is blocked
+    public_report: Path
     private_report: Path
-    blocked: bool
-    candidates: int
     states: dict[str, str]    # file id -> state
     unsealed: int = 0         # vault files of this run left in plaintext because sealing failed (encrypted vault)
+    wiped: Counter = field(default_factory=Counter)   # token class (person, company, place, name) -> replacements
+    held: list[str] = field(default_factory=list)     # file ids the final check withheld; their originals stay
+    pictures: int = 0         # pictures held on the vault side, released only by awb images release
+    reviewed: int = 0         # candidates handed to the review of --review
+    candidates: int = 0       # distinct values the candidate rules found in detection (all of them wiped)
+
+    @property
+    def blocked(self) -> bool:
+        """Always False: wipe mode never blocks (the callers and tests of the first release still ask)."""
+        return False
 
 
 # --------------------------------------------------------------------------- candidates
 
-_STOP_FILE = patterns.RULES_DIR / "stop-words.txt"
-
-
-def _load_stop_words() -> tuple[frozenset[str], tuple[re.Pattern, ...]]:
-    """Single stop words (case folded) and the multi-word stop phrases as patterns."""
-    singles: set[str] = set()
-    phrases: list[re.Pattern] = []
-    try:
-        lines = _STOP_FILE.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        lines = []
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        words = line.split()
-        if len(words) == 1:
-            singles.add(line.casefold())
-        else:
-            body = r"\s+".join(re.escape(w) for w in words)
-            phrases.append(re.compile(r"(?<![\w-])" + body + r"(?![\w-])", re.IGNORECASE))
-    return frozenset(singles), tuple(phrases)
-
-
-_STOP_SINGLES, _STOP_PHRASES = _load_stop_words()
-
-_OPENERS_FILE = patterns.RULES_DIR / "sentence-openers.txt"
-
-
-def _load_openers() -> frozenset[str]:
-    """Capitalised words that often open a sentence and are never the first half of a name (case folded). A
-    missing file gives an empty set: fewer words are dropped, so there are more candidates, never fewer."""
-    try:
-        lines = _OPENERS_FILE.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return frozenset()
-    return frozenset(line.strip().casefold() for line in lines
-                     if line.strip() and not line.strip().startswith("#") and len(line.split()) == 1)
-
-
-_OPENERS = _load_openers()
-
-# words that open or close a run of capitalised words without being part of a name: articles, prepositions,
-# pronouns, salutations and titles, mail subject prefixes
-_FUNCTION_WORDS = frozenset(w.casefold() for w in (
-    "Der", "Die", "Das", "Den", "Dem", "Des", "Ein", "Eine", "Einen", "Einem", "Einer", "Eines",
-    "Dieser", "Diese", "Dieses", "Diesen", "Diesem", "Jeder", "Jede", "Jedes", "Alle",
-    "The", "A", "An", "This", "That", "These", "Those", "Our", "Your", "Their", "Its", "His", "Her",
-    "Mit", "Von", "Vom", "Zum", "Zur", "Für", "Bei", "Beim", "Im", "In", "Am", "Auf", "Aus", "Nach",
-    "Über", "Unter", "Vor", "Durch", "Gegen", "Ohne", "Um", "Ab", "Bis", "Seit", "Laut", "Gemäß",
-    "Und", "Oder", "Aber", "Sowie", "Wir", "Sie", "Ihr", "Ihre", "Ihrer", "Ihren", "Unser", "Unsere",
-    "Mein", "Meine", "Es", "Er", "Ich", "Wie", "Wo", "Was", "Wer", "Wann", "Bitte", "Danke",
-    "Herr", "Herrn", "Frau", "Hr", "Fr", "Mr", "Mrs", "Ms", "Dr", "Prof", "Liebe", "Lieber",
-    "Hallo", "Dear", "Hi", "Hello", "For", "From", "To", "With", "By", "Of", "On", "At", "And", "Or",
-    "Re", "Aw", "Wg", "Fw", "Fwd",
-))
-
-# names of authoring tools that office and pdf metadata carry in every file ("Microsoft Macintosh Word");
-# they would block nearly every intake, so they never count as part of a name
-_TOOL_WORDS = frozenset(w.casefold() for w in (
-    "Word", "Excel", "PowerPoint", "Outlook", "Office", "Macintosh", "Mac", "Windows", "Writer", "Calc",
-    "Impress", "LibreOffice", "OpenOffice", "Acrobat", "Distiller", "Adobe", "Reader", "Quartz", "Normal",
-    "Pages", "Numbers", "Keynote", "Skia", "Chromium", "Chrome", "Ghostscript", "Library",
-))
-
-# a word before a full stop that does not end a sentence
-_ABBREVIATIONS = frozenset((
-    "dr", "prof", "hr", "fr", "nr", "str", "bzw", "ca", "vgl", "inkl", "ggf", "usw", "etc", "mr", "mrs",
-    "ms", "st", "co", "abs", "tel", "fax", "z", "u", "d", "b", "a", "e", "v",
-))
-
-_COMPANY_FORMS = (
-    r"GmbH[ \t]*&[ \t]*Co\.?[ \t]*KGaA", r"GmbH[ \t]*&[ \t]*Co\.?[ \t]*KG", r"GMBH[ \t]*&[ \t]*CO\.?[ \t]*KG",
-    r"gGmbH", r"GmbH", r"GMBH", r"mbH", r"MBH", r"KGaA", r"KGAA", r"AG", r"KG", r"SE", r"PartG[ \t]+mbB", r"PartG",
-    r"mbB", r"Ltd\.?", r"LTD\.?", r"Limited", r"LIMITED", r"Inc\.?", r"INC\.?", r"LLC", r"LLP", r"Corp\.?",
-    r"e\.[ \t]?V\.", r"e\.[ \t]?K\.", r"e\.[ \t]?Kfm\.", r"e\.[ \t]?Kfr\.", r"eG", r"OHG", r"GbR", r"GBR",
-    r"S\.A\.S\.", r"S\.A\.", r"SAS", r"SARL", r"S\.à[ \t]?r\.l\.", r"S\.p\.A\.", r"S\.r\.l\.", r"s\.r\.o\.",
-    r"a\.s\.", r"Sp\.[ \t]?z[ \t]?o\.o\.", r"B\.V\.", r"N\.V\.", r"A/S", r"ApS", r"Oy", r"UG", r"plc", r"PLC",
-    r"Kanzlei",
-)
-_FORM_ALT = "|".join(_COMPANY_FORMS)
-_NAME_WORD = r"[A-ZÄÖÜ0-9][\wÄÖÜäöüß'’-]*"
-_JOIN = r"(?:[ \t]*&[ \t]*|[ \t]+(?:und|and|\+)[ \t]+|[ \t]+)"
-_COMPANY_RE = re.compile(
-    r"(?<![\w&.-])(?P<words>%s(?:%s%s){0,5})[ \t]*,?[ \t]+(?P<form>%s)(?![\w])"
-    % (_NAME_WORD, _JOIN, _NAME_WORD, _FORM_ALT)
-)
-# a brand written in lower case before a legal form (a lower-case word before "GmbH" is usually an article or
-# an adjective, which the checks in code leave out)
-_LOWER_COMPANY_RE = re.compile(
-    r"(?<![\w&.-])(?P<word>[^\W\d_A-ZÄÖÜ][\w'’-]{1,40})[ \t]+(?P<form>%s)(?![\w])" % _FORM_ALT
-)
-_ADJECTIVE_ENDINGS = ("e", "en", "er", "es", "em", "ern", "ens")
-# short lower-case words that stand before a legal form in ordinary prose ("die Umwandlung als AG")
-_LOWER_SKIP = frozenset((
-    "als", "ist", "sind", "wird", "war", "wurde", "per", "pro", "via", "bzw", "ca", "sowie", "auch", "noch",
-    "nur", "schon", "bereits", "dass", "wie", "neu", "alt", "is", "are", "was", "as", "via", "plus", "into",
-    "than", "then", "new", "old", "our", "your", "its", "this", "that",
-))
-_KANZLEI_RE = re.compile(r"(?<![\w-])Kanzlei[ \t]+(?P<words>%s(?:%s%s){0,4})" % (_NAME_WORD, _JOIN, _NAME_WORD))
-
-_TOKEN_RE = re.compile(r"[^\W\d_]+(?:['’-][^\W\d_]+)*")
-_WORD_RE = re.compile(r"[^\s&+]+")
-_MIN_CAPS_LETTERS = 4
-"""An ALL CAPS word counts as a name word from this many letters on; shorter ones are acronyms."""
-
-_TITLES = frozenset(w.casefold() for w in ("Herr", "Herrn", "Frau", "Mr", "Mrs", "Ms", "Dr", "Prof", "Dipl"))
-_MAX_TITLE_WORDS = 3
-_INITIAL_RE = re.compile(r"(?<![\w.])(?P<initial>[A-ZÄÖÜ])\.[ \t]*(?=[^\W\d_])")
-_SPACED_RE = re.compile(r"(?<![^\W\d_])(?:[^\W\d_][ \t]{1,12}){3,}[^\W\d_](?![^\W\d_])")
-_CAMEL_SPLIT_RE = re.compile(r"(?<=[a-zäöüß])(?=[A-ZÄÖÜ][a-zäöüß])")
-
-_LABEL_RE = re.compile(
-    r"(?<![\w-])(?:Kunde|Kundin|Customer|Client|Auftraggeber|Auftraggeberin|Firma|Mandant|Mandantin)"
-    r"[ \t]*:[ \t]*(?P<value>[^\n,;|]{1,80})",
-    re.IGNORECASE,
-)
-_LABEL_WORDS = 6
-
-_MAIL_RE = re.compile(r"(?<![\w.%+-])(?P<local>[A-Za-z0-9._%+-]+)@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,24}")
-_PERSON_LOCAL_RE = re.compile(
-    r"[^\W\d_]{2,}[._-][^\W\d_]{2,}|[^\W\d_][._-][^\W\d_]{2,}|[^\W\d_]{2,}[._-][^\W\d_][._-][^\W\d_]{2,}"
-)
-# "First von Last": the particles, a second particle that may follow (von der, de la) and the suffixes that make
-# the first word a German noun ("Migration von Servern", "Anforderungen zur Umsetzung"), singular and plural
-_PARTICLES = frozenset(("von", "van", "de", "zu", "vom", "zur"))
-_SECOND_PARTICLES = frozenset(("der", "den", "dem", "la", "le", "du"))
-_NOUN_SUFFIXES = (
-    "ung", "heit", "keit", "schaft", "tion", "ment", "tät", "ismus", "nis", "tur", "ik", "ei", "er",
-    "ungen", "heiten", "keiten", "schaften", "tionen", "mente", "ments", "täten", "ismen", "nisse", "turen", "iken",
-    "eien",
-)
-
-# "Last, First": letters per word, the comma between them and what joins the items of a list
-_PAIR_MIN_LETTERS = 3
-_PAIR_MAX_LETTERS = 20
-_COMMA_RE = re.compile(r"[ \t]*,[ \t]*")
-_LIST_JOIN_RE = re.compile(
-    r"[ \t]*,[ \t]*(?:(?:und|and|oder|or|sowie|&)[ \t]+)?|[ \t]+(?:und|and|oder|or|sowie|&)[ \t]+"
-)
-_LIST_MIN_ITEMS = 3
-
-_ROLE_WORDS = frozenset((
-    "info", "sales", "support", "service", "office", "kontakt", "contact", "admin", "noreply", "no", "reply",
-    "mail", "post", "team", "hello", "billing", "invoice", "rechnung", "buchhaltung", "vertrieb", "einkauf",
-    "marketing", "presse", "press", "jobs", "karriere", "hr", "it", "helpdesk", "security", "abuse",
-    "postmaster", "webmaster", "hostmaster", "newsletter", "donotreply", "bounce", "notifications", "alerts",
-    "system", "root", "test", "dev", "ops", "devops", "cloud", "do", "not", "zentrale", "empfang", "anfrage",
-    "bewerbung", "datenschutz", "privacy", "legal", "compliance", "finance", "accounting", "order", "orders",
-))
-
-
-class _Mask:
-    """Which characters of a text are already covered, for fast overlap tests."""
-
-    def __init__(self, size: int, spans):
-        self.cover = bytearray(size)
-        for s in spans:
-            a, b = max(0, s.start), min(size, s.end)
-            if b > a:
-                self.cover[a:b] = b"\x01" * (b - a)
-
-    def hit(self, a: int, b: int) -> bool:
-        return any(self.cover[a:b])
-
-
-def _sentence_start(text: str, pos: int) -> bool:
-    """True when the word at `pos` follows the end of a sentence. A line start is not a sentence start:
-    names stand on their own lines in signatures, address blocks and tables."""
-    i = pos - 1
-    while i >= 0 and text[i] in " \t":
-        i -= 1
-    if i < 0 or text[i] not in ".!?":
-        return False
-    if text[i] in "!?":
-        return True
-    j = i
-    while j > 0 and text[j - 1].isalpha():
-        j -= 1
-    word = text[j:i].casefold()
-    return len(word) > 1 and word not in _ABBREVIATIONS
-
-
-def _opening(text: str, pos: int) -> bool:
-    """True when the word at `pos` opens the text, a line or a sentence: where a sentence-opening word of
-    rules/sentence-openers.txt may stand."""
-    i = pos - 1
-    while i >= 0 and text[i] in " \t":
-        i -= 1
-    return i < 0 or text[i] == "\n" or _sentence_start(text, pos)
-
-
-def _stop_spans(text: str) -> list[Span]:
-    return [Span(m.start(), m.end(), "stop") for rx in _STOP_PHRASES for m in rx.finditer(text)]
-
-
-def _ordinary(word: str) -> bool:
-    """A function word, a stop word or the name of an authoring tool."""
-    low = word.casefold()
-    return low in _FUNCTION_WORDS or low in _STOP_SINGLES or low in _TOOL_WORDS
-
-
-def _name_word(word: str) -> bool:
-    """A word shaped like part of a name: capitalised (any alphabet, accents, O'Name, Name-Name) or in
-    capitals with at least _MIN_CAPS_LETTERS letters."""
-    letters = sum(1 for c in word if c.isalpha())
-    if letters < 2:
-        return False
-    if word.isupper():
-        return letters >= _MIN_CAPS_LETTERS
-    for part in re.split(r"['’-]", word):
-        if not part or not part[0].isupper() or not (len(part) == 1 or part[1:].islower()):
-            return False
-    return True
-
-
-def _trim(words: list[tuple[int, int, str]], sentence_rule: bool, text: str) -> list[tuple[int, int, str]]:
-    """Drop function words and stop words at both ends. With `sentence_rule` also drop the sentence-opening
-    words (rules/sentence-openers.txt) that stand first in a run that opens the text, a line or a sentence.
-    Any other capitalised word at a sentence start stays: his decision of 2026-09-22 treats it as a name."""
-    opening = sentence_rule and bool(words) and _opening(text, words[0][0])
-    while words and (words[0][2].casefold() in _FUNCTION_WORDS
-                     or words[0][2].casefold() in _STOP_SINGLES
-                     or (opening and words[0][2].casefold() in _OPENERS)):
-        words = words[1:]
-    while words and (words[-1][2].casefold() in _FUNCTION_WORDS or words[-1][2].casefold() in _STOP_SINGLES):
-        words = words[:-1]
-    return words
-
-
-def _words(text: str, start: int, end: int) -> list[tuple[int, int, str]]:
-    return [(start + m.start(), start + m.end(), m.group(0)) for m in _WORD_RE.finditer(text[start:end])]
-
-
-def _company_candidates(text: str, blocked: _Mask) -> list[tuple[int, int]]:
-    out: list[tuple[int, int]] = []
-    for m in _COMPANY_RE.finditer(text):
-        if blocked.hit(m.start("form"), m.end("form")):
-            continue
-        words = _words(text, m.start("words"), m.end("words"))
-        # keep only the words after the last one that is already known
-        last_known = max((i for i, w in enumerate(words) if blocked.hit(w[0], w[1])), default=-1)
-        words = _trim(words[last_known + 1:], False, text)
-        if words:
-            out.append((words[0][0], m.end("form")))
-    for m in _LOWER_COMPANY_RE.finditer(text):
-        word = m.group("word")
-        low = word.casefold()
-        if (blocked.hit(m.start(), m.end()) or _ordinary(word) or low.endswith(_ADJECTIVE_ENDINGS)
-                or low in _LOWER_SKIP or sum(1 for c in word if c.isalpha()) < 3):
-            continue
-        out.append((m.start("word"), m.end("form")))
-    for m in _KANZLEI_RE.finditer(text):
-        words = _trim(_words(text, m.start("words"), m.end("words")), False, text)
-        if words and not blocked.hit(m.start(), words[-1][1]):
-            out.append((m.start(), words[-1][1]))
-    return out
-
-
-def _runs(text: str) -> list[list[tuple[int, int, str]]]:
-    """Runs of name words that stand next to each other with only spaces or tabs between them."""
-    runs: list[list[tuple[int, int, str]]] = []
-    current: list[tuple[int, int, str]] = []
-    for m in _TOKEN_RE.finditer(text):
-        a, b, w = m.start(), m.end(), m.group(0)
-        glued = (a > 0 and (text[a - 1].isalnum() or text[a - 1] in "-_")) or (b < len(text) and text[b] in "-_")
-        if not _name_word(w) or glued:
-            if current:
-                runs.append(current)
-            current = []
-            continue
-        if current and not (text[current[-1][1]:a] and text[current[-1][1]:a].strip(" \t") == ""):
-            runs.append(current)
-            current = []
-        current.append((a, b, w))
-    if current:
-        runs.append(current)
-    return runs
-
-
-def _run_candidates(text: str, blocked: _Mask) -> list[tuple[int, int]]:
-    """Two or more name words in a row, anywhere, also at the start of a sentence."""
-    return _run_spans(text, blocked, sentence_only=False)
-
-
-def _sentence_pair_candidates(text: str, blocked: _Mask) -> list[tuple[int, int]]:
-    """Two or more name words in a row that start a sentence (after a full stop, ! or ?). The strong rules use
-    it; a capitalised pair at the start of a short text or in the middle of a sentence is left to the full
-    rules, so that a goal such as "Landing Zone for the first workload" still passes."""
-    return _run_spans(text, blocked, sentence_only=True)
-
-
-def _standalone(text: str, a: int, b: int) -> bool:
-    """The word text[a:b] is not glued into an identifier (the same test as in _runs)."""
-    return not ((a > 0 and (text[a - 1].isalnum() or text[a - 1] in "-_")) or (b < len(text) and text[b] in "-_"))
-
-
-def _gap_is_spaces(text: str, a: int, b: int) -> bool:
-    gap = text[a:b]
-    return bool(gap) and gap.strip(" \t") == ""
-
-
-def _particle_candidates(text: str, blocked: _Mask) -> list[tuple[int, int]]:
-    """First von|van|de|zu|vom|zur Last, also with a second particle (von der, de la). Not when the first word
-    is a German noun by its suffix ("Migration von Servern"), a sentence opener, a function word, a stop word or
-    the name of a tool. Not when the last word is one of the last three either."""
-    out: list[tuple[int, int]] = []
-    tokens = [(m.start(), m.end(), m.group(0)) for m in _TOKEN_RE.finditer(text)]
-    for i in range(1, len(tokens) - 1):
-        if tokens[i][2] not in _PARTICLES:
-            continue
-        first = tokens[i - 1]
-        j = i + 1
-        if (tokens[j][2] in _SECOND_PARTICLES and j + 1 < len(tokens)
-                and _gap_is_spaces(text, tokens[i][1], tokens[j][0])):
-            j += 1
-        last = tokens[j]
-        if not all(_gap_is_spaces(text, tokens[k][1], tokens[k + 1][0]) for k in range(i - 1, j)):
-            continue
-        low = first[2].casefold()
-        if (not _name_word(first[2]) or not _name_word(last[2]) or _ordinary(first[2]) or _ordinary(last[2])
-                or low in _OPENERS or low.endswith(_NOUN_SUFFIXES)):
-            continue
-        if not _standalone(text, first[0], first[1]) or not _standalone(text, last[0], last[1]):
-            continue
-        if not blocked.hit(first[0], last[1]):
-            out.append((first[0], last[1]))
-    return out
-
-
-def _pair_word(word: str) -> bool:
-    """One half of "Last, First": a name word of 3 to 20 letters that is no function word and no opener."""
-    letters = sum(1 for c in word if c.isalpha())
-    low = word.casefold()
-    return (_name_word(word) and _PAIR_MIN_LETTERS <= letters <= _PAIR_MAX_LETTERS
-            and low not in _FUNCTION_WORDS and low not in _OPENERS)
-
-
-def _stopish(word: str) -> bool:
-    low = word.casefold()
-    return low in _STOP_SINGLES or low in _TOOL_WORDS
-
-
-def _inverted_candidates(text: str, blocked: _Mask) -> list[tuple[int, int]]:
-    """Last, First: two capitalised words around a comma, each of 3 to 20 letters, not both stop words (or tool
-    names). Not inside a list of three or more capitalised items joined by commas or by the words and, und, or,
-    oder ("Linux, Windows, Terraform")."""
-    runs = _runs(text)
-    size = [1] * len(runs)   # how many items the list has that each run belongs to
-    k = 0
-    while k < len(runs):
-        m = k
-        while m + 1 < len(runs) and _LIST_JOIN_RE.fullmatch(text, runs[m][-1][1], runs[m + 1][0][0]):
-            m += 1
-        for x in range(k, m + 1):
-            size[x] = m - k + 1
-        k = m + 1
-    out: list[tuple[int, int]] = []
-    for k in range(len(runs) - 1):
-        (a1, b1, w1), (a2, b2, w2) = runs[k][-1], runs[k + 1][0]
-        if size[k] >= _LIST_MIN_ITEMS or not _COMMA_RE.fullmatch(text, b1, a2):
-            continue
-        if not (_pair_word(w1) and _pair_word(w2)) or (_stopish(w1) and _stopish(w2)):
-            continue
-        if not blocked.hit(a1, b1) and not blocked.hit(a2, b2):
-            out.append((a1, b2))
-    return out
-
-
-def _run_spans(text: str, blocked: _Mask, sentence_only: bool) -> list[tuple[int, int]]:
-    out: list[tuple[int, int]] = []
-    for run in _runs(text):
-        if len(run) < 2 or (sentence_only and not _sentence_start(text, run[0][0])):
-            continue
-        segment: list[tuple[int, int, str]] = []
-        segments: list[list[tuple[int, int, str]]] = []
-        for w in run:
-            low = w[2].casefold()
-            if blocked.hit(w[0], w[1]) or low in _STOP_SINGLES or low in _TOOL_WORDS:
-                segments.append(segment)
-                segment = []
-                continue
-            segment.append(w)
-        segments.append(segment)
-        for seg in segments:
-            seg = _trim(seg, True, text)
-            if len(seg) >= 2:
-                out.append((seg[0][0], seg[-1][1]))
-    return out
-
-
-def _title_candidates(text: str, blocked: _Mask) -> list[tuple[int, int]]:
-    """Up to _MAX_TITLE_WORDS name words after a salutation or title (Herr, Frau, Mr, Dr ...)."""
-    out: list[tuple[int, int]] = []
-    tokens = [(m.start(), m.end(), m.group(0)) for m in _TOKEN_RE.finditer(text)]
-    for i, (a, b, w) in enumerate(tokens):
-        if w.casefold() not in _TITLES:
-            continue
-        j = i + 1
-        names: list[tuple[int, int, str]] = []
-        prev_end = b
-        while j < len(tokens) and len(names) < _MAX_TITLE_WORDS:
-            ta, tb, tw = tokens[j]
-            gap = text[prev_end:ta]
-            if not gap or gap.strip(" \t.") or "\n" in gap:
-                break
-            if tw.casefold() in _TITLES and not names:
-                prev_end, j = tb, j + 1
-                continue
-            if not _name_word(tw) or _ordinary(tw) or blocked.hit(ta, tb):
-                break
-            names.append(tokens[j])
-            prev_end, j = tb, j + 1
-        if names:
-            out.append((names[0][0], names[-1][1]))
-    return out
-
-
-def _initial_candidates(text: str, blocked: _Mask) -> list[tuple[int, int]]:
-    """An initial with a full stop before a name word (X. Name), not the second letter of z. B. or u. a."""
-    out: list[tuple[int, int]] = []
-    for m in _INITIAL_RE.finditer(text):
-        before = text[max(0, m.start() - 3):m.start()]
-        if re.search(r"(?:^|[\s(])[^\W\d_]\.\s?$", before):
-            continue
-        t = _TOKEN_RE.match(text, m.end())
-        if not t or not _name_word(t.group(0)) or _ordinary(t.group(0)) or t.group(0).isupper():
-            continue
-        if not blocked.hit(m.start(), t.end()):
-            out.append((m.start(), t.end()))
-    return out
-
-
-def _spaced_words(stretch: str) -> list[str]:
-    """The words of a letter-spaced stretch. With single spaces between letters a wider gap is a word gap;
-    with wider, uneven gaps (pdftotext -layout) the letters are joined and split before a capital that
-    follows a small letter."""
-    gaps = [len(g) for g in re.findall(r"[ \t]+", stretch)]
-    if gaps and min(gaps) == 1:
-        chunks = re.split(r"[ \t]{2,}", stretch)
-    else:
-        chunks = [stretch]
-    words: list[str] = []
-    for chunk in chunks:
-        words.extend(w for w in _CAMEL_SPLIT_RE.split(re.sub(r"[ \t]", "", chunk)) if w)
-    return words
-
-
-def _spaced_candidates(text: str, blocked: _Mask) -> list[tuple[int, int]]:
-    """Letters spread with spaces (a letter-spaced heading). The letters are joined into words and the other
-    rules run over them: the whole spread-out stretch is a candidate when one of them fires."""
-    out: list[tuple[int, int]] = []
-    for m in _SPACED_RE.finditer(text):
-        if blocked.hit(m.start(), m.end()):
-            continue
-        if _collect(" ".join(_spaced_words(m.group(0))), [], _JOINED_RULES):
-            out.append((m.start(), m.end()))
-    return out
-
-
-def _label_candidates(text: str, blocked: _Mask) -> list[tuple[int, int]]:
-    out: list[tuple[int, int]] = []
-    for m in _LABEL_RE.finditer(text):
-        words = _words(text, m.start("value"), m.end("value"))[:_LABEL_WORDS]
-        words = [w for w in words if w[2].strip(".:-")]
-        if not words or codes.is_code(words[0][2].strip(".:")) or codes.is_project_code(words[0][2]):
-            continue
-        start, end = words[0][0], words[-1][1]
-        while end > start and text[end - 1] in ".:-":
-            end -= 1
-        if end > start and not blocked.hit(start, end):
-            out.append((start, end))
-    return out
-
-
-def _mail_candidates(text: str, names: _Mask) -> list[tuple[int, int]]:
-    """Person-like local parts of mail addresses. A local part that holds a registered name is known."""
-    out: list[tuple[int, int]] = []
-    for m in _MAIL_RE.finditer(text):
-        local = m.group("local")
-        if not _PERSON_LOCAL_RE.fullmatch(local):
-            continue
-        parts = [p.casefold() for p in re.split(r"[._-]", local) if p]
-        if any(p in _ROLE_WORDS for p in parts):
-            continue
-        a, b = m.span("local")
-        if not names.hit(a, b):
-            out.append((a, b))
-    return out
-
-
-def _collect(text: str, known: list[Span], rules) -> list[str]:
-    if not text:
-        return []
-    known = list(known)
-    names = _Mask(len(text), [s for s in known if s.cls == "name"])
-    blocked = _Mask(len(text), known + _stop_spans(text))
-    found: list[tuple[int, int, int]] = []   # (priority, start, end)
-    for prio, rule in enumerate(rules):
-        spans = rule(text, names if rule is _mail_candidates else blocked)
-        found.extend((prio, a, b) for a, b in spans)
-    kept: list[tuple[int, int]] = []
-    for _, a, b in sorted(found):
-        if all(b <= ka or a >= kb for ka, kb in kept):
-            kept.append((a, b))
-    out: list[str] = []
-    seen: set[str] = set()
-    for a, b in sorted(kept):
-        value = re.sub(r"\s+", " ", text[a:b]).strip()
-        key = value.casefold()
-        if value and key not in seen:
-            seen.add(key)
-            out.append(value)
-    return out
-
-
-_JOINED_RULES = (_company_candidates, _particle_candidates, _run_candidates, _title_candidates,
-                 _initial_candidates)
-_ALL_RULES = (_company_candidates, _label_candidates, _mail_candidates, _particle_candidates, _run_candidates,
-              _inverted_candidates, _title_candidates, _initial_candidates, _spaced_candidates)
-STRONG_RULES = (_company_candidates, _label_candidates, _mail_candidates, _particle_candidates,
-                _sentence_pair_candidates, _inverted_candidates, _title_candidates, _spaced_candidates)
+# the candidate rules live in awb/wipe.py; these names are the interface the rest of the Workbench uses
+STRONG_RULES = wipe.STRONG_RULES
 """The rules that rarely fire on ordinary words: a short text such as a project goal is checked with these."""
+keep_key = wipe.keep_key
+WipeSpan = wipe.WipeSpan
 
 
-def unknown_candidates(text: str, known: list[Span], rules=_ALL_RULES, keep=()) -> list[str]:
-    """Strings in `text` that look like names but are not covered by `known` (positions in `text`).
+def _collect(text: str, known: list[Span], state: wipe.WipeState | None = None) -> list[WipeSpan]:
+    """The candidates of `text` that `known` does not cover: spans with their class (person, company, place,
+    unknown) and the rule that found them (DESIGN.md section 2 of presentations/names)."""
+    return wipe.collect(text, known, state)
 
-    The rules: capitalised or lower-case words before a legal form (GmbH, mbH, AG, KG, SE, Ltd, Inc, e.V.,
-    e.K., eG, OHG, GbR, S.A., S.p.A., s.r.o., B.V., PLC and more, also in capitals) or after "Kanzlei"; the
-    words after a label such as "Kunde:" or "Customer:"; the local part of a mail address that looks like a
-    person (first.last, f.last); "First von Last" (also van, de, zu, vom, zur) unless the first word is a German
-    noun by its suffix; two or more name words in a row (capitalised in any alphabet or in capitals with four
-    letters or more) that are not stop words and not function words, also at the start of a sentence, where
-    only a sentence-opening word of rules/sentence-openers.txt is dropped; "Last, First" around a comma unless
-    both are stop words or the pair is part of a list of three or more capitalised items; up to three name
-    words after a salutation or title (Herr, Frau, Mr, Dr); an initial before a name word (X. Name); letters
-    spread out with spaces (a spaced heading) when the joined words meet one of the rules above.
 
-    `keep` holds phrases he reviewed as not a name (the keep list of the vault): a candidate equal to one of
-    them (case and whitespace aside) is dropped. The result is ordered by position, without duplicates. It goes
-    to the private report only.
-    """
-    found = _collect(text, known, rules)
-    if keep:
-        kept = {keep_key(k) for k in keep}
-        found = [c for c in found if keep_key(c) not in kept]
-    return found
+def unknown_candidates(text: str, known: list[Span], rules=wipe._ALL_RULES, keep=()) -> list[str]:
+    """The strings of `text` the rules of the first release take for names (wipe._ALL_RULES, or `rules`: the goal
+    check of `awb spawn` passes STRONG_RULES), ordered by position, without duplicates; a phrase of `keep` (the keep
+    list of the vault) is never one of them. The rules of wipe mode are `_collect`; `rules=None` gives its values.
+    Private: the values go to the private report only."""
+    if rules is None:
+        return wipe.wipe_values(text, known, keep)
+    return wipe.unknown_candidates(text, known, rules, keep)
 
 
 # --------------------------------------------------------------------------- the keep list
-
-
-def keep_key(phrase: str) -> str:
-    """The form under which a phrase and a candidate are compared: normalised, whitespace runs as one space,
-    case folded."""
-    return " ".join(normalize.normalize(phrase).text.split()).casefold()
 
 
 def _sealed_keep(p: config.Paths) -> Path:
@@ -813,7 +284,9 @@ def _canon(cls: str, value: str) -> str:
 
 
 class _Engine:
-    """Detection, tokens and replacement for one run. Holds the only map from values to tokens."""
+    """Detection, tokens and replacement for one run. Holds the only map from values to tokens: the codes of
+    registered forms, the tokens of structured data and, in `wipe`, the tokens of the candidates and the forms the
+    run learned."""
 
     def __init__(self, entries: list[register.Entry]):
         self.matcher = Matcher(register.forms_for_matching(entries))
@@ -825,11 +298,20 @@ class _Engine:
         self.used: set[str] = set(register.codes(entries))
         self.tokens: dict[tuple[str, str], str] = {}
         self.hits: dict[tuple[str, str], _report.Hit] = {}
-        self.keep: tuple[str, ...] = ()   # phrases of the keep list, dropped from the candidates
+        self.wipe = wipe.WipeState()
         # the second check (T-13): every registered variant as a skeleton, compared over whole words
         self._skeletons = {s for s in (skeleton(v) for v, _ in register.forms_for_matching(entries))
                            if len(s) >= _SKELETON_MIN}
         self._skeleton_max = max((len(s) for s in self._skeletons), default=0)
+
+    @property
+    def keep(self) -> tuple[str, ...]:
+        """The phrases of the keep list: never a candidate, never a learned form."""
+        return self.wipe.keep
+
+    @keep.setter
+    def keep(self, phrases) -> None:
+        self.wipe.keep = tuple(phrases)
 
     # tokens
 
@@ -857,6 +339,8 @@ class _Engine:
         raise IntakeError("could not find a free file id")
 
     def token_for(self, span: Span, value: str) -> str:
+        if span.cls in wipe.WIPE_CLASSES:
+            return wipe.token_for(self.wipe, span, value)
         if span.cls == "name" and span.code:
             return span.code
         key = (span.cls, _canon(span.cls, value))
@@ -870,19 +354,38 @@ class _Engine:
         key = (token, value.casefold())
         hit = self.hits.get(key)
         if hit is None:
-            hit = self.hits[key] = _report.Hit(token=token, cls=span.cls, value=value)
+            rule = ""
+            if span.cls in wipe.WIPE_CLASSES:
+                rule = wipe.LEARNED if (span.code or "").startswith("L:") else (span.form or "candidate")
+            hit = self.hits[key] = _report.Hit(token=token, cls=span.cls, value=value, rule=rule)
         hit.count += 1
         hit.where.setdefault(where, []).append(span.start)
+
+    def learned_forms(self) -> list[tuple[str, str, str]]:
+        """(form, class, the value it came from) of every form the run learned, for the private report."""
+        out = []
+        for low, (word, key) in sorted(self.wipe.learned.words.items()):
+            out.append((word, key[0], self.wipe.sources.get(low, "")))
+        return out
 
     # spans
 
     def raw_spans(self, text: str) -> tuple[list[Span], list[Span]]:
+        """Registered forms and structured data."""
         return self.matcher.find(text), patterns.find_structured(text)
 
+    def spans(self, text: str, candidates: bool = True) -> tuple[list[Span], list[Span]]:
+        """Registered forms, and structured data with the candidates and the learned forms of the run (wipe mode)."""
+        names, structured = self.raw_spans(text)
+        if not candidates:
+            return names, structured
+        return names, structured + wipe.wipe_spans(self.wipe, text, names, structured)
+
     def detect(self, where: str, text: str, names_only: bool = False) -> list[str]:
-        """Record every hit of `text` with its token and return the candidates of `text`. Positions are
-        recorded in `text` as given. With `names_only` only registered forms are looked for and no candidate
-        is returned (for raw parts that no reader renders)."""
+        """Record every registered form and piece of structured data of `text` with its token, learn the forms of
+        its candidates and return their values (for `--review`). Positions are recorded in `text` as given. With
+        `names_only` only registered forms are looked for and nothing is learned (for raw parts that no reader
+        renders). A file name is scanned but teaches nothing (a file named like a closing is no signer)."""
         if not text:
             return []
         n = normalize.normalize(text)
@@ -892,12 +395,22 @@ class _Engine:
             value = n.text[s.start:s.end]
             first = normalize.original_span(n, s.start, s.end)[0]
             self.record(where, Span(first, first + len(value), s.cls, s.code), value, self.token_for(s, value))
-        if names_only:
+        if names_only or where.endswith("file name"):
             return []
-        return unknown_candidates(n.text, names + structured, keep=self.keep)
+        spans = wipe.learn(self.wipe, n.text, names, structured)
+        out: list[str] = []
+        seen: set[str] = set()
+        for s in spans:
+            value = re.sub(r"\s+", " ", n.text[s.start:s.end]).strip()
+            if value and value.casefold() not in seen:
+                seen.add(value.casefold())
+                out.append(value)
+        return out
 
     def sanitize(self, text: str, where: str) -> tuple[str, Counter]:
-        """`text` with every hit replaced by its token, normalised. Counts per class of what was replaced."""
+        """`text` with every hit replaced by its token, normalised: the registered forms by their codes, structured
+        data, candidates and learned forms by their tokens; a [company] token right after the customer code merges
+        into the code. Counts per class of what was replaced."""
         counts: Counter = Counter()
         if not text:
             return text, counts
@@ -908,39 +421,45 @@ class _Engine:
         text = normalize.strip_invisible(text)
         for _ in range(MAX_PASSES):
             n = normalize.normalize(text)
-            spans = _resolve(*self.raw_spans(n.text))
+            spans = _resolve(*self.spans(n.text))
             if not spans:
-                return text, counts
+                break
 
             def token(s: Span, _t=n.text) -> str:
                 value = _t[s.start:s.end]
                 tok = self.token_for(s, value)
                 self.record(where, s, value, tok)
                 counts[s.cls] += 1
-                return tok
+                # a token never opens a Markdown link: "[person 1](...)" would read as one
+                return tok + " " if tok.startswith("[") and _t[s.end:s.end + 1] == "(" else tok
 
             text = self.matcher.replace(n.text, spans, token)
-        return text, counts
+        return wipe.merge_customer_code(text), counts
 
-    def final_hits(self, text: str) -> list[Span]:
+    def final_hits(self, text: str, candidates: bool = True) -> list[Span]:
         """Every hit the name check would report in `text`, including inside decoded base64 and hex blocks
-        and the printable strings of base64 blocks that decode to binary."""
+        and the printable strings of base64 blocks that decode to binary; with `candidates` also the candidates
+        and the learned forms of the run."""
         n = normalize.normalize(text)
-        names, structured = self.raw_spans(n.text)
+        names, structured = self.spans(n.text, candidates)
         hits = names + structured
         for block in encoded_texts(text):
             nb = normalize.normalize(block)
-            a, b = self.raw_spans(nb.text)
+            a, b = self.spans(nb.text, candidates)
             hits.extend(a + b)
         return hits
 
-    def second_hits(self, text: str) -> list[Span]:
+    def second_hits(self, text: str, learned: bool = True) -> list[Span]:
         """The second check (T-13), by another method than the matcher: the words of the normalised text are
         folded to their letters and joined one after the other; a run of whole words that spells a registered
-        variant is a hit, whatever stood between the words. A phrase of the keep list is left out. Also run over
-        decoded base64 and hex blocks."""
-        if not self._skeletons:
+        variant (with `learned` also a form the run learned) is a hit, whatever stood between the words. A phrase
+        of the keep list is left out. Also run over decoded base64 and hex blocks."""
+        skeletons = self._skeletons
+        if learned:
+            skeletons = skeletons | wipe.learned_skeletons(self.wipe)
+        if not skeletons:
             return []
+        longest = max(len(s) for s in skeletons)
         keep_res = [re.compile(r"\s+".join(re.escape(w) for w in keep_key(k).split()), re.IGNORECASE)
                     for k in self.keep if keep_key(k)]
         hits: list[Span] = []
@@ -952,9 +471,9 @@ class _Engine:
                 joined = ""
                 for j in range(i, len(words)):
                     joined += words[j][2]
-                    if len(joined) > self._skeleton_max:
+                    if len(joined) > longest:
                         break
-                    if joined not in self._skeletons:
+                    if joined not in skeletons:
                         continue
                     start, end = words[i][0], words[j][1]
                     single = i == j
@@ -966,9 +485,12 @@ class _Engine:
                     break
         return hits
 
-    def leaks(self, text: str) -> list[Span]:
-        """What neither the matcher nor the second check may find in a written output."""
-        return self.final_hits(text) + self.second_hits(text)
+    def leaks(self, text: str, candidates: bool = True) -> list[Span]:
+        """What neither the matcher nor the second check may find in a written output; with `candidates` the
+        candidate rules and the learned forms may find nothing either."""
+        if candidates:
+            return self.final_hits(text) + self.second_hits(text)
+        return self.final_hits(text, candidates=False) + self.second_hits(text, learned=False)
 
 
 # --------------------------------------------------------------------------- the run
@@ -1049,7 +571,7 @@ def _walk(ex, part_id: str):
 def _suffix(name: str, engine: _Engine) -> str:
     """The original suffix when it is a plain short suffix that carries nothing, else none."""
     suffix = Path(name).suffix
-    if re.fullmatch(r"\.[A-Za-z0-9]{1,8}", suffix) and not engine.final_hits(suffix[1:]):
+    if re.fullmatch(r"\.[A-Za-z0-9]{1,8}", suffix) and not engine.final_hits(suffix[1:], candidates=False):
         return suffix.lower()
     return ""
 
@@ -1187,10 +709,16 @@ def _move_original(src: Path, dst: Path) -> None:
     os.chmod(dst, 0o600)
 
 
+def _readable(word: str, text: str) -> bool:
+    return word.casefold() in text.casefold()
+
+
 def selftest() -> list[str]:
     """Every case of awb.planted, run through an engine of its own with an invented register: the matcher must
     report the case's class and the second check must find the cases marked for it. After the sanitising
-    neither may find anything. Returns the failures, empty when all pass (R-004, T-94)."""
+    neither may find anything. Then the wipe cases: each planted name must come out as a token of its class and
+    nothing of it readable, every control term must come out untouched, and the self-test's customer inside a
+    company shape must become the code. Returns the failures, empty when all pass (R-004, T-94)."""
     from awb import planted
 
     failures: list[str] = []
@@ -1206,12 +734,43 @@ def selftest() -> list[str]:
             failures.append("%s: something is left after the sanitising" % label)
     if engine.leaks("release 1.4.2 for %s in tcp-q7m4, two app clusters, one per zone" % planted.CODE):
         failures.append("clean text: a check reports a hit")
+    for label, text, words, cls in planted.WIPE_CASES:
+        e = _Engine(planted.entries())
+        e.detect("selftest detect", text)
+        clean, _ = e.sanitize(text, "selftest")
+        if any(_readable(w, clean) for w in words):
+            failures.append("%s: a planted name is left after the sanitising" % label)
+        if not re.search(r"\[%s \d+\]" % wipe.TOKEN_TEXT[cls if cls != "name" else "unknown"], clean):
+            failures.append("%s: no %s token" % (label, cls))
+        if e.leaks(clean):
+            failures.append("%s: a check reports a hit after the sanitising" % label)
+    for i, term in enumerate(planted.CONTROL_TERMS, start=1):
+        e = _Engine(planted.entries())
+        for text in ("Wir prüfen %s heute." % term, "| %s | 2 |" % term):
+            e.detect("selftest detect", text)
+            clean, _ = e.sanitize(text, "selftest")
+            if term not in clean:
+                failures.append("control term %d is wiped" % i)
+                break
+    e = _Engine(planted.entries())
+    label, text = planted.CUSTOMER_CASE
+    e.detect("selftest detect", text)
+    clean, _ = e.sanitize(text, "selftest")
+    if planted.CUSTOMER_CODE not in clean or "[" in clean or _readable(planted.CUSTOMER_SHORT, clean) \
+            or _readable("Spedition", clean):
+        failures.append("%s: the customer form does not become the code" % label)
     return failures
 
 
-def run(files: list[Path], customer: str, p: config.Paths, *, force: bool = False) -> IntakeResult:
-    """Take `files` in for `customer` (a CUST code or "new"). See the module text for the steps. Nothing is
-    read before the self-test passed."""
+def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = False, edit=None,
+        confirm=None, redo: dict | None = None) -> IntakeResult:
+    """Take `files` in for `customer` (a CUST code or "new") in wipe mode. See the module text for the steps.
+    Nothing is read before the self-test passed. With `review` the run first stops on the candidates and hands
+    them to the review of `awb register review` (its editor, marks, register and keep list; `edit` and `confirm`
+    stand in for the editor and the question in the tests), then goes on in wipe mode with the register and the
+    keep list of after the review: a candidate left for later is wiped like any other. `redo` maps each file to
+    (file id, its original in the vault): a copy of an original taken out of the vault runs again under its file id,
+    its output replaces the one in the outbox, and nothing moves into the vault (`awb import --redo`)."""
     files = [Path(f) for f in files]
     if not files:
         raise IntakeError("no files given")
@@ -1232,35 +791,47 @@ def run(files: list[Path], customer: str, p: config.Paths, *, force: bool = Fals
 
     # one intake at a time and never while `awb vault encrypt` runs: an original written in plaintext after the
     # encryption passed its folder would stay in plaintext
+    reviewed = 0
     try:
+        if review:
+            with vault.vault_lock(p):
+                customer, report, reviewed = _review_stop(files, customer, p)
+            if reviewed:
+                from awb import candidates
+
+                try:
+                    candidates.review(p, customer, report, edit=edit, confirm=confirm, next_step=False)
+                except candidates.ReviewError as err:
+                    raise IntakeError("review: %s" % err) from None
         with vault.vault_lock(p):
-            return _run(files, customer, p, force=force)
+            return _run(files, customer, p, reviewed=reviewed, redo=redo)
     except vault.VaultError as err:
         raise IntakeError(str(err)) from None
 
 
-def _run(files: list[Path], customer: str, p: config.Paths, *, force: bool = False) -> IntakeResult:
-    # an encrypted register is read through the vault daemon; originals and private reports are then sealed
-    encrypted = vault_encrypted(p)
+def _detect_all(files: list[Path], customer: str, p: config.Paths, redo: dict | None = None):
+    """Steps 2 to 4: the customer, file ids, extraction, detection and the forms the run learns. No stop."""
     entries = register.load(p.register)
     cust, is_new = _resolve_customer(customer, entries, p)
     engine = _Engine(entries)
     engine.keep = tuple(load_keep(p))
     now = datetime.now()
     rec = _report.Run(date=now.date().isoformat(), time=now.strftime("%H:%M:%S"), customer=cust,
-                      new_customer=is_new, force=force, blocked=False, register_forms=engine.forms)
-
-    # steps 2 to 4: file ids, extraction, detection, candidates
+                      new_customer=is_new, register_forms=engine.forms)
     taken = _taken_ids(p, cust)
     extractions: dict[str, list[tuple[str, object]]] = {}
     for src in files:
-        fid = engine.fresh_file_id(taken)
+        if redo is not None:
+            fid = redo[src][0]
+            if not FILE_ID_RE.fullmatch(fid):
+                raise IntakeError("a file of the redo has no file id")
+        else:
+            fid = engine.fresh_file_id(taken)
         with _extract.temp_root(p.vault / "tmp"):
             ex = _extract.extract(src)
         fr = _report.FileRecord(file_id=fid, original_name=src.name, kind=ex.kind, state=ex.state)
         name_text = re.sub(r"_+", " ", src.name)
-        for c in engine.detect("%s file name" % fid, name_text):
-            rec.candidates.append((fid, c))
+        engine.detect("%s file name" % fid, name_text)
         parts = list(_walk(ex, fid))
         extractions[fid] = parts
         for part_id, pex in parts:
@@ -1275,7 +846,6 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, force: bool = Fal
                 rec.candidates.append((part_id, c))
             engine.detect("%s raw parts" % part_id, getattr(pex, "scan_text", "") or "", names_only=True)
         rec.files.append(fr)
-
     seen: set[str] = set()
     unique: list[tuple[str, str]] = []
     for pid, c in rec.candidates:
@@ -1283,30 +853,41 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, force: bool = Fal
             seen.add(c.casefold())
             unique.append((pid, c))
     rec.candidates = unique
-    rec.candidate_count = len(unique)
-    states = {f.file_id: f.state for f in rec.files}
+    return cust, engine, rec, extractions, now
 
+
+def _review_stop(files: list[Path], customer: str, p: config.Paths) -> tuple[str, Path, int]:
+    """The stop of `--review`: detection only, the candidates into a private report for the review; nothing is
+    written to the outbox and no original moves. Returns the customer code, the report and the number of
+    candidates."""
+    encrypted = vault_encrypted(p)
+    cust, engine, rec, _, now = _detect_all(files, customer, p)
+    rec.stopped = True
+    rec.hits = list(engine.hits.values())
+    path = p.private_reports / cust / ("%s.md" % now.strftime("%Y-%m-%d-%H%M%S"))
+    try:
+        written, _ = _write_private_report(p, path, rec, encrypted)
+    except _Undo:
+        raise IntakeError(UNDONE) from None
+    return cust, written, len(rec.candidates)
+
+
+def _run(files: list[Path], customer: str, p: config.Paths, *, reviewed: int = 0,
+         redo: dict | None = None) -> IntakeResult:
+    # an encrypted register is read through the vault daemon; originals and private reports are then sealed
+    encrypted = vault_encrypted(p)
+    cust, engine, rec, extractions, now = _detect_all(files, customer, p, redo)
+    rec.reviewed = reviewed
     stamp = now.strftime("%Y-%m-%d-%H%M%S")
     private_path = p.private_reports / cust / ("%s.md" % stamp)
     public_path = p.outbox / cust / _report.PUBLIC_NAME
-
-    # step 5: block
-    if unique and not force:
-        rec.blocked = True
-        rec.hits = list(engine.hits.values())
-        try:
-            written, unsealed = _write_private_report(p, private_path, rec, encrypted)
-        except _Undo:
-            raise IntakeError(UNDONE) from None
-        return IntakeResult(customer=cust, outputs=[], public_report=public_path, private_report=written,
-                            blocked=True, candidates=len(unique), states=states, unsealed=unsealed)
 
     # steps 6 and 7: sanitise, write, check each output once more
     outdir = config.make_dir(p.outbox / cust, 0o750, shared=True)
     outputs: list[Path] = []
     check_failed: set[str] = set()
     try:
-        _write_outputs(rec, extractions, engine, outdir, outputs, check_failed)
+        _write_outputs(rec, extractions, engine, outdir, outputs, check_failed, replace=redo is not None)
     except BaseException:
         # never leave a half run behind: the outputs of this run go, the originals stay in the inbox
         for out in outputs:
@@ -1315,8 +896,15 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, force: bool = Fal
 
     # step 8: move the originals of every file that passed the final check; seal them in an encrypted vault
     unsealed = 0
+    pictures_total = 0
     moved: list[tuple[Path, Path, str]] = []
     for src, fr in zip(files, rec.files):
+        if redo is not None:
+            # the original has lain in the vault since its first import, its pictures are held
+            fr.original = redo[src][1]
+            if fr.file_id in check_failed:
+                fr.reasons.append("the redo of this file failed the final check, no copy in the outbox")
+            continue
         if fr.file_id in check_failed:
             fr.reasons.append("original left in the inbox because the final check failed")
             continue
@@ -1327,6 +915,7 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, force: bool = Fal
             pictures = 0
             fr.reasons.append("pictures not held (%s)" % type(err).__name__)
         if pictures:
+            pictures_total += pictures
             fr.parts[0].public_notes.append("%d picture(s) held on the vault side, released only by awb images "
                                             "release after a look" % pictures)
         try:
@@ -1349,6 +938,7 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, force: bool = Fal
 
     # step 9: reports
     rec.hits = list(engine.hits.values())
+    rec.learned = engine.learned_forms()
     public_text = _public_text(rec, engine)
     public_written = _report.write_public(public_path, public_text)
     try:
@@ -1356,32 +946,70 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, force: bool = Fal
     except _Undo as undo:
         _undo(p, cust, moved, outputs, [public_written, undo.path])
         raise IntakeError(UNDONE) from None
+    wiped: Counter = Counter()
+    for f in rec.files:
+        for part in f.parts:
+            for cls, n in part.counts.items():
+                if cls in wipe.WIPE_CLASSES:
+                    wiped[wipe.TOKEN_TEXT[cls]] += n
     return IntakeResult(customer=cust, outputs=outputs, public_report=public_written,
-                        private_report=private_written, blocked=False, candidates=len(unique),
-                        states={f.file_id: f.state for f in rec.files}, unsealed=unsealed + report_unsealed)
+                        private_report=private_written, states={f.file_id: f.state for f in rec.files},
+                        unsealed=unsealed + report_unsealed, wiped=wiped, held=sorted(check_failed),
+                        pictures=pictures_total, reviewed=reviewed, candidates=len(rec.candidates))
 
 
 def _public_text(rec: _report.Run, engine: _Engine) -> str:
-    """The public report, checked like an output. Notes that carry a hit are withheld; when the report still
-    carries one, only the counts go out."""
+    """The public report, checked like an output against the registered forms and the structured patterns only:
+    it carries no customer text, and a learned word its own template carries (Candidates, Files) must not
+    withhold it (decision 22). Notes that carry a hit are withheld; when the report still carries one, only the
+    counts go out."""
     text = _report.render_public(rec)
-    if not engine.leaks(text):
+    if not engine.leaks(text, candidates=False):
         return text
     for fr in rec.files:
         for part in fr.parts:
             part.public_notes = ["notes withheld, see the private report"] if part.notes else []
     text = _report.render_public(rec)
-    if not engine.leaks(text):
+    if not engine.leaks(text, candidates=False):
         return text
     text = _report.render_minimal(rec)
-    if engine.leaks(text):
+    if engine.leaks(text, candidates=False):
         raise IntakeError("the public report of %s does not pass the final check" % rec.customer)
     return text
 
 
+_HEADER_LINE_RE = re.compile(r"(?m)^(?:#{1,2} F-[A-Z2-7]{4}(?:\.\d+)*|- (?:file id|kind|state): [^\n]*)$")
+_NOTES_LINE_RE = re.compile(r"(?m)^- notes: ")
+_READER_MARKS_RE = re.compile(r"[*`|]|</?[A-Za-z][^<>\n]{0,80}>")
+
+
+def _body_view(text: str) -> str:
+    """An output without the header lines the intake writes itself (`# F-ABCD`, `- file id:` ...); the notes stay
+    as text. The candidate rules never read those lines: a header is no speaker label."""
+    return _NOTES_LINE_RE.sub("", _HEADER_LINE_RE.sub("", text))
+
+
+def _body_hits(engine: _Engine, text: str) -> list[Span]:
+    """The candidates and learned forms left in the body of an output, and the learned forms in the body as a reader
+    reads it (marks and table borders as spaces, so that cells join). Candidates of the joined view do not count:
+    two cells side by side are no run of a sentence, and the column rules have read the table."""
+    body = _body_view(text)
+    n = normalize.normalize(body).text
+    names, structured = engine.raw_spans(n)
+    hits = wipe.wipe_spans(engine.wipe, n, names, structured)
+    reader = _READER_MARKS_RE.sub(lambda m: " " * len(m.group(0)), n)
+    if reader != n:
+        names, structured = engine.raw_spans(reader)
+        hits += [s for s in wipe.wipe_spans(engine.wipe, reader, names, structured)
+                 if (s.code or "").startswith("L:")]
+    return hits
+
+
 def _write_outputs(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Path],
-                   check_failed: set[str]) -> None:
-    """Steps 6 and 7: sanitise every file, write its output and check it before and after writing."""
+                   check_failed: set[str], replace: bool = False) -> None:
+    """Steps 6 and 7: sanitise every file, write its output and check it before and after writing: the
+    registered forms, the structured data and the second check over the whole text, the candidate rules and the
+    learned forms over the body."""
     for fr in rec.files:
         bodies: dict[str, str] = {}
         by_id = dict(extractions[fr.file_id])
@@ -1398,14 +1026,18 @@ def _write_outputs(rec, extractions, engine: _Engine, outdir: Path, outputs: lis
             continue
         out = outdir / ("%s.md" % fr.file_id)
         text = _output_text(fr, bodies)
-        hits = engine.leaks(text)
+        hits = engine.leaks(text, candidates=False) + _body_hits(engine, text)
         if not hits:
-            written = _report.write_new(out, text, 0o640, 0o750)
+            if replace:
+                written = _report.write_replace(out, text, 0o640, 0o750)
+            else:
+                written = _report.write_new(out, text, 0o640, 0o750)
             if written != out:  # the file id was taken meanwhile: never write under another name
                 written.unlink(missing_ok=True)
                 raise IntakeError("output %s already exists" % fr.file_id)
             outputs.append(out)   # from here on a failure of the run removes it again
-            hits = engine.leaks(out.read_text(encoding="utf-8"))
+            written_text = out.read_text(encoding="utf-8")
+            hits = engine.leaks(written_text, candidates=False) + _body_hits(engine, written_text)
             if hits:
                 out.unlink(missing_ok=True)
                 outputs.remove(out)
@@ -1417,6 +1049,28 @@ def _write_outputs(rec, extractions, engine: _Engine, outdir: Path, outputs: lis
             fr.parts[0].public_notes.append("final check failed, output deleted")
             continue
         fr.output = out
+
+
+def wipe_text(text: str, p: config.Paths) -> str:
+    """One text through wipe mode without an import (the task description of a lab project, decision 16): an
+    engine of its own with the register and the keep list, the forms its candidates teach, then the sanitising.
+    The caller has checked the text against the register before; the self-test runs first."""
+    failed = selftest()
+    if failed:
+        raise IntakeError("the intake failed its self-test: %s" % "; ".join(failed))
+    engine = _Engine(register.load(p.register))
+    engine.keep = tuple(load_keep(p))
+    engine.detect("text detect", text)
+    clean, _ = engine.sanitize(text, "text output")
+    if _body_hits(engine, clean) or engine.leaks(clean, candidates=False):
+        raise IntakeError("the final check found something left in the text")
+    return clean
+
+
+def wiped_text(counts: Counter) -> str:
+    """The wiped values per token class in one line: "person 3, company 1, name 2", or "nothing"."""
+    items = [(word, counts.get(word, 0)) for word in ("person", "company", "place", "name")]
+    return ", ".join("%s %d" % kv for kv in items if kv[1]) or "nothing"
 
 
 def inbox_files(p: config.Paths) -> list[Path]:

@@ -124,12 +124,27 @@ def test_public_private_content_held_and_never_published(materials):
         s.text(p.code, ident)
 
 
-def test_unknown_customer_name_requires_review(materials):
+def test_unknown_customer_name_is_wiped_not_held(materials):
+    """Replaces test_unknown_customer_name_requires_review (wipe mode, T4): the customer path never answers with a
+    hold for a name; the name is a token in the copy."""
     s, c, _, p = materials
-    ident, key, _ = import_one(s, c, p, "customer", fixtures.PLANTED_CANDIDATE)
-    assert s.history(p.code)["items"][0]["state"] == "held"
-    assert not (Path(p.path) / "input" / (ident + ".md")).exists()
+    ident, key, _ = import_one(s, c, p, "customer", "Offer of the %s for the backup." % fixtures.PLANTED_CANDIDATE)
+    row = s.history(p.code)["items"][0]
+    assert row["state"] == "ready", row
+    out = s.text(p.code, ident)["text"]
+    assert fixtures.PLANTED_CANDIDATE not in out and "[company 1]" in out
     assert c.head(key) is not None
+
+
+def test_a_name_in_a_task_description_is_wiped_not_held(materials):
+    """Decision 16 of wipe mode: the task-description path wipes like the customer path."""
+    s, c, p, _ = materials
+    ident, key, _ = import_one(s, c, p, text="please call Herr %s about the backup options." % fixtures.PLANTED_PERSON)
+    row = s.history(p.code)["items"][0]
+    assert row["state"] == "ready", row
+    out = s.text(p.code, ident)["text"]
+    assert fixtures.PLANTED_PERSON.split()[1] not in out and "[person 1]" in out
+    assert (Path(p.path) / "input" / row["filename"]).read_text() == out
 
 
 def test_versions_preserved_and_changed_object_rejected(materials):

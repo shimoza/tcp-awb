@@ -18,8 +18,8 @@ The cases file is a Python module that defines CASES, a list of dicts:
     note      optional
 
 Every case runs in a fresh throw-away Workbench (its own shared side, vault side and register of invented
-names). The intake runs without --force first; when it blocks (unregistered name candidates), it runs again
-with --force in another fresh Workbench, because --force is a real path of the owner. Then everything a
+names). The intake runs once, in wipe mode: it never blocks since T4 (2026-10-08), so the second run with --force
+of the first release is gone (the result fields blocked and forced stay for older result files). Then everything a
 session could read on the shared side (the outbox, the public report, file names) is searched for every
 planted value in the readers' views: raw, case folded, a reader's skeleton (compatibility forms and look-alike
 letters folded, accents and separators dropped), whole-word for short values, leet substitutions, reversed
@@ -222,8 +222,9 @@ def shared_texts(p) -> list[tuple[str, str]]:
     return out
 
 
-def run_once(case: dict, root: Path, force: bool) -> dict:
-    """One intake of the case in a fresh Workbench under `root`; the AWB_* environment is put back afterwards."""
+def run_once(case: dict, root: Path, force: bool = False) -> dict:
+    """One intake of the case in a fresh Workbench under `root`; the AWB_* environment is put back afterwards.
+    `force` is recorded only: wipe mode has nothing to force."""
     from awb import intake
 
     saved = {k: os.environ.get(k) for k in _ENV_KEYS}
@@ -236,7 +237,7 @@ def run_once(case: dict, root: Path, force: bool) -> dict:
             src = Path(case["build"](p.inbox))
             if not src.is_file():
                 raise RuntimeError("build did not return a file")
-            res = intake.run([src], "CUST-Q7M4", p, force=force)
+            res = intake.run([src], "CUST-Q7M4", p)
             rec["blocked"] = res.blocked
             rec["candidates"] = res.candidates
             rec["states"] = dict(res.states)

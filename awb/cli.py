@@ -1,7 +1,7 @@
 """The `awb` command.
 
     awb init
-    awb intake --customer CODE|new [--force] [FILE...]      (no FILE: every file in the vault inbox)
+    awb intake --customer CODE|new [--review] [FILE...]     (no FILE: every file in the vault inbox)
     awb register add CODE KIND FORM                          (FORM "-" reads the form from standard input)
     awb register new KIND [--parent CODE]
     awb register list [--forms]
@@ -50,7 +50,7 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     sudo awb web publish --from-queue ID|FILE|--rollback [NAME], awb web status    awb/tcp/web/publish.py (owner side)
     awb ui submit TASKFILE [--mail], awb ui status [--ended], awb ui watch ID      awb/tcp/ui.py   (owner side)
 
-Exit codes: 0 ok, 1 findings or blocked, 2 usage or error.
+Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 
 Only `awb register list --forms` prints a written form and only `awb register keep --list` prints a kept phrase:
 both are the vault side. `awb register keep PHRASE` takes any phrase and prints counts only. Every other command
@@ -134,20 +134,16 @@ def _cmd_intake(args, p: config.Paths) -> int:
     files = [Path(f) for f in args.files] if args.files else intake.inbox_files(p)
     if not files:
         return _err("intake: no files given and the inbox is empty")
-    res = intake.run(files, args.customer, p, force=args.force)
+    if args.review and not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return _err("intake: --review opens an editor, run it in your own terminal")
+    res = intake.run(files, args.customer, p, review=args.review)
     if res.unsealed:
         # the run is done; what could not be sealed stays inside the vault in plaintext
         print("awb: intake %s: %d files of this run are not sealed in the vault, see the private report"
               % (res.customer, res.unsealed), file=sys.stderr)
-    if res.blocked:
-        print("intake %s blocked: %d candidates, nothing was written to the outbox" % (res.customer, res.candidates))
-        print("private report (vault side): %s" % res.private_report)
-        print("sort them in one pass in your own terminal: awb register review %s (mark the real names, the rest "
-              "passes), then run again with --customer %s" % (res.customer, res.customer))
-        return EXIT_ERROR if res.unsealed else EXIT_FINDINGS
     states = Counter(res.states.values())
-    print("intake %s: %d files, %d outputs, %d candidates reviewed"
-          % (res.customer, len(res.states), len(res.outputs), res.candidates))
+    print("intake %s: %d files, %d outputs, wiped %s"
+          % (res.customer, len(res.states), len(res.outputs), intake.wiped_text(res.wiped)))
     print("states: %s" % ", ".join("%s %d" % kv for kv in sorted(states.items())))
     print("outbox: %s" % res.public_report.parent)
     print("public report: %s" % res.public_report)
@@ -432,7 +428,7 @@ def _build() -> argparse.ArgumentParser:
 
     s = sub.add_parser("intake", help="take customer material in: sanitised copies to the outbox")
     s.add_argument("--customer", required=True, metavar="CODE|new", help="a CUST code or new")
-    s.add_argument("--force", action="store_true", help="write outputs even when candidates were found")
+    s.add_argument("--review", action="store_true", help="stop once on the candidates and review them in an editor")
     s.add_argument("files", nargs="*", metavar="FILE", help="files to take in (default: the vault inbox)")
     s.set_defaults(func=_cmd_intake)
 

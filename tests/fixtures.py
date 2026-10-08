@@ -81,3 +81,19 @@ PLANTED_CANDIDATE = "Nrgtz Beratung GmbH"
 
 # an unregistered invented person for the candidate rules (two capitalised words, a mail local part)
 PLANTED_PERSON = "Xqarv Pomblet"
+
+# the invented names of the wipe cases (T4, wipe mode); none of them is registered. Each one is built from single
+# words, so that no capitalised run of two words stands in this file (tests/test_self_clean.py reads them)
+SECOND_FIRST = "Ulvrad"
+SECOND_LAST = "Qesmotz"
+SECOND_PERSON = SECOND_FIRST + " " + SECOND_LAST
+SECOND_COMPANY = " ".join(("Grvetz", "Systemhaus", "AG"))
+CYRILLIC_PERSON = "Ксарв Помблет"
+CYRILLIC_GENITIVE = "Помблета"
+PLANTED_STREET = "Xqarvstraße 12"
+
+# the self-test's own customer (awb/planted.py carries the same strings): its short form inside a company shape must
+# become the code
+SELFTEST_CUSTOMER_CODE = "CUST-SELF"
+SELFTEST_CUSTOMER_SHORT = "Wqyzt"
+SELFTEST_CUSTOMER_FORM = " ".join((SELFTEST_CUSTOMER_SHORT, "Spedition", "GmbH"))
