@@ -60,6 +60,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - A package upgrade no longer locks the Workbench. The project chat says when the name check is locked instead of
   calling the project unavailable.
 - The deploy no longer reports a restarted socket unit as failed.
+- `awb web status` without sudo says the sign-in log needs sudo instead of stopping with an error.
 
 ### Security
 

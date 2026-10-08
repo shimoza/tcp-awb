@@ -387,8 +387,11 @@ def signin_lines(log: Path, now: float | None = None) -> list[str]:
 
     now = time.time() if now is None else now
     if not os.access(log, os.R_OK):
-        return ["sign-ins: %s" % ("no log yet" if not log.exists() and os.access(log.parent, os.R_OK)
-                                  else "run sudo awb web status to read the log")]
+        try:
+            missing = not log.exists() and os.access(log.parent, os.R_OK)
+        except PermissionError:
+            missing = False
+        return ["sign-ins: %s" % ("no log yet" if missing else "run sudo awb web status to read the log")]
     day = [e for e in gateway.read_log(log, now - 24 * 3600) if e[0] <= now]
     counts = Counter(result for _, _, result in day)
     out = ["sign-ins, last 24 h: %d (%s)" % (len(day), ", ".join("%s %d" % kv for kv in sorted(counts.items()))
