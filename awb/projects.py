@@ -770,3 +770,32 @@ def record(p: _config.Paths, project: Project, done: str, tags: list[str] = (), 
     ledger.add("other", done, project=project.code,
                customer=None if project.customer == NO_CUSTOMER else project.customer, tags=list(tags),
                outcome=outcome, p=p)
+
+
+def open_session(p: _config.Paths, code: str, run=subprocess.call) -> int:
+    """Start a session in a project as the work user in the current terminal (T5): `sudo -n -u WORK -H bash -lc
+    'cd FOLDER && claude'`. The folder comes from the register. Refused as the work user, for an unknown or deleted
+    code, without a work user, for a missing folder and where `sudo -n` is not allowed. Returns the session's exit
+    code."""
+    import shlex
+
+    if _config.is_work_user():
+        raise ProjectError("awb projects open runs on the owner side, not as the work user")
+    if not isinstance(code, str) or not _codes.is_project_code(code):
+        raise ProjectError("not a project code")
+    pr = next((r for r in load(p) if r.code == code), None)
+    if pr is None:
+        raise ProjectError("project %s is not registered" % code)
+    if pr.state == "deleted":
+        raise ProjectError("project %s is deleted" % code)
+    work = _config.work_user()
+    if not work:
+        raise ProjectError("no work user on this host: open the folder with claude yourself")
+    folder = Path(pr.path)
+    if folder.is_symlink() or not folder.is_dir():
+        raise ProjectError("the folder of %s is missing" % code)
+    sudo = shutil.which("sudo")
+    if not sudo or run([sudo, "-n", "-u", work, "true"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL) != 0:
+        raise ProjectError("sudo -n is not allowed here: start the session from a shell of %s" % work)
+    return run([sudo, "-n", "-u", work, "-H", "bash", "-lc", "cd %s && claude" % shlex.quote(str(folder))])

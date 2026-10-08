@@ -40,6 +40,8 @@ def test_the_work_rules_stay_within_their_line_budget():
     "goes into OPEN.md with its default",   # T13: a question that does not stop the work is not asked in the chat
     "a \"go\" covers the whole list",        # T13: never re-ask after a go
     "the user and the window named",        # T13: a command for him names the user and the window
+    "At most one command block per reply",  # T5: one block for him at most
+    "one line naming the user and the command",  # T5: a held take or a blocked intake is one line, no explanation
 ])
 def test_the_work_rules_carry_each_rule(must):
     assert must in text()

@@ -1532,8 +1532,43 @@
    "name": "setup refuses a missing admin login and a bad domain id",
    "run": ".venv/bin/pytest tests/test_tenants.py::test_setup_refuses_a_missing_admin_login_and_a_bad_domain_id",
    "status": "passing"
+  },
+  {
+   "id": "T5-1",
+   "phase": "T5",
+   "name": "the work rules keep their 60-line budget and pass the writing check with the T5 line (one command block per reply, a held take in one line)",
+   "run": ".venv/bin/pytest tests/test_work_rules.py",
+   "status": "passing"
+  },
+  {
+   "id": "T5-2",
+   "phase": "T5",
+   "name": "awb projects open runs the session as the work user with sudo -n in the project folder",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_open_runs_the_session_as_the_work_user",
+   "status": "passing"
+  },
+  {
+   "id": "T5-3",
+   "phase": "T5",
+   "name": "awb projects open refuses an unknown, malformed or deleted code with one line and exit 2",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_open_refuses_an_unknown_or_deleted_code",
+   "status": "passing"
+  },
+  {
+   "id": "T5-4",
+   "phase": "T5",
+   "name": "awb projects open is refused for the work user",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_open_is_refused_for_the_work_user",
+   "status": "passing"
+  },
+  {
+   "id": "T5-5",
+   "phase": "T5",
+   "name": "awb projects open is refused where sudo -n is not allowed",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_open_is_refused_where_sudo_n_is_not_allowed",
+   "status": "passing"
   }
  ],
- "total_tests": 2438,
+ "total_tests": 224,
  "checked": "2026-10-08"
 }

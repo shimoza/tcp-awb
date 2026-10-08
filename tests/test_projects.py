@@ -403,6 +403,71 @@ def test_close_refuses_unknown_or_malformed_code(home, register_path):
     fixtures.assert_no_fixture_name(str(ei.value), "error message")
 
 
+
+# --- open (T5) ----------------------------------------------------------------------------------------------
+
+def _fake_sudo(tmp_path, monkeypatch, allowed=True) -> Path:
+    """A sudo on PATH that writes its arguments, one call per line, and refuses `-n` when not allowed."""
+    bindir = tmp_path / "fakebin"
+    bindir.mkdir()
+    log = tmp_path / "sudo.log"
+    sudo = bindir / "sudo"
+    sudo.write_text("#!/bin/sh\nprintf '%%s|' \"$@\" >> %s\necho >> %s\nexit %d\n"
+                    % (log, log, 0 if allowed else 1), encoding="utf-8")
+    sudo.chmod(0o755)
+    monkeypatch.setenv("PATH", "%s:%s" % (bindir, os.environ.get("PATH", "")))
+    monkeypatch.setattr(awb.config, "work_user", lambda: "awbwork")
+    monkeypatch.setattr(awb.config, "is_work_user", lambda: False)
+    return log
+
+
+def _open(code, capsys) -> tuple[int, list[str]]:
+    from awb import cli
+
+    rc = cli.main(["projects", "open", code])
+    return rc, capsys.readouterr().err.strip().splitlines()
+
+
+def test_open_runs_the_session_as_the_work_user(home, register_path, tmp_path, monkeypatch, capsys):
+    pr = _spawn(home, register_path)
+    log = _fake_sudo(tmp_path, monkeypatch)
+    rc, err = _open(pr.code, capsys)
+    assert (rc, err) == (0, [])
+    calls = log.read_text(encoding="utf-8").splitlines()
+    assert calls == ["-n|-u|awbwork|true|",
+                     "-n|-u|awbwork|-H|bash|-lc|cd %s && claude|" % pr.path]
+
+
+@pytest.mark.parametrize("state", ["unknown", "malformed", "deleted"])
+def test_open_refuses_an_unknown_or_deleted_code(home, register_path, tmp_path, monkeypatch, capsys, state):
+    pr = _spawn(home, register_path)
+    code = {"unknown": "tcp-zzzz", "malformed": "tcp-", "deleted": pr.code}[state]
+    if state == "deleted":
+        projects.close(home, pr.code)
+        projects.delete(home, pr.code)
+    log = _fake_sudo(tmp_path, monkeypatch)
+    rc, err = _open(code, capsys)
+    assert rc == 2 and len(err) == 1
+    assert not log.exists()
+
+
+def test_open_is_refused_for_the_work_user(home, register_path, tmp_path, monkeypatch, capsys):
+    pr = _spawn(home, register_path)
+    log = _fake_sudo(tmp_path, monkeypatch)
+    monkeypatch.setattr(awb.config, "is_work_user", lambda: True)
+    rc, err = _open(pr.code, capsys)
+    assert rc == 2 and len(err) == 1 and "owner side" in err[0]
+    assert not log.exists()
+
+
+def test_open_is_refused_where_sudo_n_is_not_allowed(home, register_path, tmp_path, monkeypatch, capsys):
+    pr = _spawn(home, register_path)
+    log = _fake_sudo(tmp_path, monkeypatch, allowed=False)
+    rc, err = _open(pr.code, capsys)
+    assert rc == 2 and len(err) == 1 and "sudo -n" in err[0]
+    assert log.read_text(encoding="utf-8").splitlines() == ["-n|-u|awbwork|true|"]
+
+
 # --- load ---------------------------------------------------------------------------------------------------
 
 GOOD = ["tcp-abcd", "engagement", fixtures.CUSTOMER_CODE, "tcp", "/srv/p/tcp-abcd", "-srv-p-tcp-abcd", "active",

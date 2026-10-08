@@ -25,10 +25,9 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 
 - Check before you state. Prices come from the live price API (`awb price`), never from memory; a price sheet passes
   `awb price check` before it leaves. A negative needs a live check or a dated source; an expired entry is a lead.
-- Never compute in a reply: every total, sum, saving or product goes through `awb calc` (R-005).
 - Offered is only what the latest service description lists: `awb service check NAME` before you name an option.
   What an offered service is made of comes from the docs (GitHub), the API, the knowledge base and experience.
-- A check that reports clean counts only after it has shown that it can fail.
+- Never compute in a reply, use `awb calc` (R-005). A clean check counts only after it has shown that it can fail.
 - Before a write outside the project or a change in the cloud, say where it lands: remote, folder or account.
 
 ## Housekeeping and commands
@@ -40,6 +39,7 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   X unless you say otherwise"). A question that does not stop the work goes into OPEN.md with its default instead.
 - Never ask again after a "go", "давай" or "делай": a "go" covers the whole list it answers to.
 - A command for him only when he alone can run it: one line of context, one block, the user and the window named.
+  At most one command block per reply; a held take or a blocked intake is one line naming the user and the command.
 - Files: he describes a file, he never names it. `awb inbox take HIS WORDS` takes the one they match (`--all`: all
   files); with none or several it lists both inboxes: pick by his words or ask him, then `--id ID`. Results go out
   with `awb xchg put FILE`: codes only, no ids in logs, a screenshot only with `--image` and why it is clean.

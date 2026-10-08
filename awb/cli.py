@@ -401,6 +401,12 @@ def _cmd_projects_sync(args, p: config.Paths) -> int:
     return EXIT_OK
 
 
+def _cmd_projects_open(args, p: config.Paths) -> int:
+    from awb import projects
+
+    return projects.open_session(p, args.code)
+
+
 def _cmd_projects_check(args, p: config.Paths) -> int:
     from awb import projects
 
@@ -484,6 +490,9 @@ def _build() -> argparse.ArgumentParser:
     s = psub.add_parser("delete", help="remove the folder of closed projects; the code stays registered as deleted")
     s.add_argument("codes", nargs="+", metavar="CODE")
     s.set_defaults(func=_cmd_projects_delete)
+    s = psub.add_parser("open", help="start a session in a project as the work user in this terminal (owner side)")
+    s.add_argument("code")
+    s.set_defaults(func=_cmd_projects_open)
     s = psub.add_parser("check", help="find tcp- folders that no project registered")
     s.set_defaults(func=_cmd_projects_check)
     s = psub.add_parser("sync", help="bring the template lines of CLAUDE.md and STATE.md of every active project "

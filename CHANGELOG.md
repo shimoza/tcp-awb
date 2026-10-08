@@ -35,6 +35,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - A new test tenant in one command. After one `pass insert` of its admin login, `awb tenant setup ALIAS
   --domain-id ID` makes the read user and its key, registers the tenant and loads it into the key service, so
   architects can use it right away; `--lab-key` adds the lab key and `--alerts` the alert on a new access key.
+- Fewer commands to copy. The owner's session runs the work-side commands that carry no name and change nothing in
+  the cloud itself. `awb projects open CODE` starts a project session in the current terminal and a project session
+  hands an architect at most one command block per reply.
 
 ### Changed
 
