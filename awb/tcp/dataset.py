@@ -120,7 +120,7 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
     price_line = ", ".join("%s %s records" % (r, c) for r, c in prices.items()) or "no price list"
     return [
         ("h1", "%s %s: how to use it" % (NAME, day)),
-        ("p", "%d checked facts about T Cloud Public (TCP), the public cloud of Deutsche Telekom, with the list of "
+        ("p", "%d checked factsabout T Cloud Public (TCP) with the list of "
               "orderable services and the public price list of three regions. Made to be dropped into any AI "
               "assistant." % n_facts),
         ("p", "%d facts were tested live on a TCP tenant, %d come from the vendor documentation and %d from the "
@@ -310,7 +310,7 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
     head = header(day, best_before, fetched)
 
     parts = [head, "# %s %s" % (NAME, day), "",
-             "%d checked facts about T Cloud Public (TCP), the public cloud of Deutsche Telekom. One line per fact, "
+             "%d checked facts about T Cloud Public (TCP). One line per fact, "
              "grouped by topic. Read the comment at the top before answering." % len(records)]
     for t in tags:
         parts += ["", "## %s (%d)" % (t, len(bytag[t])), ""]
