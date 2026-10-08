@@ -253,9 +253,11 @@ and no command. Then you describe it to the session in your own words. `awb inbo
 the file names inside the key service: the same letters, a kind of file ("the pdf", "the spreadsheet"), "the
 newest" or a part of the name. One match is taken. None or several list both inboxes, without any name of the owner
 inbox. The session takes the one you mean with `--id`. `--all` takes every file of both inboxes. A file of the
-owner inbox goes through your intake and the session gets only the sanitised copies; the original goes to the vault.
+owner inbox goes through your intake in wipe mode and the session gets only the sanitised copies; the original goes
+to the vault.
 
-A file with a name hit or unknown name candidates is held. You get a mail about it. Results come back with
+A file of the lab inbox with a registered name is held, and so is a file of the owner inbox that cannot be read as
+text. You get a mail with the one command to run (`awb import tcp-xxxx`). Results come back with
 `awb xchg put` into `<project>/from-session/<date>/` of the lab bucket, after the name check and, for a customer project, the
 send gate. You fetch them in the OBS console. A mail tells you about each one. A Terraform or code file passes when it holds no address,
 name or mail: a dotted reference in code is not a web address. The session deletes what it put with
@@ -306,9 +308,13 @@ The Workbench runs on whatever model the architect's assistant uses. That model 
 private model, customer data may go in and nothing needs to be hidden. On a public model the harness keeps live
 customer data out of the model as far as it can:
 
-- `awb intake` turns documents into working copies with a code (`CUST-XXXX`) in place of every registered name. It
-  also takes out bank data, tax ids, phone numbers, addresses, secrets and hidden text. It is tested with 1,188
-  invented cases (`calibration/redteam/`).
+- `awb import CODE` turns documents into working copies with a code (`CUST-XXXX`) in place of every registered
+  name and a token (`[person 1]`, `[company 1]`, `[place 1]`, `[name 1]`) in place of every other name the rules
+  recognise, without a stop and without a review. It also takes out bank data, tax ids, phone numbers, addresses,
+  secrets and hidden text. What the rules do not recognise passes (a first name alone in prose, a name in a picture),
+  and the limits are written down. It is tested with 1,188 invented cases of structured data and written forms and
+  405 cases of unregistered names in mails, transcripts, decks, code, tables, German and Russian text
+  (`calibration/redteam/`).
 - The register of names lives in a vault on the owner's side. The sealed setup runs every session as a separate
   system user that cannot read it.
 - Five hooks check every prompt, every written file and the start and end of every session, so that a registered
@@ -344,7 +350,7 @@ line: `/etc/awb/blocklist.txt` or `~/.config/awb/blocklist.txt`. It never enters
 | after a commit | `sudo awb deploy`: the vault and the keys stay unlocked |
 | after a library upgrade | `sudo awb deploy --only awb-vaultd.service awb-keyd.service` |
 | a new project, close or delete | as `awb`: projects belong to the work user |
-| a customer's material | as the owner: `awb register` the names, `awb intake --customer CUST-XXXX`, then `awb spawn ... --from-outbox` as `awb` |
+| a customer's material | as the owner: `awb import tcp-xxxx` (it asks for the customer's names on the first import); the session hears of the copies at its next prompt |
 
 ## Layout
 

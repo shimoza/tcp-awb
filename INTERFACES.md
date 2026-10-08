@@ -162,40 +162,49 @@ def extract(path: Path, depth: int = 0) -> Extraction   # dispatch; archives rec
 ```python
 @dataclass
 class IntakeResult:
-    customer: str; outputs: list[Path]; public_report: Path; private_report: Path
-    blocked: bool; candidates: int; states: dict[str, str]   # file id -> state
+    customer: str; outputs: list[Path]; public_report: Path; private_report: Path; states: dict[str, str]
+    unsealed: int = 0; wiped: Counter        # token word (person, company, place, name) -> replacements
+    held: list[str]                          # file ids the final check withheld; their originals stay
+    pictures: int = 0; reviewed: int = 0; candidates: int = 0
+    blocked -> False                         # a property: wipe mode never blocks
 
-def run(files: list[Path], customer: str, p: config.Paths, *, force: bool = False) -> IntakeResult
+def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = False, edit=None, confirm=None,
+        redo: dict | None = None) -> IntakeResult
 ```
 
-Steps, in this order:
+Steps, in this order (wipe mode, T4 of 2026-10-08):
 
-1. `customer` is an existing CUST code, or `new`, which creates a code with `register.next_code`.
-2. Every file gets a file id `F-<4 base32>`; the ORIGINAL FILE NAME is treated as text: it is scanned and
-   the output file is named by the file id, never by the original name.
-3. `extract` (archives and mail attachments recursively). Per extraction: `normalize(detect_text)`, then
-   `Matcher.find` over the register forms plus `find_structured`; the same value gets the same token within
-   one run (a dict value -> token, kept only in the private report).
-4. Candidates: `unknown_candidates(detect_text, spans)` returns strings that look like unregistered names:
-   capitalised words followed by a company form (GmbH, AG, KG, SE, mbB, Ltd, Inc, e.V., OHG, GbR, S.A.,
-   B.V., Kanzlei), two or more capitalised words in a row that are not in `rules/stop-words.txt` and not
-   sentence starts, a word after "Kunde:", "Customer:", "Auftraggeber:", "Firma:", "Mandant:", and the
-   local part of an e-mail address that looks like a person. Candidates go to the PRIVATE report only.
-5. If there are candidates and not `force`: `blocked=True`, only the private report is written, no output.
-   He then registers or dismisses them (`awb register add`) and runs again.
-6. Replace: register spans by their code, structured spans by a DATA token, in `text` (output) using the
-   same spans re-found in the output text. Write `<shared>/outbox/<CUST>/<file id>.md` with a small header (file id,
-   kind, state, notes) and the sanitised text. Markdown only.
-7. Final check of every output file: `Matcher.find` + `find_structured` over it must return nothing. If not,
-   delete the output, state `failed`, and say so in both reports. This is the guarantee.
-8. Originals: moved (not copied) to `<vault>/originals/<CUST>/<file id><original suffix>`, only after step 7 passed. A mapping file id
-   -> original name goes to the PRIVATE report only.
-9. Reports. Public (`<shared>/outbox/<CUST>/intake-report.md`): date, customer code, per file id: kind, state,
-   counts per class replaced, notes; totals; the sentence "N candidates were reviewed" without the candidates.
-   Private (`<vault>/reports/<CUST>/<date>-<time>.md`, mode 600): everything, including original names,
-   matched values, tokens, positions, candidates, dropped items and the reason.
+1. The self-test (`selftest()`): the planted cases of `awb/planted.py`, the wipe cases, the control terms and the
+   self-test's customer inside a company shape. Nothing is read before it passed.
+2. `customer` is an existing CUST code, or `new`, which creates a code with `register.next_code`.
+3. Every file gets a file id `F-<4 base32>` (with `redo` the file id it had); the ORIGINAL FILE NAME is treated as
+   text: it is scanned, teaches no form and never names an output.
+4. `extract` (archives and mail attachments recursively, calendar lines unfolded). Detection per extraction: the
+   matcher and `find_structured` record their hits; the candidate rules of `awb/wipe.py` run and the run learns
+   the forms of every person and company they find (`wipe.learn`). No stop. With `review` the run first stops once
+   (`_review_stop`: a private report with the candidates, nothing written), `candidates.review` sorts them, then the
+   run goes on with the register and the keep list of after the review.
+5. Sanitising, up to four passes: registered spans by their code, structured spans by a DATA token, candidates and
+   learned forms by a token of their class (`[person 1]`, `[company 1]`, `[place 1]`, `[name 1]`, numbered per run);
+   a `[company]` token right after the customer code merges into the code. Write `<shared>/outbox/<CUST>/<file
+   id>.md` with a small header (file id, kind, state, notes) and the sanitised text (`redo`: replaced).
+6. The final check of every output, before and after writing: the matcher, `find_structured` and the second check
+   (registered variants and learned forms) over the whole text, the candidate rules and the learned forms over the
+   body (`_body_view`: never the header lines), the learned forms also over the body with marks and table borders
+   as spaces. A hit deletes the output, state `failed`, the file id in `held`, the original stays in the inbox.
+7. Originals: moved (not copied) to `<vault>/originals/<CUST>/<file id><original suffix>`, only after step 6 passed
+   (not with `redo`: they are in the vault already). Pictures held (`awb images`).
+8. Reports. Public (`<shared>/outbox/<CUST>/intake-report.md`): date, customer code, per file id: kind, state,
+   counts per class replaced, notes; totals; per token class the rules that fired and how often; never a value. It
+   is checked against the registered forms and the structured patterns only. Private (`<vault>/reports/<CUST>/
+   <date>-<time>.md`, mode 600): original names, metadata, Replacements (registered and structured), Wiped (value,
+   class, token, rule, count, positions), Learned forms (form, class, from which value), Candidates only for the
+   stop of `--review`, dropped items and the reason.
 
-`unknown_candidates(text: str, known: list[Span]) -> list[str]` lives in `intake.py`.
+`unknown_candidates(text, known, rules=wipe._ALL_RULES, keep=())` runs the rules of the first release (the goal
+check of `awb spawn` passes `STRONG_RULES`); `rules=None` gives the values of `_collect(text, known, state=None) ->
+list[WipeSpan]`, the rules of wipe mode. `wipe_text(text, p)` wipes one text without an import (the task-description
+path of the web console). `wiped_text(counts)` is the one line of counts.
 
 ## `awb/check.py`
 
@@ -261,10 +270,11 @@ CLI `awb spawn KIND --goal TEXT [--customer CODE] [--tag T]...`, `awb projects l
 
 ## `awb/cli.py`
 
-`awb init`, `awb intake [--customer CODE|new] [--force] FILE...`, `awb register add CODE KIND FORM`,
-`awb register new KIND` (prints a fresh code), `awb register list` (codes, kinds, counts of forms; the forms
-themselves only with `--forms`, this is the vault side), `awb register retire CODE`, `awb check`,
-`awb gate`, `awb spawn`, `awb projects list`. Exit codes: 0 ok, 1 findings or blocked, 2 usage or error.
+`awb init`, `awb intake [--customer CODE|new] [--review] FILE...`, `awb register add CODE KIND FORM`,
+`awb register new CUST|PART` (prints a fresh code; PERS, ORG and SITE are refused with a line that names `--review`),
+`awb register list` (codes, kinds, counts of forms; the forms themselves only with `--forms`, this is the vault side),
+`awb register retire CODE`, `awb check`, `awb gate`, `awb spawn`, `awb projects list`, `awb import` and `awb words`
+(delegated). Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 
 ## Additions after the review of 2026-09-22
 
@@ -905,3 +915,44 @@ archive` stream on standard output), `unlock`, `status --json [--probe SOCKET]..
 - `seal/setup.sh --update [--units-only] [--mirrors DIR...]` from a release folder; `AWB_SETUP_OPT` and
   `AWB_SETUP_BIN` move the install root and the bin link for the tests (refused as root; only the code step runs).
   `seal/web/install.sh [--domain HOST] [--only UNIT...]`.
+
+## Wipe mode and `awb import` (T4, 2026-10-08)
+
+- `awb/wipe.py`: the candidate rules (the rules of the first release and the rules of DESIGN.md section 2 of the
+  design in presentations/names, which stays outside the repository) and the forms a run learns.
+  `WipeSpan(start, end, cls, rule)`, classes `person`, `company`, `place`, `unknown` (token word `name`).
+  `WipeState(keep)` per engine: `tokens`, `numbers`, `learned` (`_Learned`), `run_exempt` (the words under product
+  labels), `keep`, `sources`. `bind(state)`, `candidate_spans(state, text, known) -> list[Span]` (the rule label in
+  `Span.form`), `wipe_spans(state, text, names, structured)` (candidates and learned forms), `learn(state, text, names,
+  structured) -> list[Span]`, `token_for(state, span, value)`, `token_for_key(state, key)`, `merge_customer_code(text)`,
+  `learned_skeletons(state)`, `collect(text, known, state=None) -> list[WipeSpan]`, `wipe_values(text, known, keep)`,
+  `keep_key(phrase)`, `skeleton(text)`, `RULE_LABELS`, `LEARNED`, `TOKEN_TEXT`, `TOKEN_RE`, `PROPOSED_RULES`.
+  The lists: `rules/known-words.txt`, `rules/known-phrases.txt` (counts, read from two files on), `known-words-de.txt`,
+  `known-words-ru.txt`, `first-names.txt`, `source-platforms.txt`, `standards.txt`, the section german-function of
+  `sentence-openers.txt`, the section intake-seed of `allowed-terms.txt` (`_list(name, section, single)`).
+- `intake._Engine`: `wipe` (a `WipeState`), `keep` (a property over `wipe.keep`), `spans(text, candidates=True)`,
+  `final_hits(text, candidates=True)`, `second_hits(text, learned=True)`, `leaks(text, candidates=True)`,
+  `learned_forms() -> [(form, class, from)]`; `report.Hit.rule`, `report.Run.stopped|reviewed|learned`,
+  `report.wiped_by_rule(run)`, `report.TOKEN_CLASSES`.
+- `awb/planted.py`: `WIPE_CASES` (label, text, words that must be unreadable, token class), `CONTROL_TERMS`,
+  `CUSTOMER_CASE`, `CUSTOMER_CODE` `CUST-SELF` with the forms of `CUSTOMER_FORM` and `CUSTOMER_SHORT` in `entries()`.
+- `awb/words.py`: `update(root=None, out=None) -> (words, phrases, revision)`, `load(path, min_files=2)`,
+  `revision(path)`, `corpus(root)`, `mirror_root()`; `WordsError`; `awb words update [--root DIR]`, refused for the work
+  user and for a corpus below `MIN_WORDS`.
+- `awb/importcmd.py`: `run(p, code, files, *, customer=None, review=False, redo=False, read=None, tty=None, edit=None,
+  confirm=None) -> exit code`, `new_customer(p, code) -> (code, the project's own)`, `project_customer_code(code)`,
+  `ask_forms(p, customer, read, tty)`; `ImportRefused`. `awb import CODE [FILE...] [--customer CUST-XXXX|new]
+  [--review] [--redo]`, refused for the work user and inside an assistant session.
+- `bucket.fetch(p, c, code, again=False) -> {"new", "known", "outside", "intake", "files"}`: the download of `pull`
+  without the intake.
+- `rulesync.post_input(p, customer, project, file_ids, replaced=False) -> Path` (`<shared>/notices/input-*.json`,
+  codes and file ids only), `rulesync.input_notices(p, session_id, root) -> list[str]` (`INPUT`, `REPLACED`), told once
+  per session while a copy of the notice still waits in the outbox; `rulesync.notice` joins them to the rules notice.
+- `vault.newest_report(p, customer=None, now=None) -> Path`; `awb vault show [FILE] [--customer CUST-XXXX]`.
+- `xchg.hold_line(code)`; the owner take holds only a file that gives no copy (cannot be read, or withheld) and the
+  mail carries the line; the materials service's customer path never answers 422 for a name, the brief path wipes.
+- `candidates.EDITORS` (`vim`, `vi`, `nano` after `VISUAL` and `EDITOR`), `candidates.review(..., next_step=True)`.
+- `patterns`: a bare host that a dot and a label with a digit (or two labels) follow is no URL; a number before a
+  dotted quad over blanks or a table border is no phone. `extract.text.is_calendar`, `unfold_calendar`.
+- The pack: `calibration/redteam/wipe/` holds the nine case modules of the red team (405 cases) and `harness.py`
+  (the built engine, nothing patched in); `EXPECTED.md` lists what is left per wipe dimension.

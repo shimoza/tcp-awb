@@ -6,13 +6,13 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 ## Names
 
 - Every text you write carries codes (`CUST-Q7M4`, `tcp-q7m4`), never a real name: files, commits, agent prompts, chat.
-- The prompt hook stops a prompt with a registered name and every prompt while the Workbench is locked (the owner
-  unlocks it). For a name the register does not know yet, never repeat it: ask him to register it, use his code.
-  A long terminal output goes through `awb paste`, not into the chat: read the file it writes.
+- The prompt hook stops a prompt with a registered name and every prompt while the Workbench is locked (he unlocks
+  it). A name the register does not know: never repeat it. Terminal output goes through `awb paste`, not into the chat.
 - When a document points to a customer in another way (a logo, a product, a description), say which kind and
   where, never what it says. Never invent a code: take it from SCOPE.md, from the outbox or from him.
-- Customer material enters only through `awb intake` on his side: you never see an original. "The inbox" means
-  the bucket inboxes of `awb inbox take`, never the vault. Copies of his own intake wait in the outbox: to `input/`.
+- Material comes in through his `awb import CODE`, you never see an original. Its copies (outbox, to `input/`) carry
+  the customer as its code and every name the rules recognise as a token; a `[name]` by a number may be a term.
+  A held take or a missing file is one line: `held: run awb import tcp-xxxx as the owner in your own terminal`.
 
 ## Where things are
 
@@ -28,7 +28,7 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 - Offered is only what the latest service description lists: `awb service check NAME` before you name an option.
   What an offered service is made of comes from the docs (GitHub), the API, the knowledge base and experience.
 - Never compute in a reply, use `awb calc` (R-005). A clean check counts only after it has shown that it can fail.
-- Before a write outside the project or a change in the cloud, say where it lands: remote, folder or account.
+  Before a write outside the project or a change in the cloud, say where it lands: remote, folder or account.
 
 ## Housekeeping and commands
 
@@ -37,11 +37,11 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 - A Workbench command that fails by itself is a tooling bug: one plain line to him, an item in OPEN.md, then his task.
 - Ask him only what he alone can decide or do: at most one question per reply, at its end, with your default ("I take
   X unless you say otherwise"). A question that does not stop the work goes into OPEN.md with its default instead.
-- Never ask again after a "go", "давай" or "делай": a "go" covers the whole list it answers to.
-- A command for him only when he alone can run it: one line of context, one block, the user and the window named.
-  At most one command block per reply; a held take or a blocked intake is one line naming the user and the command.
-- Files: he describes a file, he never names it. `awb inbox take HIS WORDS` takes the one they match (`--all`: all
-  files); with none or several it lists both inboxes: pick by his words or ask him, then `--id ID`. Results go out
+- Never ask again after a "go", "давай" or "делай": a "go" covers the whole list it answers to. A command for him only
+  when he alone can run it: one line of context, one block, the user and the window named, never an `awb intake`,
+  register or bucket block. At most one command block per reply; a held take: one line naming the user and the command.
+- Files: he describes a file, never names it. `awb inbox take HIS WORDS` takes the bucket inbox file they match, never
+  the vault (`--all`: all); none or several: it lists both, pick by his words or ask, then `--id ID`. Results go out
   with `awb xchg put FILE`: codes only, no ids in logs, a screenshot only with `--image` and why it is clean.
 - `awb cloud tenants` lists the test tenants; `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role lab]` reaches
   them through the key service. A password goes into a body only as `{{secret:NAME}}`, a key never.

@@ -69,6 +69,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   rules that fired. `--force` is gone and `--review` stops once for the rare name that must keep a code. The owner
   inbox take, the bucket pull and the console's materials import hold no file for a name any more. The review opens
   vim when no editor is set.
+- The work rules and the README name `awb import` and what the intake promises now: every name its rules recognise
+  becomes a token, not every name. A held take is one line with the command to run.
 - `awb register new` issues customer and partner codes only: person, company and place codes come from the review
   of `--review`. `awb vault show` without a path shows the newest private report of `--customer` or of the only
   customer with a report of the last day.

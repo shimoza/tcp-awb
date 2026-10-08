@@ -67,3 +67,13 @@ def test_the_work_rules_keep_the_status_current_after_every_step():
     """2026-10-06: STATE.md lagged five days behind the work and the portal showed the old status."""
     t = text()
     assert "After every step that" in t and "Status: and Next: lines" in t and "in the same commit" in t
+
+
+def test_the_work_rules_name_the_import_and_the_promise_of_wipe_mode():
+    """T4: material comes in through his awb import; a hold is one line; the promise is "every name the rules
+    recognise", never "every name"."""
+    t = " ".join(text().split())
+    assert "his `awb import CODE`" in t and "through `awb intake`" not in t
+    assert "`held: run awb import tcp-xxxx as the owner in your own terminal`" in t
+    assert "every name the rules recognise as a token" in t
+    assert "never an `awb intake`, register or bucket block" in t
