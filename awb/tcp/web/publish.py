@@ -4,6 +4,7 @@
     sudo awb web publish FILE [--dry-run]
     sudo awb web publish --rollback [NAME]
     awb web status
+    sudo awb web user add|reset|remove LOGIN, sudo awb web user list    (awb/tcp/web/users.py)
 
 `publish` takes the page a run of the UI queue produced: the applied source for a run in state completed, the
 run's workspace candidate for a candidate-only run in state ready, both only when the run's validation.txt starts
@@ -14,7 +15,9 @@ SUDO_USER (`awb web check --emit`); root only keeps the backup and installs the 
 refusal names the class of the finding and nothing else.
 
 `--rollback` installs a backup back (the newest without NAME); the page it replaces is kept as a backup too.
-`status` prints the size and time of the page, the last backup and the answers of the gateway and of /health.
+`status` prints the size and time of the page, the last backup and the answers of the gateway and of /health, and
+from the sign-in log the attempts of the last day by result and every login that waits (the log belongs to the
+gateway: under sudo, or AWB_WEB_SIGNIN_LOG for another file).
 
 AWB_WEB_ROOT (or --root) points the commands at another folder than /srv/awb-web; such a folder needs no sudo.
 AWB_UI_QUEUE and AWB_UI_SOURCE point at another queue state folder and applied source (the tests use both).
@@ -28,6 +31,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from collections import Counter
@@ -47,6 +51,7 @@ CANDIDATE = "workspace/architect-workbench.html"                                
 GATEWAY_UNIT = Path("/etc/systemd/system/awb-web.service")
 GATEWAY_PORT = 8080
 HEALTH_PORT = 8180
+SIGNIN_LOG = Path("/var/lib/awb-web/signin.log")
 MAX_PAGE = 4 * 1024 * 1024
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 CLASSES = ("name", "secret", "token", "private-key")
@@ -371,7 +376,32 @@ def _status(a, host: Host) -> int:
     gw = _ask("http://127.0.0.1:%d/health" % GATEWAY_PORT, domain) if domain else "not installed"
     _say("gateway: %s" % gw)
     _say("health: %s" % _ask("http://127.0.0.1:%d/health" % HEALTH_PORT))
+    for line in signin_lines(Path(host.environ.get("AWB_WEB_SIGNIN_LOG") or SIGNIN_LOG)):
+        _say(line)
     return 0
+
+
+def signin_lines(log: Path, now: float | None = None) -> list[str]:
+    """The sign-ins of the last day by result and the waits that hold now, replayed from the gateway's log."""
+    from awb.tcp.web import gateway
+
+    now = time.time() if now is None else now
+    if not os.access(log, os.R_OK):
+        return ["sign-ins: %s" % ("no log yet" if not log.exists() and os.access(log.parent, os.R_OK)
+                                  else "run sudo awb web status to read the log")]
+    day = [e for e in gateway.read_log(log, now - 24 * 3600) if e[0] <= now]
+    counts = Counter(result for _, _, result in day)
+    out = ["sign-ins, last 24 h: %d (%s)" % (len(day), ", ".join("%s %d" % kv for kv in sorted(counts.items()))
+                                            if counts else "none")]
+    limiter = gateway.replay(e for e in gateway.read_log(log, now - 2 * gateway.MAX_WAIT) if e[0] <= now)
+    closed = limiter.site_closed_until(now)
+    if closed:
+        out.append("site closed: %d failures within the hour, open again at %s"
+                   % (len(limiter.site), gateway.log_time(closed)))
+    waits = limiter.cooldowns(now)
+    out.append("logins in cooldown: %s" % (", ".join("%s until %s" % (k, gateway.log_time(t))
+                                                      for k, t in sorted(waits.items())) or "none"))
+    return out
 
 
 def _parser():
@@ -392,6 +422,9 @@ def _parser():
     c.add_argument("--emit", action="store_true", help="write the checked page to standard output")
     s = sub.add_parser("status", help="the page, the last backup, the gateway and /health")
     s.add_argument("--root", help=argparse.SUPPRESS)
+    u = sub.add_parser("user", help="the logins of the console: add, reset (a new password), remove, list (sudo)")
+    u.add_argument("action", choices=("add", "reset", "remove", "list"))
+    u.add_argument("login", nargs="?", metavar="LOGIN")
     return ap
 
 
@@ -410,6 +443,15 @@ def main(argv: list[str] | None = None, host: Host | None = None) -> int:
             return _publish(a, host)
         if a.cmd == "check":
             return _check(a)
+        if a.cmd == "user":
+            from awb.tcp.web import users
+
+            if (a.action == "list") != (a.login is None):
+                raise Refused("give LOGIN with add, reset and remove, none with list")
+            try:
+                return users.main(a, host.environ, host.geteuid, _say)
+            except users.Refused as err:
+                raise Refused(str(err)) from None
         return _status(a, host)
     except Refused as err:
         print("awb web: %s" % err, file=sys.stderr)

@@ -194,6 +194,7 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 | the status | `awb board show`, `awb board write` | the status of every active project on one page |
 | bring a commit live | `sudo awb deploy` | the new release, only the changed services restarted, the status at the end |
 | publish the console page | `sudo awb web publish --from-queue ID` | the checked page of a UI run live, the old one kept as a backup |
+| a login for the console | `sudo awb web user add LOGIN` | a random password, shown once; `reset`, `remove`, `list`; `sudo awb web status` shows failed sign-ins and waits |
 | hand a UI task to Codex | `awb ui submit presentations/ui-tasks/ID.txt`, `awb ui status` | the task checked and queued; a result note in `presentations/ui-tasks/` when the run ends |
 
 ## A typical day

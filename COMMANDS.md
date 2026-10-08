@@ -83,7 +83,11 @@ The tree must be clean (commit first). The deploy runs the installed copy of its
 | `sudo awb web publish FILE` | the same for a file; the backup is `index.html.before-<date-time>` |
 | `awb web publish --dry-run --from-queue ID` | the checks only, without sudo; nothing is installed |
 | `sudo awb web publish --rollback [NAME]` | put a backup back (the newest without NAME); the replaced page is kept as a backup too |
-| `awb web status` | the size and time of the page, the last backup, the gateway and `/health` |
+| `awb web status` | the size and time of the page, the last backup, the gateway and `/health`; under sudo also the sign-ins of the last 24 hours by result, a closed site and every login that waits |
+| `sudo awb web user add LOGIN` | a console login: a random password of 20 characters printed once, only its salt and PBKDF2 digest kept in `/etc/awb-web/users.json` (root:awb-web 640). The first login ends the single login of `auth.json`. Refused inside an assistant session |
+| `sudo awb web user reset LOGIN` | a new password for the login, printed once; its sessions end |
+| `sudo awb web user remove LOGIN` | the login goes and its sessions end; without logins nobody signs in |
+| `awb web user list` | the logins, never a digest |
 
 A refusal names the class of the finding (name, secret, token, private-key, html) and never the text. Under sudo the
 page is read and checked as you; root only keeps the backup and installs.

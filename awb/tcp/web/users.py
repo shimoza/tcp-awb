@@ -1,0 +1,124 @@
+"""The logins of the console (F4, owner side).
+
+    sudo awb web user add|reset|remove LOGIN
+    sudo awb web user list
+
+The gateway reads `/etc/awb-web/users.json` (root, group awb-web, mode 640): per login a salt and a PBKDF2 digest,
+nothing else. `add` and `reset` make a random password of 20 characters, print it once to his terminal and store
+only the digest; the command refuses inside an assistant session, so no session ever sees a password. While the file
+does not exist the single login of `auth.json` works; `add` creates the file and ends it. `remove` of the last login
+leaves an empty file: nobody signs in, the single login does not come back. The gateway reads the file again on
+every change and ends the sessions of a removed login and of a login with a new password.
+
+AWB_WEB_USERS points the commands at another file; such a file needs no sudo (the tests use it).
+"""
+from __future__ import annotations
+
+import grp
+import hashlib
+import json
+import os
+import secrets
+import string
+from datetime import datetime, timezone
+from pathlib import Path
+
+from awb.tcp.web.gateway import DEFAULT_ROUNDS, LOGIN_RE
+
+USERS = Path("/etc/awb-web/users.json")
+GROUP = "awb-web"
+LENGTH = 20
+ALPHABET = string.ascii_letters + string.digits
+
+
+class Refused(Exception):
+    """The command is refused; the text names the reason, never a password."""
+
+
+def users_path(environ: dict) -> Path:
+    return Path(environ.get("AWB_WEB_USERS") or USERS)
+
+
+def load(path: Path) -> dict:
+    if not path.exists():
+        return {"version": 1, "users": {}}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data.get("users"), dict):
+            raise ValueError
+        return data
+    except (OSError, ValueError, AttributeError):
+        raise Refused("the users file cannot be read") from None
+
+
+def save(path: Path, data: dict, as_root: bool) -> None:
+    """Write the file atomically: mode 640, owned by root and the gateway's group when root writes it."""
+    tmp = path.with_name(".%s.new-%d" % (path.name, os.getpid()))
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=1, sort_keys=True)
+            fh.write("\n")
+            fh.flush()
+            os.fchmod(fh.fileno(), 0o640)
+            os.fsync(fh.fileno())
+        if as_root:
+            os.chown(tmp, 0, grp.getgrnam(GROUP).gr_gid)
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
+def new_password() -> str:
+    return "".join(secrets.choice(ALPHABET) for _ in range(LENGTH))
+
+
+def entry(password: str, rounds: int = DEFAULT_ROUNDS) -> dict:
+    salt = secrets.token_bytes(16)
+    return {"salt": salt.hex(), "rounds": rounds,
+            "hash": hashlib.pbkdf2_hmac("sha256", password.encode(), salt, rounds).hex(),
+            "changed": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+
+
+def change(path: Path, action: str, login: str, as_root: bool, rounds: int = DEFAULT_ROUNDS) -> str | None:
+    """Apply add, reset or remove. Returns the new password (add, reset) or None (remove)."""
+    if not LOGIN_RE.fullmatch(login):
+        raise Refused("a login is 2 to 32 characters: a small letter first, then small letters, digits, . _ -")
+    data = load(path)
+    users = data["users"]
+    if action == "add" and login in users:
+        raise Refused("the login exists: use reset for a new password")
+    if action in ("reset", "remove") and login not in users:
+        raise Refused("no such login")
+    password = None
+    if action == "remove":
+        del users[login]
+    else:
+        password = new_password()
+        users[login] = entry(password, rounds)
+    save(path, data, as_root)
+    return password
+
+
+def main(a, environ: dict, geteuid=os.geteuid, say=print) -> int:
+    from awb import vault
+
+    path = users_path(environ)
+    as_root = geteuid() == 0
+    if a.action == "list":
+        users = load(path)["users"]
+        say("logins: %s" % (", ".join(sorted(users)) if users else "none")
+            + ("" if path.exists() else " (the single login of auth.json works)"))
+        return 0
+    if vault.in_assistant_session():
+        raise Refused("never inside an assistant session: run it in your own terminal")
+    if path == USERS and not as_root:
+        raise Refused("run it with sudo: sudo awb web user %s LOGIN" % a.action)
+    password = change(path, a.action, a.login, as_root)
+    if password is None:
+        say("removed %s; its sessions end" % a.login)
+    else:
+        say("%s %s. Password (shown once, not stored): %s" % ("added" if a.action == "add" else "new password for",
+                                                             a.login, password))
+    return 0

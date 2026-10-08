@@ -218,7 +218,7 @@ paths:
                   value: |
                     Use the sign-in form.
         "429":
-          description: Eight failed attempts within a minute.
+          description: "Eight failed attempts from one address within a minute, or a cooldown: the login failed 5 times within 15 minutes (it waits 15 minutes, doubled for each further series up to 24 hours), or the site had 30 failures within the hour."
           content:
             text/html:
               schema:
@@ -226,6 +226,8 @@ paths:
               examples:
                 page:
                   value: "<!doctype html><html lang=\"en\"><head><title>Sign in · AWB</title></head><body><p role=\"alert\" class=\"error\">Too many attempts. Try again in one minute.</p><form action=\"/login\" method=\"post\">...</form></body></html>"
+                cooldown:
+                  value: "<!doctype html><html lang=\"en\"><head><title>Sign in · AWB</title></head><body><p role=\"alert\" class=\"error\">Too many failed sign-ins. Try again later.</p><form action=\"/login\" method=\"post\">...</form></body></html>"
       security: []
       x-awb-state: deployed
   /logout:

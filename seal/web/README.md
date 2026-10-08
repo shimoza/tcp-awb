@@ -48,6 +48,12 @@ To go back: `sudo seal/web/install.sh --rollback`, and `sudo awb web publish --r
 A new page of the console goes live with `sudo awb web publish --from-queue ID` (or `FILE`): checked, the old page
 kept as `index.html.before-ID`. `awb web status` shows the page, the last backup and the gateway.
 
+The logins of the console live in `/etc/awb-web/users.json` (`sudo awb web user add|reset|remove LOGIN`, F4). Until
+that file exists the single login of `auth.json` works. A login waits 15 minutes after 5 failures within 15
+minutes, doubled for each further series up to 24 hours; 30 failures within an hour pause every sign-in; one address
+gets 8 failures a minute. The gateway logs every attempt (time, login, result) to `/var/lib/awb-web/signin.log` and
+rebuilds the waits from it after a restart; `sudo awb web status` reads it.
+
 After the switch `--domain` may be left out: the script reads the host name from the installed `awb-web.service`.
 `sudo awb deploy` runs `releases/<commit>/seal/web/install.sh --only UNIT...` from the release it extracted, once an
 installed web unit points at `/opt/tcp-awb`: the script renders every template as before and restarts the named

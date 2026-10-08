@@ -65,6 +65,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - Both daemons refuse to be inspected by other processes of the same user.
 - The console's customer list shows codes only and the console no longer registers customers: no customer name
   crosses Cloudflare to the browser. New customers are registered with `awb register add` on the owner's terminal.
+- Every console user signs in with a login of their own. `sudo awb web user add|reset|remove LOGIN` makes a random
+  password of 20 characters, shows it once and keeps only its digest. A login waits 15 minutes after 5 failures
+  within 15 minutes, twice as long after each further series up to 24 hours, and the whole site pauses sign-in after
+  30 failures within an hour. Every attempt is logged without the password, and `sudo awb web status` shows the
+  last day and every login that waits.
 
 ## Week 40, 2026-09-28 to 2026-10-04
 

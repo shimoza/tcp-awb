@@ -811,9 +811,13 @@ def _session_paths() -> dict:
                                    media="text/html")},
                     {"403": gateway("The form was not sent from the site.", "Open this form on the AWB site.")},
                 )["403"],
-                "429": answer("Eight failed attempts within a minute.", page,
+                "429": answer("Eight failed attempts from one address within a minute, or a cooldown: the login "
+                              "failed 5 times within 15 minutes (it waits 15 minutes, doubled for each further "
+                              "series up to 24 hours), or the site had 30 failures within the hour.", page,
                               {"page": sign_in.replace("<form", "<p role=\"alert\" class=\"error\">Too many "
-                                                       "attempts. Try again in one minute.</p><form")},
+                                                       "attempts. Try again in one minute.</p><form"),
+                               "cooldown": sign_in.replace("<form", "<p role=\"alert\" class=\"error\">Too many "
+                                                           "failed sign-ins. Try again later.</p><form")},
                               media="text/html"),
                 "400": gateway("The form cannot be read.", "A single content length is required.", "Invalid form."),
                 "413": gateway("The form is larger than 16384 bytes.", "Request is too large."),

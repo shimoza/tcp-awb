@@ -4,6 +4,7 @@
 
 import argparse
 import base64
+import calendar
 import hashlib
 import hmac
 import http.client
@@ -11,12 +12,13 @@ import html
 import secrets
 from http.cookies import SimpleCookie, CookieError
 import json
+import os
 import re
 import socket
 import sys
 import threading
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs, urlencode
@@ -37,61 +39,231 @@ class UnixConnection(http.client.HTTPConnection):
         self.sock.connect(self.socket_path)
 
 
+LOGIN_RE = re.compile(r'[a-z][a-z0-9._-]{1,31}')
+NOT_A_LOGIN = '(not a login name)'
+SERIES = 5                  # failures of one login within SERIES_WINDOW start a wait
+SERIES_WINDOW = 15*60
+FIRST_WAIT = 15*60          # doubles with each further series, up to MAX_WAIT; a success resets it
+MAX_WAIT = 24*3600
+SITE_CAP = 30               # failures of the whole site within SITE_WINDOW close every sign-in
+SITE_WINDOW = 3600
+COOLDOWN_TEXT = 'Too many failed sign-ins. Try again later.'
+LOG_MAX = 2*1024*1024
+DEFAULT_ROUNDS = 600_000
+
+
+class Limiter:
+    """The per-login wait and the site-wide cap (F4). Pure: every call gets the time, the log replays into it."""
+
+    def __init__(self):
+        self.logins = {}        # key -> {'fails': [t], 'until': t, 'level': n, 'last': t}
+        self.site = deque()
+
+    def _prune(self, now):
+        while self.site and now-self.site[0] >= SITE_WINDOW:
+            self.site.popleft()
+        for key in [k for k, s in self.logins.items() if now-max(s['until'], s['last']) > MAX_WAIT]:
+            del self.logins[key]
+
+    def site_closed_until(self, now):
+        self._prune(now)
+        return self.site[0]+SITE_WINDOW if len(self.site) >= SITE_CAP else 0
+
+    def waits_until(self, key, now):
+        state = self.logins.get(key)
+        return state['until'] if state and state['until'] > now else 0
+
+    def refused(self, key, now):
+        """'site', 'login' or '' (free to try)."""
+        if self.site_closed_until(now):
+            return 'site'
+        return 'login' if key is not None and self.waits_until(key, now) else ''
+
+    def failure(self, key, now):
+        self.site.append(now)
+        if key is None:
+            return
+        state = self.logins.setdefault(key, {'fails': [], 'until': 0, 'level': 0, 'last': now})
+        state['fails'] = [t for t in state['fails'] if now-t < SERIES_WINDOW and t >= state['until']] + [now]
+        state['last'] = now
+        if len(state['fails']) >= SERIES:
+            state['until'] = now + min(FIRST_WAIT * 2**state['level'], MAX_WAIT)
+            state['level'] += 1
+            state['fails'] = []
+
+    def success(self, key):
+        self.logins.pop(key, None)
+
+    def cooldowns(self, now):
+        self._prune(now)
+        return {k: s['until'] for k, s in self.logins.items() if s['until'] > now}
+
+
+def log_time(t):
+    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(t))
+
+
+def read_log(path, since):
+    """The entries (time, login, result) of the sign-in log and its rotated copy at or after `since`, oldest first."""
+    out = []
+    for name in (str(path)+'.1', str(path)):
+        try:
+            lines = Path(name).read_text(encoding='utf-8', errors='replace').splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                entry = json.loads(line)
+                t = calendar.timegm(time.strptime(entry['time'], '%Y-%m-%dT%H:%M:%SZ'))
+                login, result = str(entry['login']), str(entry['result'])
+            except (ValueError, KeyError, TypeError):
+                continue
+            if t >= since:
+                out.append((t, login, result))
+    out.sort(key=lambda e: e[0])
+    return out
+
+
+def replay(entries):
+    """A Limiter in the state the logged attempts leave it in."""
+    limiter = Limiter()
+    for t, login, result in entries:
+        key = None if login == NOT_A_LOGIN else login
+        if result == 'ok':
+            limiter.success(key)
+        elif result == 'fail':
+            limiter.failure(key, t)
+    return limiter
+
+
 class Auth:
-    def __init__(self, path):
-        data = json.loads(Path(path).read_text())
-        self.username = data['username']
-        self.salt = bytes.fromhex(data['salt'])
-        self.digest = bytes.fromhex(data['hash'])
-        self.rounds = data['rounds']
+    """The sign-in. The users file (one salt and PBKDF2 digest per login, `awb web user`) is read on every change;
+    while it does not exist the single login of `path` works as before, with the per-address limit only."""
+
+    def __init__(self, path, users=None, log=None, clock=time.time):
+        self.path = Path(path)
+        self.users_path = Path(users) if users else self.path.parent / 'users.json'
+        self.log_path = Path(log) if log else None
+        self.clock = clock
         self.lock = threading.Lock()
+        self.log_lock = threading.Lock()
         self.failures = OrderedDict()
-        self.valid = OrderedDict()
-        self.cache_key = __import__('secrets').token_bytes(32)
+        self.cache_key = secrets.token_bytes(32)
         self.slots = threading.BoundedSemaphore(4)
         self.sessions = OrderedDict()
+        self.owners = {}
+        self.stamp = None
+        self.users = None
+        self.legacy = None
+        self.username = None
+        if self.path.exists() or not self.users_path.exists():
+            data = json.loads(self.path.read_text())
+            self.username = data['username']
+            self.legacy = {data['username']: (bytes.fromhex(data['salt']), bytes.fromhex(data['hash']), data['rounds'])}
+        now = clock()
+        self.limiter = replay(read_log(self.log_path, now-2*MAX_WAIT)) if self.log_path else Limiter()
 
-    def check(self, header, client):
-        if not header:
-            return 401
-        if len(header) > 1024:
-            return 401
-        now = time.monotonic()
-        cache_id = hmac.digest(self.cache_key, header.encode(), 'sha256')
+    def accounts(self):
+        """(per-user mode, {login: (salt, digest, rounds)}), the users file read again when it changed. A users
+        file that cannot be read lets nobody in."""
+        try:
+            st = os.stat(self.users_path)
+        except FileNotFoundError:
+            return False, self.legacy or {}
+        except OSError:
+            return True, {}
+        stamp = (st.st_ino, st.st_mtime_ns, st.st_size)
         with self.lock:
-            recent = self.failures.get(client, [])
-            recent = [t for t in recent if now-t < 60]
-            if len(recent) >= 8:
-                return 429
-            if self.valid.get(cache_id, 0) > now:
-                return 200
-        valid = False
-        if self.slots.acquire(blocking=False):
+            if stamp == self.stamp:
+                return True, self.users
+        try:
+            data = json.loads(self.users_path.read_text())
+            users = {login: (bytes.fromhex(u['salt']), bytes.fromhex(u['hash']), int(u['rounds']))
+                     for login, u in data['users'].items() if LOGIN_RE.fullmatch(login)}
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            print('AWB gateway: the users file cannot be read; nobody signs in', flush=True)
+            users = {}
+        with self.lock:
+            self.stamp, self.users = stamp, users
+        return True, users
+
+    def log(self, now, login, result):
+        if not self.log_path:
+            return
+        line = json.dumps({'time': log_time(now), 'login': login if LOGIN_RE.fullmatch(login) else NOT_A_LOGIN,
+                           'result': result}) + '\n'
+        with self.log_lock:
             try:
-                scheme, encoded = header.split(' ', 1)
-                if scheme.lower() == 'basic':
-                    raw = base64.b64decode(encoded, validate=True).decode('utf-8')
-                    username, password = raw.split(':', 1)
-                    computed = hashlib.pbkdf2_hmac('sha256', password.encode(), self.salt, self.rounds)
-                    valid = hmac.compare_digest(username.encode(), self.username.encode()) and hmac.compare_digest(computed, self.digest)
-            except (ValueError, UnicodeError):
-                pass
-            finally:
-                self.slots.release()
-        else:
-            return 429
+                if self.log_path.exists() and self.log_path.stat().st_size > LOG_MAX:
+                    os.replace(self.log_path, str(self.log_path)+'.1')
+                fd = os.open(self.log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+                with os.fdopen(fd, 'a', encoding='utf-8') as fh:
+                    fh.write(line)
+            except OSError:
+                print('AWB gateway: the sign-in log cannot be written', flush=True)
+
+    def sign_in(self, login, password, client):
+        """'ok', 'fail' (wrong password or unknown login, the same answer), 'cooldown' (the login waits or the site
+        is closed), 'limited' (this address failed 8 times within a minute) or 'busy' (no free slot)."""
+        login = login[:100]
+        now = self.clock()
+        per_user, accounts = self.accounts()
+        key = login if LOGIN_RE.fullmatch(login) else 'h:'+hashlib.sha256(login.encode()).hexdigest()[:24]
+        with self.lock:
+            recent = [t for t in self.failures.get(client, []) if now-t < 60]
+            if len(recent) >= 8:
+                result = 'limited'
+            elif per_user and self.limiter.refused(key, now):
+                result = 'cooldown'
+                self.failures[client] = recent + [now]
+            else:
+                result = ''
+        if result:
+            self.log(now, login, result if result != 'cooldown' else
+                     ('site-cap' if self.limiter.site_closed_until(now) else 'cooldown'))
+            return result
+        if not self.slots.acquire(blocking=False):
+            self.log(now, login, 'busy')
+            return 'busy'
+        try:
+            account = accounts.get(login)
+            salt, digest, rounds = account or (b'\0'*16, b'\0'*32, next(iter(accounts.values()), (0, 0, DEFAULT_ROUNDS))[2])
+            computed = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8', 'replace'), salt, rounds)
+            valid = account is not None and hmac.compare_digest(computed, digest)
+        finally:
+            self.slots.release()
         with self.lock:
             if valid:
-                self.valid[cache_id] = now+300
-                while len(self.valid) > 64:
-                    self.valid.popitem(last=False)
                 self.failures.pop(client, None)
+                if per_user:
+                    self.limiter.success(key)
             else:
                 self.failures[client] = recent + [now]
                 self.failures.move_to_end(client)
                 while len(self.failures) > 2048:
                     self.failures.popitem(last=False)
-        return 200 if valid else 401
+                if per_user:
+                    self.limiter.failure(key, now)
+        self.log(now, login, 'ok' if valid else 'fail')
+        return 'ok' if valid else 'fail'
+
+    def check(self, header, client):
+        """The sign-in from a Basic header: 200, 401 or 429."""
+        if not header or len(header) > 1024:
+            return 401
+        try:
+            scheme, encoded = header.split(' ', 1)
+            if scheme.lower() != 'basic':
+                return 401
+            login, password = base64.b64decode(encoded, validate=True).decode('utf-8').split(':', 1)
+        except (ValueError, UnicodeError):
+            return 401
+        return {'ok': 200, 'fail': 401}.get(self.sign_in(login, password, client), 429)
+
+    def status(self):
+        """For awb web status: the sign-ins of the last day by result and the waits that hold now."""
+        now = self.clock()
+        return now, read_log(self.log_path, now-24*3600), self.limiter
 
     def csrf_token(self):
         payload = str(int(time.time())) + '.' + secrets.token_urlsafe(24)
@@ -105,15 +277,23 @@ class Auth:
         except (ValueError, TypeError):
             return False
 
-    def new_session(self):
+    def new_session(self, login=None):
+        """A session; one bound to a login ends when that login is removed or gets a new password."""
         token = secrets.token_urlsafe(32)
         key = hashlib.sha256(token.encode()).digest()
+        bound = None
+        if login is not None:
+            account = self.accounts()[1].get(login)
+            bound = (login, account[1] if account else b'')
         with self.lock:
             now = time.monotonic()
             self.sessions = OrderedDict((k,v) for k,v in self.sessions.items() if v > now)
             self.sessions[key] = now + 8*3600
+            if bound:
+                self.owners[key] = bound
             while len(self.sessions) > 128:
                 self.sessions.popitem(last=False)
+            self.owners = {k: v for k, v in self.owners.items() if k in self.sessions}
         return token
 
     def session_valid(self, token):
@@ -125,11 +305,21 @@ class Auth:
             if expires <= time.monotonic():
                 self.sessions.pop(key, None)
                 return False
+            bound = self.owners.get(key)
+        per_user, accounts = self.accounts()
+        if bound is None:
+            return not per_user
+        account = accounts.get(bound[0])
+        if account and hmac.compare_digest(account[1], bound[1]):
             return True
+        self.revoke_session(token)
+        return False
 
     def revoke_session(self, token):
+        key = hashlib.sha256(token.encode()).digest()
         with self.lock:
-            self.sessions.pop(hashlib.sha256(token.encode()).digest(), None)
+            self.sessions.pop(key, None)
+            self.owners.pop(key, None)
 
 
 def document_csp(data):
@@ -257,12 +447,12 @@ class Gateway(BaseHTTPRequestHandler):
             username = (form.get('username') or [''])[0]
             password = (form.get('password') or [''])[0]
             next_path = self.safe_next((form.get('next') or ['/'])[0])
-            header = 'Basic '+base64.b64encode((username+':'+password).encode()).decode()
-            status = self.server.auth.check(header, peer)
-            if status != 200:
-                self.login_page(next_path, 'Too many attempts. Try again in one minute.' if status == 429 else 'The username or password is incorrect.', 429 if status == 429 else 200)
+            result = self.server.auth.sign_in(username, password, peer)
+            if result != 'ok':
+                text = {'fail': 'The username or password is incorrect.', 'cooldown': COOLDOWN_TEXT}.get(result, 'Too many attempts. Try again in one minute.')
+                self.login_page(next_path, text, 200 if result == 'fail' else 429)
                 return
-            token = self.server.auth.new_session()
+            token = self.server.auth.new_session(username)
             self.reply(303, headers={'Location': next_path, 'Set-Cookie': '__Host-awb-session='+token+'; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=28800'})
             return
         if not authenticated:
@@ -387,7 +577,9 @@ def make_server(port, auth, index, portal_port, ask_port, projects_port=8182, te
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--auth', required=True)
+    ap.add_argument('--auth', required=True, help='the single login used until the users file exists')
+    ap.add_argument('--users', help='the users file of awb web user (default: users.json next to --auth)')
+    ap.add_argument('--signin-log', help='where every sign-in attempt is logged (time, login, result)')
     ap.add_argument('--domain', required=True, help='the host name of the site, without scheme')
     ap.add_argument('--index', required=True)
     ap.add_argument('--ports', nargs='+', type=int, default=[8080, 8081])
@@ -396,7 +588,7 @@ def main():
     ap.add_argument('--projects-port', type=int, default=8182)
     ap.add_argument('--tenants-port', type=int, default=8183)
     args = ap.parse_args()
-    auth = Auth(args.auth)
+    auth = Auth(args.auth, args.users, args.signin_log)
     servers = [make_server(port, auth, args.index, args.portal_port, args.ask_port, args.projects_port, args.tenants_port, domain=args.domain) for port in args.ports]
     for server in servers[1:]:
         threading.Thread(target=server.serve_forever, daemon=True).start()

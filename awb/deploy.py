@@ -104,6 +104,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/refresh.py": "awb refresh, run by the owner or a timer of his",
     "awb/tcp/web/contract.py": "awb api write|check, writes and checks docs/api/openapi.yaml",
     "awb/tcp/web/publish.py": "awb web publish|status, run by the owner with sudo",
+    "awb/tcp/web/users.py": "awb web user, run by the owner with sudo in his own terminal",
     "awb/tcp/ui.py": "awb ui submit|status|watch, run by the owner; a watch runs as his own background process",
 }
 

@@ -1665,8 +1665,99 @@
    "name": "D-NOW: a web submission of a new customer is refused with 403, the register and the journal stay unchanged; replaces test_unix_peer_cannot_read_names (its POST step pinned 400)",
    "run": ".venv/bin/pytest tests/test_web_create_api.py",
    "status": "passing"
+  },
+  {
+   "id": "F4-1",
+   "phase": "F4",
+   "name": "add stores a salted digest per login and never the password; the file is 640",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_add_stores_a_salted_digest_and_never_the_password",
+   "status": "passing"
+  },
+  {
+   "id": "F4-2",
+   "phase": "F4",
+   "name": "the single login works until the first user is added, then never again",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_the_single_login_works_until_the_first_user_is_added",
+   "status": "passing"
+  },
+  {
+   "id": "F4-3",
+   "phase": "F4",
+   "name": "reset and remove end the sessions of that login only",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_reset_and_remove_end_the_sessions_of_that_login",
+   "status": "passing"
+  },
+  {
+   "id": "F4-4",
+   "phase": "F4",
+   "name": "awb web user prints the password once and refuses in an assistant session and without sudo",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_the_command_prints_the_password_once_and_refuses_in_an_assistant_session",
+   "status": "passing"
+  },
+  {
+   "id": "F4-5",
+   "phase": "F4",
+   "name": "5 failures within 15 minutes make the login wait 15 minutes",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_five_failures_within_15_minutes_make_the_login_wait_15_minutes",
+   "status": "passing"
+  },
+  {
+   "id": "F4-6",
+   "phase": "F4",
+   "name": "failures spread over more than 15 minutes do not lock",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_failures_spread_over_more_than_15_minutes_do_not_lock",
+   "status": "passing"
+  },
+  {
+   "id": "F4-7",
+   "phase": "F4",
+   "name": "each further series doubles the wait up to 24 hours; a success resets it",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_each_further_series_doubles_the_wait_up_to_24_hours_and_a_success_resets",
+   "status": "passing"
+  },
+  {
+   "id": "F4-8",
+   "phase": "F4",
+   "name": "an unknown login is counted and answered exactly like a wrong password",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_an_unknown_login_is_counted_and_answered_like_a_wrong_password",
+   "status": "passing"
+  },
+  {
+   "id": "F4-9",
+   "phase": "F4",
+   "name": "30 failures an hour close every sign-in until the hour passes",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_30_failures_an_hour_close_every_sign_in_until_the_hour_passes",
+   "status": "passing"
+  },
+  {
+   "id": "F4-10",
+   "phase": "F4",
+   "name": "the per-address limit stays 8 a minute",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_the_per_address_limit_stays_eight_a_minute",
+   "status": "passing"
+  },
+  {
+   "id": "F4-11",
+   "phase": "F4",
+   "name": "every attempt is logged with time, login and result, never the password",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_every_attempt_is_logged_with_time_login_and_result_never_the_password",
+   "status": "passing"
+  },
+  {
+   "id": "F4-12",
+   "phase": "F4",
+   "name": "a restarted gateway keeps the waits from the log",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_a_restarted_gateway_keeps_the_waits_from_the_log",
+   "status": "passing"
+  },
+  {
+   "id": "F4-13",
+   "phase": "F4",
+   "name": "awb web status shows the counts of the last day, a closed site and the logins in cooldown",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_status_shows_the_counts_of_the_last_day_and_the_logins_in_cooldown",
+   "status": "passing"
   }
  ],
- "total_tests": 238,
+ "total_tests": 251,
  "checked": "2026-10-08"
 }
