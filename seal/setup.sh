@@ -6,7 +6,7 @@
 #
 # --update is what `sudo awb deploy` runs, from the release folder it has just extracted, never from a working
 # tree. Its steps are an explicit allow list (update_steps): the code, the host file, the units, the needrestart
-# rule, the client files and the managed drop-in. The users, the homes, the moves, the ssh keys and (without
+# rule, the package holds of cloudflared and terraform, the client files and the managed drop-in. The users, the homes, the moves, the ssh keys and (without
 # --mirrors) the mirrors are left alone, so a deploy never chowns the shared tree again. --units-only renders and
 # installs the unit templates and reloads systemd, nothing else (the flip back of a failed reload uses it).
 #
@@ -625,6 +625,24 @@ step_needrestart() {
     write_file "$NEEDRESTART_FILE" 644 root:root <"$seal_dir/needrestart-awb.conf"
 }
 
+step_holds() {
+    local pkg
+    info "cloudflared and terraform are held (RT-26): the routine upgrade leaves them alone and an upgrade is a"
+    info "deliberate step (apt-mark unhold PACKAGE, upgrade, apt-mark hold PACKAGE); the runner of a project's"
+    info "Terraform set uses its own pinned binary, never the one of apt"
+    for pkg in cloudflared terraform; do
+        if [ "$real" -eq 1 ] && ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+            info "$pkg is not installed: nothing to hold"
+            continue
+        fi
+        if [ "$real" -eq 1 ] && apt-mark showhold "$pkg" 2>/dev/null | grep -qx "$pkg"; then
+            printf '= apt-mark hold %s  # already held\n' "$pkg"
+            continue
+        fi
+        try_run apt-mark hold "$pkg"
+    done
+}
+
 step_ssh() {
     local keys="$owner_home/.ssh/authorized_keys"
     info "the owner's ssh keys open the work user too"
@@ -749,6 +767,7 @@ steps() {
     step_conf
     step_units
     step_needrestart
+    step_holds
     step_ssh
     step_client
     step_managed
@@ -765,6 +784,7 @@ update_steps() {
     step_conf
     step_units
     step_needrestart
+    step_holds
     step_client
     step_managed
     step_mirrors

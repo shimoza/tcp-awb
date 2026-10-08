@@ -839,50 +839,6 @@ def test_the_test_override_is_refused_as_root_and_alone(tmp_path):
     assert not (tmp_path / "opt").exists()
 
 
-def test_setup_update_mode_skips_the_seal_steps(fakebin):
-    """Planted: the full mode prints the chown of the shared tree, the users and the moves (so the checks can fail);
-    the update mode prints none of them, no mount, no rm -rf of src, and prints the .pth line, the exchange, every
-    seal/*.service and the needrestart rule. A grep over the script finds no rm -rf of src."""
-    full = commands(run_script(SETUP, ["--dry-run"], fakebin).stdout)
-
-    def seal_steps(cmds):
-        return [c for c in cmds if re.match(r"^[+=] (chown|chmod|find)\b.*tcp-shared", c)
-                or re.match(r"^[+=] (useradd|groupadd|usermod|gpasswd)\b", c) or c.startswith("+ mv -- ")
-                or re.match(r"^[+=] mount\b", c) or "authorized_keys" in c
-                or re.search(r"rm -rf -- /opt/tcp-awb/src( |$)", c)]
-
-    assert seal_steps(full)
-    res = run_script(SETUP, ["--update", "--dry-run"], fakebin)
-    assert res.returncode == 0, res.stderr
-    no_marks(fakebin)
-    cmds = commands(res.stdout)
-    assert seal_steps(cmds) == []
-    joined = "\n".join(cmds)
-    assert re.search(r"^\+ write /opt/tcp-awb/venv/lib/python3[^/]*/site-packages/awb\.pth ", joined, re.M)
-    assert "    | /opt/tcp-awb/src" in res.stdout.splitlines()
-    assert "+ exchange /opt/tcp-awb/src.next /opt/tcp-awb/src  # renameat2 RENAME_EXCHANGE, one call" in cmds
-    for unit in sorted(p.name for p in SEAL.glob("*.service")):
-        assert "+ write /etc/systemd/system/%s (mode 644, root:root)" % unit in cmds
-        assert "+ systemctl enable --now %s" % unit in cmds
-    assert "+ write /etc/needrestart/conf.d/awb.conf (mode 644, root:root)" in cmds
-    assert [c for c in cmds if " mv -T " in c or c.startswith("+ mv -T")] == [
-        "+ mv -T -- /opt/tcp-awb/src.next /opt/tcp-awb/releases/pre-deploy  # if /opt/tcp-awb/src.next is the plain "
-        "folder of before T1, else rm -f"]
-    assert "pip" not in joined and not re.search(r"(^|[ |;&])git ", joined, re.M)
-    text = SETUP.read_text(encoding="utf-8")
-    assert not re.search(r'rm -rf[^\n]*\$OPT/src["\s]', text)
-    assert re.search(r"^update_steps\(\) \{\n(    #.*\n)?    if \[ \"\$units_only\" -eq 1 \]; then\n        step_units\n"
-                     r"        return 0\n    fi\n    step_code\n    step_conf\n    step_units\n    step_needrestart\n"
-                     r"    step_client\n    step_managed\n    step_mirrors\n\}", text, re.M)
-    # --units-only: the units and daemon-reload, nothing else
-    res = run_script(SETUP, ["--update", "--units-only", "--dry-run"], fakebin)
-    assert res.returncode == 0, res.stderr
-    only = commands(res.stdout)
-    assert only == ["+ write /etc/systemd/system/%s (mode 644, root:root)" % p.name
-                    for p in sorted(SEAL.glob("*.service"))] + ["+ systemctl daemon-reload"]
-    assert run_script(SETUP, ["--units-only", "--dry-run"], fakebin).returncode == 1
-
-
 def test_setup_full_mode_creates_the_ask_user_and_names_the_next_step(fakebin):
     """Planted: the Ask page's service user left to a hand step, or the old restart line at the end."""
     res = run_script(SETUP, ["--dry-run"], fakebin)
@@ -978,3 +934,60 @@ def test_the_host_file_names_the_front_socket_and_the_tunnel_user(fakebin):
     assert any(re.fullmatch(r"    \| cloudflared_user = [a-z_][a-z0-9_-]*", x) for x in lines)
     text = SETUP.read_text(encoding="utf-8")
     assert 'owner_host=$(kept_conf owner_host "")' in text and "kept_conf front_socket /run/awb-web/front.sock" in text
+
+
+def test_the_dry_run_holds_cloudflared_and_terraform_in_the_seal_and_in_a_deploy(fakebin):
+    """T9 step 4 (RT-26): both packages are held with an info line, in the first seal and in every update."""
+    for args in (["--dry-run"], ["--update", "--dry-run"]):
+        res = run_script(SETUP, args, fakebin)
+        assert res.returncode == 0, res.stderr
+        lines = res.stdout.splitlines()
+        assert "+ apt-mark hold cloudflared" in lines and "+ apt-mark hold terraform" in lines, args
+        assert any(x.startswith("# cloudflared and terraform are held (RT-26)") for x in lines)
+    res = run_script(SETUP, ["--update", "--units-only", "--dry-run"], fakebin)
+    assert "apt-mark" not in res.stdout
+
+
+def test_setup_update_mode_skips_the_seal_steps_and_holds_the_packages(fakebin):
+    """Replaces test_setup_update_mode_skips_the_seal_steps (T9 step 4: the update holds cloudflared and terraform,
+    step_holds after step_needrestart). Planted: the full mode prints the chown of the shared tree, the users and the moves (so the checks can fail);
+    the update mode prints none of them, no mount, no rm -rf of src, and prints the .pth line, the exchange, every
+    seal/*.service and the needrestart rule. A grep over the script finds no rm -rf of src."""
+    full = commands(run_script(SETUP, ["--dry-run"], fakebin).stdout)
+
+    def seal_steps(cmds):
+        return [c for c in cmds if re.match(r"^[+=] (chown|chmod|find)\b.*tcp-shared", c)
+                or re.match(r"^[+=] (useradd|groupadd|usermod|gpasswd)\b", c) or c.startswith("+ mv -- ")
+                or re.match(r"^[+=] mount\b", c) or "authorized_keys" in c
+                or re.search(r"rm -rf -- /opt/tcp-awb/src( |$)", c)]
+
+    assert seal_steps(full)
+    res = run_script(SETUP, ["--update", "--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    no_marks(fakebin)
+    cmds = commands(res.stdout)
+    assert seal_steps(cmds) == []
+    joined = "\n".join(cmds)
+    assert re.search(r"^\+ write /opt/tcp-awb/venv/lib/python3[^/]*/site-packages/awb\.pth ", joined, re.M)
+    assert "    | /opt/tcp-awb/src" in res.stdout.splitlines()
+    assert "+ exchange /opt/tcp-awb/src.next /opt/tcp-awb/src  # renameat2 RENAME_EXCHANGE, one call" in cmds
+    for unit in sorted(p.name for p in SEAL.glob("*.service")):
+        assert "+ write /etc/systemd/system/%s (mode 644, root:root)" % unit in cmds
+        assert "+ systemctl enable --now %s" % unit in cmds
+    assert "+ write /etc/needrestart/conf.d/awb.conf (mode 644, root:root)" in cmds
+    assert [c for c in cmds if " mv -T " in c or c.startswith("+ mv -T")] == [
+        "+ mv -T -- /opt/tcp-awb/src.next /opt/tcp-awb/releases/pre-deploy  # if /opt/tcp-awb/src.next is the plain "
+        "folder of before T1, else rm -f"]
+    assert "pip" not in joined and not re.search(r"(^|[ |;&])git ", joined, re.M)
+    text = SETUP.read_text(encoding="utf-8")
+    assert not re.search(r'rm -rf[^\n]*\$OPT/src["\s]', text)
+    assert re.search(r"^update_steps\(\) \{\n(    #.*\n)?    if \[ \"\$units_only\" -eq 1 \]; then\n        step_units\n"
+                     r"        return 0\n    fi\n    step_code\n    step_conf\n    step_units\n    step_needrestart\n"
+                     r"    step_holds\n    step_client\n    step_managed\n    step_mirrors\n\}", text, re.M)
+    # --units-only: the units and daemon-reload, nothing else
+    res = run_script(SETUP, ["--update", "--units-only", "--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    only = commands(res.stdout)
+    assert only == ["+ write /etc/systemd/system/%s (mode 644, root:root)" % p.name
+                    for p in sorted(SEAL.glob("*.service"))] + ["+ systemctl daemon-reload"]
+    assert run_script(SETUP, ["--units-only", "--dry-run"], fakebin).returncode == 1

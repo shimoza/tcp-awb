@@ -27,6 +27,8 @@ The seal keeps the register of names away from every working session. It uses tw
   `web/`.
 - `needrestart-awb.conf`: goes to `/etc/needrestart/conf.d/awb.conf`, so that a package upgrade never restarts
   the vault daemon or the key service: a restart locks them and the console loses projects and chat.
+- The package holds (T9 step 4, RT-26): `apt-mark hold cloudflared terraform`, so the routine upgrade leaves the
+  tunnel and Terraform alone; an upgrade is a deliberate step (`apt-mark unhold`, upgrade, `apt-mark hold`).
 - `work-claude/settings.json`: the client settings of the work user: the five Workbench hooks
   (`/usr/local/bin/awb hook NAME`) and a deny rule for every connector tool (`mcp__*`). Connectors of the account
   would hand raw customer text to a session.
@@ -110,7 +112,7 @@ units whose code changed. `awb deploy --dry-run` prints the plan and every step 
    entry (files, folders and links only, no setuid bit), drops the group and other write bits and renames it.
 5. Runs `releases/<commit>/seal/setup.sh --update` from the release, never from the working tree. The update mode
    names its steps one by one: the code (the `.pth` line, the wrapper, the flip), the host file, the units, the
-   needrestart rule, the client files and the managed drop-in. It never touches the users, the homes, the moves or
+   needrestart rule, the package holds, the client files and the managed drop-in. It never touches the users, the homes, the moves or
    the ssh keys, so the shared tree is not chowned again. `--units-only` installs the unit templates and reloads
    systemd, nothing else.
 6. Restarts the vault daemon, then the key service, then the Ask page and the portal, then the web units through

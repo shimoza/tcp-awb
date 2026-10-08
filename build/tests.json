@@ -2015,8 +2015,15 @@
    "name": "awb web user keeps owner-actions' copy of the owner secrets in step (600); the publish unit is root with a socket root:awb-owner 0660; install.sh gives the copy to awb-owner; the template set and the order with publish",
    "run": ".venv/bin/pytest tests/test_web_publish.py -k copy_of_the_owner tests/test_web_seal.py",
    "status": "passing"
+  },
+  {
+   "id": "T9-22",
+   "phase": "T9",
+   "name": "the seal and every update hold cloudflared and terraform with an info line; --units-only does not; the update names step_holds after step_needrestart (one seal test replaced)",
+   "run": ".venv/bin/pytest tests/test_seal.py -k 'holds or update_mode'",
+   "status": "passing"
   }
  ],
- "total_tests": 288,
+ "total_tests": 289,
  "checked": "2026-10-08"
 }

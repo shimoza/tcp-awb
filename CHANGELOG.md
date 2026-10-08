@@ -124,6 +124,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   fresh code from the owner's phone; the code is checked twice, by the front door and by the owner service, and a
   small root service publishes only the newest passing run, never an older one or the same page again, and keeps the
   last 10 pages. `sudo awb web publish --from-queue ID --newest` does the same in the terminal.
+- The routine upgrade no longer updates cloudflared and Terraform: the seal and every deploy hold both packages, so
+  an upgrade of either is a deliberate step.
 
 ## Week 40, 2026-09-28 to 2026-10-04
 
