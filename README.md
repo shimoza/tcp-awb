@@ -225,12 +225,17 @@ the password store (`pass`), one folder per tenant alias:
 | `awb/tenant/<alias>/lab/ak`, `lab/sk` | the lab key | every method; a write needs the code of an active project |
 | `awb/tenant/<alias>/secret/<name>` | a login or a password | fills a password field of a request, never shown |
 
+A new tenant needs its admin login in the store once; one command does the rest (the read group and user, the
+key, the register, the key service and the first snapshot) and a second run changes nothing:
+
 ```bash
-pass insert awb/tenant/test-1/ak
-pass insert awb/tenant/test-1/sk
-awb tenant add test-1 --keys pass:awb/tenant/test-1 --region eu-de
+pass insert awb/admin/test-1/domain     # and user, password
+awb tenant setup test-1 --domain-id ID [--lab-key] [--alerts]
 awb keys unlock                  # after every start of the service
 ```
+
+By hand the same is `pass insert awb/tenant/test-1/ak` and `sk`, then `awb tenant add test-1 --keys
+pass:awb/tenant/test-1 --region eu-de`.
 
 A request body may name a secret only as the whole value of a password field, `{"admin_pass": "{{secret:NAME}}"}`.
 The answer comes back with every key and secret of the tenant taken out, also in base64 and JSON form. Every call is

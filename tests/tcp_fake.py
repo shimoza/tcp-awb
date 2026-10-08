@@ -270,3 +270,125 @@ class FakeGateway(_Server):
             do_DELETE = _serve
 
         return Handler
+
+
+# --------------------------------------------------------------------------- IAM and CTS with a token
+
+
+class FakeIAM(_Server):
+    """IAM and CTS of one account behind one address: the password token, roles, groups, the inherited grant,
+    users, group members, access keys and CTS notifications. Every request is kept in `calls` as (method, path,
+    query, body as text); a call without the token answers 401."""
+
+    DOMAIN_ID = "d" * 32
+    PROJECT_ID = "e" * 32
+    TOKEN = "fake-token-of-the-admin"
+
+    def __init__(self, domain: str = "fake-domain", user: str = "fake-admin", password: str = "pw-invented-7"):
+        self.login = (domain, user, password)
+        self.admin_id = "u-admin"
+        self.roles = [{"id": "r-guest", "name": "readonly", "display_name": "Tenant Guest"},
+                      {"id": "r-admin", "name": "te_admin", "display_name": "Tenant Administrator"}]
+        self.groups: dict[str, dict] = {}
+        self.users: dict[str, dict] = {self.admin_id: {"id": self.admin_id, "name": user}}
+        self.inherited: set[tuple[str, str]] = set()
+        self.members: set[tuple[str, str]] = set()
+        self.credentials: dict[str, dict] = {}
+        self.notifications: list[dict] = []
+        self.calls: list[tuple[str, str, dict, str]] = []
+        self._n = 0
+        super().__init__(self._handler())
+
+    def _id(self, kind: str) -> str:
+        self._n += 1
+        return "%s-%d" % (kind, self._n)
+
+    def creates(self) -> list[tuple[str, str]]:
+        return [(m, p) for m, p, _, _ in self.calls if m in ("POST", "PUT") and p != "/v3/auth/tokens"]
+
+    def route(self, method: str, path: str, q: dict, body: dict, token: str) -> tuple[int, dict, dict]:
+        if path == "/v3/auth/tokens" and method == "POST":
+            pw = body.get("auth", {}).get("identity", {}).get("password", {}).get("user", {})
+            if (pw.get("domain", {}).get("name"), pw.get("name"), pw.get("password")) != self.login:
+                return 401, {"error": {"code": 401, "message": "wrong"}}, {}
+            scope = body["auth"].get("scope", {})
+            tok = {"user": {"id": self.admin_id}, "domain": {"id": self.DOMAIN_ID}}
+            if "project" in scope:
+                tok["project"] = {"id": self.PROJECT_ID, "name": scope["project"]["name"]}
+            return 201, {"token": tok}, {"X-Subject-Token": self.TOKEN}
+        if token != self.TOKEN:
+            return 401, {"error": {"code": 401}}, {}
+        parts = path.strip("/").split("/")
+        if path == "/v3/roles":
+            return 200, {"roles": [r for r in self.roles if r["name"] == q.get("name", r["name"])]}, {}
+        if path == "/v3/groups":
+            if method == "POST":
+                g = dict(body["group"], id=self._id("g"))
+                self.groups[g["id"]] = g
+                return 201, {"group": g}, {}
+            return 200, {"groups": [g for g in self.groups.values() if g["name"] == q.get("name", g["name"])]}, {}
+        if path.startswith("/v3/OS-INHERIT/"):
+            key = (parts[5], parts[7])
+            if method == "PUT":
+                self.inherited.add(key)
+                return 204, {}, {}
+            return (204 if key in self.inherited else 404), {}, {}
+        if path == "/v3/users":
+            if method == "POST":
+                u = dict(body["user"], id=self._id("u"))
+                self.users[u["id"]] = u
+                return 201, {"user": u}, {}
+            return 200, {"users": [u for u in self.users.values() if u["name"] == q.get("name", u["name"])]}, {}
+        if path.startswith("/v3.0/OS-USER/users/") and method == "PUT":
+            self.users[parts[3]].update(body["user"])
+            return 200, {"user": self.users[parts[3]]}, {}
+        if len(parts) == 5 and parts[:2] == ["v3", "groups"] and parts[3] == "users":
+            key = (parts[2], parts[4])
+            if method == "PUT":
+                self.members.add(key)
+                return 204, {}, {}
+            return (204 if key in self.members else 404), {}, {}
+        if path == "/v3.0/OS-CREDENTIAL/credentials":
+            if method == "POST":
+                uid = body["credential"]["user_id"]
+                ak = "AKFAKE%04d" % self._n
+                self._n += 1
+                self.credentials[ak] = {"access": ak, "user_id": uid, "secret": "SK-invented-%s" % ak}
+                return 201, {"credential": dict(self.credentials[ak])}, {}
+            return 200, {"credentials": [{"access": c["access"], "user_id": c["user_id"]}
+                                         for c in self.credentials.values() if c["user_id"] == q.get("user_id")]}, {}
+        if path == "/v3/%s/notifications/smn" % self.PROJECT_ID:
+            return 200, {"notifications": [n for n in self.notifications
+                                           if n["notification_name"] == q.get("notification_name")]}, {}
+        if path == "/v3/%s/notifications" % self.PROJECT_ID and method == "POST":
+            self.notifications.append(dict(body, notification_type="smn"))
+            return 201, dict(body), {}
+        return 404, {"error_msg": "no such path"}, {}
+
+    def _handler(self):
+        fake = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def _serve(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(length) if length else b""
+                parts = urllib.parse.urlsplit(self.path)
+                q = dict(urllib.parse.parse_qsl(parts.query, keep_blank_values=True))
+                fake.calls.append((self.command, parts.path, q, raw.decode()))
+                status, data, headers = fake.route(self.command, parts.path, q, json.loads(raw) if raw else {},
+                                                   self.headers.get("X-Auth-Token", ""))
+                out = json.dumps(data).encode() if data and self.command != "HEAD" else b""
+                self.send_response(status)
+                for k, v in headers.items():
+                    self.send_header(k, v)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
+            do_GET = do_POST = do_PUT = do_HEAD = _serve
+
+        return Handler

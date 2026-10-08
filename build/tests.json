@@ -1490,8 +1490,50 @@
    "name": "a delete outside the project's own prefix is refused by the service",
    "run": ".venv/bin/pytest tests/test_xchg.py::test_a_delete_outside_the_projects_own_prefix_is_refused_by_the_service",
    "status": "passing"
+  },
+  {
+   "id": "T10-1",
+   "phase": "T10",
+   "name": "a fresh tenant: group, user, key created, two pass entries through stdin, tenant add called",
+   "run": ".venv/bin/pytest tests/test_tenants.py::test_setup_of_a_fresh_tenant_makes_group_user_key_and_registers_it",
+   "status": "passing"
+  },
+  {
+   "id": "T10-2",
+   "phase": "T10",
+   "name": "a second setup run creates nothing, exit 0, nothing to do",
+   "run": ".venv/bin/pytest tests/test_tenants.py::test_a_second_setup_creates_nothing_and_says_so",
+   "status": "passing"
+  },
+  {
+   "id": "T10-3",
+   "phase": "T10",
+   "name": "the admin password never reaches an argument, a log line or the output",
+   "run": ".venv/bin/pytest tests/test_tenants.py::test_the_admin_password_never_reaches_an_argument_a_log_or_the_output",
+   "status": "passing"
+  },
+  {
+   "id": "T10-4",
+   "phase": "T10",
+   "name": "--lab-key creates the admin key only when asked",
+   "run": ".venv/bin/pytest tests/test_tenants.py::test_the_lab_key_is_made_only_when_asked",
+   "status": "passing"
+  },
+  {
+   "id": "T10-5",
+   "phase": "T10",
+   "name": "--alerts creates the CTS alert once and refuses a topic of another project",
+   "run": ".venv/bin/pytest tests/test_tenants.py::test_the_cts_alert_is_created_once_with_the_topic",
+   "status": "passing"
+  },
+  {
+   "id": "T10-6",
+   "phase": "T10",
+   "name": "setup refuses a missing admin login and a bad domain id",
+   "run": ".venv/bin/pytest tests/test_tenants.py::test_setup_refuses_a_missing_admin_login_and_a_bad_domain_id",
+   "status": "passing"
   }
  ],
- "total_tests": 2432,
+ "total_tests": 2438,
  "checked": "2026-10-08"
 }

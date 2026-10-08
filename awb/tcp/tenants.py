@@ -1,5 +1,7 @@
 """Resources on the test tenants, tracked over time (T-63).
 
+    awb tenant setup ALIAS --domain-id ID [--region R] [--lab-key] [--alerts [--topic URN]]
+                                                                        owner side: a new tenant in one command
     awb tenant add ALIAS --keys pass:ENTRY|file:PATH [--region R]...   owner side: a tenant and its read-only key
     awb tenant snapshot [ALIAS]...                                      owner side: list the tenant, GET only
     awb tenant list                                                     every tenant, what runs there now
@@ -21,6 +23,14 @@ The key of a tenant is a read-only key (list rights only) so that a daily snapsh
 names a file of the owner (mode 600) with `ak=` and `sk=` lines, `pass:ENTRY` the entries `ENTRY/ak` and `ENTRY/sk`
 of the password store. The work user never gets a key: it reads what the snapshots recorded.
 
+`setup` (T10) does it all from the admin login that the owner put into the password store once
+(`awb/admin/ALIAS/domain`, `user`, `password`): a domain-scoped password token, the group awb-read with Tenant Guest
+on all projects, the user awb-read-<number of the alias> with programmatic access in it, its key written to
+`awb/tenant/ALIAS/ak|sk` through `pass insert -m` (standard input), with --lab-key a key of the admin user to
+`awb/tenant/ALIAS/lab/ak|sk`, with --alerts the CTS alert awb_new_access_key to the SMN topic of keys.conf, then
+`add`, `awb keys unlock` and the first snapshot. Only what is missing is made; a second run says nothing to do.
+It prints names and counts, never a value.
+
 The history is kept for good. The tenants are named by aliases (test-1), never by their ids: a tenant id is an
 identifier the commit gate refuses.
 """
@@ -30,6 +40,7 @@ import datetime
 import json
 import os
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -261,6 +272,299 @@ def _cloud_lister(t: Tenant, region: str) -> Lister:
     return lambda service, path, key, paging: c.list(service, path, key, paging=paging)
 
 
+# --------------------------------------------------------------------------- setting a tenant up (T10)
+
+ADMIN_PREFIX = "awb/admin"
+TENANT_PREFIX = "awb/tenant"
+READ_GROUP = "awb-read"
+READ_ROLE = "readonly"
+"""The system role shown as Tenant Guest: list and read rights on every service, nothing else."""
+ALERT_NAME = "awb_new_access_key"
+ALERT_OPERATIONS = [{"service_type": "IAM", "resource_type": "credential", "trace_names": ["createCredential"]}]
+_DOMAIN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_URN_RE = re.compile(r"^urn:smn:([a-z]{2}-[a-z0-9]{2,10}):([0-9a-f]{32}):[A-Za-z0-9_-]{1,255}$")
+
+
+class Store:
+    """The owner's password store, by entry name. A value goes in through standard input and comes out of
+    `show` only; no value is ever an argument or a log line."""
+
+    def __init__(self, root: Path | None = None, run=subprocess.run):
+        self.root = root or Path(os.environ.get("PASSWORD_STORE_DIR", "~/.password-store")).expanduser()
+        self.run = run
+
+    def has(self, entry: str) -> bool:
+        return (self.root / (entry + ".gpg")).is_file()
+
+    def show(self, entry: str) -> str:
+        try:
+            r = self.run(["pass", "show", entry], capture_output=True, text=True, timeout=60,
+                         stdin=subprocess.DEVNULL, check=False)
+        except (OSError, subprocess.SubprocessError) as err:
+            raise TenantError("the password store cannot be read (%s)" % type(err).__name__) from None
+        lines = r.stdout.strip().splitlines() if r.returncode == 0 else []
+        if not lines or not lines[0].strip():
+            raise TenantError("the password store gives nothing for %s" % entry)
+        return lines[0].strip()
+
+    def insert(self, entry: str, value: str) -> None:
+        try:
+            r = self.run(["pass", "insert", "-m", entry], input=value + "\n", capture_output=True, text=True,
+                         timeout=60, check=False)
+        except (OSError, subprocess.SubprocessError) as err:
+            raise TenantError("the password store cannot be written (%s)" % type(err).__name__) from None
+        if r.returncode != 0:
+            raise TenantError("pass insert of %s failed (exit %d)" % (entry, r.returncode))
+
+
+class Iam:
+    """Token calls to IAM and CTS with the admin login of a tenant. The password goes into the body of the token
+    request only; the token stays in this object. An error names the status and the error code, never a body."""
+
+    def __init__(self, region: str = "eu-de", endpoint: str | None = None, timeout: float = 30.0):
+        self.region = region
+        self.endpoint = (endpoint or os.environ.get("AWB_CLOUD_ENDPOINT") or "").rstrip("/") or None
+        self.timeout = timeout
+        self.token = ""
+
+    def base(self, service: str) -> str:
+        return self.endpoint or "https://%s.%s.otc.t-systems.com" % (service, self.region)
+
+    def _send(self, method: str, service: str, path: str, body=None, query: dict | None = None,
+              token: str | None = None) -> tuple[int, dict, dict]:
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+        url = self.base(service) + path + ("?" + urllib.parse.urlencode(query) if query else "")
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(url, data=data, method=method)
+        req.add_header("Content-Type", "application/json;charset=utf8")
+        token = self.token if token is None else token
+        if token:
+            req.add_header("X-Auth-Token", token)
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                status, raw, headers = resp.status, resp.read(), dict(resp.headers)
+        except urllib.error.HTTPError as err:
+            status, raw, headers = err.code, err.read(), dict(err.headers or {})
+        except (urllib.error.URLError, OSError) as err:
+            raise TenantError("no answer from %s (%s)" % (service, type(err).__name__)) from None
+        try:
+            parsed = json.loads(raw) if raw else {}
+        except ValueError:
+            parsed = {}
+        return status, parsed if isinstance(parsed, dict) else {}, headers
+
+    @staticmethod
+    def _code(data: dict) -> str:
+        err = data.get("error")
+        if isinstance(err, dict):
+            return str(err.get("code") or "")
+        return str(data.get("error_code") or "")
+
+    def login(self, domain: str, user: str, password: str, domain_id: str, project: str | None = None) -> dict:
+        """A password token, scoped to the domain or to the project named like the region. Returns the token body."""
+        scope = {"project": {"name": project, "domain": {"id": domain_id}}} if project else {"domain": {"id": domain_id}}
+        body = {"auth": {"identity": {"methods": ["password"], "password": {
+            "user": {"name": user, "password": password, "domain": {"name": domain}}}}, "scope": scope}}
+        status, data, headers = self._send("POST", "iam", "/v3/auth/tokens", body, token="")
+        token = {k.lower(): v for k, v in headers.items()}.get("x-subject-token", "")
+        if status != 201 or not token or not isinstance(data.get("token"), dict):
+            raise TenantError("the admin login was refused (HTTP %d %s)" % (status, self._code(data)))
+        if not project:
+            self.token = token
+        data["token"]["_id"] = token
+        return data["token"]
+
+    def call(self, method: str, service: str, path: str, body=None, query: dict | None = None,
+             token: str | None = None, ok: tuple[int, ...] = (200, 201, 204)) -> tuple[int, dict]:
+        status, data, _ = self._send(method, service, path, body, query, token)
+        if status not in ok:
+            shown = re.sub(r"[0-9a-f]{32}|[0-9a-f-]{36}", "{id}", path)
+            raise TenantError("%s %s answered HTTP %d %s" % (method, shown, status, self._code(data)))
+        return status, data
+
+
+def read_user_name(alias: str) -> str:
+    m = re.search(r"(\d+)$", alias)
+    return "awb-read-%s" % (m.group(1) if m else alias)
+
+
+def _one(items: list, name: str) -> dict | None:
+    hits = [i for i in items if isinstance(i, dict) and i.get("name") == name]
+    return hits[0] if hits else None
+
+
+def _key(iam: Iam, store: Store, user_id: str, prefix: str, what: str, done: list[str]) -> bool:
+    """The key of a user under prefix/ak and prefix/sk: created when the store has neither, checked against the
+    user's keys when it has both. True when a key was created."""
+    has = [store.has(prefix + "/ak"), store.has(prefix + "/sk")]
+    if has[0] != has[1]:
+        raise TenantError("%s holds one half of a key: fix it by hand" % prefix)
+    if all(has):
+        _, data = iam.call("GET", "iam", "/v3.0/OS-CREDENTIAL/credentials", query={"user_id": user_id})
+        owned = {c.get("access") for c in data.get("credentials") or [] if isinstance(c, dict)}
+        if store.show(prefix + "/ak") not in owned:
+            raise TenantError("%s/ak holds a key that the %s does not own" % (prefix, what))
+        done.append("%s: present" % what)
+        return False
+    _, data = iam.call("POST", "iam", "/v3.0/OS-CREDENTIAL/credentials",
+                       {"credential": {"user_id": user_id, "description": "awb %s" % what}})
+    cred = data.get("credential") or {}
+    if not cred.get("access") or not cred.get("secret"):
+        raise TenantError("IAM gave no key for the %s" % what)
+    store.insert(prefix + "/ak", cred["access"])
+    store.insert(prefix + "/sk", cred["secret"])
+    done.append("%s: created, written to %s" % (what, prefix))
+    return True
+
+
+def setup(p: config.Paths, alias: str, domain_id: str, *, region: str = "eu-de", lab_key: bool = False,
+          alerts: bool = False, topic: str | None = None, store: Store | None = None, iam: Iam | None = None,
+          loaded: Callable[[], dict] | None = None, unlock: Callable[[], dict] | None = None,
+          make_lister: Callable[[Tenant, str], Lister] | None = None) -> tuple[list[str], bool]:
+    """Set a test tenant up from the admin login in the password store: the read group, the read user and its key,
+    with lab_key a key of the admin user, with alerts the CTS alert of a new access key, the register, the key
+    service and the first snapshot. Returns the lines to print, never a value, and whether anything changed."""
+    if not _ALIAS_RE.match(alias or ""):
+        raise TenantError("an alias reads like test-1: small letters, digits and dashes")
+    if not _DOMAIN_ID_RE.match(domain_id or ""):
+        raise TenantError("--domain-id is the 32 hex characters of the account's domain")
+    from awb.tcp.cloud import CloudError, check_region
+
+    try:
+        check_region(region)
+    except CloudError as err:
+        raise TenantError(str(err)) from None
+    store = store or Store()
+    iam = iam or Iam(region)
+    admin = "%s/%s" % (ADMIN_PREFIX, alias)
+    for part in ("domain", "user", "password"):
+        if not store.has("%s/%s" % (admin, part)):
+            raise TenantError("%s/%s is missing: pass insert it first" % (admin, part))
+    domain, user = store.show(admin + "/domain"), store.show(admin + "/user")
+    password = store.show(admin + "/password")
+    try:
+        tok = iam.login(domain, user, password, domain_id)
+        project_tok = iam.login(domain, user, password, domain_id, project=region) if alerts else None
+    finally:
+        del password
+    if (tok.get("domain") or {}).get("id") != domain_id:
+        raise TenantError("the admin login of %s belongs to another domain" % alias)
+    admin_id = (tok.get("user") or {}).get("id") or ""
+    done: list[str] = []
+    changed = False
+
+    _, data = iam.call("GET", "iam", "/v3/roles", query={"name": READ_ROLE})
+    role = _one(data.get("roles") or [], READ_ROLE)
+    if not role:
+        raise TenantError("IAM knows no role %s (Tenant Guest)" % READ_ROLE)
+    _, data = iam.call("GET", "iam", "/v3/groups", query={"name": READ_GROUP, "domain_id": domain_id})
+    group = _one(data.get("groups") or [], READ_GROUP)
+    if group:
+        done.append("group %s: present" % READ_GROUP)
+    else:
+        _, data = iam.call("POST", "iam", "/v3/groups", {"group": {
+            "name": READ_GROUP, "domain_id": domain_id, "description": "Workbench read keys, Tenant Guest"}})
+        group, changed = data["group"], True
+        done.append("group %s: created" % READ_GROUP)
+    grant = "/v3/OS-INHERIT/domains/%s/groups/%s/roles/%s/inherited_to_projects" % (domain_id, group["id"],
+                                                                                    role["id"])
+    status, _ = iam.call("HEAD", "iam", grant, ok=(204, 404))
+    if status == 404:
+        iam.call("PUT", "iam", grant)
+        changed = True
+        done.append("Tenant Guest on all projects: granted")
+    else:
+        done.append("Tenant Guest on all projects: present")
+
+    name = read_user_name(alias)
+    _, data = iam.call("GET", "iam", "/v3/users", query={"name": name, "domain_id": domain_id})
+    reader = _one(data.get("users") or [], name)
+    if reader:
+        done.append("user %s: present" % name)
+    else:
+        _, data = iam.call("POST", "iam", "/v3/users", {"user": {
+            "name": name, "domain_id": domain_id, "enabled": True, "description": "Workbench read key"}})
+        reader, changed = data["user"], True
+        iam.call("PUT", "iam", "/v3.0/OS-USER/users/%s" % reader["id"], {"user": {"access_mode": "programmatic"}})
+        done.append("user %s: created, programmatic access" % name)
+    member = "/v3/groups/%s/users/%s" % (group["id"], reader["id"])
+    status, _ = iam.call("HEAD", "iam", member, ok=(204, 404))
+    if status == 404:
+        iam.call("PUT", "iam", member)
+        changed = True
+        done.append("user %s: put into %s" % (name, READ_GROUP))
+    entry = "%s/%s" % (TENANT_PREFIX, alias)
+    changed |= _key(iam, store, reader["id"], entry, "read key", done)
+    if lab_key:
+        if not admin_id:
+            raise TenantError("the admin token names no user")
+        changed |= _key(iam, store, admin_id, entry + "/lab", "lab key", done)
+
+    if alerts:
+        changed |= _alert(iam, project_tok, region, topic, done)
+
+    if not any(t.alias == alias for t in load(p)):
+        add(p, alias, PASS_REF + entry, [region])
+        changed = True
+        done.append("tenant %s: added to the register" % alias)
+    roles = {"read", "lab"} if store.has(entry + "/lab/ak") else {"read"}
+    have = (loaded() if loaded else {}).get(alias) or {}
+    if changed or not roles <= set(have.get("roles") or []):
+        if unlock is None:
+            raise TenantError("the key service needs the new keys: awb keys unlock")
+        unlock()
+        done.append("key service: unlocked, %s carries %s" % (alias, ", ".join(sorted(roles))))
+    else:
+        done.append("key service: %s carries %s" % (alias, ", ".join(sorted(roles))))
+
+    if not snapshots(p, alias):
+        snap, _ = snapshot(p, get(p, alias), make_lister)
+        changed = True
+        done.append("first snapshot: %d resources" % len(snap["items"]))
+    _, data = iam.call("GET", "iam", "/v3/users", query={"domain_id": domain_id})
+    users = len(data.get("users") or [])
+    _, data = iam.call("GET", "iam", "/v3.0/OS-CREDENTIAL/credentials", query={"user_id": reader["id"]})
+    keys = len(data.get("credentials") or [])
+    snap = latest(p, alias)
+    done.append("%s: %d users, %d key(s) of %s, %d resources in the snapshot of %s"
+                % (alias, users, keys, name, len(snap["items"]) if snap else 0, snap["date"] if snap else "-"))
+    if not changed:
+        done.append("nothing to do: %s was set up already" % alias)
+    return done, changed
+
+
+def _alert(iam: Iam, tok: dict | None, region: str, topic: str | None, done: list[str]) -> bool:
+    project_id = ((tok or {}).get("project") or {}).get("id") or ""
+    if not project_id:
+        raise TenantError("the project token of %s names no project" % region)
+    path = "/v3/%s/notifications" % project_id
+    _, data = iam.call("GET", "cts", path + "/smn", query={"notification_name": ALERT_NAME}, token=tok["_id"])
+    if _one([dict(n, name=n.get("notification_name")) for n in data.get("notifications") or []
+             if isinstance(n, dict)], ALERT_NAME):
+        done.append("CTS alert %s: present" % ALERT_NAME)
+        return False
+    if not topic:
+        from awb.tcp import xchg
+
+        try:
+            topic = xchg.read_settings().get("notify_topic") or ""
+        except xchg.XchgError as err:
+            raise TenantError(str(err)) from None
+    m = _URN_RE.match(topic or "")
+    if not m:
+        raise TenantError("--alerts needs an SMN topic: notify_topic in keys.conf or --topic URN")
+    if m.group(2) != project_id:
+        raise TenantError("the SMN topic belongs to another project: create a topic on this tenant and give "
+                          "--topic URN")
+    iam.call("POST", "cts", path, {"notification_name": ALERT_NAME, "operation_type": "customized",
+                                   "operations": ALERT_OPERATIONS, "topic_id": topic}, token=tok["_id"])
+    done.append("CTS alert %s: created" % ALERT_NAME)
+    return True
+
+
 # --------------------------------------------------------------------------- questions
 
 
@@ -383,6 +687,13 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("alias")
     a.add_argument("--keys", required=True)
     a.add_argument("--region", action="append", default=[])
+    su = sub.add_parser("setup", help="a new tenant from its admin login in pass, in one command (owner side)")
+    su.add_argument("alias")
+    su.add_argument("--domain-id", required=True)
+    su.add_argument("--region", default="eu-de")
+    su.add_argument("--lab-key", action="store_true", help="also a key of the admin user, the lab role")
+    su.add_argument("--alerts", action="store_true", help="the CTS alert of a new access key")
+    su.add_argument("--topic", help="the SMN topic urn of the alert (default: notify_topic of keys.conf)")
     s = sub.add_parser("snapshot", help="list the tenants now, GET only (owner side)")
     s.add_argument("alias", nargs="*")
     sub.add_parser("list", help="every tenant and what runs there now")
@@ -413,6 +724,27 @@ def main(argv: list[str] | None = None) -> int:
             t = add(p, args.alias, args.keys, args.region)
             print("tenant %s added (%s); take the first snapshot: awb tenant snapshot %s"
                   % (t.alias, ",".join(t.regions), t.alias))
+        elif args.command == "setup":
+            if config.is_work_user():
+                raise TenantError("tenants are set up on the owner side")
+            from awb.tcp import keys as _keys
+
+            def loaded() -> dict:
+                try:
+                    answer = _keys.request(_keys.call_socket(), {"op": "tenants"}, timeout=10)
+                except _keys.KeysError:
+                    return {}
+                return answer.get("tenants") or {} if answer.get("ok") else {}
+
+            def unlock() -> dict:
+                try:
+                    return _keys.unlock()
+                except _keys.KeysError as err:
+                    raise TenantError("awb keys unlock: %s" % err) from None
+
+            lines, _ = setup(p, args.alias, args.domain_id, region=args.region, lab_key=args.lab_key,
+                             alerts=args.alerts, topic=args.topic, loaded=loaded, unlock=unlock)
+            print("\n".join(lines))
         elif args.command == "snapshot":
             if config.is_work_user():
                 raise TenantError("snapshots are taken on the owner side, with the tenant's read-only key")
