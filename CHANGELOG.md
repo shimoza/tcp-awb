@@ -29,6 +29,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - The UI queue reports back. `awb ui submit` checks a UI task and hands it to Codex, and a result note with the
   validation, the summary and the publish command appears in `presentations/ui-tasks/` when the run ends, without
   anyone asking. `awb ui status` lists the runs and `--mail` sends a mail when one ends.
+- Terraform and code files go through the exchange. `awb xchg put` and `awb check` read a dotted reference such as
+  `module.lb.listener_port` as code, not as a web address, and still find names and mails. A session cleans its own
+  results out of the lab bucket with `awb xchg clean`, so the owner no longer needs the console for it.
 
 ### Changed
 

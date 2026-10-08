@@ -1413,8 +1413,85 @@
    "name": "the key service sends an owner mail through its notify operation",
    "run": ".venv/bin/pytest tests/test_ui.py::test_the_key_service_sends_an_owner_mail_through_its_notify_operation",
    "status": "passing"
+  },
+  {
+   "id": "T12-1",
+   "phase": "T12",
+   "name": "code view: twenty dotted Terraform references give no url hit",
+   "run": ".venv/bin/pytest tests/test_code_view.py::test_code_view_takes_no_dotted_reference_of_terraform_for_an_address",
+   "status": "passing"
+  },
+  {
+   "id": "T12-2",
+   "phase": "T12",
+   "name": "code view keeps a mail, a url with a scheme and a quoted host",
+   "run": ".venv/bin/pytest tests/test_code_view.py::test_code_view_keeps_mail_scheme_url_and_quoted_host",
+   "status": "passing"
+  },
+  {
+   "id": "T12-3",
+   "phase": "T12",
+   "name": "code files are known by their suffix",
+   "run": ".venv/bin/pytest tests/test_code_view.py::test_code_files_are_known_by_their_suffix",
+   "status": "passing"
+  },
+  {
+   "id": "T12-4",
+   "phase": "T12",
+   "name": "a .md file with the same references keeps its url hits; the view applies on request only",
+   "run": ".venv/bin/pytest tests/test_code_view.py::test_a_markdown_file_with_the_same_references_keeps_its_url_hits",
+   "status": "passing"
+  },
+  {
+   "id": "T12-5",
+   "phase": "T12",
+   "name": "a planted mail and a registered form in a .tf file are both found",
+   "run": ".venv/bin/pytest tests/test_code_view.py::test_code_view_still_finds_a_mail_and_a_registered_name_in_a_tf_file",
+   "status": "passing"
+  },
+  {
+   "id": "T12-6",
+   "phase": "T12",
+   "name": "awb check reads a .tf file in the code view",
+   "run": ".venv/bin/pytest tests/test_code_view.py::test_awb_check_reads_a_tf_file_in_the_code_view",
+   "status": "passing"
+  },
+  {
+   "id": "T12-7",
+   "phase": "T12",
+   "name": "xchg put passes a .tf file without addresses and names, refuses one with a mail",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_a_terraform_file_without_addresses_or_names_is_put",
+   "status": "passing"
+  },
+  {
+   "id": "T12-8",
+   "phase": "T12",
+   "name": "xchg clean --dry-run deletes nothing",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_clean_dry_run_deletes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "T12-9",
+   "phase": "T12",
+   "name": "xchg clean --go deletes exactly the listed keys and writes the rows",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_clean_go_deletes_exactly_the_listed_keys_and_writes_the_rows",
+   "status": "passing"
+  },
+  {
+   "id": "T12-10",
+   "phase": "T12",
+   "name": "xchg clean refuses another code, a bad date and a missing mode",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_clean_refuses_another_code_and_needs_a_mode",
+   "status": "passing"
+  },
+  {
+   "id": "T12-11",
+   "phase": "T12",
+   "name": "a delete outside the project's own prefix is refused by the service",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_a_delete_outside_the_projects_own_prefix_is_refused_by_the_service",
+   "status": "passing"
   }
  ],
- "total_tests": 2410,
+ "total_tests": 2432,
  "checked": "2026-10-08"
 }

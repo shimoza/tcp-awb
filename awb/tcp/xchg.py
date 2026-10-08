@@ -5,6 +5,7 @@
     awb inbox list                                                    both inboxes: id, kind, size, time
     awb xchg put FILE [--as NAME] [--image --reason TEXT]         a result into <code>/from-session/<date>/
     awb xchg list                                                 what this project put
+    awb xchg clean CODE [--older-than DATE] --dry-run|--go        delete what this project put, rows in RESOURCES.md
 
 The owner drops a file into one of two inboxes in the OBS console, with no project code and no command:
 
@@ -592,7 +593,7 @@ def check_problems(path: Path, image: bool = False) -> list[str]:
     if suffix in IMAGE_SUFFIXES:
         return [] if image else ["a picture crosses only with --image and a reason"]
     try:
-        hits = check.check_file(path, config.paths().register)
+        hits = check.check_file(path, config.paths().register, code=True)
     except Exception as err:
         return ["the name check cannot run (%s)" % type(err).__name__]
     classes = sorted({h.get("cls", "unknown") for h in hits if isinstance(h, dict)})
@@ -756,6 +757,52 @@ def put_list() -> list[str]:
     return ["%s  %d bytes" % (o["name"], o["size"]) for o in a.get("objects", [])]
 
 
+def clean(code: str, older_than: str | None = None, go: bool = False) -> list[str]:
+    """The objects under <code>/from-session/ of the lab bucket, those of a date folder before `older_than` only
+    when it is given; deleted through the key service with `go` (each one a row of state deleted in
+    RESOURCES.md), else only listed. The service refuses every key outside the project's own folders."""
+    root, own, _ = _project()
+    if code != own:
+        raise XchgError("clean names the code of this project (SCOPE.md), not another one")
+    if older_than is not None:
+        try:
+            datetime.date.fromisoformat(older_than)
+        except ValueError:
+            raise XchgError("--older-than takes a date as YYYY-MM-DD") from None
+    prefix = "%s/%s" % (code, FROM)
+    objs = _ok(_call({"op": "obs", "method": "LIST", "prefix": prefix, "project": code})).get("objects", [])
+    picked = []
+    for o in objs:
+        folder = o["name"].split("/", 1)[0]
+        if older_than is not None:
+            try:
+                if datetime.date.fromisoformat(folder).isoformat() >= older_than:
+                    continue
+            except ValueError:
+                continue            # not under a date folder: its age is unknown, an age filter keeps it
+        picked.append(o)
+    if not picked:
+        return ["nothing to delete under %s" % prefix]
+    if not go:
+        return ["would delete %s%s (%d bytes)" % (prefix, o["name"], o["size"]) for o in picked] +             ["%d object(s); run again with --go to delete them" % len(picked)]
+    lines, rows = [], []
+    today = datetime.date.today().isoformat()
+    try:
+        for o in picked:
+            key = prefix + o["name"]
+            _ok(_call({"op": "obs", "method": "DELETE", "key": key, "project": code}))
+            lines.append("deleted %s" % key)
+            rows.append("| from-session | %s | obs object, lab bucket | eu-de | small | none | deleted | awb xchg "
+                        "clean %s |\n" % (key.replace("|", "\\|"), today))
+    finally:
+        # a delete that fails half way still leaves a row for every object already gone
+        if rows:
+            with open(root / "RESOURCES.md", "a", encoding="utf-8") as f:
+                f.writelines(rows)
+    lines.append("%d object(s) deleted, %d row(s) in RESOURCES.md" % (len(picked), len(rows)))
+    return lines
+
+
 def leftovers(code: str) -> int | None:
     """Files left in the project's in/ and from-session/ of the lab bucket, None when the key service cannot say."""
     try:
@@ -821,6 +868,12 @@ def main_xchg(argv: list[str] | None = None) -> int:
     pt.add_argument("--image", action="store_true")
     pt.add_argument("--reason", default=None)
     sub.add_parser("list", help="what this project put")
+    cl = sub.add_parser("clean", help="delete what this project put into <code>/from-session/")
+    cl.add_argument("code")
+    cl.add_argument("--older-than", default=None, help="only date folders before this date (YYYY-MM-DD)")
+    mode = cl.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--dry-run", action="store_true", help="list what would be deleted")
+    mode.add_argument("--go", action="store_true", help="delete and record the rows in RESOURCES.md")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -831,6 +884,9 @@ def main_xchg(argv: list[str] | None = None) -> int:
     try:
         if args.command == "put":
             print(put(Path(args.file), args.as_name, args.image, args.reason))
+        elif args.command == "clean":
+            for line in clean(args.code, args.older_than, args.go):
+                print(line)
         else:
             for line in put_list() or ["nothing put yet"]:
                 print(line)

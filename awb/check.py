@@ -5,7 +5,8 @@ data with `patterns.find_structured` and returns the public view of every hit: s
 with positions in the normalised text. A structured hit that lies wholly inside a name hit is left out, so
 a registered domain is reported once as a name and not a second time as a URL.
 
-`check_file` reads a text file directly, with what hides behind base64 and hex blocks appended; an html
+`check_file` reads a text file directly, with what hides behind base64 and hex blocks appended (a code file,
+.tf, .py, .yaml and the like, in the code view of `patterns` when the caller asks for it); an html
 file is checked raw and as stripped text. Any other kind (office, pdf, mail, archive) goes through
 `awb.extract.extract` when that package is present. Its detect text is checked, with the detect text of
 archive members and mail attachments appended in order. Its raw parts (`scan_text`) are checked for
@@ -353,13 +354,26 @@ def _check_extracted(path: Path, names) -> list[dict]:
     return hits
 
 
-def _check_file(path: Path, matcher) -> list[dict]:
+def code_view(text: str, hits: list[dict]) -> list[dict]:
+    """`hits` of `text` (as a scan returns them, local or from the daemon) with the url hits the code view of
+    `patterns.code_url_kept` does not keep taken out. Positions point into the normalised text the scan read."""
+    if not any(h.get("cls") == "url" for h in hits):
+        return hits
+    views = _bidi_views(text)
+    n = normalize.normalize(text + "".join("\n\n" + v for v in views)).text
+    return [h for h in hits if h.get("cls") != "url"
+            or patterns.code_url_kept(n, h["start"], h["start"] + h["length"])]
+
+
+def _check_file(path: Path, matcher, code: bool = False) -> list[dict]:
     names = _as_checker(matcher)
     path = Path(path)
     data = path.read_bytes()
     text, more = _plain_text(path, data)
     if text is not None:
         hits = names.scan(text)
+        if code and patterns.is_code_file(path):
+            hits = code_view(text, hits)
         if more:
             # encoded blocks past the limit were not decoded: a file not read in full is never called clean
             hits.append(_opaque())
@@ -375,11 +389,13 @@ def _path_hits(path: Path, matcher) -> list[dict]:
     return [{"start": 0, "length": 0, "cls": PATH}] if hit else []
 
 
-def check_file(path: Path, register_path: Path | None) -> list[dict]:
+def check_file(path: Path, register_path: Path | None, code: bool = False) -> list[dict]:
     """Every hit in the file as {start, length, cls}, a `path` record first when its name carries a registered
-    form. An OSError of the read is raised to the caller, CheckUnavailable when names cannot be checked."""
+    form. An OSError of the read is raised to the caller, CheckUnavailable when names cannot be checked. `code`
+    reads a file with a suffix of `patterns.CODE_SUFFIXES` in the code view (`awb check`, `awb xchg put`): a
+    dotted reference there is not a web address; names, mails and every other class stay."""
     names = checker(register_path)
-    hits = _check_file(Path(path), names)
+    hits = _check_file(Path(path), names, code)
     return _path_hits(path, names) + hits
 
 
@@ -433,7 +449,7 @@ def main(argv: list[str] | None = None) -> int:
                 err_lines.append("awb check: %s is not a readable file" % shown)
                 continue
             try:
-                found = _path_hits(f, names) + _check_file(f, names)
+                found = _path_hits(f, names) + _check_file(f, names, code=True)
             except OSError as err:
                 err_lines.append("awb check: %s cannot be read (%s)" % (shown, type(err).__name__))
                 continue

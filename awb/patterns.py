@@ -386,10 +386,49 @@ def _view(text: str) -> tuple[str, list[int] | None]:
     return "".join(out), positions
 
 
-def find_structured(text: str) -> list[Span]:
+# --------------------------------------------------------------------------- the code view (T12)
+
+CODE_SUFFIXES = (".tf", ".tfvars", ".py", ".sh", ".js", ".yaml", ".yml", ".json")
+"""Files read in the code view: a dotted reference (`module.lb.listener_port`, `self.client.name`) is code there."""
+_CODE_TLDS = frozenset({"com", "de", "org", "net", "io", "cloud", "eu"} |
+                       {d.rsplit(".", 1)[-1] for d in ALLOW_DOMAINS if "." in d})
+"""The last labels a bare host in code may end with to count as a web address: a short built-in list and the
+public suffixes of `rules/allow-domains.txt`."""
+_CODE_LEFT = frozenset("=([.")
+
+
+def is_code_file(path) -> bool:
+    return path is not None and Path(str(path)).suffix.lower() in CODE_SUFFIXES
+
+
+def code_url_kept(text: str, start: int, end: int) -> bool:
+    """Whether a url hit at text[start:end] stays a web address in the code view. One with a scheme always does.
+    A bare host does only when its last label is in `_CODE_TLDS` and it does not sit right of `=`, `(`, `[` or
+    `.` in its line (blanks between them aside): there it is a reference of the code. A host in quotes is kept."""
+    value = text[start:end]
+    if "://" in value:
+        return True
+    last = _plain_host(value.split("/")[0]).rsplit(".", 1)[-1]
+    if last not in _CODE_TLDS:
+        return False
+    left = text[text.rfind("\n", 0, start) + 1:start].rstrip(" \t")
+    return not (left and left[-1] in _CODE_LEFT)
+
+
+def code_view(text: str, spans: list[Span]) -> list[Span]:
+    """`spans` of `text` with the url hits the code view does not keep taken out; every other class stays."""
+    return [s for s in spans if s.cls != "url" or code_url_kept(text, s.start, s.end)]
+
+
+def find_structured(text: str, code: bool = False) -> list[Span]:
     """All structured-data spans in `text`, sorted by position, never overlapping. A value that is broken by
     markup (a comment or an empty tag pair inside it) or spread out letter by letter is found through a view
-    of the text and reported at its place in `text`, markup included."""
+    of the text and reported at its place in `text`, markup included. `code` reads the text in the code view."""
+    spans = _find_structured(text)
+    return code_view(text, spans) if code else spans
+
+
+def _find_structured(text: str) -> list[Span]:
     view, positions = _view(text)
     spans = _find(view)
     if positions is None:

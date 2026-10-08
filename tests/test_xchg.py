@@ -236,6 +236,91 @@ def test_object_calls_outside_the_allowed_folders_are_refused_before_signing(svc
     assert len(lab.calls) == before
 
 
+
+def test_a_terraform_file_without_addresses_or_names_is_put(svc, buckets, lab_project, capsys):
+    lab, _ = buckets
+    d = Path(lab_project.path) / "terraform" / "https-vm"
+    d.mkdir(parents=True)
+    f = d / "main.tf"
+    f.write_text('resource "opentelekomcloud_vpc_subnet_v1" "subnet" {\n'
+                 '  vpc_id = opentelekomcloud_vpc_v1.vpc.id\n'
+                 '  cidr   = opentelekomcloud_vpc_v1.vpc.cidr\n'
+                 '  port   = module.loadbalancer.listener_port\n'
+                 '  az     = data.opentelekomcloud_compute_availability_zone_v2.az.name\n}\n', encoding="utf-8")
+    code, _, err = run(["xchg", "put", str(f)], capsys)
+    assert code == 0, err
+    assert [k for k in lab.objects if k.endswith("/main.tf")]
+    f.write_text(f.read_text() + '# owner tobias.beispielmann@%s\n' % fx.CUSTOMER_DOMAIN, encoding="utf-8")
+    code, _, err = run(["xchg", "put", str(f), "--as", "second.tf"], capsys)
+    assert code == 1 and "mail" in err
+
+
+# --------------------------------------------------------------------------- clean
+
+
+def _put_three(lab, code):
+    for key in ("2026-10-01/a.md", "2026-10-03/b.tf", "2026-10-08/c.md"):
+        lab.objects["%s/from-session/%s" % (code, key)] = b"x"
+    lab.objects["%s/in/keep.md" % code] = b"x"
+    lab.objects["inbox/keep.md"] = b"x"
+
+
+def test_clean_dry_run_deletes_nothing(svc, buckets, lab_project, capsys):
+    lab, _ = buckets
+    _put_three(lab, lab_project.code)
+    before = dict(lab.objects)
+    res = Path(lab_project.path) / "RESOURCES.md"
+    rows = res.read_text()
+    code, out, err = run(["xchg", "clean", lab_project.code, "--dry-run"], capsys)
+    assert code == 0, err
+    assert out.count("would delete") == 3 and "--go" in out
+    assert lab.objects == before and res.read_text() == rows
+
+
+def test_clean_go_deletes_exactly_the_listed_keys_and_writes_the_rows(svc, buckets, lab_project, capsys):
+    lab, _ = buckets
+    c = lab_project.code
+    _put_three(lab, c)
+    code, out, err = run(["xchg", "clean", c, "--older-than", "2026-10-08", "--go"], capsys)
+    assert code == 0, err
+    gone = {"%s/from-session/2026-10-01/a.md" % c, "%s/from-session/2026-10-03/b.tf" % c}
+    assert not gone & set(lab.objects)
+    assert {"%s/from-session/2026-10-08/c.md" % c, "%s/in/keep.md" % c, "inbox/keep.md"} <= set(lab.objects)
+    rows = [l for l in (Path(lab_project.path) / "RESOURCES.md").read_text().splitlines() if "| from-session |" in l]
+    assert len(rows) == 2 and all("| deleted |" in r for r in rows)
+    assert {k for k in gone if any(k in r for r in rows)} == gone
+    assert projects.live_resources(Path(lab_project.path)) == 0
+    code, out, _ = run(["xchg", "clean", c, "--go"], capsys)
+    assert code == 0 and "1 object(s) deleted" in out
+    code, out, _ = run(["xchg", "clean", c, "--dry-run"], capsys)
+    assert "nothing to delete" in out
+
+
+def test_clean_refuses_another_code_and_needs_a_mode(svc, buckets, lab_project, capsys):
+    lab, _ = buckets
+    _put_three(lab, lab_project.code)
+    before = dict(lab.objects)
+    code, _, err = run(["xchg", "clean", "tcp-zzzz", "--go"], capsys)
+    assert code == 1 and "this project" in err
+    code, _, _ = run(["xchg", "clean", lab_project.code], capsys)
+    assert code == 2
+    code, _, err = run(["xchg", "clean", lab_project.code, "--older-than", "last week", "--go"], capsys)
+    assert code == 1 and "YYYY-MM-DD" in err
+    assert lab.objects == before
+
+
+@pytest.mark.parametrize("key", ["tcp-zzzz/from-session/2026-10-01/a.md", "%(code)s/from-session/",
+                                 "%(code)s/from-session/../in/keep.md", "%(code)s/other/a.md", "2026-10/%(code)s/in/a"])
+def test_a_delete_outside_the_projects_own_prefix_is_refused_by_the_service(svc, buckets, lab_project, key):
+    lab, _ = buckets
+    _put_three(lab, lab_project.code)
+    lab.objects["tcp-zzzz/from-session/2026-10-01/a.md"] = b"x"
+    before = (dict(lab.objects), len(lab.calls))
+    a = keys.request(svc.call_path, {"op": "obs", "method": "DELETE", "key": key % {"code": lab_project.code},
+                                     "project": lab_project.code})
+    assert not a["ok"]
+    assert (dict(lab.objects), len(lab.calls)) == before
+
 def test_a_put_above_the_limit_is_refused(svc, lab_project, capsys):
     f = Path(lab_project.path) / "evidence" / "big.log"
     f.write_text("line of a log\n" * 100_000, encoding="utf-8")       # 1.4 MB, the limit is 1 MB
