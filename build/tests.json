@@ -1756,8 +1756,15 @@
    "name": "awb web status shows the counts of the last day, a closed site and the logins in cooldown",
    "run": ".venv/bin/pytest tests/test_web_users.py::test_status_shows_the_counts_of_the_last_day_and_the_logins_in_cooldown",
    "status": "passing"
+  },
+  {
+   "id": "T11-1",
+   "phase": "T11",
+   "name": "dataset: the folder and the zip with every file opening with the rules and the best-before date, facts.md by topic, topics/, facts.jsonl, services.md, prices/<region>.csv from the latest snapshot, MANIFEST.json with sha256; a tenant alias rewritten, the rewrite proven on a plant, a folder with an alias left removed; refused without facts and over an existing folder; HOW-TO.pdf readable by pdftotext over several pages; put sends zip, PDF and manifest and marks LATEST, refuses a second time without --replace; the refresh builds the dataset after a clean run and not after an error",
+   "run": ".venv/bin/pytest tests/test_dataset.py",
+   "status": "passing"
   }
  ],
- "total_tests": 251,
+ "total_tests": 252,
  "checked": "2026-10-08"
 }

@@ -42,9 +42,9 @@ from pathlib import Path
 
 import awb
 from awb import config, jobs, kb, offered, projects
-from awb.tcp import mirror, price
+from awb.tcp import dataset, mirror, price
 
-PARTS = ("mirrors", "prices", "knowledge", "projects", "defaults")
+PARTS = ("mirrors", "prices", "knowledge", "projects", "defaults", "dataset")
 VERDICTS = ("confirmed", "changed", "refuted", "unchecked")
 MAX_STATE_AGE = 14
 _KB_ID_RE = re.compile(r"\bKB-[A-Z2-7]{4}\b")
@@ -303,6 +303,25 @@ def part_defaults(p: config.Paths, base: Path, *, code_root: Path | None = None)
     return part
 
 
+# --------------------------------------------------------------------------- dataset
+
+
+def part_dataset(p: config.Paths, *, today: datetime.date, after: list[Part]) -> Part:
+    """The dataset TCP Facts of the day, built again from what the parts before brought up to date. Not built
+    when a part before ended in an error, so a half refreshed state never becomes the dataset of the day."""
+    part = Part("dataset")
+    failed = [x.name for x in after if x.error]
+    if failed:
+        part.lines.append("not built: %s ended in an error" % ", ".join(failed))
+        return part
+    if not kb.export(p, today=today)[0]:
+        part.lines.append("not built: no fact fit to leave")
+        return part
+    built = dataset.build(p, today=today, force=True)
+    part.lines += built.lines
+    return part
+
+
 # --------------------------------------------------------------------------- the run and the report
 
 
@@ -325,9 +344,11 @@ def run(p: config.Paths, *, parts=PARTS, update: bool = True, today: datetime.da
                 done.append(part_knowledge(p, out_dir, today=today))
             elif name == "projects":
                 done.append(part_projects(p, today=today, max_age=max_state_age))
-            else:
+            elif name == "defaults":
                 done.append(part_defaults(p, base))
-        except (kb.KBError, price.PriceError, mirror.MirrorError, OSError) as err:
+            else:
+                done.append(part_dataset(p, today=today, after=done))
+        except (kb.KBError, price.PriceError, mirror.MirrorError, dataset.DatasetError, OSError) as err:
             done.append(Part(name, error="%s: %s" % (type(err).__name__, err if not isinstance(err, OSError)
                                                                                else "operating system error")))
     out_dir.mkdir(parents=True, exist_ok=True)

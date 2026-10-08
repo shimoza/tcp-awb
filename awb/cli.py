@@ -38,6 +38,7 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     awb cloud projects|get                                   awb/tcp/cloud.py   (owner side, read only)
     awb mirror docs|sd|status                                awb/tcp/mirror.py  (owner side updates)
     awb refresh [--part P]..., awb refresh apply RESULTS     awb/tcp/refresh.py
+    awb dataset build|put                                    awb/tcp/dataset.py (put: owner side)
     awb english list [--month YYYY-MM]                       awb/english.py
     awb portal serve [--port N]                              awb/tcp/portal.py
     awb tenant add|snapshot|list|now|history|at|project      awb/tcp/tenants.py
@@ -525,7 +526,8 @@ DELEGATED = {
     "price": ("tcp.price", "live prices of T Cloud Public (TCP): find, snapshot, diff, check a sheet"),
     "cloud": ("tcp.cloud", "read-only calls to the TCP API with the owner's key"),
     "mirror": ("tcp.mirror", "public mirrors of TCP: the documentation sources and the service description"),
-    "refresh": ("tcp.refresh", "the refresh: mirrors, prices, expired knowledge, projects, defaults; apply results"),
+    "refresh": ("tcp.refresh", "the refresh: mirrors, prices, expired knowledge, projects, defaults, dataset; apply results"),
+    "dataset": ("tcp.dataset", "the dataset TCP Facts: build the folder and its zip, put it into the bucket"),
     "english": ("english", "the English notes the sessions wrote: list"),
     "portal": ("tcp.portal", "a read-only web page over the knowledge, the prices, the projects and the reviews"),
     "ask": ("tcp.ask", "questions in plain words, answered only from the checked sources (the Ask page)"),

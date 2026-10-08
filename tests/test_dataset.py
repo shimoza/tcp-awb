@@ -1,0 +1,180 @@
+"""awb/tcp/dataset.py: the dataset TCP Facts built from a throw-away knowledge base and price snapshots, its
+how-to PDF, and the put into a stand-in bucket."""
+from __future__ import annotations
+
+import json
+import subprocess
+import zipfile
+from datetime import date, timedelta
+from pathlib import Path
+
+import pytest
+
+from awb import cli, kb
+from awb.tcp import dataset, price
+from tests import fixtures as fx
+from tests.obs_fake import FakeOBS
+
+TODAY = date(2026, 10, 8)
+S_ECS = "ECS flavor s3.large.2 is offered in eu-de"
+S_OBS = "OBS buckets in eu-de keep object versions when versioning is on"
+S_IAM = "The IAM user quota is 500 per tenant in eu-de, read with GET on the OS-QUOTA endpoint"
+RAW = {"id": "OTC_ECS_S3L2", "productIdParameter": "ecs", "productId": "Elastic Cloud Server", "opiFlavour": "s3.large.2",
+       "productName": "s3.large.2 linux", "osUnit": "Linux", "vCpu": "2", "ram": "4 GiB", "unit": "h", "currency": "EUR",
+       "priceAmount": "0.049000 EUR", "R12": "0.040000 EUR", "R24": "0.038000 EUR", "R36": "0.036000 EUR",
+       "RU12": "0.030000 EUR", "RU24": "0.028000 EUR", "RU36": "0.026000 EUR", "region": "eu-de"}
+
+
+def new(statement: str, **kw) -> kb.Entry:
+    args = dict(scope="tcp", tags=["ecs"], grade="docs", cls="api", source="docs mirror, user guide", today=TODAY,
+                checked=TODAY)
+    args.update(kw)
+    return kb.add(statement, **args)
+
+
+def snapshot(home, region: str, day: str, records: list[dict]) -> Path:
+    folder = price.snapshot_dir(home) / region
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / (day + ".json")
+    path.write_text(json.dumps({"source": "price API", "region": region, "fetched_at": day + " 06:00 UTC",
+                                "cached_at": "", "count": len(records), "records": records}), encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def facts(home):
+    live = new(S_ECS, grade="live", source="live API call on test-10491, eu-de")
+    new(S_OBS, grade="docs", tags=["obs", "storage"])
+    new(S_IAM, grade="live", tags=["iam"], source="the read key of test tenant test-10497 in eu-de")
+    new("GPU flavor p2 needs a quota increase in eu-nl", grade="said", tags=["gpu"])
+    snapshot(home, "eu-de", "2026-10-01", [RAW])
+    snapshot(home, "eu-de", "2026-10-07", [dict(RAW, priceAmount="0.051000 EUR")])
+    return live
+
+
+def test_the_rewrite_of_a_tenant_alias_is_proven_on_a_plant_and_covers_both_forms():
+    assert dataset.tenant_free("a call on test-10491 in eu-de") == "a call on a TCP test tenant in eu-de"
+    assert dataset.tenant_free("the key of test tenant test-10497 got 403") == "the key of a TCP test tenant got 403"
+    assert dataset.tenant_free("the key of the test tenant test-10497") == "the key of a TCP test tenant"
+    assert "test-1049" not in dataset.tenant_free(dataset._PLANT)
+
+
+def test_build_writes_every_file_with_the_rules_and_no_tenant_alias(home, facts, tmp_path, capsys):
+    assert cli.main(["dataset", "build", "--out", str(tmp_path / "ds"), "--date", "2026-10-08"]) == 0
+    out = capsys.readouterr().out
+    assert "3 facts (docs 1, live 2)" in out and "3 topics" in out and "prices eu-de 1" in out
+    assert "best before 2026-11-07" in out and "left out: grade 1" in out
+    root = tmp_path / "ds" / "tcp-facts-2026-10-08"
+    names = {str(x.relative_to(root)) for x in root.rglob("*") if x.is_file()}
+    assert {"README.md", "PROMPT.md", "HOW-TO.pdf", "facts.md", "facts.jsonl", "services.md", "MANIFEST.json",
+            "prices/eu-de.csv", "topics/ecs.md", "topics/obs.md", "topics/iam.md"} <= names
+    facts_md = (root / "facts.md").read_text()
+    assert facts_md.startswith("<!-- TCP Facts, dataset of 2026-10-08.")
+    assert "Best before 2026-11-07" in facts_md and "taken 2026-10-07 06:00 UTC" in facts_md
+    assert "- %s (%s, live, checked 2026-10-08)" % (S_ECS, facts.id) in facts_md
+    assert "## ecs (1)" in facts_md and "## obs (1)" in facts_md and "GPU flavor p2" not in facts_md
+    for name in names:
+        if name.endswith((".md", ".jsonl", ".csv")):
+            assert "test-1049" not in (root / name).read_text(), name
+    rows = [json.loads(l) for l in (root / "facts.jsonl").read_text().splitlines()]
+    assert rows[0]["dataset"] == "TCP Facts" and rows[0]["count"] == 3
+    assert next(r for r in rows[1:] if r["id"] == facts.id)["source"] == "live API call on a TCP test tenant, eu-de"
+    topic = (root / "topics" / "iam.md").read_text()
+    assert topic.startswith("<!-- TCP Facts") and S_IAM in topic and S_OBS not in topic
+    csv_lines = (root / "prices" / "eu-de.csv").read_text().splitlines()
+    assert csv_lines[0].startswith("# TCP price list eu-de") and "fetched 2026-10-07 06:00 UTC" in csv_lines[0]
+    assert csv_lines[1].startswith("id,service,product,flavor,os,vcpu,ram,unit,currency,payg,reserved_12m")
+    assert csv_lines[2] == "OTC_ECS_S3L2,Elastic Cloud Server,s3.large.2 linux,s3.large.2,Linux,2,4 GiB,h,EUR,0.051000," \
+                           "0.040000,0.038000,0.036000,0.030000,0.028000,0.026000"
+    services = (root / "services.md").read_text()
+    assert "Elastic Cloud Server (ECS)" in services and "revision" in services
+    manifest = json.loads((root / "MANIFEST.json").read_text())
+    assert manifest["author"] == "shimoza" and "Author shimoza" in (root / "README.md").read_text()
+    assert manifest["facts"] == 3 and manifest["grades"] == {"docs": 1, "live": 2} and manifest["best_before"] == "2026-11-07"
+    assert manifest["files"]["facts.md"]["bytes"] == (root / "facts.md").stat().st_size
+    assert len(manifest["files"]["HOW-TO.pdf"]["sha256"]) == 64 and "MANIFEST.json" not in manifest["files"]
+    with zipfile.ZipFile(tmp_path / "ds" / "tcp-facts-2026-10-08.zip") as z:
+        assert "tcp-facts-2026-10-08/facts.md" in z.namelist() and "tcp-facts-2026-10-08/MANIFEST.json" in z.namelist()
+        assert z.read("tcp-facts-2026-10-08/PROMPT.md").decode() == (root / "PROMPT.md").read_text()
+    prompt = (root / "PROMPT.md").read_text()
+    assert dataset.ONE_LINER in prompt and dataset.LONG_PROMPT in prompt and "CC BY 4.0" in prompt
+
+
+def test_the_how_to_pdf_is_a_pdf_the_poppler_tools_read(home, facts, tmp_path, monkeypatch):
+    monkeypatch.setenv("AWB_DATASET_AUTHOR", fx.PLANTED_PERSON)
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    pdf = built.folder / "HOW-TO.pdf"
+    assert pdf.read_bytes().startswith(b"%PDF-1.4")
+    text = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True, check=True).stdout
+    assert "TCP Facts 2026-10-08: how to use it" in text
+    assert "Use the attached TCP Facts. Answer: <your question>" in text
+    assert "Best before 2026-11-07" in text and "CC BY 4.0" in text and "Author " + fx.PLANTED_PERSON in text
+    # a long how-to runs over several pages and stays readable
+    long = dataset.pdf_bytes([("p", "a line of the how-to that is long enough to wrap %d" % i) for i in range(200)], "t")
+    assert long.count(b"/Type /Page ") >= 3
+    assert "wrap 199" in subprocess.run(["pdftotext", "-", "-"], input=long, capture_output=True, check=True).stdout.decode()
+
+
+def test_build_refuses_without_facts_over_an_existing_folder_and_with_an_alias_left(home, facts, tmp_path, capsys,
+                                                                                    monkeypatch):
+    assert cli.main(["dataset", "build", "--out", str(tmp_path / "ds"), "--date", "2026-10-08"]) == 0
+    assert cli.main(["dataset", "build", "--out", str(tmp_path / "ds"), "--date", "2026-10-08"]) == 1
+    assert "exists; give --force" in capsys.readouterr().err
+    assert cli.main(["dataset", "build", "--out", str(tmp_path / "ds"), "--date", "2026-10-08", "--force"]) == 0
+    assert cli.main(["dataset", "build", "--date", "2026-10-8"]) == 1
+    # a broken rewrite is caught before anything is written
+    monkeypatch.setattr(dataset, "_TENANT_RE", dataset.re.compile(r"never-matches"))
+    with pytest.raises(dataset.DatasetError, match="failed its own test"):
+        dataset.build(home, out=tmp_path / "ds2", today=TODAY)
+    assert not (tmp_path / "ds2").exists()
+    # a rewrite that passes the plant but misses a form in the files: the folder is removed again
+    monkeypatch.setattr(dataset, "_TENANT_RE", dataset.re.compile(r"test-1049[17]\b(?= and| in eu-de$)"))
+    monkeypatch.setattr(dataset, "_PLANT", "test-10491 and test-10497 in eu-de")
+    with pytest.raises(dataset.DatasetError, match="tenant alias was left"):
+        dataset.build(home, out=tmp_path / "ds3", today=TODAY)
+    assert not (tmp_path / "ds3" / "tcp-facts-2026-10-08").exists()
+
+
+def test_build_refuses_an_empty_knowledge_base(home, tmp_path, capsys):
+    assert cli.main(["dataset", "build", "--out", str(tmp_path / "ds")]) == 1
+    assert "nothing to build" in capsys.readouterr().err
+
+
+def test_put_sends_the_zip_the_pdf_and_the_manifest_and_marks_the_latest(home, facts, tmp_path, capsys, monkeypatch):
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    with FakeOBS() as fake:
+        keys = dataset.put(fake.client(), built.folder)
+        assert keys == ["datasets/tcp-facts/2026-10-08/tcp-facts-2026-10-08.zip",
+                        "datasets/tcp-facts/2026-10-08/HOW-TO.pdf", "datasets/tcp-facts/2026-10-08/MANIFEST.json"]
+        assert fake.objects["datasets/tcp-facts/LATEST"] == b"2026-10-08\n"
+        assert fake.objects[keys[1]].startswith(b"%PDF")
+        with pytest.raises(dataset.DatasetError, match="already; give --replace"):
+            dataset.put(fake.client(), built.folder)
+        assert dataset.put(fake.client(), built.folder, replace=True) == keys
+        # the command finds the newest build and needs the owner's key setting
+        monkeypatch.setenv("AWB_BUCKET_KEYS", "")
+        assert cli.main(["dataset", "put", "--out", str(tmp_path / "ds")]) == 1
+        assert "no key setting" in capsys.readouterr().err
+        assert cli.main(["dataset", "put", "--out", str(tmp_path / "none")]) == 1
+        assert "no built dataset" in capsys.readouterr().err
+    (built.folder / "HOW-TO.pdf").unlink()
+    with FakeOBS() as fake:
+        with pytest.raises(dataset.DatasetError, match="not a complete build"):
+            dataset.put(fake.client(), built.folder)
+
+
+def test_the_refresh_builds_the_dataset_after_a_clean_run_and_not_after_an_error(home, facts, monkeypatch):
+    from awb.tcp import refresh
+
+    parts, _ = refresh.run(home, parts=("knowledge", "dataset"), update=False, today=TODAY)
+    ds = next(p for p in parts if p.name == "dataset")
+    assert not ds.error and ds.lines[0].startswith("tcp-facts-2026-10-08: 3 facts")
+    assert (dataset.datasets_dir(home) / "tcp-facts-2026-10-08.zip").exists()
+    # the same day again: built over, not refused
+    parts, _ = refresh.run(home, parts=("knowledge", "dataset"), update=False, today=TODAY)
+    assert not next(p for p in parts if p.name == "dataset").error
+    monkeypatch.setattr(refresh, "part_knowledge", lambda *a, **k: (_ for _ in ()).throw(kb.KBError("broken")))
+    parts, _ = refresh.run(home, parts=("knowledge", "dataset"), update=False, today=TODAY + timedelta(days=1))
+    ds = next(p for p in parts if p.name == "dataset")
+    assert ds.lines == ["not built: knowledge ended in an error"]
+    assert not (dataset.datasets_dir(home) / "tcp-facts-2026-10-09.zip").exists()
