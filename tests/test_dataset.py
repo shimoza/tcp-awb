@@ -112,6 +112,8 @@ def test_build_writes_every_file_with_the_rules_and_no_tenant_alias(home, facts,
     manifest = json.loads((root / "MANIFEST.json").read_text())
     assert manifest["author"] == "shimoza" and "Author shimoza" in (root / "README.md").read_text()
     assert manifest["facts"] == 3 and manifest["grades"] == {"docs": 1, "live": 2} and manifest["best_before"] == "2026-11-07"
+    assert manifest["built_at"].endswith(" UTC") and "Build of %s" % manifest["built_at"] in (root / "README.md").read_text()
+    assert "built %s" % manifest["built_at"] in out
     assert manifest["prices"]["records"] == {"eu-de": 1} and manifest["prices"]["left_out"] == {"eu-de": {"BARE METAL": 1}}
     assert manifest["files"]["facts.md"]["bytes"] == (root / "facts.md").stat().st_size
     assert len(manifest["files"]["HOW-TO.pdf"]["sha256"]) == 64 and "MANIFEST.json" not in manifest["files"]

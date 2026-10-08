@@ -424,6 +424,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
            counts: dict, live: bool, sample: int) -> Built:
     left_out: dict[str, dict[str, int]] = {}
     kept_rows: dict[str, list] = {}
+    built_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     head = header(day, best_before, fetched)
 
     parts = [head, "# %s %s" % (NAME, day), "",
@@ -482,7 +483,9 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
     (root / "PROMPT.md").write_text(blocks_to_markdown(blocks), encoding="utf-8")
     (root / "HOW-TO.pdf").write_bytes(pdf_bytes(blocks, "%s %s: how to use it" % (NAME, day)))
     (root / "README.md").write_text(blocks_to_markdown(
-        [("h1", "%s %s" % (NAME, day))] + blocks[1:3] + [("h2", "Use"), ("p", "Attach facts.md and type:"),
+        [("h1", "%s %s" % (NAME, day)), ("p", "Build of %s. A later build of the same day replaces this one under the same "
+                                              "name; the manifest carries the build time." % built_at)]
+        + blocks[1:3] + [("h2", "Use"), ("p", "Attach facts.md and type:"),
                                                           ("code", ONE_LINER), ("p", "PROMPT.md has the rest.")]
         + blocks[-5:]), encoding="utf-8")
 
@@ -492,7 +495,8 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
                 raise DatasetError("a tenant alias was left in %s; the folder was removed" % path.name)
 
     files = sorted(x for x in root.rglob("*") if x.is_file())
-    manifest = {"dataset": NAME, "date": day, "best_before": best_before, "facts": len(records), "grades": grades,
+    manifest = {"dataset": NAME, "date": day, "built_at": built_at, "best_before": best_before, "facts": len(records),
+                "grades": grades,
                 "topics": {t: len(bytag[t]) for t in tags}, "services": len(svc), "service_description": revision,
                 "prices": {"fetched": fetched, "records": counts, "left_out": left_out},
                 "facts_left_out": [{"id": i, "names": n} for i, n in flagged], "licence": LICENCE, "author": author(),
@@ -512,7 +516,8 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
                    + ("; facts naming a service not offered: %s" % ", ".join("%s (%s)" % (i, ", ".join(n)) for i, n in flagged)
                       if flagged else ""),
                    *check_lines,
-                   "zip %s, %d bytes, best before %s" % (zpath.name, zpath.stat().st_size, best_before)]
+                   "zip %s, %d bytes, built %s, best before %s" % (zpath.name, zpath.stat().st_size, built_at,
+                                                                   best_before)]
     return built
 
 
