@@ -90,6 +90,11 @@ class IntakeResult:
 # the candidate rules live in awb/wipe.py; these names are the interface the rest of the Workbench uses
 STRONG_RULES = wipe.STRONG_RULES
 """The rules that rarely fire on ordinary words: a short text such as a project goal is checked with these."""
+SHORT_TEXT_RULES = STRONG_RULES + (wipe._first_name_pair_candidates,)
+"""The rules of a commit message and a ledger line (TM0): the strong rules and a run that opens with a listed first
+name. A technical term they take for a name goes into the section intake-seed of rules/allowed-terms.txt."""
+_RULE_CLASS = {wipe._company_candidates: "company", wipe._label_candidates: "unknown",
+               wipe._spaced_candidates: "unknown"}
 keep_key = wipe.keep_key
 WipeSpan = wipe.WipeSpan
 
@@ -108,6 +113,35 @@ def unknown_candidates(text: str, known: list[Span], rules=wipe._ALL_RULES, keep
     if rules is None:
         return wipe.wipe_values(text, known, keep)
     return wipe.unknown_candidates(text, known, rules, keep)
+
+
+_SHORT_ALLOWED = wipe._list("allowed-terms.txt", section="intake-seed")
+"""The way out of SHORT_TEXT_RULES: a term of the section intake-seed of rules/allowed-terms.txt, case folded."""
+
+
+def _allowed_candidate(value: str) -> bool:
+    """A candidate that is a phrase of the allowed terms, or whose every word is one."""
+    key = " ".join(re.findall(r"\w+", value.casefold()))
+    return bool(key) and (key in _SHORT_ALLOWED or all(w in _SHORT_ALLOWED for w in key.split()))
+
+
+def short_text_candidates(text: str) -> list[tuple[str, int]]:
+    """(class, line) of each name-shaped candidate of a short text by SHORT_TEXT_RULES, the class person, company
+    or unknown, the line counted from 1; a candidate of the allowed terms is none. The caller runs the register
+    check first. Never a value."""
+    out: list[tuple[str, int]] = []
+    for n, line in enumerate(text.splitlines(), start=1):
+        norm = normalize.normalize(line).text
+        for rule in SHORT_TEXT_RULES:
+            if any(not _allowed_candidate(v) for v in wipe.unknown_candidates(norm, [], (rule,))):
+                found = (_RULE_CLASS.get(rule, "person"), n)
+                if found not in out:
+                    out.append(found)
+    return out
+
+
+REWORD_HINT = ("reword it: a role or a code in place of the name; a technical term the rule takes for a name goes "
+               "into the section intake-seed of rules/allowed-terms.txt (the word, or the phrase as written)")
 
 
 # --------------------------------------------------------------------------- the keep list

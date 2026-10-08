@@ -103,6 +103,30 @@ def test_a_clean_file_moves_from_the_lab_inbox_into_the_project(svc, buckets, la
     assert lab.objects["%s/in/vendor-notes.md" % lab_project.code] == b"The appliance needs two NICs and UEFI.\n"
 
 
+def test_an_opaque_file_of_the_lab_inbox_goes_to_input_opaque_out_of_git(svc, buckets, lab_project, capsys,
+                                                                          tmp_path):
+    """TM0 item 10: a sheet the name check reads but the commit gate cannot lands in input/opaque/, which
+    .gitignore lists, and the take says so; a commit of the project stays possible."""
+    import subprocess
+
+    import openpyxl
+
+    lab, _ = buckets
+    wb = openpyxl.Workbook()
+    wb.active["A1"] = "Sizing of the two clusters"
+    wb.save(tmp_path / "sizing.xlsx")
+    lab.objects["inbox/sizing.xlsx"] = (tmp_path / "sizing.xlsx").read_bytes()
+    code, out, err = run(["inbox", "take", "sizing.xlsx"], capsys)
+    assert code == 0, err
+    root = Path(lab_project.path)
+    assert "input/opaque/sizing.xlsx" in out and ".gitignore" in out
+    assert (root / "input" / "opaque" / "sizing.xlsx").is_file() and not (root / "input" / "sizing.xlsx").exists()
+    assert "input/opaque/" in (root / ".gitignore").read_text(encoding="utf-8").splitlines()
+    status = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"],
+                            capture_output=True, text=True).stdout
+    assert "sizing.xlsx" not in status and ".gitignore" in status
+
+
 def test_a_file_with_a_registered_name_stays_in_the_lab_inbox(svc, buckets, lab_project, capsys):
     lab, _ = buckets
     lab.objects["inbox/notes.md"] = ("Meeting with %s about the firewall.\n" % fx.CUSTOMER_FORMS[0]).encode()

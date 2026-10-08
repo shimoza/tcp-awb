@@ -488,6 +488,10 @@ def _settings() -> str:
     return json.dumps(_hooks.client_settings(prefix), indent=2) + "\n"
 
 
+OPAQUE_DIR = "input/opaque"
+GITIGNORE = "# written by awb inbox take: files the commit gate cannot read stay out of git\n%s/\n" % OPAQUE_DIR
+
+
 def _git(folder: Path, *args: str) -> None:
     cmd = ["git", "-c", "user.name=%s" % _GIT_NAME, "-c", "user.email=%s" % _GIT_EMAIL,
            "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main", *args]
@@ -604,15 +608,23 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
             _git(folder, "init", "-q")
             _git(folder, "config", "user.name", _GIT_NAME)
             _git(folder, "config", "user.email", _GIT_EMAIL)
-            _git(folder, "add", "-A")
-            _git(folder, "commit", "-q", "-m", "Spawn %s, a sealed %s project" % (code, kind))
-            # every later commit of the project goes through the gate, its self-test first; a project without
-            # the gate is not created at all
+            # every commit of the project goes through the gate, its self-test first; the hook is there before the
+            # first git add, so a spawn that carries outbox copies commits them through it. The spawn's own texts
+            # passed the checks above and commit without the hook. A project without the gate is not created.
             from awb import gate as _gate
             try:
                 _gate.install_hook(folder)
             except _gate.GateError as err:
                 raise ProjectError("the commit gate could not be installed (%s), nothing was created" % err) from None
+            _git(folder, "add", "-A")
+            try:
+                _git(folder, "commit", "-q", *([] if waiting else ["--no-verify"]), "-m",
+                     "Spawn %s, a sealed %s project" % (code, kind))
+            except ProjectError:
+                if not waiting:
+                    raise
+                raise ProjectError("the commit gate refused the outbox copies, nothing was created; run awb gate on "
+                                   "the files of the outbox") from None
             project = Project(code=code, kind=kind, customer=customer, platform=PLATFORM, path=str(folder),
                               memory_key=memory_key(folder), state="active", created=created)
             _save(p, rows + [project])

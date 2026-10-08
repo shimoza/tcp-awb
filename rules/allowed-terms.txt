@@ -95,6 +95,7 @@ candidates
 center
 centre
 chamber
+changelog
 chapter
 chart
 china
@@ -262,6 +263,7 @@ processor
 projektleitung
 projektteam
 rahmenvertrag
+readme
 rearchitecting
 rechnungswesen
 rechtsabteilung

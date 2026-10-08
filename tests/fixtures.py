@@ -92,6 +92,11 @@ CYRILLIC_PERSON = "Ксарв Помблет"
 CYRILLIC_GENITIVE = "Помблета"
 PLANTED_STREET = "Xqarvstraße 12"
 
+# an unregistered invented person whose first word is a first name of rules/first-names.txt: the short-text rule
+# of a commit message and a ledger line finds it (TM0); awb/gate.py plants the same pair in its self-test
+LISTED_FIRST = "Jonas"
+FIRST_LAST = " ".join((LISTED_FIRST, "Vrelkam"))
+
 # the self-test's own customer (awb/planted.py carries the same strings): its short form inside a company shape must
 # become the code
 SELFTEST_CUSTOMER_CODE = "CUST-SELF"

@@ -580,3 +580,23 @@ def test_an_entry_in_the_wrong_week_file_is_refused(home):
     (home.ledger / "2026-W39.jsonl").write_text(json.dumps(obj) + "\n", encoding="utf-8")
     with pytest.raises(ledger.LedgerError, match="not in the week of the file"):
         ledger.load(home)
+
+
+def test_a_ledger_line_with_a_name_shaped_candidate_is_refused_with_a_reword_hint(home, capsys):
+    """TM0 item 11: the planted line `call with <first> <last>` is refused with the class and the reword hint; the
+    same words of the allowed terms pass."""
+    from awb import intake
+
+    with pytest.raises(ledger.Refused) as err:
+        ledger.add("other", "call with %s about the sizing" % fixtures.FIRST_LAST, day="2026-09-22", p=home)
+    text = str(err.value)
+    assert "candidate-person" in text and "reword it" in text and "rules/allowed-terms.txt" in text
+    assert fixtures.FIRST_LAST not in text and not ledger.load(home)
+    code, _, err_ = run(["ledger", "add", "--kind", "other", "--done", "call with %s" % fixtures.FIRST_LAST], capsys)
+    assert code != 0 and "reword it" in err_ and fixtures.FIRST_LAST not in err_
+    ledger.add("other", "Sizing of the two clusters", day="2026-09-22", p=home)
+    allowed = intake._SHORT_ALLOWED | set(fixtures.FIRST_LAST.casefold().split())
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(intake, "_SHORT_ALLOWED", allowed)
+        ledger.add("other", "call with %s about the sizing" % fixtures.FIRST_LAST, day="2026-09-22", p=home)
+    assert len(ledger.load(home)) == 2

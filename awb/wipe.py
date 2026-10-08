@@ -377,6 +377,18 @@ def _sentence_pair_candidates(text: str, blocked: _Mask) -> list[tuple[int, int]
     return _run_spans(text, blocked, sentence_only=True)
 
 
+def _first_name_pair_candidates(text: str, blocked: _Mask) -> list[tuple[int, int]]:
+    """Two or more name words in a row, anywhere, whose first word is a first name of rules/first-names.txt
+    ("call with Jonas Vrelkam"). The short texts of a commit message and a ledger line take it on top of the
+    strong rules (TM0); a pair of two unknown words is left to the full rules."""
+    out = []
+    for a, b in _run_spans(text, blocked, sentence_only=False):
+        first = re.match(r"\w+", text[a:b])
+        if first and first.group(0).casefold() in _FIRST_NAMES:
+            out.append((a, b))
+    return out
+
+
 def _standalone(text: str, a: int, b: int) -> bool:
     """The word text[a:b] is not glued into an identifier (the same test as in _runs)."""
     return not ((a > 0 and (text[a - 1].isalnum() or text[a - 1] in "-_")) or (b < len(text) and text[b] in "-_"))

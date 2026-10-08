@@ -143,6 +143,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   itself.
 - The knowledge page and the questions page check every fact against today's register, so a fact with a name
   registered later is withheld, and the knowledge base refuses a commit that skips the checks of `awb kb add`.
+- A commit message or a ledger line that reads like a name the register does not know is refused with its line and
+  how to reword it; a technical term goes into `rules/allowed-terms.txt`. Also: the harvest reminder asks for a
+  source the knowledge base takes, a foreign tag value on a test tenant shows as `-`, a project's first commit runs
+  the commit gate, a pdf or a sheet from the lab inbox stays out of git, and the first ledger draft of a day no
+  longer misses commits.
 
 ## Week 40, 2026-09-28 to 2026-10-04
 

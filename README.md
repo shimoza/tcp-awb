@@ -260,7 +260,7 @@ owner inbox goes through your intake in wipe mode and the session gets only the 
 to the vault.
 
 A file of the lab inbox with a registered name is held, and so is a file of the owner inbox that cannot be read as
-text. You get a mail with the one command to run (`awb import tcp-xxxx`). Results come back with
+text. A pdf, a sheet or an archive from the lab inbox lands in `input/opaque/`, which `.gitignore` keeps out of git. You get a mail with the one command to run (`awb import tcp-xxxx`). Results come back with
 `awb xchg put` into `<project>/from-session/<date>/<file id>` of the lab bucket, after the name check of the file and of
 its name and, for a customer project, the send gate. No object key, mail or log line carries a file name the check did not pass. You fetch them in the OBS console. A mail tells you about each one. A Terraform or code file passes when it holds no address,
 name or mail: a dotted reference in code is not a web address. The session deletes what it put with

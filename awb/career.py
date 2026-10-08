@@ -172,7 +172,9 @@ def check_entry(e: Entry, reg: Path | None) -> None:
     if reg is not None:
         _wrap(ledger.ensure_checkable, reg)
     fields = [(name.replace("_", "-"), getattr(e, name)) for name in TEXT_FIELDS]
-    _wrap(ledger.screen_fields, fields, reg, codes_too=True, refused=ledger.Refused, hint=_HINT)
+    # a career entry lists technologies ("Terraform, Ansible"), which the candidate rules of a ledger line take
+    # for "Last, First": its fields keep the register check and the codes
+    _wrap(ledger.screen_fields, fields, reg, codes_too=True, refused=ledger.Refused, hint=_HINT, candidates=False)
 
 
 def add(title: str, role: str, stack: str, outcome: str, cv_line: str, *, tags=(), day=None,

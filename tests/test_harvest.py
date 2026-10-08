@@ -110,3 +110,21 @@ def test_terraform_and_plain_api_calls_count_as_live_work(home, tmp_path, cmd, l
     assert (msg is not None) is live, cmd
     if live:
         assert "1 time(s)" in msg and "awb kb add --grade live" in msg
+
+
+def test_the_harvest_message_asks_for_a_source_kb_add_takes(home, register_path):
+    """TM0 item 8: the source the message asks for (a tenant alias and a date) passes kb add; the planted source
+    with a project code, the one the message asked for before, is refused."""
+    import re
+
+    from awb import kb
+
+    assert "<project code>" not in harvest.MESSAGE
+    source = re.search(r'--source "([^"]+)"', harvest.MESSAGE.replace('\\"', '"')).group(1)
+    filled = source.replace("<tenant alias>", "test-1").replace("<date>", "2026-10-08")
+    kb.add("The invented image service imports a qcow2 image in four minutes.", scope="tcp", tags=["ims"],
+           grade="live", cls="api", source=filled, where=home, register_path=register_path)
+    with pytest.raises(kb.KBError):
+        kb.add("The invented image service imports a vmdk image in six minutes.", scope="tcp", tags=["ims"],
+               grade="live", cls="api", source="live call on test-1, project tcp-q7m4, 2026-10-08", where=home,
+               register_path=register_path)

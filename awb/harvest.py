@@ -36,7 +36,8 @@ MESSAGE = (
     "to the knowledge base after its last call. Add every live finding yourself, without asking him: a call that behaves unlike the "
     "documentation, a limit, an error and what fixed it, a property a resource needs, an order of steps that "
     "matters. Use awb kb add --grade live --class api (availability for what can change within weeks) --source "
-    "\"live call on <tenant alias>, project <project code>, <date>\". One fact per entry, codes only. When "
+    "\"live call on <tenant alias>, <date>\" (a tenant alias and a date, never a project code: kb add refuses "
+    "one). One fact per entry, no project or customer code. When "
     "nothing is new, end with one line that says so."
 )
 

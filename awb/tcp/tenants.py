@@ -56,6 +56,7 @@ SNAPSHOTS = "snapshots"
 HANDLES = "handles.json"
 _ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_PROJECT_TAG_RE = re.compile(r"tcp-[a-z0-9]{4}")          # as tenant_api.project_tag of the console
 _CODE_RE = re.compile(r"^tcp-[a-z0-9]{4}$")
 FIELDS = ("alias", "regions", "keys", "added")
 PASS_REF, FILE_REF = "pass" + ":", "file" + ":"
@@ -170,6 +171,7 @@ def take(t: Tenant, handles: _sweep.Handles, listers: dict[str, Lister], now: da
     """One snapshot of the tenant: every source in every region. `listers[region](service, path, key, paging)`."""
     items: list[dict] = []
     unknown: dict[str, list[str]] = {}
+    foreign = 0
     for region in t.regions:
         lister = listers[region]
         for kind, service, path, key, paging in _sweep.SOURCES:
@@ -181,6 +183,12 @@ def take(t: Tenant, handles: _sweep.Handles, listers: dict[str, Lister], now: da
                 if not isinstance(raw, dict) or not isinstance(raw.get("id"), str):
                     continue
                 tags = _sweep.tags(raw.get("tags") or (raw.get("metadata") or {}).get("tags"))
+                # a tag value is anyone's text: kept only in the form the Workbench writes, else - and counted
+                project, expiry = (tags.get(_sweep.PROJECT_TAG, ""), tags.get(_sweep.EXPIRY_TAG, ""))
+                if project and not _PROJECT_TAG_RE.fullmatch(project):
+                    project, foreign = "-", foreign + 1
+                if expiry and not _DATE_RE.fullmatch(expiry):
+                    expiry, foreign = "-", foreign + 1
                 items.append({
                     "handle": handles.handle(kind, raw["id"]),
                     "kind": kind,
@@ -188,12 +196,15 @@ def take(t: Tenant, handles: _sweep.Handles, listers: dict[str, Lister], now: da
                     "created": _sweep._created(raw),
                     "state": _sweep._state(kind, raw),
                     "size": _size(kind, raw),
-                    "project": tags.get(_sweep.PROJECT_TAG, ""),
-                    "expiry": tags.get(_sweep.EXPIRY_TAG, ""),
+                    "project": project,
+                    "expiry": expiry,
                 })
     items.sort(key=lambda i: (i["created"], i["handle"]))
-    return {"alias": t.alias, "date": now.date().isoformat(), "taken": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    snap = {"alias": t.alias, "date": now.date().isoformat(), "taken": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "regions": list(t.regions), "unknown": unknown, "items": items}
+    if foreign:
+        snap["foreign_tags"] = foreign
+    return snap
 
 
 def snapshots(p: config.Paths, alias: str) -> list[Path]:
@@ -685,7 +696,7 @@ def age_days(created: str, today: datetime.date) -> str:
 
 def flags(item: dict, today: datetime.date) -> str:
     out = []
-    if not item.get("project"):
+    if item.get("project") in (None, "", "-"):
         out.append("no project")
     exp = item.get("expiry", "")
     if exp and _DATE_RE.match(exp) and exp < today.isoformat():
@@ -714,6 +725,8 @@ def now_lines(p: config.Paths, alias: str, today: datetime.date) -> list[str]:
     out = ["%s: %d resources in the snapshot of %s" % (alias, len(rows), snap["date"])]
     for region, kinds in sorted(snap.get("unknown", {}).items()):
         out.append("  not readable in %s: %s (counted as unknown, not as none)" % (region, ", ".join(kinds)))
+    if snap.get("foreign_tags"):
+        out.append("  %d tag value(s) not in the Workbench form, kept as -" % snap["foreign_tags"])
     if rows:
         out += table(rows, ["handle", "kind", "region", "size", "project", "created", "days", "expiry", "state",
                             "flags"])
@@ -758,7 +771,7 @@ def list_lines(p: config.Paths, today: datetime.date) -> list[str]:
             kinds[i["kind"]] = kinds.get(i["kind"], 0) + 1
         rows.append([t.alias, ",".join(t.regions), (snap or {}).get("date", "never"), str(len(items)),
                      " ".join("%s %d" % kv for kv in sorted(kinds.items())) or "-",
-                     str(sum(1 for i in items if not i.get("project")))])
+                     str(sum(1 for i in items if i.get("project") in (None, "", "-")))])
     if not rows:
         return ["no tenant yet (awb tenant add ALIAS --keys file:PATH)"]
     return table(rows, ["tenant", "regions", "snapshot", "resources", "by kind", "no project"])

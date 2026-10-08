@@ -1465,3 +1465,26 @@ def test_the_selftest_carries_the_resources_cases(monkeypatch):
     monkeypatch.setattr(gate, "_HANDLE_ROW_RE", re.compile(r"(?s).+"))
     monkeypatch.setattr(gate, "resources_file", lambda path: path is not None and Path(path).parent.name == "project")
     assert [f.split(":")[0] for f in gate.selftest()] == ["state"]
+
+
+def test_a_commit_subject_with_a_name_shaped_candidate_is_refused_with_a_reword_hint(tmp_path, register_path,
+                                                                                    capsys, monkeypatch):
+    """TM0 item 11: after the register check the strong rules (and a run that opens with a listed first name) refuse
+    a planted subject `call with <first> <last>` with the class and the line; rules/allowed-terms.txt is the way
+    out, a plain technical subject passes."""
+    from awb import intake
+
+    msg = tmp_path / "COMMIT_EDITMSG"
+    msg.write_text("call with %s\n\nsized the two clusters\n" % fixtures.FIRST_LAST, encoding="utf-8")
+    assert gate.main(["--message", str(msg), "--register", str(register_path)]) == 1
+    out, err = capsys.readouterr()
+    assert out.strip() == "candidate-person  commit message:1"
+    assert "reword it" in err and "rules/allowed-terms.txt" in err
+    fixtures.assert_no_fixture_name(out + err, "the refusal")
+    assert fixtures.FIRST_LAST not in out + err
+    msg.write_text("Sizing of the two clusters\n\nNetwork layout per stage\n", encoding="utf-8")
+    assert gate.main(["--message", str(msg), "--register", str(register_path)]) == 0
+    capsys.readouterr()
+    msg.write_text("call with %s\n" % fixtures.FIRST_LAST, encoding="utf-8")
+    monkeypatch.setattr(intake, "_SHORT_ALLOWED", intake._SHORT_ALLOWED | {fixtures.FIRST_LAST.casefold()})
+    assert gate.main(["--message", str(msg), "--register", str(register_path)]) == 0

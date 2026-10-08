@@ -684,6 +684,9 @@ def _is_opaque(label: str, data: bytes) -> bool:
             or Path(label).suffix.lower() in _OPAQUE_SUFFIXES)
 
 
+is_opaque = _is_opaque          # the lab take of awb inbox keeps such a file out of git
+
+
 def _scan_bytes(label: str, data: bytes, matcher: Matcher | None, path: Path | str | None = None) -> list[Finding]:
     if _is_opaque(label, data):
         return [Finding(label, 0, "opaque")]
@@ -763,7 +766,17 @@ def scan_message(path: Path, matcher: Matcher | None) -> list[Finding]:
     except OSError:
         return [Finding(MESSAGE_LABEL, 0, "opaque")]
     text = message_text(_decode(data))
-    return sorted(_scan_text(MESSAGE_LABEL, text, matcher) + _attribution(MESSAGE_LABEL, text), key=_order)
+    found = _scan_text(MESSAGE_LABEL, text, matcher) + _attribution(MESSAGE_LABEL, text)
+    return sorted(found + _candidates(MESSAGE_LABEL, text, {f.line for f in found if f.cls == "name"}), key=_order)
+
+
+def _candidates(label: str, text: str, named: set[int]) -> list[Finding]:
+    """The name-shaped candidates of a commit message after the register check (intake.SHORT_TEXT_RULES), one
+    finding candidate-<class> per line; a line the register check already found a name on gets none."""
+    from awb import intake
+
+    return [Finding(label, line, "candidate-%s" % cls) for cls, line in intake.short_text_candidates(text)
+            if line not in named]
 
 
 def _merged(spans: list[Span]) -> list[Span]:
@@ -949,6 +962,8 @@ def _selftest_message() -> tuple[str, list[tuple[str, int]]]:
 
 
 _SELFTEST_CLEAN_MESSAGE = "release notes\n\nfor CUST-Q7M4 in tcp-q7m4, version v0.1.0\n"
+_SELFTEST_CANDIDATE = " ".join(("Jonas", "Vrelkam"))
+"""An unregistered invented person that opens with a listed first name (tests/fixtures.py FIRST_LAST)."""
 
 
 def selftest(register_path: Path | None = None) -> list[str]:
@@ -1029,6 +1044,14 @@ def _selftest_in(root: Path) -> list[str]:
         got = scan_message(msg, matcher)
         if got:
             failures.append("clean message: expected nothing, found %s" % ", ".join(sorted({x.cls for x in got})))
+        if failures:
+            return failures
+        # the candidate rules of a commit message: an unregistered name-shaped pair is found on its line
+        msg.write_text("sizing done\n\ncall with %s\n" % _SELFTEST_CANDIDATE, encoding="utf-8")
+        got = scan_message(msg, matcher)
+        if [(x.cls, x.line) for x in got] != [("candidate-person", 3)]:
+            found = ", ".join("%s on line %d" % (x.cls, x.line) for x in got) or "nothing"
+            failures.append("message candidate: expected one candidate-person finding on line 3, found %s" % found)
     return failures
 
 
@@ -1390,6 +1413,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     for line in lines:
         print(line)
+    if any(f.cls.startswith("candidate-") for f in findings):
+        from awb import intake
+
+        print("awb gate: a candidate is a name-shaped word the register does not know; %s" % intake.REWORD_HINT,
+              file=sys.stderr)
     return 1 if findings else 0
 
 

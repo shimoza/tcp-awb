@@ -68,6 +68,25 @@ def test_the_first_snapshot_sees_everything_with_its_own_creation_time(home, ten
     assert oct(os.stat(tenants.folder(home, "test-1") / "handles.json").st_mode)[-3:] == "600"
 
 
+def test_a_foreign_tag_value_is_kept_as_a_dash_and_counted(home, tenant):
+    """TM0 item 9: a planted awb-project or awb-expiry value not in the Workbench form never reaches the snapshot."""
+    from tests import fixtures
+
+    cloud = Cloud()
+    cloud.servers.append(server("id-c", "2026-08-03T10:00:00Z", project="call %s" % fixtures.PERSON_FORMS[0],
+                                expiry="ask " + fixtures.CUSTOMER_FORMS[0]))
+    snap, _ = tenants.snapshot(home, tenant, cloud.lister, now=at("2026-09-01"))
+    stored = (tenants.folder(home, "test-1") / "snapshots" / "2026-09-01.json").read_text(encoding="utf-8")
+    fixtures.assert_no_fixture_name(stored, "the snapshot")
+    planted = [i for i in snap["items"] if i["project"] == "-"]
+    assert len(planted) == 1 and planted[0]["expiry"] == "-" and snap["foreign_tags"] == 2
+    assert "no project" in tenants.flags(planted[0], datetime.date(2026, 9, 1))
+    assert [i["project"] for i in snap["items"]].count("tcp-q7m4") == 1
+    lines = tenants.now_lines(home, "test-1", datetime.date(2026, 9, 1))
+    assert any("2 tag value(s) not in the Workbench form" in x for x in lines)
+    fixtures.assert_no_fixture_name("\n".join(lines), "awb tenant now")
+
+
 def test_the_next_snapshots_record_what_appeared_changed_and_went(home, tenant):
     cloud = Cloud()
     tenants.snapshot(home, tenant, cloud.lister, now=at("2026-09-01"))

@@ -686,6 +686,8 @@ def describe(e: dict) -> str:
 
 
 def _take_one(root: Path, code: str, e: dict, customer: str | None) -> str:
+    from awb import gate, projects
+
     what = "%s of %s" % (e["kind"], _size(e["size"]))
     if e["bucket"] == "owner":
         a = _ok(_call({"op": "take_owner", "id": e["id"], "project": code, "customer": customer}))
@@ -717,14 +719,40 @@ def _take_one(root: Path, code: str, e: dict, customer: str | None) -> str:
         if problems:
             return "held in the lab inbox: %s; the owner moves it to the owner inbox or releases it" % \
                 "; ".join(problems)
-        dest = root / "input" / name
+        # a file the commit gate cannot read (a pdf, a sheet, an archive) would block every commit that stages
+        # it: it goes to input/opaque/, which .gitignore keeps out of git
+        opaque = gate.is_opaque(name, local.read_bytes())
+        where = projects.OPAQUE_DIR if opaque else "input"
+        dest = root / where / name
         if dest.exists():
-            raise XchgError("input/ already holds a file of that name")
+            raise XchgError("%s/ already holds a file of that name" % where)
+        if opaque:
+            _ignore_opaque(root)
         _ok(_call({"op": "obs", "method": "COPY", "source": key, "key": "%s/%s%s" % (code, IN, name),
                    "project": code}))
+        dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(local, dest)
         _ok(_call({"op": "obs", "method": "DELETE", "key": key, "project": code}))
+    if opaque:
+        return ("taken from the lab inbox: %s/%s, a copy in the project's in/ folder; the commit gate cannot read "
+                "it, so .gitignore keeps it out of git" % (projects.OPAQUE_DIR, name))
     return "taken from the lab inbox: input/%s, a copy in the project's in/ folder" % name
+
+
+def _ignore_opaque(root: Path) -> None:
+    """input/opaque/ in the project's .gitignore before anything lands there (a project spawned before TM0 has
+    none)."""
+    from awb import projects
+
+    f = root / ".gitignore"
+    try:
+        text = f.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        f.write_text(projects.GITIGNORE, encoding="utf-8")
+        return
+    if projects.OPAQUE_DIR + "/" not in text.splitlines():
+        with open(f, "a", encoding="utf-8") as fh:
+            fh.write(("" if text.endswith("\n") or not text else "\n") + projects.OPAQUE_DIR + "/\n")
 
 
 def take(words: str | None = None, project: str | None = None, customer: str | None = None,

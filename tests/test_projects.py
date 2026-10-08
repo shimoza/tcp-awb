@@ -826,3 +826,20 @@ def test_live_resources_reads_handle_rows_and_rows_of_the_older_width(home, regi
                 "| eip-id-0001 | eip | eu-de | small | none | kept | the address of the demo |\n"
                 "| obs-id-0001 | obs | eu-de | small | none | live | |\n")
     assert projects.live_resources(folder) == 2
+
+
+def test_spawn_from_the_outbox_commits_through_the_gate_hook(home, register_path):
+    """TM0 item 10: the gate hook is there before the first git add, so a planted outbox copy the gate refuses
+    (a private key) never enters history: nothing is created and the outbox keeps the file."""
+    box = home.outbox / fixtures.CUSTOMER_CODE
+    box.mkdir(parents=True, exist_ok=True)
+    planted = box / "brief.md"
+    planted.write_text("sizing\n-----BEGIN RSA " + "PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA " + "PRIVATE KEY-----\n",
+                       encoding="utf-8")
+    with pytest.raises(projects.ProjectError, match="refused the outbox copies"):
+        projects.spawn(home, "engagement", GOAL, fixtures.CUSTOMER_CODE, register_path, from_outbox=True)
+    assert planted.is_file() and not projects.load(home)
+    assert not [d for d in home.projects_root.glob("tcp-*")]
+    planted.write_text("sizing for %s\n" % fixtures.CUSTOMER_CODE, encoding="utf-8")
+    pr = projects.spawn(home, "engagement", GOAL, fixtures.CUSTOMER_CODE, register_path, from_outbox=True)
+    assert (Path(pr.path) / ".git" / "hooks" / "pre-commit").is_file() and not planted.exists()

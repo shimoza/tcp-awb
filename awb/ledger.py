@@ -287,7 +287,7 @@ def _check_reason(err: Exception) -> str:
     return "the register cannot be read"
 
 
-def screen(text: str, reg: Path | None, *, codes_too: bool = False) -> dict[str, int]:
+def screen(text: str, reg: Path | None, *, codes_too: bool = False, candidates: bool = True) -> dict[str, int]:
     """Counts per class of what makes `text` unfit for the shared side: hits of the name check (a registered
     name or structured data), hits of the gate detectors and, with `codes_too`, register codes and project codes.
     Raises LedgerError when the name check cannot run. Never returns or raises with a value."""
@@ -300,6 +300,12 @@ def screen(text: str, reg: Path | None, *, codes_too: bool = False) -> dict[str,
         raise LedgerError(_check_reason(err)) from None
     for h in hits:
         counts[h.get("cls", "unknown") if isinstance(h, dict) else "unknown"] += 1
+    if candidates and not counts.get("name"):
+        # after the register check, the name-shaped candidates of the strong rules (TM0): a name not registered
+        from awb import intake
+
+        for cls, _ in intake.short_text_candidates(text):
+            counts["candidate-%s" % cls] += 1
     for cls, fn in _detectors().items():
         try:
             n = len(fn(text))
@@ -318,13 +324,17 @@ def screen(text: str, reg: Path | None, *, codes_too: bool = False) -> dict[str,
 
 
 def screen_fields(fields: list[tuple[str, str]], reg: Path | None, *, codes_too: bool = False,
-                  refused=Refused, hint: str = "") -> None:
+                  refused=Refused, hint: str = "", candidates: bool = True) -> None:
     """Raise `refused` on the first field whose text does not pass `screen`. Field names and counts only."""
     for what, text in fields:
         if not text:
             continue
-        found = screen(text, reg, codes_too=codes_too)
+        found = screen(text, reg, codes_too=codes_too, candidates=candidates)
         if found:
+            if any(c.startswith("candidate-") for c in found):
+                from awb import intake
+
+                hint = "; %s%s" % (intake.REWORD_HINT, hint)
             raise refused("%s refused (%s)%s" % (what, _counts_text(found), hint))
 
 
