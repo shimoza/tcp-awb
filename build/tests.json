@@ -2218,8 +2218,15 @@
    "name": "dataset put --github: a planted person (commit identity, old author setting) or a registered name in a file refuses the put, publishes nothing and leaves the clone clean",
    "run": ".venv/bin/pytest tests/test_dataset.py::test_github_put_refuses_a_planted_name_and_publishes_nothing",
    "status": "passing"
+  },
+  {
+   "id": "DS-WARN",
+   "phase": "T11",
+   "name": "dataset: README, PROMPT.md, HOW-TO.pdf carry the section 'Before you use it with a public model' and the line 'How you use it is your responsibility as the user.'; facts.md and topics/*.md carry the rule line",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_the_warning_for_public_models_is_in_the_readme_the_prompt_the_pdf_and_the_rules",
+   "status": "passing"
   }
  ],
- "total_tests": 316,
+ "total_tests": 317,
  "checked": "2026-10-09"
 }

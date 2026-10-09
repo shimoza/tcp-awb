@@ -67,6 +67,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The dataset TCP Facts warns before use with a public model. The section "Before you use it with a public model"
+  (technical questions only, no customer data, a described setup can identify a customer, the use is the user's
+  responsibility) is in the build README, `PROMPT.md` and `HOW-TO.pdf`, and the rules at the top of `facts.md`, the
+  topic files and `services.md` gained the line "Technical questions only; no customer data in your prompts (see
+  README)".
 - The dataset TCP Facts names no person. The README, `HOW-TO.pdf`, its `/Author` metadata and the manifest field
   `compiled_by` (was `author`) credit `TCP Facts, github.com/shimoza/tcp-facts`, the dataset and its address, and
   carry the line "Compiled from public sources and live checks. Licence CC BY 4.0: name the dataset and its address

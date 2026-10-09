@@ -123,10 +123,26 @@ def header(day: str, best_before: str, fetched: str) -> str:
         "and that date," % (fetched or "on the date of the dataset"),
         "   and say that the live price API is the source of truth before any quote.",
         "4. Best before %s. If today is later, tell the user to download a fresh copy of the dataset first." % best_before,
+        "5. Technical questions only; no customer data in your prompts (see README).",
         "-->", ""]
     return "\n".join(lines)
 
 
+WARNING_HEADING = "Before you use it with a public model"
+WARNING_RESPONSIBILITY = "How you use it is your responsibility as the user."
+WARNING = [
+    ("h2", WARNING_HEADING),
+    ("p", "The facts are public and carry no customer data. Your questions are another matter. When you use this "
+          "dataset with a public model (ChatGPT, Claude, Gemini, Copilot or any hosted service), what you type goes "
+          "to that provider under its terms, not under the terms of this dataset. So:"),
+    ("p", "- Ask technical questions only: can TCP do this, what does it cost, how does this service behave."),
+    ("p", "- Never paste customer data: no names, no mail addresses, no documents, no tenant ids, no prices from an "
+          "offer."),
+    ("p", "- A described setup can identify a customer too. A region, a sector, a number of sites, a named "
+          "application and a go-live date together are often enough for a capable model to guess who the customer "
+          "is, even when you named nobody. Keep the setup generic or run the model where the data may go."),
+    ("p", WARNING_RESPONSIBILITY + " The dataset gives you checked facts and nothing else."),
+]
 ONE_LINER = "Use the attached TCP Facts. Answer: <your question>"
 LONG_PROMPT = ("Answer only from the attached TCP Facts. Cite the id (KB-XXXX) after every fact you use. Say \"no "
                "checked fact covers this\" instead of guessing. Name the check date of a fact older than 90 days. "
@@ -165,6 +181,7 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
         ("code", LONG_PROMPT),
         ("h2", "Examples"),
         *[("code", e) for e in EXAMPLES],
+        *WARNING,
         ("h2", "Files"),
         ("p", "facts.md: all facts, grouped by topic. facts.jsonl: the same facts with source, tags, class, expiry "
               "and the evidence of negatives, for RAG and tools. topics/<topic>.md: one file per topic. "
@@ -522,7 +539,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
                                               "name; the manifest carries the build time." % built_at)]
         + blocks[1:3] + [("h2", "Use"), ("p", "Attach facts.md and type:"),
                                                           ("code", ONE_LINER), ("p", "PROMPT.md has the rest.")]
-        + blocks[-6:]), encoding="utf-8")
+        + WARNING + blocks[-6:]), encoding="utf-8")
 
     for path in sorted(root.rglob("*")):
         if path.is_file() and path.suffix in (".md", ".jsonl", ".csv"):

@@ -153,6 +153,22 @@ def test_the_how_to_pdf_is_a_pdf_the_poppler_tools_read(home, facts, tmp_path):
     assert "wrap 199" in subprocess.run(["pdftotext", "-", "-"], input=long, capture_output=True, check=True).stdout.decode()
 
 
+def test_the_warning_for_public_models_is_in_the_readme_the_prompt_the_pdf_and_the_rules(home, facts, tmp_path):
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    heading, line = "Before you use it with a public model", "How you use it is your responsibility as the user."
+    pdf = subprocess.run(["pdftotext", str(built.folder / "HOW-TO.pdf"), "-"], capture_output=True, text=True,
+                         check=True).stdout
+    for name in ("README.md", "PROMPT.md"):
+        text = (built.folder / name).read_text()
+        assert "## " + heading in text and line in text, name
+    assert heading in pdf and line in pdf
+    readme = (built.folder / "README.md").read_text()
+    assert readme.index("## Use") < readme.index("## " + heading) < readme.index("## Files")
+    rule = "Technical questions only; no customer data in your prompts (see README)"
+    for path in [built.folder / "facts.md", *(built.folder / "topics").glob("*.md")]:
+        assert rule in path.read_text().split("-->")[0], path.name
+
+
 def test_no_setting_puts_a_person_into_the_dataset(home, facts, tmp_path, monkeypatch):
     """The old author setting is gone: a planted AWB_DATASET_AUTHOR and dataset_author reach no file of the build."""
     monkeypatch.setenv("AWB_DATASET_AUTHOR", fx.PLANTED_PERSON)
