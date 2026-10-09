@@ -297,6 +297,8 @@ The files and the PDF metadata say who compiled them: `TCP Facts, github.com/shi
 files into the root of the public repository [shimoza/tcp-facts](https://github.com/shimoza/tcp-facts), commits them
 as the GitHub account, tags the date and makes a release of it with the zip, the PDF and the manifest. The files are
 scanned for a person and a registered name first, and a hit refuses the put.
+The release notes list the sha256 of the zip, the PDF and the manifest, one line each. A recipient
+saves the lines as `SHA256SUMS` next to the downloads and runs `sha256sum -c SHA256SUMS`; every file must say `OK`.
 
 A team that builds its own tools can take the facts alone:
 

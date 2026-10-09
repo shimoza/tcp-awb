@@ -16,6 +16,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   offer stays out and is named, and a few price rows per region are fetched again from the live API, each check
   proved on a planted wrong case first. `awb refresh` builds it at the end of a clean run, `awb dataset put` sends it
   into the bucket.
+- The release of `awb dataset put --github` lists the sha256 of the zip, `HOW-TO.pdf` and `MANIFEST.json` in its
+  notes, one line each in `sha256sum -c` form, so a recipient can check a download. A `HOW-TO.pdf` that differs
+  from its sum in the manifest refuses the release.
 - One deploy command. `sudo awb deploy` brings a commit live as a release of its own, restarts only the services the
   change touched, brings the rules of every project up to date and ends with the status of each service.
   `--dry-run`, `--rollback`, `--to COMMIT`, `--only UNIT...` and `awb deploy status`.

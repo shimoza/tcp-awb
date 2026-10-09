@@ -390,6 +390,24 @@ def test_github_put_lands_the_files_in_the_root_tags_the_date_and_releases_the_a
     assert [a[:2] for a in log].count(["repo", "clone"]) == 1
 
 
+def test_the_release_notes_carry_the_sha256_of_the_three_assets(home, facts, tmp_path, github):
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    dataset.github_put(home, built.folder, clone=github.clone)
+    create = [a for a in github.log() if a[:2] == ["release", "create"]][0]
+    notes = create[create.index("--notes") + 1]
+    manifest = json.loads((built.folder / "MANIFEST.json").read_text())
+    sha = lambda x: __import__("hashlib").sha256(x.read_bytes()).hexdigest()
+    pdf = manifest["files"]["HOW-TO.pdf"]["sha256"]
+    assert pdf == sha(built.folder / "HOW-TO.pdf")
+    lines = [l for l in notes.splitlines() if re.fullmatch(r"[0-9a-f]{64}  \S+", l)]
+    assert lines == ["%s  %s" % (sha(built.zip), built.zip.name), "%s  HOW-TO.pdf" % pdf,
+                     "%s  MANIFEST.json" % sha(built.folder / "MANIFEST.json")]
+    # a PDF changed after the build no longer matches its manifest: refused before any release
+    (built.folder / "HOW-TO.pdf").write_bytes(b"%PDF-1.4 changed")
+    with pytest.raises(dataset.DatasetError, match="differs from its sum in MANIFEST.json"):
+        dataset.github_put(home, built.folder, replace=True, clone=github.clone)
+
+
 @pytest.mark.parametrize("plant,why", [(fx.PLANTED_PERSON, "a person"), ("xqarv@example.invalid", "a person"),
                                        (fx.PERSON_FORMS[0], "facts.md: name")])
 def test_github_put_refuses_a_planted_name_and_publishes_nothing(home, facts, tmp_path, github, plant, why):

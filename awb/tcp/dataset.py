@@ -679,13 +679,25 @@ def scan_people(files: list[Path], values: list[str], register_path: Path | None
     return problems
 
 
-def release_notes(manifest: dict) -> str:
+def release_notes(manifest: dict, sums: dict[str, str] | None = None) -> str:
+    """The counts, then the sha256 of each release asset, one line each. `sums` maps an asset name to its sum; the
+    zip and MANIFEST.json come from the files (the manifest is inside the zip and cannot hold its own sum), every
+    other asset from the manifest."""
     g = manifest.get("grades", {})
-    return ("%s %s: %d facts (live %d, docs %d, contract %d), %d left out because they name a service that is not "
+    text = ("%s %s: %d facts (live %d, docs %d, contract %d), %d left out because they name a service that is not "
             "offered. Best before %s.\n\n%s" % (NAME, manifest["date"], manifest["facts"], g.get("live", 0),
                                                  g.get("docs", 0), g.get("contract", 0),
                                                  len(manifest.get("facts_left_out", [])), manifest["best_before"],
                                                  CREDIT))
+    sums = dict(sums or {})
+    for name in GITHUB_ASSETS:
+        if name in manifest.get("files", {}):
+            sums[name] = manifest["files"][name]["sha256"]
+    names = sorted(sums, key=lambda n: (n in GITHUB_ASSETS, GITHUB_ASSETS.index(n) if n in GITHUB_ASSETS else 0))
+    if names:
+        text += "\n\nsha256 of the assets, check a download with `sha256sum -c`:\n\n```\n%s```" % "".join(
+            "%s  %s\n" % (sums[n], n) for n in names)
+    return text
 
 
 def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: Path | None = None) -> list[str]:
@@ -732,8 +744,11 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
         _run(["gh", "release", "delete", day, "--repo", GITHUB_REPO, "--yes"], cwd=clone, check=False)
     _run(["git", "push", "-q", *(["--force"] if replace else []), "origin", "refs/tags/" + day], cwd=clone)
     manifest = json.loads((folder / "MANIFEST.json").read_text(encoding="utf-8"))
+    if _sha(folder / "HOW-TO.pdf") != manifest["files"]["HOW-TO.pdf"]["sha256"]:
+        raise DatasetError("HOW-TO.pdf differs from its sum in MANIFEST.json; run awb dataset build --force")
+    sums = {zpath.name: _sha(zpath), "MANIFEST.json": _sha(folder / "MANIFEST.json")}
     _run(["gh", "release", "create", day, str(zpath), *(str(folder / n) for n in GITHUB_ASSETS), "--repo",
-          GITHUB_REPO, "--verify-tag", "--title", "%s %s" % (NAME, day), "--notes", release_notes(manifest)],
+          GITHUB_REPO, "--verify-tag", "--title", "%s %s" % (NAME, day), "--notes", release_notes(manifest, sums)],
          cwd=clone)
     return ["github.com/%s commit and tag %s" % (GITHUB_REPO, day),
             "github.com/%s/releases/tag/%s with %s" % (GITHUB_REPO, day, ", ".join([zpath.name, *GITHUB_ASSETS]))]

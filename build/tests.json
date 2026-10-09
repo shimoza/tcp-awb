@@ -2220,6 +2220,13 @@
    "status": "passing"
   },
   {
+   "id": "DS-GH3",
+   "phase": "T11",
+   "name": "dataset put --github: the release notes carry the sha256 of the zip, HOW-TO.pdf (the sum of MANIFEST.json) and MANIFEST.json, one line each in sha256sum form; a HOW-TO.pdf that differs from its manifest sum refuses the release",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_the_release_notes_carry_the_sha256_of_the_three_assets",
+   "status": "passing"
+  },
+  {
    "id": "DS-WARN",
    "phase": "T11",
    "name": "dataset: README, PROMPT.md, HOW-TO.pdf carry the section 'Before you use it with a public model' and the line 'How you use it is your responsibility as the user.'; facts.md and topics/*.md carry the rule line",
