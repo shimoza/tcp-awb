@@ -363,3 +363,12 @@ def test_owner_actions_runs_as_its_own_user_without_network_before_the_status_ex
     for unit in ("awb-owner-actions.socket", "awb-owner-status.timer"):
         assert "systemctl enable --now %s" % unit in calls
     assert "systemctl enable --now awb-owner-actions.service" not in calls
+
+
+def test_f11_the_customer_socket_lets_the_web_group_alone_connect(tmp_path):
+    """F11: the kernel already refuses the work user at the customer socket: its group is the web user's, not awb."""
+    env, units, log, fence = _stubs_t9(tmp_path)
+    assert _install(env, "--domain", "awb.example.test").returncode == 0
+    socket_unit = (units / "awb-customers.socket").read_text().splitlines()
+    assert "SocketGroup=awb-web" in socket_unit and "SocketGroup=awb" not in socket_unit
+    assert "SocketMode=0660" in socket_unit

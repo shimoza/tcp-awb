@@ -87,7 +87,7 @@ LEAVE_WAIT = 70.0
 """Seconds a handed-over service waits for its calls in flight (a cloud call takes at most 60) before it exits."""
 ADMIN_OPS = ("load", "lock", "notify", "ping", "reload", "status")
 EXCHANGE_METHODS = ("GET", "HEAD", "PUT", "DELETE", "LIST", "COPY", "MONTHS", "OBS", "OWNER_HAS", "TAKE_OWNER", "INBOX_FIND",
-                    "WEB_READ")
+                    "WEB_READ", "TAKE_LAB")
 NOTIFY_MAX = 4000      # characters of an owner mail through the admin socket (awb ui watch --mail)
 CONSOLE_USER = "awb-console"
 """The system user of the console's tenant inventory (F2, his decision of 2026-10-04): it alone reads a test tenant
@@ -386,6 +386,11 @@ class Service:
             stream = None
             try:
                 if not admin and req.get("op") == "obs" and str(req.get("method") or "").upper() == "PUT":
+                    # F8: the call is authorised before a byte of the upload is stored
+                    refusal = self._put_refusal(req, uid)
+                    if refusal:
+                        self._send(conn, {"ok": False, "error": refusal})
+                        return
                     upload = self._receive(conn, buf[buf.index(b"\n") + 1:], req)
                 if admin:
                     answer = self._admin(req, uid)
@@ -423,6 +428,23 @@ class Service:
 
         return xchg.Context(self.settings, self._lab_keys, self._obs_client, self.paths_fn, self._project_row,
                             self._notify)
+
+    def _put_refusal(self, req: dict, uid: int) -> str | None:
+        """Why a put is refused before its bytes are read (F8), or None; a refusal is logged like any exchange
+        call."""
+        from awb.tcp import xchg
+
+        if not self.tenants:
+            return "the key service is locked: the owner runs awb keys unlock"
+        try:
+            xchg.authorise_put(self._xchg(), req)
+        except xchg.XchgError as err:
+            project = req.get("project")
+            self._log(uid, self.settings.get("bucket_tenant") or "-", "lab", "PUT", "obs",
+                      self.settings.get("region") or "eu-de", "refused",
+                      project if isinstance(project, str) and codes.is_project_code(project) else "-")
+            return str(err)
+        return None
 
     def _receive(self, conn: socket.socket, head: bytes, req: dict) -> Path:
         """The bytes of a put, streamed into a private file of the owner, at most the limit of keys.conf."""
@@ -609,7 +631,7 @@ class Service:
                 return self._lease(req, uid)
             except Refused as err:
                 return {"ok": False, "error": str(err)}
-        if op in ("obs", "owner_has", "take_owner", "inbox_find"):
+        if op in ("obs", "owner_has", "take_owner", "take_lab", "inbox_find"):
             return self._exchange(op, req, uid, upload)
         if op == "web_read":
             # the materials service of the web console runs as the owner, like this service; nobody else reads
@@ -631,6 +653,9 @@ class Service:
                 answer, stream = xchg.serve_obs(ctx, req, upload)
             elif op == "owner_has":
                 answer = xchg.serve_owner_has(ctx, req)
+            elif op == "take_lab":
+                answer, stream = xchg.serve_take_lab(ctx, req)
+                status = answer.get("state", "ok")
             elif op == "inbox_find":
                 answer = xchg.serve_inbox_find(ctx, req)
             elif op == "web_read":

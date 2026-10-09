@@ -151,6 +151,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   source the knowledge base takes, a foreign tag value on a test tenant shows as `-`, a project's first commit runs
   the commit gate, a pdf or a sheet from the lab inbox stays out of git, and the first ledger draft of a day no
   longer misses commits.
+- A take from the owner inbox goes to the project's own customer. A project without a customer takes a file only
+  from a customer's folder of the owner inbox (`inbox/CUST-XXXX/`), and a code the session names only has to agree.
+- The name check of a take from the lab inbox and the checks of `awb xchg put` (the name check and the send gate)
+  run in the key service too, so a changed session cannot skip them. A session can no longer fetch, copy or delete
+  a lab inbox file except through that checked take.
+- The key service decides on a put before it receives the bytes, so a refused put stores nothing.
+- The customer socket of the console answers only the web user, and the work user is not in its group. Project
+  creation counts a customer by its outbox folder, as `awb spawn` does.
 
 ## Week 40, 2026-09-28 to 2026-10-04
 

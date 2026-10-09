@@ -6,7 +6,8 @@ Description=AWB private customer registration socket
 [Socket]
 ListenStream=/run/awb-customers.sock
 SocketUser=awb-web
-SocketGroup=awb
+# F11: only the web user connects; the work user is not in the group
+SocketGroup=awb-web
 SocketMode=0660
 RemoveOnStop=yes
 [Install]

@@ -47,8 +47,12 @@ words which one you mean ("the pdf", "the newest", a part of its name). The sess
 | the lab inbox | material without customer content: vendor images, test data, public documents | the file itself, after the name check |
 | the owner inbox | anything that may hold customer material | only the sanitised copies of the owner's intake, never the original |
 
+A file of the owner inbox goes to the project's customer. For a project without a customer, drop it into the
+folder of its customer, `inbox/CUST-XXXX/`. The key service checks every file of the lab inbox before the session
+gets it.
+
 Results go back with `awb xchg put` into the project's own folder, after the name check and, for a customer
-project, the send gate. A mail tells you about each file.
+project, the send gate. The key service runs both again on the bytes it receives. A mail tells you about each file.
 
 ## The board and the console
 

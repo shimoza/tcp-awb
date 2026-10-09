@@ -26,7 +26,6 @@ from socketserver import ThreadingMixIn
 
 from awb import codes, config, intake, ledger, projects, register, vault
 
-CUSTOMER_SOCKET = '/run/awb-customers.sock'
 PROJECT_SOCKET = '/run/awb-project-create.sock'
 REQUEST = re.compile(r'[a-f0-9]{32}')
 CUSTOMER = re.compile(r'CUST-[A-Z2-7]{4}')
@@ -49,18 +48,11 @@ class UnixConnection(http.client.HTTPConnection):
         self.sock.connect(self.path)
 
 
-def customer_active(code):
-    c = UnixConnection(CUSTOMER_SOCKET)
-    try:
-        c.request('POST', '/internal/customers/' + code)
-        r = c.getresponse()
-        if r.status != 200:
-            raise Problem(503, 'The customer register is unavailable. Try again later.')
-        return json.loads(r.read(4096))['active']
-    except (OSError, ValueError, KeyError, http.client.HTTPException):
-        raise Problem(503, 'The customer register is unavailable. Try again later.') from None
-    finally:
-        c.close()
+def customer_issued(paths, code):
+    """F11: the project side no longer asks the owner's customer socket. A customer code counts when the owner
+    issued it, by its folder in the outbox (register add opens it), the rule awb spawn keeps on the work side."""
+    path = paths.outbox / code
+    return bool(CUSTOMER.fullmatch(code or '')) and path.is_dir() and not path.is_symlink()
 
 
 class Journal:
@@ -163,13 +155,6 @@ class CustomerStore:
     def active(self, code):
         return any(e.code == code and e.status == 'active' for e in register.load(self.p.register))
 
-    def prepare(self, code):
-        with self.lock, vault.vault_lock(self.p, wait=3):
-            active = self.active(code)
-            if active:
-                self.marker(code)
-            return active
-
     def marker(self, code):
         path = self.p.outbox / code
         if path.is_symlink():
@@ -228,8 +213,9 @@ class CustomerStore:
 
 
 class ProjectStore:
-    def __init__(self, paths, state, active=customer_active):
-        self.p, self.journal, self.active = paths, Journal(state), active
+    def __init__(self, paths, state, active=None):
+        self.p, self.journal = paths, Journal(state)
+        self.active = active or (lambda code: customer_issued(paths, code))
         self.lock = threading.Lock()
 
     def options(self):
@@ -359,7 +345,6 @@ class Handler(BaseHTTPRequestHandler):
     def dispatch(self):
         try:
             uid = struct.unpack('3i', self.connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))[1]
-            internal = re.fullmatch(r'/internal/customers/(CUST-[A-Z2-7]{4})', self.path)
             publish = re.fullmatch(r'/internal/projects/(tcp-[a-z2-7]{4})/materials', self.path)
             if self.server.mode == 'projects' and publish and self.command == 'POST' and uid == self.server.owner_uid:
                 lengths = self.headers.get_all('Content-Length', [])
@@ -371,11 +356,10 @@ class Handler(BaseHTTPRequestHandler):
                 raw = self.rfile.read(n)
                 if len(raw) != n: raise Problem(400, 'Incomplete working copy.')
                 return self.reply(200, self.server.store.publish_material(publish[1], json.loads(raw)))
-            if uid != self.server.web_uid and not (uid == self.server.work_uid and internal and self.command == 'POST'):
+            # F11: the web user alone; the work user's call of the customer socket is gone
+            if uid != self.server.web_uid:
                 raise Problem(403, 'Not allowed.')
             store = self.server.store
-            if self.server.mode == 'customers' and internal and self.command == 'POST':
-                return self.reply(200, {'active': store.prepare(internal[1])})
             if self.command == 'GET':
                 status_route = re.fullmatch(r'/api/(customer|project)-operations/([a-f0-9]{32})', self.path)
                 if status_route and status_route[1] + 's' == self.server.mode:
@@ -441,7 +425,6 @@ def main():
     server.socket.close()
     server.socket = socket.socket(fileno=3)
     server.web_uid = pwd.getpwnam('awb-web').pw_uid
-    server.work_uid = pwd.getpwnam('awb').pw_uid
     server.owner_uid = pwd.getpwnam(args.owner).pw_uid
     server.mode = args.mode
     server.store = (CustomerStore if args.mode == 'customers' else ProjectStore)(config.paths(), args.state)

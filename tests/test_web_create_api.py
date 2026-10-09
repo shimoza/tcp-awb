@@ -205,23 +205,43 @@ def _ask(path, method, route, body=None):
         c.close()
 
 
-def test_unix_peer_cannot_read_names_and_the_web_cannot_register(home, tmp_path):
-    # D-NOW (2026-10-08): replaces test_unix_peer_cannot_read_names, whose last step pinned a POST of the web
-    # reaching the form check (400); since D-F3 = no a new customer is never registered from the web (403)
+def test_the_customer_socket_answers_the_web_user_alone(home, tmp_path):
+    # F11 (2026-10-09): replaces test_unix_peer_cannot_read_names_and_the_web_cannot_register, whose middle step
+    # pinned the work user's POST /internal/customers/CODE answering 200; that route is gone and every route of the
+    # customer socket refuses any peer but the web user. The other steps are kept as they were.
     s, path = _customer_server(home, tmp_path, os.getuid() + 10000)
     try:
         assert _ask(path, "GET", "/api/customers")[0] == 403
         code = next(e.code for e in register.load(home.register) if e.kind == "CUST")
         status, raw = _ask(path, "POST", "/internal/customers/" + code)
-        assert status == 200 and json.loads(raw) == {"active": True}
+        assert status == 403 and b"active" not in raw, "planted: the work user asks whether a customer is active"
+        assert not (home.outbox / code).exists(), "no outbox folder made for the work user"
         s.web_uid = os.getuid()
         for body in ("[]", json.dumps(customer_payload())):
             status, raw = _ask(path, "POST", "/api/customers", body)
             assert status == 403
             assert json.loads(raw) == {"error": create_api.WEB_REGISTER_OFF}
+        assert _ask(path, "POST", "/internal/customers/" + code)[0] == 404, "the route is gone for the web too"
     finally:
         s.shutdown()
         s.server_close()
+
+
+def test_the_project_side_counts_a_customer_by_its_outbox_folder(home, tmp_path):
+    # F11: the project service no longer calls the customer socket; an issued code has its outbox folder
+    store = ProjectStore(home, tmp_path / "state")
+    with pytest.raises(Problem) as e:
+        store.create(project_payload(customer="CUST-ZZ22"))
+    assert e.value.data["field"] == "customer" and not projects.load(home)
+    (tmp_path / "elsewhere").mkdir()
+    (home.outbox / "CUST-ZZ22").symlink_to(tmp_path / "elsewhere")
+    with pytest.raises(Problem):
+        store.create(project_payload(key="c" * 32, customer="CUST-ZZ22"))
+    assert not projects.load(home)
+    code = fixtures.CUSTOMER_CODE
+    (home.outbox / code).mkdir(exist_ok=True)
+    assert store.create(project_payload(key="d" * 32, customer=code))["created"]
+    assert projects.load(home)[0].customer == code
 
 
 def test_the_web_list_carries_codes_and_never_a_name(home, tmp_path):

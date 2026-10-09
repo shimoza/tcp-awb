@@ -635,3 +635,139 @@ def test_a_find_leaves_no_owner_name_in_the_log(svc, buckets, cust_project, caps
     run(["inbox", "take", "budget"], capsys)
     log = "\n".join(p.read_text() for p in (tmp_path / "log").glob("*.tsv"))
     assert fx.CUSTOMER_FORMS[1] not in log and "budget" not in log
+
+
+# --------------------------------------------------------------------------- security review F5, F6, F8
+
+
+def _owner_id(svc, code, rel):
+    a = keys.request(svc.call_path, {"op": "inbox_find", "all": True, "project": code})
+    (e,) = [m for m in a["matches"] if m["bucket"] == "owner" and m["size"] == len(rel)]
+    return e["id"]
+
+
+def test_f5_a_project_without_a_customer_cannot_name_one_for_an_owner_take(svc, buckets, lab_project, capsys):
+    """Planted: a session of a project without a customer names a customer code for a file the owner dropped at
+    the top of his inbox. The service refuses; only the owner's folder inbox/CUST-XXXX/ names the customer."""
+    _, own = buckets
+    own.objects["inbox/task.txt"] = b"Migrate the database cluster.\n"
+    code, _, err = run(["inbox", "take", "task.txt", "--customer", fx.CUSTOMER_CODE], capsys)
+    assert code == 1 and "inbox/CUST-XXXX/" in err
+    assert "inbox/task.txt" in own.objects and not svc.notes
+    a = keys.request(svc.call_path, {"op": "take_owner", "name": "task.txt", "project": lab_project.code,
+                                     "customer": fx.CUSTOMER_CODE})
+    assert not a["ok"] and "inbox/task.txt" in own.objects
+
+
+def test_f5_the_owners_customer_folder_names_the_customer_of_the_take(svc, buckets, lab_project, home, capsys):
+    _, own = buckets
+    rel = "%s/task.txt" % fx.CUSTOMER_CODE
+    own.objects["inbox/" + rel] = b"Migrate the database cluster.\n"
+    ident = _owner_id(svc, lab_project.code, b"Migrate the database cluster.\n")
+    a = keys.request(svc.call_path, {"op": "take_owner", "id": ident, "project": lab_project.code,
+                                     "customer": "CUST-ZZ22"})
+    assert not a["ok"] and "inbox/" + rel in own.objects, "a session's code has to agree with the folder"
+    a = keys.request(svc.call_path, {"op": "take_owner", "id": ident, "project": lab_project.code})
+    assert a["ok"] and a["state"] == "taken" and a["customer"] == fx.CUSTOMER_CODE, a
+
+
+def test_f5_a_customer_project_takes_nothing_from_another_customers_folder(svc, buckets, cust_project, capsys):
+    _, own = buckets
+    own.objects["inbox/CUST-ZZ22/task.txt"] = b"Another customer's task.\n"
+    ident = _owner_id(svc, cust_project.code, b"Another customer's task.\n")
+    for extra in ({}, {"customer": "CUST-ZZ22"}, {"customer": fx.CUSTOMER_CODE}):
+        a = keys.request(svc.call_path, dict({"op": "take_owner", "id": ident, "project": cust_project.code}, **extra))
+        assert not a["ok"] and "inbox/CUST-ZZ22/task.txt" in own.objects
+
+
+@pytest.mark.parametrize("req", [
+    {"method": "GET", "key": "inbox/notes.md"},
+    {"method": "DELETE", "key": "inbox/notes.md"},
+    {"method": "COPY", "source": "inbox/notes.md", "key": "%(code)s/in/notes.md"},
+])
+def test_f6_a_session_cannot_fetch_or_move_a_lab_inbox_file_past_the_service_check(svc, buckets, lab_project, req):
+    """Planted: a changed session skips its own check and calls the raw object ops on a file with a registered
+    name. The service refuses every one of them before it signs anything."""
+    lab, _ = buckets
+    lab.objects["inbox/notes.md"] = ("Meeting with %s.\n" % fx.CUSTOMER_FORMS[0]).encode()
+    req = {k: v % {"code": lab_project.code} for k, v in req.items()}
+    before = len(lab.calls)
+    a = keys.request(svc.call_path, dict(req, op="obs", project=lab_project.code))
+    assert not a["ok"] and "length" not in a
+    assert len(lab.calls) == before and "inbox/notes.md" in lab.objects
+
+
+def test_f6_the_service_holds_a_lab_take_with_a_hit_and_hands_out_no_byte(svc, buckets, lab_project, tmp_path):
+    lab, _ = buckets
+    lab.objects["inbox/notes.md"] = ("Meeting with %s.\n" % fx.CUSTOMER_FORMS[0]).encode()
+    a = keys.request(svc.call_path, {"op": "inbox_find", "all": True, "project": lab_project.code})
+    (e,) = a["matches"]
+    got = tmp_path / "got"
+    a = keys.request(svc.call_path, {"op": "take_lab", "id": e["id"], "project": lab_project.code}, download=got)
+    assert a["ok"] and a["state"] == "held" and "length" not in a and not got.exists()
+    assert "inbox/notes.md" in lab.objects and not [k for k in lab.objects if "/in/" in k]
+    fx.assert_no_fixture_name(json.dumps(a), "the answer of a held take")
+
+
+def test_f6_a_raw_put_with_a_name_in_its_content_is_refused_by_the_service(svc, buckets, lab_project, tmp_path):
+    """Planted: a changed session skips the name check of awb xchg put and sends the bytes on the socket."""
+    lab, _ = buckets
+    up = tmp_path / "x.md"
+    up.write_text("Notes for %s.\n" % fx.CUSTOMER_FORMS[0], encoding="utf-8")
+    key = "%s/from-session/2026-10-09/put-0123456789ab.md" % lab_project.code
+    a = keys.request(svc.call_path, {"op": "obs", "method": "PUT", "project": lab_project.code, "key": key,
+                                     "name": "notes.md"}, upload=up)
+    assert not a["ok"] and "name check" in a["error"] and key not in lab.objects and not svc.notes
+    fx.assert_no_fixture_name(a["error"], "the refusal")
+
+
+def test_f6_a_raw_put_of_an_unreviewed_deliverable_meets_the_send_gate_of_the_service(svc, buckets, cust_project):
+    """Planted: a changed session of a customer project skips the send gate and puts a deliverable copy."""
+    lab, _ = buckets
+    d = Path(cust_project.path) / "deliverables" / "plan.md"
+    d.write_text("The plan for %s: two clusters on managed k8s.\n" % fx.CUSTOMER_CODE, encoding="utf-8")
+    key = "%s/from-session/2026-10-09/put-0123456789ab.md" % cust_project.code
+    a = keys.request(svc.call_path, {"op": "obs", "method": "PUT", "project": cust_project.code, "key": key,
+                                     "name": "plan.md"}, upload=d)
+    assert not a["ok"] and "send gate" in a["error"] and key not in lab.objects
+
+
+def test_f6_a_raw_put_of_a_picture_needs_the_image_flag_and_a_reason(svc, buckets, lab_project, tmp_path):
+    lab, _ = buckets
+    shot = tmp_path / "shot.png"
+    shot.write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg=="))
+    key = "%s/from-session/2026-10-09/put-0123456789ab.png" % lab_project.code
+    req = {"op": "obs", "method": "PUT", "project": lab_project.code, "key": key, "name": "shot.png"}
+    a = keys.request(svc.call_path, req, upload=shot)
+    assert not a["ok"] and "--image" in a["error"] and key not in lab.objects
+    a = keys.request(svc.call_path, dict(req, image=True, reason="console screenshot, checked: no names"),
+                     upload=shot)
+    assert a["ok"] and key in lab.objects
+
+
+@pytest.mark.parametrize("req", [
+    {"key": "inbox/x.md"},
+    {"key": "tcp-zzzz/from-session/2026-10-09/put-0123456789ab.md"},
+    {"key": "%(code)s/from-session/x.md"},
+    {"key": "%(code)s/in/x.md", "project": "tcp-zzzz"},
+])
+def test_f8_a_put_is_authorised_before_its_bytes_are_received(svc, buckets, lab_project, req, tmp_path,
+                                                              monkeypatch):
+    """Planted: a put the service refuses anyway; not a byte of it is stored in the vault tmp, and the session
+    still gets the refusal although it sends half a megabyte."""
+    received = []
+    real = svc._receive
+    monkeypatch.setattr(svc, "_receive", lambda *a: received.append(1) or real(*a))
+    up = tmp_path / "x"
+    up.write_bytes(b"x" * 512 * 1024)
+    req = dict({"project": lab_project.code}, **req)
+    req = {k: v % {"code": lab_project.code} for k, v in req.items()}
+    a = keys.request(svc.call_path, dict(req, op="obs", method="PUT"), upload=up)
+    assert not a["ok"] and a["error"] and not received
+    good = "%s/from-session/2026-10-09/put-0123456789ab.md" % lab_project.code
+    small = tmp_path / "y.md"
+    small.write_text("The image imported in four minutes.\n", encoding="utf-8")
+    a = keys.request(svc.call_path, {"op": "obs", "method": "PUT", "project": lab_project.code, "key": good},
+                     upload=small)
+    assert a["ok"] and received == [1]

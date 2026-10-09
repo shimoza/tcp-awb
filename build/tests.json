@@ -2162,8 +2162,36 @@
    "name": "the lease check: every call carries the token, everything made is deleted newest first and checked gone, a resource that stays is named, a 403 reads as not accepted, Terraform gets the key in its environment only, the dry run makes nothing",
    "run": ".venv/bin/pytest tests/test_leasecheck.py",
    "status": "passing"
+  },
+  {
+   "id": "SR-F5",
+   "phase": "SR",
+   "name": "owner-inbox take: the customer is the project's own or the owner's folder inbox/CUST-XXXX/; a session's code only agrees (planted: a project without a customer names one)",
+   "run": ".venv/bin/pytest tests/test_xchg.py -k f5",
+   "status": "passing"
+  },
+  {
+   "id": "SR-F6",
+   "phase": "SR",
+   "name": "the name check of a lab-inbox take and the name check and send gate of a put run in the key service (planted: raw get, copy, delete and put that skip the session's checks)",
+   "run": ".venv/bin/pytest tests/test_xchg.py -k f6",
+   "status": "passing"
+  },
+  {
+   "id": "SR-F8",
+   "phase": "SR",
+   "name": "a put is authorised before its bytes are received (planted: refused puts of half a megabyte never reach the receive)",
+   "run": ".venv/bin/pytest tests/test_xchg.py -k f8",
+   "status": "passing"
+  },
+  {
+   "id": "SR-F11",
+   "phase": "SR",
+   "name": "the customer socket answers the web user alone, its group is awb-web, the project side counts a customer by its outbox folder (replaces test_unix_peer_cannot_read_names_and_the_web_cannot_register)",
+   "run": ".venv/bin/pytest tests/test_web_create_api.py tests/test_web_seal.py -k 'customer_socket or outbox_folder or f11'",
+   "status": "passing"
   }
  ],
- "total_tests": 309,
- "checked": "2026-10-08"
+ "total_tests": 313,
+ "checked": "2026-10-09"
 }

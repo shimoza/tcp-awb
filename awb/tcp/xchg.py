@@ -19,19 +19,23 @@ German or Russian (pdf, excel, Tabelle, презентация), a word for the 
 name; several ways of saying it go in one call, separated by |. One file found: it is taken. None or several: the
 session gets the list of both inboxes (an id, the kind, the size and the time, the name only for a file of the lab
 inbox the name check passes, never for one of the owner inbox), picks by his description or asks him, and takes
-by id. From the lab inbox the key service fetches it; a file the name check
-passes is copied to `<lab bucket>/<code>/in/`, saved to `input/` and removed from the inbox, a file with a hit or
-one that cannot be checked stays in the inbox. From the owner inbox the session never sees the original: the key
-service (the owner's process) moves it into the project's folder of the owner bucket, runs `awb intake` for the
-project's customer and hands the session only the sanitised copies; with unknown name candidates the file is held
-and the owner is told. Results go back with `awb xchg put` into `<lab bucket>/<code>/from-session/<date>/`, after
-the name check and, for a project with a customer or partner, the send gate of `awb bucket put`. The owner gets a
-mail through the SMN topic of the settings when a session puts a file and when a take holds one.
+by id. From the lab inbox the key service fetches it and runs the name check on it in its own process (F6); a
+file that passes is copied to `<lab bucket>/<code>/in/`, removed from the inbox and handed to the session for
+`input/`, a file with a hit or one that cannot be checked stays in the inbox and the session gets no byte of it.
+From the owner inbox the session never sees the original: the key service (the owner's process) moves it into the
+project's folder of the owner bucket, runs `awb intake` for the customer and hands the session only the sanitised
+copies; with unknown name candidates the file is held and the owner is told. The customer of an owner-inbox take is
+the project's own, or the one the owner names by the folder he drops the file into, `inbox/CUST-XXXX/` (F5); a
+session's --customer only has to agree with it. Results go back with `awb xchg put` into
+`<lab bucket>/<code>/from-session/<date>/`, after the name check and the send gate of `awb bucket put`, both run
+again by the key service on the bytes it received (F6). The owner gets a mail through the SMN topic of the settings
+when a session puts a file and when a take holds one.
 
-The service side (`serve_obs`, `serve_take_owner`, `serve_owner_has`) runs inside the key service and is refused
-everything outside the allowed prefixes before anything is signed: `inbox/` of the lab bucket (get, head, delete,
-copy into the project, list), `<code>/in/` and `<code>/from-session/` of an active project code. Never a policy, an
-ACL or another bucket.
+The service side (`serve_obs`, `serve_take_lab`, `serve_take_owner`, `serve_owner_has`) runs inside the key service
+and is refused everything outside the allowed prefixes before anything is signed: `inbox/` of the lab bucket (head
+and list; a get, a copy and a delete only through `serve_take_lab`), `<code>/in/` and `<code>/from-session/` of an
+active project code. A put is authorised before its bytes are received (F8). Never a policy, an ACL or another
+bucket.
 
 The web mode (`serve_web_read`) is the owner's materials service of the web console reading both buckets: a copy,
 never a move. It lists `inbox/` of either bucket and `<YYYY-MM>/<code>/in/` of an active project in the owner
@@ -237,12 +241,13 @@ class Context:
 
 
 def allowed_key(key: str, method: str, project: str | None) -> bool:
-    """The object keys a session may touch: inbox/<name> for a take, <code>/in/ and <code>/from-session/ of its
-    own active project. Writes only into the project's two folders."""
+    """The object keys a session may touch: inbox/<name> to look at (head), <code>/in/ and <code>/from-session/ of
+    its own active project. Writes only into the project's two folders. A get or a delete of the lab inbox goes
+    through serve_take_lab alone, so the name check of the service cannot be skipped (F6)."""
     if not isinstance(key, str) or not key or key.startswith("/") or ".." in key.split("/") or "//" in key:
         return False
     if key.startswith(INBOX):
-        return method in ("GET", "HEAD", "DELETE") and all(valid_name(part) for part in key[len(INBOX):].split("/"))
+        return method == "HEAD" and all(valid_name(part) for part in key[len(INBOX):].split("/"))
     if project and _CODE_RE.match(project):
         for sub in (IN, FROM):
             base = "%s/%s" % (project, sub)
@@ -276,12 +281,7 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
         rows = [{"name": n, "size": s} for i, (n, (_, s)) in enumerate(zip(names, objs)) if i not in hidden]
         return {"ok": True, "objects": rows, "withheld": len(hidden)}, None
     if method == "COPY":
-        src, dst = req.get("source"), req.get("key")
-        if not (isinstance(src, str) and src.startswith(INBOX) and allowed_key(src, "GET", project)
-                and allowed_key(dst, "PUT", project) and dst.startswith("%s/%s" % (project, IN))):
-            raise XchgError("a copy goes from inbox/ into the project's in/ only")
-        c.copy(src, dst)
-        return {"ok": True}, None
+        raise XchgError("a file of the lab inbox is taken with op take_lab, which checks it first")
     key = req.get("key")
     if method not in ("GET", "HEAD", "PUT", "DELETE") or not allowed_key(key, method, project):
         raise XchgError("the object call is outside inbox/ and the project's own folders")
@@ -294,9 +294,12 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
     if method == "PUT":
         if body_path is None:
             raise XchgError("a put needs its bytes")
+        authorise_put(ctx, req)
         sent = key.startswith("%s/%s" % (project, FROM))
-        if sent and not put_key_ok(key, project):
-            raise XchgError("a put goes to <code>/from-session/<date>/<file id>")
+        if sent:
+            problems = put_problems(ctx, req, body_path)
+            if problems:
+                raise XchgError("; ".join(problems))
         c.put_file(key, body_path, "application/octet-stream")
         size = body_path.stat().st_size
         if sent:
@@ -335,6 +338,48 @@ def put_key_ok(key: str, project: str) -> bool:
     parts = key.split("/")
     return (len(parts) == 4 and parts[0] == project and parts[1] + "/" == FROM and bool(_DATE_RE.match(parts[2]))
             and bool(_PUT_ID_RE.match(parts[3])))
+
+
+def authorise_put(ctx: Context, req: dict) -> None:
+    """Whether a put may be received at all (F8): an active project, a key inside its own folders, a key of the
+    form of put_key_ok under from-session/. Run by the key service before it reads a byte of the upload."""
+    project, key = req.get("project"), req.get("key")
+    if not (isinstance(project, str) and ctx.active_project(project) is not None):
+        raise XchgError("the project is not an active project")
+    if not allowed_key(key, "PUT", project):
+        raise XchgError("the object call is outside inbox/ and the project's own folders")
+    if key.startswith("%s/%s" % (project, FROM)) and not put_key_ok(key, project):
+        raise XchgError("a put goes to <code>/from-session/<date>/<file id>")
+
+
+def put_problems(ctx: Context, req: dict, body_path: Path) -> list[str]:
+    """The checks of a put into from-session/, run by the key service on the bytes it received (F6): the name
+    check of the content (a picture only with image and a reason), then the send gate on the project's folder
+    under the projects root (never the path a row of projects.tsv names), for a customer project in its strict
+    form. A name the name check does not pass never travels (the mail names the id, TM0 item 1), so the bytes are
+    judged under the id then."""
+    from awb import projects, review
+
+    p = ctx.paths_fn()
+    project = ctx.active_project(req["project"])
+    ident = req["key"].rsplit("/", 1)[-1]
+    name = req.get("name")
+    if not (valid_name(name) and not _name_hits([name], p)):
+        name = ident
+    image = bool(req.get("image")) and isinstance(req.get("reason"), str) and len(req["reason"].strip()) >= 10
+    with tempfile.TemporaryDirectory(prefix="awb-check-", dir=_tmp_dir(ctx)) as tmp:
+        # the readers of the name check go by the extension: the received bytes are judged under their own name
+        judged = Path(tmp) / ("upload" + os.path.splitext(name)[1].lower()[:6])
+        os.link(body_path, judged)
+        problems = check_problems(judged, image=image, register=p.register)
+        if problems:
+            return problems
+        for_customer = project.customer not in (projects.NO_CUSTOMER, "", None)
+        verdict, message = review.send_check(p.projects_root / project.code, judged, for_customer,
+                                             register_path=p.register, workbench=p, name=name)
+    if verdict == review.SEND_REFUSE:
+        return ["the send gate refused the file: %s" % message]
+    return []
 
 
 def exchange_mail(state: str, project: str, ident: str | None = None, size: int | None = None,
@@ -436,6 +481,45 @@ def serve_inbox_find(ctx: Context, req: dict) -> dict:
     return {"ok": True, "files": entries, "matches": [entries[i] for i in picked]}
 
 
+def serve_take_lab(ctx: Context, req: dict) -> tuple[dict, Path | None]:
+    """The lab path of a take (F6): the key service fetches the file, runs the name check on its name and its
+    content in its own process and only then copies it into the project's in/, deletes it from the inbox and
+    streams the bytes to the session. A file with a hit, or one that cannot be checked, stays in the inbox and no
+    byte of it leaves the service."""
+    from awb import gate
+
+    code, ident = req.get("project"), req.get("id")
+    if not (isinstance(ident, str) and ident.startswith("lab-") and _ID_RE.match(ident)):
+        raise XchgError("an id of the lab inbox reads lab- and twelve characters")
+    if not (isinstance(code, str) and ctx.active_project(code) is not None):
+        raise XchgError("the project is not an active project")
+    f = _resolve(ctx, "lab", ident)
+    if f is None:
+        return {"ok": True, "state": "absent"}, None
+    p = ctx.paths_fn()
+    if _name_hits([f["rel"]], p):
+        return {"ok": True, "state": "held", "problems": ["its name holds a hit of the name check"]}, None
+    if f["size"] > ctx.max_bytes():
+        raise XchgError("the object is larger than the limit of keys.conf (max_mb)")
+    name = f["rel"].rsplit("/", 1)[-1]
+    c = ctx.client("lab")
+    tmp = Path(tempfile.mkdtemp(prefix="awb-take-", dir=_tmp_dir(ctx)))
+    local = tmp / name
+    try:
+        c.get(f["key"], local)
+        problems = check_problems(local, register=p.register)
+        if problems:
+            return {"ok": True, "state": "held", "problems": problems}, None
+        opaque = gate.is_opaque(name, local.read_bytes())
+        c.copy(f["key"], "%s/%s%s" % (code, IN, name))
+        c.delete(f["key"])
+        out = Path(tempfile.mkstemp(prefix="awb-xchg-", dir=_tmp_dir(ctx))[1])
+        os.replace(local, out)
+        return {"ok": True, "state": "taken", "name": name, "opaque": opaque}, out
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def serve_owner_has(ctx: Context, req: dict) -> dict:
     name = req.get("name")
     if not valid_name(name):
@@ -457,13 +541,9 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
     project = ctx.active_project(code)
     if project is None:
         raise XchgError("the project is not an active project")
-    customer = req.get("customer") or project.customer
-    if customer == projects.NO_CUSTOMER or not customer:
-        raise XchgError("the project has no customer: name the customer code (--customer CUST-XXXX)")
-    if not _CUST_RE.match(customer):
+    named = req.get("customer")
+    if named is not None and not (isinstance(named, str) and _CUST_RE.match(named)):
         raise XchgError("a customer code reads CUST-XXXX")
-    if project.customer not in (projects.NO_CUSTOMER, customer):
-        raise XchgError("the customer code is not the customer of the project")
     p = ctx.paths_fn()
     c = ctx.client("owner")
     if ident is not None:
@@ -471,10 +551,12 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
         if f is None:
             return {"ok": True, "state": "absent"}
         src, name = f["key"], f["rel"].rsplit("/", 1)[-1]
+        folder_customer = owner_folder_customer(f["rel"])
     else:
-        src = INBOX + name
-        if c.head(src) is None:
-            return {"ok": True, "state": "absent"}
+        src, folder_customer = INBOX + name, None
+    customer = take_customer(project.customer, folder_customer, named)
+    if ident is None and c.head(src) is None:
+        return {"ok": True, "state": "absent"}
     config.ensure_layout(p)
     dst = p.inbox / bucket._local_name(name, p.inbox)
     c.get(src, dst)
@@ -495,6 +577,30 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
         # gives no copy, and the owner looks at it
         return _hold(ctx, code, customer, "withheld" if res.held else "unreadable")
     return {"ok": True, "state": "taken", "customer": customer, "outputs": outputs}
+
+
+def owner_folder_customer(rel: str) -> str | None:
+    """The customer the owner named for a file by the folder he dropped it into: inbox/CUST-XXXX/<file>."""
+    parts = rel.split("/")
+    return parts[0] if len(parts) > 1 and _CUST_RE.match(parts[0]) else None
+
+
+def take_customer(own: str, folder: str | None, named: str | None) -> str:
+    """The customer of an owner-inbox take (F5): the owner's folder when he used one, else the project's own. A
+    session's code never chooses it, it only has to agree; a project without a customer takes a file only from a
+    customer folder of the owner."""
+    from awb import projects
+
+    own = None if own in (projects.NO_CUSTOMER, "", None) else own
+    if folder and own and folder != own:
+        raise XchgError("the file lies in the folder of another customer than the project's")
+    customer = folder or own
+    if customer is None:
+        raise XchgError("the project has no customer: the owner moves the file into inbox/CUST-XXXX/ of the owner "
+                        "inbox, the folder of its customer")
+    if named and named != customer:
+        raise XchgError("the customer code is not the customer of the project or of the owner's folder")
+    return customer
 
 
 def hold_line(code: str) -> str:
@@ -634,13 +740,13 @@ def _ok(answer: dict) -> dict:
     return answer
 
 
-def name_problems(name: str) -> list[str]:
+def name_problems(name: str, register: Path | None = None) -> list[str]:
     """Why an object name must not cross: a hit of the name check in the name itself (the --as name or the
     source name), whatever kind of file it names."""
     from awb import check
 
     try:
-        hits = check.check_text(name, config.paths().register)
+        hits = check.check_text(name, register if register is not None else config.paths().register)
     except Exception as err:
         return ["the name check cannot run (%s)" % type(err).__name__]
     if hits:
@@ -650,7 +756,7 @@ def name_problems(name: str) -> list[str]:
     return []
 
 
-def check_problems(path: Path, image: bool = False) -> list[str]:
+def check_problems(path: Path, image: bool = False, register: Path | None = None) -> list[str]:
     """Why a file must not cross: a name check hit, a file that cannot be read as text."""
     from awb import check
 
@@ -658,7 +764,7 @@ def check_problems(path: Path, image: bool = False) -> list[str]:
     if suffix in IMAGE_SUFFIXES:
         return [] if image else ["a picture crosses only with --image and a reason"]
     try:
-        hits = check.check_file(path, config.paths().register, code=True)
+        hits = check.check_file(path, register if register is not None else config.paths().register, code=True)
     except Exception as err:
         return ["the name check cannot run (%s)" % type(err).__name__]
     classes = sorted({h.get("cls", "unknown") for h in hits if isinstance(h, dict)})
@@ -686,7 +792,7 @@ def describe(e: dict) -> str:
 
 
 def _take_one(root: Path, code: str, e: dict, customer: str | None) -> str:
-    from awb import gate, projects
+    from awb import projects
 
     what = "%s of %s" % (e["kind"], _size(e["size"]))
     if e["bucket"] == "owner":
@@ -709,30 +815,27 @@ def _take_one(root: Path, code: str, e: dict, customer: str | None) -> str:
     if not rel:
         return "%s in the lab inbox: held, its name holds a hit of the name check; the owner renames it or moves " \
                "it to the owner inbox" % what
-    name, key = rel.rsplit("/", 1)[-1], INBOX + rel
+    name = rel.rsplit("/", 1)[-1]
+    for where in ("input", projects.OPAQUE_DIR):
+        if (root / where / name).exists():
+            raise XchgError("%s/ already holds a file of that name" % where)
     with tempfile.TemporaryDirectory(prefix="awb-take-") as tmp:
         local = Path(tmp) / name
-        a = _ok(_call({"op": "obs", "method": "GET", "key": key, "project": code}, download=local))
-        if not a.get("exists"):
+        # the key service checks the file and moves it in the bucket; a held file never reaches this process (F6)
+        a = _ok(_call({"op": "take_lab", "id": e["id"], "project": code}, download=local))
+        if a.get("state") == "held":
+            return "held in the lab inbox by the key service: %s; the owner moves it to the owner inbox or releases " \
+                   "it" % "; ".join(a.get("problems") or ["held"])
+        if a.get("state") != "taken":
             raise XchgError("the file left the lab inbox before the take")
-        problems = check_problems(local)
-        if problems:
-            return "held in the lab inbox: %s; the owner moves it to the owner inbox or releases it" % \
-                "; ".join(problems)
         # a file the commit gate cannot read (a pdf, a sheet, an archive) would block every commit that stages
         # it: it goes to input/opaque/, which .gitignore keeps out of git
-        opaque = gate.is_opaque(name, local.read_bytes())
-        where = projects.OPAQUE_DIR if opaque else "input"
-        dest = root / where / name
-        if dest.exists():
-            raise XchgError("%s/ already holds a file of that name" % where)
+        opaque = bool(a.get("opaque"))
+        dest = root / (projects.OPAQUE_DIR if opaque else "input") / name
         if opaque:
             _ignore_opaque(root)
-        _ok(_call({"op": "obs", "method": "COPY", "source": key, "key": "%s/%s%s" % (code, IN, name),
-                   "project": code}))
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(local, dest)
-        _ok(_call({"op": "obs", "method": "DELETE", "key": key, "project": code}))
     if opaque:
         return ("taken from the lab inbox: %s/%s, a copy in the project's in/ folder; the commit gate cannot read "
                 "it, so .gitignore keeps it out of git" % (projects.OPAQUE_DIR, name))
@@ -832,7 +935,10 @@ def put(path: Path, as_name: str | None = None, image: bool = False, reason: str
         shutil.copyfile(path, copy)
         ident = put_id(hashlib.sha256(copy.read_bytes()).hexdigest(), name)
         key = "%s/%s%s/%s" % (code, FROM, datetime.date.today().isoformat(), ident)
-        a = _ok(_call({"op": "obs", "method": "PUT", "key": key, "project": code, "name": name}, upload=copy))
+        req = {"op": "obs", "method": "PUT", "key": key, "project": code, "name": name}
+        if image:
+            req.update(image=True, reason=reason)
+        a = _ok(_call(req, upload=copy))
     if image:
         _log_image(root, ident, reason)
     return "put: %s as %s (%d bytes); the owner gets a mail" % (name, key, a.get("size", 0))
@@ -924,7 +1030,8 @@ def main_inbox(argv: list[str] | None = None) -> int:
     t.add_argument("--id", dest="ids", action="append", default=[], help="a file awb inbox list showed (repeat)")
     t.add_argument("--all", dest="take_all", action="store_true", help="every file of both inboxes")
     t.add_argument("--project", default=None)
-    t.add_argument("--customer", default=None, help="the customer code, for a project with customer none")
+    t.add_argument("--customer", default=None, help="the customer code; it only has to agree with the project's "
+                                                    "customer or the owner's folder inbox/CUST-XXXX/")
     sub.add_parser("list", help="both inboxes: id, kind, size and time")
     try:
         args = ap.parse_args(argv)
