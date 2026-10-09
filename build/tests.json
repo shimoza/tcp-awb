@@ -2197,6 +2197,13 @@
    "name": "deploy: a socket-activated service restarted without its socket is not waited for; the plan names those services, never one that holds its socket (planted from the deploy of 62004d7)",
    "run": ".venv/bin/pytest tests/test_deploy.py::test_a_socket_activated_service_restarted_alone_is_not_waited_for",
    "status": "passing"
+  },
+  {
+   "id": "T11-2",
+   "phase": "T11",
+   "name": "dataset: the files, the manifest field compiled_by and the PDF /Author credit the dataset and the account, never a person; a planted AWB_DATASET_AUTHOR and dataset_author reach no file of the build or the zip",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_no_setting_puts_a_person_into_the_dataset",
+   "status": "passing"
   }
  ],
  "total_tests": 314,

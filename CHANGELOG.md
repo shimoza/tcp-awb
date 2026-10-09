@@ -67,6 +67,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The dataset TCP Facts names no person. The README, `HOW-TO.pdf`, its `/Author` metadata and the manifest field
+  `compiled_by` (was `author`) credit `TCP Facts, github.com/shimoza/tcp-awb`, with the licence line "name the
+  dataset and its address when you reuse it". `AWB_DATASET_AUTHOR` and `dataset_author` are gone.
+
 - The intake no longer stops for a name it does not know. Every name its rules recognise becomes a token of its
   class, numbered within the run (`[person 1]`, `[company 1]`, `[place 1]`, `[name 1]`). The other shapes of a wiped
   name are found again in the rest of the run: alone, inside a host name, with German or Russian endings. The private

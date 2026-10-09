@@ -285,6 +285,7 @@ by topic and small enough for one chat, one file per topic under `topics/`, `fac
 list of orderable services, the price list of each region as CSV, a `PROMPT.md` and a `HOW-TO.pdf`. Every text file
 opens with the rules for the assistant that reads it, so a person attaches `facts.md` to ChatGPT, Claude or a local
 model and types `Use the attached TCP Facts. Answer: <question>`. The dataset carries a best-before date of 30 days.
+The files and the PDF metadata say who compiled them: `TCP Facts, github.com/shimoza/tcp-awb`, never a person.
 `awb dataset put` sends the zip, the PDF and the manifest into the owner's bucket.
 
 A team that builds its own tools can take the facts alone:

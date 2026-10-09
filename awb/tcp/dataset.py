@@ -14,8 +14,8 @@ latest service description lists), prices/<region>.csv (the latest snapshot of e
 these facts only and cite the id, name an old check date, treat prices as a snapshot, warn after the best-before
 date.
 
-The author named in the files is AWB_DATASET_AUTHOR or `dataset_author` of the host file (the account name
-without either); the code carries no person's name.
+The files name who compiled them as COMPILED_BY: the dataset and the account, never a person. There is no setting
+for it, so no build can put a person's name into the files.
 
 Price rows of a service the service description withdrew or the hand-kept not-offered list names (BMS, DIS, VBS,
 CSBS) are left out of the CSV files and named in their header, because the price API still serves them.
@@ -34,7 +34,6 @@ import datetime
 import hashlib
 import io
 import json
-import os
 import random
 import re
 import shutil
@@ -53,13 +52,10 @@ REGIONS = ("eu-de", "eu-nl")            # eu-ch2 is the Swiss offering, not a re
 BEST_BEFORE_DAYS = 30                   # the re-check period of an availability fact
 OLD_AFTER_DAYS = 90
 LICENCE = "CC BY 4.0"
-DEFAULT_AUTHOR = "shimoza"              # the account; the owner's name comes from the setting, never from the code
-
-
-def author() -> str:
-    """Who the dataset names as its author: AWB_DATASET_AUTHOR, then dataset_author of the host file, then the
-    account name. The repository never carries a person's name."""
-    return os.environ.get("AWB_DATASET_AUTHOR") or config.host_conf().get("dataset_author") or DEFAULT_AUTHOR
+COMPILED_BY = "TCP Facts, github.com/shimoza/tcp-awb"    # the dataset and the account, never a person
+CREDIT = ("Compiled from public sources and live checks by %s. Licence %s: name the dataset and its address when you "
+          "reuse it. No warranty: the service description and the price list of the provider are the binding "
+          "documents." % (COMPILED_BY, LICENCE))
 BUCKET_PREFIX = "datasets/%s/" % SLUG
 PRICE_COLUMNS = (("id", "id"), ("service", "productId"), ("product", "productName"), ("flavor", "opiFlavour"),
                  ("os", "osUnit"), ("vcpu", "vCpu"), ("ram", "ram"), ("unit", "unit"), ("currency", "currency"),
@@ -171,8 +167,7 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
         ("p", "Built %s. Best before %s: facts about availability are re-checked every %d days. Prices are a "
               "snapshot; the live price API is the source of truth before any quote." % (day, best_before,
                                                                                          BEST_BEFORE_DAYS)),
-        ("p", "Licence %s. Author %s. Checked as stated, without warranty. The service description and the price "
-              "list of the provider are the binding documents." % (LICENCE, author())),
+        ("p", CREDIT),
     ]
 
 
@@ -247,7 +242,7 @@ def pdf_bytes(blocks: list[tuple[str, str]], title: str) -> bytes:
                % len(page_ids)) == pages_id
     catalog = add(b"<< /Type /Catalog /Pages %d 0 R >>" % pages_id)
     info = add(b"<< /Title (%s) /Author (%s) >>" % (_pdf_escape(title).encode("latin-1"),
-                                                     _pdf_escape(author()).encode("latin-1")))
+                                                     _pdf_escape(COMPILED_BY).encode("latin-1")))
     out = io.BytesIO()
     out.write(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
     offsets = []
@@ -526,7 +521,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
             text = path.read_text(encoding="utf-8")
             if _LEFT_RE.search(text):
                 raise DatasetError("a tenant alias was left in %s; the folder was removed" % path.name)
-            if _TOOL_LEFT_RE.search(text):
+            if _TOOL_LEFT_RE.search(text.replace(COMPILED_BY, "")):    # the credit names the repository on purpose
                 raise DatasetError("a name of the tooling was left in %s; the folder was removed" % path.name)
 
     files = sorted(x for x in root.rglob("*") if x.is_file())
@@ -534,7 +529,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
                 "grades": grades,
                 "topics": {t: len(bytag[t]) for t in tags}, "services": len(svc), "service_description": revision,
                 "prices": {"fetched": fetched, "records": counts, "left_out": left_out},
-                "facts_left_out": [{"id": i, "names": n} for i, n in flagged], "licence": LICENCE, "author": author(),
+                "facts_left_out": [{"id": i, "names": n} for i, n in flagged], "licence": LICENCE, "compiled_by": COMPILED_BY,
                 "files": {str(x.relative_to(root)): {"bytes": x.stat().st_size, "sha256": _sha(x)} for x in files}}
     (root / "MANIFEST.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 

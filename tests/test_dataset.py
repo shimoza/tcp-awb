@@ -118,7 +118,10 @@ def test_build_writes_every_file_with_the_rules_and_no_tenant_alias(home, facts,
     services = (root / "services.md").read_text()
     assert "Elastic Cloud Server (ECS)" in services and "revision" in services
     manifest = json.loads((root / "MANIFEST.json").read_text())
-    assert manifest["author"] == "shimoza" and "Author shimoza" in (root / "README.md").read_text()
+    assert manifest["compiled_by"] == "TCP Facts, github.com/shimoza/tcp-awb" and "author" not in manifest
+    assert ("Compiled from public sources and live checks by TCP Facts, github.com/shimoza/tcp-awb. Licence CC BY 4.0: "
+            "name the dataset and its address when you reuse it. No warranty: the service description and the price "
+            "list of the provider are the binding documents.") in (root / "README.md").read_text()
     assert manifest["facts"] == 3 and manifest["grades"] == {"docs": 1, "live": 2} and manifest["best_before"] == "2026-11-07"
     assert manifest["built_at"].endswith(" UTC") and "Build of %s" % manifest["built_at"] in (root / "README.md").read_text()
     assert "built %s" % manifest["built_at"] in out
@@ -132,19 +135,39 @@ def test_build_writes_every_file_with_the_rules_and_no_tenant_alias(home, facts,
     assert dataset.ONE_LINER in prompt and dataset.LONG_PROMPT in prompt and "CC BY 4.0" in prompt
 
 
-def test_the_how_to_pdf_is_a_pdf_the_poppler_tools_read(home, facts, tmp_path, monkeypatch):
-    monkeypatch.setenv("AWB_DATASET_AUTHOR", fx.PLANTED_PERSON)
+def test_the_how_to_pdf_is_a_pdf_the_poppler_tools_read(home, facts, tmp_path):
     built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
     pdf = built.folder / "HOW-TO.pdf"
     assert pdf.read_bytes().startswith(b"%PDF-1.4")
     text = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True, check=True).stdout
     assert "TCP Facts 2026-10-08: how to use it" in text
     assert "Use the attached TCP Facts. Answer: <your question>" in text
-    assert "Best before 2026-11-07" in text and "CC BY 4.0" in text and "Author " + fx.PLANTED_PERSON in text
+    assert "Best before 2026-11-07" in text and "CC BY 4.0" in text
+    assert "Compiled from public sources and live checks by TCP Facts" in text and "Author" not in text
+    info = subprocess.run(["pdfinfo", str(pdf)], capture_output=True, text=True, check=True).stdout
+    assert re.search(r"^Author:\s+TCP Facts, github.com/shimoza/tcp-awb$", info, re.M)
     # a long how-to runs over several pages and stays readable
     long = dataset.pdf_bytes([("p", "a line of the how-to that is long enough to wrap %d" % i) for i in range(200)], "t")
     assert long.count(b"/Type /Page ") >= 3
     assert "wrap 199" in subprocess.run(["pdftotext", "-", "-"], input=long, capture_output=True, check=True).stdout.decode()
+
+
+def test_no_setting_puts_a_person_into_the_dataset(home, facts, tmp_path, monkeypatch):
+    """The old author setting is gone: a planted AWB_DATASET_AUTHOR and dataset_author reach no file of the build."""
+    monkeypatch.setenv("AWB_DATASET_AUTHOR", fx.PLANTED_PERSON)
+    monkeypatch.setattr(dataset.config, "host_conf", lambda: {"dataset_author": fx.PLANTED_PERSON})
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    files = [x for x in (tmp_path / "ds").rglob("*") if x.is_file()]
+    assert any(x.name == "HOW-TO.pdf" for x in files) and any(x.suffix == ".zip" for x in files)
+    planted = fx.PLANTED_PERSON.encode()
+    for x in files:
+        assert planted not in x.read_bytes(), x.name
+    with zipfile.ZipFile(built.folder.parent / (built.folder.name + ".zip")) as z:
+        for n in z.namelist():
+            assert planted not in z.read(n), n
+    text = subprocess.run(["pdftotext", str(built.folder / "HOW-TO.pdf"), "-"], capture_output=True, text=True,
+                          check=True).stdout
+    assert fx.PLANTED_PERSON not in text and not hasattr(dataset, "author")
 
 
 def test_build_refuses_without_facts_over_an_existing_folder_and_with_an_alias_left(home, facts, tmp_path, capsys,
