@@ -200,7 +200,7 @@ def post_input(p: config.Paths, customer: str, project: str, file_ids: list[str]
     """Leave the notice of one import for the sessions (owner side): codes and file ids only."""
     from awb import codes
 
-    if not codes.is_code(customer) or not codes.is_project_code(project):
+    if not (codes.is_code(customer) or customer == project) or not codes.is_project_code(project):
         raise ValueError("a notice carries a customer code and a project code")
     ids = [f for f in file_ids if _FILE_ID_RE.fullmatch(f)]
     folder = config.make_dir(notices_dir(p), 0o750, shared=True)

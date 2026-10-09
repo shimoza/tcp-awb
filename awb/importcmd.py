@@ -8,17 +8,20 @@ project's customer: the copies carry the customer as its code and every other na
 a token, nothing stops and no editor opens. It prints the files taken, the copies written, the values wiped per
 class, the pictures held and the files withheld, and leaves a notice for the sessions of the project (rulesync).
 
-- The customer is the project's. A project without one names it: `--customer CUST-XXXX`, or `--customer new`, which
-  issues CUST- and the four characters of the project code (a random code when that one is taken or unsafe).
+- The customer is the project's. A project without one runs with no customer code: every candidate becomes a token,
+  nothing becomes a code and the copies and the public report go to the outbox under the project code. When a
+  customer is to be issued, `--customer new` issues CUST- and the four characters of the project code (a random code
+  when that one is taken or unsafe); `--customer CUST-XXXX` names one the register knows.
 - A customer without an active form in the register is asked for its written forms on the terminal, one per line,
-  an empty line ends; they are registered before the intake runs. Nothing is echoed.
+  an empty line ends; they are registered before the intake runs. Nothing is echoed. For a project without a
+  customer a first empty line means "no forms": the code is issued without a form.
 - `--review` stops once on the candidates and opens the review of `awb register review` (the marks register the
   names, the rest goes to the keep list), then the run goes on in wipe mode.
 - `--redo` takes the originals of the customer's last import out of the vault and runs them again under their file
   ids with the keep list of now; the copies replace the earlier ones in the outbox.
 
-Refused for the work user and inside an assistant session: the forms prompt and the review carry names. Nothing here
-prints a name, a form or a file name.
+Refused for the work user and inside an assistant session with the one line of the work rules (`hold_line`): the
+forms prompt and the review carry names. Nothing here prints a name, a form or a file name.
 """
 from __future__ import annotations
 
@@ -64,15 +67,24 @@ def _active_forms(p: config.Paths, customer: str) -> int:
     return sum(1 for e in register.load(p.register) if e.code == customer and e.status == "active")
 
 
-def ask_forms(p: config.Paths, customer: str, read=None, tty=None) -> int:
+def hold_line(code: str) -> str:
+    """The one line of the work rules for a take or an import a session cannot do."""
+    from awb.tcp import xchg
+
+    return xchg.hold_line(code if codes.is_project_code(code or "") else "tcp-xxxx")
+
+
+def ask_forms(p: config.Paths, customer: str, read=None, tty=None, allow_none: bool = False) -> int:
     """The written forms of a customer the register does not know yet, typed on the terminal, one per line, an empty
-    line ends. Registered one by one; returns how many. Refused without a terminal."""
+    line ends. Registered one by one; returns how many. Refused without a terminal. With `allow_none` (a project
+    without a customer) an empty first line issues the code without a form: its outbox folder counts it as issued."""
     if not (tty if tty is not None else (sys.stdin.isatty() and sys.stdout.isatty())):
         raise ImportRefused("%s has no form in the register: run awb import in your own terminal, it asks for the "
                            "written forms" % customer)
     read = read or (lambda: sys.stdin.readline())
     _say("%s has no form in the register yet. Type its written forms, one per line (the full name, the short "
-         "name, an acronym ...); an empty line ends." % customer)
+         "name, an acronym ...); an empty line ends.%s" % (customer, " An empty first line issues it without a form."
+                                                           if allow_none else ""))
     added = 0
     while True:
         line = read()
@@ -84,10 +96,10 @@ def ask_forms(p: config.Paths, customer: str, read=None, tty=None) -> int:
         except register.RegisterError:
             _say("that line cannot go into the register (brackets, pipes, hashes or a form it holds already); "
                  "type it again or end with an empty line")
-    if not added:
+    if not added and not allow_none:
         raise ImportRefused("no form was typed: nothing was imported")
     config.make_dir(p.outbox / customer, 0o750, shared=True)
-    _say("registered %d form(s) of %s" % (added, customer))
+    _say("registered %d form(s) of %s" % (added, customer) if added else "issued %s without a form" % customer)
     return added
 
 
@@ -150,10 +162,8 @@ def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None =
         redo: bool = False, read=None, tty=None, edit=None, confirm=None) -> int:
     from awb import projects, rulesync, vault
 
-    if config.is_work_user():
-        raise ImportRefused("awb import is the owner's: run it in your own terminal")
-    if vault.in_assistant_session():
-        raise ImportRefused("awb import never runs inside an assistant session: run it in your own terminal")
+    if config.is_work_user() or vault.in_assistant_session():
+        raise ImportRefused(hold_line(code))
     if not codes.is_project_code(code or ""):
         raise ImportRefused("a project code reads tcp-xxxx")
     project = next((pr for pr in projects.load(p) if pr.code == code), None)
@@ -175,9 +185,13 @@ def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None =
     elif own:
         cust = own
     else:
-        raise ImportRefused("%s has no customer: name it with --customer CUST-XXXX or --customer new" % code)
-    if _active_forms(p, cust) == 0:
-        ask_forms(p, cust, read=read, tty=tty)
+        # no customer: wipe mode with no customer code, the copies go out under the project code
+        cust = code
+        if review:
+            raise ImportRefused("%s has no customer: --review registers codes of a customer, run without it or with "
+                                "--customer new" % code)
+    if cust != code and _active_forms(p, cust) == 0:
+        ask_forms(p, cust, read=read, tty=tty, allow_none=own is None)
     if review and not (tty if tty is not None else (sys.stdin.isatty() and sys.stdout.isatty())) and edit is None:
         raise ImportRefused("--review opens an editor: run it in your own terminal")
 
@@ -232,7 +246,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("files", nargs="*", metavar="FILE", help="files to take in (default: the bucket folder in/, then "
                                                                "the vault inbox)")
     ap.add_argument("--customer", default=None, metavar="CUST-XXXX|new",
-                    help="the customer of a project without one; new issues CUST- and the project's four characters")
+                    help="only when a project without a customer gets one: new issues CUST- and the project's four "
+                         "characters; without it such a project runs with no customer code")
     ap.add_argument("--review", action="store_true", help="stop once on the candidates and review them in an editor")
     ap.add_argument("--redo", action="store_true", help="run the originals of the last import again with the keep "
                                                          "list of now, the copies replace the earlier ones")
@@ -246,7 +261,8 @@ def main(argv: list[str] | None = None) -> int:
         return run(config.paths(), args.code, [Path(f) for f in args.files], customer=args.customer,
                    review=args.review, redo=args.redo)
     except (ImportRefused, intake.IntakeError, register.RegisterError, projects.ProjectError, vault.VaultError) as err:
-        print("awb import: %s" % err, file=sys.stderr)
+        text = str(err)
+        print(text if text.startswith("held: ") else "awb import: %s" % text, file=sys.stderr)
         return EXIT_ERROR
     except OSError as err:
         print("awb import: %s (operating system error)" % type(err).__name__, file=sys.stderr)

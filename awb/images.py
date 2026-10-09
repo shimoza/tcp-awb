@@ -52,7 +52,8 @@ class ImageError(Exception):
 
 
 def folder(p: config.Paths, customer: str, file_id: str | None = None) -> Path:
-    if not (isinstance(customer, str) and codes.is_code(customer) and codes.kind_of(customer) == "CUST"):
+    if not (isinstance(customer, str) and (codes.is_code(customer) and codes.kind_of(customer) == "CUST"
+                                           or codes.is_project_code(customer))):
         raise ImageError("not a customer code")
     base = p.vault / QUARANTINE / customer
     if file_id is None:

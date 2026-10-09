@@ -201,13 +201,42 @@ def test_a_file_that_cannot_be_read_is_held_with_the_one_line_of_the_owner(svc, 
     assert not [f for f in (Path(cust_project.path) / "input").iterdir() if f.name != ".gitkeep"]
 
 
-def test_a_project_without_a_customer_takes_nothing_from_the_owner_inbox_without_a_code(svc, buckets, lab_project,
-                                                                                    capsys):
+def test_a_project_without_a_customer_is_refused_the_owner_inbox_with_the_one_line(svc, buckets, lab_project,
+                                                                                  capsys):
+    """Replaces test_a_project_without_a_customer_takes_nothing_from_the_owner_inbox_without_a_code (2026-10-09,
+    tcp-s5i3): the refusal is the one line of the work rules, never the old sentence about inbox/CUST-XXXX/."""
     _, own = buckets
     own.objects["inbox/task.txt"] = b"a task"
-    code, _, err = run(["inbox", "take", "task.txt"], capsys)
-    assert code == 1 and "no customer" in err
-    assert "inbox/task.txt" in own.objects
+    code, out, err = run(["inbox", "take", "task.txt"], capsys)
+    assert code == 1 and err.strip() == "held: run awb import %s as the owner in your own terminal" % lab_project.code
+    assert "inbox/CUST" not in out + err and "?" not in out + err
+    assert "inbox/task.txt" in own.objects and not svc.notes
+
+
+def test_a_project_without_a_customer_takes_from_its_own_folder_in(svc, buckets, lab_project, home, capsys):
+    """2026-10-09, tcp-s5i3: a project without a customer takes from its own folder in/ of the owner bucket; the
+    planted person and the planted company come out as tokens and no code, the copy lands in input/, the file
+    stays in in/ and is taken once."""
+    from awb import bucket
+
+    _, own = buckets
+    folder, _ = bucket.ensure_folder(own.client(), lab_project)
+    original = ("Kick-off mit Herrn %s. Das Angebot der %s liegt vor.\n"
+                % (fx.PLANTED_PERSON, fx.PLANTED_CANDIDATE)).encode("utf-8")
+    own.objects[folder + "in/brief.txt"] = original
+    code, out, err = run(["inbox", "list"], capsys)
+    assert code == 0 and "folder in/" in out and "brief" not in out, "listed, its name not shown"
+    code, out, err = run(["inbox", "take", "brief"], capsys)
+    assert code == 0, err
+    assert "taken from the project's folder in/ through the intake" in out
+    (copy,) = [f for f in (Path(lab_project.path) / "input").iterdir() if f.name != ".gitkeep"]
+    text = copy.read_text(encoding="utf-8")
+    fx.assert_no_fixture_name(text + out + err, "what the session got from the folder in/")
+    assert "[person 1]" in text and "[company 1]" in text and "CUST-" not in text
+    assert own.objects[folder + "in/brief.txt"] == original, "the file stays in the project's folder"
+    assert any((home.originals / lab_project.code).iterdir()), "the vault keeps the original under the project code"
+    code, _, err = run(["inbox", "take", "brief"], capsys)
+    assert code == 1 and "neither inbox" in err, "taken once"
 
 
 # --------------------------------------------------------------------------- put
@@ -647,27 +676,34 @@ def _owner_id(svc, code, rel):
 
 
 def test_f5_a_project_without_a_customer_cannot_name_one_for_an_owner_take(svc, buckets, lab_project, capsys):
-    """Planted: a session of a project without a customer names a customer code for a file the owner dropped at
-    the top of his inbox. The service refuses; only the owner's folder inbox/CUST-XXXX/ names the customer."""
+    """Replaced 2026-10-09 (the refusal is the one line, never the sentence about inbox/CUST-XXXX/). Planted: a
+    session of a project without a customer names a customer code for a file the owner dropped at the top of his
+    inbox. The service refuses with the one line."""
     _, own = buckets
     own.objects["inbox/task.txt"] = b"Migrate the database cluster.\n"
     code, _, err = run(["inbox", "take", "task.txt", "--customer", fx.CUSTOMER_CODE], capsys)
-    assert code == 1 and "inbox/CUST-XXXX/" in err
+    assert code == 1 and err.strip() == "held: run awb import %s as the owner in your own terminal" % lab_project.code
     assert "inbox/task.txt" in own.objects and not svc.notes
     a = keys.request(svc.call_path, {"op": "take_owner", "name": "task.txt", "project": lab_project.code,
                                      "customer": fx.CUSTOMER_CODE})
     assert not a["ok"] and "inbox/task.txt" in own.objects
 
 
-def test_f5_the_owners_customer_folder_names_the_customer_of_the_take(svc, buckets, lab_project, home, capsys):
+def test_f5_a_customer_folder_of_the_owner_inbox_is_for_projects_with_that_customer(svc, buckets, lab_project,
+                                                                                  cust_project, capsys):
+    """Replaces test_f5_the_owners_customer_folder_names_the_customer_of_the_take (2026-10-09): the owner inbox's
+    customer folders stay for projects with a customer; a project without one is refused with the one line."""
     _, own = buckets
     rel = "%s/task.txt" % fx.CUSTOMER_CODE
     own.objects["inbox/" + rel] = b"Migrate the database cluster.\n"
     ident = _owner_id(svc, lab_project.code, b"Migrate the database cluster.\n")
-    a = keys.request(svc.call_path, {"op": "take_owner", "id": ident, "project": lab_project.code,
+    for extra in ({}, {"customer": fx.CUSTOMER_CODE}):
+        a = keys.request(svc.call_path, dict({"op": "take_owner", "id": ident, "project": lab_project.code}, **extra))
+        assert not a["ok"] and a["error"] == "held: run awb import %s as the owner in your own terminal" % lab_project.code and "inbox/" + rel in own.objects
+    a = keys.request(svc.call_path, {"op": "take_owner", "id": ident, "project": cust_project.code,
                                      "customer": "CUST-ZZ22"})
     assert not a["ok"] and "inbox/" + rel in own.objects, "a session's code has to agree with the folder"
-    a = keys.request(svc.call_path, {"op": "take_owner", "id": ident, "project": lab_project.code})
+    a = keys.request(svc.call_path, {"op": "take_owner", "id": ident, "project": cust_project.code})
     assert a["ok"] and a["state"] == "taken" and a["customer"] == fx.CUSTOMER_CODE, a
 
 

@@ -2,9 +2,9 @@
 
 `run` takes files from the vault inbox (or anywhere), reads each one with `awb.extract`, finds registered
 forms and structured data in everything detection can see and writes one sanitised Markdown copy per file to
-`<shared>/outbox/<CUST>/<file id>.md`: the registered forms become their codes, structured data its tokens and
-every string the candidate rules of `awb.wipe` recognise as a name a token of its class ([person 1], [company 1],
-[place 1], [name 1]), numbered per run; the forms of every wiped person and company are learned and wiped wherever
+`<shared>/outbox/<CUST>/<file id>.md` (`<shared>/outbox/<tcp-xxxx>/` for a project without a customer): the
+registered forms become their codes, structured data its tokens and every string the candidate rules of
+`awb.wipe` recognise as a name a token of its class ([person 1], [company 1], [place 1], [name 1]), numbered per run; the forms of every wiped person and company are learned and wiped wherever
 they stand again in the run (wipe mode, T4). Nothing stops for a name: `run(..., review=True)` is the one stop, for
 the rare case where a name must stay distinguishable by a code. Every output is checked once more before it
 counts. Originals move to
@@ -553,6 +553,10 @@ def issued_codes(p: config.Paths) -> set[str]:
 
 
 def _resolve_customer(customer: str, entries: list[register.Entry], p: config.Paths) -> tuple[str, bool]:
+    if isinstance(customer, str) and codes.is_project_code(customer):
+        # a project without a customer: its copies go out under the project code and nothing becomes a customer
+        # code; registered forms of any customer still become their codes
+        return customer, False
     if customer == NEW:
         return safe_new_code(entries, "CUST", issued_codes(p)), True
     if (not isinstance(customer, str) or not codes.is_code(customer) or customer.count("-") != 1
@@ -798,7 +802,8 @@ def selftest() -> list[str]:
 
 def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = False, edit=None,
         confirm=None, redo: dict | None = None) -> IntakeResult:
-    """Take `files` in for `customer` (a CUST code or "new") in wipe mode. See the module text for the steps.
+    """Take `files` in for `customer` (a CUST code, "new" or the code of a project without a customer, tcp-xxxx)
+    in wipe mode. See the module text for the steps.
     Nothing is read before the self-test passed. With `review` the run first stops on the candidates and hands
     them to the review of `awb register review` (its editor, marks, register and keep list; `edit` and `confirm`
     stand in for the editor and the question in the tests), then goes on in wipe mode with the register and the

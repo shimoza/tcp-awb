@@ -111,6 +111,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - A calendar invite whose lines are folded is read whole before names are looked for. A flavor id such as
   `rds.pg.c6.large.4` is no longer taken for a web address and the number at the end of a host name next to an IP
   address is no longer taken for a phone number.
+- A project without a customer takes material in. `awb import CODE` runs for it without `--customer`: every name
+  becomes a token, nothing becomes a code and the copies go out under the project code. `awb inbox take` takes such
+  a project's files from its own bucket folder `in/`. `--customer new` still issues a customer, and an empty line at
+  its forms prompt issues the code without a form. A take or an import refused in a session says only `held: run
+  awb import tcp-xxxx as the owner in your own terminal`.
 
 ### Security
 

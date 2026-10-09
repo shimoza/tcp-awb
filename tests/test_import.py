@@ -139,22 +139,60 @@ def test_customer_new_is_random_when_the_projects_code_is_taken(home, lab, capsy
     assert not own and code != taken and code.startswith("CUST-")
 
 
-def test_the_forms_prompt_needs_a_terminal(home, lab, capsys):
+def test_the_forms_prompt_needs_a_terminal_and_an_empty_line_issues_the_code_without_a_form(home, lab, capsys):
+    """Replaces test_the_forms_prompt_needs_a_terminal (2026-10-09, tcp-s5i3): for a project without a customer an
+    empty first line of the forms prompt means "no forms"; the new code is issued without a form (its outbox folder)
+    and the import runs."""
     _files(home.inbox, 1)
     with pytest.raises(importcmd.ImportRefused, match="own terminal"):
         importcmd.run(home, lab.code, [], customer="new", read=lambda: "", tty=False)
-    with pytest.raises(importcmd.ImportRefused, match="no form was typed"):
-        importcmd.run(home, lab.code, [], customer="new", read=lambda: "\n", tty=True)
     assert len(list(home.inbox.iterdir())) == 1, "nothing was imported"
+    cust = importcmd.project_customer_code(lab.code)
+    assert importcmd.run(home, lab.code, [], customer="new", read=lambda: "\n", tty=True) == 0
+    out = _lines(capsys)
+    assert "issued %s without a form" % cust in out and "copies written: 1" in out
+    assert not [e for e in register.load(home.register) if e.code == cust], "no form went into the register"
+    assert cust in intake.issued_codes(home), "the code counts as issued"
+    assert len(_copies(home, cust)) == 1
 
 
-def test_a_project_without_a_customer_needs_one(home, lab):
-    _files(home.inbox, 1)
-    with pytest.raises(importcmd.ImportRefused, match="no customer"):
-        importcmd.run(home, lab.code, [])
+def test_a_project_without_a_customer_runs_with_tokens_and_no_code(home, lab, tmp_path, capsys):
+    """Replaces test_a_project_without_a_customer_needs_one (2026-10-09, tcp-s5i3): a project whose customer is none
+    imports without --customer. A planted brief with a planted person and a planted company comes out with tokens and
+    no code; the copies and the public report go to the outbox under the project code; the session hears of them."""
+    brief = tmp_path / "brief.txt"
+    brief.write_text("Kick-off am Montag mit Herrn %s. Das Angebot der %s liegt vor.\n"
+                     % (fx.PLANTED_PERSON, fx.PLANTED_CANDIDATE), encoding="utf-8")
+    assert importcmd.run(home, lab.code, [brief]) == 0
+    out = _lines(capsys)
+    _no_name(out)
+    assert "copies written: 1" in out and "new customer" not in out
+    (text,) = _copies(home, lab.code).values()
+    fx.assert_no_fixture_name(text, "the copy of a project without a customer")
+    for word in fx.PLANTED_PERSON.split() + fx.PLANTED_CANDIDATE.split()[:1]:
+        assert word not in text
+    assert "[person 1]" in text and "[company 1]" in text
+    assert not re.search(r"\b(?:CUST|PART|ORG|PERS|SITE)-[A-Z2-7]{4}", text), "nothing became a code"
+    report = (home.outbox / lab.code / "intake-report.md").read_text(encoding="utf-8")
+    assert "- customer: none (project %s)" % lab.code in report
+    assert not [d for d in home.outbox.iterdir() if d.name.startswith("CUST-")], "no customer code was issued"
+    line = rulesync.notice(home, "s-lab", Path(lab.path)) or ""
+    assert "new input: 1 copies in the outbox of %s" % lab.code in line
     with pytest.raises(importcmd.ImportRefused, match="CUST-XXXX or new"):
         importcmd.run(home, lab.code, [], customer=fx.ORG_CODE)
-    assert len(list(home.inbox.iterdir())) == 1
+    with pytest.raises(importcmd.ImportRefused, match="no customer"):
+        importcmd.run(home, lab.code, [], review=True)
+
+
+def test_a_project_without_a_customer_takes_its_bucket_folder_in(home, lab, monkeypatch, capsys):
+    with FakeOBS() as fake:
+        monkeypatch.setattr(bucket, "client", lambda: fake.client())
+        folder, _ = bucket.ensure_folder(fake.client(), lab)
+        fake.objects[folder + "in/brief.txt"] = TEXT.encode("utf-8")
+        assert importcmd.run(home, lab.code, []) == 0
+        assert "1 file(s) from the bucket folder in/ of %s" % lab.code in _lines(capsys)
+    (text,) = _copies(home, lab.code).values()
+    assert "[person 1]" in text and fx.PLANTED_CANDIDATE not in text
 
 
 def test_the_customer_of_a_project_cannot_be_changed(home, project):
@@ -211,16 +249,19 @@ def test_review_stops_once_registers_the_marks_and_wipes_what_is_left_for_later(
 # --------------------------------------------------------------------------- who may run it
 
 
-def test_refused_for_the_work_user_and_inside_an_assistant_session(home, project, monkeypatch, capsys):
+def test_refused_in_a_session_with_the_one_line_of_the_work_rules(home, project, monkeypatch, capsys):
+    """Replaces test_refused_for_the_work_user_and_inside_an_assistant_session (2026-10-09): the refusal is the one
+    line of the work rules and nothing else, never a question."""
     from awb import cli
 
+    line = "held: run awb import %s as the owner in your own terminal" % project.code
     monkeypatch.setenv("CLAUDECODE", "1")
     assert cli.main(["import", project.code]) == 2
-    assert "assistant session" in _lines(capsys)
+    assert _lines(capsys).strip() == line
     monkeypatch.delenv("CLAUDECODE")
     monkeypatch.setattr(config, "is_work_user", lambda: True)
     assert cli.main(["import", project.code]) == 2
-    assert "owner" in _lines(capsys)
+    assert _lines(capsys).strip() == line
 
 
 def test_a_project_code_is_checked_before_anything_is_read(home, capsys):

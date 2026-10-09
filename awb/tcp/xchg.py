@@ -1,6 +1,7 @@
 """The exchange between the owner and the sessions through OBS (T-102): two inboxes and a from-session folder.
 
-    awb inbox take WORDS... [--project CODE] [--customer CUST-XXXX]   the file the owner describes, from either inbox
+    awb inbox take WORDS... [--project CODE] [--customer CUST-XXXX]   the file the owner describes, from an inbox
+                                                                      or the project's own folder in/
     awb inbox take --all | --id ID...                                 every file of both inboxes, or the ones named
     awb inbox list                                                    both inboxes: id, kind, size, time
     awb xchg put FILE [--as NAME] [--image --reason TEXT]         a result into <code>/from-session/<date>/<id>
@@ -24,11 +25,16 @@ file that passes is copied to `<lab bucket>/<code>/in/`, removed from the inbox 
 `input/`, a file with a hit or one that cannot be checked stays in the inbox and the session gets no byte of it.
 From the owner inbox the session never sees the original: the key service (the owner's process) moves it into the
 project's folder of the owner bucket, runs `awb intake` for the customer and hands the session only the sanitised
-copies; with unknown name candidates the file is held and the owner is told. The customer of an owner-inbox take is
-the project's own, or the one the owner names by the folder he drops the file into, `inbox/CUST-XXXX/` (F5); a
-session's --customer only has to agree with it. Results go back with `awb xchg put` into
-`<lab bucket>/<code>/from-session/<date>/`, after the name check and the send gate of `awb bucket put`, both run
-again by the key service on the bytes it received (F6). The owner gets a mail through the SMN topic of the settings
+copies; a file the intake cannot read is held and the owner is told. The customer of an owner-inbox take is the
+project's own; a folder `inbox/CUST-XXXX/` the owner drops a file into has to be that customer's (F5), and a
+session's --customer only has to agree with it. A project without a customer takes nothing from the owner inbox: its
+material comes from its own folder `in/` of the owner bucket (spawn makes it, op owner_folder; the first take makes
+it when spawn could not), whose new files a find lists beside the two inboxes for every project; the key service
+runs the same intake for them, for the project's customer or, without one, under the project code with no customer
+code. "take the files from in" takes every new file of `in/`. Every refusal of a take is the one line of the work
+rules (`hold_line`). Results go back
+with `awb xchg put` into `<lab bucket>/<code>/from-session/<date>/`, after the name check and the send gate of `awb
+bucket put`, both run again by the key service on the bytes it received (F6). The owner gets a mail through the SMN topic of the settings
 when a session puts a file and when a take holds one.
 
 The service side (`serve_obs`, `serve_take_lab`, `serve_take_owner`, `serve_owner_has`) runs inside the key service
@@ -36,6 +42,9 @@ and is refused everything outside the allowed prefixes before anything is signed
 and list; a get, a copy and a delete only through `serve_take_lab`), `<code>/in/` and `<code>/from-session/` of an
 active project code. A put is authorised before its bytes are received (F8). Never a policy, an ACL or another
 bucket.
+
+The owner's console puts a file into a project's `in/` under an id (`serve_web_put_in`, the owner's processes only);
+the session's take is the one path from there.
 
 The web mode (`serve_web_read`) is the owner's materials service of the web console reading both buckets: a copy,
 never a move. It lists `inbox/` of either bucket and `<YYYY-MM>/<code>/in/` of an active project in the owner
@@ -114,7 +123,7 @@ def valid_name(name: str) -> bool:
 
 FIND_MAX = 50
 """The most files the two inboxes may hold for a find; the owner keeps a handful there."""
-_ID_RE = re.compile(r"^(lab|own)-[0-9a-f]{12}$")
+_ID_RE = re.compile(r"^(lab|own|prj)-[0-9a-f]{12}$")
 _ID_SECRET = os.urandom(16)
 """The ids of inbox files hold while the key service runs; after a restart the session finds the file again."""
 _SHEET = {"xlsx", "xls", "xlsm", "ods", "csv"}
@@ -436,7 +445,7 @@ def _inbox_files(ctx: Context, which: str) -> list[dict]:
 
 def _file_id(which: str, key: str, etag: str) -> str:
     digest = hmac.new(_ID_SECRET, ("%s\0%s\0%s" % (which, key, etag)).encode(), hashlib.sha256).hexdigest()
-    return "%s-%s" % ("lab" if which == "lab" else "own", digest[:12])
+    return "%s-%s" % ({"lab": "lab", "project": "prj"}.get(which, "own"), digest[:12])
 
 
 def _resolve(ctx: Context, which: str, ident: str) -> dict | None:
@@ -444,6 +453,37 @@ def _resolve(ctx: Context, which: str, ident: str) -> dict | None:
         if _file_id(which, f["key"], f["etag"]) == ident:
             return f
     return None
+
+
+def _no_customer(project) -> bool:
+    from awb import projects
+
+    return project is not None and project.customer in (projects.NO_CUSTOMER, "", None)
+
+
+def _project_files(ctx: Context, code: str) -> list[dict]:
+    """The new files of the project's own folder in/ of the owner bucket (not yet taken by a take, an import or a
+    pull). A project whose folder is missing gets it here: the first take makes it when spawn could not."""
+    from awb import bucket
+
+    c = ctx.client("owner")
+    folder = bucket.find_folder(c, code)
+    if folder is None:
+        project = ctx.active_project(code)
+        if project is None:
+            return []
+        folder, _ = bucket.ensure_folder(c, project)
+    base = folder + IN
+    done = bucket.pulled(ctx.paths_fn())
+    out = []
+    listing = c.list(base)
+    for key, size, etag in listing.objects:
+        rel = key[len(base):]
+        if (key.endswith("/") or not rel or (key, etag) in done or "\t" in key or "\n" in key
+                or not all(valid_name(part) for part in rel.split("/"))):
+            continue
+        out.append({"key": key, "rel": rel, "size": size, "etag": etag, "modified": listing.modified.get(key, "")})
+    return out
 
 
 def serve_inbox_find(ctx: Context, req: dict) -> dict:
@@ -460,8 +500,8 @@ def serve_inbox_find(ctx: Context, req: dict) -> dict:
     if words is not None and not (isinstance(words, str) and words.strip() and len(words) <= 500):
         raise XchgError("say which file: what it is, a part of its name or a few words")
     files, entries = [], []
-    for which in ("lab", "owner"):
-        found = _inbox_files(ctx, which)
+    for which in ("lab", "owner") + (("project",) if project is not None else ()):
+        found = _inbox_files(ctx, which) if which != "project" else _project_files(ctx, project)
         hidden = _name_hits([f["rel"] for f in found], ctx.paths_fn()) if which == "lab" else set(range(len(found)))
         for i, f in enumerate(found):
             files.append(f)
@@ -474,11 +514,59 @@ def serve_inbox_find(ctx: Context, req: dict) -> dict:
         picked = [i for i, e in enumerate(entries) if e["id"] == ident]
     elif req.get("all"):
         picked = list(range(len(entries)))
+    elif words is not None and from_in(words):
+        picked = [i for i, e in enumerate(entries) if e["bucket"] == "project"]
     elif words is not None:
         picked = match(words, [f["rel"] for f in files], [f["modified"] for f in files])
     else:
         picked = []
     return {"ok": True, "files": entries, "matches": [entries[i] for i in picked]}
+
+
+_IN_WORDS = {"in", "in/", "from", "take", "the", "all", "files", "file", "folder", "every", "of", "my", "please"}
+
+
+def from_in(words: str) -> bool:
+    """His words name the project's folder in/ as a whole: "take the files from in", "all of in/", "in"."""
+    tokens = re.findall(r"[^\s|,.;:!?\"'`]+", (words or "").lower())
+    return bool(tokens) and ("in" in tokens or "in/" in tokens) and set(tokens) <= _IN_WORDS
+
+
+def serve_owner_folder(ctx: Context, req: dict) -> dict:
+    """The folder <YYYY-MM>/<code>/ with in/ and out/ of an active project in the owner bucket, made when missing
+    (op owner_folder, asked by spawn). The caller never holds the bucket key; the service makes empty folder markers
+    of a registered active project and nothing else."""
+    from awb import bucket
+
+    code = req.get("project")
+    project = ctx.active_project(code) if isinstance(code, str) and _CODE_RE.match(code) else None
+    if project is None:
+        return {"ok": False, "kind": "refused", "error": "the project is not an active project"}
+    folder, created = bucket.ensure_folder(ctx.client("owner"), project)
+    return {"ok": True, "folder": folder, "created": created, "project": code}
+
+
+_EXT_RE = re.compile(r"^\.[a-z0-9]{1,8}$")
+
+
+def serve_web_put_in(ctx: Context, req: dict, upload: Path | None) -> dict:
+    """A file of the owner's console into the project's folder in/ under an id and its extension (op web_put_in,
+    the owner's processes only; the key service checks the peer). The file name never reaches this service."""
+    from awb import bucket
+
+    code, ext = req.get("project"), req.get("extension")
+    project = ctx.active_project(code) if isinstance(code, str) and _CODE_RE.match(code) else None
+    if project is None or not (isinstance(ext, str) and _EXT_RE.match(ext)) or upload is None:
+        return {"ok": False, "kind": "refused", "error": "refused"}
+    size = upload.stat().st_size
+    if not 0 < size <= ctx.max_bytes():
+        return {"ok": False, "kind": "too_large", "error": "the file is empty or larger than the limit"}
+    c = ctx.client("owner")
+    folder, _ = bucket.ensure_folder(c, project)
+    ident = "upload-%s-%s%s" % (datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S"),
+                                os.urandom(3).hex(), ext)
+    c.put_file(folder + IN + ident, upload)
+    return {"ok": True, "id": ident, "size": size, "project": code}
 
 
 def serve_take_lab(ctx: Context, req: dict) -> tuple[dict, Path | None]:
@@ -534,8 +622,8 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
 
     name, code, ident = req.get("name"), req.get("project"), req.get("id")
     if ident is not None:
-        if not (isinstance(ident, str) and ident.startswith("own-") and _ID_RE.match(ident)):
-            raise XchgError("an id of the owner inbox reads own- and twelve characters")
+        if not (isinstance(ident, str) and ident.startswith(("own-", "prj-")) and _ID_RE.match(ident)):
+            raise XchgError("an id of the owner inbox reads own- and twelve characters, of the folder in/ prj-")
     elif not valid_name(name):
         raise XchgError("a file name without a folder")
     project = ctx.active_project(code)
@@ -544,6 +632,8 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
     named = req.get("customer")
     if named is not None and not (isinstance(named, str) and _CUST_RE.match(named)):
         raise XchgError("a customer code reads CUST-XXXX")
+    if isinstance(ident, str) and ident.startswith("prj-"):
+        return _take_project(ctx, code, project, ident, named)
     p = ctx.paths_fn()
     c = ctx.client("owner")
     if ident is not None:
@@ -554,7 +644,7 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
         folder_customer = owner_folder_customer(f["rel"])
     else:
         src, folder_customer = INBOX + name, None
-    customer = take_customer(project.customer, folder_customer, named)
+    customer = take_customer(project.customer, folder_customer, named, code)
     if ident is None and c.head(src) is None:
         return {"ok": True, "state": "absent"}
     config.ensure_layout(p)
@@ -571,6 +661,10 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
         res = intake.run([dst], customer, p)
     except intake.IntakeError:
         return _hold(ctx, code, customer, "intake")
+    return _taken(ctx, code, customer, res)
+
+
+def _taken(ctx: Context, code: str, customer: str, res) -> dict:
     outputs = [o.name for o in res.outputs if o.name != "intake-report.md"]
     if not outputs:
         # wipe mode never holds for a name; a file that cannot be read as text, or one the final check withheld,
@@ -579,28 +673,49 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
     return {"ok": True, "state": "taken", "customer": customer, "outputs": outputs}
 
 
+def _take_project(ctx: Context, code: str, project, ident: str, named: str | None) -> dict:
+    """The take of a project from its own folder in/ of the owner bucket: the file stays there, a copy goes into
+    the vault inbox and is marked taken (as a pull marks it), the intake runs for the project's customer or, without
+    one, under the project code with no customer code, and the session gets only the ids of the sanitised copies."""
+    from awb import bucket, intake
+
+    customer = code if _no_customer(project) else project.customer
+    if named is not None and named != customer:
+        raise XchgError(hold_line(code))
+    f = next((x for x in _project_files(ctx, code) if _file_id("project", x["key"], x["etag"]) == ident), None)
+    if f is None:
+        return {"ok": True, "state": "absent"}
+    if f["size"] > ctx.max_bytes():
+        raise XchgError("the object is larger than the limit of keys.conf (max_mb)")
+    p = ctx.paths_fn()
+    config.ensure_layout(p)
+    dst = p.inbox / bucket._local_name(f["rel"], p.inbox)
+    ctx.client("owner").get(f["key"], dst)
+    os.chmod(dst, 0o600)
+    bucket._remember(p, f["key"], f["etag"])
+    try:
+        res = intake.run([dst], customer, p)
+    except intake.IntakeError:
+        return _hold(ctx, code, customer, "intake")
+    return _taken(ctx, code, customer, res)
+
+
 def owner_folder_customer(rel: str) -> str | None:
     """The customer the owner named for a file by the folder he dropped it into: inbox/CUST-XXXX/<file>."""
     parts = rel.split("/")
     return parts[0] if len(parts) > 1 and _CUST_RE.match(parts[0]) else None
 
 
-def take_customer(own: str, folder: str | None, named: str | None) -> str:
-    """The customer of an owner-inbox take (F5): the owner's folder when he used one, else the project's own. A
-    session's code never chooses it, it only has to agree; a project without a customer takes a file only from a
-    customer folder of the owner."""
+def take_customer(own: str, folder: str | None, named: str | None, code: str = "tcp-xxxx") -> str:
+    """The customer of an owner-inbox take (F5): the project's own; the owner's folder, when he used one, has to be
+    that customer's. A session's code never chooses it, it only has to agree. A project without a customer takes
+    nothing from the owner inbox (its material comes from its own folder in/). Every refusal is the one line."""
     from awb import projects
 
     own = None if own in (projects.NO_CUSTOMER, "", None) else own
-    if folder and own and folder != own:
-        raise XchgError("the file lies in the folder of another customer than the project's")
-    customer = folder or own
-    if customer is None:
-        raise XchgError("the project has no customer: the owner moves the file into inbox/CUST-XXXX/ of the owner "
-                        "inbox, the folder of its customer")
-    if named and named != customer:
-        raise XchgError("the customer code is not the customer of the project or of the owner's folder")
-    return customer
+    if own is None or (folder and folder != own) or (named and named != own):
+        raise XchgError(hold_line(code))
+    return own
 
 
 def hold_line(code: str) -> str:
@@ -782,8 +897,8 @@ def _size(n: int) -> str:
 def describe(e: dict) -> str:
     """One inbox file for the session and for him: id, inbox, kind, size, time and, for the lab inbox, the name."""
     when = (e.get("modified") or "")[:16].replace("T", " ")
-    where = "lab inbox" if e["bucket"] == "lab" else "owner inbox"
-    if e["bucket"] == "owner":
+    where = {"lab": "lab inbox", "project": "folder in/"}.get(e["bucket"], "owner inbox")
+    if e["bucket"] in ("owner", "project"):
         name = "name not shown"
     else:
         name = e.get("name") or "name withheld: the name check found a hit"
@@ -795,22 +910,26 @@ def _take_one(root: Path, code: str, e: dict, customer: str | None) -> str:
     from awb import projects
 
     what = "%s of %s" % (e["kind"], _size(e["size"]))
-    if e["bucket"] == "owner":
+    if e["bucket"] in ("owner", "project"):
+        whence = "the owner inbox" if e["bucket"] == "owner" else "the project's folder in/"
         a = _ok(_call({"op": "take_owner", "id": e["id"], "project": code, "customer": customer}))
         if a.get("state") == "held":
-            return "%s from the owner inbox: held on the owner's side (%s); the owner has been told. %s" % (
-                what, a.get("why", "held"), hold_line(code))
+            return "%s from %s: held on the owner's side (%s); the owner has been told. %s" % (
+                what, whence, a.get("why", "held"), hold_line(code))
         if a.get("state") != "taken":
-            raise XchgError("the file left the owner inbox before the take")
-        outbox = config.paths().outbox / a["customer"]
+            raise XchgError("the file left %s before the take" % whence)
+        cust = a.get("customer")
+        if not (isinstance(cust, str) and (_CUST_RE.match(cust) or cust == code)):
+            raise XchgError("the key service named no customer code for the copies")
+        outbox = config.paths().outbox / cust
         moved = []
         for out in a.get("outputs", []):
             src = outbox / out
             if src.is_file():
                 shutil.move(str(src), str(root / "input" / out))
                 moved.append(out)
-        return "%s taken from the owner inbox through the intake: %d sanitised copy(ies) in input/ (%s)" % (
-            what, len(moved), ", ".join(moved) or "-")
+        return "%s taken from %s through the intake: %d sanitised copy(ies) in input/ (%s)" % (
+            what, whence, len(moved), ", ".join(moved) or "-")
     rel = e.get("name")
     if not rel:
         return "%s in the lab inbox: held, its name holds a hit of the name check; the owner renames it or moves " \
@@ -880,6 +999,8 @@ def take(words: str | None = None, project: str | None = None, customer: str | N
         a = _ok(_call({"op": "inbox_find", "words": words, "project": code}))
         picked = a.get("matches", [])
         everything = "\n".join("  " + describe(e) for e in a.get("files", [])) or "  both inboxes are empty"
+        if not picked and from_in(words):
+            raise XchgError("the folder in/ of %s holds no new file" % code)
         if not picked:
             raise XchgError("the file is in neither inbox under these words. What the inboxes hold:\n%s\nPick the "
                             "one he described and take it with --id ID, or ask him." % everything)
@@ -1031,7 +1152,7 @@ def main_inbox(argv: list[str] | None = None) -> int:
     t.add_argument("--all", dest="take_all", action="store_true", help="every file of both inboxes")
     t.add_argument("--project", default=None)
     t.add_argument("--customer", default=None, help="the customer code; it only has to agree with the project's "
-                                                    "customer or the owner's folder inbox/CUST-XXXX/")
+                                                    "customer")
     sub.add_parser("list", help="both inboxes: id, kind, size and time")
     try:
         args = ap.parse_args(argv)
@@ -1049,7 +1170,8 @@ def main_inbox(argv: list[str] | None = None) -> int:
             print(line)
         return 0
     except XchgError as err:
-        print("awb inbox: %s" % err, file=sys.stderr)
+        text = str(err)
+        print(text if text.startswith("held: ") else "awb inbox: %s" % text, file=sys.stderr)
         return 1
     except Exception as err:
         print("awb inbox: %s" % (str(err) if type(err).__name__ == "KeysError" else type(err).__name__),

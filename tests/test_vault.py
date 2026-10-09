@@ -1402,3 +1402,14 @@ def test_show_without_a_path_finds_the_newest_private_report(home, monkeypatch):
         vault.newest_report(home)
     with pytest.raises(vault.VaultError, match="CUST-XXXX"):
         vault.newest_report(home, fx.ORG_CODE)
+
+
+def test_show_finds_the_private_report_of_a_project_without_a_customer(home):
+    """2026-10-09: an import of a project without a customer keeps its private report under the project code; the
+    repair of a wiped term starts with awb vault show for it."""
+    folder = home.private_reports / "tcp-q7m4"
+    folder.mkdir(parents=True, exist_ok=True)
+    report = folder / "2026-10-09-090000.md"
+    report.write_text("r", encoding="utf-8")
+    assert vault.newest_report(home, "tcp-q7m4") == report
+    assert vault.newest_report(home) == report

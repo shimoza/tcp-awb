@@ -1742,8 +1742,9 @@ def newest_report(p: config.Paths, customer: str | None = None, now: float | Non
             return []
 
     if customer:
-        if not (codes.is_code(customer) and codes.kind_of(customer) == "CUST" and customer.count("-") == 1):
-            raise VaultError("a customer code reads CUST-XXXX")
+        if not (codes.is_code(customer) and codes.kind_of(customer) == "CUST" and customer.count("-") == 1
+                or codes.is_project_code(customer)):
+            raise VaultError("a customer code reads CUST-XXXX (tcp-xxxx for a project without a customer)")
         found = reports(p.private_reports / customer)
         if not found:
             raise VaultError("%s has no private report" % customer)
@@ -1751,7 +1752,8 @@ def newest_report(p: config.Paths, customer: str | None = None, now: float | Non
     limit = (time.time() if now is None else now) - 24 * 3600
     recent = []
     try:
-        folders = [d for d in p.private_reports.iterdir() if d.is_dir() and codes.is_code(d.name)]
+        folders = [d for d in p.private_reports.iterdir()
+                   if d.is_dir() and (codes.is_code(d.name) or codes.is_project_code(d.name))]
     except OSError:
         folders = []
     for d in folders:

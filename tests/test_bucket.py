@@ -75,10 +75,18 @@ def test_pull_takes_new_files_into_the_intake_once(home, fake, project):
     assert (again["new"], again["known"], again["intake"]) == (0, 1, None)
 
 
-def test_pull_needs_a_customer_and_a_folder(home, fake, register_path, monkeypatch, project):
+def test_pull_needs_a_folder_and_takes_a_project_without_a_customer_under_its_code(home, fake, register_path,
+                                                                                   monkeypatch, project):
+    """Replaces test_pull_needs_a_customer_and_a_folder (2026-10-09): a project without a customer is pulled under
+    its own code with no customer code."""
     lab = projects.spawn(home, "lab", GOAL, None, register_path)
-    with pytest.raises(bucket.BucketError, match="no customer"):
+    with pytest.raises(bucket.BucketError, match="no folder"):
         bucket.pull(home, fake.client(), lab.code)
+    folder, _ = bucket.ensure_folder(fake.client(), lab)
+    fake.objects[folder + "in/brief.txt"] = ("Termin mit Herrn %s.\n" % fx.PLANTED_PERSON).encode("utf-8")
+    res = bucket.pull(home, fake.client(), lab.code)["intake"]
+    assert res.customer == lab.code and len(res.outputs) == 1
+    assert "[person 1]" in res.outputs[0].read_text(encoding="utf-8")
     with pytest.raises(bucket.BucketError, match="no folder"):
         bucket.pull(home, fake.client(), project.code)
     with pytest.raises(bucket.BucketError, match="not a registered project"):

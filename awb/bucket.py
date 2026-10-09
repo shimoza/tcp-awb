@@ -167,23 +167,22 @@ def _local_name(rel: str, folder: Path) -> str:
 
 
 def pull(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> dict:
-    """The new files of in/ into the vault inbox, then the intake for the project's customer. A file counts as
-    new until it was downloaded once (object name and etag, kept on the vault side)."""
-    from awb import intake
+    """The new files of in/ into the vault inbox, then the intake for the project's customer (for a project without
+    one under the project code, with no customer code). A file counts as new until it was downloaded once (object
+    name and etag, kept on the vault side)."""
+    from awb import intake, projects
 
     result = fetch(p, c, code, again=again)
     if result["files"]:
-        result["intake"] = intake.run(result["files"], _project(p, code).customer, p)
+        customer = _project(p, code).customer
+        result["intake"] = intake.run(result["files"], code if customer == projects.NO_CUSTOMER else customer, p)
     return result
 
 
 def fetch(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> dict:
     """The new files of in/ into the vault inbox, without the intake (`awb import` runs it): the counts and the
     downloaded files under "files"."""
-    from awb import projects
-    project = _project(p, code)
-    if project.customer == projects.NO_CUSTOMER:
-        raise BucketError("%s has no customer: pull hands its files to the intake of a customer" % code)
+    _project(p, code)
     folder = find_folder(c, code)
     if folder is None:
         raise BucketError("%s has no folder in the bucket; awb bucket folder %s creates it" % (code, code))

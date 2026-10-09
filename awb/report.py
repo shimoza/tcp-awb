@@ -127,6 +127,11 @@ def wiped_by_rule(run: Run) -> list[tuple[str, list[tuple[str, int]]]]:
 # --------------------------------------------------------------------------- public report
 
 
+def customer_text(customer: str) -> str:
+    """The customer line of a report: the code, or none and the project for a project without a customer."""
+    return "none (project %s)" % customer if customer.startswith(("tcp-", "hcs-")) else customer
+
+
 def render_public(run: Run) -> str:
     """The public report: codes, kinds, states, counts and notes. No name, no value, no candidate."""
     states = Counter(f.state for f in run.files)
@@ -138,7 +143,7 @@ def render_public(run: Run) -> str:
         "# Intake report %s" % run.customer,
         "",
         "- date: %s" % run.date,
-        "- customer: %s" % run.customer,
+        "- customer: %s" % customer_text(run.customer),
         "- files: %d" % len(run.files),
         "- outputs: %d" % outputs,
         "- states: %s" % (", ".join("%s %d" % kv for kv in sorted(states.items())) or "none"),
@@ -190,7 +195,7 @@ def render_minimal(run: Run) -> str:
         "# Intake report %s" % run.customer,
         "",
         "- date: %s" % run.date,
-        "- customer: %s" % run.customer,
+        "- customer: %s" % customer_text(run.customer),
         "- files: %d" % len(run.files),
         "- outputs: %d" % sum(1 for f in run.files if f.output is not None),
         "- states: %s" % (", ".join("%s %d" % kv for kv in sorted(states.items())) or "none"),
@@ -217,7 +222,8 @@ def render_private(run: Run) -> str:
         "Vault side only. This file holds original names and matched values.",
         "",
         "- date: %s %s" % (run.date, run.time),
-        "- customer: %s%s" % (run.customer, " (new code issued by this run)" if run.new_customer else ""),
+        "- customer: %s%s" % (customer_text(run.customer),
+                              " (new code issued by this run)" if run.new_customer else ""),
         "- mode: %s" % ("stopped for the review" if run.stopped else "wipe"),
         "- register forms used: %d" % run.register_forms,
         "- candidates: %d" % len(run.candidates),
