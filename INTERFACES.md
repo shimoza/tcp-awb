@@ -427,8 +427,13 @@ Integration (change these existing modules, keep every existing test green):
   `SECTION_CHARS` is cut at a line end and checked 200 characters past the cut. The project folder's name is shown
   only when it passes the name check ("this project" otherwise).
 - Every hook stops itself after `HOOK_BUDGET` seconds (50, under the client's own 60) and fails closed: exit 2 for
-  prompt, pre-write and post-write, a warning in the context for session-start.
-- `projects.spawn` writes `<project>/.claude/settings.json` with these five hooks, using `sys.executable -m awb hook
+  prompt, pre-write, pre-tool and post-write, a warning in the context for session-start.
+- pre-tool (PreToolUse, matcher `Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash`): `hooks.guard(data, p,
+  home, sealed) -> str | None` is the class of a refused place (`ANOTHER_PROJECT`, `CLIENT_FOLDER`, `KEY_FOLDER`,
+  `UNKNOWN_PROJECT`) or None; a refusal is one line on stderr and one line in `<shared>/sessions/guard.log`;
+  `hooks.refusals(p, code, day)` counts them, `questions.record_refusals` writes `<shared>/english/refused.tsv`
+  from the stop hook; `hooks.selftest() -> list[str]` and `awb hook selftest`.
+- `projects.spawn` writes `<project>/.claude/settings.json` with these six hooks, using `sys.executable -m awb hook
   NAME` as the command, so projects get them before the seal exists.
 
 ## `awb/kb.py`: the knowledge base (T-30 to T-36)
@@ -732,7 +737,7 @@ Recorded here so that the next builder works against them. Each module keeps `ma
   `.git/hooks/pre-commit`; refuses a repository with core.hooksPath and, without `force`, a hook of another tool.
   Command line: `awb gate --install [--kb] [--force] [--repo PATH]`.
 - `hooks/pre-commit` of the Workbench repository: the self-test first, then `--staged`.
-- `hooks.hook_pre_write(data) -> int`; `hooks.HOOKS` and `hooks.client_settings` carry five hooks.
+- `hooks.hook_pre_write(data) -> int`; `hooks.client_settings` carries six hooks (PreToolUse twice: pre-write and pre-tool); `hooks.HOOKS` adds `selftest`.
 - `kb.verify_text(text, name, register_path) -> list[str]`: the checks of `add` over one entry file (form, fields,
   expiry, tags, the text checks, negatives), without the near-duplicate scan.
 - `kb.verify(files=(), *, staged_repo=None, register_path=None) -> list[tuple[str, str]]`: (file, reason); a staged

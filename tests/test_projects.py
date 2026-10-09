@@ -617,19 +617,27 @@ def _settings(pr) -> dict:
     return json.loads((Path(pr.path) / ".claude" / "settings.json").read_text(encoding="utf-8"))
 
 
-def test_spawn_writes_client_settings_with_the_five_hooks(home, register_path):
+def test_spawn_writes_client_settings_with_the_six_hooks_and_the_tool_guard(home, register_path):
+    """Replaces test_spawn_writes_client_settings_with_the_five_hooks: PreToolUse carries two entries, the
+    knowledge base guard of the write tools (pre-write) and the place guard of every file tool (pre-tool)."""
     pr = _spawn(home, register_path)
     settings = _settings(pr)
     assert set(settings) == {"hooks"}
     assert set(settings["hooks"]) == set(HOOK_EVENTS)
-    for event, name in HOOK_EVENTS.items():
-        entries = settings["hooks"][event]
-        assert len(entries) == 1
-        commands = [h["command"] for h in entries[0]["hooks"]]
-        assert [h["type"] for h in entries[0]["hooks"]] == ["command"]
-        assert len(commands) == 1 and commands[0].endswith(" -m awb hook " + name)
-    assert settings["hooks"]["PreToolUse"][0]["matcher"] == "Write|Edit|MultiEdit|NotebookEdit"
-    assert settings["hooks"]["PostToolUse"][0]["matcher"] == "Write|Edit|MultiEdit|NotebookEdit"
+    got = {event: [(e.get("matcher"), h["type"], h["command"].rsplit(" -m awb hook ", 1)[-1])
+                   for e in entries for h in e["hooks"]] for event, entries in settings["hooks"].items()}
+    write = "Write|Edit|MultiEdit|NotebookEdit"
+    assert got == {
+        "UserPromptSubmit": [(None, "command", "prompt")],
+        "PreToolUse": [(write, "command", "pre-write"),
+                       ("Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash", "command", "pre-tool")],
+        "PostToolUse": [(write, "command", "post-write")],
+        "Stop": [(None, "command", "stop")],
+        "SessionStart": [(None, "command", "session-start")],
+    }
+    for entries in settings["hooks"].values():
+        for e in entries:
+            assert all(" -m awb hook " in h["command"] for h in e["hooks"])
     # committed with the skeleton
     assert ".claude/settings.json" in _git(Path(pr.path), "ls-files").split()
 

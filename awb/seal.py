@@ -3,7 +3,7 @@
 Run as the work user it proves the seal from the inside: it cannot read the register (plain or encrypted), list
 the vault, the owner's password store, .claude, .ssh or home, enter the owner's home (where the owner's folders
 are) or run `sudo -n true`; it is in none of the groups of the owner or of the host admins; the check socket
-answers ping; it can write tcp-shared and the outbox. One line per check, PASS or FAIL. Exit 0 when every check
+answers ping; it can write tcp-shared and the outbox; the tool guard of the hooks refuses its planted cases. One line per check, PASS or FAIL. Exit 0 when every check
 passes, 1 on any FAIL, 2 on a usage error.
 
 A "cannot" check passes only when the operating system refuses with a permission error. A path that is simply
@@ -168,6 +168,9 @@ def run_checks(p: config.Paths | None = None, home: Path | None = None) -> list[
     out.append(Result(ok, "can write tcp-shared", note))
     ok, note = _can_write(p.outbox)
     out.append(Result(ok, "can write the outbox", note))
+    from awb import hooks
+    problems = hooks.selftest()
+    out.append(Result(not problems, "the tool guard of the hooks refuses its planted cases", "; ".join(problems)))
     return out
 
 

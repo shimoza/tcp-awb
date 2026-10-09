@@ -475,7 +475,7 @@ SETTINGS_FILE = ".claude/settings.json"
 
 
 def _settings() -> str:
-    """The client settings of a project: the five Workbench hooks, run as `sys.executable -m awb hook NAME`, so
+    """The client settings of a project: the six Workbench hooks, run as `sys.executable -m awb hook NAME`, so
     that a project has them before the seal exists. The interpreter is written without a home path. On a sealed
     host only the installed command passes (hooks.command_prefix): anything else refuses the project."""
     import json

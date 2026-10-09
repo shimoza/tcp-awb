@@ -149,7 +149,9 @@ def _set_evidence(claims: Path, evidence: str) -> int:
     return n
 
 
-def test_release2_end_to_end(places, daemon, monkeypatch, capsys):
+def test_release2_end_to_end_with_the_tool_guard(places, daemon, monkeypatch, capsys):
+    """Replaces test_release2_end_to_end, which pinned one PreToolUse entry: a spawned project carries the
+    knowledge base guard (pre-write) and the place guard (pre-tool) under PreToolUse."""
     con = Console(capsys)
     cust, pers = fx.CUSTOMER_CODE, fx.PERSON_CODE
 
@@ -211,8 +213,10 @@ def test_release2_end_to_end(places, daemon, monkeypatch, capsys):
               "SessionStart": "session-start"}
     assert set(settings["hooks"]) == set(events)
     for event, name in events.items():
-        (command,) = [h["command"] for e in settings["hooks"][event] for h in e["hooks"]]
-        assert command.endswith(" -m awb hook " + name)
+        commands = [h["command"] for e in settings["hooks"][event] for h in e["hooks"]]
+        assert commands[0].endswith(" -m awb hook " + name)
+        assert len(commands) == (2 if event == "PreToolUse" else 1)
+    assert settings["hooks"]["PreToolUse"][1]["hooks"][0]["command"].endswith(" -m awb hook pre-tool")
     shutil.copy(output, project / "input" / output.name)
 
     # the prompt hook of the project, run the way the client runs it: a name is blocked over the check socket

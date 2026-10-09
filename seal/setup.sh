@@ -21,7 +21,7 @@
 # /usr/local/bin/awb is a root owned wrapper that runs the installed interpreter isolated (python3 -I): no package
 # of the invoking user's site folder, PYTHONPATH or working folder is loaded ahead of the installed code.
 #
-# The client files of the work user are root owned and immutable; the five hooks are also installed as managed
+# The client files of the work user are root owned and immutable; the six hooks are also installed as managed
 # settings of the client (a drop-in under /etc/claude-code), which no user or project file can switch off.
 #
 # Every command is printed before it runs. --dry-run prints every command and runs none (it works without root).
@@ -710,7 +710,7 @@ step_client() {
 
 step_managed() {
     local src="$seal_dir/work-claude/managed-settings.json"
-    info "the five hooks as managed settings of the client (a drop-in file): no user or project file can switch"
+    info "the six hooks as managed settings of the client (a drop-in file): no user or project file can switch"
     info "them off, disableAllHooks included. awb hook exits 0 for every user but work_user of $CONF_FILE, so the"
     info "owner's own sessions are not checked. The deny rule for connectors stays in the work user's settings"
     if [ "$real" -eq 1 ] && [ -e "$MANAGED_FILE" ] && ! cmp -s -- "$src" "$MANAGED_FILE"; then

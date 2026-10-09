@@ -1,6 +1,6 @@
 {
   "name": "awb",
-  "description": "Architect Workbench for T Cloud Public (TCP): a harness with checked facts, live prices, exact calculations, migrations in phases, test tenants through a key service, an inbox and outbox, reviews before anything leaves and five checkpoints",
+  "description": "Architect Workbench for T Cloud Public (TCP): a harness with checked facts, live prices, exact calculations, migrations in phases, test tenants through a key service, an inbox and outbox, reviews before anything leaves and six checkpoints",
   "version": "0.2.0",
   "author": {
     "name": "shimoza"

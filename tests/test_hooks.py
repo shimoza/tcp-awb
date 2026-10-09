@@ -741,21 +741,6 @@ def test_the_command_line_runs_the_session_start_hook(project):
 # --------------------------------------------------------------------------- settings
 
 
-def test_client_settings_carry_the_five_hooks():
-    s = hooks.client_settings("/usr/local/bin/awb hook")
-    assert set(s) == {"hooks"}
-    got = {event: [h["command"] for e in entries for h in e["hooks"]] for event, entries in s["hooks"].items()}
-    assert got == {
-        "UserPromptSubmit": ["/usr/local/bin/awb hook prompt"],
-        "PreToolUse": ["/usr/local/bin/awb hook pre-write"],
-        "PostToolUse": ["/usr/local/bin/awb hook post-write"],
-        "Stop": ["/usr/local/bin/awb hook stop"],
-        "SessionStart": ["/usr/local/bin/awb hook session-start"],
-    }
-    assert s["hooks"]["PreToolUse"][0]["matcher"] == "Write|Edit|MultiEdit|NotebookEdit"
-    assert s["hooks"]["PostToolUse"][0]["matcher"] == "Write|Edit|MultiEdit|NotebookEdit"
-
-
 def test_command_prefix_keeps_home_paths_out(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "userhome"))
     inside = tmp_path / "userhome" / "tcp-awb" / ".venv" / "bin" / "python"

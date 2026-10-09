@@ -29,11 +29,22 @@ The seal keeps the register of names away from every working session. It uses tw
   the vault daemon or the key service: a restart locks them and the console loses projects and chat.
 - The package holds (T9 step 4, RT-26): `apt-mark hold cloudflared terraform`, so the routine upgrade leaves the
   tunnel and Terraform alone; an upgrade is a deliberate step (`apt-mark unhold`, upgrade, `apt-mark hold`).
-- `work-claude/settings.json`: the client settings of the work user: the five Workbench hooks
+- `work-claude/settings.json`: the client settings of the work user: the six Workbench hooks
   (`/usr/local/bin/awb hook NAME`) and a deny rule for every connector tool (`mcp__*`). Connectors of the account
   would hand raw customer text to a session.
 - `work-claude/CLAUDE.md`: the instructions of the work user, at most 60 lines.
-- `work-claude/managed-settings.json`: the five hooks once more, installed as a managed drop-in of the client.
+- `work-claude/managed-settings.json`: the six hooks once more, installed as a managed drop-in of the client.
+
+The hook `pre-tool` keeps a session inside its project. Read, Edit, MultiEdit, NotebookEdit, Write, Glob, Grep and
+Bash are refused when their target (the file argument, the path of a search, for Bash every absolute or
+home-relative path of the command line and every relative one with `..`) lies in another `tcp-*` project folder, in
+the work user's `~/.claude`, `~/.ssh` or `~/.config`, or is a folder that holds one of them. Links are followed. The
+own project, `tcp-shared` (outbox, datasets), the knowledge base, `/tmp` and the installed code pass. The refusal is
+one line with the class of the place (another project, the client's folder, a key folder), never the path, and one
+line in `tcp-shared/sessions/guard.log` (time, session id, tool, class, project). The stop hook counts them per
+project and day in `tcp-shared/english/refused.tsv`. The hook fails closed: when the project folder of the session
+cannot be determined, or the input cannot be read, the call is refused. The owner's sessions are not guarded.
+`awb hook selftest` plants refused cases and fails when one passes; `awb seal check` runs it.
 
 `awb seal check` runs the checks of `verify.sh` that need no root, for the user who runs it. Run it as the work
 user.
@@ -87,7 +98,7 @@ user.
    (the client keeps its login and history there), so without the flag it could rename them and put its own
    files in their place. A later run takes the flag off, installs the new copy and sets it again.
 10. Installs `work-claude/managed-settings.json` as `/etc/claude-code/managed-settings.d/awb-workbench.json`: the
-   five hooks as managed settings of the client. No user or project file can switch managed hooks off (a
+   six hooks as managed settings of the client. No user or project file can switch managed hooks off (a
    project file with `disableAllHooks` can switch off the hooks of the user settings). Managed settings apply to
    every user of the host, so `awb hook` exits 0 at once for every user but `work_user` of `/etc/awb/paths.conf`:
    the owner's own sessions are not checked. The deny rule for connectors (`mcp__*`) is not a managed setting,

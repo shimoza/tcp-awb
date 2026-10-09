@@ -1,6 +1,8 @@
 """The questions count (T13): how many replies of a session end with a question to him.
 
     <shared>/english/questions.tsv   one row per day and project: date, project, replies, questions
+    <shared>/english/refused.tsv     one row per day and project: date, project, refused (the tool calls the
+                                     pre-tool guard refused, counted from <shared>/sessions/guard.log)
     awb report --by questions        the monthly counts, on either side
 
 The stop hook reads the last reply of the session transcript (the English capture already opens it there) and
@@ -93,6 +95,70 @@ def capture(p: config.Paths, transcript: Path | str | None, root: Path | None) -
     return True
 
 
+REFUSED_COLUMNS = ("date", "project", "refused")
+
+
+def refused_file(p: config.Paths) -> Path:
+    return p.shared / "english" / "refused.tsv"
+
+
+def _read_refused(text: str) -> dict[tuple[str, str], int]:
+    rows: dict[tuple[str, str], int] = {}
+    for line in text.splitlines():
+        cells = line.split("\t")
+        if len(cells) != 3 or cells[0] == REFUSED_COLUMNS[0]:
+            continue
+        try:
+            rows[(cells[0], cells[1])] = int(cells[2])
+        except ValueError:
+            continue
+    return rows
+
+
+def record_refusals(p: config.Paths, root: Path | None, count, day: datetime.date | None = None) -> None:
+    """The stop hook: set the refused tool calls of the project and the day to `count(p, code, day)`, under a
+    file lock. A day without a refusal and without a row writes nothing."""
+    day = day or datetime.date.today()
+    project = project_of(root)
+    n = count(p, project, day)
+    path = refused_file(p)
+    if not n and not path.exists():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o640)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        data = b""
+        while chunk := os.read(fd, 1 << 16):
+            data += chunk
+        rows = _read_refused(data.decode("utf-8", "replace"))
+        key = (day.isoformat(), project)
+        if not n and key not in rows:
+            return
+        rows[key] = n
+        out = "\t".join(REFUSED_COLUMNS) + "\n" + "".join(
+            "%s\t%s\t%d\n" % (d, pr, r) for (d, pr), r in sorted(rows.items()))
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.ftruncate(fd, 0)
+        view = memoryview(out.encode("utf-8"))
+        while view:
+            view = view[os.write(fd, view):]
+    finally:
+        os.close(fd)
+
+
+def refused_monthly(p: config.Paths) -> list[tuple[str, int]]:
+    """(month, refused tool calls) per month, oldest first."""
+    try:
+        rows = _read_refused(refused_file(p).read_text(encoding="utf-8"))
+    except OSError:
+        return []
+    months: dict[str, int] = {}
+    for (day, _project), n in rows.items():
+        months[day[:7]] = months.get(day[:7], 0) + n
+    return sorted(months.items())
+
+
 def monthly(p: config.Paths) -> list[tuple[str, int, int]]:
     """(month, replies, questions) per month, oldest first."""
     try:
@@ -114,4 +180,8 @@ def render(p: config.Paths) -> str:
     out = ["# Questions per month", "", "| Month | Replies | With a question | Share |", "|---|---|---|---|"]
     for m, r, q in rows:
         out.append("| %s | %d | %d | %d%% |" % (m, r, q, round(100 * q / r) if r else 0))
+    refused = refused_monthly(p)
+    if refused:
+        out += ["", "# Refused tool calls per month", "", "| Month | Refused |", "|---|---|"]
+        out += ["| %s | %d |" % (m, n) for m, n in refused]
     return "\n".join(out) + "\n"

@@ -1,6 +1,6 @@
 # The awb plugin
 
-The Architect Workbench as a Claude Code plugin: seven skills, two workers and the five checkpoints of a working
+The Architect Workbench as a Claude Code plugin: seven skills, two workers and the six checkpoints of a working
 session.
 
 | part | what |

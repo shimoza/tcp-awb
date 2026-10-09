@@ -2379,8 +2379,99 @@
    "name": "the work rules name in/ as the place of material and the brief he pastes; no inbox/CUST-XXXX/ in the rules, README or COMMANDS",
    "run": ".venv/bin/pytest tests/test_project_folder.py::test_the_work_rules_name_in_as_the_place_of_material_and_the_brief_he_pastes",
    "status": "passing"
+  },
+  {
+   "id": "TG-1",
+   "phase": "T-guard",
+   "name": "a read of another projects state is refused and logged",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_a_read_of_another_projects_state_is_refused_and_logged",
+   "status": "passing"
+  },
+  {
+   "id": "TG-2",
+   "phase": "T-guard",
+   "name": "a bash cat of another projects path is refused",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_a_bash_cat_of_another_projects_path_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "TG-3",
+   "phase": "T-guard",
+   "name": "a bash with a path of the own project passes",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_a_bash_with_a_path_of_the_own_project_passes",
+   "status": "passing"
+  },
+  {
+   "id": "TG-4",
+   "phase": "T-guard",
+   "name": "a grep over the knowledge base passes",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_a_grep_over_the_knowledge_base_passes",
+   "status": "passing"
+  },
+  {
+   "id": "TG-5",
+   "phase": "T-guard",
+   "name": "a read of the ssh key is refused",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_a_read_of_the_ssh_key_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "TG-6",
+   "phase": "T-guard",
+   "name": "the clients folder and a search from above are refused",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_the_clients_folder_and_a_search_from_above_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "TG-7",
+   "phase": "T-guard",
+   "name": "a link inside the own project does not lead out",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_a_link_inside_the_own_project_does_not_lead_out",
+   "status": "passing"
+  },
+  {
+   "id": "TG-8",
+   "phase": "T-guard",
+   "name": "the hook fails closed",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_the_hook_fails_closed",
+   "status": "passing"
+  },
+  {
+   "id": "TG-9",
+   "phase": "T-guard",
+   "name": "an owner session is not guarded",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_an_owner_session_is_not_guarded",
+   "status": "passing"
+  },
+  {
+   "id": "TG-10",
+   "phase": "T-guard",
+   "name": "the stop hook counts refusals per project and day",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_the_stop_hook_counts_refusals_per_project_and_day",
+   "status": "passing"
+  },
+  {
+   "id": "TG-11",
+   "phase": "T-guard",
+   "name": "the self test fails when a planted refusal passes",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_the_self_test_fails_when_a_planted_refusal_passes",
+   "status": "passing"
+  },
+  {
+   "id": "TG-12",
+   "phase": "T-guard",
+   "name": "seal check runs the self test of the guard",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_seal_check_runs_the_self_test_of_the_guard",
+   "status": "passing"
+  },
+  {
+   "id": "TG-13",
+   "phase": "T-guard",
+   "name": "client settings carry the six hooks with the tool guard",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_client_settings_carry_the_six_hooks_with_the_tool_guard",
+   "status": "passing"
   }
  ],
- "total_tests": 339,
+ "total_tests": 352,
  "checked": "2026-10-09"
 }

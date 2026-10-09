@@ -131,6 +131,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- A project session stays inside its project. `awb hook pre-tool` guards Read, Edit, MultiEdit, NotebookEdit,
+  Write, Glob, Grep and Bash in the work user's settings: a call that reaches another project, the client's folder
+  or a key folder (`.ssh`, `.config`) is refused with one line that names the class of the place, never the path.
+  The own project, the shared folder, the knowledge base, `/tmp` and the installed code stay open. A session
+  without a project folder is refused on a sealed host. Every refusal is logged and the stop hook counts them per
+  project and day next to the questions count (`awb report --by questions`). `awb hook selftest` and `awb seal
+  check` fail when a planted refusal passes.
 - A locked vault blocks every prompt of a work session instead of warning, with the time of the lock. A session
   starts without its project files while the name check cannot run.
 - The installed `awb` command runs the interpreter isolated, so a package planted in a user's own folders is never

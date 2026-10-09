@@ -25,6 +25,16 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        files: facts go in through `awb kb add`, `amend` and `retire` only. A path
                                        the hook cannot read blocks too. What gets around it (a shell command) is
                                        caught by the commit hook of the knowledge base, `awb kb verify --staged`
+    pre-tool        PreToolUse         exit 2 when Read, Edit, MultiEdit, NotebookEdit, Write, Glob, Grep or Bash
+                                       reaches another project folder, the client's folder (~/.claude) or a key
+                                       folder (~/.ssh, ~/.config), or a folder that holds one of them: the file
+                                       argument, the path of a search, and for Bash every absolute or
+                                       home-relative path of the command line and every relative one with `..`,
+                                       each as written and through its links. The own project, <shared>, the
+                                       knowledge base, /tmp and the installed code pass. One line names the class
+                                       of the place, never the path, and one line goes into
+                                       <shared>/sessions/guard.log. Fails closed: no project folder, an input it
+                                       cannot read or an internal error refuse the call
     post-write      PostToolUse        exit 2 when the written file carries a hit of the name check, a secret, a
                                        bidi override or (under a deliverables folder at any depth) a blocking
                                        tell of the writing check: class and line only; also when a folder on its
@@ -32,13 +42,16 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        run (with the time of the lock and the unlock) or the file is over
                                        MAX_WRITE_BYTES (MAX_DELIVERABLE_BYTES under deliverables): the file is
                                        written (the tool ran) and the session is told that it is unchecked
+    selftest        (none)             plants refused cases and a pass in a throw-away home; exit 1 when a
+                                       planted refusal passes
     stop            Stop               exit 2 with "run the review for: ..." while a deliverable has no valid
                                        review record, and while STATE.md lags behind the project's commits or
                                        lacks its Status: and Next: lines (awb/status.py); exit 0 when
                                        `stop_hook_active` is set (no loop). Before
                                        that, silently: a ledger entry drafted from the new commits of the project
                                        (T-41, at most every DRAFT_HOURS) and the "English note:" of the last reply
-                                       kept in the list of notes (T-48)
+                                       kept in the list of notes (T-48), the questions count and the refused
+                                       tool calls of the project and the day (awb/questions.py)
     session-start   SessionStart       JSON with `additionalContext`: SCOPE.md, the first 60 lines of STATE.md,
                                        OPEN.md, the count of expired knowledge entries and the days since the last
                                        career update when that is over 90. A section is withheld when it carries
@@ -83,10 +96,11 @@ from pathlib import Path
 
 from awb import config
 
-HOOKS = ("prompt", "pre-write", "post-write", "stop", "session-start")
+HOOKS = ("prompt", "pre-write", "pre-tool", "post-write", "stop", "session-start", "selftest")
 EVENTS = {
     "prompt": "UserPromptSubmit",
     "pre-write": "PreToolUse",
+    "pre-tool": "PreToolUse",
     "post-write": "PostToolUse",
     "stop": "Stop",
     "session-start": "SessionStart",
@@ -149,7 +163,8 @@ class Unavailable(Exception):
 
 
 def client_settings(prefix: str) -> dict:
-    """The `hooks` block of a client settings file: the five hooks, each command `<prefix> <name>`."""
+    """The `hooks` block of a client settings file: the six hooks, each command `<prefix> <name>`; PreToolUse
+    carries two entries, the knowledge base guard of the write tools and the place guard of every file tool."""
     def entry(name: str, matcher: str | None = None) -> list[dict]:
         item: dict = {}
         if matcher:
@@ -160,7 +175,7 @@ def client_settings(prefix: str) -> dict:
     return {
         "hooks": {
             EVENTS["prompt"]: entry("prompt"),
-            EVENTS["pre-write"]: entry("pre-write", WRITE_MATCHER),
+            EVENTS["pre-write"]: entry("pre-write", WRITE_MATCHER) + entry("pre-tool", GUARD_MATCHER),
             EVENTS["post-write"]: entry("post-write", WRITE_MATCHER),
             EVENTS["stop"]: entry("stop"),
             EVENTS["session-start"]: entry("session-start"),
@@ -700,6 +715,269 @@ def hook_pre_write(data: dict) -> int:
     return OK
 
 
+# --------------------------------------------------------------------------- pre-tool: a session stays in its project
+
+GUARD_MATCHER = "Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash"
+"""The tools whose target paths the pre-tool hook guards."""
+GUARD_TOOLS = tuple(GUARD_MATCHER.split("|"))
+ANOTHER_PROJECT = "another project"
+CLIENT_FOLDER = "the client's folder"
+KEY_FOLDER = "a key folder"
+UNKNOWN_PROJECT = "an unknown project"
+"""The classes of a refused place; a refusal names the class, never the path."""
+KEY_FOLDERS = (".ssh", ".config")
+_PROJECT_DIR_RE = re.compile(r"^(?:tcp|hcs)-")
+_GLOB_CHARS = "*?[{"
+_SPLIT_RE = re.compile(r"[\s'\"`;|&<>(),=:]+")
+_SID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+class _Refused(Exception):
+    """A tool call the guard refuses; the message is the class of the place."""
+
+
+def _inside(path: Path, folder: Path) -> bool:
+    return path == folder or folder in path.parents
+
+
+def _glob_base(raw: str) -> str:
+    """The part of a path before its first glob character, cut back to a whole folder: `/a/tcp-*/x` is `/a`."""
+    cut = min((raw.find(c) for c in _GLOB_CHARS if c in raw), default=-1)
+    if cut < 0:
+        return raw
+    head = raw[:cut]
+    return head if head.endswith("/") else os.path.dirname(head) or "/"
+
+
+def _expand(raw: str, home: Path) -> str:
+    """~, ~/x, $HOME/x and ${HOME}/x as paths under `home`; ~user/x through the password database."""
+    for var in ("${HOME}", "$HOME"):
+        if raw == var or raw.startswith(var + "/"):
+            return str(home) + raw[len(var):]
+    if raw == "~" or raw.startswith("~/"):
+        return str(home) + raw[1:]
+    return os.path.expanduser(raw) if raw.startswith("~") else raw
+
+
+def _absolute(raw: str, cwd: Path, home: Path) -> Path:
+    if "\x00" in raw:
+        raise _Refused(UNKNOWN_PROJECT)
+    text = _glob_base(_expand(raw, home))
+    path = Path(text)
+    return path if path.is_absolute() else cwd / path
+
+
+def _bash_paths(command: str, cwd: Path, home: Path) -> list[Path]:
+    """Every absolute or home-relative path of a command line, and every relative one that climbs with `..`. The
+    guard reads the command line, not what the shell computes: a path built at run time gets past it."""
+    out = []
+    for tok in _SPLIT_RE.split(command.replace("${HOME}", "$HOME")):
+        tok = tok.strip("{}[]!")
+        if not tok:
+            continue
+        if tok.startswith(("/", "~", "$HOME")):
+            out.append(_absolute(tok, cwd, home))
+        elif tok == ".." or tok.startswith("../") or "/../" in tok or tok.endswith("/.."):
+            out.append(_absolute(tok, cwd, home))
+    return out
+
+
+def _tool_paths(tool: str, tool_input: dict, cwd: Path, home: Path) -> list[Path]:
+    """The target paths of one tool call; a Glob or Grep without a path searches the session folder."""
+    if tool == "Bash":
+        command = tool_input.get("command")
+        if not isinstance(command, str):
+            raise _Refused(UNKNOWN_PROJECT)
+        return [cwd] + _bash_paths(command, cwd, home)
+    names = {"Glob": ("path", "pattern"), "Grep": ("path", "glob")}.get(tool, ("file_path", "notebook_path", "path"))
+    out = []
+    for key in names:
+        raw = tool_input.get(key)
+        if raw is None or raw == "":
+            continue
+        if not isinstance(raw, str):
+            raise _Refused(UNKNOWN_PROJECT)
+        if key in ("pattern", "glob") and not raw.startswith(("/", "~", "$HOME", "${HOME}")):
+            continue                        # a relative pattern searches under the path or the session folder
+        out.append(_absolute(raw, cwd, home))
+    if tool in ("Glob", "Grep") and not tool_input.get("path"):
+        out.append(cwd)
+    if not out and tool not in ("Glob", "Grep"):
+        raise _Refused(UNKNOWN_PROJECT)
+    return out
+
+
+def place_class(path: Path, own: Path, p: config.Paths, home: Path) -> str | None:
+    """The class of a refused place for `path`, or None when a session may reach it. The path is taken as written
+    and through its links; both must pass. The own project, the shared folder (outbox, datasets) and the knowledge
+    base pass; another project, the client's folder and the key folders of `home` do not, and neither does a
+    folder that holds one of them (a search from it would reach them)."""
+    literal = Path(os.path.normpath(str(path)))
+    try:
+        real = Path(os.path.realpath(literal))
+    except (OSError, ValueError):
+        return UNKNOWN_PROJECT
+    own_real = Path(os.path.realpath(own))
+    allowed = [own_real, Path(os.path.realpath(p.shared)), Path(os.path.realpath(p.kb))]
+    roots = {Path(os.path.realpath(p.projects_root)), Path(os.path.realpath(home))}
+    client = Path(os.path.realpath(home / ".claude"))
+    keys = [Path(os.path.realpath(home / k)) for k in KEY_FOLDERS]
+    for t in dict.fromkeys((literal, real)):
+        if any(_inside(t, a) for a in allowed):
+            continue
+        if any(_inside(t, k) for k in keys):
+            return KEY_FOLDER
+        if _inside(t, client):
+            return CLIENT_FOLDER
+        for r in roots:
+            if t != r and _inside(t, r):
+                first = t.relative_to(r).parts[0]
+                if _PROJECT_DIR_RE.match(first):
+                    return ANOTHER_PROJECT
+        found = project_root(t)
+        if found is not None and Path(os.path.realpath(found)) != own_real:
+            return ANOTHER_PROJECT
+        if any(_inside(r, t) for r in roots) or _inside(own_real, t):
+            return ANOTHER_PROJECT
+        if any(_inside(k, t) for k in keys):
+            return KEY_FOLDER
+        if _inside(client, t):
+            return CLIENT_FOLDER
+    return None
+
+
+def _own_project(data: dict) -> Path | None:
+    """The project of the session: the folder the client started in, else the session folder of the call."""
+    started = os.environ.get("CLAUDE_PROJECT_DIR")
+    root = project_root(started) if started else None
+    return root if root is not None else project_root(data.get("cwd") if isinstance(data.get("cwd"), str) else None)
+
+
+def guard_log(p: config.Paths) -> Path:
+    return p.shared / "sessions" / "guard.log"
+
+
+def _log_refusal(p: config.Paths, data: dict, tool: str, cls: str, own: Path | None) -> None:
+    """One line in <shared>/sessions/guard.log: time, session id, tool, class, project code. Never a path."""
+    sid = data.get("session_id")
+    sid = sid if isinstance(sid, str) and _SID_RE.fullmatch(sid) else "unknown"
+    from awb import questions
+    code = questions.project_of(own)
+    when = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        path = guard_log(p)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o640)
+        try:
+            os.write(fd, ("%s\t%s\t%s\t%s\t%s\n" % (when, sid, tool, cls, code)).encode("utf-8"))
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
+def guard(data: dict, p: config.Paths | None = None, home: Path | None = None,
+          sealed: bool | None = None) -> str | None:
+    """The class of the place a tool call reaches outside its project, or None when it may run. Fails closed:
+    a call whose project or target cannot be read is refused as UNKNOWN_PROJECT. Only a host without a seal (the
+    plugin on an architect's own machine, `sealed` false) lets a session outside any project pass."""
+    tool = data.get("tool_name")
+    if tool not in GUARD_TOOLS:
+        return None
+    try:
+        p = p or config.paths()
+        home = home or Path.home()
+        own = _own_project(data)
+        if own is None:
+            return UNKNOWN_PROJECT if (_sealed() if sealed is None else sealed) else None
+        cwd_raw = data.get("cwd")
+        cwd = Path(cwd_raw) if isinstance(cwd_raw, str) and cwd_raw else own
+        tool_input = data.get("tool_input")
+        if not isinstance(tool_input, dict):
+            return UNKNOWN_PROJECT
+        for path in _tool_paths(tool, tool_input, cwd, home):
+            cls = place_class(path, own, p, home)
+            if cls:
+                return cls
+    except _Refused as exc:
+        return str(exc)
+    except Exception:
+        return UNKNOWN_PROJECT
+    return None
+
+
+def refusal(cls: str) -> str:
+    if cls == UNKNOWN_PROJECT:
+        return ("refused: the project folder of this session cannot be determined, so no tool call runs. Start the "
+                "session in its project folder.")
+    return "refused: this call reaches %s. A session stays inside its own project folder." % cls
+
+
+def hook_pre_tool(data: dict) -> int:
+    """Read, Edit, MultiEdit, NotebookEdit, Write, Glob, Grep and Bash stay inside the session's project: a target
+    in another project, in the client's folder or in a key folder is refused with one line naming the class."""
+    cls = guard(data)
+    if cls is None:
+        return OK
+    try:
+        p = config.paths()
+    except Exception:
+        p = None
+    if p is not None:
+        _log_refusal(p, data, str(data.get("tool_name")) if data.get("tool_name") in GUARD_TOOLS else "other", cls,
+                     _own_project(data))
+    print(refusal(cls), file=sys.stderr)
+    return BLOCK
+
+
+def refusals(p: config.Paths, code: str, day: date | None = None) -> int:
+    """The refused tool calls of a project on a day, from guard.log."""
+    want = (day or date.today()).isoformat()
+    try:
+        lines = guard_log(p).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return 0
+    return sum(1 for line in lines
+               if line.startswith(want) and line.split("\t")[-1:] == [code] and line.count("\t") == 4)
+
+
+def selftest() -> list[str]:
+    """Plant two projects, a key folder and the client's folder in a throw-away home and prove that the guard
+    refuses what it must and passes the own project. The problems found; empty when the guard works."""
+    import tempfile
+
+    problems: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="awb-guard-") as tmp:
+        home = Path(tmp)
+        own, other = home / "tcp-aaaa", home / "tcp-bbbb"
+        for root in (own, other):
+            root.mkdir()
+            (root / "SCOPE.md").write_text("# Scope\n", encoding="utf-8")
+        (home / ".ssh").mkdir()
+        p = config.Paths(shared=home / "tcp-shared", vault=home / "no-vault", projects_root=home, kb=home / "tcp-kb")
+        saved = os.environ.pop("CLAUDE_PROJECT_DIR", None)
+        try:
+            cases = [
+                ({"tool_name": "Read", "tool_input": {"file_path": str(other / "STATE.md")}}, ANOTHER_PROJECT),
+                ({"tool_name": "Bash", "tool_input": {"command": "cat %s/STATE.md" % other}}, ANOTHER_PROJECT),
+                ({"tool_name": "Read", "tool_input": {"file_path": str(home / ".ssh" / "id_ed25519")}}, KEY_FOLDER),
+                ({"tool_name": "Read", "tool_input": {"file_path": str(own / "STATE.md")}}, None),
+            ]
+            for payload, want in cases:
+                payload["cwd"] = str(own)
+                got = guard(payload, p, home, sealed=True)
+                if got != want:
+                    problems.append("%s case %s: %s where %s was due"
+                                    % (payload["tool_name"], len(problems) + 1, got or "passed", want or "a pass"))
+            if guard({"tool_name": "Read", "cwd": tmp, "tool_input": {"file_path": str(own / "x")}}, p, home,
+                     sealed=True) != UNKNOWN_PROJECT:
+                problems.append("a call without a project folder passed")
+        finally:
+            if saved is not None:
+                os.environ["CLAUDE_PROJECT_DIR"] = saved
+    return problems
+
+
 def _writing_tells(path: Path, scope: str) -> list[tuple[str, int, str]]:
     """Blocking tells of `writing.check_file` as (class, line, hint). Raises Unavailable."""
     mod = _module("writing")
@@ -888,6 +1166,7 @@ def hook_stop(data: dict) -> int:
     from awb import english, questions
     _quietly(english.capture, config.paths(), data.get("transcript_path"))
     _quietly(questions.capture, config.paths(), data.get("transcript_path"), root)
+    _quietly(questions.record_refusals, config.paths(), root, refusals)
     if root is None:
         return OK
     draft_msg = None
@@ -1163,6 +1442,7 @@ def for_this_user() -> bool:
 HANDLERS = {
     "prompt": hook_prompt,
     "pre-write": hook_pre_write,
+    "pre-tool": hook_pre_tool,
     "post-write": hook_post_write,
     "stop": hook_stop,
     "session-start": hook_session_start,
@@ -1183,7 +1463,7 @@ def _budget_possible() -> bool:
 
 def _over_budget(name: str) -> int:
     """What a hook answers when its budget is spent: the blocking hooks fail closed, the others say so."""
-    if name in ("prompt", "pre-write", "post-write"):
+    if name in ("prompt", "pre-write", "pre-tool", "post-write"):
         print("awb hook %s: the check ran longer than %d seconds and was stopped; nothing passes unchecked. "
               "Make the input smaller, or run `awb check` on the file yourself." % (name, HOOK_BUDGET),
               file=sys.stderr)
@@ -1209,6 +1489,12 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         # a usage error must not block the session: the client blocks on exit 2 only
         return OK if exc.code in (0, None) else ERROR
+    if args.name == "selftest":
+        problems = selftest()
+        for line in problems:
+            print("FAIL  the tool guard: %s" % line)
+        print("PASS  the tool guard refuses its planted cases" if not problems else "# the tool guard failed")
+        return ERROR if problems else OK
     if not for_this_user():
         return OK
     try:
@@ -1216,10 +1502,10 @@ def main(argv: list[str] | None = None) -> int:
         data = json.loads(raw) if raw.strip() else {}
     except (ValueError, OSError):
         print("awb hook %s: the hook input is not JSON" % args.name, file=sys.stderr)
-        return ERROR
+        return BLOCK if args.name == "pre-tool" else ERROR
     if not isinstance(data, dict):
         print("awb hook %s: the hook input is not a JSON object" % args.name, file=sys.stderr)
-        return ERROR
+        return BLOCK if args.name == "pre-tool" else ERROR
     budget = _budget_possible()
     try:
         if budget:
@@ -1230,7 +1516,7 @@ def main(argv: list[str] | None = None) -> int:
         return _over_budget(args.name)
     except Exception as exc:
         print("awb hook %s: internal error (%s)" % (args.name, type(exc).__name__), file=sys.stderr)
-        return ERROR
+        return BLOCK if args.name == "pre-tool" else ERROR
     finally:
         if budget:
             signal.setitimer(signal.ITIMER_REAL, 0)

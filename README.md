@@ -172,7 +172,7 @@ claude plugin install awb@tcp-awb
 | `/awb:azure-to-tcp` | Azure machines to TCP in phases, from the inventory to a reviewed plan |
 | `/awb:drafting` | texts in the architect's own voice (the style is the author's: replace it with yours) |
 | workers | `migration-worker-files` (files only) and `migration-worker-shell` (files and `awb` commands), one phase each |
-| hooks | five checkpoints: every prompt, before and after a write, the start and the end of a session |
+| hooks | six checkpoints: every prompt, before a write, before every file or shell call (the session stays in its project), after a write, the start and the end of a session |
 
 On a sealed host (below) the seal installs the hooks for the work user already. Do not install the plugin there as
 well: every hook would run twice.
@@ -336,6 +336,10 @@ customer data out of the model as far as it can:
 - Five hooks check every prompt, every written file and the start and end of every session, so that a registered
   name typed by mistake is stopped before the model sees it. While the name check cannot run (a locked vault),
   every prompt is refused with the time of the lock.
+- A tool guard keeps a session inside its project: a file or shell call that reaches another project, the client's
+  folder or a key folder is refused before it runs and logged. The Bash part reads the command line, so a path the
+  shell builds at run time gets past it; the guard keeps an honest session in its lane and is no fence against a
+  hostile one.
 - A gate checks every commit for names, secrets, home paths and the owner's blocklist. A send gate lets only the
   exact reviewed version of a deliverable leave.
 
