@@ -3,8 +3,10 @@ files any assistant reads, built in one command so that a fresh copy appears wit
 
     awb dataset build [--out DIR] [--date D] [--force]    the folder tcp-facts-<date>/ and its zip, under
                                                           <shared>/datasets/ unless --out says otherwise
-    awb dataset put [--date D] [--replace]                the zip, the how-to PDF and the manifest into the owner's
-                                                          bucket under datasets/tcp-facts/<date>/ (owner side)
+    awb dataset put [--date D] [--replace] [--github]     the zip, the how-to PDF and the manifest into the owner's
+                                                          bucket under datasets/tcp-facts/<date>/ (owner side);
+                                                          --github also puts the files into the root of the public
+                                                          repository, tags the date and makes a release of it
 
 What the folder holds: README.md and PROMPT.md (how to use it, the one-line prompt), HOW-TO.pdf (the same for
 people who read PDF), facts.md (every fact on one line, grouped by topic, small enough for one chat), topics/<tag>.md
@@ -14,8 +16,10 @@ latest service description lists), prices/<region>.csv (the latest snapshot of e
 these facts only and cite the id, name an old check date, treat prices as a snapshot, warn after the best-before
 date.
 
-The files name who compiled them as COMPILED_BY: the dataset and the account, never a person. There is no setting
-for it, so no build can put a person's name into the files.
+The files name who compiled them as COMPILED_BY: the dataset and its address, never a person. There is no setting
+for it, so no build can put a person's name into the files. Before a put to the public repository the files are
+scanned again for the owner's commit identity, for a value of the old author settings and for a registered name;
+the commits there carry the GitHub account, never a person.
 
 Price rows of a service the service description withdrew or the hand-kept not-offered list names (BMS, DIS, VBS,
 CSBS) are left out of the CSV files and named in their header, because the price API still serves them.
@@ -36,14 +40,16 @@ import io
 import json
 import random
 import re
+import os
 import shutil
+import subprocess
 import sys
 import textwrap
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from awb import bucket, config, kb, obs, offered
+from awb import bucket, config, gate, kb, obs, offered, register
 from awb.tcp import price
 
 NAME = "TCP Facts"
@@ -52,10 +58,11 @@ REGIONS = ("eu-de", "eu-nl")            # eu-ch2 is the Swiss offering, not a re
 BEST_BEFORE_DAYS = 30                   # the re-check period of an availability fact
 OLD_AFTER_DAYS = 90
 LICENCE = "CC BY 4.0"
-COMPILED_BY = "TCP Facts, github.com/shimoza/tcp-awb"    # the dataset and the account, never a person
-CREDIT = ("Compiled from public sources and live checks by %s. Licence %s: name the dataset and its address when you "
+GITHUB_REPO = "shimoza/tcp-facts"
+COMPILED_BY = "TCP Facts, github.com/%s" % GITHUB_REPO    # the dataset and its address, never a person
+CREDIT = ("Compiled from public sources and live checks. Licence %s: name the dataset and its address when you "
           "reuse it. No warranty: the service description and the price list of the provider are the binding "
-          "documents." % (COMPILED_BY, LICENCE))
+          "documents." % LICENCE)
 BUCKET_PREFIX = "datasets/%s/" % SLUG
 PRICE_COLUMNS = (("id", "id"), ("service", "productId"), ("product", "productName"), ("flavor", "opiFlavour"),
                  ("os", "osUnit"), ("vcpu", "vCpu"), ("ram", "ram"), ("unit", "unit"), ("currency", "currency"),
@@ -140,7 +147,7 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
     price_line = ", ".join("%s %s records" % (r, c) for r, c in prices.items()) or "no price list"
     return [
         ("h1", "%s %s: how to use it" % (NAME, day)),
-        ("p", "%d checked factsabout T Cloud Public (TCP) with the list of "
+        ("p", "%d checked facts about T Cloud Public (TCP) with the list of "
               "orderable services and the public price list of two regions. Made to be dropped into any AI "
               "assistant." % n_facts),
         ("p", "%d facts were tested live on a TCP tenant, %d come from the vendor documentation and %d from the "
@@ -167,6 +174,7 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
         ("p", "Built %s. Best before %s: facts about availability are re-checked every %d days. Prices are a "
               "snapshot; the live price API is the source of truth before any quote." % (day, best_before,
                                                                                          BEST_BEFORE_DAYS)),
+        ("p", "Dataset: %s." % COMPILED_BY),
         ("p", CREDIT),
     ]
 
@@ -514,14 +522,14 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
                                               "name; the manifest carries the build time." % built_at)]
         + blocks[1:3] + [("h2", "Use"), ("p", "Attach facts.md and type:"),
                                                           ("code", ONE_LINER), ("p", "PROMPT.md has the rest.")]
-        + blocks[-5:]), encoding="utf-8")
+        + blocks[-6:]), encoding="utf-8")
 
     for path in sorted(root.rglob("*")):
         if path.is_file() and path.suffix in (".md", ".jsonl", ".csv"):
             text = path.read_text(encoding="utf-8")
             if _LEFT_RE.search(text):
                 raise DatasetError("a tenant alias was left in %s; the folder was removed" % path.name)
-            if _TOOL_LEFT_RE.search(text.replace(COMPILED_BY, "")):    # the credit names the repository on purpose
+            if _TOOL_LEFT_RE.search(text):
                 raise DatasetError("a name of the tooling was left in %s; the folder was removed" % path.name)
 
     files = sorted(x for x in root.rglob("*") if x.is_file())
@@ -583,6 +591,137 @@ def put(c: obs.Client, folder: Path, *, replace: bool = False) -> list[str]:
     return keys
 
 
+# --------------------------------------------------------------------------- the public repository (owner side)
+
+GITHUB_FILES = ("facts.md", "facts.jsonl", "services.md", "topics", "prices")    # into the root, for raw links
+GITHUB_ASSETS = ("HOW-TO.pdf", "MANIFEST.json")                                    # with the zip, on the release
+PERSON_ENV = "AWB_DATASET_AUTHOR"           # the old settings: gone, but a value still set is searched for
+PERSON_CONF = "dataset_author"
+GIT_TIMEOUT = 120
+
+
+def clone_dir(p: config.Paths) -> Path:
+    return datasets_dir(p) / (SLUG + ".git")
+
+
+def _run(args: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
+    """One git or gh call. A failure names the command and its exit code, never its output."""
+    try:
+        res = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=GIT_TIMEOUT)
+    except FileNotFoundError:
+        raise DatasetError("%s is not installed" % args[0]) from None
+    except subprocess.TimeoutExpired:
+        raise DatasetError("%s %s took longer than %d seconds" % (args[0], args[1], GIT_TIMEOUT)) from None
+    if check and res.returncode != 0:
+        raise DatasetError("%s %s failed (exit %d)" % (args[0], " ".join(args[1:3]), res.returncode))
+    return res
+
+
+def person_values() -> list[str]:
+    """Every value that could carry a person into the files: the old author settings, should one still be set,
+    and the commit identity of the user and of the checkout this code runs from."""
+    out = [os.environ.get(PERSON_ENV, ""), config.host_conf().get(PERSON_CONF, "")]
+    for key in ("user.name", "user.email"):
+        out.append(_run(["git", "config", "--global", key], check=False).stdout)
+        out.append(_run(["git", "config", key], cwd=Path(__file__).resolve().parent, check=False).stdout)
+    return sorted({v.strip() for v in out if v and v.strip()})
+
+
+def _account_identity(clone: Path) -> None:
+    """The commits of the public repository carry the GitHub account and its noreply address, never a person."""
+    login = _run(["gh", "api", "user", "-q", ".login"], cwd=clone).stdout.strip()
+    uid = _run(["gh", "api", "user", "-q", ".id"], cwd=clone).stdout.strip()
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", login) or not uid.isdigit():
+        raise DatasetError("gh api user names no account; run gh auth login")
+    _run(["git", "config", "user.name", login], cwd=clone)
+    _run(["git", "config", "user.email", "%s+%s@users.noreply.github.com" % (uid, login)], cwd=clone)
+
+
+def _person_re(values: list[str]) -> "re.Pattern[str] | None":
+    words = set(values)
+    for v in values:
+        if "@" not in v:
+            words.update(w for w in re.split(r"\s+", v) if len(w) >= 4)
+    return re.compile("|".join(r"(?<!\w)%s(?!\w)" % re.escape(w) for w in sorted(words)), re.I) if words else None
+
+
+def scan_people(files: list[Path], values: list[str], register_path: Path | None) -> list[str]:
+    """Why `files` may not go public: a person value of `person_values` or a registered name in any of them, as
+    messages that name the file and the class, never the value."""
+    rx = _person_re(values)
+    problems = []
+    for f in files:
+        if rx is not None and rx.search(f.read_bytes().decode("utf-8", "replace")):
+            problems.append("%s: a person (commit identity or an old author setting)" % f.name)
+    try:
+        findings = gate.scan_files(files, register_path)
+    except register.RegisterError as err:   # check.CheckUnavailable included
+        raise DatasetError("the name check cannot run (%s); nothing was published" % type(err).__name__) from None
+    problems += sorted({"%s: %s" % (Path(f.file).name, f.cls) for f in findings if f.cls in ("name", "blocklist",
+                                                                                          "homepath")})
+    return problems
+
+
+def release_notes(manifest: dict) -> str:
+    g = manifest.get("grades", {})
+    return ("%s %s: %d facts (live %d, docs %d, contract %d), %d left out because they name a service that is not "
+            "offered. Best before %s.\n\n%s" % (NAME, manifest["date"], manifest["facts"], g.get("live", 0),
+                                                 g.get("docs", 0), g.get("contract", 0),
+                                                 len(manifest.get("facts_left_out", [])), manifest["best_before"],
+                                                 CREDIT))
+
+
+def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: Path | None = None) -> list[str]:
+    """The files of a build into the root of the public repository, committed as the GitHub account, and a release
+    of its date with the zip, the how-to PDF and the manifest. Refused when that date is tagged already unless `replace`, and when a person
+    or a registered name is in any file that would go public."""
+    day = folder.name[len(SLUG) + 1:]
+    zpath = folder.parent / (folder.name + ".zip")
+    if not (zpath.is_file() and all((folder / n).exists() for n in GITHUB_ASSETS + GITHUB_FILES)):
+        raise DatasetError("the folder of %s is not a complete build; run awb dataset build" % day)
+    clone = clone or clone_dir(p)
+    if not (clone / ".git").is_dir():
+        clone.parent.mkdir(parents=True, exist_ok=True)
+        _run(["gh", "repo", "clone", GITHUB_REPO, str(clone)])
+    else:
+        _run(["git", "pull", "--ff-only", "--tags", "--force"], cwd=clone)
+    _account_identity(clone)
+    tagged = bool(_run(["git", "tag", "--list", day], cwd=clone).stdout.strip())
+    if tagged and not replace:
+        raise DatasetError("the repository holds the dataset of %s already; give --replace" % day)
+    for name in GITHUB_FILES:
+        dst = clone / name
+        if dst.is_dir():
+            shutil.rmtree(dst)
+        elif dst.exists():
+            dst.unlink()
+        if (folder / name).is_dir():
+            shutil.copytree(folder / name, dst)
+        else:
+            shutil.copy2(folder / name, dst)
+    public = sorted(x for x in clone.rglob("*") if x.is_file() and ".git" not in x.relative_to(clone).parts)
+    public += [folder / n for n in ("README.md", "PROMPT.md", "MANIFEST.json")]    # inside the zip and the release
+    problems = scan_people(public, person_values(), p.register)
+    if problems:
+        _run(["git", "checkout", "--", "."], cwd=clone, check=False)
+        _run(["git", "clean", "-fdq"], cwd=clone, check=False)
+        raise DatasetError("refused, nothing was published: " + "; ".join(problems))
+    _run(["git", "add", "-A", "--", *GITHUB_FILES], cwd=clone)
+    if _run(["git", "diff", "--cached", "--quiet"], cwd=clone, check=False).returncode:
+        _run(["git", "commit", "-q", "-m", "%s %s" % (NAME, day)], cwd=clone)
+    _run(["git", "tag", "-f", day] if replace else ["git", "tag", day], cwd=clone)
+    _run(["git", "push", "-q", "origin", "HEAD"], cwd=clone)
+    if tagged:
+        _run(["gh", "release", "delete", day, "--repo", GITHUB_REPO, "--yes"], cwd=clone, check=False)
+    _run(["git", "push", "-q", *(["--force"] if replace else []), "origin", "refs/tags/" + day], cwd=clone)
+    manifest = json.loads((folder / "MANIFEST.json").read_text(encoding="utf-8"))
+    _run(["gh", "release", "create", day, str(zpath), *(str(folder / n) for n in GITHUB_ASSETS), "--repo",
+          GITHUB_REPO, "--verify-tag", "--title", "%s %s" % (NAME, day), "--notes", release_notes(manifest)],
+         cwd=clone)
+    return ["github.com/%s commit and tag %s" % (GITHUB_REPO, day),
+            "github.com/%s/releases/tag/%s with %s" % (GITHUB_REPO, day, ", ".join([zpath.name, *GITHUB_ASSETS]))]
+
+
 # --------------------------------------------------------------------------- the command
 
 
@@ -602,6 +741,7 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--out", type=Path, default=None, help="where the folders are (default: <shared>/datasets)")
     u.add_argument("--date", default=None, help="the dataset of that date (default: the newest)")
     u.add_argument("--replace", action="store_true")
+    u.add_argument("--github", action="store_true", help="also commit, tag and release it in github.com/%s" % GITHUB_REPO)
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -624,6 +764,8 @@ def main(argv: list[str] | None = None) -> int:
         if folder is None:
             raise DatasetError("no built dataset%s; run awb dataset build" % (" of that date" if args.date else ""))
         keys = put(bucket.client(), folder, replace=args.replace)
+        if args.github:
+            keys += github_put(p, folder, replace=args.replace)
         for key in keys:
             print("awb dataset put: " + key)
         return 0

@@ -118,10 +118,11 @@ def test_build_writes_every_file_with_the_rules_and_no_tenant_alias(home, facts,
     services = (root / "services.md").read_text()
     assert "Elastic Cloud Server (ECS)" in services and "revision" in services
     manifest = json.loads((root / "MANIFEST.json").read_text())
-    assert manifest["compiled_by"] == "TCP Facts, github.com/shimoza/tcp-awb" and "author" not in manifest
-    assert ("Compiled from public sources and live checks by TCP Facts, github.com/shimoza/tcp-awb. Licence CC BY 4.0: "
-            "name the dataset and its address when you reuse it. No warranty: the service description and the price "
-            "list of the provider are the binding documents.") in (root / "README.md").read_text()
+    assert manifest["compiled_by"] == "TCP Facts, github.com/shimoza/tcp-facts" and "author" not in manifest
+    readme = (root / "README.md").read_text()
+    assert ("Compiled from public sources and live checks. Licence CC BY 4.0: name the dataset and its address when "
+            "you reuse it. No warranty: the service description and the price list of the provider are the binding "
+            "documents.") in readme and "Dataset: TCP Facts, github.com/shimoza/tcp-facts." in readme
     assert manifest["facts"] == 3 and manifest["grades"] == {"docs": 1, "live": 2} and manifest["best_before"] == "2026-11-07"
     assert manifest["built_at"].endswith(" UTC") and "Build of %s" % manifest["built_at"] in (root / "README.md").read_text()
     assert "built %s" % manifest["built_at"] in out
@@ -143,9 +144,9 @@ def test_the_how_to_pdf_is_a_pdf_the_poppler_tools_read(home, facts, tmp_path):
     assert "TCP Facts 2026-10-08: how to use it" in text
     assert "Use the attached TCP Facts. Answer: <your question>" in text
     assert "Best before 2026-11-07" in text and "CC BY 4.0" in text
-    assert "Compiled from public sources and live checks by TCP Facts" in text and "Author" not in text
+    assert "Compiled from public sources and live checks. Licence CC BY 4.0" in text and "Author" not in text
     info = subprocess.run(["pdfinfo", str(pdf)], capture_output=True, text=True, check=True).stdout
-    assert re.search(r"^Author:\s+TCP Facts, github.com/shimoza/tcp-awb$", info, re.M)
+    assert re.search(r"^Author:\s+TCP Facts, github.com/shimoza/tcp-facts$", info, re.M)
     # a long how-to runs over several pages and stays readable
     long = dataset.pdf_bytes([("p", "a line of the how-to that is long enough to wrap %d" % i) for i in range(200)], "t")
     assert long.count(b"/Type /Page ") >= 3
@@ -280,3 +281,111 @@ def test_a_live_price_that_differs_from_the_snapshot_refuses_the_build(home, fac
     # offline: the check is skipped and says so
     assert cli.main(["dataset", "build", "--out", str(tmp_path / "ds"), "--date", "2026-10-08", "--no-live"]) == 0
     assert "live price check skipped" in capsys.readouterr().out
+
+
+FAKE_GH = '''#!%s
+import json, os, subprocess, sys
+args = sys.argv[1:]
+with open(os.environ["FAKE_GH_LOG"], "a") as f:
+    f.write(json.dumps(args) + "\\n")
+remote = os.environ["FAKE_GH_REMOTE"]
+if args[:2] == ["api", "user"]:
+    print({".login": "shimoza", ".id": "42"}[args[3]])
+    sys.exit(0)
+if args[:2] == ["repo", "clone"]:
+    sys.exit(subprocess.run(["git", "clone", "-q", remote, args[3]]).returncode)
+if args[:2] == ["release", "create"]:
+    tagged = subprocess.run(["git", "ls-remote", "--tags", remote, args[2]], capture_output=True, text=True).stdout
+    sys.exit(0 if tagged.strip() and all(os.path.isfile(a) for a in args[3:6]) else 1)
+sys.exit(0)
+'''
+
+
+@pytest.fixture
+def github(tmp_path, monkeypatch):
+    """A fake gh on the PATH whose clone comes from a bare repository with the hand-written README and LICENSE,
+    and a commit identity that is a person: the scan must keep it out of every file."""
+    import sys
+    gitconf = tmp_path / "gitconfig"
+    gitconf.write_text("[user]\n\tname = %s\n\temail = xqarv@example.invalid\n[init]\n\tdefaultBranch = main\n"
+                       % fx.PLANTED_PERSON)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconf))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    remote, seed = tmp_path / "remote.git", tmp_path / "seed"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    subprocess.run(["git", "init", "-q", str(seed)], check=True)
+    (seed / "README.md").write_text("# TCP Facts\n")
+    (seed / "LICENSE").write_text("Attribution 4.0 International\n")
+    for cmd in (["add", "-A"], ["commit", "-q", "-m", "start"], ["push", "-q", str(remote), "HEAD:main"]):
+        subprocess.run(["git", *cmd], cwd=seed, check=True)
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "gh").write_text(FAKE_GH % sys.executable)
+    (bindir / "gh").chmod(0o755)
+    monkeypatch.setenv("PATH", "%s:%s" % (bindir, __import__("os").environ["PATH"]))
+    monkeypatch.setenv("FAKE_GH_LOG", str(tmp_path / "gh.log"))
+    monkeypatch.setenv("FAKE_GH_REMOTE", str(remote))
+    return SimpleNamespace(remote=remote, clone=tmp_path / "clone.git",
+                           log=lambda: [json.loads(l) for l in (tmp_path / "gh.log").read_text().splitlines()])
+
+
+def _remote_files(remote: Path, ref: str) -> list[str]:
+    return subprocess.run(["git", "ls-tree", "-r", "--name-only", ref], cwd=remote, capture_output=True, text=True,
+                          check=True).stdout.split()
+
+
+def test_github_put_lands_the_files_in_the_root_tags_the_date_and_releases_the_assets(home, facts, tmp_path, github,
+                                                                                       monkeypatch):
+    monkeypatch.setenv("AWB_DATASET_AUTHOR", fx.PLANTED_PERSON)
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    lines = dataset.github_put(home, built.folder, clone=github.clone)
+    assert lines[-1].startswith("github.com/shimoza/tcp-facts/releases/tag/2026-10-08 with tcp-facts-2026-10-08.zip")
+    files = _remote_files(github.remote, "refs/tags/2026-10-08")
+    assert {"README.md", "LICENSE", "facts.md", "facts.jsonl", "services.md", "prices/eu-de.csv",
+            "topics/ecs.md"} <= set(files)
+    assert subprocess.run(["git", "show", "main:facts.md"], cwd=github.remote, capture_output=True,
+                          check=True).stdout == (built.folder / "facts.md").read_bytes()
+    assert subprocess.run(["git", "show", "main:README.md"], cwd=github.remote, capture_output=True,
+                          check=True).stdout == b"# TCP Facts\n"        # the hand-written README stays
+    subject = subprocess.run(["git", "log", "-1", "--format=%s", "main"], cwd=github.remote, capture_output=True,
+                             text=True, check=True).stdout.strip()
+    assert subject == "TCP Facts 2026-10-08"
+    author = subprocess.run(["git", "log", "-1", "--format=%an <%ae>", "main"], cwd=github.remote, capture_output=True,
+                            text=True, check=True).stdout.strip()
+    assert author == "shimoza <42+shimoza@users.noreply.github.com>"     # the account, never the person of the identity
+    assert fx.PLANTED_PERSON in dataset.person_values()
+    for x in github.clone.rglob("*"):
+        if x.is_file() and ".git" not in x.relative_to(github.clone).parts:
+            assert fx.PLANTED_PERSON.encode() not in x.read_bytes(), x.name
+    create = [a for a in github.log() if a[:2] == ["release", "create"]]
+    assert len(create) == 1 and create[0][2] == "2026-10-08"
+    assert [Path(a).name for a in create[0][3:6]] == ["tcp-facts-2026-10-08.zip", "HOW-TO.pdf", "MANIFEST.json"]
+    assert create[0][create[0].index("--title") + 1] == "TCP Facts 2026-10-08"
+    notes = create[0][create[0].index("--notes") + 1]
+    assert notes.startswith("TCP Facts 2026-10-08: 3 facts (live 2, docs 1, contract 0), 0 left out") and "CC BY 4.0" in notes
+    assert fx.PLANTED_PERSON not in notes
+    # the same date again needs --replace, which moves the tag and makes the release again
+    with pytest.raises(dataset.DatasetError, match="already; give --replace"):
+        dataset.github_put(home, built.folder, clone=github.clone)
+    dataset.github_put(home, built.folder, replace=True, clone=github.clone)
+    log = github.log()
+    assert ["release", "delete", "2026-10-08", "--repo", "shimoza/tcp-facts", "--yes"] in log
+    assert len([a for a in log if a[:2] == ["release", "create"]]) == 2
+    assert [a[:2] for a in log].count(["repo", "clone"]) == 1
+
+
+@pytest.mark.parametrize("plant,why", [(fx.PLANTED_PERSON, "a person"), ("xqarv@example.invalid", "a person"),
+                                       (fx.PERSON_FORMS[0], "facts.md: name")])
+def test_github_put_refuses_a_planted_name_and_publishes_nothing(home, facts, tmp_path, github, plant, why):
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    facts_md = built.folder / "facts.md"
+    facts_md.write_text(facts_md.read_text() + "- a note by %s (KB-0000, docs, checked 2026-10-08)\n" % plant)
+    with pytest.raises(dataset.DatasetError, match="refused, nothing was published: .*%s" % why) as err:
+        dataset.github_put(home, built.folder, clone=github.clone)
+    assert plant not in str(err.value)
+    assert not subprocess.run(["git", "tag", "--list"], cwd=github.remote, capture_output=True, text=True,
+                              check=True).stdout.strip()
+    assert _remote_files(github.remote, "main") == ["LICENSE", "README.md"]
+    assert not any(a[:2] == ["release", "create"] for a in github.log())
+    assert not subprocess.run(["git", "status", "--porcelain"], cwd=github.clone, capture_output=True, text=True,
+                              check=True).stdout.strip()

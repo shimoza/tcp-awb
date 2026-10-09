@@ -2204,8 +2204,22 @@
    "name": "dataset: the files, the manifest field compiled_by and the PDF /Author credit the dataset and the account, never a person; a planted AWB_DATASET_AUTHOR and dataset_author reach no file of the build or the zip",
    "run": ".venv/bin/pytest tests/test_dataset.py::test_no_setting_puts_a_person_into_the_dataset",
    "status": "passing"
+  },
+  {
+   "id": "DS-GH1",
+   "phase": "T11",
+   "name": "dataset put --github: the files of the build land in the root of the repository, the commit carries the date, the date is tagged and the release of the tag carries the zip, HOW-TO.pdf and MANIFEST.json with the counts as notes; the same date again needs --replace",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_github_put_lands_the_files_in_the_root_tags_the_date_and_releases_the_assets",
+   "status": "passing"
+  },
+  {
+   "id": "DS-GH2",
+   "phase": "T11",
+   "name": "dataset put --github: a planted person (commit identity, old author setting) or a registered name in a file refuses the put, publishes nothing and leaves the clone clean",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_github_put_refuses_a_planted_name_and_publishes_nothing",
+   "status": "passing"
   }
  ],
- "total_tests": 314,
+ "total_tests": 316,
  "checked": "2026-10-09"
 }

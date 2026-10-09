@@ -68,8 +68,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 ### Changed
 
 - The dataset TCP Facts names no person. The README, `HOW-TO.pdf`, its `/Author` metadata and the manifest field
-  `compiled_by` (was `author`) credit `TCP Facts, github.com/shimoza/tcp-awb`, with the licence line "name the
-  dataset and its address when you reuse it". `AWB_DATASET_AUTHOR` and `dataset_author` are gone.
+  `compiled_by` (was `author`) credit `TCP Facts, github.com/shimoza/tcp-facts`, the dataset and its address, and
+  carry the line "Compiled from public sources and live checks. Licence CC BY 4.0: name the dataset and its address
+  when you reuse it. No warranty: the service description and the price list of the provider are the binding
+  documents." `AWB_DATASET_AUTHOR` and `dataset_author` are gone.
+- The dataset has a public home. `awb dataset put --github` puts its files into the root of github.com/shimoza/tcp-facts
+  (raw links work), commits them as the GitHub account, tags the date and makes a release of the tag with the zip,
+  `HOW-TO.pdf` and `MANIFEST.json`, the counts as notes. Before the commit the files are scanned for the owner's
+  commit identity, an old author setting and a registered name; a hit refuses the put and nothing is published.
 
 - The intake no longer stops for a name it does not know. Every name its rules recognise becomes a token of its
   class, numbered within the run (`[person 1]`, `[company 1]`, `[place 1]`, `[name 1]`). The other shapes of a wiped
