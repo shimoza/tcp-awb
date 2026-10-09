@@ -68,7 +68,9 @@ def test_pictures_of_an_office_file_an_image_file_and_a_pdf(tmp_path):
     assert images.pictures(tmp_path / "missing.docx", "docx") == ([], 0)
 
 
-def test_hold_list_and_release_by_number(home, tmp_path, capsys):
+def test_hold_list_and_release_by_number_and_a_project_code_is_a_box(home, tmp_path, capsys):
+    """Replaces test_hold_list_and_release_by_number (2026-10-09): the project code is the one identifier, so the
+    pictures of a project without a customer are held under its code; another kind of code is still refused."""
     red, blue, green = png((200, 0, 0)), png((0, 0, 200)), png((0, 200, 0))
     src = deck(tmp_path / "plan.docx", [red, blue, green])
     total = len(members(src))
@@ -93,8 +95,10 @@ def test_hold_list_and_release_by_number(home, tmp_path, capsys):
     assert cli.main(["images", "release", fx.CUSTOMER_CODE, "f01", "--all"]) == 0
     assert "%d picture(s) of f01 released" % total in capsys.readouterr().out
     assert cli.main(["images", "release", fx.CUSTOMER_CODE, "f01"]) == 2
-    with pytest.raises(images.ImageError, match="not a customer code"):
-        images.folder(home, "tcp-abcd")
+    assert images.folder(home, "tcp-abcd") == home.vault / images.QUARANTINE / "tcp-abcd"
+    for other in ("PERS-ABCD", "CUST-Q7M4-X1", "../tcp-abcd"):
+        with pytest.raises(images.ImageError, match="not a customer code"):
+            images.folder(home, other)
 
 
 def test_a_picture_that_changed_on_disk_is_not_released(home, tmp_path):
