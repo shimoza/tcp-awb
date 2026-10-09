@@ -12,6 +12,11 @@ Parts, in this order:
   from its grade and scope. They go to worklist.jsonl; the expiry classes decide what is re-checked, nothing is
   re-read that has not expired. Every question file in <kb>/bench/ is run (awb kb bench), so each report carries
   the retrieval numbers.
+- wipe: the red-team pack of wipe mode (calibration/redteam/wipe/) through the installed intake, rules and lists,
+  the same intake.run as awb import, on the pack's invented texts only and in throw-away Workbenches. The pack's
+  selfcheck runs first: when its planted leak comes out clean, nothing is recorded and the part ends in an error.
+  The counts (cases, leaks, losses, by case module) go into the report and as one line into
+  <shared>/refresh/wipe.tsv with the release; more leaks or more losses than the last line is overdue.
 - projects: active projects whose STATE.md is older than --max-state-age days (14), with their open items.
 - defaults: the pointers the Workbench carries still point somewhere: every command the work rules and
   COMMANDS.md name exists, every knowledge id the code and the rules cite exists and is not retired, and every
@@ -36,15 +41,17 @@ import datetime
 import io
 import json
 import re
+import shutil
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import awb
 from awb import config, jobs, kb, offered, projects
-from awb.tcp import dataset, mirror, price
+from awb.tcp import board, dataset, mirror, price
 
-PARTS = ("mirrors", "prices", "knowledge", "projects", "defaults", "dataset")
+PARTS = ("mirrors", "prices", "knowledge", "wipe", "projects", "defaults", "dataset")
 VERDICTS = ("confirmed", "changed", "refuted", "unchecked")
 MAX_STATE_AGE = 14
 _KB_ID_RE = re.compile(r"\bKB-[A-Z2-7]{4}\b")
@@ -193,6 +200,91 @@ def part_knowledge(p: config.Paths, out_dir: Path, *, today: datetime.date) -> P
     return part
 
 
+# --------------------------------------------------------------------------- wipe
+
+def _wipe_harness(code_root: Path):
+    """The harness of the pack in the tree the running package came from, so the installed rules and lists are the
+    ones measured."""
+    if str(code_root) not in sys.path:
+        sys.path.insert(0, str(code_root))
+    from calibration.redteam.wipe import harness
+    return harness
+
+
+def _release() -> str:
+    from awb import hooks
+    return hooks._release()
+
+
+def part_wipe(p: config.Paths, *, today: datetime.date, code_root: Path | None = None,
+              only: dict[str, list[str]] | None = None) -> Part:
+    """The pack through the installed intake. `only` (dimension -> case ids) runs a part of it, for the tests."""
+    part = Part("wipe")
+    code_root = code_root or Path(awb.__file__).resolve().parent.parent
+    try:
+        harness = _wipe_harness(code_root)
+        harness.rt.code_under_test()
+    except (ImportError, SystemExit) as err:
+        part.error = "the pack cannot be loaded (%s)" % type(err).__name__
+        return part
+    work = Path(tempfile.mkdtemp(prefix="awb-wipe-"))
+    try:
+        failures = harness.selfcheck(work)
+        if failures:
+            part.error = "not recorded, the harness did not show that it can fail: %s" % "; ".join(failures)
+            return part
+        part.lines.append("selfcheck: the planted leak and the forced loss are reported, the caught case is clean")
+        by_module: list[tuple[str, dict]] = []
+        results: list[dict] = []
+        for dim in harness.DIMENSIONS:
+            cases = harness.load_cases(harness.module_path(dim))
+            if only is not None:
+                if dim not in only:
+                    continue
+                cases = [c for c in cases if c["id"] in set(only[dim])]
+            entries = [harness.run_case(c, work) for c in cases]
+            results += entries
+            by_module.append((dim, harness.summary_of(entries)))
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    s = harness.summary_of(results)
+    release = _release()
+    part.lines.append("%d cases: %d with a leak (%d values), %d with a loss (%d terms), %d withheld, %d errors; "
+                      "release %s" % (s["cases"], s["leak_cases"], s["leaked_values"], s["loss_cases"],
+                                      s["lost_terms"], s["withheld"], s["errors"], release))
+    part.lines += ["  %-12s %3d cases, %d leaks, %d losses" % (dim, m["cases"], m["leak_cases"], m["loss_cases"])
+                   for dim, m in by_module]
+    history = board.wipe_history(p)
+    if history:
+        last = history[-1]
+        grown = [(what, last[key], s[mine]) for what, key, mine in (("leaks", "leaks", "leak_cases"),
+                                                                     ("losses", "losses", "loss_cases"))
+                 if s[mine] > last[key]]
+        for what, before, now in grown:
+            part.lines.append("OVERDUE: %s grew from %d to %d since %s" % (what, before, now, last["date"]))
+        part.overdue += len(grown)
+        if not grown:
+            part.lines.append("against %s: %d leaks, %d losses, not more" % (last["date"], last["leaks"],
+                                                                            last["losses"]))
+    else:
+        part.lines.append("the first line of wipe.tsv: nothing to compare")
+    if s["errors"]:
+        part.lines.append("OVERDUE: %d case(s) ended in an error, a leak there is not seen" % s["errors"])
+        part.overdue += 1
+    row = [today.isoformat(), s["cases"], s["leak_cases"], s["loss_cases"], s["leaked_values"], s["lost_terms"],
+           s["withheld"], s["errors"], release,
+           ",".join("%s=%d/%d" % (dim, m["leak_cases"], m["loss_cases"]) for dim, m in by_module)]
+    tsv = board.wipe_tsv(p)
+    tsv.parent.mkdir(parents=True, exist_ok=True)
+    new = not tsv.exists()
+    with tsv.open("a", encoding="utf-8") as fh:
+        if new:
+            fh.write("\t".join(board.WIPE_COLUMNS) + "\n")
+        fh.write("\t".join(str(x) for x in row) + "\n")
+    part.lines.append("recorded in %s" % tsv)
+    return part
+
+
 # --------------------------------------------------------------------------- projects
 
 
@@ -308,9 +400,10 @@ def part_defaults(p: config.Paths, base: Path, *, code_root: Path | None = None)
 
 def part_dataset(p: config.Paths, *, today: datetime.date, after: list[Part]) -> Part:
     """The dataset TCP Facts of the day, built again from what the parts before brought up to date. Not built
-    when a part before ended in an error, so a half refreshed state never becomes the dataset of the day."""
+    when a part before ended in an error, so a half refreshed state never becomes the dataset of the day. The wipe
+    part brings nothing up to date, so its error does not stop the dataset."""
     part = Part("dataset")
-    failed = [x.name for x in after if x.error]
+    failed = [x.name for x in after if x.error and x.name != "wipe"]
     if failed:
         part.lines.append("not built: %s ended in an error" % ", ".join(failed))
         return part
@@ -342,6 +435,8 @@ def run(p: config.Paths, *, parts=PARTS, update: bool = True, today: datetime.da
                 done.append(part_prices(p, today=today, job=job))
             elif name == "knowledge":
                 done.append(part_knowledge(p, out_dir, today=today))
+            elif name == "wipe":
+                done.append(part_wipe(p, today=today))
             elif name == "projects":
                 done.append(part_projects(p, today=today, max_age=max_state_age))
             elif name == "defaults":
@@ -515,7 +610,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if all(a.ok for a in applied) else 1
 
     ap = SafeParser(prog="awb refresh", description="The refresh of TCP knowledge: mirrors, prices, knowledge, "
-                                                    "projects, defaults; a report each run.")
+                                                    "wipe, projects, defaults, dataset; a report each run.")
     ap.add_argument("--part", action="append", choices=PARTS, default=[])
     ap.add_argument("--no-update", action="store_true", help="read the mirrors, do not bring them up to date")
     ap.add_argument("--max-state-age", type=int, default=MAX_STATE_AGE)

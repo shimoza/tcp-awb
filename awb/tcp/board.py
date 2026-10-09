@@ -9,6 +9,7 @@ active project (the Status: and Next: lines of STATE.md) with its time and the c
 project waits on, its first open items, its deliverables by review state and its live resources. A project whose
 status lags behind its commits or has no status line yet is marked, never updated: the session of the project does
 that. Codes only, every text after the data check. The HTML prints on A4 as it is, for a PDF from the browser.
+Both carry the line of the last wipe measurement of the refresh: "wipe: L leaks, M losses of N (date)".
 While the vault is locked both commands open with "locked since <time>" (T3); the project texts wait for the
 unlock, because the data check cannot run.
 """
@@ -70,8 +71,10 @@ def markdown(board: dict) -> str:
     s = board["summary"]
     out = ["# Project status, %s" % when(board["generated_at"]), "",
            "%d active project(s): %d with a current status, %d lagging behind their work, %d without a status "
-           "line yet." % (s["projects"], s["current"], s["lagging"], s["without_status"]), "",
-           "| Project | Customer | Status | Next | Status as of | Open | Live |", "|---|---|---|---|---|---|---|"]
+           "line yet." % (s["projects"], s["current"], s["lagging"], s["without_status"]), ""]
+    if board.get("wipe"):
+        out += [board["wipe"], ""]
+    out += ["| Project | Customer | Status | Next | Status as of | Open | Live |", "|---|---|---|---|---|---|---|"]
 
     def cell(text) -> str:
         return str(text).replace("|", "\\|").replace("\n", " ")
@@ -152,11 +155,12 @@ def page(board: dict) -> str:
     return ("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
             "content=\"width=device-width,initial-scale=1\"><title>Project status %s</title><style>%s</style></head>"
             "<body><h1>Project status, %s</h1><p class=\"lead\">%d active project(s): %d with a current status, "
-            "%d lagging behind their work, %d without a status line yet.</p><div class=\"wrap\"><table><thead><tr>"
+            "%d lagging behind their work, %d without a status line yet.</p>%s<div class=\"wrap\"><table><thead><tr>"
             "<th>Project</th><th>Customer</th><th>Status</th><th>Next</th><th>Status as of</th><th>Open</th>"
             "<th>Live</th></tr></thead><tbody>%s</tbody></table></div>%s</body></html>\n" % (
                 e(when(board["generated_at"])), STYLE, e(when(board["generated_at"])), s["projects"], s["current"],
-                s["lagging"], s["without_status"], rows, "".join(sections)))
+                s["lagging"], s["without_status"],
+                '<p class="lead">%s</p>' % e(board["wipe"]) if board.get("wipe") else "", rows, "".join(sections)))
 
 
 def write(board: dict, out: Path) -> tuple[Path, Path]:
@@ -166,6 +170,45 @@ def write(board: dict, out: Path) -> tuple[Path, Path]:
     md.write_text(markdown(board), encoding="utf-8")
     page_path.write_text(page(board), encoding="utf-8")
     return md, page_path
+
+
+WIPE_COLUMNS = ("date", "cases", "leaks", "losses", "leaked_values", "lost_terms", "withheld", "errors", "release",
+                "by_module")
+
+
+def wipe_tsv(p) -> Path:
+    return p.shared / "refresh" / "wipe.tsv"
+
+
+def wipe_history(p) -> list[dict]:
+    """The lines of <shared>/refresh/wipe.tsv (the wipe part of awb refresh writes them) as dicts, oldest first; a
+    line that does not parse is skipped."""
+    try:
+        text = wipe_tsv(p).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    rows = []
+    for line in text.splitlines():
+        cells = line.split("\t")
+        if len(cells) != len(WIPE_COLUMNS) or cells[0] == "date":
+            continue
+        row = dict(zip(WIPE_COLUMNS, cells))
+        try:
+            for key in ("cases", "leaks", "losses", "leaked_values", "lost_terms", "withheld", "errors"):
+                row[key] = int(row[key])
+        except ValueError:
+            continue
+        rows.append(row)
+    return rows
+
+
+def wipe_line(p) -> str:
+    """The line of the board: "wipe: L leaks, M losses of N (date)" from the last line of wipe.tsv."""
+    rows = wipe_history(p)
+    if not rows:
+        return "wipe: not measured yet"
+    r = rows[-1]
+    return "wipe: %d leaks, %d losses of %d (%s)" % (r["leaks"], r["losses"], r["cases"], r["date"])
 
 
 def locked(p) -> str | None:
@@ -205,6 +248,7 @@ def main(argv: list[str] | None = None) -> int:
     except projects_api.Unavailable as err:
         print("awb board: %s" % err, file=sys.stderr)
         return 1
+    board["wipe"] = wipe_line(p)
     if args.command == "show":
         from awb import hooks
 

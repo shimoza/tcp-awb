@@ -60,7 +60,9 @@ project, the send gate. The key service runs both again on the bytes it receives
 Every project keeps its status in the first two lines of `STATE.md` (`Status:` and `Next:`). A session cannot end
 a reply while its commits are newer than that status. `awb board show` turns the status of every active project into
 one page for management: what each project waits on, its open items, its deliverables by review state and its live
-resources, with codes only. `awb board write` keeps it as Markdown and as HTML that prints on A4.
+resources, with codes only. It also carries the wipe mode as the last refresh measured it: `awb refresh` runs the
+red-team pack of wipe mode through the installed intake and keeps its leaks and losses in `refresh/wipe.tsv`.
+`awb board write` keeps it as Markdown and as HTML that prints on A4.
 
 The console is the web side of the same work, behind a sign-in. It lists the projects with their status, files and
 deliverables, shows the board and what runs on the test tenants and creates a new query or project with its bucket

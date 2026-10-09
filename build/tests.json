@@ -2540,6 +2540,41 @@
    "name": "board and health carry the refused starts of today",
    "run": ".venv/bin/pytest tests/test_receipt.py::test_board_and_health_carry_the_refused_starts_of_today",
    "status": "passing"
+  },
+  {
+   "id": "RW-1",
+   "phase": "T-refresh-wipe",
+   "name": "refresh wipe: the counts of the pack land in the report and in wipe.tsv with the release",
+   "run": ".venv/bin/pytest tests/test_refresh_wipe.py::test_the_counts_land_in_the_report_and_in_wipe_tsv",
+   "status": "passing"
+  },
+  {
+   "id": "RW-2",
+   "phase": "T-refresh-wipe",
+   "name": "refresh wipe: more leaks or losses than the last line of wipe.tsv is overdue, an equal count is not",
+   "run": ".venv/bin/pytest tests/test_refresh_wipe.py::test_a_grown_count_marks_the_run_overdue_and_an_equal_one_does_not",
+   "status": "passing"
+  },
+  {
+   "id": "RW-3",
+   "phase": "T-refresh-wipe",
+   "name": "refresh wipe: a harness whose planted leak comes out clean records nothing",
+   "run": ".venv/bin/pytest tests/test_refresh_wipe.py::test_a_harness_whose_planted_leak_comes_out_clean_records_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "RW-4",
+   "phase": "T-refresh-wipe",
+   "name": "refresh wipe: an error of the wipe part does not stop the dataset",
+   "run": ".venv/bin/pytest tests/test_refresh_wipe.py::test_a_wipe_error_does_not_stop_the_dataset",
+   "status": "passing"
+  },
+  {
+   "id": "RW-5",
+   "phase": "T-refresh-wipe",
+   "name": "refresh wipe: the board carries the line of the last measurement",
+   "run": ".venv/bin/pytest tests/test_refresh_wipe.py::test_the_board_carries_the_wipe_line",
+   "status": "passing"
   }
  ],
  "total_tests": 363,

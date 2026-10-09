@@ -60,6 +60,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   of the new copies at its next prompt. `awb words update` rebuilds the word lists from the public mirrors.
 - The red-team pack of wipe mode: 405 invented cases in mails, chats, decks, code, tables, German and Russian text
   and typical TCP texts, run against the intake as built, with what is left written down.
+- The wipe mode is measured on every refresh. `awb refresh` runs the red-team pack through the installed intake
+  after the knowledge part and writes its leaks and losses per case module into the report and into
+  `refresh/wipe.tsv`. More leaks or losses than the last run is overdue, and a pack that cannot show a planted leak
+  records nothing. `awb board show` and the board page carry the line `wipe: L leaks, M losses of N (date)`.
 - The word lists that keep a text readable when the intake wipes names: the capitalised words and two-word phrases
   of the public TCP documentation and service description, German and Russian words of tender and architecture
   texts, first names, the products of the usual source platforms and vendors, standards, German function words and
