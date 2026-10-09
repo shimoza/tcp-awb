@@ -824,6 +824,11 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
                     stale.add(u)
     daemons = (host.daemons or owner_daemon_states)()
     timed = oneshot_units(tree, units)
+    held = held_sockets(tree, units)
+    # a service its socket starts on the first call is never waited for: it stays inactive until then, also when
+    # only its code changed and its socket did not restart
+    activated = sorted({socket_service(tree, units, u) for u in units if u.endswith(".socket") and u not in held}
+                       & set(units))
     plan_units = []
     for u, info in units.items():
         kind = daemon_kind(argvs[u]) if info["kind"] == "service" else None
@@ -891,6 +896,7 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
         "daemons": {k: {"state": v.get("state", "unknown"), "since": v.get("since"), "release": v.get("release"),
                         "codes": v.get("codes"), "aliases": v.get("aliases")} for k, v in daemons.items()},
         "probes": probes,
+        "activated": activated,
         "keep": keep,
     }
 
@@ -1033,6 +1039,9 @@ def validate_plan(plan, allowed_units: set[str]) -> dict:
         if al is not None and not (isinstance(al, list) and all(isinstance(a, str) and re.match(r"^[\w.-]{1,40}$", a)
                                                                 for a in al)):
             bad("aliases")
+    activated = plan.get("activated", [])
+    if not isinstance(activated, list) or not all(isinstance(u, str) and u in seen for u in activated):
+        bad("activated")
     probes = plan.get("probes")
     if not isinstance(probes, dict) or not all(
             k in seen and isinstance(v, str) and re.match(r"^/run/[A-Za-z0-9._/-]+$", v) and ".." not in v
@@ -1258,6 +1267,7 @@ def program_lines(plan: dict, opts: Options, host: Host, owner_name: str, work_n
     elif services:
         out.append("+ systemctl restart %s" % " ".join(u["unit"] for u in services))
     socket_services = {u["unit"][:-len(".socket")] + ".service" for u in acting if u["unit"].endswith(".socket")}
+    socket_services |= set(plan.get("activated", []))
     watch = [u["unit"] for u in acting if u["unit"] not in socket_services]
     if watch:
         out.append("+ wait until active: %s" % " ".join(watch))
@@ -1461,6 +1471,7 @@ class Run:
         acting = [u["unit"] for u in self.plan["units"]
                   if self.journal["units"][u["unit"]]["result"] in ("restarted", "reloaded")]
         socket_services = {u[:-len(".socket")] + ".service" for u in acting if u.endswith(".socket")}
+        socket_services |= set(self.plan.get("activated", []))
         watch = [u for u in acting if u not in socket_services]
         if not watch:
             return
@@ -1515,7 +1526,8 @@ class Run:
         units = self.journal["units"]
         probes = []
         for unit, path in self.plan["probes"].items():
-            if units.get(unit, {}).get("result") == "restarted":
+            service = unit[:-len(".socket")] + ".service"
+            if "restarted" in (units.get(unit, {}).get("result"), units.get(service, {}).get("result")):
                 probes += ["--probe", path]
         say("+ %s   # as %s" % (cmdline([self.host.bin, "deploy", "status", "--json"] + probes),
                                 self.caller.owner.pw_name))

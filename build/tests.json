@@ -2190,8 +2190,15 @@
    "name": "the customer socket answers the web user alone, its group is awb-web, the project side counts a customer by its outbox folder (replaces test_unix_peer_cannot_read_names_and_the_web_cannot_register)",
    "run": ".venv/bin/pytest tests/test_web_create_api.py tests/test_web_seal.py -k 'customer_socket or outbox_folder or f11'",
    "status": "passing"
+  },
+  {
+   "id": "T2-SOCK",
+   "phase": "T2",
+   "name": "deploy: a socket-activated service restarted without its socket is not waited for; the plan names those services, never one that holds its socket (planted from the deploy of 62004d7)",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_a_socket_activated_service_restarted_alone_is_not_waited_for",
+   "status": "passing"
   }
  ],
- "total_tests": 313,
+ "total_tests": 314,
  "checked": "2026-10-09"
 }

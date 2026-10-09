@@ -1181,3 +1181,25 @@ def test_deploy_decides_reload_or_restart_before_systemctl(world, tmp_path, caps
             [str(w.root / "releases" / w.c0 / "seal" / "setup.sh"), "--update", "--units-only"]]
         assert os.readlink(w.root / "src") == "releases/%s" % w.c0
         assert not w.runner.named("deploy", "unlock")
+
+
+def test_a_socket_activated_service_restarted_alone_is_not_waited_for(world, tmp_path, capsys):
+    """2026-10-09, planted from the deploy of 62004d7: only the code of awb-owner-actions.service changed, its
+    socket did not restart, and the service stays inactive until the gateway's first call. The deploy waited for
+    it to be active and marked it failed. The plan names the services their sockets start; a service that holds
+    its own socket (Sockets=) is not one of them."""
+    repo = tmp_path / "plan-repo"
+    shutil.copytree(synth_tree(tmp_path).root, repo)
+    git(repo, "init", "-q")
+    commit(repo)
+    plan = deploy.owner_plan(deploy.Options(), repo, plan_host(world, repo))
+    assert "awb-owner-actions.service" in plan["activated"] and "awb-customers.service" in plan["activated"]
+    assert "awb-web.service" not in plan["activated"] and "awb-keyd.service" not in plan["activated"]
+    world.runner.plan = world.plan(actions={"awb-owner-actions.service": "restart"},
+                                   activated=["awb-owner-actions.service"])
+    world.runner.unit("awb-owner-actions.service")["ActiveState"] = "inactive"
+    assert world.main([]) == 0
+    out = capsys.readouterr().out
+    assert "did not come back" not in out and "after the restart" not in out
+    j = json.loads((world.root / "DEPLOYED").read_text())
+    assert j["units"]["awb-owner-actions.service"]["result"] == "restarted" and j["pending"] == []

@@ -90,6 +90,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - A package upgrade no longer locks the Workbench. The project chat says when the name check is locked instead of
   calling the project unavailable.
 - The deploy no longer reports a restarted socket unit as failed.
+- The deploy no longer reports a socket-activated service as failed when only its code changed: such a service
+  stays inactive until its first call, so the deploy does not wait for it.
 - `awb web status` without sudo says the sign-in log needs sudo instead of stopping with an error.
 - A calendar invite whose lines are folded is read whole before names are looked for. A flavor id such as
   `rds.pg.c6.large.4` is no longer taken for a web address and the number at the end of a host name next to an IP
