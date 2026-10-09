@@ -99,6 +99,36 @@ def sync_project(root: Path) -> list[str]:
     return changed
 
 
+def current(root: Path | None, client: Path | None = None) -> bool:
+    """True when the rules a session would load are the installed ones: the client file `client` (the work user's
+    ~/.claude/CLAUDE.md, None to leave it out) is the installed work rules file byte for byte, and the template
+    lines of the project's CLAUDE.md and STATE.md are the current ones (`sync_project` would change nothing).
+    A file that cannot be read is not current. For the session-start receipt (awb/hooks.py)."""
+    from awb import projects
+
+    if client is not None:
+        try:
+            if Path(client).read_bytes() != Path(projects.RULES_FILE).read_bytes():
+                return False
+        except OSError:
+            return False
+    if root is None:
+        return True
+    for name, fixes, adds in (("CLAUDE.md", CLAUDE_FIXES, CLAUDE_ADD), ("STATE.md", STATE_FIXES, ())):
+        path = Path(root) / name
+        if not path.exists() and not path.is_symlink():
+            continue
+        try:
+            if path.is_symlink():
+                return False
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return False
+        if _fix_lines(text, fixes, adds) != text:
+            return False
+    return True
+
+
 def sync(p: config.Paths, codes: list[str] | None = None) -> list[tuple[str, list[str]]]:
     """Every active project, or the ones named: (code, files changed)."""
     from awb import projects

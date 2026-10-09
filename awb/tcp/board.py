@@ -206,7 +206,10 @@ def main(argv: list[str] | None = None) -> int:
         print("awb board: %s" % err, file=sys.stderr)
         return 1
     if args.command == "show":
+        from awb import hooks
+
         print(markdown(board), end="")
+        print("\n%s" % hooks.refused_line(p))
         return 0
     md, page_path = write(board, Path(args.out).expanduser())
     s = board["summary"]

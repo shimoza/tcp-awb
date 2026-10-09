@@ -2470,8 +2470,78 @@
    "name": "client settings carry the six hooks with the tool guard",
    "run": ".venv/bin/pytest tests/test_guard.py::test_client_settings_carry_the_six_hooks_with_the_tool_guard",
    "status": "passing"
+  },
+  {
+   "id": "TR-1",
+   "phase": "T-receipt",
+   "name": "every guard present gives the receipt line first",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_every_guard_present_gives_the_receipt_line_first",
+   "status": "passing"
+  },
+  {
+   "id": "TR-2",
+   "phase": "T-receipt",
+   "name": "each missing guard refuses the start with its name",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_each_missing_guard_refuses_the_start_with_its_name",
+   "status": "passing"
+  },
+  {
+   "id": "TR-3",
+   "phase": "T-receipt",
+   "name": "the daemon down refuses and the prompt passes once it answers",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_the_daemon_down_refuses_and_the_prompt_passes_once_it_answers",
+   "status": "passing"
+  },
+  {
+   "id": "TR-4",
+   "phase": "T-receipt",
+   "name": "a stale rules digest refuses",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_a_stale_rules_digest_refuses",
+   "status": "passing"
+  },
+  {
+   "id": "TR-5",
+   "phase": "T-receipt",
+   "name": "two missing guards are both named",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_two_missing_guards_are_both_named",
+   "status": "passing"
+  },
+  {
+   "id": "TR-6",
+   "phase": "T-receipt",
+   "name": "a locked vault gives the locked start",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_a_locked_vault_gives_the_locked_start",
+   "status": "passing"
+  },
+  {
+   "id": "TR-7",
+   "phase": "T-receipt",
+   "name": "the owner gets the receipt without the project repository",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_the_owner_gets_the_receipt_without_the_project_repository",
+   "status": "passing"
+  },
+  {
+   "id": "TR-8",
+   "phase": "T-receipt",
+   "name": "the key socket is the one of the key service",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_the_key_socket_is_the_one_of_the_key_service",
+   "status": "passing"
+  },
+  {
+   "id": "TR-9",
+   "phase": "T-receipt",
+   "name": "an unsealed host takes no receipt",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_an_unsealed_host_takes_no_receipt",
+   "status": "passing"
+  },
+  {
+   "id": "TR-10",
+   "phase": "T-receipt",
+   "name": "board and health carry the refused starts of today",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_board_and_health_carry_the_refused_starts_of_today",
+   "status": "passing"
   }
  ],
- "total_tests": 352,
+ "total_tests": 363,
  "checked": "2026-10-09"
 }

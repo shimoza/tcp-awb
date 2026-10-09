@@ -138,6 +138,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   without a project folder is refused on a sealed host. Every refusal is logged and the stop hook counts them per
   project and day next to the questions count (`awb report --by questions`). `awb hook selftest` and `awb seal
   check` fail when a planted refusal passes.
+- A session on a sealed host starts only with every guard proven active. The start hook checks that the managed
+  settings carry the hooks of the release and run the installed command, that the project's repository carries the
+  commit gate, that the vault daemon answers a check and the key service a ping, that the project's rules are the
+  installed ones and that the host mode is known. The context opens with `guards: 6 of 6 active (<release>)`. A
+  missing guard makes the context one line that names it (never a path), and every prompt is refused with the same
+  line until it is fixed. An owner session gets the line without the project check and is not refused. `awb board
+  show` and `/health` carry the count of sessions refused at start today.
 - A locked vault blocks every prompt of a work session instead of warning, with the time of the lock. A session
   starts without its project files while the name check cannot run.
 - The installed `awb` command runs the interpreter isolated, so a package planted in a user's own folders is never

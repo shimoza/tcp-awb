@@ -124,6 +124,26 @@ def is_work_user() -> bool:
         return False
 
 
+KNOWN_MODES = ("sealed",)
+"""The host modes this release knows. The private mode is designed (presentations/modes/DESIGN.md), not built."""
+_MODE_RE = re.compile(r"(?m)^[ \t]*mode[ \t]*=[ \t]*(.*?)[ \t]*$")
+
+
+def mode() -> str | None:
+    """The mode of a sealed host as the root host file (HOST_CONF) says it: the word of its `mode` line, "sealed"
+    when a host file that names a work user has no `mode` line (every host sealed before the line existed), None
+    without a work user. Read for every uid from the root file alone, never AWB_CONF. A word that is not in
+    KNOWN_MODES comes back as it is: the session-start receipt refuses it."""
+    try:
+        text = Path(HOST_CONF).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not _WORK_USER_RE.search(text):
+        return None
+    found = _MODE_RE.findall(text)
+    return found[-1] if found else "sealed"
+
+
 def host_conf() -> dict[str, str]:
     """Key and value pairs of the host file; an empty dict when there is none or it cannot be read. The work
     user reads the root host file only, never the one AWB_CONF names."""

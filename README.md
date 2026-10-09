@@ -336,6 +336,10 @@ customer data out of the model as far as it can:
 - Five hooks check every prompt, every written file and the start and end of every session, so that a registered
   name typed by mistake is stopped before the model sees it. While the name check cannot run (a locked vault),
   every prompt is refused with the time of the lock.
+- A session on the sealed host starts only when every guard answers: the hooks, the commit gate of the project, the
+  vault daemon, the key service, the installed rules and the host mode. Its context opens with "guards: 6 of 6
+  active"; a missing guard refuses the start and every prompt with one line that names it. `awb board show` counts
+  the sessions refused today.
 - A tool guard keeps a session inside its project: a file or shell call that reaches another project, the client's
   folder or a key folder is refused before it runs and logged. The Bash part reads the command line, so a path the
   shell builds at run time gets past it; the guard keeps an honest session in its lane and is no fence against a

@@ -212,11 +212,15 @@ def _money(value, currency: str) -> str:
 
 
 def health(p: config.Paths) -> str:
-    """"ok", opened by "locked since <time>" while the vault daemon says it is locked (T3)."""
+    """"ok", opened by "locked since <time>" while the vault daemon says it is locked (T3) and by the count of
+    sessions refused at start today while there is one (the receipt, awb/hooks.py)."""
+    from awb import hooks
     from awb.tcp import board
 
-    line = board.locked(p)
-    return "%s\nok\n" % line if line else "ok\n"
+    lines = [board.locked(p)]
+    if hooks.refused_today(p) != 0:
+        lines.append(hooks.refused_line(p))
+    return "".join("%s\n" % x for x in lines if x) + "ok\n"
 
 
 # --------------------------------------------------------------------------- the server
