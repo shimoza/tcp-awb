@@ -315,6 +315,9 @@ class ProjectStore:
                 self.journal.discard(key)
                 raise Problem(400, str(e)) from None
             result = {'code': pr.code, 'created': True}
+            if pr.folder_note.startswith('bucket folder not made'):
+                # spawn never stops on the bucket: the first take or awb bucket folder makes the folder later
+                result['warning'] = 'Project created. Its bucket folder is made later, by the first take.'
             try:
                 projects.record(self.p, pr, 'Started %s (%s project): %s' % (pr.code, kind, goal.strip()), tags=payload['tags'])
             except (ledger.LedgerError, OSError):

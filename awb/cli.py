@@ -267,6 +267,7 @@ def _cmd_spawn(args, p: config.Paths) -> int:
     pr = projects.spawn(p, args.kind, args.goal, args.customer, p.register, args.tag or [],
                         from_outbox=args.from_outbox)
     print("spawned %s (%s, customer %s): %s" % (pr.code, pr.kind, pr.customer, pr.path))
+    print(pr.folder_note)
     try:
         projects.record(p, pr, "Started %s (a %s): %s" % (pr.code, pr.kind, " ".join(args.goal.split())),
                         tags=args.tag or [])

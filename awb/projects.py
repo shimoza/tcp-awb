@@ -28,7 +28,7 @@ import subprocess
 import tempfile
 import unicodedata
 from contextlib import contextmanager
-from dataclasses import dataclass, replace as _replace
+from dataclasses import dataclass, field, replace as _replace
 from datetime import date
 from pathlib import Path
 
@@ -80,6 +80,7 @@ class Project:
     memory_key: str
     state: str
     created: str
+    folder_note: str = field(default="", compare=False, repr=False)   # what spawn did in the owner bucket
 
 
 class ProjectError(Exception):
@@ -633,7 +634,25 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
             raise
         for f in waiting:                    # moved, not copied: the copy in input/ is committed, the box empties
             f.unlink()
+    project.folder_note = bucket_folder(code)
     return project
+
+
+def bucket_folder(code: str) -> str:
+    """The project's folder `<YYYY-MM>/<code>/` with in/ and out/ in the owner bucket, made by the key service (op
+    owner_folder: the service holds the bucket key, the caller never does). Never refuses: when the service cannot
+    be reached the line says so, and the first take or `awb bucket folder CODE` makes the folder later."""
+    later = "the first take or awb bucket folder %s makes it" % code
+    try:
+        from awb.tcp import keys as _keys
+        answer = _keys.request(_keys.call_socket(), {"op": "owner_folder", "project": code}, timeout=30)
+    except Exception:                      # the key service is down or not installed: never a stop
+        return "bucket folder not made (key service not reached); %s" % later
+    folder = answer.get("folder") if answer.get("ok") else None
+    if not (isinstance(folder, str) and re.fullmatch(r"[0-9]{4}-[0-9]{2}/%s/" % re.escape(code), folder)):
+        why = answer.get("kind") or "refused"
+        return "bucket folder not made (%s); %s" % (why if why in ("locked", "refused", "rate") else "refused", later)
+    return "bucket folder %s%s with in/ and out/" % (folder, "" if answer.get("created") else " (there already)")
 
 
 def open_items(folder: Path) -> int:

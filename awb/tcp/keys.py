@@ -87,7 +87,7 @@ LEAVE_WAIT = 70.0
 """Seconds a handed-over service waits for its calls in flight (a cloud call takes at most 60) before it exits."""
 ADMIN_OPS = ("load", "lock", "notify", "ping", "reload", "status")
 EXCHANGE_METHODS = ("GET", "HEAD", "PUT", "DELETE", "LIST", "COPY", "MONTHS", "OBS", "OWNER_HAS", "TAKE_OWNER", "INBOX_FIND",
-                    "WEB_READ", "TAKE_LAB")
+                    "WEB_READ", "TAKE_LAB", "OWNER_FOLDER", "WEB_PUT_IN")
 NOTIFY_MAX = 4000      # characters of an owner mail through the admin socket (awb ui watch --mail)
 CONSOLE_USER = "awb-console"
 """The system user of the console's tenant inventory (F2, his decision of 2026-10-04): it alone reads a test tenant
@@ -392,6 +392,14 @@ class Service:
                         self._send(conn, {"ok": False, "error": refusal})
                         return
                     upload = self._receive(conn, buf[buf.index(b"\n") + 1:], req)
+                elif not admin and req.get("op") == "web_put_in":
+                    # the console's upload into a project's in/: the materials service runs as the owner, like
+                    # this service; any other peer is refused before a byte of the upload is stored
+                    if uid != os.getuid() or not self.tenants:
+                        self._send(conn, {"ok": False, "kind": "refused" if self.tenants else "locked",
+                                          "error": "refused"})
+                        return
+                    upload = self._receive(conn, buf[buf.index(b"\n") + 1:], req)
                 if admin:
                     answer = self._admin(req, uid)
                 else:
@@ -631,9 +639,11 @@ class Service:
                 return self._lease(req, uid)
             except Refused as err:
                 return {"ok": False, "error": str(err)}
-        if op in ("obs", "owner_has", "take_owner", "take_lab", "inbox_find"):
+        if op in ("obs", "owner_has", "take_owner", "take_lab", "inbox_find", "owner_folder"):
+            # owner_folder: spawn (the work user, the console's creation) asks for the project's folder in the
+            # owner bucket; the service makes it with the bucket key, which the caller never holds
             return self._exchange(op, req, uid, upload)
-        if op == "web_read":
+        if op in ("web_read", "web_put_in"):
             # the materials service of the web console runs as the owner, like this service; nobody else reads
             # the owner bucket through it
             if uid != os.getuid():
@@ -658,6 +668,10 @@ class Service:
                 status = answer.get("state", "ok")
             elif op == "inbox_find":
                 answer = xchg.serve_inbox_find(ctx, req)
+            elif op == "owner_folder":
+                answer = xchg.serve_owner_folder(ctx, req)
+            elif op == "web_put_in":
+                answer = xchg.serve_web_put_in(ctx, req, upload)
             elif op == "web_read":
                 answer, stream = xchg.serve_web_read(ctx, req)
                 status = "ok" if answer.get("ok") else answer.get("kind", "refused")

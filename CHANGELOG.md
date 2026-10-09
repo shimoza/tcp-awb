@@ -116,6 +116,18 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   a project's files from its own bucket folder `in/`. `--customer new` still issues a customer, and an empty line at
   its forms prompt issues the code without a form. A take or an import refused in a session says only `held: run
   awb import tcp-xxxx as the owner in your own terminal`.
+- Every project has its bucket folder from the start. `awb spawn` ends with `<YYYY-MM>/<code>/` with `in/` and
+  `out/` in the owner bucket (the console's creation runs the same spawn), made by the key service (new op
+  `owner_folder`; the work user never holds the bucket key). When the key service cannot be reached the spawn says so
+  in one line and goes on: the first take or `awb bucket folder CODE` makes the folder. `awb inbox take` lists the
+  new files of `in/` for a project with a customer too. "take the files from in" takes all of them.
+- The owner page of the console puts files into a project's folder `in/` (`POST
+  /api/projects/{code}/materials/upload`, owner host only, at most 25 MB; only the extension travels, never the file
+  name; key service op `web_put_in` for the owner's processes alone). The page says the session takes them with
+  "take the files from in". Its source browser and import button are gone.
+- The work rules say that material lies in the project's `in/`, that no customer is normal and that a text he wrote
+  and pastes is his brief. The hold line is for an unreadable file of `in/` alone. The sentence about
+  `inbox/CUST-XXXX/` is gone from the rules, the README and COMMANDS.md.
 
 ### Security
 

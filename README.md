@@ -47,9 +47,10 @@ words which one you mean ("the pdf", "the newest", a part of its name). The sess
 | the lab inbox | material without customer content: vendor images, test data, public documents | the file itself, after the name check |
 | the owner inbox | anything that may hold customer material | only the sanitised copies of the owner's intake, never the original |
 
-A file of the owner inbox goes to the project's customer. For a project without a customer, drop it into the
-folder of its customer, `inbox/CUST-XXXX/`. The key service checks every file of the lab inbox before the session
-gets it.
+Every project also has its own folder `<YYYY-MM>/<code>/in/` in the owner bucket. `awb spawn` makes it through
+the key service. The console puts files there. The project code is the one identifier: a customer code exists
+only when a customer is registered. A project without one is normal. A file of the owner inbox goes to the
+project's customer. The key service checks every file of the lab inbox before the session gets it.
 
 Results go back with `awb xchg put` into the project's own folder, after the name check and, for a customer
 project, the send gate. The key service runs both again on the bytes it receives. A mail tells you about each file.
@@ -62,8 +63,9 @@ one page for management: what each project waits on, its open items, its deliver
 resources, with codes only. `awb board write` keeps it as Markdown and as HTML that prints on A4.
 
 The console is the web side of the same work, behind a sign-in. It lists the projects with their status, files and
-deliverables, shows the board and what runs on the test tenants, creates a new query or project and imports chosen
-files from the buckets into a project. Each project has a chat that reads its sanitised inputs. The Ask page answers
+deliverables, shows the board and what runs on the test tenants and creates a new query or project with its bucket
+folder. On the owner host it puts files into a project's folder `in/`; the session takes them with "take the files
+from in". Each project has a chat that reads its sanitised inputs. The Ask page answers
 a general question in plain words only from the knowledge base, the live price API and the tenant snapshots.
 
 ## Deploy
@@ -261,7 +263,10 @@ the file names inside the key service: the same letters, a kind of file ("the pd
 newest" or a part of the name. One match is taken. None or several list both inboxes, without any name of the owner
 inbox. The session takes the one you mean with `--id`. `--all` takes every file of both inboxes. A file of the
 owner inbox goes through your intake in wipe mode and the session gets only the sanitised copies; the original goes
-to the vault.
+to the vault. The new files of the project's own folder `in/` are listed beside the inboxes for every project.
+"take the files from in" takes all of them through the same intake: for the project's customer if it has one, else
+with no customer code and every name a token. A project without a customer takes nothing from the owner inbox. A
+text you wrote yourself and paste into the chat is your brief, not customer material: the session works with it.
 
 A file of the lab inbox with a registered name is held, and so is a file of the owner inbox that cannot be read as
 text. A pdf, a sheet or an archive from the lab inbox lands in `input/opaque/`, which `.gitignore` keeps out of git. You get a mail with the one command to run (`awb import tcp-xxxx`). Results come back with
@@ -361,7 +366,7 @@ line: `/etc/awb/blocklist.txt` or `~/.config/awb/blocklist.txt`. It never enters
 | after a commit | `sudo awb deploy`: the vault and the keys stay unlocked |
 | after a library upgrade | `sudo awb deploy --only awb-vaultd.service awb-keyd.service` |
 | a new project, close or delete | as `awb`: projects belong to the work user |
-| a customer's material | as the owner: `awb import tcp-xxxx` (it asks for the customer's names on the first import); the session hears of the copies at its next prompt |
+| a customer's material | as the owner: `awb import tcp-xxxx` (it asks for the customer's names on the first import; a project without a customer needs no names); the session hears of the copies at its next prompt |
 
 ## Layout
 

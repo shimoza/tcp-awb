@@ -28,6 +28,8 @@ from pathlib import Path
 from urllib.parse import urlsplit, parse_qs, urlencode
 
 MAX_BODY = 16_384
+MAX_UPLOAD = 25 * 1024 * 1024   # one file of the owner page into a project's in/ (the materials service's limit)
+UPLOAD_PATH = re.compile(r'/api/projects/tcp-[a-z2-7]{4}/materials/upload')
 MAX_RESPONSE = 12 * 1024 * 1024
 BACKEND_ROUTES = {'/kb', '/price', '/projects', '/reviews', '/tenants', '/health', '/portal', '/ask'}
 
@@ -660,7 +662,7 @@ def is_moved(path, method):
     """The routes that show or take customer data or create something: on the owner host only (T9 step 2)."""
     return (path == '/api/customers' or (path == '/api/projects' and method == 'POST')
             or bool(re.fullmatch(r'/api/(?:customer|project)-operations/[a-f0-9]{32}', path))
-            or bool(re.fullmatch(r'/api/projects/tcp-[a-z2-7]{4}/materials(?:/(?:sources|imports|M-[A-Z]{24}))?', path)))
+            or bool(re.fullmatch(r'/api/projects/tcp-[a-z2-7]{4}/materials(?:/(?:sources|imports|upload|M-[A-Z]{24}))?', path)))
 
 
 def document_csp(data):
@@ -743,7 +745,7 @@ class Gateway(BaseHTTPRequestHandler):
             self.reply(400, b'Invalid form.\n')
             return None
 
-    def read_body(self, expected_type):
+    def read_body(self, expected_type, limit=MAX_BODY):
         """The body of a POST after the length and type checks, or None when a refusal was sent."""
         lengths = self.headers.get_all('Content-Length', [])
         if self.headers.get('Transfer-Encoding') or len(lengths) != 1:
@@ -753,7 +755,7 @@ class Gateway(BaseHTTPRequestHandler):
             length = int(lengths[0])
         except ValueError:
             length = -1
-        if not 0 <= length <= MAX_BODY:
+        if not 0 <= length <= limit:
             self.reply(413, b'Request is too large.\n')
             return None
         if self.headers.get('Content-Type', '').split(';')[0].lower() != expected_type:
@@ -937,7 +939,7 @@ class Gateway(BaseHTTPRequestHandler):
             return ('tcp', s.projects_port)
         if reader_pages and re.fullmatch(r'/api/projects/tcp-[a-z0-9]{4}/chat', path):
             return ('tcp', s.ask_port)
-        if re.fullmatch(r'/api/projects/tcp-[a-z2-7]{4}/materials(?:/(?:sources|imports|M-[A-Z]{24}))?', path):
+        if re.fullmatch(r'/api/projects/tcp-[a-z2-7]{4}/materials(?:/(?:sources|imports|upload|M-[A-Z]{24}))?', path):
             return ('unix', s.materials_socket)
         if path == '/api/customers' or re.fullmatch(r'/api/customer-operations/[a-f0-9]{32}', path):
             return ('unix', s.customer_socket)
@@ -954,6 +956,11 @@ class Gateway(BaseHTTPRequestHandler):
         if self.command == 'POST':
             forwarded.update({'Origin': 'https://' + self.server.domain,
                               'Content-Type': self.headers.get('Content-Type', '').split(';')[0].lower()})
+            if UPLOAD_PATH.fullmatch(urlsplit(target).path):
+                # the upload names its extension alone, never a file name (D-F3)
+                ext = self.headers.get('X-AWB-Extension', '').lower()
+                if re.fullmatch(r'\.[a-z0-9]{1,8}', ext):
+                    forwarded['X-AWB-Extension'] = ext
         conn = UnixConnection(where) if kind == 'unix' else http.client.HTTPConnection('127.0.0.1', where, timeout=150)
         try:
             conn.request('GET' if self.command == 'HEAD' else self.command, target, body=body, headers=forwarded)
@@ -1073,7 +1080,8 @@ class Gateway(BaseHTTPRequestHandler):
             if not (path == '/api/projects' or is_moved(path, 'POST') or path in OWNER_POSTS):
                 self.reply(405, b'Method not allowed.\n')
                 return
-            body = self.read_body('application/json')
+            upload = bool(UPLOAD_PATH.fullmatch(path))
+            body = self.read_body('application/octet-stream', MAX_UPLOAD) if upload else self.read_body('application/json')
             if body is None:
                 return
             if path == '/api/owner/publish' and not self.fresh_code(body):

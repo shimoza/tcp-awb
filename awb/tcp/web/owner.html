@@ -50,9 +50,9 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 <label for="np-tags">Tags</label><select id="np-tags" multiple size="4"></select>
 <p><button type="submit">Create</button></p><p class="note" id="np-note" role="status"></p></form></section>
 <section aria-labelledby="h-materials"><h2 id="h-materials">Materials</h2>
-<div class="row"><div><label for="m-project">Project</label><select id="m-project"></select></div><div><label for="m-source">Source</label><select id="m-source"><option value="customer">customer</option><option value="brief">brief</option></select></div></div>
-<p class="row"><button type="button" id="m-list">List the source</button><button type="button" id="m-import" disabled>Import the chosen files</button></p>
-<div class="scroll"><table><thead><tr><th></th><th>File</th><th>Size</th><th>Modified</th><th>Status</th></tr></thead><tbody id="m-files"></tbody></table></div>
+<form id="m-upload"><div class="row"><div><label for="m-project">Project</label><select id="m-project"></select></div><div><label for="m-file">Files, up to 25 MB each</label><input id="m-file" type="file" multiple required></div></div>
+<p><button type="submit" id="m-send">Put into the project folder in/</button></p>
+<p class="note muted">The files wait in the project folder in/. The session takes it with: take the files from in</p></form>
 <h2>In the project</h2><div class="scroll"><table><thead><tr><th>Id</th><th>Type</th><th>State</th><th>Imported</th></tr></thead><tbody id="m-history"></tbody></table></div>
 <p class="note" id="m-note" role="status"></p></section>
 <section class="wide" aria-labelledby="h-tenants"><h2 id="h-tenants">Tenants</h2><table><thead><tr><th>Alias</th><th>IAM domain</th><th>Status</th><th>Servers</th><th>Disks</th></tr></thead><tbody id="tenants"></tbody></table></section>
@@ -146,29 +146,31 @@ function loadHistory(){
     d.items.forEach(function(i){var tr=document.createElement("tr");cell(tr,i.id);cell(tr,i.extension||"-");cell(tr,i.state,i.state==="ready"?"ok":i.state==="failed"||i.state==="held"?"bad":"");cell(tr,when(i.created));body.appendChild(tr);});
   }).catch(function(e){el("m-note").textContent=e.message;});
 }
-var listed=[];
-function listSource(){
-  var code=el("m-project").value;if(!code){return;}
-  el("m-note").textContent="Listing.";el("m-import").disabled=true;
-  api("/api/projects/"+encodeURIComponent(code)+"/materials/sources?source="+encodeURIComponent(el("m-source").value)).then(function(d){
-    listed=d.files;var body=el("m-files");clear(body);el("m-note").textContent="";
-    if(!listed.length){empty(body,5,"The source is empty.");return;}
-    listed.forEach(function(f,i){
-      var tr=document.createElement("tr");var td=document.createElement("td");var box=document.createElement("input");
-      box.type="checkbox";box.dataset.index=String(i);box.disabled=!f.supported||f.status==="imported"||f.status==="processing";box.setAttribute("aria-label","Choose "+f.name);
-      box.addEventListener("change",function(){el("m-import").disabled=!document.querySelector("#m-files input:checked");});
-      td.appendChild(box);tr.appendChild(td);cell(tr,f.name);cell(tr,bytes(f.size));cell(tr,when(f.modified));cell(tr,f.supported?f.status:"not supported");body.appendChild(tr);
-    });
-  }).catch(function(e){el("m-note").textContent=e.message;});
+var UPLOAD_TYPES=[".md",".txt",".csv",".tsv",".json",".yaml",".yml",".pdf",".docx",".xlsx",".pptx",".odt",".ods",".odp"];
+function extensionOf(name){var m=/\.[A-Za-z0-9]{1,8}$/.exec(name||"");return m?m[0].toLowerCase():"";}
+function putOne(code,file){
+  // the file name stays in the browser: only the bytes and the extension go to the server
+  return fetch("/api/projects/"+encodeURIComponent(code)+"/materials/upload",{method:"POST",credentials:"same-origin",
+    headers:{"Content-Type":"application/octet-stream","X-AWB-CSRF":csrf,"X-AWB-Extension":extensionOf(file.name)},body:file})
+  .then(function(r){
+    if(r.status===401){location.href="/login";throw new Error("signed out");}
+    var type=r.headers.get("Content-Type")||"";
+    if(type.indexOf("application/json")!==0){throw new Error(r.status===403?"The owner page expired. Reload it.":r.status===413?"A file is larger than 25 MB.":"The request was refused ("+r.status+").");}
+    return r.json().then(function(data){if(!r.ok){throw new Error(data.error||("The request was refused ("+r.status+")."));}return data;});
+  });
 }
-function importChosen(){
-  var code=el("m-project").value;
-  var files=Array.prototype.map.call(document.querySelectorAll("#m-files input:checked"),function(b){var f=listed[Number(b.dataset.index)];return {id:f.id,etag:f.etag};}).slice(0,10);
-  if(!files.length){return;}
-  el("m-import").disabled=true;
-  api("/api/projects/"+encodeURIComponent(code)+"/materials/imports",{method:"POST",body:{request_id:rid(),files:files}}).then(function(d){
-    el("m-note").textContent="Queued: "+d.imports.length+" file(s).";loadHistory();
-  }).catch(function(e){el("m-note").textContent=e.message;});
+function uploadFiles(ev){
+  ev.preventDefault();
+  var code=el("m-project").value,files=Array.prototype.slice.call(el("m-file").files||[]);
+  if(!code||!files.length){return;}
+  var bad=files.filter(function(f){return UPLOAD_TYPES.indexOf(extensionOf(f.name))<0||f.size<=0||f.size>25*1048576;});
+  if(bad.length){el("m-note").textContent=bad.length+" file(s) of a type or size the project cannot take. Nothing was sent.";return;}
+  el("m-send").disabled=true;var done=0,last="";
+  el("m-note").textContent="Sending "+files.length+" file(s).";
+  files.reduce(function(chain,f){return chain.then(function(){return putOne(code,f).then(function(d){done+=1;last=d.message||"";});});},Promise.resolve())
+  .then(function(){el("m-note").textContent=done+" file(s) in the project folder in/ of "+code+". "+last;el("m-file").value="";})
+  .catch(function(e){el("m-note").textContent=done+" of "+files.length+" file(s) sent. "+e.message;})
+  .then(function(){el("m-send").disabled=false;});
 }
 function createProject(ev){
   ev.preventDefault();
@@ -198,9 +200,8 @@ function publishRun(ev){
 }
 el("publish").addEventListener("submit",publishRun);
 el("new-project").addEventListener("submit",createProject);
-el("m-list").addEventListener("click",listSource);
-el("m-import").addEventListener("click",importChosen);
-el("m-project").addEventListener("change",function(){clear(el("m-files"));listed=[];loadHistory();});
+el("m-upload").addEventListener("submit",uploadFiles);
+el("m-project").addEventListener("change",loadHistory);
 loadState().then(function(){loadRuns();loadIntake();loadCustomers();loadOptions();loadProjects();loadTenants();});
 setInterval(function(){loadState();loadRuns();},60000);
 })();

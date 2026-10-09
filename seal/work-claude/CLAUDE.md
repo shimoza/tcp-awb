@@ -10,9 +10,9 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   it). A name the register does not know: never repeat it. Terminal output goes through `awb paste`, not into the chat.
 - When a document points to a customer in another way (a logo, a product, a description), say which kind and
   where, never what it says. Never invent a code: take it from SCOPE.md, from the outbox or from him.
-- Material comes in through his `awb import CODE`, you never see an original. Its copies (outbox, to `input/`) carry
-  the customer as its code and every name the rules recognise as a token; a `[name]` by a number may be a term.
-  A held take or a missing file is one line: `held: run awb import tcp-xxxx as the owner in your own terminal`.
+- Material lies in the project's `in/`: you take it or his `awb import CODE` does. Copies carry every name the rules
+  recognise as a token, a customer as its code. No customer is normal. A text he wrote and pastes is his brief. An
+  unreadable file of `in/` alone is one line: `held: run awb import tcp-xxxx as the owner in your own terminal`.
 
 ## Where things are
 
@@ -40,9 +40,9 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 - Never ask again after a "go", "давай" or "делай": a "go" covers the whole list it answers to. A command for him only
   when he alone can run it: one line of context, one block, the user and the window named, never an `awb intake`,
   register or bucket block. At most one command block per reply; a held take: one line naming the user and the command.
-- Files: he describes a file, never names it. `awb inbox take HIS WORDS` takes the bucket inbox file they match, never
-  the vault (`--all`: all); none or several: it lists both, pick by his words or ask, then `--id ID`. Results go out
-  with `awb xchg put FILE`: codes only, no ids in logs, a screenshot only with `--image` and why it is clean.
+- Files: he describes a file, never names it. `awb inbox take HIS WORDS` takes the match of `in/` or the lab inbox
+  ("from in": all of `in/`); none or several: pick or ask, then `--id ID`. Results go out with `awb xchg put FILE`:
+  codes only, no ids in logs, a screenshot only with `--image` and why it is clean.
 - `awb cloud tenants` lists the test tenants; `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role lab]` reaches
   them through the key service. A password goes into a body only as `{{secret:NAME}}`, a key never.
 - `awb kb find|add|scope`, `awb ledger add`, `awb report --by KEY`, `awb career add`. `awb check`, `awb write check` and

@@ -745,6 +745,13 @@ def _schemas() -> dict:
                 "etag": string("The etag of the listing. A file that changed since is refused."),
             }, closed=True), "1 to 10 files of the last listing, each once.", minItems=1, maxItems=10),
         }, closed=True),
+        "UploadStored": obj({
+            "id": string("The id of the object in the project's folder in/; the file name stays in the browser."),
+            "extension": string(),
+            "size": integer(),
+            "folder": string("Always in/."),
+            "message": string("The sentence for the page: the session takes the file from in/."),
+        }, required=["id", "extension", "size", "folder", "message"]),
         "ImportAccepted": obj({
             "imports": array(ref("MaterialId"), "One id per file, in the order sent. A version imported before "
                                                 "keeps its id."),
@@ -1219,6 +1226,33 @@ def _material_paths() -> dict:
                 parameters=[CODE],
                 body=json_body("ImportRequest", {"one-file": {"request_id": REQ, "files": [{"id": SOURCE,
                                                                                          "etag": ETAG}]}}),
+                post=True),
+        },
+        "/api/projects/{code}/materials/upload": {
+            "post": operation("uploadMaterial", "materials", "Put one file into the project's folder in/.", {
+                "201": answer("Stored in in/.", ref("UploadStored"), {"stored": {
+                    "id": "upload-20261009-101500-a1b2c3.pdf", "extension": ".pdf", "size": 48213, "folder": "in/",
+                    "message": "The file is in the project folder in/. The session takes it with: take the files "
+                               "from in"}}),
+                "400": refusal("The content is refused.", "Invalid request.", "Incomplete request."),
+                "404": refusal("No such project.", NO_PROJECT),
+                "409": refusal("The project cannot take files now.", REOPEN, CUSTOMER_RETIRED),
+                "413": refusal("The file is of an unknown type, empty or larger than 25 MB.",
+                               "The file type or size is unsupported."),
+                "503": refusal("The file could not be stored.", "The file could not be stored. Try again later.",
+                               INPUT_DOWN, KEYS_LOCKED, KEYS_DOWN),
+            }, description="The body is the file's bytes (application/octet-stream, at most 25 MB) and the header "
+                           "X-AWB-Extension its extension (.pdf, .docx, .xlsx, .md ...); the file name never leaves "
+                           "the browser. The key service puts it under an id into the project's folder in/ of the "
+                           "owner bucket and makes the folder when it is missing. Nothing is imported here: the "
+                           "project session takes the file (awb inbox take, \"take the files from in\"), which runs "
+                           "the intake on the owner side. Works for a project with and without a customer.",
+                parameters=[CODE, {"name": "X-AWB-Extension", "in": "header", "required": True,
+                                   "description": "The extension of the file, a dot and 1 to 8 letters or digits.",
+                                   "schema": {"type": "string", "pattern": "^\\.[a-z0-9]{1,8}$"}}],
+                body={"required": True, "content": {"application/octet-stream": {
+                    "schema": {"type": "string", "format": "binary"},
+                    "examples": _examples({"a-pdf": "<the bytes of the file>"})}}},
                 post=True),
         },
         "/api/projects/{code}/materials/{material_id}": {

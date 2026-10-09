@@ -2225,8 +2225,162 @@
    "name": "dataset: README, PROMPT.md, HOW-TO.pdf carry the section 'Before you use it with a public model' and the line 'How you use it is your responsibility as the user.'; facts.md and topics/*.md carry the rule line",
    "run": ".venv/bin/pytest tests/test_dataset.py::test_the_warning_for_public_models_is_in_the_readme_the_prompt_the_pdf_and_the_rules",
    "status": "passing"
+  },
+  {
+   "id": "NC-1",
+   "phase": "T4",
+   "name": "a project without a customer imports without --customer: a planted person and a planted company come out as tokens and no code, copies and public report under the project code, the session hears of them",
+   "run": ".venv/bin/pytest tests/test_import.py::test_a_project_without_a_customer_runs_with_tokens_and_no_code",
+   "status": "passing"
+  },
+  {
+   "id": "NC-2",
+   "phase": "T4",
+   "name": "a project without a customer imports its bucket folder in/",
+   "run": ".venv/bin/pytest tests/test_import.py::test_a_project_without_a_customer_takes_its_bucket_folder_in",
+   "status": "passing"
+  },
+  {
+   "id": "NC-3",
+   "phase": "T4",
+   "name": "--customer new: an empty first line of the forms prompt issues the code without a form and the import runs",
+   "run": ".venv/bin/pytest tests/test_import.py::test_the_forms_prompt_needs_a_terminal_and_an_empty_line_issues_the_code_without_a_form",
+   "status": "passing"
+  },
+  {
+   "id": "NC-4",
+   "phase": "T4",
+   "name": "awb import in a session is refused with the one line of the work rules only",
+   "run": ".venv/bin/pytest tests/test_import.py::test_refused_in_a_session_with_the_one_line_of_the_work_rules",
+   "status": "passing"
+  },
+  {
+   "id": "NC-5",
+   "phase": "T4",
+   "name": "awb inbox take in a project without a customer takes from its own folder in/: tokens, no code, the file stays, taken once",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_a_project_without_a_customer_takes_from_its_own_folder_in",
+   "status": "passing"
+  },
+  {
+   "id": "NC-6",
+   "phase": "T4",
+   "name": "awb inbox take of an owner inbox file in a project without a customer is refused with the one line, the file stays",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_a_project_without_a_customer_is_refused_the_owner_inbox_with_the_one_line",
+   "status": "passing"
+  },
+  {
+   "id": "NC-7",
+   "phase": "T4",
+   "name": "an owner inbox customer folder is for projects with that customer; a project without one is refused with the one line",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_f5_a_customer_folder_of_the_owner_inbox_is_for_projects_with_that_customer",
+   "status": "passing"
+  },
+  {
+   "id": "NC-8",
+   "phase": "T4",
+   "name": "awb bucket pull needs a folder and takes a project without a customer under its code",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_pull_needs_a_folder_and_takes_a_project_without_a_customer_under_its_code",
+   "status": "passing"
+  },
+  {
+   "id": "NC-9",
+   "phase": "T4",
+   "name": "awb vault show finds the private report of a project without a customer",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_show_finds_the_private_report_of_a_project_without_a_customer",
+   "status": "passing"
+  },
+  {
+   "id": "PF-1",
+   "phase": "T4",
+   "name": "spawn makes the bucket folder <YYYY-MM>/<code>/ with in/ and out/ through the key service (op owner_folder)",
+   "run": ".venv/bin/pytest tests/test_project_folder.py::test_spawn_makes_the_bucket_folder_through_the_key_service",
+   "status": "passing"
+  },
+  {
+   "id": "PF-2",
+   "phase": "T4",
+   "name": "spawn refuses nothing when the key service cannot be reached and says in one line who makes the folder later",
+   "run": ".venv/bin/pytest tests/test_project_folder.py::test_spawn_refuses_nothing_when_the_bucket_is_unreachable",
+   "status": "passing"
+  },
+  {
+   "id": "PF-3",
+   "phase": "T4",
+   "name": "spawn with a locked key service says locked and goes on",
+   "run": ".venv/bin/pytest tests/test_project_folder.py::test_spawn_with_a_locked_key_service_says_locked_and_goes_on",
+   "status": "passing"
+  },
+  {
+   "id": "PF-4",
+   "phase": "T4",
+   "name": "the folder op makes nothing for a code that is no active project",
+   "run": ".venv/bin/pytest tests/test_project_folder.py::test_the_folder_op_makes_no_folder_for_a_code_that_is_no_active_project",
+   "status": "passing"
+  },
+  {
+   "id": "PF-5",
+   "phase": "T4",
+   "name": "the console creation runs the same spawn and the folder appears",
+   "run": ".venv/bin/pytest tests/test_project_folder.py::test_the_console_creation_runs_the_same_spawn_and_the_folder_appears",
+   "status": "passing"
+  },
+  {
+   "id": "PF-6",
+   "phase": "T4",
+   "name": "the console creation warns when the folder waits for the first take",
+   "run": ".venv/bin/pytest tests/test_project_folder.py::test_the_console_creation_warns_when_the_folder_waits",
+   "status": "passing"
+  },
+  {
+   "id": "PF-7",
+   "phase": "T4",
+   "name": "the owner page upload lands in the project's in/ under an id, no file name, nothing imported",
+   "run": ".venv/bin/pytest tests/test_project_folder.py::test_the_owner_page_upload_lands_in_the_project_folder_under_an_id",
+   "status": "passing"
+  },
+  {
+   "id": "PF-8",
+   "phase": "T4",
+   "name": "the owner page upload refuses an unknown type and an empty file",
+   "run": ".venv/bin/pytest tests/test_project_folder.py::test_the_owner_page_upload_refuses_an_unknown_type_and_an_empty_file",
+   "status": "passing"
+  },
+  {
+   "id": "PF-9",
+   "phase": "T4",
+   "name": "the key service takes an upload from its own user alone",
+   "run": ".venv/bin/pytest tests/test_project_folder.py::test_the_key_service_takes_an_upload_from_its_own_user_alone",
+   "status": "passing"
+  },
+  {
+   "id": "PF-10",
+   "phase": "T4",
+   "name": "the gateway forwards an upload on the owner host alone with its extension",
+   "run": ".venv/bin/pytest tests/test_project_folder.py::test_the_gateway_forwards_an_upload_on_the_owner_host_alone_with_its_extension",
+   "status": "passing"
+  },
+  {
+   "id": "PF-11",
+   "phase": "T4",
+   "name": "the gateway refuses an upload over 25 MB before reading it",
+   "run": ".venv/bin/pytest tests/test_project_folder.py::test_the_gateway_refuses_an_upload_over_25_mb_before_reading_it",
+   "status": "passing"
+  },
+  {
+   "id": "PF-12",
+   "phase": "T4",
+   "name": "a console upload is taken with 'take the files from in': tokens, the customer code only with a customer, taken once",
+   "run": ".venv/bin/pytest tests/test_project_folder.py::test_a_console_upload_is_taken_with_take_the_files_from_in",
+   "status": "passing"
+  },
+  {
+   "id": "PF-13",
+   "phase": "T4",
+   "name": "the work rules name in/ as the place of material and the brief he pastes; no inbox/CUST-XXXX/ in the rules, README or COMMANDS",
+   "run": ".venv/bin/pytest tests/test_project_folder.py::test_the_work_rules_name_in_as_the_place_of_material_and_the_brief_he_pastes",
+   "status": "passing"
   }
  ],
- "total_tests": 317,
+ "total_tests": 339,
  "checked": "2026-10-09"
 }

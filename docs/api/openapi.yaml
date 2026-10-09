@@ -2361,6 +2361,203 @@ paths:
           variables:
             owner_host:
               default: owner.example.com
+  "/api/projects/{code}/materials/upload":
+    post:
+      operationId: uploadMaterial
+      tags:
+        - materials
+      summary: Put one file into the project's folder in/.
+      description: "The body is the file's bytes (application/octet-stream, at most 25 MB) and the header X-AWB-Extension its extension (.pdf, .docx, .xlsx, .md ...); the file name never leaves the browser. The key service puts it under an id into the project's folder in/ of the owner bucket and makes the folder when it is missing. Nothing is imported here: the project session takes the file (awb inbox take, \"take the files from in\"), which runs the intake on the owner side. Works for a project with and without a customer. On the owner host only since T9 step 2; the main host answers 404 Not found."
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: "The project code: tcp- and four characters of a to z and 2 to 7."
+          schema:
+            type: string
+            pattern: "^tcp-[a-z2-7]{4}$"
+        - name: X-AWB-Extension
+          in: header
+          required: true
+          description: The extension of the file, a dot and 1 to 8 letters or digits.
+          schema:
+            type: string
+            pattern: "^\\.[a-z0-9]{1,8}$"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+            examples:
+              a-pdf:
+                value: "<the bytes of the file>"
+      responses:
+        "201":
+          description: Stored in in/.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/UploadStored"
+              examples:
+                stored:
+                  value:
+                    id: upload-20261009-101500-a1b2c3.pdf
+                    extension: ".pdf"
+                    size: 48213
+                    folder: in/
+                    message: "The file is in the project folder in/. The session takes it with: take the files from in"
+        "400":
+          description: The content is refused. The gateway refused the request.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                invalid-request:
+                  value:
+                    error: Invalid request.
+                incomplete-request:
+                  value:
+                    error: Incomplete request.
+            text/html:
+              schema:
+                type: string
+              examples:
+                a-single-content-length-is:
+                  value: |
+                    A single content length is required.
+                incomplete-request:
+                  value: |
+                    Incomplete request.
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "403":
+          description: "The gateway refused a request from another site. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-ask-on-the-awb:
+                  value: |
+                    Open Ask on the AWB site to submit a question.
+                cross-site-requests-are-not:
+                  value: |
+                    Cross-site requests are not allowed.
+                the-owner-page-expired-reload:
+                  value: |
+                    The owner page expired. Reload it.
+        "404":
+          description: No such project.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                project-not-found:
+                  value:
+                    error: Project not found.
+        "408":
+          description: The body did not arrive in time.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-timed-out:
+                  value: |
+                    Request timed out.
+        "409":
+          description: The project cannot take files now.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                reopen-this-project-before-importing:
+                  value:
+                    error: Reopen this project before importing files.
+                the-customer-is-unavailable-or:
+                  value:
+                    error: The customer is unavailable or retired.
+        "413":
+          description: The file is of an unknown type, empty or larger than 25 MB. The body is larger than 16384 bytes.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-file-type-or-size:
+                  value:
+                    error: The file type or size is unsupported.
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-is-too-large:
+                  value: |
+                    Request is too large.
+        "415":
+          description: The body has the wrong content type.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                use-the-ask-form:
+                  value: |
+                    Use the Ask form.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The file could not be stored.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-file-could-not-be:
+                  value:
+                    error: The file could not be stored. Try again later.
+                the-input-service-is-unavailable:
+                  value:
+                    error: The input service is unavailable. Check the bucket connection and vault.
+                the-key-service-is-locked:
+                  value:
+                    error: The key service is locked. The owner unlocks it in his terminal.
+                the-key-service-is-unavailable:
+                  value:
+                    error: The key service is unavailable. Try again later.
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
   "/api/projects/{code}/materials/{material_id}":
     get:
       operationId: getMaterial
@@ -4639,6 +4836,28 @@ components:
         - request_id
         - files
       additionalProperties: false
+    UploadStored:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "The id of the object in the project's folder in/; the file name stays in the browser."
+        extension:
+          type: string
+        size:
+          type: integer
+        folder:
+          type: string
+          description: Always in/.
+        message:
+          type: string
+          description: "The sentence for the page: the session takes the file from in/."
+      required:
+        - id
+        - extension
+        - size
+        - folder
+        - message
     ImportAccepted:
       type: object
       properties:

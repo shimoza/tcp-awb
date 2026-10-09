@@ -42,6 +42,11 @@ MAX_FILE=25*1024*1024
 MAX_TEXT=256*1024
 MAX_OBJECTS=2000
 SUPPORTED={'.md','.txt','.csv','.tsv','.json','.yaml','.yml','.pdf','.docx','.xlsx','.pptx','.odt','.ods','.odp'}
+# the console's upload (2026-10-09): the file lands in the project's folder in/ of the owner bucket under an id and
+# its extension, never its name, and the project session takes it from there (awb inbox take); nothing is imported
+UPLOAD_STORED='The file is in the project folder in/. The session takes it with: take the files from in'
+UPLOAD_TYPE='The file type or size is unsupported.'
+UPLOAD_FAILED='The file could not be stored. Try again later.'
 
 # D-F3 = no (his decision of 2026-10-08): no file name crosses Cloudflare. The web answers show a file as its id and
 # its extension; the owner's terminal and the internal reads keep the names.
@@ -137,6 +142,24 @@ class KeySource:
                            too_many='This source has too many files. Narrow the source folder first.')
         return list(answer.get('objects', []))
 
+    def put_in(self, code, extension, path):
+        """The uploaded file into the project's folder in/ of the owner bucket, through the key service (op
+        web_put_in, the owner's process only): the id the object got."""
+        try:
+            answer = self.request(self.sock or keys.call_socket(), {'op': 'web_put_in', 'project': code,
+                                                                     'extension': extension}, upload=path)
+        except keys.KeysError:
+            raise Problem(503, KEYS_DOWN) from None
+        if not isinstance(answer, dict):
+            raise Problem(503, UPLOAD_FAILED)
+        if answer.get('ok') and isinstance(answer.get('id'), str):
+            return answer['id']
+        if answer.get('kind') == 'locked':
+            raise Problem(503, KEYS_LOCKED)
+        if answer.get('kind') == 'too_large':
+            raise Problem(413, UPLOAD_TYPE)
+        raise Problem(503, UPLOAD_FAILED)
+
     def read(self, key, etag, to):
         """The object at the version `etag` into `to`; another version is refused as changed."""
         answer = self._ask({'what': 'get', 'key': key, 'etag': etag, 'limit': MAX_FILE}, download=to)
@@ -154,6 +177,9 @@ class Sources:
 
     def client(self, source):
         return KeySource('lab' if source == 'brief' else 'owner', self.request, self.sock)
+
+    def put_in(self, code, extension, path):
+        return KeySource('owner', self.request, self.sock).put_in(code, extension, path)
 
     def prefixes(self, project, source):
         if source == 'brief':
@@ -246,6 +272,14 @@ CREATE INDEX IF NOT EXISTS import_project ON imports(project,created);
                     result.append({'id':oid,'name':name,'etag':r['etag'],'size':r['size'],'modified':r['modified'],'status':status,'supported':supported,'location':'Unassigned inbox' if r['key'].startswith('inbox/') else 'Project folder'})
             return {'source':source,'files':result,'limit_mb':MAX_FILE//1024//1024}
         finally:self.list_lock.release()
+    def upload(self,code,extension,path):
+        """One file of the console into the project's in/ (any project, with or without a customer): no intake here,
+        the session's take runs it on the owner side. The answer names no file name."""
+        self.project(code,True)
+        size=Path(path).stat().st_size
+        if extension not in SUPPORTED or not 0<size<=MAX_FILE:raise Problem(413,UPLOAD_TYPE)
+        ident=self.sources.put_in(code,extension,path)
+        return {'id':ident,'extension':extension,'size':size,'folder':'in/','message':UPLOAD_STORED}
     def queue(self,code,data):
         p=self.project(code,True)
         if not isinstance(data,dict) or set(data)!={'request_id','files'} or not REQ.fullmatch(str(data.get('request_id',''))):raise Problem(400,'Invalid import request.')
@@ -385,7 +419,7 @@ class Handler(BaseHTTPRequestHandler):
     def dispatch(self):
         try:
             uid=struct.unpack('3i',self.connection.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))[1]
-            url=urllib.parse.urlsplit(self.path);route=re.fullmatch(r'/api/projects/(tcp-[a-z2-7]{4})/materials(?:/(sources|imports|M-[A-Z]{24}))?',url.path)
+            url=urllib.parse.urlsplit(self.path);route=re.fullmatch(r'/api/projects/(tcp-[a-z2-7]{4})/materials(?:/(sources|imports|upload|M-[A-Z]{24}))?',url.path)
             inner=re.fullmatch(r'/internal/projects/(tcp-[a-z2-7]{4})/materials/(M-[A-Z]{24})',url.path)
             if inner and self.command=='GET' and uid in self.server.read_uids:return self.reply(200,self.server.store.text(*inner.groups()))
             if uid!=self.server.web_uid:raise Problem(403,'Not allowed.')
@@ -397,6 +431,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(200,without_names(self.server.store.browse(code,(q.get('source') or [''])[0]),'browse'))
                 if action is None:return self.reply(200,without_names(self.server.store.history(code),'history'))
                 if IDENT.fullmatch(action):return self.reply(200,without_names(self.server.store.text(code,action),'item'))
+            if self.command=='POST' and action=='upload':
+                return self.reply(201,self.server.store.upload(code,*self.received()))
             if self.command=='POST' and action=='imports':
                 lengths=self.headers.get_all('Content-Length',[])
                 if len(lengths)!=1 or self.headers.get('Transfer-Encoding') or self.headers.get('Content-Type','').split(';')[0]!='application/json':raise Problem(400,'Invalid request.')
@@ -409,6 +445,29 @@ class Handler(BaseHTTPRequestHandler):
         except Problem as e:self.reply(e.status,{'error':e.message})
         except (ValueError,TypeError):self.reply(400,{'error':'Invalid request.'})
         except Exception:self.reply(503,{'error':'The input service is unavailable. Check the bucket connection and vault.'})
+    def received(self):
+        """The bytes of an upload into a private file of the service: (extension, path). The browser sends the
+        extension alone (X-AWB-Extension), never the file name."""
+        lengths=self.headers.get_all('Content-Length',[])
+        if len(lengths)!=1 or self.headers.get('Transfer-Encoding') or self.headers.get('Content-Type','').split(';')[0]!='application/octet-stream':raise Problem(400,'Invalid request.')
+        n=int(lengths[0]);ext=self.headers.get('X-AWB-Extension','').lower()
+        if not EXT.fullmatch(ext) or ext not in SUPPORTED:raise Problem(413,UPLOAD_TYPE)
+        if not 0<n<=MAX_FILE:raise Problem(413,UPLOAD_TYPE)
+        tmp_root=self.server.store.p.vault/'tmp';tmp_root.mkdir(exist_ok=True,mode=0o700)
+        fd,name=tempfile.mkstemp(prefix='web-upload-',dir=tmp_root);path=Path(name)
+        self.uploaded=path
+        with os.fdopen(fd,'wb') as out:
+            got=0
+            while got<n:
+                chunk=self.rfile.read(min(1<<16,n-got))
+                if not chunk:raise Problem(400,'Incomplete request.')
+                out.write(chunk);got+=len(chunk)
+        return ext,path
+    def finish(self):
+        try:super().finish()
+        finally:
+            up=getattr(self,'uploaded',None)
+            if up is not None:Path(up).unlink(missing_ok=True)
     def log_message(self,*a):pass
 class Server(ThreadingMixIn,HTTPServer):
     address_family=socket.AF_UNIX;daemon_threads=True
