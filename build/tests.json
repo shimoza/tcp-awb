@@ -2617,8 +2617,99 @@
    "name": "deploy: the plan records per daemon whether its closure changed since its release, the journal keeps it, the closing status of a clean run names no next step",
    "run": ".venv/bin/pytest tests/test_deploy.py::test_the_plan_records_whether_a_daemon_code_changed_since_its_release",
    "status": "passing"
+  },
+  {
+   "id": "MCP-1",
+   "phase": "MCP",
+   "name": "mcp: initialize, a notification, ping and tools/list answer as the protocol says; four tools with JSON schemas",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_initialize_and_tools_list_answer_as_the_protocol_says",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-2",
+   "phase": "MCP",
+   "name": "mcp: every tool answer carries the dataset date, the best-before date and the rule line",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_every_answer_carries_the_dates_and_the_rule",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-3",
+   "phase": "MCP",
+   "name": "mcp: tcp_facts_search ranks by word overlap, filters by tag and grade, says when no fact covers it",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_facts_search_ranks_by_word_overlap_and_filters_by_tag_and_grade",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-4",
+   "phase": "MCP",
+   "name": "mcp: tcp_facts_search returns at most 20 facts",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_facts_search_returns_at_most_twenty",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-5",
+   "phase": "MCP",
+   "name": "mcp: tcp_service_check answers offered, not offered or unclear from services.md with the revision",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_service_check_answers_offered_or_not_with_the_revision",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-6",
+   "phase": "MCP",
+   "name": "mcp: tcp_price_find reads the price snapshot of a region with its date",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_price_find_reads_the_snapshot_with_its_date",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-7",
+   "phase": "MCP",
+   "name": "mcp: no request to the price API without --live, the live rows with it",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_no_network_without_live_and_the_price_api_with_it",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-8",
+   "phase": "MCP",
+   "name": "mcp: tcp_calculate is exact, counts in hours and answers a bad expression with isError",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_calculate_is_exact_and_counts_in_hours",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-9",
+   "phase": "MCP",
+   "name": "mcp: an unknown tool, a bad argument, an unknown method and bad JSON answer with JSON-RPC errors",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_an_unknown_tool_and_a_bad_argument_answer_with_json_rpc_errors",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-10",
+   "phase": "MCP",
+   "name": "mcp: a path or a link outside the dataset folder is refused",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_a_path_outside_the_dataset_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-11",
+   "phase": "MCP",
+   "name": "mcp: a session over every tool writes no file, and the source has no write call",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_the_server_never_writes_a_file",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-12",
+   "phase": "MCP",
+   "name": "mcp: the build copies the server into the folder, the zip and the manifest, and its final scan refuses a planted alias or tooling name in it",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_the_build_carries_the_server_and_scans_it",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-13",
+   "phase": "MCP",
+   "name": "mcp: without --data the server reads the folder it lies in; a folder without facts.jsonl is refused",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_the_server_finds_its_dataset_beside_it_and_refuses_a_folder_without_facts",
+   "status": "passing"
   }
  ],
- "total_tests": 363,
- "checked": "2026-10-09"
+ "total_tests": 376,
+ "checked": "2026-10-10"
 }

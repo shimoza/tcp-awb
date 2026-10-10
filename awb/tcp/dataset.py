@@ -11,8 +11,9 @@ files any assistant reads, built in one command so that a fresh copy appears wit
 What the folder holds: README.md and PROMPT.md (how to use it, the one-line prompt), HOW-TO.pdf (the same for
 people who read PDF), facts.md (every fact on one line, grouped by topic, small enough for one chat), topics/<tag>.md
 (one file per first tag), facts.jsonl (the export of `awb kb export` with its metadata), services.md (what the
-latest service description lists), prices/<region>.csv (the latest snapshot of each region) and MANIFEST.json
-(counts, dates, the sha256 of every file). Every text file opens with the same rules for the assistant: answer from
+latest service description lists and what it does not offer), prices/<region>.csv (the latest snapshot of each
+region), tcp_facts_mcp.py (a read-only MCP server over these files, copied from the template beside this module) and
+MANIFEST.json (counts, dates, the sha256 of every file). Every text file opens with the same rules for the assistant: answer from
 these facts only and cite the id, name an old check date, treat prices as a snapshot, warn after the best-before
 date.
 
@@ -84,6 +85,8 @@ _HOST_RE = re.compile(r"[a-z0-9.-]*otc\.t-systems\.com|opentelekomcloud|open-tel
 _OPERATOR_RE = re.compile(r"t-systems|deutsche telekom|telekom deutschland", re.I)
 _PLANT_TOOL = "awb cloud call against a TCP test tenant, then a DELETE through the key service into the lab bucket"
 _PLANT = "the read key of test tenant test-10491 and a call on test-10497"
+MCP_FILE = "tcp_facts_mcp.py"
+MCP_TEMPLATE = Path(__file__).with_name(MCP_FILE)   # the MCP server every build carries, standard library only
 
 
 class DatasetError(Exception):
@@ -186,7 +189,9 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
         ("p", "facts.md: all facts, grouped by topic. facts.jsonl: the same facts with source, tags, class, expiry "
               "and the evidence of negatives, for RAG and tools. topics/<topic>.md: one file per topic. "
               "services.md: the %d services orderable per the service description of %s. prices/<region>.csv: "
-              "%s. MANIFEST.json: counts, dates and the sha256 of every file." % (n_services, revision, price_line)),
+              "%s. %s: a read-only MCP server over these files for Claude, VS Code or any MCP client; its first "
+              "lines say how to add it. MANIFEST.json: counts, dates and the sha256 of every file."
+              % (n_services, revision, price_line, MCP_FILE)),
         ("h2", "Dates and licence"),
         ("p", "Built %s. Best before %s: facts about availability are re-checked every %d days. Prices are a "
               "snapshot; the live price API is the source of truth before any quote." % (day, best_before,
@@ -281,6 +286,15 @@ def pdf_bytes(blocks: list[tuple[str, str]], title: str) -> bytes:
     out.write(b"trailer\n<< /Size %d /Root %d 0 R /Info %d 0 R >>\nstartxref\n%d\n%%%%EOF\n"
               % (len(objs) + 1, catalog, info, xref))
     return out.getvalue()
+
+
+def service_line(s: offered.Service) -> str:
+    """One line of services.md: the section, the name, its other names, the chapter when it is not "offered" and the
+    date from which the service description marks it no longer available or bookable."""
+    other = [a for a in s.aliases if a not in s.name]
+    return "- %s %s%s%s%s" % (s.number, s.name, " (%s)" % ", ".join(other) if other else "",
+                              "" if s.status == "offered" else ", %s" % s.status,
+                              "; no longer %s from %s" % (s.end_kind, offered._dmy(s.ends)) if s.ends else "")
 
 
 def not_offered(catalog: offered.Catalog, today: str, *names: str) -> bool:
@@ -496,13 +510,14 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
         for r in records:
             f.write(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n")
 
-    svc = ["- %s %s%s%s" % (s.number, s.name, " (%s)" % s.aliases[0] if s.aliases and s.aliases[0] not in s.name
-                              else "", "" if s.status == "offered" else ", %s" % s.status)
-           for s in catalog.services if not s.ends or s.ends > day]
+    svc = [service_line(s) for s in catalog.services if not s.ends or s.ends > day]
+    gone = ["- %s%s" % (row[0], " (%s)" % ", ".join(row[1:]) if row[1:] else "") for row in catalog.not_offered]
     (root / "services.md").write_text(
         head + "# Services orderable on TCP\n\nFrom the T Cloud Public service description, revision %s. %d "
         "services. A service that is not in this list is not offered, whatever the documentation says.\n\n%s\n"
-        % (revision, len(svc), "\n".join(svc)), encoding="utf-8")
+        % (revision, len(svc), "\n".join(svc))
+        + ("\n## Not offered\n\nThe documentation or the price API still knows these, the service description does "
+           "not offer them.\n\n%s\n" % "\n".join(gone) if gone else ""), encoding="utf-8")
 
     for region, (meta, recs) in snapshots.items():
         keep, gone = [], collections.Counter()
@@ -541,8 +556,9 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
                                                           ("code", ONE_LINER), ("p", "PROMPT.md has the rest.")]
         + WARNING + blocks[-6:]), encoding="utf-8")
 
+    shutil.copyfile(MCP_TEMPLATE, root / MCP_FILE)
     for path in sorted(root.rglob("*")):
-        if path.is_file() and path.suffix in (".md", ".jsonl", ".csv"):
+        if path.is_file() and path.suffix in (".md", ".jsonl", ".csv", ".py"):
             text = path.read_text(encoding="utf-8")
             if _LEFT_RE.search(text):
                 raise DatasetError("a tenant alias was left in %s; the folder was removed" % path.name)
@@ -610,7 +626,7 @@ def put(c: obs.Client, folder: Path, *, replace: bool = False) -> list[str]:
 
 # --------------------------------------------------------------------------- the public repository (owner side)
 
-GITHUB_FILES = ("facts.md", "facts.jsonl", "services.md", "topics", "prices")    # into the root, for raw links
+GITHUB_FILES = ("facts.md", "facts.jsonl", "services.md", "topics", "prices", MCP_FILE)    # into the root
 GITHUB_ASSETS = ("HOW-TO.pdf", "MANIFEST.json")                                    # with the zip, on the release
 PERSON_ENV = "AWB_DATASET_AUTHOR"           # the old settings: gone, but a value still set is searched for
 PERSON_CONF = "dataset_author"

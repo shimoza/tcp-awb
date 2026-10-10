@@ -103,6 +103,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/migrate.py": "awb migrate, run in a working session",
     "awb/tcp/refresh.py": "awb refresh, run by the owner or a timer of his",
     "awb/tcp/dataset.py": "awb dataset build|put, run by the owner or by the refresh",
+    "awb/tcp/tcp_facts_mcp.py": "the MCP server of the dataset, copied into every build and run by its recipient",
     "awb/tcp/web/contract.py": "awb api write|check, writes and checks docs/api/openapi.yaml",
     "awb/tcp/ui.py": "awb ui submit|status|watch, run by the owner; a watch runs as his own background process",
 }

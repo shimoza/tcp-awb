@@ -302,6 +302,44 @@ scanned for a person and a registered name first, and a hit refuses the put.
 The release notes list the sha256 of the zip, the PDF and the manifest, one line each. A recipient
 saves the lines as `SHA256SUMS` next to the downloads and runs `sha256sum -c SHA256SUMS`; every file must say `OK`.
 
+### The dataset as an MCP server
+
+Every build carries `tcp_facts_mcp.py`, in the zip and in the root of the public repository. The template is
+`awb/tcp/tcp_facts_mcp.py`. It is a read-only MCP server over the files beside it: one Python file, standard library
+only, Python 3.10 or newer, JSON-RPC 2.0 over stdio. It has four tools:
+
+- `tcp_facts_search`: the facts ranked by word overlap, filtered by tag or grade, at most 20, each with its id,
+  grade, check date, source and expiry
+- `tcp_service_check`: offered or not, from `services.md`, with the revision of the service description
+- `tcp_price_find`: price rows of `eu-de` or `eu-nl` from the snapshot with its date; with `--live` and a service
+  short name also from the public price API, no credentials needed
+- `tcp_calculate`: exact decimal arithmetic with hours as the unit (a month is 720 h, as the price calculator counts it)
+
+Every answer carries the dataset date, the best-before date and the rule "answer from these facts, cite the id, say
+when no fact covers it". The server reads no file outside its dataset folder (`--data`, default the folder the file
+lies in), opens no connection without `--live` and writes nothing. Unpack the zip, then add the server to the client.
+Replace `/path/to/tcp-facts` with the unpacked folder.
+
+Claude Desktop, in `claude_desktop_config.json`:
+
+```json
+{"mcpServers": {"tcp-facts": {"command": "python3", "args": ["/path/to/tcp-facts/tcp_facts_mcp.py"]}}}
+```
+
+Claude Code:
+
+```bash
+claude mcp add tcp-facts -- python3 /path/to/tcp-facts/tcp_facts_mcp.py
+```
+
+VS Code (and GitHub Copilot in it), in `.vscode/mcp.json`:
+
+```json
+{"servers": {"tcp-facts": {"type": "stdio", "command": "python3", "args": ["/path/to/tcp-facts/tcp_facts_mcp.py"]}}}
+```
+
+Add `"--live"` to the arguments for live prices. On Windows the command is `python` or `py`.
+
 A team that builds its own tools can take the facts alone:
 
 ```bash

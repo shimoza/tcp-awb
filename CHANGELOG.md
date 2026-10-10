@@ -16,6 +16,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   offer stays out and is named, and a few price rows per region are fetched again from the live API, each check
   proved on a planted wrong case first. `awb refresh` builds it at the end of a clean run, `awb dataset put` sends it
   into the bucket.
+- The dataset answers as an MCP server. Every build carries `tcp_facts_mcp.py`, a read-only server any MCP client
+  (Claude Desktop, Claude Code, VS Code) runs next to the files: `tcp_facts_search`, `tcp_service_check`,
+  `tcp_price_find` (the snapshot, the live price API with `--live`) and `tcp_calculate`, each answer with the dataset
+  date, the best-before date and the rule. It reads nothing outside its folder and writes nothing. `services.md`
+  now lists every short name of a service, the date from which one is no longer bookable and the services that are
+  not offered. The build scans the server as it scans the other files, and `awb dataset put --github` puts it into
+  the repository root.
 - The release of `awb dataset put --github` lists the sha256 of the zip, `HOW-TO.pdf` and `MANIFEST.json` in its
   notes, one line each in `sha256sum -c` form, so a recipient can check a download. A `HOW-TO.pdf` that differs
   from its sum in the manifest refuses the release.
