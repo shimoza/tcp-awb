@@ -2208,14 +2208,14 @@
   {
    "id": "DS-GH1",
    "phase": "T11",
-   "name": "dataset put --github: the files of the build land in the root of the repository, the commit carries the date, the date is tagged and the release of the tag carries the zip, HOW-TO.pdf and MANIFEST.json with the counts as notes; the same date again needs --replace",
-   "run": ".venv/bin/pytest tests/test_dataset.py::test_github_put_lands_the_files_in_the_root_tags_the_date_and_releases_the_assets",
+   "name": "dataset put --github: the files of the build and its README.md land in the root of the repository (the README replaces the one there, LICENSE stays untouched), the commit carries the date, the date is tagged and the release of the tag carries the zip, HOW-TO.pdf and MANIFEST.json with the counts as notes; the same date again needs --replace",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_github_put_lands_the_files_and_the_build_readme_in_the_root_tags_the_date_and_releases_the_assets",
    "status": "passing"
   },
   {
    "id": "DS-GH2",
    "phase": "T11",
-   "name": "dataset put --github: a planted person (commit identity, old author setting) or a registered name in a file refuses the put, publishes nothing and leaves the clone clean",
+   "name": "dataset put --github: a planted person (commit identity, old author setting) or a registered name in a file refuses the put, publishes nothing and leaves the clone clean; README.md is scanned as one of the public files",
    "run": ".venv/bin/pytest tests/test_dataset.py::test_github_put_refuses_a_planted_name_and_publishes_nothing",
    "status": "passing"
   },
@@ -2231,6 +2231,13 @@
    "phase": "T11",
    "name": "dataset: README, PROMPT.md, HOW-TO.pdf carry the section 'Before you use it with a public model' and the line 'How you use it is your responsibility as the user.'; facts.md and topics/*.md carry the rule line",
    "run": ".venv/bin/pytest tests/test_dataset.py::test_the_warning_for_public_models_is_in_the_readme_the_prompt_the_pdf_and_the_rules",
+   "status": "passing"
+  },
+  {
+   "id": "DS-MCP",
+   "phase": "T11",
+   "name": "dataset: README.md and PROMPT.md carry the section 'MCP clients' after the warning and before Files, with Claude Desktop, Claude Code and VS Code, each configuration as the server's first lines give it, the same text in both, the headings in HOW-TO.pdf and the licence line",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_the_readme_carries_the_warning_and_the_mcp_clients_section_as_the_how_to_does",
    "status": "passing"
   },
   {

@@ -169,6 +169,33 @@ def test_the_warning_for_public_models_is_in_the_readme_the_prompt_the_pdf_and_t
         assert rule in path.read_text().split("-->")[0], path.name
 
 
+def test_the_readme_carries_the_warning_and_the_mcp_clients_section_as_the_how_to_does(home, facts, tmp_path):
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    readme = (built.folder / "README.md").read_text()
+    prompt = (built.folder / "PROMPT.md").read_text()
+    pdf = subprocess.run(["pdftotext", str(built.folder / "HOW-TO.pdf"), "-"], capture_output=True, text=True,
+                         check=True).stdout
+    warning, mcp = "## Before you use it with a public model", "## MCP clients"
+    for name, text in (("README.md", readme), ("PROMPT.md", prompt)):
+        assert text.index(warning) < text.index(mcp) < text.index("## Files"), name
+        section = text[text.index(mcp):text.index("## Files")]
+        for client in ("claude desktop", "claude_desktop_config.json", "claude code", "claude mcp add",
+                       "vs code", "mcp.json"):                  # the client names, compared in lower case
+            assert client in section.lower(), (name, client)
+        assert section.count("/path/to/tcp-facts/tcp_facts_mcp.py") == 3, name
+        assert "The full licence text is in LICENSE at github.com/shimoza/tcp-facts." in text, name
+    assert readme[readme.index(mcp):] == prompt[prompt.index(mcp):]          # one text, not two
+    for client in ("mcp clients", "claude desktop", "claude code", "vs code"):
+        assert client in pdf.lower(), client
+    # the configurations are what the server's own first lines say
+    head = (built.folder / "tcp_facts_mcp.py").read_text().split('"""')[1]
+    for block in ('{"mcpServers": {"tcp-facts": {"command": "python3", "args": ["/path/to/tcp-facts/tcp_facts_mcp.py"]}}}',
+                  "claude mcp add tcp-facts -- python3 /path/to/tcp-facts/tcp_facts_mcp.py",
+                  '{"servers": {"tcp-facts": {"type": "stdio", "command": "python3", "args": '
+                  '["/path/to/tcp-facts/tcp_facts_mcp.py"]}}}'):
+        assert block in head and re.search(r"```(json|bash)\n%s\n```" % re.escape(block), readme), block
+
+
 def test_no_setting_puts_a_person_into_the_dataset(home, facts, tmp_path, monkeypatch):
     """The old author setting is gone: a planted AWB_DATASET_AUTHOR and dataset_author reach no file of the build."""
     monkeypatch.setenv("AWB_DATASET_AUTHOR", fx.PLANTED_PERSON)
@@ -350,8 +377,8 @@ def _remote_files(remote: Path, ref: str) -> list[str]:
                           check=True).stdout.split()
 
 
-def test_github_put_lands_the_files_in_the_root_tags_the_date_and_releases_the_assets(home, facts, tmp_path, github,
-                                                                                       monkeypatch):
+def test_github_put_lands_the_files_and_the_build_readme_in_the_root_tags_the_date_and_releases_the_assets(
+        home, facts, tmp_path, github, monkeypatch):
     monkeypatch.setenv("AWB_DATASET_AUTHOR", fx.PLANTED_PERSON)
     built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
     lines = dataset.github_put(home, built.folder, clone=github.clone)
@@ -362,7 +389,9 @@ def test_github_put_lands_the_files_in_the_root_tags_the_date_and_releases_the_a
     assert subprocess.run(["git", "show", "main:facts.md"], cwd=github.remote, capture_output=True,
                           check=True).stdout == (built.folder / "facts.md").read_bytes()
     assert subprocess.run(["git", "show", "main:README.md"], cwd=github.remote, capture_output=True,
-                          check=True).stdout == b"# TCP Facts\n"        # the hand-written README stays
+                          check=True).stdout == (built.folder / "README.md").read_bytes()   # the build's README
+    assert subprocess.run(["git", "show", "main:LICENSE"], cwd=github.remote, capture_output=True,
+                          check=True).stdout == b"Attribution 4.0 International\n"   # the repository's own, untouched
     subject = subprocess.run(["git", "log", "-1", "--format=%s", "main"], cwd=github.remote, capture_output=True,
                              text=True, check=True).stdout.strip()
     assert subject == "TCP Facts 2026-10-08"
@@ -409,11 +438,13 @@ def test_the_release_notes_carry_the_sha256_of_the_three_assets(home, facts, tmp
 
 
 @pytest.mark.parametrize("plant,why", [(fx.PLANTED_PERSON, "a person"), ("xqarv@example.invalid", "a person"),
-                                       (fx.PERSON_FORMS[0], "facts.md: name")])
+                                       (fx.PERSON_FORMS[0], "facts.md: name"),
+                                       (fx.PLANTED_PERSON, "README.md: a person"),
+                                       (fx.PERSON_FORMS[0], "README.md: name")])
 def test_github_put_refuses_a_planted_name_and_publishes_nothing(home, facts, tmp_path, github, plant, why):
     built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
-    facts_md = built.folder / "facts.md"
-    facts_md.write_text(facts_md.read_text() + "- a note by %s (KB-0000, docs, checked 2026-10-08)\n" % plant)
+    target = built.folder / (why.split(":")[0] if ":" in why else "facts.md")
+    target.write_text(target.read_text() + "- a note by %s (KB-0000, docs, checked 2026-10-08)\n" % plant)
     with pytest.raises(dataset.DatasetError, match="refused, nothing was published: .*%s" % why) as err:
         dataset.github_put(home, built.folder, clone=github.clone)
     assert plant not in str(err.value)

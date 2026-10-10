@@ -5,8 +5,9 @@ files any assistant reads, built in one command so that a fresh copy appears wit
                                                           <shared>/datasets/ unless --out says otherwise
     awb dataset put [--date D] [--replace] [--github]     the zip, the how-to PDF and the manifest into the owner's
                                                           bucket under datasets/tcp-facts/<date>/ (owner side);
-                                                          --github also puts the files into the root of the public
-                                                          repository, tags the date and makes a release of it
+                                                          --github also puts the files and README.md into the
+                                                          root of the public repository, tags the date and makes
+                                                          a release of it
 
 What the folder holds: README.md and PROMPT.md (how to use it, the one-line prompt), HOW-TO.pdf (the same for
 people who read PDF), facts.md (every fact on one line, grouped by topic, small enough for one chat), topics/<tag>.md
@@ -146,6 +147,29 @@ WARNING = [
           "is, even when you named nobody. Keep the setup generic or run the model where the data may go."),
     ("p", WARNING_RESPONSIBILITY + " The dataset gives you checked facts and nothing else."),
 ]
+MCP_HEADING = "MCP clients"
+MCP_PATH = "/path/to/tcp-facts/" + MCP_FILE
+MCP_CLIENTS = [
+    ("h2", MCP_HEADING),
+    ("p", "%s is a read-only MCP server over the files beside it: one Python file, standard library only, Python "
+          "3.10 or newer, JSON-RPC 2.0 over stdio. It has four tools: tcp_facts_search (facts by words, tag or "
+          "grade), tcp_service_check (offered or not, from services.md), tcp_price_find (price rows of eu-de or "
+          "eu-nl from the snapshot) and tcp_calculate (exact arithmetic in hours, a month is 720 h). It reads no "
+          "file outside its folder, opens no connection without --live and writes nothing." % MCP_FILE),
+    ("p", "Unpack the zip of the latest release or clone github.com/%s, then add the server to your client. "
+          "Replace /path/to/tcp-facts with that folder, the one that holds facts.jsonl and %s." % (GITHUB_REPO,
+                                                                                                 MCP_FILE)),
+    ("p", "Claude Desktop, in claude_desktop_config.json:"),
+    ("code:json", '{"mcpServers": {"tcp-facts": {"command": "python3", "args": ["%s"]}}}' % MCP_PATH),
+    ("p", "Claude Code:"),
+    ("code:bash", "claude mcp add tcp-facts -- python3 %s" % MCP_PATH),
+    ("p", "VS Code (and GitHub Copilot in it), in .vscode/mcp.json:"),
+    ("code:json", '{"servers": {"tcp-facts": {"type": "stdio", "command": "python3", "args": ["%s"]}}}' % MCP_PATH),
+    ("p", "Add \"--live\" to the arguments for live prices from the public price API (no credentials). On Windows "
+          "the command is python or py. The rules of \"%s\" apply here too: the client sends your questions to "
+          "its model provider." % WARNING_HEADING),
+]
+LICENCE_LINE = "The full licence text is in LICENSE at github.com/%s." % GITHUB_REPO
 ONE_LINER = "Use the attached TCP Facts. Answer: <your question>"
 LONG_PROMPT = ("Answer only from the attached TCP Facts. Cite the id (KB-XXXX) after every fact you use. Say \"no "
                "checked fact covers this\" instead of guessing. Name the check date of a fact older than 90 days. "
@@ -162,7 +186,8 @@ def fact_line(r: dict) -> str:
 
 def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_services: int, revision: str,
                    prices: dict) -> list[tuple[str, str]]:
-    """The how-to as (style, text) blocks: h1, h2, p, code. PROMPT.md and HOW-TO.pdf are made from it."""
+    """The how-to as (style, text) blocks: h1, h2, p, code (code:json, code:bash for the fence). PROMPT.md and
+    HOW-TO.pdf are made from it."""
     price_line = ", ".join("%s %s records" % (r, c) for r, c in prices.items()) or "no price list"
     return [
         ("h1", "%s %s: how to use it" % (NAME, day)),
@@ -185,6 +210,7 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
         ("h2", "Examples"),
         *[("code", e) for e in EXAMPLES],
         *WARNING,
+        *MCP_CLIENTS,
         ("h2", "Files"),
         ("p", "facts.md: all facts, grouped by topic. facts.jsonl: the same facts with source, tags, class, expiry "
               "and the evidence of negatives, for RAG and tools. topics/<topic>.md: one file per topic. "
@@ -198,6 +224,7 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
                                                                                          BEST_BEFORE_DAYS)),
         ("p", "Dataset: %s." % COMPILED_BY),
         ("p", CREDIT),
+        ("p", LICENCE_LINE),
     ]
 
 
@@ -208,8 +235,8 @@ def blocks_to_markdown(blocks: list[tuple[str, str]]) -> str:
             out.append("# " + text)
         elif style == "h2":
             out.append("\n## " + text)
-        elif style == "code":
-            out.append("```\n%s\n```" % text)
+        elif style.startswith("code"):         # code or code:<language> for the fence
+            out.append("```%s\n%s\n```" % (style[5:], text))
         else:
             out.append(text)
         out.append("")
@@ -238,7 +265,7 @@ def pdf_bytes(blocks: list[tuple[str, str]], title: str) -> bytes:
         pages[-1].append("BT /%s %d Tf %d %d Td (%s) Tj ET" % (font, size, _MARGIN, int(y), _pdf_escape(text)))
 
     for style, text in blocks:
-        font, size, lead, width = _STYLES[style]
+        font, size, lead, width = _STYLES[style.split(":")[0]]
         wrapped = textwrap.wrap(text, width) or [""]
         if y - lead * (len(wrapped) + 1) < _MARGIN and pages[-1]:
             pages.append([])
@@ -554,7 +581,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
                                               "name; the manifest carries the build time." % built_at)]
         + blocks[1:3] + [("h2", "Use"), ("p", "Attach facts.md and type:"),
                                                           ("code", ONE_LINER), ("p", "PROMPT.md has the rest.")]
-        + WARNING + blocks[-6:]), encoding="utf-8")
+        + WARNING + MCP_CLIENTS + blocks[-7:]), encoding="utf-8")
 
     shutil.copyfile(MCP_TEMPLATE, root / MCP_FILE)
     for path in sorted(root.rglob("*")):
@@ -626,7 +653,8 @@ def put(c: obs.Client, folder: Path, *, replace: bool = False) -> list[str]:
 
 # --------------------------------------------------------------------------- the public repository (owner side)
 
-GITHUB_FILES = ("facts.md", "facts.jsonl", "services.md", "topics", "prices", MCP_FILE)    # into the root
+# into the root, README.md over the one there; LICENSE is the repository's own, the put never touches it
+GITHUB_FILES = ("README.md", "facts.md", "facts.jsonl", "services.md", "topics", "prices", MCP_FILE)
 GITHUB_ASSETS = ("HOW-TO.pdf", "MANIFEST.json")                                    # with the zip, on the release
 PERSON_ENV = "AWB_DATASET_AUTHOR"           # the old settings: gone, but a value still set is searched for
 PERSON_CONF = "dataset_author"
@@ -745,7 +773,7 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
         else:
             shutil.copy2(folder / name, dst)
     public = sorted(x for x in clone.rglob("*") if x.is_file() and ".git" not in x.relative_to(clone).parts)
-    public += [folder / n for n in ("README.md", "PROMPT.md", "MANIFEST.json")]    # inside the zip and the release
+    public += [folder / n for n in ("PROMPT.md", "MANIFEST.json")]    # inside the zip and the release
     problems = scan_people(public, person_values(), p.register)
     if problems:
         _run(["git", "checkout", "--", "."], cwd=clone, check=False)

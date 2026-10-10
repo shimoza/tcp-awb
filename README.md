@@ -301,8 +301,11 @@ list of orderable services, the price list of each region as CSV, a `PROMPT.md` 
 opens with the rules for the assistant that reads it, so a person attaches `facts.md` to ChatGPT, Claude or a local
 model and types `Use the attached TCP Facts. Answer: <question>`. The dataset carries a best-before date of 30 days. Its README, PROMPT.md and HOW-TO.pdf warn against customer data in prompts to a public model.
 The files and the PDF metadata say who compiled them: `TCP Facts, github.com/shimoza/tcp-facts`, never a person.
+Its README and PROMPT.md carry the section "MCP clients" with the configurations of the next part, HOW-TO.pdf the same.
 `awb dataset put` sends the zip, the PDF and the manifest into the owner's bucket. With `--github` it also puts the
-files into the root of the public repository [shimoza/tcp-facts](https://github.com/shimoza/tcp-facts), commits them
+files and the build's README.md into the root of the public repository
+[shimoza/tcp-facts](https://github.com/shimoza/tcp-facts), so the root README is never written by hand; LICENSE
+stays as the repository has it. It commits them
 as the GitHub account, tags the date and makes a release of it with the zip, the PDF and the manifest. The files are
 scanned for a person and a registered name first, and a hit refuses the put.
 The release notes list the sha256 of the zip, the PDF and the manifest, one line each. A recipient

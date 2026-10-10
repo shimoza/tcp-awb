@@ -81,6 +81,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The README of the public dataset comes from the build. The build's README.md and the how-to (PROMPT.md and
+  HOW-TO.pdf) carry the section "MCP clients" after the warning, with the configurations for Claude Desktop,
+  Claude Code and VS Code and a line that points at LICENSE. `awb dataset put --github` now copies README.md
+  into the root of the repository, so every put replaces the root README with the build's; LICENSE stays
+  untouched.
 - The dataset TCP Facts warns before use with a public model. The section "Before you use it with a public model"
   (technical questions only, no customer data, a described setup can identify a customer, the use is the user's
   responsibility) is in the build README, `PROMPT.md` and `HOW-TO.pdf`, and the rules at the top of `facts.md`, the
