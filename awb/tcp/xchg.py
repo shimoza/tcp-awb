@@ -662,7 +662,9 @@ def serve_owner_has(ctx: Context, req: dict) -> dict:
 
 def serve_take_owner(ctx: Context, req: dict) -> dict:
     """The owner path of a take: the original goes from the owner inbox into the vault and the project's folder of
-    the owner bucket, the intake runs for the customer, the session gets only the ids of the sanitised copies."""
+    the owner bucket, the intake runs for the customer, the session gets only the ids of the sanitised copies. A file
+    above max_mb (fetched at the version its listing showed) or in a folder that is not exactly one CUST-XXXX stays
+    in the inbox (findings 19 and 6 of the review of 2026-10-10)."""
     from awb import bucket, intake, projects
 
     name, code, ident = req.get("name"), req.get("project"), req.get("id")
@@ -685,16 +687,29 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
         f = _resolve(ctx, "owner", ident)
         if f is None:
             return {"ok": True, "state": "absent"}
-        src, name = f["key"], f["rel"].rsplit("/", 1)[-1]
+        src, name, size, etag = f["key"], f["rel"].rsplit("/", 1)[-1], f["size"], f["etag"]
+        if not owner_folder_ok(f["rel"]):
+            raise XchgError(hold_line(code))
         folder_customer = owner_folder_customer(f["rel"])
     else:
         src, folder_customer = INBOX + name, None
     customer = take_customer(project_customer(ctx, project), folder_customer, named, code)
-    if ident is None and c.head(src) is None:
-        return {"ok": True, "state": "absent"}
+    if ident is None:
+        h = c.head(src)
+        if h is None:
+            return {"ok": True, "state": "absent"}
+        size, etag = int(h.get("Content-Length", 0) or 0), str(h.get("ETag", ""))
+    if size > ctx.max_bytes():
+        raise XchgError("the object is larger than the limit of keys.conf (max_mb)")
     config.ensure_layout(p)
     dst = p.inbox / bucket._local_name(name, p.inbox)
-    c.get(src, dst)
+    try:
+        c.get(src, dst, if_match=etag.strip('"') or None)
+        if dst.stat().st_size > ctx.max_bytes():
+            raise XchgError("the object grew past the limit of keys.conf (max_mb)")
+    except BaseException:
+        dst.unlink(missing_ok=True)
+        raise
     os.chmod(dst, 0o600)
     folder, _ = bucket.ensure_folder(c, project)
     target = folder + IN + name
@@ -744,6 +759,13 @@ def _take_project(ctx: Context, code: str, project, ident: str, named: str | Non
     except intake.IntakeError:
         return _hold(ctx, code, customer, "intake")
     return _taken(ctx, code, customer, res)
+
+
+def owner_folder_ok(rel: str) -> bool:
+    """A file of the owner inbox lies at its top or in exactly one folder that is a valid CUST-XXXX; any other
+    folder (lower case, a suffix, a deeper level) holds the take instead of reading as the top (finding 6)."""
+    parts = rel.split("/")
+    return len(parts) == 1 or (len(parts) == 2 and bool(_CUST_RE.match(parts[0])))
 
 
 def owner_folder_customer(rel: str) -> str | None:

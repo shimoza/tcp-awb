@@ -161,6 +161,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- A take from the owner inbox checks the file before it moves it (findings 6 and 19 of the review of 2026-10-10). A
+  file in a folder that is not exactly one customer code (`cust-zz22`, `CUST-ZZ22-old`, a deeper level) is no
+  longer read as a file of the top and stays in the inbox, and so does a file above `max_mb` of keys.conf; the take
+  fetches the version its listing showed.
 - A session puts nowhere but `<project>/from-session/<date>/<file id>` of the lab bucket (finding 3 of the review of
   2026-10-10). A raw put into the project's `in/` or under any other key is refused before its bytes are received,
   and every put meets the name check and the send gate of the key service.

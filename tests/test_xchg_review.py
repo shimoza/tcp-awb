@@ -107,6 +107,42 @@ def test_a_project_without_a_customer_cannot_get_one_by_its_own_row(svc, buckets
         "a lab project took customer material after its session rewrote its own row: %r" % a
 
 
+# --------------------------------------------------------------------------- a folder that is no code (finding 6)
+
+
+@pytest.mark.parametrize("folder", ["cust-zz22", "CUST-ZZ22-old", "2026/CUST-ZZ22"])
+def test_a_subfolder_of_the_owner_inbox_that_is_no_valid_code_is_not_the_takers(svc, buckets,
+                                                                                         cust_project, folder):
+    """Promise (62004d7 F5): the customer of an owner-inbox take is the owner's folder inbox/CUST-XXXX/ or the
+    project's own. Attack: a file the owner dropped into a folder that is not exactly a valid code (lower case, a
+    suffix, one level deeper) is read as a file of the top of the inbox and goes to whichever customer project
+    takes it, instead of being refused."""
+    _, own = buckets
+    rel = "%s/task.txt" % folder
+    own.objects["inbox/" + rel] = b"Another customer's task.\n"
+    a = keys.request(svc.call_path, {"op": "inbox_find", "all": True, "project": cust_project.code})
+    (ident,) = [m["id"] for m in a["matches"] if m["bucket"] == "owner"]
+    a = keys.request(svc.call_path, {"op": "take_owner", "id": ident, "project": cust_project.code})
+    assert not a["ok"] and "inbox/" + rel in own.objects, \
+        "a file of the folder %s went to %s" % (folder, a.get("customer"))
+
+
+# --------------------------------------------------------------------------- the size limit (finding 19)
+
+
+def test_an_owner_inbox_take_keeps_the_size_limit(svc, buckets, cust_project):
+    """Promise (keys.conf max_mb, kept by take_lab, the project take and every put): no object above the limit is
+    fetched by the service. Attack: a file of 2 MB in the owner inbox (the limit of the fixture is 1 MB) is
+    downloaded into the vault inbox, moved into the project's in/ and fed to the intake: serve_take_owner checks no size."""
+    _, own = buckets
+    own.objects["inbox/%s/big.bin" % fx.CUSTOMER_CODE] = b"\0" * (2 * 1024 * 1024)
+    a = keys.request(svc.call_path, {"op": "inbox_find", "all": True, "project": cust_project.code})
+    (ident,) = [m["id"] for m in a["matches"] if m["bucket"] == "owner"]
+    a = keys.request(svc.call_path, {"op": "take_owner", "id": ident, "project": cust_project.code})
+    assert not a["ok"] and "inbox/%s/big.bin" % fx.CUSTOMER_CODE in own.objects, \
+        "the service fetched an object above max_mb: %r" % {k: v for k, v in a.items() if k != "outputs"}
+
+
 @pytest.mark.parametrize("req", [{"op": "owner_has", "name": "offer.txt"},
                                  {"op": "take_owner", "name": "offer.txt"}])
 def test_a_session_asks_no_owner_inbox_name(svc, buckets, cust_project, req):

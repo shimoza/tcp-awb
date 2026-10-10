@@ -2813,8 +2813,22 @@
    "name": "review 2026-10-10 finding 3: a raw put outside <code>/from-session/<date>/<file id> is refused, every put meets the name check and the send gate of the service",
    "run": ".venv/bin/pytest tests/test_xchg_review.py::test_a_raw_put_into_the_lab_in_folder_meets_the_checks_of_the_service",
    "status": "passing"
+  },
+  {
+   "id": "R10-10",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 6: an owner-inbox file in a folder that is not exactly one valid CUST code (lower case, a suffix, a deeper level) stays in the inbox",
+   "run": ".venv/bin/pytest tests/test_xchg_review.py::test_a_subfolder_of_the_owner_inbox_that_is_no_valid_code_is_not_the_takers",
+   "status": "passing"
+  },
+  {
+   "id": "R10-11",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 19: an owner-inbox take keeps max_mb and fetches nothing above it",
+   "run": ".venv/bin/pytest tests/test_xchg_review.py::test_an_owner_inbox_take_keeps_the_size_limit",
+   "status": "passing"
   }
  ],
- "total_tests": 402,
+ "total_tests": 404,
  "checked": "2026-10-10"
 }

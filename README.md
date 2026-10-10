@@ -284,7 +284,8 @@ with no customer code and every name a token. A project without a customer takes
 text you wrote yourself and paste into the chat is your brief, not customer material: the session works with it.
 
 A file of the lab inbox with a registered name is held, and so is a file of the owner inbox that cannot be read as
-text. A pdf, a sheet or an archive from the lab inbox lands in `input/opaque/`, which `.gitignore` keeps out of git. You get a mail with the one command to run (`awb import tcp-xxxx`). Results come back with
+text. A file of the owner inbox above `max_mb` of keys.conf, or in a folder that is not exactly one customer code
+(`inbox/CUST-XXXX/`), stays there and its take is refused. A pdf, a sheet or an archive from the lab inbox lands in `input/opaque/`, which `.gitignore` keeps out of git. You get a mail with the one command to run (`awb import tcp-xxxx`). Results come back with
 `awb xchg put` into `<project>/from-session/<date>/<file id>` of the lab bucket, after the name check of the file and of
 its name and, for a customer project, the send gate. No object key, mail or log line carries a file name the check did not pass. You fetch them in the OBS console. A mail tells you about each one. A Terraform or code file passes when it holds no address,
 name or mail: a dotted reference in code is not a web address. The session deletes what it put with
