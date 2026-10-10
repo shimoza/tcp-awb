@@ -67,11 +67,11 @@ def _active_forms(p: config.Paths, customer: str) -> int:
     return sum(1 for e in register.load(p.register) if e.code == customer and e.status == "active")
 
 
-def hold_line(code: str) -> str:
-    """The one line of the work rules for a take or an import a session cannot do."""
-    from awb.tcp import xchg
 
-    return xchg.hold_line(code if codes.is_project_code(code or "") else "tcp-xxxx")
+def hold_line(code: str) -> str:
+    """The one line of the work rules for a take or an import a session cannot do: what the owner runs, in his own
+    terminal (the work rules hand out nothing else)."""
+    return codes.HOLD_LINE % (code if codes.is_project_code(code or "") else "tcp-xxxx")
 
 
 def ask_forms(p: config.Paths, customer: str, read=None, tty=None, allow_none: bool = False) -> int:

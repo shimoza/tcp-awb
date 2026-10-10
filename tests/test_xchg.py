@@ -221,7 +221,7 @@ def test_a_project_without_a_customer_takes_from_its_own_folder_in(svc, buckets,
 
     _, own = buckets
     folder, _ = bucket.ensure_folder(own.client(), lab_project)
-    original = ("Kick-off mit Herrn %s. Das Angebot der %s liegt vor.\n"
+    original = ("Kick-off mit Herrn %s, das Angebot der %s liegt vor.\n"
                 % (fx.PLANTED_PERSON, fx.PLANTED_CANDIDATE)).encode("utf-8")
     own.objects[folder + "in/brief.txt"] = original
     code, out, err = run(["inbox", "list"], capsys)

@@ -720,7 +720,9 @@ def take_customer(own: str, folder: str | None, named: str | None, code: str = "
 
 def hold_line(code: str) -> str:
     """The one line of a hold: what the owner runs, in his own terminal (the work rules hand out nothing else)."""
-    return "held: run awb import %s as the owner in your own terminal" % code
+    from awb import codes
+
+    return codes.HOLD_LINE % code
 
 
 def _hold(ctx: Context, code: str, customer: str, why: str) -> dict:

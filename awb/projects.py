@@ -644,8 +644,9 @@ def bucket_folder(code: str) -> str:
     be reached the line says so, and the first take or `awb bucket folder CODE` makes the folder later."""
     later = "the first take or awb bucket folder %s makes it" % code
     try:
-        from awb.tcp import keys as _keys
-        answer = _keys.request(_keys.call_socket(), {"op": "owner_folder", "project": code}, timeout=30)
+        from awb import hooks as _hooks         # the core imports no awb.tcp: the request of hooks, the socket of keys
+        sock = Path(os.environ.get(_hooks.KEYS_SOCKET_ENV) or _hooks.KEYS_SOCKET)
+        answer = _hooks.keys_call({"op": "owner_folder", "project": code}, sock, timeout=30)
     except Exception:                      # the key service is down or not installed: never a stop
         return "bucket folder not made (key service not reached); %s" % later
     folder = answer.get("folder") if answer.get("ok") else None

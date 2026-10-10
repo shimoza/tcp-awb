@@ -1503,25 +1503,34 @@ def _keys_socket() -> Path:
     return Path(env) if env else Path(KEYS_SOCKET)
 
 
-def _guard_keys() -> bool:
-    """The key service answers {"op":"ping"} with ok true on its call socket."""
+def keys_call(obj: dict, sock: Path | None = None, timeout: float = RECEIPT_TIMEOUT) -> dict:
+    """One request line to the key service and its answer line, without awb.tcp (the core imports none of it).
+    Raises OSError or ValueError when the service cannot be reached or answers no object."""
     import socket
 
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.settimeout(timeout)
+        s.connect(str(sock or _keys_socket()))
+        s.sendall(json.dumps(obj).encode("utf-8") + b"\n")
+        buf = b""
+        while not buf.endswith(b"\n") and len(buf) < 65536:
+            part = s.recv(4096)
+            if not part:
+                break
+            buf += part
+    answer = json.loads(buf.decode("utf-8"))
+    if not isinstance(answer, dict):
+        raise ValueError("the key service answered no object")
+    return answer
+
+
+def _guard_keys() -> bool:
+    """The key service answers {"op":"ping"} with ok true on its call socket."""
     try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.settimeout(RECEIPT_TIMEOUT)
-            s.connect(str(_keys_socket()))
-            s.sendall(b'{"op":"ping"}\n')
-            buf = b""
-            while not buf.endswith(b"\n") and len(buf) < 65536:
-                part = s.recv(4096)
-                if not part:
-                    break
-                buf += part
-        answer = json.loads(buf.decode("utf-8"))
+        answer = keys_call({"op": "ping"})
     except (OSError, ValueError):
         return False
-    return isinstance(answer, dict) and answer.get("ok") is True
+    return answer.get("ok") is True
 
 
 def _guard_rules(root: Path | None, owner: bool) -> bool:

@@ -68,6 +68,10 @@ def is_code(s: str) -> bool:
     return bool(PLACEHOLDER_RE.fullmatch(s or ""))
 
 
+HOLD_LINE = "held: run awb import %s as the owner in your own terminal"
+"""The one line of a hold for a project code: what the owner runs, in his own terminal (awb import and awb.tcp.xchg)."""
+
+
 def is_project_code(s: str) -> bool:
     return bool(PROJECT_CODE_RE.fullmatch(s or ""))
 

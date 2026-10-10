@@ -136,7 +136,7 @@ def test_the_console_creation_warns_when_the_folder_waits(home, tmp_path):
 
 def test_the_owner_page_upload_lands_in_the_project_folder_under_an_id(materials, tmp_path):
     store, buckets, pr, private = materials
-    f = tmp_path / "Planted Brief of Northwind.md"
+    f = tmp_path / "planted brief of Northwind.md"
     f.write_text("The workloads move to eu-de.\n")
     for project in (pr, private):
         answer = store.upload(project.code, ".md", f)
@@ -232,7 +232,7 @@ def test_a_console_upload_is_taken_with_take_the_files_from_in(svc, buckets, hom
     code, a project without a customer gets no code and the session never sees a name."""
     pr = projects.spawn(home, "query", GOAL, customer, register_path)
     monkeypatch.chdir(pr.path)
-    text = "Kick-off mit Herrn %s. Das Angebot der %s liegt vor.%s\n" % (
+    text = "Kick-off mit Herrn %s, das Angebot der %s liegt vor.%s\n" % (
         fx.PLANTED_PERSON, fx.PLANTED_CANDIDATE, (" Kunde ist %s." % fx.CUSTOMER_FORMS[0]) if customer else "")
     _put_in(svc, pr.code, tmp_path, text)
     code = cli.main(["inbox", "take", "take", "the", "files", "from", "in"])

@@ -161,7 +161,7 @@ def test_a_project_without_a_customer_runs_with_tokens_and_no_code(home, lab, tm
     imports without --customer. A planted brief with a planted person and a planted company comes out with tokens and
     no code; the copies and the public report go to the outbox under the project code; the session hears of them."""
     brief = tmp_path / "brief.txt"
-    brief.write_text("Kick-off am Montag mit Herrn %s. Das Angebot der %s liegt vor.\n"
+    brief.write_text("Kick-off am Montag mit Herrn %s, das Angebot der %s liegt vor.\n"
                      % (fx.PLANTED_PERSON, fx.PLANTED_CANDIDATE), encoding="utf-8")
     assert importcmd.run(home, lab.code, [brief]) == 0
     out = _lines(capsys)
