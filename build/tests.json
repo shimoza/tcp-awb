@@ -2743,8 +2743,15 @@
    "name": "grant customer: a lease is refused when the row names another customer than the grant",
    "run": ".venv/bin/pytest tests/test_keys.py::test_rg_a_lease_is_refused_when_the_row_names_another_customer_than_the_grant",
    "status": "passing"
+  },
+  {
+   "id": "PAR-1",
+   "phase": "PAR",
+   "name": "two key services started at once by the same fixture get their own sockets and both answer ping",
+   "run": ".venv/bin/pytest tests/test_keys.py::test_two_services_started_at_once_both_answer",
+   "status": "passing"
   }
  ],
- "total_tests": 391,
+ "total_tests": 393,
  "checked": "2026-10-10"
 }

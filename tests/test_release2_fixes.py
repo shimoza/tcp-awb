@@ -341,12 +341,12 @@ def test_a_file_that_changes_while_it_is_checked_gets_no_record(project, tmp_pat
         d.write_text(dirty, encoding="utf-8")        # and it is dirty again when the pass ends
         return real_lens(*args, **kw)
 
-    monkeypatch.setattr(review, "_ensure_checkable", ensure_checkable)
-    monkeypatch.setattr(review, "lens_summary", lens_summary)
-    res = review.run_pass(d)
-    assert not res.passed and "the deliverable changed while the pass ran" in res.problems
-    assert [r["state"] for r in review.status(project)] == ["missing"]
-    monkeypatch.undo()
+    with monkeypatch.context() as m:     # not monkeypatch.undo(): that drops the test's own environment too
+        m.setattr(review, "_ensure_checkable", ensure_checkable)
+        m.setattr(review, "lens_summary", lens_summary)
+        res = review.run_pass(d)
+        assert not res.passed and "the deliverable changed while the pass ran" in res.problems
+        assert [r["state"] for r in review.status(project)] == ["missing"]
     d.write_text(clean, encoding="utf-8")
     assert review.run_pass(d).passed
     record = json.loads((review.review_dir(project, "offer.md") / review.RECORD).read_text(encoding="utf-8"))

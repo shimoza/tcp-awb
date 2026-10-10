@@ -183,7 +183,7 @@ def test_a_take_from_the_owner_inbox_wipes_unknown_names_and_holds_nothing(svc, 
     own.objects["inbox/memo.txt"] = ("Call %s about the migration of the database.\n"
                                      % fx.PLANTED_CANDIDATE).encode()
     code, out, err = run(["inbox", "take", "memo.txt"], capsys)
-    assert code == 0 and "through the intake" in out and "held" not in out
+    assert code == 0 and "through the intake" in out and "held" not in out, err
     assert fx.PLANTED_CANDIDATE not in out + err and not svc.notes
     (copy,) = [f for f in (Path(cust_project.path) / "input").iterdir() if f.name != ".gitkeep"]
     text = copy.read_text(encoding="utf-8")

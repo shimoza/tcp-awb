@@ -10,6 +10,7 @@ import contextlib
 import json
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 
 import pytest
@@ -76,19 +77,26 @@ def gw():
         yield g
 
 
-@pytest.fixture
-def svc(gw, tmp_path, monkeypatch):
+@contextlib.contextmanager
+def running_service(gw, log_dir: Path):
+    """A key service in threads of this process, both sockets in a folder of its own, stopped at the end."""
     with short_dir() as d:
-        s = keys.Service(d / "admin.sock", d / "call.sock", endpoint=gw.base, log_dir=tmp_path / "log")
+        s = keys.Service(d / "admin.sock", d / "call.sock", endpoint=gw.base, log_dir=log_dir)
         s._registered = lambda: {"test-1": ("eu-de",), "test-2": ("eu-de", "eu-nl")}
         s._active_project = lambda code: code == PROJECT
         s.start()
-        monkeypatch.setenv(keys.CALL_SOCKET_ENV, str(s.call_path))
-        monkeypatch.setenv(keys.ADMIN_SOCKET_ENV, str(s.admin_path))
         try:
             yield s
         finally:
             s.stop()
+
+
+@pytest.fixture
+def svc(gw, tmp_path, monkeypatch):
+    with running_service(gw, tmp_path / "log") as s:
+        monkeypatch.setenv(keys.CALL_SOCKET_ENV, str(s.call_path))
+        monkeypatch.setenv(keys.ADMIN_SOCKET_ENV, str(s.admin_path))
+        yield s
 
 
 def load(svc):
@@ -104,6 +112,34 @@ def call(svc, **req):
 def lab_gateway(gw):
     """The lab key signs: the gateway checks the lab key's signature."""
     gw.ak, gw.sk = LAB_AK, LAB_SK
+
+
+def test_two_services_started_at_once_both_answer(gw, tmp_path):
+    """Two test runs at the same time each start their own service: no socket path is shared, so neither waits
+    on the other (two runs hung for hours on 2026-10-09)."""
+    barrier = threading.Barrier(2)
+    started: dict[int, tuple] = {}
+
+    def start(i):
+        barrier.wait(timeout=10)
+        cm = running_service(gw, tmp_path / ("log%d" % i))
+        started[i] = (cm, cm.__enter__())
+
+    threads = [threading.Thread(target=start, args=(i,)) for i in (0, 1)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=20)
+    try:
+        assert sorted(started) == [0, 1]
+        a, b = started[0][1], started[1][1]
+        assert a.call_path != b.call_path and a.admin_path != b.admin_path
+        for s in (a, b):
+            assert keys.request(s.call_path, {"op": "ping"}, timeout=5) == {"ok": True, "state": "locked"}
+            assert keys.request(s.admin_path, {"op": "ping"}, timeout=5)["ok"] is True
+    finally:
+        for cm, _ in started.values():
+            cm.__exit__(None, None, None)
 
 
 # --------------------------------------------------------------------------- the password store

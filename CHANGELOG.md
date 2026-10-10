@@ -121,6 +121,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- Two test runs at the same time no longer wait on each other. Every test gets a vault, knowledge base, mirrors,
+  check, admin and key sockets of its own run instead of the host's, the price API and the mirror sources point at a
+  refused local address, and two tests that called `monkeypatch.undo()` (which dropped that setup and reached the
+  owner's own register and check socket) undo only their own patches. A test fails after 120 seconds
+  (pytest-timeout, now in the `test` extra of pyproject.toml) instead of hanging. The full run takes about 13
+  minutes instead of 22: the dispatch test of `awb refresh` runs one wipe case instead of all 405 and does not wait
+  between retries.
 - A package upgrade no longer locks the Workbench. The project chat says when the name check is locked instead of
   calling the project unavailable.
 - The deploy no longer reports a restarted socket unit as failed.

@@ -11,6 +11,9 @@ license = {text = "Apache-2.0"}
 authors = [{name = "shimoza"}]
 dependencies = []
 
+[project.optional-dependencies]
+test = ["pytest", "pytest-timeout", "python-docx", "openpyxl", "reportlab"]
+
 [project.scripts]
 awb = "awb.cli:main"
 
@@ -20,3 +23,6 @@ include = ["awb*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+# a hang fails the test after two minutes instead of waiting for hours (2026-10-09); a longer limit is set on the
+# test itself, with the reason
+timeout = 120

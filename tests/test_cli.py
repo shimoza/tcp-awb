@@ -341,8 +341,26 @@ def test_help_lists_every_command(con):
     con.assert_clean()
 
 
+@pytest.fixture
+def quick_refresh(monkeypatch):
+    """`awb refresh` runs the whole wipe pack (405 cases, eight minutes); one case shows the part runs, and the
+    pack itself is measured in tests/test_refresh_wipe.py and tests/test_redteam_pack.py. The calls to the refused
+    test address are tried again without the waits in between (25 seconds)."""
+    from awb import jobs
+    from awb.tcp import refresh
+
+    retry = jobs.retry
+    monkeypatch.setattr(jobs, "retry", lambda fn, **kw: retry(fn, **dict(kw, sleep=lambda s: None)))
+
+    harness = refresh._wipe_harness(Path(__file__).resolve().parent.parent)
+    dim = harness.DIMENSIONS[0]
+    first = harness.load_cases(harness.module_path(dim))[0]["id"]
+    whole = refresh.part_wipe
+    monkeypatch.setattr(refresh, "part_wipe", lambda p, **kw: whole(p, **dict(kw, only={dim: [first]})))
+
+
 @pytest.mark.parametrize("name", sorted(cli.DELEGATED))
-def test_every_delegated_command_runs(con, name):
+def test_every_delegated_command_runs(con, name, quick_refresh):
     code, out, err = con.run(name, "--help")
     assert code == 0, err[-300:]
     assert out.startswith("usage: awb %s" % name)

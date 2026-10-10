@@ -1340,7 +1340,7 @@ def test_the_push_hooks_pass_the_remote_to_the_gate(tmp_path):
     assert subprocess.run(["sh", "-n", str(hook)]).returncode == 0
 
 
-def test_a_commit_message_that_names_claude_as_co_author_is_refused(tmp_path, capsys):
+def test_a_commit_message_that_names_claude_as_co_author_is_refused(tmp_path, capsys, register_path):
     """Only the owner appears as author: a co-author or generator line naming Claude would make it a contributor."""
     msg = tmp_path / "COMMIT_EDITMSG"
     for line in ("Co-Authored-By: claude opus 5.5 <noreply@anthropic.com>",
@@ -1459,9 +1459,9 @@ def test_resources_ids_pass_the_staged_and_the_push_check(tmp_path, register_pat
 
 def test_the_selftest_carries_the_resources_cases(monkeypatch):
     assert gate.selftest() == []
-    monkeypatch.setattr(gate, "resources_file", lambda path: False)
-    assert any(f.startswith("resources:") for f in gate.selftest())
-    monkeypatch.undo()
+    with monkeypatch.context() as m:     # not monkeypatch.undo(): that drops the test's own environment too
+        m.setattr(gate, "resources_file", lambda path: False)
+        assert any(f.startswith("resources:") for f in gate.selftest())
     monkeypatch.setattr(gate, "_HANDLE_ROW_RE", re.compile(r"(?s).+"))
     monkeypatch.setattr(gate, "resources_file", lambda path: path is not None and Path(path).parent.name == "project")
     assert [f.split(":")[0] for f in gate.selftest()] == ["state"]

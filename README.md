@@ -154,13 +154,14 @@ needs no model and no API key. Runtime code is the Python standard library plus 
 git clone https://github.com/shimoza/tcp-awb.git ~/tcp-awb
 cd ~/tcp-awb
 python3 -m venv .venv
-.venv/bin/pip install -e . pytest python-docx openpyxl reportlab
+.venv/bin/pip install -e '.[test]'
 .venv/bin/pytest
 .venv/bin/awb gate --selftest
 ```
 
 The tests use invented names only (`tests/fixtures.py`) and a throw-away Workbench each. They never touch your own
-folders.
+folders or the sockets of the services on the host, so two runs at the same time do not wait on each other. Every
+test fails after 120 seconds (pytest-timeout) instead of hanging.
 
 ### As a plugin for Claude Code
 
