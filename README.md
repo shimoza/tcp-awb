@@ -30,7 +30,9 @@ takes the customer for an owner-inbox take, a take from the project's folder, th
 lease from the grant alone: a row that names another customer is refused in one line with the project code. A
 project granted before 2026-10-10 gets its customer into the grant when the owner runs `awb projects kind` for it
 once more; `awb projects check`, run by the owner, lists those and every row that differs from its grant. A
-project the owner never granted has no record of his, so its row stays the source.
+project the owner never granted has no customer for the key service, whatever its row says: its owner-inbox take
+holds, its take from its own folder runs under the project code and its put meets the strict send gate. So the owner
+runs `awb projects kind CODE query` once for a customer project before its first take from the owner inbox.
 
 ## Live tenants through the key service
 
@@ -269,9 +271,11 @@ wait when the API gateway says so (HTTP 429).
 ## Files in and out
 
 You drop a file into `inbox/` of the lab bucket or of the owner bucket in the OBS console, with no project code
-and no command. Then you describe it to the session in your own words. `awb inbox take` matches your words against
-the file names inside the key service: the same letters, a kind of file ("the pdf", "the spreadsheet"), "the
-newest" or a part of the name. One match is taken. None or several list both inboxes, without any name of the owner
+and no command. Then you describe it to the session in your own words. `awb inbox take` matches your words inside
+the key service: a kind of file ("the pdf", "the spreadsheet") and "the newest" for every file, the same letters or
+a part of the name only for a file of the lab inbox whose name the session may see. A file of the owner inbox or of
+`in/` is never found by a word of its name, so no answer tells whether a hidden name holds a word. One match is
+taken. None or several list both inboxes, without any name of the owner
 inbox. The session takes the one you mean with `--id`. `--all` takes every file of both inboxes. A file of the
 owner inbox goes through your intake in wipe mode and the session gets only the sanitised copies; the original goes
 to the vault. The new files of the project's own folder `in/` are listed beside the inboxes for every project.

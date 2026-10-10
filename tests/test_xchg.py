@@ -85,6 +85,12 @@ def run(argv, capsys):
     return code, out, err
 
 
+def _grant(capsys, code):
+    """The owner grants the project in his own terminal: the key service takes its customer from the grant alone,
+    and a project he never granted has none (finding 5 of the review of 2026-10-10)."""
+    assert run(["projects", "kind", code, "query"], capsys)[0] == 0
+
+
 # --------------------------------------------------------------------------- the lab inbox
 
 
@@ -146,23 +152,34 @@ def test_the_listing_of_the_lab_inbox_withholds_names_with_a_hit(svc, buckets, l
     fx.assert_no_fixture_name(out, "the inbox listing")
 
 
-def test_a_file_in_both_inboxes_is_refused(svc, buckets, lab_project, capsys):
+def test_a_kind_that_fits_a_file_in_each_inbox_is_refused_and_a_name_meets_the_lab_inbox_only(svc, buckets,
+                                                                                              lab_project, capsys):
+    """Replaces test_a_file_in_both_inboxes_is_refused (finding 2 of the review of 2026-10-10): a name meets the
+    names the session may see, so the same name in both inboxes takes the lab file and leaves the owner's; a kind
+    that fits a file in each inbox is still refused as one in both."""
     lab, own = buckets
     lab.objects["inbox/a.md"] = b"x"
     own.objects["inbox/a.md"] = b"x"
-    code, _, err = run(["inbox", "take", "a.md"], capsys)
+    code, _, err = run(["inbox", "take", "markdown"], capsys)
     assert code == 1 and "both inboxes" in err
+    code, out, err = run(["inbox", "take", "a.md"], capsys)
+    assert code == 0 and "taken from the lab inbox" in out, err
+    assert "inbox/a.md" not in lab.objects and own.objects["inbox/a.md"] == b"x"
 
 
 # --------------------------------------------------------------------------- the owner inbox
 
 
-def test_a_take_from_the_owner_inbox_hands_the_session_the_sanitised_copy_only(svc, buckets, cust_project, home,
-                                                                             capsys):
+def test_a_take_from_the_owner_inbox_by_kind_hands_the_session_the_sanitised_copy_only(svc, buckets, cust_project,
+                                                                                     home, capsys):
+    """Replaces test_a_take_from_the_owner_inbox_hands_the_session_the_sanitised_copy_only (findings 2 and 5 of the
+    review of 2026-10-10): the owner grants the project, the session names the file by its kind, never by a word of
+    its hidden name."""
     _, own = buckets
+    _grant(capsys, cust_project.code)
     original = ("Kick-off with %s: migrate the database cluster.\n" % fx.CUSTOMER_FORMS[0]).encode()
     own.objects["inbox/kickoff.txt"] = original
-    code, out, err = run(["inbox", "take", "kickoff.txt"], capsys)
+    code, out, err = run(["inbox", "take", "the text"], capsys)
     assert code == 0, err
     assert "through the intake" in out
     inputs = [f for f in (Path(cust_project.path) / "input").iterdir() if f.name != ".gitkeep"]
@@ -176,13 +193,16 @@ def test_a_take_from_the_owner_inbox_hands_the_session_the_sanitised_copy_only(s
     assert any(home.originals.rglob("*")), "the vault keeps the original"
 
 
-def test_a_take_from_the_owner_inbox_wipes_unknown_names_and_holds_nothing(svc, buckets, cust_project, capsys):
-    """Replaces test_unknown_name_candidates_hold_the_file_and_tell_the_owner_only (wipe mode, T4): the owner take
-    runs wipe mode, the name becomes a token and nobody gets a hold mail."""
+def test_a_granted_take_from_the_owner_inbox_wipes_unknown_names_and_holds_nothing(svc, buckets, cust_project,
+                                                                                   capsys):
+    """Replaces test_a_take_from_the_owner_inbox_wipes_unknown_names_and_holds_nothing (findings 2 and 5 of the
+    review of 2026-10-10: a granted project, the file by its kind): the owner take runs wipe mode, the name becomes
+    a token and nobody gets a hold mail."""
     _, own = buckets
+    _grant(capsys, cust_project.code)
     own.objects["inbox/memo.txt"] = ("Call %s about the migration of the database.\n"
                                      % fx.PLANTED_CANDIDATE).encode()
-    code, out, err = run(["inbox", "take", "memo.txt"], capsys)
+    code, out, err = run(["inbox", "take", "the text"], capsys)
     assert code == 0 and "through the intake" in out and "held" not in out, err
     assert fx.PLANTED_CANDIDATE not in out + err and not svc.notes
     (copy,) = [f for f in (Path(cust_project.path) / "input").iterdir() if f.name != ".gitkeep"]
@@ -190,10 +210,14 @@ def test_a_take_from_the_owner_inbox_wipes_unknown_names_and_holds_nothing(svc, 
     assert fx.PLANTED_CANDIDATE not in text and "[company 1]" in text
 
 
-def test_a_file_that_cannot_be_read_is_held_with_the_one_line_of_the_owner(svc, buckets, cust_project, capsys):
+def test_a_granted_take_of_a_file_that_cannot_be_read_is_held_with_the_one_line(svc, buckets, cust_project,
+                                                                                capsys):
+    """Replaces test_a_file_that_cannot_be_read_is_held_with_the_one_line_of_the_owner (findings 2 and 5 of the
+    review of 2026-10-10: a granted project, the file by its kind)."""
     _, own = buckets
+    _grant(capsys, cust_project.code)
     own.objects["inbox/scan.png"] = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + b"\x00" * 17
-    code, out, err = run(["inbox", "take", "scan.png"], capsys)
+    code, out, err = run(["inbox", "take", "picture"], capsys)
     line = "held: run awb import %s as the owner in your own terminal" % cust_project.code
     assert code == 0 and "held on the owner's side" in out and line in out
     assert svc.notes and line in svc.notes[-1][1] and fx.CUSTOMER_CODE in svc.notes[-1][1]
@@ -201,22 +225,25 @@ def test_a_file_that_cannot_be_read_is_held_with_the_one_line_of_the_owner(svc, 
     assert not [f for f in (Path(cust_project.path) / "input").iterdir() if f.name != ".gitkeep"]
 
 
-def test_a_project_without_a_customer_is_refused_the_owner_inbox_with_the_one_line(svc, buckets, lab_project,
-                                                                                  capsys):
-    """Replaces test_a_project_without_a_customer_takes_nothing_from_the_owner_inbox_without_a_code (2026-10-09,
-    tcp-s5i3): the refusal is the one line of the work rules, never the old sentence about inbox/CUST-XXXX/."""
+def test_a_project_without_a_customer_is_refused_an_owner_file_by_kind_with_the_one_line(svc, buckets, lab_project,
+                                                                                        capsys):
+    """Replaces test_a_project_without_a_customer_is_refused_the_owner_inbox_with_the_one_line (finding 2 of the
+    review of 2026-10-10: a word of an owner name meets nothing, the file is named by its kind): the refusal is the
+    one line of the work rules, never the old sentence about inbox/CUST-XXXX/."""
     _, own = buckets
     own.objects["inbox/task.txt"] = b"a task"
-    code, out, err = run(["inbox", "take", "task.txt"], capsys)
+    code, out, err = run(["inbox", "take", "the text"], capsys)
     assert code == 1 and err.strip() == "held: run awb import %s as the owner in your own terminal" % lab_project.code
     assert "inbox/CUST" not in out + err and "?" not in out + err
     assert "inbox/task.txt" in own.objects and not svc.notes
 
 
-def test_a_project_without_a_customer_takes_from_its_own_folder_in(svc, buckets, lab_project, home, capsys):
-    """2026-10-09, tcp-s5i3: a project without a customer takes from its own folder in/ of the owner bucket; the
-    planted person and the planted company come out as tokens and no code, the copy lands in input/, the file
-    stays in in/ and is taken once."""
+def test_a_project_without_a_customer_takes_from_its_own_folder_in_by_kind(svc, buckets, lab_project, home, capsys):
+    """Replaces test_a_project_without_a_customer_takes_from_its_own_folder_in (finding 2 of the review of
+    2026-10-10: a word of a name in in/ meets nothing, the file is named by its kind). 2026-10-09, tcp-s5i3: a
+    project without a customer takes from its own folder in/ of the owner bucket; the planted person and the
+    planted company come out as tokens and no code, the copy lands in input/, the file stays in in/ and is taken
+    once."""
     from awb import bucket
 
     _, own = buckets
@@ -227,6 +254,8 @@ def test_a_project_without_a_customer_takes_from_its_own_folder_in(svc, buckets,
     code, out, err = run(["inbox", "list"], capsys)
     assert code == 0 and "folder in/" in out and "brief" not in out, "listed, its name not shown"
     code, out, err = run(["inbox", "take", "brief"], capsys)
+    assert code == 1 and "neither inbox" in err, "a word of a hidden name meets nothing"
+    code, out, err = run(["inbox", "take", "the text"], capsys)
     assert code == 0, err
     assert "taken from the project's folder in/ through the intake" in out
     (copy,) = [f for f in (Path(lab_project.path) / "input").iterdir() if f.name != ".gitkeep"]
@@ -235,7 +264,7 @@ def test_a_project_without_a_customer_takes_from_its_own_folder_in(svc, buckets,
     assert "[person 1]" in text and "[company 1]" in text and "CUST-" not in text
     assert own.objects[folder + "in/brief.txt"] == original, "the file stays in the project's folder"
     assert any((home.originals / lab_project.code).iterdir()), "the vault keeps the original under the project code"
-    code, _, err = run(["inbox", "take", "brief"], capsys)
+    code, _, err = run(["inbox", "take", "the text"], capsys)
     assert code == 1 and "neither inbox" in err, "taken once"
 
 
@@ -294,19 +323,22 @@ def test_a_planted_form_as_the_put_name_is_refused_also_for_a_picture(svc, bucke
     fx.assert_no_fixture_name(subject + message, "the put mail")
 
 
-def test_the_exchange_mails_carry_fixed_fields_only(svc, buckets, cust_project, capsys, monkeypatch):
-    """TM0 item 2: a planted error text of the intake and a planted name never reach a mail; the hold mail carries
-    the codes, a fixed reason and the owner's line."""
+def test_the_exchange_mails_of_a_granted_take_carry_fixed_fields_only(svc, buckets, cust_project, capsys,
+                                                                      monkeypatch):
+    """Replaces test_the_exchange_mails_carry_fixed_fields_only (findings 2 and 5 of the review of 2026-10-10: a
+    granted project, the file by its kind). TM0 item 2: a planted error text of the intake and a planted name never
+    reach a mail; the hold mail carries the codes, a fixed reason and the owner's line."""
     from awb import intake
 
     _, own = buckets
+    _grant(capsys, cust_project.code)
     own.objects["inbox/kickoff.txt"] = b"Kick-off notes.\n"
 
     def stop(*a, **k):
         raise intake.IntakeError("could not read inbox/kickoff.txt of %s" % fx.CUSTOMER_FORMS[0])
 
     monkeypatch.setattr(intake, "run", stop)
-    code, out, err = run(["inbox", "take", "kickoff.txt"], capsys)
+    code, out, err = run(["inbox", "take", "the text"], capsys)
     assert code == 0 and "held" in out
     subject, message = svc.notes[-1]
     assert "the intake stopped" in message and cust_project.code in message and fx.CUSTOMER_CODE in message
@@ -594,17 +626,25 @@ def test_the_words_he_uses_for_a_file():
     assert m("contract") == [] and m("файл") == []
 
 
-def test_his_words_find_the_file_without_its_exact_name(svc, buckets, cust_project, capsys):
-    _, own = buckets
+def test_his_words_find_a_file_of_the_lab_inbox_without_its_exact_name(svc, buckets, lab_project, capsys):
+    """Replaces test_his_words_find_the_file_without_its_exact_name (finding 2 of the review of 2026-10-10): the
+    same letters meet a name the session may see, a file of the lab inbox; an owner file of the same name is not
+    met and stays."""
+    lab, own = buckets
+    lab.objects["inbox/All_blocks.TXT"] = b"The migration plan of the database cluster.\n"
     own.objects["inbox/All_blocks.TXT"] = b"The migration plan of the database cluster.\n"
     code, out, err = run(["inbox", "take", "all-blocks.txt"], capsys)
     assert code == 0, err
-    assert "taken from the owner inbox through the intake" in out
-    assert not [k for k in own.objects if k.startswith("inbox/")]
+    assert "taken from the lab inbox" in out
+    assert not [k for k in lab.objects if k.startswith("inbox/")] and "inbox/All_blocks.TXT" in own.objects
 
 
-def test_a_description_by_kind_takes_the_one_file_of_that_kind(svc, buckets, cust_project, capsys):
+def test_a_description_by_kind_takes_the_one_file_of_that_kind_for_a_granted_project(svc, buckets, cust_project,
+                                                                                     capsys):
+    """Replaces test_a_description_by_kind_takes_the_one_file_of_that_kind (finding 5 of the review of 2026-10-10:
+    the owner grants the project before its first owner-inbox take)."""
     _, own = buckets
+    _grant(capsys, cust_project.code)
     own.objects["inbox/kickoff notes.md"] = b"Notes of the kick-off: two clusters move.\n"
     own.objects["inbox/sizing.csv"] = b"flavor,count\ns3.large.2,4\n"
     code, out, err = run(["inbox", "take", "эксель"], capsys)
@@ -613,8 +653,12 @@ def test_a_description_by_kind_takes_the_one_file_of_that_kind(svc, buckets, cus
     assert "inbox/kickoff notes.md" in own.objects
 
 
-def test_none_or_several_list_both_inboxes_and_never_an_owner_name(svc, buckets, cust_project, capsys):
+def test_none_or_several_list_both_inboxes_and_never_an_owner_name_for_a_granted_project(svc, buckets, cust_project,
+                                                                                         capsys):
+    """Replaces test_none_or_several_list_both_inboxes_and_never_an_owner_name (finding 5 of the review of
+    2026-10-10: the owner grants the project before its first owner-inbox take)."""
     lab, own = buckets
+    _grant(capsys, cust_project.code)
     lab.objects["inbox/vendor-guide.png"] = b"x" * 10
     own.objects["inbox/offer %s.txt" % fx.CUSTOMER_FORMS[1]] = b"y" * 3000
     own.objects["inbox/notes.txt"] = b"The notes of the workshop about the network.\n"
@@ -636,8 +680,11 @@ def test_none_or_several_list_both_inboxes_and_never_an_owner_name(svc, buckets,
     assert "inbox/notes.txt" not in own.objects and "inbox/offer %s.txt" % fx.CUSTOMER_FORMS[1] in own.objects
 
 
-def test_all_takes_every_file_of_both_inboxes(svc, buckets, cust_project, capsys):
+def test_all_takes_every_file_of_both_inboxes_for_a_granted_project(svc, buckets, cust_project, capsys):
+    """Replaces test_all_takes_every_file_of_both_inboxes (finding 5 of the review of 2026-10-10: the owner grants
+    the project before its first owner-inbox take)."""
     lab, own = buckets
+    _grant(capsys, cust_project.code)
     lab.objects["inbox/vendor.md"] = b"The appliance needs two NICs.\n"
     own.objects["inbox/kickoff.txt"] = ("Kick-off with %s: two clusters move.\n" % fx.CUSTOMER_FORMS[0]).encode()
     code, out, err = run(["inbox", "take", "--all"], capsys)
@@ -675,13 +722,15 @@ def _owner_id(svc, code, rel):
     return e["id"]
 
 
-def test_f5_a_project_without_a_customer_cannot_name_one_for_an_owner_take(svc, buckets, lab_project, capsys):
-    """Replaced 2026-10-09 (the refusal is the one line, never the sentence about inbox/CUST-XXXX/). Planted: a
-    session of a project without a customer names a customer code for a file the owner dropped at the top of his
-    inbox. The service refuses with the one line."""
+def test_f5_a_project_without_a_customer_cannot_name_one_for_an_owner_take_by_kind(svc, buckets, lab_project,
+                                                                                  capsys):
+    """Replaces test_f5_a_project_without_a_customer_cannot_name_one_for_an_owner_take (finding 2 of the review of
+    2026-10-10: the file is named by its kind, a word of its hidden name meets nothing). Planted: a session of a
+    project without a customer names a customer code for a file the owner dropped at the top of his inbox. The
+    service refuses with the one line."""
     _, own = buckets
     own.objects["inbox/task.txt"] = b"Migrate the database cluster.\n"
-    code, _, err = run(["inbox", "take", "task.txt", "--customer", fx.CUSTOMER_CODE], capsys)
+    code, _, err = run(["inbox", "take", "the text", "--customer", fx.CUSTOMER_CODE], capsys)
     assert code == 1 and err.strip() == "held: run awb import %s as the owner in your own terminal" % lab_project.code
     assert "inbox/task.txt" in own.objects and not svc.notes
     a = keys.request(svc.call_path, {"op": "take_owner", "name": "task.txt", "project": lab_project.code,
@@ -689,17 +738,24 @@ def test_f5_a_project_without_a_customer_cannot_name_one_for_an_owner_take(svc, 
     assert not a["ok"] and "inbox/task.txt" in own.objects
 
 
-def test_f5_a_customer_folder_of_the_owner_inbox_is_for_projects_with_that_customer(svc, buckets, lab_project,
-                                                                                  cust_project, capsys):
-    """Replaces test_f5_the_owners_customer_folder_names_the_customer_of_the_take (2026-10-09): the owner inbox's
-    customer folders stay for projects with a customer; a project without one is refused with the one line."""
+def test_f5_a_customer_folder_of_the_owner_inbox_is_for_granted_projects_with_that_customer(svc, buckets,
+                                                                                           lab_project,
+                                                                                           cust_project, capsys):
+    """Replaces test_f5_a_customer_folder_of_the_owner_inbox_is_for_projects_with_that_customer (finding 5 of the
+    review of 2026-10-10: the customer comes from the owner's grant, so the customer project is granted before its
+    take): the owner inbox's customer folders stay for projects with a customer; a project without one is refused
+    with the one line."""
     _, own = buckets
     rel = "%s/task.txt" % fx.CUSTOMER_CODE
     own.objects["inbox/" + rel] = b"Migrate the database cluster.\n"
     ident = _owner_id(svc, lab_project.code, b"Migrate the database cluster.\n")
     for extra in ({}, {"customer": fx.CUSTOMER_CODE}):
         a = keys.request(svc.call_path, dict({"op": "take_owner", "id": ident, "project": lab_project.code}, **extra))
-        assert not a["ok"] and a["error"] == "held: run awb import %s as the owner in your own terminal" % lab_project.code and "inbox/" + rel in own.objects
+        assert not a["ok"] and a["error"] == "held: run awb import %s as the owner in your own terminal" % \
+            lab_project.code and "inbox/" + rel in own.objects
+    a = keys.request(svc.call_path, {"op": "take_owner", "id": ident, "project": cust_project.code})
+    assert not a["ok"] and "inbox/" + rel in own.objects, "never granted: no customer"
+    _grant(capsys, cust_project.code)
     a = keys.request(svc.call_path, {"op": "take_owner", "id": ident, "project": cust_project.code,
                                      "customer": "CUST-ZZ22"})
     assert not a["ok"] and "inbox/" + rel in own.objects, "a session's code has to agree with the folder"

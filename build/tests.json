@@ -2272,21 +2272,21 @@
    "id": "NC-5",
    "phase": "T4",
    "name": "awb inbox take in a project without a customer takes from its own folder in/: tokens, no code, the file stays, taken once",
-   "run": ".venv/bin/pytest tests/test_xchg.py::test_a_project_without_a_customer_takes_from_its_own_folder_in",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_a_project_without_a_customer_takes_from_its_own_folder_in_by_kind",
    "status": "passing"
   },
   {
    "id": "NC-6",
    "phase": "T4",
    "name": "awb inbox take of an owner inbox file in a project without a customer is refused with the one line, the file stays",
-   "run": ".venv/bin/pytest tests/test_xchg.py::test_a_project_without_a_customer_is_refused_the_owner_inbox_with_the_one_line",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_a_project_without_a_customer_is_refused_an_owner_file_by_kind_with_the_one_line",
    "status": "passing"
   },
   {
    "id": "NC-7",
    "phase": "T4",
    "name": "an owner inbox customer folder is for projects with that customer; a project without one is refused with the one line",
-   "run": ".venv/bin/pytest tests/test_xchg.py::test_f5_a_customer_folder_of_the_owner_inbox_is_for_projects_with_that_customer",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_f5_a_customer_folder_of_the_owner_inbox_is_for_granted_projects_with_that_customer",
    "status": "passing"
   },
   {
@@ -2771,8 +2771,43 @@
    "name": "review 2026-10-10 finding 1: the lease policy allows OBS only on <code>-* buckets with a project code and denies IAM and both exchange buckets",
    "run": ".venv/bin/pytest tests/test_keys.py::test_a_lease_mints_a_temporary_key_with_iam_and_the_exchange_buckets_denied",
    "status": "passing"
+  },
+  {
+   "id": "R10-4",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 2: words meet only names the session may see; no owner-inbox name is rebuilt from the matches of inbox_find",
+   "run": ".venv/bin/pytest tests/test_xchg_review.py::test_the_find_is_no_oracle_for_the_names_of_the_owner_inbox",
+   "status": "passing"
+  },
+  {
+   "id": "R10-5",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 2: owner_has and a take of the owner inbox by name answer a session with one refusal, there or not",
+   "run": ".venv/bin/pytest tests/test_xchg_review.py::test_a_session_asks_no_owner_inbox_name",
+   "status": "passing"
+  },
+  {
+   "id": "R10-6",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 5: a project never granted takes no owner-inbox file after its session writes a customer into its row",
+   "run": ".venv/bin/pytest tests/test_xchg_review.py::test_a_project_without_a_customer_cannot_get_one_by_its_own_row",
+   "status": "passing"
+  },
+  {
+   "id": "R10-7",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 5: a row never granted does not choose the customer of an owner take",
+   "run": ".venv/bin/pytest tests/test_keys_review.py::test_a_row_never_granted_does_not_choose_the_customer_of_an_owner_take",
+   "status": "passing"
+  },
+  {
+   "id": "R10-8",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 5: a row never granted does not loosen the send gate of the service",
+   "run": ".venv/bin/pytest tests/test_keys_review.py::test_a_row_never_granted_does_not_loosen_the_send_gate_of_the_service",
+   "status": "passing"
   }
  ],
- "total_tests": 396,
+ "total_tests": 401,
  "checked": "2026-10-10"
 }

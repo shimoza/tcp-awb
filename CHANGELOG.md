@@ -161,6 +161,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- The take by words is no oracle for hidden names, and a project the owner never granted has no customer
+  (findings 2 and 5 of the review of 2026-10-10). Words meet only the names a session may see: a file of the owner
+  inbox or of `in/` is found by its kind, as the newest, with `--all` or by its id, never by a word of its name. A
+  session can no longer ask whether a name is in the owner inbox or take a file there by name. Without the owner's
+  grant a project has no customer for the key service: its owner-inbox take holds, its take from `in/` runs under the
+  project code and its put meets the strict send gate. Run `awb projects kind CODE query` once for a customer project
+  before its first take from the owner inbox.
 - A leased key never reaches the exchange buckets (finding 1 of the review of 2026-10-10). The key service refuses
   a lease of the bucket tenant's lab key, under any alias, and every lease denies every action on the lab bucket and
   the owner bucket. OBS is allowed only on buckets whose name starts with the project code, and a lease without a

@@ -640,6 +640,10 @@ class Service:
                 return self._lease(req, uid)
             except Refused as err:
                 return {"ok": False, "error": str(err)}
+        if (op == "owner_has" or (op == "take_owner" and req.get("id") is None)) and uid != os.getuid():
+            # a name of the owner inbox is asked by the owner alone: for a session an answer to a name it guessed
+            # would tell whether the name is there (finding 2 of the review of 2026-10-10); a session takes by id
+            return {"ok": False, "error": "a session takes a file of the owner inbox by its id (awb inbox list)"}
         if op in ("obs", "owner_has", "take_owner", "take_lab", "inbox_find", "owner_folder"):
             # owner_folder: spawn (the work user, the console's creation) asks for the project's folder in the
             # owner bucket; the service makes it with the bucket key, which the caller never holds

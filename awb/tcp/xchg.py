@@ -13,26 +13,27 @@ The owner drops a file into one of two inboxes in the OBS console, with no proje
     <lab bucket>/inbox/     material without customer content (vendor images, test data, public documents)
     <owner bucket>/inbox/   anything that may hold customer material; only the owner's IAM user reaches it
 
-The owner never has to know a file's name: he says what it is ("the pdf", "the excel with the sizing", "the
-newest", "all files") and the session passes his words. The key service matches them against the names of both
-inboxes: the exact name, the same letters (case, dashes and the extension aside), then kind words in English,
-German or Russian (pdf, excel, Tabelle, презентация), a word for the newest file and the other words inside the
-name; several ways of saying it go in one call, separated by |. One file found: it is taken. None or several: the
+The owner never has to know a file's name: he says what it is ("the pdf", "the excel with the sizing", "the newest",
+"all files") and the session passes his words. The key service matches them against the files of both inboxes: kind
+words in English, German or Russian (pdf, excel, Tabelle, презентация) and a word for the newest file meet every
+file; the exact name, the same letters (case, dashes and the extension aside) and the other words meet only a name
+the session may see (a file of the lab inbox the name check passes), so no answer tells whether a hidden name holds
+a word; several ways of saying it go in one call, separated by |. One file found: it is taken. None or several: the
 session gets the list of both inboxes (an id, the kind, the size and the time, the name only for a file of the lab
-inbox the name check passes, never for one of the owner inbox), picks by his description or asks him, and takes
-by id. From the lab inbox the key service fetches it and runs the name check on it in its own process (F6); a
-file that passes is copied to `<lab bucket>/<code>/in/`, removed from the inbox and handed to the session for
-`input/`, a file with a hit or one that cannot be checked stays in the inbox and the session gets no byte of it.
-From the owner inbox the session never sees the original: the key service (the owner's process) moves it into the
-project's folder of the owner bucket, runs `awb intake` for the customer and hands the session only the sanitised
-copies; a file the intake cannot read is held and the owner is told. The customer of an owner-inbox take is the
-project's own; a folder `inbox/CUST-XXXX/` the owner drops a file into has to be that customer's (F5), and a
-session's --customer only has to agree with it. A project without a customer takes nothing from the owner inbox: its
-material comes from its own folder `in/` of the owner bucket (spawn makes it, op owner_folder; the first take makes
-it when spawn could not), whose new files a find lists beside the two inboxes for every project; the key service
-runs the same intake for them, for the project's customer or, without one, under the project code with no customer
-code. "take the files from in" takes every new file of `in/`. Every refusal of a take is the one line of the work
-rules (`hold_line`). Results go back
+inbox the name check passes, never for one of the owner inbox), picks by his description or asks him, and takes by
+id. From the lab inbox the key service fetches it and runs the name check on it in its own process (F6); a file that
+passes is copied to `<lab bucket>/<code>/in/`, removed from the inbox and handed to the session for `input/`, a file
+with a hit or one that cannot be checked stays in the inbox and the session gets no byte of it. From the owner inbox
+the session never sees the original: the key service (the owner's process) moves it into the project's folder of the
+owner bucket, runs `awb intake` for the customer and hands the session only the sanitised copies; a file the intake
+cannot read is held and the owner is told. The customer of an owner-inbox take is the project's own as the owner's
+grant records it (a project he never granted has none); a folder `inbox/CUST-XXXX/` the owner drops a file into has
+to be that customer's (F5), and a session's --customer only has to agree with it. A project without a customer takes
+nothing from the owner inbox: its material comes from its own folder `in/` of the owner bucket (spawn makes it, op
+owner_folder; the first take makes it when spawn could not), whose new files a find lists beside the two inboxes for
+every project; the key service runs the same intake for them, for the project's customer or, without one, under the
+project code with no customer code. "take the files from in" takes every new file of `in/`. Every refusal of a take
+is the one line of the work rules (`hold_line`). Results go back
 with `awb xchg put` into `<lab bucket>/<code>/from-session/<date>/`, after the name check and the send gate of `awb
 bucket put`, both run again by the key service on the bytes it received (F6). The owner gets a mail through the SMN topic of the settings
 when a session puts a file and when a take holds one.
@@ -187,16 +188,20 @@ def _is_newest(token: str) -> bool:
     return any(token == w or (token.startswith(w) and (not w.isascii() or w in ("neu", "letzt"))) for w in _NEWEST)
 
 
-def match(words: str, rels: list[str], modified: list[str] | None = None) -> list[int]:
+def match(words: str, rels: list[str], modified: list[str] | None = None, visible: set[int] | None = None) -> list[int]:
     """The indexes of the files `words` means, `rels` being their names under inbox/. The exact name wins, then the
     same letters and digits, then each alternative of `words` (separated by |): its kind words pick the type, a word
-    for the newest keeps the newest file, every other word must be inside the name."""
+    for the newest keeps the newest file, every other word must be inside the name. `visible` (all when None) are
+    the indexes whose names the session may see: only they meet a name, the same letters or a word; a hidden name
+    meets kind words and the newest alone, which the listing shows anyway, so no answer tells whether a hidden name
+    holds a word (finding 2 of the review of 2026-10-10)."""
+    seen = set(range(len(rels))) if visible is None else set(visible)
     wanted = words.strip()
-    exact = [i for i, r in enumerate(rels) if wanted in (r, r.rsplit("/", 1)[-1])]
+    exact = [i for i, r in enumerate(rels) if i in seen and wanted in (r, r.rsplit("/", 1)[-1])]
     if exact:
         return exact
     folded = _fold(wanted)
-    same = [i for i, r in enumerate(rels) if folded and folded in _forms(r)]
+    same = [i for i, r in enumerate(rels) if i in seen and folded and folded in _forms(r)]
     if same:
         return same
     found: list[int] = []
@@ -216,7 +221,8 @@ def match(words: str, rels: list[str], modified: list[str] | None = None) -> lis
                 rest.append(t)
         if not (kinds or newest or rest):
             continue
-        hits = [i for i, r in enumerate(rels) if (not kinds or suffix(r) in kinds) and all(t in _fold(r) for t in rest)]
+        hits = [i for i, r in enumerate(rels) if (not kinds or suffix(r) in kinds)
+                and (not rest or (i in seen and all(t in _fold(r) for t in rest)))]
         if newest and len(hits) > 1 and modified:
             last = max(modified[i] for i in hits)
             hits = [i for i in hits if modified[i] == last]
@@ -369,10 +375,10 @@ def authorise_put(ctx: Context, req: dict) -> None:
 def put_problems(ctx: Context, req: dict, body_path: Path) -> list[str]:
     """The checks of a put into from-session/, run by the key service on the bytes it received (F6): the name
     check of the content (a picture only with image and a reason), then the send gate on the project's folder
-    under the projects root (never the path a row of projects.tsv names), for a customer project in its strict
-    form. A name the name check does not pass never travels (the mail names the id, TM0 item 1), so the bytes are
-    judged under the id then."""
-    from awb import projects, review
+    under the projects root (never the path a row of projects.tsv names), in its strict form unless the owner's
+    grant records no customer (send_gate_strict). A name the name check does not pass never travels (the mail names
+    the id, TM0 item 1), so the bytes are judged under the id then."""
+    from awb import review
 
     p = ctx.paths_fn()
     project = ctx.active_project(req["project"])
@@ -388,7 +394,7 @@ def put_problems(ctx: Context, req: dict, body_path: Path) -> list[str]:
         problems = check_problems(judged, image=image, register=p.register)
         if problems:
             return problems
-        for_customer = project_customer(ctx, project) != projects.NO_CUSTOMER
+        for_customer = send_gate_strict(ctx, project)
         verdict, message = review.send_check(p.projects_root / project.code, judged, for_customer,
                                              register_path=p.register, workbench=p, name=name)
     if verdict == review.SEND_REFUSE:
@@ -464,16 +470,14 @@ def project_customer(ctx: Context, project) -> str:
     """The customer of a project for the service (the residual of F5 and F6): the one the owner's grant recorded, a
     CUST code or none; the work user's row never chooses it. A row that names another customer than the grant, or a
     customer under a grant written before customers were recorded, is refused in one line with the project code. A
-    project the owner never granted has no record of his, so its row stands."""
+    project the owner never granted has no record of his and so no customer (finding 5 of the review of
+    2026-10-10): an owner-inbox take holds, a take from in/ runs under the project code."""
     from awb import grants, projects
 
     row = None if project.customer in (projects.NO_CUSTOMER, "", None) else project.customer
-    try:
-        recorded = grants.load(ctx.paths_fn()).get(project.code)
-    except Exception:
-        recorded = None
+    recorded = _grant_of(ctx, project.code)
     if recorded is None:
-        return row or projects.NO_CUSTOMER
+        return projects.NO_CUSTOMER
     granted = grants.customer(ctx.paths_fn(), project.code)
     if granted is None:
         if row is None:
@@ -482,6 +486,25 @@ def project_customer(ctx: Context, project) -> str:
     if (None if granted == projects.NO_CUSTOMER else granted) != row:
         raise XchgError(DIFFERS_LINE % project.code)
     return granted
+
+
+def _grant_of(ctx: Context, code: str) -> dict | None:
+    from awb import grants
+
+    try:
+        return grants.load(ctx.paths_fn()).get(code)
+    except Exception:
+        return None
+
+
+def send_gate_strict(ctx: Context, project) -> bool:
+    """Whether the send gate of a put runs in its strict form: always, unless the owner's grant records that the
+    project has no customer. A project he never granted gets the strict form whatever its row says (finding 5)."""
+    from awb import projects
+
+    if _grant_of(ctx, project.code) is None:
+        return True
+    return project_customer(ctx, project) != projects.NO_CUSTOMER
 
 
 def _project_files(ctx: Context, code: str) -> list[dict]:
@@ -512,8 +535,8 @@ def _project_files(ctx: Context, code: str) -> list[dict]:
 def serve_inbox_find(ctx: Context, req: dict) -> dict:
     """Which inbox files the owner means: `words` (what he said), `id` (a file an earlier find showed), `all` or
     nothing (the list). Every file of both inboxes comes back with an id, its bucket, kind, size and time; the name
-    only for a file of the lab inbox the name check passes, never for one of the owner inbox. His words meet those
-    names here, inside his own process."""
+    only for a file of the lab inbox the name check passes, never for one of the owner inbox or of in/. His words
+    meet only the names shown; a hidden one meets his kind words and the newest alone (match)."""
     project = req.get("project")
     if project is not None and ctx.active_project(project) is None:
         raise XchgError("the project is not an active project")
@@ -540,7 +563,8 @@ def serve_inbox_find(ctx: Context, req: dict) -> dict:
     elif words is not None and from_in(words):
         picked = [i for i, e in enumerate(entries) if e["bucket"] == "project"]
     elif words is not None:
-        picked = match(words, [f["rel"] for f in files], [f["modified"] for f in files])
+        visible = {i for i, e in enumerate(entries) if e["name"] is not None}
+        picked = match(words, [f["rel"] for f in files], [f["modified"] for f in files], visible)
     else:
         picked = []
     return {"ok": True, "files": entries, "matches": [entries[i] for i in picked]}
