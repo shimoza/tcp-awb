@@ -864,13 +864,16 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
             raise Refused("--only names a unit that has no template")
         if not is_installed(show[name]):
             raise Refused("--only names a unit that is not installed")
-    probes = {}
-    for u, info in units.items():
-        if u.endswith(".socket") and is_installed(show[u]):
-            m = re.match(r"(/run/[A-Za-z0-9._/-]+)", show[u].get("Listen", ""))
-            # a socket only another user may open (the gateway's front, cloudflared's alone) is not probed
-            if m and not (os.path.exists(m.group(1)) and not os.access(m.group(1), os.W_OK)):
-                probes[u] = m.group(1)
+    probes = probe_paths(tree, units, show)
+    # a daemon left on an older release: did any file its unit imports change since that release?
+    daemon_code = {}
+    for pu in plan_units:
+        r = (daemons.get(pu["kind"]) or {}).get("release") if pu["kind"] in DAEMON_ORDER else None
+        if pu["installed"] and isinstance(r, str) and r != target:
+            since = [x for x in git(run, repo, "diff", "--name-only", r, target).splitlines() if x] if known(r) \
+                else None
+            daemon_code[pu["unit"]] = {"release": r, "code": "changed" if since is None or pu["unit"] in
+                                       um.effects(since).units else "unchanged"}
     keep = sorted({r for r in (journal or {}).get("running", {}).values() if isinstance(r, str)}
                   | {d["release"] for d in daemons.values() if d.get("release")})
     return {
@@ -896,9 +899,45 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
         "daemons": {k: {"state": v.get("state", "unknown"), "since": v.get("since"), "release": v.get("release"),
                         "codes": v.get("codes"), "aliases": v.get("aliases")} for k, v in daemons.items()},
         "probes": probes,
+        "daemon_code": daemon_code,
         "activated": activated,
         "keep": keep,
     }
+
+
+def can_open(path: str) -> bool:
+    """True when this user may connect to the socket at `path`: it may search the folder and write the socket."""
+    if not _access(os.path.dirname(path) or "/", os.X_OK):
+        return False
+    return not os.path.lexists(path) or _access(path, os.W_OK)
+
+
+_access = os.access
+
+
+def probe_paths(tree, units: dict[str, dict], show: dict[str, dict]) -> dict[str, str]:
+    """{socket unit: the path the owner probes it on}. A socket the owner may not open (the gateway's front, root's
+    with the tunnel's group, D-FRONT) is proven through a socket of the same service the owner may open: the
+    gateway's status socket, which answers any GET (seal/web/README.md). The gateway binds the front before it
+    serves the status socket and exits when it cannot, so an answer there proves both. A socket with no such
+    sibling is not probed."""
+    listen = {}
+    for u in units:
+        if u.endswith(".socket") and is_installed(show[u]):
+            m = re.match(r"(/run/[A-Za-z0-9._/-]+)", show[u].get("Listen", ""))
+            if m:
+                listen[u] = m.group(1)
+    probes = {}
+    for u, path in sorted(listen.items()):
+        if can_open(path):
+            probes[u] = path
+            continue
+        service = socket_service(tree, units, u)
+        other = next((p for v, p in sorted(listen.items()) if v != u and socket_service(tree, units, v) == service
+                      and can_open(p)), None)
+        if other:
+            probes[u] = other
+    return probes
 
 
 def _reload_or_restart(kind, unit, show, state, tree, imap, opts, template_changed, reason) -> tuple[str, str]:
@@ -1047,6 +1086,11 @@ def validate_plan(plan, allowed_units: set[str]) -> dict:
             k in seen and isinstance(v, str) and re.match(r"^/run/[A-Za-z0-9._/-]+$", v) and ".." not in v
             for k, v in probes.items()):
         bad("probes")
+    code = plan.get("daemon_code", {})
+    if not isinstance(code, dict) or not all(
+            k in seen and isinstance(v, dict) and set(v) == {"release", "code"} and _release_word(v["release"])
+            == v["release"] and v["code"] in ("changed", "unchanged") for k, v in code.items()):
+        bad("daemon_code")
     return plan
 
 
@@ -1352,6 +1396,7 @@ class Run:
             "units_from": old.get("units_from") or previous,
             "pending": sorted(u["unit"] for u in self.plan["units"] if u["action"] in ("restart", "reload")),
             "running": running,
+            "daemon_code": dict(self.plan.get("daemon_code") or {}),
         }
         say("+ write %s running" % self.host.journal)
         self.save()
@@ -1527,7 +1572,8 @@ class Run:
         probes = []
         for unit, path in self.plan["probes"].items():
             service = unit[:-len(".socket")] + ".service"
-            if "restarted" in (units.get(unit, {}).get("result"), units.get(service, {}).get("result")):
+            if "restarted" in (units.get(unit, {}).get("result"), units.get(service, {}).get("result")) \
+                    and path not in probes:
                 probes += ["--probe", path]
         say("+ %s   # as %s" % (cmdline([self.host.bin, "deploy", "status", "--json"] + probes),
                                 self.caller.owner.pw_name))
@@ -1539,8 +1585,7 @@ class Run:
             say("# the states of the daemons could not be read")
         for path, ok in (self.status.get("probes") or {}).items():
             if not ok:
-                unit = next((u for u, p in self.plan["probes"].items() if p == path), None)
-                if unit:
+                for unit in sorted(u for u, p in self.plan["probes"].items() if p == path):
                     say("# %s gave no answer on %s: journalctl -u %s" % (unit, path, unit[:-7] + ".service"))
                     self.mark(unit, "failed")
                     self.failed.append(unit)
@@ -1712,7 +1757,11 @@ def status_lines(journal: dict, status: dict, show: dict[str, dict]) -> list[str
         release = d.get("release") or ((journal.get("running") or {}).get(unit) if unit else None)
         if release:
             text += ", release %s" % short(release)
-        if release and target and release != target and unit:
+        code = (journal.get("daemon_code") or {}).get(unit) if unit else None
+        if release and target and release != target and unit and isinstance(code, dict) \
+                and code.get("release") == release and code.get("code") == "unchanged":
+            text += " (its code unchanged since)"
+        elif release and target and release != target and unit:
             text += "; code and units: release %s; next: sudo awb deploy --only %s" % (short(target), unit)
         elif unit and unit in (journal.get("pending") or []):
             text += "; pending, next: sudo awb deploy"

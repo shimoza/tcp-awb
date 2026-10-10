@@ -114,6 +114,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - The deploy no longer reports a restarted socket unit as failed.
 - The deploy no longer reports a socket-activated service as failed when only its code changed: such a service
   stays inactive until its first call, so the deploy does not wait for it.
+- The deploy no longer ends in "awb-web.socket gave no answer" and exit 1 while the gateway serves: the front
+  socket only the tunnel may open is proven through the gateway's status socket, its mode and group unchanged.
+- The deploy names "next: sudo awb deploy --only" for a daemon on an older release only when a module it imports
+  changed since that release, else the status says "its code unchanged since".
 - `awb web status` without sudo says the sign-in log needs sudo instead of stopping with an error.
 - A calendar invite whose lines are folded is read whole before names are looked for. A flavor id such as
   `rds.pg.c6.large.4` is no longer taken for a web address and the number at the end of a host name next to an IP

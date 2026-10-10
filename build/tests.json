@@ -2582,6 +2582,41 @@
    "name": "refresh wipe: the board carries the line of the last measurement",
    "run": ".venv/bin/pytest tests/test_refresh_wipe.py::test_the_board_carries_the_wipe_line",
    "status": "passing"
+  },
+  {
+   "id": "T2-PROBE1",
+   "phase": "T2",
+   "name": "deploy: the front socket (root:cloudflared 0660) is probed through the gateway's status socket, never directly; a clean run exits 0, a silent gateway fails both sockets",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_front_socket_is_probed_through_the_status_socket",
+   "status": "passing"
+  },
+  {
+   "id": "T2-PROBE2",
+   "phase": "T2",
+   "name": "deploy: a socket the owner may not open and with no open socket of the same service is not probed",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_a_socket_without_an_open_sibling_is_not_probed",
+   "status": "passing"
+  },
+  {
+   "id": "T2-PROBE3",
+   "phase": "T2",
+   "name": "deploy: a real status socket answers the owner probe, a closed socket does not",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_owner_probe_answers_on_the_status_socket_and_not_on_a_closed_one",
+   "status": "passing"
+  },
+  {
+   "id": "T2-NEXT1",
+   "phase": "T2",
+   "name": "deploy: the status names the next command for a daemon on an older release only when its code changed since, else 'its code unchanged since'",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_next_line_of_a_daemon_only_when_its_code_changed",
+   "status": "passing"
+  },
+  {
+   "id": "T2-NEXT2",
+   "phase": "T2",
+   "name": "deploy: the plan records per daemon whether its closure changed since its release, the journal keeps it, the closing status of a clean run names no next step",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_plan_records_whether_a_daemon_code_changed_since_its_release",
+   "status": "passing"
   }
  ],
  "total_tests": 363,

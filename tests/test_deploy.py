@@ -1203,3 +1203,152 @@ def test_a_socket_activated_service_restarted_alone_is_not_waited_for(world, tmp
     assert "did not come back" not in out and "after the restart" not in out
     j = json.loads((world.root / "DEPLOYED").read_text())
     assert j["units"]["awb-owner-actions.service"]["result"] == "restarted" and j["pending"] == []
+
+
+# --------------------------------------------------------------------------- the two false alarms of 2026-10-09
+
+
+FRONT = "/run/awb-web/front.sock"
+STATUS = "/run/awb-web-status.sock"
+
+
+def front_closed(path, mode):
+    """os.access of an owner outside the tunnel's group: the folder of the front socket is root:cloudflared 0750 and
+    the socket root:cloudflared 0660, every other path is open."""
+    return not (path == os.path.dirname(FRONT) or path.startswith(os.path.dirname(FRONT) + "/"))
+
+
+def test_the_front_socket_is_probed_through_the_status_socket(world, tmp_path, monkeypatch, capsys):
+    """2026-10-09: since T9 step 1 the front socket is root:cloudflared 0660 in a 0750 folder, the status child runs
+    as the owner and cannot connect, so every deploy ended in "awb-web.socket gave no answer" and exit 1 although
+    the gateway served. Planted: the plan probes the front socket itself; a clean run exits 1; a status socket that
+    gives no answer passes."""
+    repo = tmp_path / "probe-repo"
+    shutil.copytree(synth_tree(tmp_path).root, repo)
+    git(repo, "init", "-q")
+    commit(repo)
+    monkeypatch.setattr(deploy, "_access", front_closed)
+    world.runner.unit("awb-web.socket")["Listen"] = "%s (Stream)" % FRONT
+    world.runner.unit("awb-web-status.socket")["Listen"] = "%s (Stream)" % STATUS
+    plan = deploy.owner_plan(deploy.Options(), repo, plan_host(world, repo))
+    assert plan["probes"]["awb-web.socket"] == STATUS and plan["probes"]["awb-web-status.socket"] == STATUS
+    assert FRONT not in plan["probes"].values()
+    # the root run: one GET on the status socket proves the gateway, the exit code is 0
+    world.runner.plan = world.plan(actions={"awb-web.service": "restart"}, probes=dict(plan["probes"]))
+    world.runner.status = dict(world.runner.status, probes={STATUS: True})
+    assert world.main([]) == 0, capsys.readouterr()
+    out = capsys.readouterr().out
+    status = [c for c, _ in world.runner.named("deploy", "status")]
+    assert status and status[0].count("--probe") == 1 and STATUS in status[0] and FRONT not in status[0]
+    assert "gave no answer" not in out and "failed:" not in out
+    # the same run with a gateway that does not answer fails and names both sockets
+    w2 = World(tmp_path / "second")
+    w2.runner.plan = w2.plan(actions={"awb-web.service": "restart"}, probes=dict(plan["probes"]))
+    w2.runner.status = dict(w2.runner.status, probes={STATUS: False})
+    assert w2.main([]) == 1
+    out = capsys.readouterr().out
+    assert "awb-web.socket gave no answer on %s" % STATUS in out
+    assert "awb-web-status.socket gave no answer on %s" % STATUS in out
+
+
+def test_a_socket_without_an_open_sibling_is_not_probed(world, tmp_path, monkeypatch):
+    """Planted: a closed socket probed anyway, or probed through a socket of another service."""
+    repo = tmp_path / "probe-repo"
+    shutil.copytree(synth_tree(tmp_path).root, repo)
+    git(repo, "init", "-q")
+    commit(repo)
+    monkeypatch.setattr(deploy, "_access", front_closed)
+    world.runner.unit("awb-web.socket")["Listen"] = "%s (Stream)" % FRONT
+    world.runner.unit("awb-customers.socket")["Listen"] = "/run/awb-customers.sock (Stream)"
+    plan = deploy.owner_plan(deploy.Options(), repo, plan_host(world, repo))
+    assert "awb-web.socket" not in plan["probes"]
+    assert plan["probes"]["awb-customers.socket"] == "/run/awb-customers.sock"
+
+
+def test_the_owner_probe_answers_on_the_status_socket_and_not_on_a_closed_one(tmp_path):
+    """A real Unix socket served by the gateway's status server answers the probe; a socket the owner may not open
+    (mode 000 here, root:cloudflared 0660 on the host) does not, which is why the front is never probed directly."""
+    import tempfile
+    import threading
+
+    from awb.tcp.web import gateway
+
+    folder = Path(tempfile.mkdtemp(prefix="awbp", dir="/tmp"))
+    try:
+        path = str(folder / "status.sock")
+        server = gateway.make_status_server(gateway.unix_listener(path, 0o666))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            assert deploy.owner_probe(path, timeout=5)
+            os.chmod(path, 0)
+            if os.geteuid() != 0:
+                assert not deploy.owner_probe(path, timeout=5)
+        finally:
+            server.shutdown()
+            server.server_close()
+    finally:
+        shutil.rmtree(folder)
+
+
+def test_the_next_line_of_a_daemon_only_when_its_code_changed():
+    """2026-10-09: "next: sudo awb deploy --only awb-vaultd.service" after every deploy that left the vault daemon
+    alone, also when no module it imports changed. Planted: the next line with the code unchanged; no next line
+    with the code changed; the note kept for a release the plan did not record."""
+    a, b, c = "a" * 40, "b" * 40, "c" * 40
+    units = {"awb-vaultd.service": {"kind": "vault"}, "awb-keyd.service": {"kind": "keys"}}
+    status = {"vault": {"state": "unlocked", "codes": 2, "release": a},
+              "keys": {"state": "unlocked", "aliases": ["t1"], "release": a}}
+    j = {"target": b, "pending": [], "running": {}, "units": units,
+         "daemon_code": {"awb-vaultd.service": {"release": a, "code": "unchanged"},
+                         "awb-keyd.service": {"release": a, "code": "changed"}}}
+    lines = deploy.status_lines(j, status, {})
+    assert lines[0] == "vault: unlocked, 2 codes, release aaaaaaa (its code unchanged since)"
+    assert lines[1] == "keys: t1, release aaaaaaa; code and units: release bbbbbbb; next: sudo awb deploy --only " \
+                       "awb-keyd.service"
+    # the plan recorded another release than the one the daemon reports now: no claim on its code
+    j["daemon_code"]["awb-vaultd.service"]["release"] = c
+    assert "next: sudo awb deploy --only awb-vaultd.service" in deploy.status_lines(j, status, {})[0]
+    # a daemon on the target: neither
+    status["vault"]["release"] = b
+    assert deploy.status_lines(j, status, {})[0] == "vault: unlocked, 2 codes, release bbbbbbb"
+
+
+def test_the_plan_records_whether_a_daemon_code_changed_since_its_release(world, tmp_path, capsys):
+    """The plan diffs the release each daemon reports against the target and records per daemon unit whether a
+    file of its closure changed; root keeps it in the journal and the status reads it. Planted: a change of the
+    README recorded as changed; a change of awb/vault.py recorded as unchanged for the vault; a release that is no
+    commit of the repository recorded as unchanged."""
+    repo = tmp_path / "code-repo"
+    shutil.copytree(synth_tree(tmp_path).root, repo)
+    git(repo, "init", "-q")
+    c1 = commit(repo)
+    (repo / "README.md").write_text("a line\n")
+    c2 = commit(repo)
+    (repo / "awb" / "vault.py").write_text("from awb import config\nX = 1\n")
+    c3 = commit(repo)
+    on = lambda r: (lambda: {"vault": {"state": "unlocked", "release": r},                 # noqa: E731
+                             "keys": {"state": "unlocked", "release": r}})
+
+    def code(daemons, to):
+        return deploy.owner_plan(deploy.Options(to=to), repo, plan_host(world, repo, daemons))["daemon_code"]
+
+    assert code(on(c1), c2) == {"awb-vaultd.service": {"release": c1, "code": "unchanged"},
+                                "awb-keyd.service": {"release": c1, "code": "unchanged"}}
+    assert code(on(c1), c3)["awb-vaultd.service"]["code"] == "changed"
+    assert code(on(c2), c3)["awb-keyd.service"]["code"] == "unchanged"
+    assert code(on("f" * 40), c2)["awb-vaultd.service"]["code"] == "changed"
+    assert code(on(c3), c3) == {}
+    # root carries it into the journal; the closing status names no next step for the unchanged daemon
+    world.runner.plan = world.plan(daemon_code={"awb-vaultd.service": {"release": world.c0, "code": "unchanged"}})
+    world.runner.status = {"vault": {"state": "unlocked", "codes": 3, "release": world.c0},
+                           "keys": {"state": "unlocked", "aliases": ["t1"], "release": world.c1}}
+    assert world.main([]) == 0, capsys.readouterr()
+    out = capsys.readouterr().out
+    j = json.loads((world.root / "DEPLOYED").read_text())
+    assert j["daemon_code"] == {"awb-vaultd.service": {"release": world.c0, "code": "unchanged"}}
+    assert "vault: unlocked, 3 codes, release %s (its code unchanged since)" % world.c0[:7] in out
+    assert "next: sudo awb deploy --only" not in out
+    # a plan whose record does not validate is refused before anything changes
+    with pytest.raises(deploy.Refused):
+        deploy.validate_plan(world.plan(daemon_code={"awb-vaultd.service": {"release": "x", "code": "unchanged"}}),
+                             set(units_of_repo()))

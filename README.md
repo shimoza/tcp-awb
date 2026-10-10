@@ -81,7 +81,9 @@ sudo awb deploy
 
 The deploy installs the commit as a release of its own and restarts only what the change touched. The name check
 and the key service move to the new code without a lock, so no session stops and no key is loaded again. Changed
-rules reach every project and every running session. The run ends with the status of each service.
+rules reach every project and every running session. The run ends with the status of each service. A daemon
+the deploy left on an older release carries the next command only when a module it imports changed since,
+else the note "its code unchanged since".
 `awb deploy status` shows what runs where, `sudo awb deploy --rollback` goes back to the release before.
 
 ## What it does for an architect
