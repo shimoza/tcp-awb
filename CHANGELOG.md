@@ -149,6 +149,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- The key service takes a project's customer from the owner's grant, never from the work user's projects.tsv
+  (the residual of F5 and F6). `awb projects kind CODE KIND` run by the owner records the row's customer in the
+  grant. The owner-inbox take, the project take, the strict form of the send gate and the lease refuse a row that
+  names another customer, in one line with the project code. A grant of before 2026-10-10 is filled by one re-run
+  of `awb projects kind`; `awb projects check` as the owner lists those and every row that differs.
 - A project session stays inside its project. `awb hook pre-tool` guards Read, Edit, MultiEdit, NotebookEdit,
   Write, Glob, Grep and Bash in the work user's settings: a call that reaches another project, the client's folder
   or a key folder (`.ssh`, `.config`) is refused with one line that names the class of the place, never the path.

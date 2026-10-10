@@ -364,14 +364,20 @@ def _cmd_projects_kind(args, p: config.Paths) -> int:
         if row is None:
             print("awb projects: %s is not an active project" % args.code, file=sys.stderr)
             return EXIT_ERROR
+        customer_before = grants.customer(p, args.code)
         try:
-            granted_before = grants.grant(p, args.code, args.kind)
+            granted_before = grants.grant(p, args.code, args.kind, customer=row.customer)
         except grants.GrantError as err:
             print("awb projects: %s" % err, file=sys.stderr)
             return EXIT_ERROR
         print("%s: the owner's grant is %s (was %s)%s" % (args.code, args.kind, granted_before or "none",
                                                           ": it reaches the test tenants"
                                                           if projects.tenant_access(args.kind) else ": no test tenant"))
+        customer_now = grants.customer(p, args.code)
+        if customer_before != customer_now:
+            # the customer comes from the row as it is now: a change the owner did not make shows here
+            print("%s: the customer of the grant is %s (was %s)" % (args.code, customer_now,
+                                                                     customer_before or "not recorded"))
         try:
             pr, before = projects.set_kind(p, args.code, args.kind)
         except (OSError, projects.ProjectError):
@@ -439,9 +445,40 @@ def _cmd_projects_check(args, p: config.Paths) -> int:
     found = projects.unregistered(p)
     if not found:
         print("every tcp- folder under %s is a registered project" % p.projects_root)
-        return EXIT_OK
-    print("%d tcp- folder(s) that no project registered: %s" % (len(found), ", ".join(found)))
-    return EXIT_FINDINGS
+    else:
+        print("%d tcp- folder(s) that no project registered: %s" % (len(found), ", ".join(found)))
+    stale, differs = _grant_findings(p)
+    for code, kind in stale:
+        print("%s: the owner's grant records no customer while its row names one: awb projects kind %s %s as the "
+              "owner once more" % (code, code, kind))
+    for code in differs:
+        print("%s: its row in projects.tsv names another customer than the owner's grant" % code)
+    return EXIT_FINDINGS if found or stale or differs else EXIT_OK
+
+
+def _grant_findings(p: config.Paths) -> tuple[list[tuple[str, str]], list[str]]:
+    """The granted active projects whose grant records no customer while the row names one (granted before
+    2026-10-10), and those whose row names another customer than the grant. Codes only; the work user cannot read
+    the owner's grants and is told so once."""
+    from awb import grants, projects
+
+    if not grants.readable(p):
+        print("the owner's grants are not readable here: he runs awb projects check in his own terminal to compare "
+              "them")
+        return [], []
+    recorded = grants.load(p)
+    stale, differs = [], []
+    for r in projects.load(p):
+        if r.state != "active" or r.code not in recorded:
+            continue
+        row = r.customer or projects.NO_CUSTOMER
+        granted = grants.customer(p, r.code)
+        if granted is None:
+            if row != projects.NO_CUSTOMER:
+                stale.append((r.code, recorded[r.code]["kind"]))
+        elif granted != row:
+            differs.append(r.code)
+    return stale, differs
 
 
 # --------------------------------------------------------------------------- parser

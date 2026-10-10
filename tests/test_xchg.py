@@ -807,3 +807,96 @@ def test_f8_a_put_is_authorised_before_its_bytes_are_received(svc, buckets, lab_
     a = keys.request(svc.call_path, {"op": "obs", "method": "PUT", "project": lab_project.code, "key": good},
                      upload=small)
     assert a["ok"] and received == [1]
+
+
+# --------------------------------------------------------------------------- the customer of the grant (F5, F6)
+
+
+def _plant_row(home, code, customer):
+    """Planted: a session rewrites the customer of its own row in projects.tsv (the work user's file)."""
+    from dataclasses import replace
+
+    projects._save(home, [replace(r, customer=customer) if r.code == code else r for r in projects.load(home)])
+
+
+def test_rg_a_row_changed_after_the_grant_does_not_change_the_customer_of_the_service(svc, buckets, home,
+                                                                                      cust_project, capsys):
+    from awb import grants
+
+    _, own = buckets
+    assert run(["projects", "kind", cust_project.code, "query"], capsys)[0] == 0
+    assert grants.customer(home, cust_project.code) == fx.CUSTOMER_CODE
+    own.objects["inbox/CUST-ZZ22/task.txt"] = b"Another customer's task.\n"
+    ident = _owner_id(svc, cust_project.code, b"Another customer's task.\n")
+    differs = xchg.DIFFERS_LINE % cust_project.code
+    _plant_row(home, cust_project.code, "CUST-ZZ22")
+    for extra in ({}, {"customer": "CUST-ZZ22"}):
+        a = keys.request(svc.call_path, dict({"op": "take_owner", "id": ident, "project": cust_project.code},
+                                             **extra))
+        assert not a["ok"] and a["error"] == differs and "inbox/CUST-ZZ22/task.txt" in own.objects
+    # a row without a customer does not loosen the send gate of the service: the put is refused before it
+    _plant_row(home, cust_project.code, projects.NO_CUSTOMER)
+    lab, _ = buckets
+    d = Path(cust_project.path) / "deliverables" / "plan.md"
+    d.write_text("The plan: two clusters on managed k8s.\n", encoding="utf-8")
+    key = "%s/from-session/2026-10-10/put-0123456789ab.md" % cust_project.code
+    a = keys.request(svc.call_path, {"op": "obs", "method": "PUT", "project": cust_project.code, "key": key,
+                                     "name": "plan.md"}, upload=d)
+    assert not a["ok"] and differs in a["error"] and key not in lab.objects
+    fx.assert_no_fixture_name(a["error"], "the refusal")
+    # the row back as granted: the take runs for the grant's customer, and the other customer's folder stays shut
+    _plant_row(home, cust_project.code, fx.CUSTOMER_CODE)
+    own.objects["inbox/%s/plan.txt" % fx.CUSTOMER_CODE] = b"Migrate the database cluster.\n"
+    a = keys.request(svc.call_path, {"op": "take_owner", "id": _owner_id(svc, cust_project.code,
+                                                                         b"Migrate the database cluster.\n"),
+                                     "project": cust_project.code})
+    assert a["ok"] and a["state"] == "taken" and a["customer"] == fx.CUSTOMER_CODE, a
+
+
+def test_rg_a_project_without_a_customer_stays_without_one(svc, buckets, home, lab_project, capsys):
+    from awb import grants
+
+    _, own = buckets
+    assert run(["projects", "kind", lab_project.code, "project"], capsys)[0] == 0
+    assert grants.customer(home, lab_project.code) == projects.NO_CUSTOMER
+    rel = "%s/task.txt" % fx.CUSTOMER_CODE
+    own.objects["inbox/" + rel] = b"Migrate the database cluster.\n"
+    ident = _owner_id(svc, lab_project.code, b"Migrate the database cluster.\n")
+    _plant_row(home, lab_project.code, fx.CUSTOMER_CODE)
+    for extra in ({}, {"customer": fx.CUSTOMER_CODE}):
+        a = keys.request(svc.call_path, dict({"op": "take_owner", "id": ident, "project": lab_project.code},
+                                             **extra))
+        assert not a["ok"] and a["error"] == xchg.DIFFERS_LINE % lab_project.code and "inbox/" + rel in own.objects
+    assert not svc.notes
+
+
+def test_rg_the_check_lists_a_grant_without_customer_and_the_rerun_fills_it(svc, buckets, home, cust_project,
+                                                                             capsys):
+    from awb import grants
+
+    _, own = buckets
+    grants.path(home).write_text(json.dumps({cust_project.code: {"kind": "query", "time": "2026-10-08T09:00:00Z"}}))
+    assert grants.customer(home, cust_project.code) is None
+    code, out, _ = run(["projects", "check"], capsys)
+    assert code == 1 and "%s: the owner's grant records no customer" % cust_project.code in out
+    assert "awb projects kind %s query" % cust_project.code in out
+    fx.assert_no_fixture_name(out, "the check")
+    rel = "%s/task.txt" % fx.CUSTOMER_CODE
+    own.objects["inbox/" + rel] = b"Migrate the database cluster.\n"
+    ident = _owner_id(svc, cust_project.code, b"Migrate the database cluster.\n")
+    a = keys.request(svc.call_path, {"op": "take_owner", "id": ident, "project": cust_project.code})
+    assert not a["ok"] and a["error"] == xchg.STALE_LINE % (cust_project.code, cust_project.code, "query")
+    assert "inbox/" + rel in own.objects
+    code, out, _ = run(["projects", "kind", cust_project.code, "query"], capsys)
+    assert code == 0 and "the customer of the grant is %s (was not recorded)" % fx.CUSTOMER_CODE in out
+    assert grants.customer(home, cust_project.code) == fx.CUSTOMER_CODE
+    code, out, _ = run(["projects", "check"], capsys)
+    assert code == 0 and "grant" not in out
+    a = keys.request(svc.call_path, {"op": "take_owner", "id": ident, "project": cust_project.code})
+    assert a["ok"] and a["customer"] == fx.CUSTOMER_CODE, a
+    # a row changed after the grant is reported by the check with the code alone
+    _plant_row(home, cust_project.code, "CUST-ZZ22")
+    code, out, _ = run(["projects", "check"], capsys)
+    assert code == 1 and out.strip().endswith(
+        "%s: its row in projects.tsv names another customer than the owner's grant" % cust_project.code)
+    assert "CUST-ZZ22" not in out

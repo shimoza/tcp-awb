@@ -2708,8 +2708,36 @@
    "name": "mcp: without --data the server reads the folder it lies in; a folder without facts.jsonl is refused",
    "run": ".venv/bin/pytest tests/test_mcp.py::test_the_server_finds_its_dataset_beside_it_and_refuses_a_folder_without_facts",
    "status": "passing"
+  },
+  {
+   "id": "RG-1",
+   "phase": "RG",
+   "name": "grant customer: a row changed after the grant does not change the customer of an owner-inbox take or loosen the send gate of a put; the refusal is one line with the code",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_rg_a_row_changed_after_the_grant_does_not_change_the_customer_of_the_service",
+   "status": "passing"
+  },
+  {
+   "id": "RG-2",
+   "phase": "RG",
+   "name": "grant customer: a project granted without a customer stays without one when its row is changed to name one",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_rg_a_project_without_a_customer_stays_without_one",
+   "status": "passing"
+  },
+  {
+   "id": "RG-3",
+   "phase": "RG",
+   "name": "grant customer: awb projects check lists a grant without customer and a differing row by code; the owner's re-run of awb projects kind fills the grant and the take passes",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_rg_the_check_lists_a_grant_without_customer_and_the_rerun_fills_it",
+   "status": "passing"
+  },
+  {
+   "id": "RG-4",
+   "phase": "RG",
+   "name": "grant customer: a lease is refused when the row names another customer than the grant",
+   "run": ".venv/bin/pytest tests/test_keys.py::test_rg_a_lease_is_refused_when_the_row_names_another_customer_than_the_grant",
+   "status": "passing"
   }
  ],
- "total_tests": 376,
+ "total_tests": 391,
  "checked": "2026-10-10"
 }

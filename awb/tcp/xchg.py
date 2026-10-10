@@ -79,6 +79,11 @@ SETTING_KEYS = ("bucket_tenant", "lab_bucket", "owner_bucket", "region", "max_mb
 _NAME_RE = re.compile(r"^[^/\\\x00-\x1f\x7f]{1,200}$")
 _CODE_RE = re.compile(r"^tcp-[a-z0-9]{4}$")
 _CUST_RE = re.compile(r"^CUST-[A-Z2-7]{4}$")
+DIFFERS_LINE = "%s: its row in projects.tsv names another customer than the owner's grant: refused"
+"""The refusal of a row changed after the grant (the residual of F5 and F6): the project code, never a name."""
+STALE_LINE = ("%s: the owner's grant records no customer: he runs awb projects kind %s %s in his own terminal "
+              "once more")
+"""The refusal of a customer row under a grant of before 2026-10-10: the owner's one-time re-run records it."""
 TEXT_SUFFIXES = (".md", ".txt", ".csv", ".tsv", ".json", ".yaml", ".yml", ".log", ".tf", ".py", ".sh", ".xml",
                  ".html", ".htm", ".ini", ".conf", ".cfg", ".toml", ".sql", ".ps1", ".rst")
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
@@ -383,7 +388,7 @@ def put_problems(ctx: Context, req: dict, body_path: Path) -> list[str]:
         problems = check_problems(judged, image=image, register=p.register)
         if problems:
             return problems
-        for_customer = project.customer not in (projects.NO_CUSTOMER, "", None)
+        for_customer = project_customer(ctx, project) != projects.NO_CUSTOMER
         verdict, message = review.send_check(p.projects_root / project.code, judged, for_customer,
                                              register_path=p.register, workbench=p, name=name)
     if verdict == review.SEND_REFUSE:
@@ -455,10 +460,28 @@ def _resolve(ctx: Context, which: str, ident: str) -> dict | None:
     return None
 
 
-def _no_customer(project) -> bool:
-    from awb import projects
+def project_customer(ctx: Context, project) -> str:
+    """The customer of a project for the service (the residual of F5 and F6): the one the owner's grant recorded, a
+    CUST code or none; the work user's row never chooses it. A row that names another customer than the grant, or a
+    customer under a grant written before customers were recorded, is refused in one line with the project code. A
+    project the owner never granted has no record of his, so its row stands."""
+    from awb import grants, projects
 
-    return project is not None and project.customer in (projects.NO_CUSTOMER, "", None)
+    row = None if project.customer in (projects.NO_CUSTOMER, "", None) else project.customer
+    try:
+        recorded = grants.load(ctx.paths_fn()).get(project.code)
+    except Exception:
+        recorded = None
+    if recorded is None:
+        return row or projects.NO_CUSTOMER
+    granted = grants.customer(ctx.paths_fn(), project.code)
+    if granted is None:
+        if row is None:
+            return projects.NO_CUSTOMER
+        raise XchgError(STALE_LINE % (project.code, project.code, recorded["kind"]))
+    if (None if granted == projects.NO_CUSTOMER else granted) != row:
+        raise XchgError(DIFFERS_LINE % project.code)
+    return granted
 
 
 def _project_files(ctx: Context, code: str) -> list[dict]:
@@ -644,7 +667,7 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
         folder_customer = owner_folder_customer(f["rel"])
     else:
         src, folder_customer = INBOX + name, None
-    customer = take_customer(project.customer, folder_customer, named, code)
+    customer = take_customer(project_customer(ctx, project), folder_customer, named, code)
     if ident is None and c.head(src) is None:
         return {"ok": True, "state": "absent"}
     config.ensure_layout(p)
@@ -677,9 +700,10 @@ def _take_project(ctx: Context, code: str, project, ident: str, named: str | Non
     """The take of a project from its own folder in/ of the owner bucket: the file stays there, a copy goes into
     the vault inbox and is marked taken (as a pull marks it), the intake runs for the project's customer or, without
     one, under the project code with no customer code, and the session gets only the ids of the sanitised copies."""
-    from awb import bucket, intake
+    from awb import bucket, intake, projects
 
-    customer = code if _no_customer(project) else project.customer
+    own = project_customer(ctx, project)
+    customer = code if own == projects.NO_CUSTOMER else own
     if named is not None and named != customer:
         raise XchgError(hold_line(code))
     f = next((x for x in _project_files(ctx, code) if _file_id("project", x["key"], x["etag"]) == ident), None)

@@ -711,6 +711,19 @@ class Service:
         except Exception:
             return False
 
+    def _customer_differs(self, row) -> bool:
+        """True when the row of a granted project names another customer than the owner's grant recorded."""
+        from awb import grants, projects
+
+        own = getattr(row, "customer", None)
+        if own is None:
+            return False
+        try:
+            granted = grants.customer(self.paths_fn(), row.code)
+        except Exception:
+            return False   # an unreadable grant refused the call already (_granted)
+        return granted is not None and granted != (own or projects.NO_CUSTOMER)
+
     def _active_project(self, code: str) -> bool:
         from awb import projects
 
@@ -832,6 +845,10 @@ class Service:
             if not _projects.tenant_access(row.kind) or not self._granted(project):
                 raise Refused("%s has no grant of the owner: he runs awb projects kind %s project in his own "
                               "terminal" % (project, project))
+            if self._customer_differs(row):
+                from awb.tcp import xchg
+
+                raise Refused(xchg.DIFFERS_LINE % project)
         regions = self._registered().get(alias)
         if not regions:
             raise Refused("the tenant is not registered (awb tenant add)")

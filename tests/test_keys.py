@@ -16,6 +16,7 @@ import pytest
 
 from awb import cli, config, jobs
 from awb.tcp import keys
+from tests import fixtures as fx
 from tests.tcp_fake import FakeGateway
 
 AK, SK = "AKFAKE", "sk-fake-secret"
@@ -692,6 +693,29 @@ def test_a_session_gets_a_lease_only_for_a_granted_project_and_never_for_a_query
         svc._lease(dict(req, project="tcp-ab2c"), console)
     assert svc._lease(dict(req, project="tcp-ab2c"), session)["ok"]
     assert svc._lease(dict(req), os.getuid())["ok"]          # the owner, for the live check
+
+
+def test_rg_a_lease_is_refused_when_the_row_names_another_customer_than_the_grant(svc, home, monkeypatch):
+    import os
+    from types import SimpleNamespace
+
+    from awb import grants
+    from awb.tcp import cloud, xchg
+
+    load(svc)
+    monkeypatch.setattr(cloud.Client, "request", _Minted().method())
+    grants.grant(home, "tcp-ab2c", "project", customer=fx.CUSTOMER_CODE)
+    row = SimpleNamespace(code="tcp-ab2c", kind="project", customer=fx.CUSTOMER_CODE)
+    svc._project_row = lambda code: row if code == "tcp-ab2c" else None
+    svc._granted = lambda code: code == "tcp-ab2c"
+    svc.paths_fn = lambda: home
+    req = {"tenant": "test-1", "minutes": 15, "project": "tcp-ab2c"}
+    assert svc._lease(dict(req), os.getuid() + 1)["ok"]
+    for planted in ("CUST-ZZ22", "none"):
+        row.customer = planted
+        with pytest.raises(keys.Refused) as err:
+            svc._lease(dict(req), os.getuid() + 1)
+        assert str(err.value) == xchg.DIFFERS_LINE % "tcp-ab2c"
 
 
 def test_an_iam_refusal_of_the_lease_names_its_status_and_code_only(svc, monkeypatch):

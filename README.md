@@ -24,7 +24,13 @@ its git history.
 
 A query that turns out to need a live test becomes a project with `awb projects kind tcp-xxxx project`. A query
 never touches a tenant: the key service refuses its calls. A session's switch changes its row only; the key service
-also wants the owner's grant, which the same command writes when the owner runs it in his own terminal.
+also wants the owner's grant, which the same command writes when the owner runs it in his own terminal. The grant
+also records the customer of the project's row at that moment (a CUST code or none). From then on the key service
+takes the customer for an owner-inbox take, a take from the project's folder, the send gate of a put and the
+lease from the grant alone: a row that names another customer is refused in one line with the project code. A
+project granted before 2026-10-10 gets its customer into the grant when the owner runs `awb projects kind` for it
+once more; `awb projects check`, run by the owner, lists those and every row that differs from its grant. A
+project the owner never granted has no record of his, so its row stays the source.
 
 ## Live tenants through the key service
 
