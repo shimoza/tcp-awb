@@ -2806,8 +2806,15 @@
    "name": "review 2026-10-10 finding 5: a row never granted does not loosen the send gate of the service",
    "run": ".venv/bin/pytest tests/test_keys_review.py::test_a_row_never_granted_does_not_loosen_the_send_gate_of_the_service",
    "status": "passing"
+  },
+  {
+   "id": "R10-9",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 3: a raw put outside <code>/from-session/<date>/<file id> is refused, every put meets the name check and the send gate of the service",
+   "run": ".venv/bin/pytest tests/test_xchg_review.py::test_a_raw_put_into_the_lab_in_folder_meets_the_checks_of_the_service",
+   "status": "passing"
   }
  ],
- "total_tests": 401,
+ "total_tests": 402,
  "checked": "2026-10-10"
 }

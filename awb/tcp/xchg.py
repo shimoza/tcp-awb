@@ -41,7 +41,8 @@ when a session puts a file and when a take holds one.
 The service side (`serve_obs`, `serve_take_lab`, `serve_take_owner`, `serve_owner_has`) runs inside the key service
 and is refused everything outside the allowed prefixes before anything is signed: `inbox/` of the lab bucket (head
 and list; a get, a copy and a delete only through `serve_take_lab`), `<code>/in/` and `<code>/from-session/` of an
-active project code. A put is authorised before its bytes are received (F8). Never a policy, an ACL or another
+active project code. A put goes only to `<code>/from-session/<date>/<file id>`, is authorised before its bytes are
+received (F8) and meets the name check and the send gate of the service. Never a policy, an ACL or another
 bucket.
 
 The owner's console puts a file into a project's `in/` under an id (`serve_web_put_in`, the owner's processes only);
@@ -262,8 +263,9 @@ class Context:
 
 def allowed_key(key: str, method: str, project: str | None) -> bool:
     """The object keys a session may touch: inbox/<name> to look at (head), <code>/in/ and <code>/from-session/ of
-    its own active project. Writes only into the project's two folders. A get or a delete of the lab inbox goes
-    through serve_take_lab alone, so the name check of the service cannot be skipped (F6)."""
+    its own active project. A put only into from-session/ (in/ is written by serve_take_lab with a copy of the
+    service). A get or a delete of the lab inbox goes through serve_take_lab alone, so the name check of the service
+    cannot be skipped (F6)."""
     if not isinstance(key, str) or not key or key.startswith("/") or ".." in key.split("/") or "//" in key:
         return False
     if key.startswith(INBOX):
@@ -272,7 +274,7 @@ def allowed_key(key: str, method: str, project: str | None) -> bool:
         for sub in (IN, FROM):
             base = "%s/%s" % (project, sub)
             if key.startswith(base) and len(key) > len(base):
-                return method in ("GET", "HEAD", "PUT", "DELETE")
+                return method in ("GET", "HEAD", "DELETE") or (method == "PUT" and sub == FROM)
     return False
 
 
@@ -314,21 +316,19 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
     if method == "PUT":
         if body_path is None:
             raise XchgError("a put needs its bytes")
+        # every put of a session: the key of put_key_ok, the name check and the send gate (finding 3)
         authorise_put(ctx, req)
-        sent = key.startswith("%s/%s" % (project, FROM))
-        if sent:
-            problems = put_problems(ctx, req, body_path)
-            if problems:
-                raise XchgError("; ".join(problems))
+        problems = put_problems(ctx, req, body_path)
+        if problems:
+            raise XchgError("; ".join(problems))
         c.put_file(key, body_path, "application/octet-stream")
         size = body_path.stat().st_size
-        if sent:
-            ident = key.rsplit("/", 1)[-1]
-            # the name travels only when the name check of the service passes it, else the id stands for it
-            name = req.get("name")
-            if not (valid_name(name) and not _name_hits([name], ctx.paths_fn())):
-                name = ident
-            ctx.notify(*exchange_mail("put", project, ident=ident, size=size, name=name))
+        ident = key.rsplit("/", 1)[-1]
+        # the name travels only when the name check of the service passes it, else the id stands for it
+        name = req.get("name")
+        if not (valid_name(name) and not _name_hits([name], ctx.paths_fn())):
+            name = ident
+        ctx.notify(*exchange_mail("put", project, ident=ident, size=size, name=name))
         return {"ok": True, "size": size}, None
     h = c.head(key)
     if h is None:
@@ -361,14 +361,12 @@ def put_key_ok(key: str, project: str) -> bool:
 
 
 def authorise_put(ctx: Context, req: dict) -> None:
-    """Whether a put may be received at all (F8): an active project, a key inside its own folders, a key of the
-    form of put_key_ok under from-session/. Run by the key service before it reads a byte of the upload."""
+    """Whether a put may be received at all (F8): an active project and a key of the form of put_key_ok under its
+    from-session/, nowhere else. Run by the key service before it reads a byte of the upload."""
     project, key = req.get("project"), req.get("key")
     if not (isinstance(project, str) and ctx.active_project(project) is not None):
         raise XchgError("the project is not an active project")
-    if not allowed_key(key, "PUT", project):
-        raise XchgError("the object call is outside inbox/ and the project's own folders")
-    if key.startswith("%s/%s" % (project, FROM)) and not put_key_ok(key, project):
+    if not (allowed_key(key, "PUT", project) and put_key_ok(key, project)):
         raise XchgError("a put goes to <code>/from-session/<date>/<file id>")
 
 

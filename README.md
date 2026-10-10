@@ -289,7 +289,7 @@ text. A pdf, a sheet or an archive from the lab inbox lands in `input/opaque/`, 
 its name and, for a customer project, the send gate. No object key, mail or log line carries a file name the check did not pass. You fetch them in the OBS console. A mail tells you about each one. A Terraform or code file passes when it holds no address,
 name or mail: a dotted reference in code is not a web address. The session deletes what it put with
 `awb xchg clean CODE --dry-run|--go` (`--older-than DATE` for older date folders), each deletion a row in RESOURCES.md. The key service signs every object call
-and refuses everything outside the inbox and the project's own folders.
+and refuses everything outside the inbox and the project's own folders, and every put outside from-session/.
 
 ## The knowledge as a dataset
 

@@ -66,6 +66,25 @@ def test_the_find_is_no_oracle_for_the_names_of_the_owner_inbox(svc, buckets, cu
         "a session rebuilt the owner-inbox file name %r from the matches of inbox_find" % recovered
 
 
+# --------------------------------------------------------------------------- a put outside from-session/ (finding 3)
+
+
+def test_a_raw_put_into_the_lab_in_folder_meets_the_checks_of_the_service(svc, buckets, lab_project,
+                                                                                   tmp_path):
+    """Promise (62004d7 F6, the send gate, TM0 item 1): nothing with a registered name leaves the machine through
+    the lab bucket, the service runs the name check and the send gate on the bytes it receives, and an object key
+    never carries a name. Attack: a hostile session puts into <code>/in/ of the lab bucket instead of
+    from-session/: allowed_key lets PUT there and serve_obs runs no check for it."""
+    lab, _ = buckets
+    up = tmp_path / "notes.md"
+    up.write_text("Notes for %s, contact %s.\n" % (fx.CUSTOMER_FORMS[0], fx.PERSON_FORMS[0]), encoding="utf-8")
+    key = "%s/in/%s.md" % (lab_project.code, fx.CUSTOMER_FORMS[1])
+    a = keys.request(svc.call_path, {"op": "obs", "method": "PUT", "project": lab_project.code, "key": key},
+                     upload=up)
+    assert not a["ok"] and key not in lab.objects, \
+        "the service stored a file with a registered name under a key with a name in the lab bucket"
+
+
 # --------------------------------------------------------------------------- the customer of the row (finding 5)
 
 

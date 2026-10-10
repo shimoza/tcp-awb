@@ -161,6 +161,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- A session puts nowhere but `<project>/from-session/<date>/<file id>` of the lab bucket (finding 3 of the review of
+  2026-10-10). A raw put into the project's `in/` or under any other key is refused before its bytes are received,
+  and every put meets the name check and the send gate of the key service.
 - The take by words is no oracle for hidden names, and a project the owner never granted has no customer
   (findings 2 and 5 of the review of 2026-10-10). Words meet only the names a session may see: a file of the owner
   inbox or of `in/` is found by its kind, as the newest, with `--all` or by its id, never by a word of its name. A
