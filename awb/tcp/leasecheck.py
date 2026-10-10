@@ -5,13 +5,13 @@
 P3: the key service mints a temporary AK/SK and security token from the tenant's lab key with an AK/SK-signed call
 (op lease, 15 minutes, the policy of the Terraform services with IAM denied). P2: with that key alone, per service of
 the lease one read and, where a throw-away write exists that costs nothing or cents, one create and one delete
-(VPC with a subnet, an ECS server group, an EVS disk, a private DNS zone, a shared load balancer, a NAT gateway, an
-object in the lab bucket); IMS is read only. Then one Terraform plan, apply and destroy of a one-resource set (a VPC)
-with the key in the provider's environment only. Every resource carries the name awb-p2-<4 letters>; whatever was
-made is deleted in the reverse order and checked gone, also after a failure. Without --yes it prints the plan and
-makes nothing. The result is one line per step: the HTTP status and what it means (2xx works; 400, 404 or 409 the
-key was accepted and the request was refused for its content; 401 or 403 the key was not accepted). No value of a
-key, a token or an id is printed.
+(VPC with a subnet, an ECS server group, an EVS disk, a private DNS zone, a shared load balancer, a NAT gateway); IMS
+is read only and OBS is not checked: a lease without a project reaches no bucket. Then one Terraform plan, apply and
+destroy of a one-resource set (a VPC) with the key in the provider's environment only. Every resource carries the
+name awb-p2-<4 letters>; whatever was made is deleted in the reverse order and checked gone, also after a failure.
+Without --yes it prints the plan and makes nothing. The result is one line per step: the HTTP status and what it
+means (2xx works; 400, 404 or 409 the key was accepted and the request was refused for its content; 401 or 403 the
+key was not accepted). No value of a key, a token or an id is printed.
 """
 from __future__ import annotations
 
@@ -286,12 +286,10 @@ def report(chk: Check, out=print) -> None:
 
 
 def main(alias: str, region: str | None, yes: bool, with_terraform: bool, out=print) -> int:
-    from awb.tcp import xchg
-
     if not yes:
         out("dry run: the check would lease a 15-minute key of the lab key of %s, then read and create-and-delete "
             "one throw-away resource per service (VPC with subnet, ECS server group, EVS disk, DNS private zone, "
-            "shared ELB, NAT gateway, an object in the lab bucket), IMS read only%s; run with --yes"
+            "shared ELB, NAT gateway), IMS and OBS not written%s; run with --yes"
             % (alias, ", then a Terraform plan, apply and destroy of one VPC" if with_terraform else ""))
         return 0
     lz = lease(alias, region)
@@ -300,12 +298,11 @@ def main(alias: str, region: str | None, yes: bool, with_terraform: bool, out=pr
     chk = Check(alias, region)
     pid = project_id(alias, region)
     c = Client(obs.Keys(lz["ak"], lz["sk"]), region, label=alias, timeout=60.0)
+    # a lease never reaches the exchange buckets, and OBS only on the buckets of a project (<code>-...); the check
+    # leases without a project, so it has no bucket to write to
+    chk.step("obs", "read and write", None, "not checked: a lease without a project reaches no bucket")
     try:
-        lab = xchg.read_settings().get("lab_bucket")
-    except Exception:
-        lab = None
-    try:
-        run_checks(chk, c, pid, lz["token"], lab, obs.Keys(lz["ak"], lz["sk"]))
+        run_checks(chk, c, pid, lz["token"], None, obs.Keys(lz["ak"], lz["sk"]))
     except Exception as err:
         chk.steps.append(Step("check", "stopped", None, type(err).__name__))
     finally:

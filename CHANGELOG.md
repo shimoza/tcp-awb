@@ -161,6 +161,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- A leased key never reaches the exchange buckets (finding 1 of the review of 2026-10-10). The key service refuses
+  a lease of the bucket tenant's lab key, under any alias, and every lease denies every action on the lab bucket and
+  the owner bucket. OBS is allowed only on buckets whose name starts with the project code, and a lease without a
+  project gets no OBS. `awb cloud lease-check` therefore runs on a tenant other than the bucket tenant and leaves OBS
+  unchecked.
 - The key service takes a project's customer from the owner's grant, never from the work user's projects.tsv
   (the residual of F5 and F6). `awb projects kind CODE KIND` run by the owner records the row's customer in the
   grant. The owner-inbox take, the project take, the strict form of the send gate and the lease refuse a row that

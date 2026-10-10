@@ -79,6 +79,7 @@ _ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,40}$")
 _PATH_RE = re.compile(r"^/[A-Za-z0-9_{}.:/-]{0,500}$")
 _PROJECT_RE = re.compile(r"^tcp-[a-z0-9]{4}$")
+_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 _REF_RE = re.compile(r"^\{\{secret:([a-z0-9][a-z0-9_.-]{0,40})\}\}$")
 _SECRET_FIELD_RE = re.compile(r"(?i)^(?:admin_?pass(?:word)?|password|passwd|user_?password|root_?password"
                               r"|db_?password|login_?password)$")
@@ -805,19 +806,50 @@ class Service:
         self._log(uid, alias, role, method, service, region, answer["status"], project)
         return self._mask(answer, tenant)
 
-    def lease_policy(self) -> dict:
-        """The policy of a leased key: the tf_services of keys.conf (all their actions), every IAM action denied."""
+    def exchange_buckets(self) -> list[str]:
+        """The lab bucket and the owner bucket of keys.conf (or their defaults): a leased key never reaches them."""
+        from awb.tcp import xchg
+
+        names = {str(self.settings.get(k) or xchg.DEFAULTS[k]) for k in ("lab_bucket", "owner_bucket")}
+        return sorted(n for n in names if _BUCKET_RE.match(n))
+
+    def lease_policy(self, project: str = "") -> dict:
+        """The policy of a leased key: the tf_services of keys.conf (all their actions); OBS only on the buckets of
+        the project, named <code>-..., and only with a project code; every IAM action denied and every action on
+        the two exchange buckets denied."""
         listed = [s.strip() for s in str(self.settings.get("tf_services") or ",".join(TF_SERVICES)).split(",")]
         services = [s for s in listed if re.match(r"^[a-z][a-z0-9]{1,20}$", s) and s != "iam"]
-        return {"Version": "1.1", "Statement": [
-            {"Effect": "Allow", "Action": ["%s:*:*" % s for s in services]},
-            {"Effect": "Deny", "Action": ["iam:*:*"]}]}
+        statements = []
+        plain = [s for s in services if s != "obs"]
+        if plain:
+            statements.append({"Effect": "Allow", "Action": ["%s:*:*" % s for s in plain]})
+        if "obs" in services and isinstance(project, str) and _PROJECT_RE.match(project):
+            statements.append({"Effect": "Allow", "Action": ["obs:*:*"],
+                               "Resource": ["obs:*:*:bucket:%s-*" % project, "obs:*:*:object:%s-*/*" % project]})
+        statements.append({"Effect": "Deny", "Action": ["iam:*:*"]})
+        statements.append({"Effect": "Deny", "Action": ["obs:*:*"],
+                           "Resource": [r for b in self.exchange_buckets()
+                                        for r in ("obs:*:*:bucket:%s" % b, "obs:*:*:object:%s/*" % b)]})
+        return {"Version": "1.1", "Statement": statements}
+
+    def _bucket_pair(self, alias: str, pair: dict) -> bool:
+        """True when `pair` is the lab key of the bucket tenant: that key reaches both exchange buckets, so no lease
+        is ever minted from it (finding 1 of the review of 2026-10-10)."""
+        tenant = self.settings.get("bucket_tenant")
+        if not tenant:
+            return False
+        if alias == tenant:
+            return True
+        with self.lock:
+            bucket = (self.tenants.get(tenant) or {}).get("roles", {}).get("lab") or {}
+        return bool(bucket.get("ak")) and bucket.get("ak") == pair.get("ak")
 
     def _lease(self, req: dict, uid: int) -> dict:
         """A temporary AK/SK and security token of the tenant's lab key (Variant B of DESIGN-terraform.md): for a
         session only from the folder of an active project of the kind project that the owner granted (P0), for the
-        owner for any project; 15 to 60 minutes; the policy of lease_policy. The answer carries the key: the
-        session reads it, by design, for at most an hour."""
+        owner for any project; never from the lab key of the bucket tenant; 15 to 60 minutes; the policy of
+        lease_policy for the project. The answer carries the key: the session reads it, by design, for at most an
+        hour."""
         from awb.tcp import cloud
 
         alias, project = req.get("tenant"), req.get("project") or ""
@@ -834,6 +866,8 @@ class Service:
         pair = tenant.get("roles", {}).get("lab")
         if not pair:
             raise Refused("the tenant has no lab key")
+        if self._bucket_pair(alias, pair):
+            raise Refused("%s holds the exchange buckets: its lab key gives no lease" % alias)
         if uid != os.getuid():
             from awb import projects as _projects
 
@@ -856,7 +890,7 @@ class Service:
         if region not in regions:
             raise Refused("the region is not one of the tenant's")
         body = {"auth": {"identity": {"methods": ["token"], "token": {"duration_seconds": minutes * 60},
-                                      "policy": self.lease_policy()}}}
+                                      "policy": self.lease_policy(project)}}}
         client = cloud.Client(obs.Keys(pair["ak"], pair["sk"]), region, endpoint=self.endpoint, label=alias,
                               timeout=60.0)
         try:

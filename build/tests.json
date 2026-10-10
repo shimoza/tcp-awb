@@ -2750,8 +2750,29 @@
    "name": "two key services started at once by the same fixture get their own sockets and both answer ping",
    "run": ".venv/bin/pytest tests/test_keys.py::test_two_services_started_at_once_both_answer",
    "status": "passing"
+  },
+  {
+   "id": "R10-1",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 1: a lease of the bucket tenant's lab key is refused, and no lease policy reaches the owner bucket",
+   "run": ".venv/bin/pytest tests/test_keys_review.py::test_a_lease_of_the_bucket_tenant_never_reaches_the_owner_bucket",
+   "status": "passing"
+  },
+  {
+   "id": "R10-2",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 1: the bucket tenant's lab key loaded under a second alias gives no lease either",
+   "run": ".venv/bin/pytest tests/test_keys_review.py::test_the_lab_key_of_the_bucket_tenant_under_another_alias_gives_no_lease",
+   "status": "passing"
+  },
+  {
+   "id": "R10-3",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 1: the lease policy allows OBS only on <code>-* buckets with a project code and denies IAM and both exchange buckets",
+   "run": ".venv/bin/pytest tests/test_keys.py::test_a_lease_mints_a_temporary_key_with_iam_and_the_exchange_buckets_denied",
+   "status": "passing"
   }
  ],
- "total_tests": 393,
+ "total_tests": 396,
  "checked": "2026-10-10"
 }
