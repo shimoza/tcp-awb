@@ -2939,8 +2939,15 @@
    "name": "review 2026-10-10 finding 20: a cd inside bash -c or eval is followed",
    "run": ".venv/bin/pytest tests/test_guard_review.py::test_a_cd_inside_bash_c_or_eval_is_followed",
    "status": "passing"
+  },
+  {
+   "id": "R10-20",
+   "phase": "R10",
+   "name": "review 2026-10-10 P4: a relative Glob or Grep pattern that climbs is refused",
+   "run": ".venv/bin/pytest tests/test_guard_review.py::test_a_relative_glob_pattern_that_climbs_is_never_looked_at",
+   "status": "passing"
   }
  ],
- "total_tests": 420,
+ "total_tests": 421,
  "checked": "2026-10-11"
 }

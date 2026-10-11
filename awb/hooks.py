@@ -28,8 +28,8 @@ Each hook reads the hook JSON of the client from standard input and answers the 
     pre-tool        PreToolUse         exit 2 when Read, Edit, MultiEdit, NotebookEdit, Write, Glob, Grep or Bash
                                        reaches another project folder, the client's folder (~/.claude) or a key
                                        folder (~/.ssh, ~/.config), or a folder that holds one of them: the file
-                                       argument, the path of a search, and for Bash every path of the
-                                       command line after the shell's quote removal, a relative one taken
+                                       argument, the path and the pattern of a search, and for Bash every path
+                                       of the command line after the shell's quote removal, a relative one taken
                                        against the folder each cd leaves it in, each as written and through its
                                        links. A shell path the guard cannot read (a variable or a substitution
                                        in it, a quote or an escape inside it, a cd it cannot follow) is refused
@@ -1207,7 +1207,7 @@ def _shell_checks(command: str, cwd: Path, home: Path) -> list:
 
 def _tool_paths(tool: str, tool_input: dict, cwd: Path, home: Path) -> list:
     """The checks of one tool call (see _shell_checks for Bash); a Glob or Grep without a path searches the session
-    folder."""
+    folder, and its pattern is taken under that path."""
     if tool == "Bash":
         command = tool_input.get("command")
         if not isinstance(command, str):
@@ -1215,15 +1215,19 @@ def _tool_paths(tool: str, tool_input: dict, cwd: Path, home: Path) -> list:
         return _shell_checks(command, cwd, home)
     names = {"Glob": ("path", "pattern"), "Grep": ("path", "glob")}.get(tool, ("file_path", "notebook_path", "path"))
     out = []
+    base = cwd
     for key in names:
         raw = tool_input.get(key)
         if raw is None or raw == "":
             continue
         if not isinstance(raw, str):
             raise _Refused(UNKNOWN_PROJECT)
-        if key in ("pattern", "glob") and not raw.startswith(("/", "~", "$HOME", "${HOME}")):
-            continue                        # a relative pattern searches under the path or the session folder
+        if key in ("pattern", "glob"):
+            out.append(_absolute(raw, base, home))
+            continue
         out.append(_absolute(raw, cwd, home))
+        if key == "path":
+            base = cwd / _expand(raw, home)
     if tool in ("Glob", "Grep") and not tool_input.get("path"):
         out.append(cwd)
     if not out and tool not in ("Glob", "Grep"):

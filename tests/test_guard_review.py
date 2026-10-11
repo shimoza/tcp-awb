@@ -110,6 +110,16 @@ def test_a_link_inside_the_project_leads_out_through_a_relative_bash_path(world)
     assert bash(world, "cat keys/id_ed25519") == hooks.KEY_FOLDER
 
 
+# --------------------------------------------------------------------------- g6-guard-6: a relative Glob pattern
+
+
+def test_a_relative_glob_pattern_that_climbs_is_never_looked_at(world):
+    """A Glob or Grep pattern that does not start with / or ~ is skipped, even when it climbs with `..`."""
+    payload = {"tool_name": "Glob", "tool_input": {"pattern": "../%s/*.md" % OTHER},
+               "cwd": str(world["own"]), "session_id": "s-1"}
+    assert hooks.guard(payload, world["p"], world["user"], sealed=True) == hooks.ANOTHER_PROJECT
+
+
 # --------------------------------------------------------------------------- the shell reader keeps honest commands
 
 

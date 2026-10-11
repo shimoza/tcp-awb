@@ -167,6 +167,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- A relative Glob or Grep pattern is taken under the folder of the search and through its links, so `../<project>/*.md`
+  is refused (P4 of the review of 2026-10-10). A `..` after a glob character is refused.
 - A relative path of a shell command is taken against the folder the command stands in, through its links (findings 20
   and 22 of the review of 2026-10-10). A bare `cd` leads to the home and `cd X` to X, so `cd && cat .ssh/...` is
   refused, and so is a link inside the project that points out (`cat peek/STATE.md`). A link is resolved before a `..`
