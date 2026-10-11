@@ -132,8 +132,10 @@ def test_the_venv_recipe_of_setup_takes_the_test_extras_and_no_package():
     setup = ROOT / "seal" / "setup.sh"
     with open(ROOT / "pyproject.toml", "rb") as f:
         extras = tomllib.load(f)["project"]["optional-dependencies"]["test"]
+    # a fresh host (D-SB1-14): the venv may exist on the host the suite runs on
     res = subprocess.run(["bash", str(setup), "--dry-run", "--suite-venv", "/srv/awb-build/venv"], capture_output=True,
-                         text=True, timeout=60, env=dict(os.environ, SUDO_USER=""), stdin=subprocess.DEVNULL)
+                         text=True, timeout=60, env=dict(os.environ, SUDO_USER="", AWB_SETUP_BUILD_HOST="fresh"),
+                         stdin=subprocess.DEVNULL)
     assert res.returncode == 0, res.stderr
     lines = [line for line in res.stdout.splitlines() if line.startswith("+ ")]
     assert lines[0] == "+ python3 -m venv --system-site-packages /srv/awb-build/venv"

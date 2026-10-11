@@ -140,6 +140,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- The plan of the seal no longer depends on the host it is printed on. `seal/setup.sh --dry-run` reads
+  `AWB_SETUP_BUILD_HOST=fresh|present` (with `--dry-run` only): the probes of the build side (the build user, its
+  groups and the suite's venv) then answer missing or present instead of looking at the host. The seal tests plan
+  against a fresh host, so they pass on the sealed host too. `seal/verify.sh` no longer fails the build template on
+  its own comment "no safe.directory": it looks for a `[safe]` section or a `directory =` line.
 - A test that blocks again after its time limit, or that lost its alarm, fails within the limit instead of holding the
   whole run (a full run hung nine hours on 2026-10-10). After the limit the alarm repeats every second while the test
   runs, a thread ends the run with the stacks of every thread 30 seconds later when the test never comes back to Python,

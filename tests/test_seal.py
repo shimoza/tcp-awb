@@ -57,10 +57,17 @@ def fakebin(tmp_path):
     return folder, marks
 
 
-def run_script(script: Path, args: list[str], fakebin, sudo_user: str | None = USER) -> subprocess.CompletedProcess:
+def run_script(script: Path, args: list[str], fakebin, sudo_user: str | None = USER,
+               build_host: str | None = None) -> subprocess.CompletedProcess:
+    """A dry run plans against a fresh host by default (AWB_SETUP_BUILD_HOST): the build side's probes never look at
+    the host the suite runs on, which may carry the build user and its venv (D-SB1-11)."""
+    if build_host is None:
+        build_host = "fresh" if "--dry-run" in args else ""
     folder, _ = fakebin
-    env = {k: v for k, v in os.environ.items() if k != "SUDO_USER"}
+    env = {k: v for k, v in os.environ.items() if k not in ("SUDO_USER", "AWB_SETUP_BUILD_HOST")}
     env["PATH"] = "%s:%s" % (folder, os.environ.get("PATH", "/usr/bin:/bin"))
+    if build_host:
+        env["AWB_SETUP_BUILD_HOST"] = build_host
     if sudo_user is not None:
         env["SUDO_USER"] = sudo_user
     return subprocess.run(["bash", str(script), *args], capture_output=True, text=True, env=env, timeout=60,
@@ -1195,6 +1202,67 @@ def test_the_build_image_is_made_once_and_nothing_lands_on_the_root_filesystem_u
     (tmp_path / "img").unlink()
     res, calls = _run_build(tmp_path, stub, mkfs_ok=False)
     assert res.returncode == 0 and not (tmp_path / "img").exists() and "FOLDERS" not in res.stdout
+
+
+def test_setup_plans_the_build_side_against_a_host_that_has_it(fakebin):
+    """D-SB1-11: with AWB_SETUP_BUILD_HOST=present the probes of the build side answer "present", so the dry run of
+    the seal and of an update prints the group, the user and the suite's venv as "=" lines and no groupadd, useradd,
+    usermod, gpasswd or venv to make; with fresh the same lines are "+". The variable goes with --dry-run only, and
+    a value other than fresh or present is refused."""
+    present = ["= groupadd --system awb-build  # the group exists",
+               "= useradd --system --gid awb-build -M -d /srv/awb-build/home --shell /bin/bash awb-build  # the user exists",
+               "= python3 -m venv --system-site-packages /srv/awb-build/venv  # already there"]
+    for args in (["--dry-run"], ["--update", "--dry-run"]):
+        res = run_script(SETUP, args, fakebin, build_host="present")
+        assert res.returncode == 0, res.stderr
+        no_marks(fakebin)
+        cmds = commands(res.stdout)
+        for line in present:
+            assert line in cmds, (args, line)
+        assert not [c for c in cmds if re.match(r"^\+ (groupadd|useradd|usermod|gpasswd)\b.*awb-build", c)], args
+        assert "+ python3 -m venv --system-site-packages /srv/awb-build/venv" not in cmds, args
+        fresh = commands(run_script(SETUP, args, fakebin).stdout)
+        assert "+ groupadd --system awb-build" in fresh and not [c for c in fresh if c in present], args
+        assert "+ python3 -m venv --system-site-packages /srv/awb-build/venv" in fresh, args
+    res = run_script(SETUP, ["--dry-run"], fakebin, build_host="maybe")
+    assert res.returncode == 1 and "AWB_SETUP_BUILD_HOST is fresh or present" in res.stderr
+    res = run_script(SETUP, ["--update"], fakebin, sudo_user=None, build_host="fresh")
+    assert res.returncode == 1 and "AWB_SETUP_BUILD_HOST goes with --dry-run only" in res.stderr
+    no_marks(fakebin)
+
+
+def _template_check(tmp_path: Path, gitconfig: str) -> int:
+    """Runs the check of verify.sh that the home template carries the build settings, CLAUDE.md and the owner's
+    identity, taken from the script as it is, against a template in tmp_path whose .gitconfig is GITCONFIG."""
+    text = VERIFY.read_text(encoding="utf-8")
+    m = re.search(r'allowed "the home template carries the build settings and CLAUDE\.md of the repository and the '
+                  r"owner's identity\" \\\n\s+sh -c '([^']+)' \\\n\s+verify ", text)
+    assert m, "the check is not found in verify.sh"
+    seal, repo, t = tmp_path / "repo" / "seal", tmp_path / "repo", tmp_path / "template"
+    (seal / "build-claude").mkdir(parents=True)
+    (t / ".claude").mkdir(parents=True)
+    for f in (seal / "build-claude" / "settings.json", t / ".claude" / "settings.json"):
+        f.write_text('{"x": 1}\n', encoding="utf-8")
+    for f in (repo / "CLAUDE.md", t / ".claude" / "CLAUDE.md"):
+        f.write_text("# rules\n", encoding="utf-8")
+    (t / ".gitconfig").write_text(gitconfig, encoding="utf-8")
+    return subprocess.run(["sh", "-c", m.group(1), "verify", str(seal), str(repo), str(t)], timeout=30).returncode
+
+
+@pytest.mark.parametrize("gitconfig, ok", [
+    ("# written by seal/setup.sh: a build task commits as the owner (D-S16); no safe.directory\n"
+     "[user]\n\tname = A Name\n\temail = someone@example.org\n", True),
+    ("[user]\n\tname = A Name\n\temail = someone@example.org\n", True),
+    ("[user]\n\tname = A Name\n\temail = someone@example.org\n[safe]\n\tdirectory = *\n", False),
+    ("[user]\n\tname = A Name\n\temail = someone@example.org\n  [Safe]\n", False),
+    ("[user]\n\tname = A Name\n\temail = someone@example.org\n\tdirectory = /srv\n", False),
+    ("[user]\n\tname = A Name\n", False),
+])
+def test_verify_checks_the_template_identity_without_a_safe_directory(tmp_path, gitconfig, ok):
+    """SB1: the template's .gitconfig carries the comment "no safe.directory" (seal/setup.sh build_identity); the check
+    of verify.sh refused any line with the word safe and failed on the sealed host. It refuses a [safe] section or a
+    directory = line instead. Planted: a [safe] directory = * line, a bare [Safe] and a missing email fail."""
+    assert (_template_check(tmp_path, gitconfig) == 0) is ok
 
 
 @pytest.mark.parametrize("value, plain", [("A Name", True), ("someone@example.org", True), ("", False),

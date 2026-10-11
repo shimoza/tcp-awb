@@ -3639,8 +3639,22 @@
    "name": "deploy: root writes runs/restart-wanted for a deferred runner, never through a link",
    "run": ".venv/bin/pytest tests/test_deploy.py::test_the_root_run_leaves_restart_wanted_for_a_deferred_runner",
    "status": "passing"
+  },
+  {
+   "id": "SB1-20",
+   "phase": "SB1",
+   "name": "seal: AWB_SETUP_BUILD_HOST=present makes the build side's dry run print the group, the user and the venv as = lines; fresh as + lines; dry run only",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_plans_the_build_side_against_a_host_that_has_it",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-21",
+   "phase": "SB1",
+   "name": "verify: the template's .gitconfig passes with the comment no safe.directory and fails with a [safe] section or a directory = line",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_verify_checks_the_template_identity_without_a_safe_directory",
+   "status": "passing"
   }
  ],
- "total_tests": 520,
+ "total_tests": 522,
  "checked": "2026-10-11"
 }

@@ -123,6 +123,16 @@ if [ "$mirrors" -eq 1 ] && [ "${#mirror_sources[@]}" -eq 0 ]; then
 fi
 [ "$units_only" -eq 0 ] || [ "$update" -eq 1 ] || die "--units-only goes with --update"
 
+# AWB_SETUP_BUILD_HOST=fresh|present, with --dry-run only (the tests set it): every probe of the build side (the
+# build user's group, its passwd entry and groups, the suite's venv) answers "missing" or "present" instead of
+# looking at this host, so a plan does not depend on the host it is printed on. Unset, the probes look at the host.
+build_host="${AWB_SETUP_BUILD_HOST:-}"
+case "$build_host" in
+    "") ;;
+    fresh | present) [ "$dry_run" -eq 1 ] || die "AWB_SETUP_BUILD_HOST goes with --dry-run only" ;;
+    *) die "AWB_SETUP_BUILD_HOST is fresh or present" ;;
+esac
+
 # --------------------------------------------------------------------------- the venv of the suite
 
 # suite_venv DIR: the venv the whole suite runs with from a read-only export of the tree (presentations/self-build,
@@ -152,7 +162,7 @@ with open(sys.argv[1], "rb") as f:
     print(" ".join(tomllib.load(f)["project"]["optional-dependencies"]["test"]))' "$here/pyproject.toml") ||
         die "the test extras of pyproject.toml could not be read"
     printf '# the venv of the suite in %s: the system packages and the test extras, not the package\n' "$dir"
-    if [ -e "$dir/bin/python" ]; then
+    if { [ -z "$build_host" ] && [ -e "$dir/bin/python" ]; } || [ "$build_host" = present ]; then
         printf '= python3 -m venv --system-site-packages %s  # already there\n' "$dir"
     else
         printf '+ python3 -m venv --system-site-packages %s\n' "$dir"
@@ -826,16 +836,41 @@ step_managed() {
 build_mounted=0
 build_source=""
 
+# the probes of the build user, answered by AWB_SETUP_BUILD_HOST in a dry run when it is set
+build_group_entry() {
+    case "$build_host" in
+        fresh) return 1 ;;
+        present) printf '%s:x:999:\n' "$BUILD_USER" ;;
+        *) getent group "$BUILD_USER" ;;
+    esac
+}
+
+build_user_entry() {
+    case "$build_host" in
+        fresh) return 1 ;;
+        present) printf '%s:x:999:999:Architect Workbench build:%s/home:/bin/bash\n' "$BUILD_USER" "$BUILD_ROOT" ;;
+        *) getent passwd "$BUILD_USER" ;;
+    esac
+}
+
+build_user_groups() {
+    case "$build_host" in
+        fresh) return 0 ;;
+        present) printf '%s\n' "$BUILD_USER" ;;
+        *) id -nG "$BUILD_USER" ;;
+    esac
+}
+
 step_build_user() {
     local entry home shell g
     info "the build user $BUILD_USER of the self-build: a system user in its own group alone, no password, the shell"
     info "/bin/bash so that claude login works once, its home $BUILD_ROOT/home inside the build root"
-    if getent group "$BUILD_USER" >/dev/null; then
+    if build_group_entry >/dev/null; then
         skip "the group exists" groupadd --system "$BUILD_USER"
     else
         run groupadd --system "$BUILD_USER"
     fi
-    if entry=$(getent passwd "$BUILD_USER"); then
+    if entry=$(build_user_entry); then
         [ "$(printf '%s\n' "$entry" | cut -d: -f3)" != 0 ] || die "the build user must not have uid 0"
         skip "the user exists" useradd --system --gid "$BUILD_USER" -M -d "$BUILD_ROOT/home" --shell /bin/bash \
             "$BUILD_USER"
@@ -848,8 +883,8 @@ step_build_user() {
             --comment "Architect Workbench build" "$BUILD_USER"
     fi
     info "the build user is in no group but its own: not $WORK_GROUP (the check socket), not sudo, not the owner's"
-    if getent passwd "$BUILD_USER" >/dev/null; then
-        for g in $(id -nG "$BUILD_USER"); do
+    if build_user_entry >/dev/null; then
+        for g in $(build_user_groups); do
             [ "$g" = "$BUILD_USER" ] || run gpasswd -d "$BUILD_USER" "$g"
         done
     fi

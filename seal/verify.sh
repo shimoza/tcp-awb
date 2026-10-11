@@ -448,7 +448,8 @@ build_checks() {
     allowed "the home template carries the build settings and CLAUDE.md of the repository and the owner's identity" \
         sh -c 'cmp -s -- "$1/build-claude/settings.json" "$3/.claude/settings.json" &&
         cmp -s -- "$2/CLAUDE.md" "$3/.claude/CLAUDE.md" && grep -Eq "^[[:space:]]+name = .+" "$3/.gitconfig" &&
-        grep -Eq "^[[:space:]]+email = .+" "$3/.gitconfig" && ! grep -qi "safe" "$3/.gitconfig"' \
+        grep -Eq "^[[:space:]]+email = .+" "$3/.gitconfig" &&
+        ! grep -Eqi "^[[:space:]]*\[safe\]|^[[:space:]]*directory[[:space:]]*=" "$3/.gitconfig"' \
         verify "$seal_dir" "$(dirname -- "$seal_dir")" "$t"
     out=0
     for f in "$t" "$t/.claude" "$t/.claude/settings.json" "$t/.claude/CLAUDE.md" "$t/.gitconfig"; do
