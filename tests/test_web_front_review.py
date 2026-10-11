@@ -152,3 +152,25 @@ def test_a_local_client_cannot_pick_its_own_address_key(readers):
         server.shutdown()
         server.server_close()
     assert statuses[-1] == 429, statuses
+
+
+# finding 13: a flood of cheap 'limited' lines rotates the waits out of the sign-in log ------------------------
+
+def test_a_restart_keeps_a_wait_after_a_log_flood(readers, monkeypatch):
+    """d0f6f14: the gateway rebuilds the waits from the sign-in log after a restart. the log keeps one rotated copy
+    and every refused try is logged without a pbkdf2, so a flood of 'limited' tries from one address pushes a
+    locked login's failures out of both files and the next restart forgets the wait (and the evidence). LOG_MAX is
+    made small only to keep the test fast; at 2 MB the same takes about 60000 cheap tries."""
+    tmp_path, path, pw, owner = readers
+    monkeypatch.setattr(gateway, "LOG_MAX", 2000)
+    now = [T0]
+    auth = _auth(tmp_path, path, lambda: now[0], log=True)
+    for i in range(5):
+        assert auth.sign_in("reader1", "wrong", "198.51.100.%d" % (i + 1)) == "fail"
+    assert auth.limiter.waits_until("reader1", now[0]) > now[0]
+    for i in range(8):
+        auth.sign_in("junk%d" % i, "wrong", "203.0.113.200")
+    for _ in range(120):
+        assert auth.sign_in("junk", "wrong", "203.0.113.200") == "limited"
+    restarted = _auth(tmp_path, path, lambda: now[0], log=True)
+    assert restarted.limiter.waits_until("reader1", now[0]) > now[0]

@@ -3065,8 +3065,29 @@
    "name": "finding 12: the bruteforce limit per address the tunnel names",
    "run": ".venv/bin/pytest tests/test_web_gateway.py::test_bruteforce_limit_per_address_the_tunnel_names",
    "status": "passing"
+  },
+  {
+   "id": "R10-34",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 13: a restart keeps a wait after a log flood",
+   "run": ".venv/bin/pytest tests/test_web_front_review.py::test_a_restart_keeps_a_wait_after_a_log_flood",
+   "status": "passing"
+  },
+  {
+   "id": "R10-35",
+   "phase": "R10",
+   "name": "finding 13: a restart keeps the waits from their state file when the log is gone",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_a_restart_keeps_the_waits_from_their_state_file_when_the_log_is_gone",
+   "status": "passing"
+  },
+  {
+   "id": "R10-36",
+   "phase": "R10",
+   "name": "finding 13: refused tries are one line per address and minute, counted, and awb web status counts them",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_refused_tries_are_one_line_per_address_and_minute_and_counted",
+   "status": "passing"
   }
  ],
- "total_tests": 438,
+ "total_tests": 441,
  "checked": "2026-10-11"
 }

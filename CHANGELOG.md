@@ -171,6 +171,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- A restart of the gateway keeps every running wait of the sign-in, also after a flood of refused tries (finding 13
+  of the review of 2026-10-10). The waits live in a small state file next to the sign-in log, and a refused try
+  writes one line per address and minute, the rest of the minute as one counted line, so cheap tries no longer push
+  the failures out of the log. `sudo awb web status` counts every try.
 - The gateway's ports 8080 and 8081, kept until the tunnel points at the front socket, answer the tunnel's user
   alone, and the gateway takes the client address from `CF-Connecting-IP` only there and on the front socket
   (finding 12 of the review of 2026-10-10). A local process can no longer pick a new address key for each try, nor

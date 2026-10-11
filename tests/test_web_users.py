@@ -257,6 +257,49 @@ def test_a_restarted_gateway_keeps_the_waits_from_the_log(site):
     assert again.sign_in("reader1", pw["reader1"], "b") == "cooldown"
 
 
+def test_a_restart_keeps_the_waits_from_their_state_file_when_the_log_is_gone(site):
+    """Finding 13 of the review of 2026-10-10: the waits live in a state file next to the log, written on every
+    change, so a restart keeps a wait and the series under way when both log files are gone; a broken state file
+    adds nothing and the gateway still starts."""
+    auth, pw, clock, tmp_path = site
+    for i in range(5):
+        auth.sign_in("reader1", "wrong", "a%d" % i)
+    for i in range(3):
+        auth.sign_in("reader2", "wrong", "b%d" % i)
+    (tmp_path / "signin.log").unlink()
+    state = json.loads((tmp_path / "waits.json").read_text())
+    assert set(state["logins"]) == {"reader1", "reader2"} and len(state["site"]) == 8
+    again = gateway.Auth(tmp_path / "auth.json", tmp_path / "users.json", tmp_path / "signin.log", clock=clock)
+    assert again.sign_in("reader1", pw["reader1"], "c") == "cooldown"
+    for i in range(2):
+        assert again.sign_in("reader2", "wrong", "d%d" % i) == "fail"
+    assert again.sign_in("reader2", pw["reader2"], "e") == "cooldown"
+    (tmp_path / "waits.json").write_text('{"version": 1, "site": ["x"], "logins": {}}')
+    (tmp_path / "signin.log").unlink()
+    fresh = gateway.Auth(tmp_path / "auth.json", tmp_path / "users.json", tmp_path / "signin.log", clock=clock)
+    assert fresh.sign_in("reader1", pw["reader1"], "f") == "ok"
+
+
+def test_refused_tries_are_one_line_per_address_and_minute_and_counted(site):
+    """Finding 13 of the review of 2026-10-10: a try refused without a pbkdf2 writes the first line of its address
+    key and minute; the rest of that minute goes out as one line with its count once the minute is over, and awb web
+    status counts every try."""
+    auth, pw, clock, tmp_path = site
+    for i in range(8):
+        auth.sign_in("y%d" % i, "wrong", "one-address")
+    for i in range(120):
+        assert auth.sign_in("y%d" % (i % 2), "wrong", "one-address") == "limited"
+    assert auth.sign_in("reader2", "wrong", "other-address") == "fail"
+    assert [e["result"] for e in log_entries(tmp_path)] == ["fail"] * 8 + ["limited", "fail"]
+    clock.tick(61)
+    auth.sign_in("reader2", pw["reader2"], "other-address")
+    entries = log_entries(tmp_path)
+    assert entries[-2:] == [{"time": gateway.log_time(T0), "login": gateway.SEVERAL, "result": "limited",
+                             "count": 119}, {"time": gateway.log_time(T0 + 61), "login": "reader2", "result": "ok"}]
+    lines = publish.signin_lines(tmp_path / "signin.log", clock())
+    assert lines[0] == "sign-ins, last 24 h: 130 (fail 9, limited 120, ok 1)"
+
+
 def test_status_shows_the_counts_of_the_last_day_and_the_logins_in_cooldown(site):
     auth, pw, clock, tmp_path = site
     auth.sign_in("reader1", pw["reader1"], "old")

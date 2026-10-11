@@ -548,7 +548,8 @@ def _status(a, host: Host) -> int:
 
 
 def signin_lines(log: Path, now: float | None = None) -> list[str]:
-    """The sign-ins of the last day by result and the waits that hold now, replayed from the gateway's log."""
+    """The sign-ins of the last day by result (a counted line of refused tries by its count) and the waits that hold
+    now, replayed from the gateway's log and its state file of the waits."""
     from awb.tcp.web import gateway
 
     now = time.time() if now is None else now
@@ -558,11 +559,14 @@ def signin_lines(log: Path, now: float | None = None) -> list[str]:
         except PermissionError:
             missing = False
         return ["sign-ins: %s" % ("no log yet" if missing else "run sudo awb web status to read the log")]
-    day = [e for e in gateway.read_log(log, now - 24 * 3600) if e[0] <= now]
-    counts = Counter(result for _, _, result in day)
-    out = ["sign-ins, last 24 h: %d (%s)" % (len(day), ", ".join("%s %d" % kv for kv in sorted(counts.items()))
-                                            if counts else "none")]
+    counts = Counter()
+    for t, _, result, tries in gateway.read_log(log, now - 24 * 3600, counted=True):
+        if t <= now:
+            counts[result] += tries
+    out = ["sign-ins, last 24 h: %d (%s)" % (sum(counts.values()), ", ".join("%s %d" % kv for kv in
+                                                                          sorted(counts.items())) if counts else "none")]
     limiter = gateway.replay(e for e in gateway.read_log(log, now - 2 * gateway.MAX_WAIT) if e[0] <= now)
+    gateway.load_waits(log.with_name("waits.json"), limiter)
     closed = limiter.site_closed_until(now)
     if closed:
         out.append("site closed: %d failures within the hour, open again at %s"

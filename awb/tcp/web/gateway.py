@@ -56,6 +56,10 @@ SITE_WINDOW = 3600
 COOLDOWN_TEXT = 'Too many failed sign-ins. Try again later.'
 BUSY_TEXT = 'The sign-in is busy. Try again in a moment.'
 LOG_MAX = 2*1024*1024
+REFUSED = ('limited', 'cooldown', 'site-cap', 'owner-limited', 'owner-delayed')   # cheap tries, logged counted
+REFUSED_WINDOW = 60         # one line per address key and result within this many seconds, the rest counted
+SEVERAL = '(several logins)'
+WAITS_KEPT = 2048           # logins kept in the state file of the waits, the newest first
 DEFAULT_ROUNDS = 600_000
 
 
@@ -118,7 +122,38 @@ class Limiter:
             state['fails'] = []
 
     def success(self, key):
-        self.logins.pop(key, None)
+        """Forget the login's failures; True when there were any."""
+        return self.logins.pop(key, None) is not None
+
+    def snapshot(self, now):
+        """The state worth keeping across a restart (finding 13 of the review of 2026-10-10): the last SITE_CAP
+        failures of the site and per login its running wait, its level and the failures of its current series, at
+        most WAITS_KEPT logins, the running waits first, then the newest."""
+        self._prune(now)
+        kept = sorted(self.logins.items(), key=lambda kv: (kv[1]['until'] > now, kv[1]['last']), reverse=True)
+        return {'version': 1, 'site': list(self.site)[-SITE_CAP:],
+                'logins': {k: {'fails': v['fails'][-SERIES:], 'until': v['until'], 'level': v['level'],
+                               'last': v['last']} for k, v in kept[:WAITS_KEPT]}}
+
+    def merge(self, data):
+        """Take the state a snapshot kept: its site failures, and per login the entry with the later wait."""
+        def number(x):
+            if isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 <= x < 1e11:
+                raise ValueError
+            return float(x)
+        site = [number(t) for t in data['site']][-SITE_CAP:]
+        logins = {}
+        for key, v in data['logins'].items():
+            if not isinstance(key, str) or len(key) > 100:
+                raise ValueError
+            logins[key] = {'fails': [number(t) for t in v['fails']][-SERIES:], 'until': number(v['until']),
+                           'level': int(number(v['level'])), 'last': number(v['last'])}
+        if len(site) >= len(self.site):
+            self.site = deque(sorted(site))
+        for key, v in list(logins.items())[:WAITS_KEPT]:
+            have = self.logins.get(key)
+            if have is None or (v['until'], v['level'], v['last']) > (have['until'], have['level'], have['last']):
+                self.logins[key] = v
 
     def cooldowns(self, now):
         self._prune(now)
@@ -184,8 +219,9 @@ def log_time(t):
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(t))
 
 
-def read_log(path, since):
-    """The entries (time, login, result) of the sign-in log and its rotated copy at or after `since`, oldest first."""
+def read_log(path, since, counted=False):
+    """The entries (time, login, result) of the sign-in log and its rotated copy at or after `since`, oldest first;
+    with `counted` (time, login, result, tries), where a counted line of refused tries stands for its count."""
     out = []
     for name in (str(path)+'.1', str(path)):
         try:
@@ -197,12 +233,25 @@ def read_log(path, since):
                 entry = json.loads(line)
                 t = calendar.timegm(time.strptime(entry['time'], '%Y-%m-%dT%H:%M:%SZ'))
                 login, result = str(entry['login']), str(entry['result'])
-            except (ValueError, KeyError, TypeError):
+                tries = int(entry.get('count', 1))
+            except (ValueError, KeyError, TypeError, AttributeError):
                 continue
             if t >= since:
-                out.append((t, login, result))
+                out.append((t, login, result, max(tries, 1)) if counted else (t, login, result))
     out.sort(key=lambda e: e[0])
     return out
+
+
+def load_waits(path, limiter):
+    """Merge the state file of the waits into `limiter`; a missing or broken file adds nothing."""
+    try:
+        data = json.loads(Path(path).read_text(encoding='utf-8'))
+        if data.get('version') != 1:
+            raise ValueError
+        limiter.merge(data)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
+    return limiter
 
 
 def replay(entries):
@@ -285,6 +334,14 @@ class Auth:
                                                      data['rounds'], 'reader', None, 0)}
         now = clock()
         self.limiter = replay(read_log(self.log_path, now-2*MAX_WAIT)) if self.log_path else Limiter()
+        # the waits also live in a small state file next to the log, written on every change, so a flood of the
+        # log or its rotation never lets a restart forget one (finding 13 of the review of 2026-10-10)
+        self.waits_path = self.log_path.parent / 'waits.json' if self.log_path else None
+        self.waits_lock = threading.Lock()
+        self.waits_seq = self.waits_written = 0
+        if self.waits_path:
+            load_waits(self.waits_path, self.limiter)
+        self.refused_lines = OrderedDict()      # (address key, result) -> [window start, tries counted, login]
         self.delays = Delays()
         self.owner_slots = threading.BoundedSemaphore(2)
         self.owner_failures = {}
@@ -322,20 +379,68 @@ class Auth:
             self.stamp, self.users = stamp, users
         return True, users
 
-    def log(self, now, login, result):
+    def log(self, now, login, result, client=None):
+        """One line per attempt. A refused try (REFUSED, no pbkdf2) of an address key writes the first line of its
+        window of REFUSED_WINDOW seconds and is counted after that; the count goes out as one line with `count`
+        once the window is over, so cheap tries cannot flood the log (finding 13 of the review of 2026-10-10)."""
         if not self.log_path:
             return
-        line = json.dumps({'time': log_time(now), 'login': login if LOGIN_RE.fullmatch(login) else NOT_A_LOGIN,
-                           'result': result}) + '\n'
+
+        def line(t, name, word, count=None):
+            shown = name if name == SEVERAL or LOGIN_RE.fullmatch(name) else NOT_A_LOGIN
+            entry = {'time': log_time(t), 'login': shown, 'result': word}
+            if count:
+                entry['count'] = count
+            return json.dumps(entry) + '\n'
+
         with self.log_lock:
+            lines = []
+            # every window that is over goes out first, as one line with its count
+            for key in [k for k, w in self.refused_lines.items() if now - w[0] >= REFUSED_WINDOW]:
+                begun, count, name = self.refused_lines.pop(key)
+                if count:
+                    lines.append(line(begun, name, key[1], count))
+            key = (client, result) if result in REFUSED and client is not None else None
+            if key is None:
+                lines.append(line(now, login, result))
+            elif key in self.refused_lines:
+                window = self.refused_lines[key]
+                window[1] += 1
+                window[2] = login if window[2] in (None, login) else SEVERAL
+            else:
+                self.refused_lines[key] = [now, 0, None]
+                lines.append(line(now, login, result))
+                while len(self.refused_lines) > 2048:
+                    (_, word), (begun, count, name) = self.refused_lines.popitem(last=False)
+                    if count:
+                        lines.append(line(begun, name, word, count))
+            if not lines:
+                return
             try:
                 if self.log_path.exists() and self.log_path.stat().st_size > LOG_MAX:
                     os.replace(self.log_path, str(self.log_path)+'.1')
                 fd = os.open(self.log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
                 with os.fdopen(fd, 'a', encoding='utf-8') as fh:
-                    fh.write(line)
+                    fh.write(''.join(lines))
             except OSError:
                 print('AWB gateway: the sign-in log cannot be written', flush=True)
+
+    def save_waits(self, snapshot, seq):
+        """Write a snapshot of the limiter to the state file, never an older one over a newer one."""
+        if not self.waits_path:
+            return
+        with self.waits_lock:
+            if seq <= self.waits_written:
+                return
+            tmp = self.waits_path.with_name('.waits.next')
+            try:
+                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+                    json.dump(snapshot, fh)
+                os.replace(tmp, self.waits_path)
+                self.waits_written = seq
+            except OSError:
+                print('AWB gateway: the waits cannot be written', flush=True)
 
     def password(self, account, password, rounds=DEFAULT_ROUNDS):
         """The PBKDF2 of one attempt in a slot: True, False, or None when no slot came free within SLOT_WAIT. An
@@ -381,9 +486,10 @@ class Auth:
                     self.failures.popitem(last=False)
         if result:
             self.log(now, login, result if result != 'cooldown' else
-                     ('site-cap' if self.limiter.site_closed_until(now) else 'cooldown'))
+                     ('site-cap' if self.limiter.site_closed_until(now) else 'cooldown'), client)
             return result
         valid = None
+        changed = None
         try:
             account = accounts.get(login)
             valid = self.password(account, password,
@@ -394,10 +500,13 @@ class Auth:
                 if per_user:
                     self.limiter.release(key)
                     # the outcome is recorded under the same lock as the release, so no other try sees neither
-                    if valid:
-                        self.limiter.success(key)
-                    elif valid is False:
-                        self.limiter.failure(key, now)
+                    if (valid and self.limiter.success(key)) or valid is False:
+                        if valid is False:
+                            self.limiter.failure(key, now)
+                        self.waits_seq += 1
+                        changed = (self.limiter.snapshot(now), self.waits_seq)
+        if changed:
+            self.save_waits(*changed)
         with self.lock:
             if valid is None or valid:
                 kept = self.failures.get(client, [])
@@ -571,7 +680,7 @@ class Auth:
                 while len(self.owner_failures) > 2048:
                     self.owner_failures.pop(next(iter(self.owner_failures)))
         if result:
-            self.log(now, login, 'owner-' + result)
+            self.log(now, login, 'owner-' + result, client)
             return 'fail' if result == 'delayed' else result
         try:
             if not self.owner_slots.acquire(timeout=SLOT_WAIT):

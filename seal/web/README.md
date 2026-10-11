@@ -73,8 +73,11 @@ guesses at most 60 codes an hour; `sudo awb web user reset` ends it). A try insi
 at a time; the failure is counted before the PBKDF2 runs, for the address and for the login, so tries sent at once
 from many addresses stop at the fifth. A sign-in waits up to 3 seconds for one of four PBKDF2 slots and answers "busy" (503, not
 counted) when none came free; at most 64 requests without a session are open at once; a login form is taken once;
-a login keeps at most 5 sessions and a full table of 128 refuses a new one. The gateway logs every attempt (time, login, result) to `/var/lib/awb-web/signin.log` and
-rebuilds the waits from it after a restart; `sudo awb web status` reads it.
+a login keeps at most 5 sessions and a full table of 128 refuses a new one. The gateway logs every attempt (time,
+login, result) to `/var/lib/awb-web/signin.log`; a try refused without a PBKDF2 (limited, cooldown, delayed) writes
+the first line of its address and minute, and the rest of that minute goes out as one line with a `count`. The
+waits also live in `/var/lib/awb-web/waits.json`, written on every change, so a restart keeps them even when the
+log rotated them out; `sudo awb web status` reads both.
 
 ## The owner host (T9 step 2)
 
