@@ -2827,8 +2827,64 @@
    "name": "review 2026-10-10 finding 19: an owner-inbox take keeps max_mb and fetches nothing above it",
    "run": ".venv/bin/pytest tests/test_xchg_review.py::test_an_owner_inbox_take_keeps_the_size_limit",
    "status": "passing"
+  },
+  {
+   "id": "PER-1",
+   "phase": "PER",
+   "name": "period report: three planted projects land in their blocks, one left out before the period, the summary counts",
+   "run": ".venv/bin/pytest tests/test_period.py::test_three_projects_land_in_their_blocks",
+   "status": "passing"
+  },
+  {
+   "id": "PER-2",
+   "phase": "PER",
+   "name": "period report: one entry carries customer, kind, activity, goal, ledger kinds, technologies, deliverables, test tenant and status",
+   "run": ".venv/bin/pytest tests/test_period.py::test_one_entry_carries_every_field",
+   "status": "passing"
+  },
+  {
+   "id": "PER-3",
+   "phase": "PER",
+   "name": "period report: the block rules live in block_of and BLOCKS and are printed at the end",
+   "run": ".venv/bin/pytest tests/test_period.py::test_the_block_rules_live_in_one_place_and_are_printed",
+   "status": "passing"
+  },
+  {
+   "id": "PER-4",
+   "phase": "PER",
+   "name": "period report: codes only by default, in md and html",
+   "run": ".venv/bin/pytest tests/test_period.py::test_codes_only_by_default_and_in_html",
+   "status": "passing"
+  },
+  {
+   "id": "PER-5",
+   "phase": "PER",
+   "name": "period report: a goal that carries a registered name is withheld",
+   "run": ".venv/bin/pytest tests/test_period.py::test_a_text_that_carries_a_name_is_withheld",
+   "status": "passing"
+  },
+  {
+   "id": "PER-6",
+   "phase": "PER",
+   "name": "period report: --reveal puts the planted name back for the owner only, into his file, mode 600",
+   "run": ".venv/bin/pytest tests/test_period.py::test_reveal_puts_the_name_back_for_the_owner_only_into_his_file",
+   "status": "passing"
+  },
+  {
+   "id": "PER-7",
+   "phase": "PER",
+   "name": "period report: --reveal is refused for the work user and inside an assistant session",
+   "run": ".venv/bin/pytest tests/test_period.py::test_reveal_is_refused_for_the_work_user_and_inside_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "PER-8",
+   "phase": "PER",
+   "name": "period report: --reveal never goes to a pipe, a project, the shared side or a git working copy",
+   "run": ".venv/bin/pytest tests/test_period.py::test_reveal_never_goes_to_a_pipe_a_project_or_a_git_working_copy",
+   "status": "passing"
   }
  ],
- "total_tests": 404,
+ "total_tests": 412,
  "checked": "2026-10-10"
 }

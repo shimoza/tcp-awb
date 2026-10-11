@@ -78,6 +78,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   of the public TCP documentation and service description, German and Russian words of tender and architecture
   texts, first names, the products of the usual source platforms and vendors, standards, German function words and
   the jargon of migration and contract texts. The partner's own company names are never taken for another company.
+- The period report. `awb report --period --from 2026-04-01 --to 2026-09-30` lists every project with activity in
+  the period (ledger entries, commits, STATE.md changes) in three blocks: active customer work, finished customer
+  work and technical questions. Per project the customer code, kind, first and last activity, goal, ledger kinds,
+  technologies, deliverables by type, whether a test tenant was used and the status line, with a summary above and
+  the block rules at the end. `--format html` for a page. `--reveal` puts the customer names back, for the owner
+  only, in his own terminal or into a file of his own outside every git working copy.
 
 ### Changed
 

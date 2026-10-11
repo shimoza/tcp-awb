@@ -20,7 +20,7 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
 
     awb vault serve|unlock|lock|status|encrypt              awb/vault.py
     awb kb add|amend|retire|find|show|scope|expired|index|verify    awb/kb.py
-    awb ledger add|list, awb report --by KEY                 awb/ledger.py
+    awb ledger add|list, awb report --by KEY|--period        awb/ledger.py, awb/period.py
     awb career add|update|due                                awb/career.py
     awb write check FILE, awb voice learn DRAFT SENT         awb/writing.py
     awb review init|claims|l0|pass|status|calibrate          awb/review.py

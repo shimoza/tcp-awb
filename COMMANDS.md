@@ -280,6 +280,8 @@ gate, the gate over what it carries and `awb kb verify --staged`, so a file writ
 | `awb ledger add --kind proof --done "..." --project tcp-xxxx --customer CUST-XXXX --tag T` | one activity entry. Kinds proof, inquiry, pricing, tender, training, tooling, code, other. Also `--outcome`, `--deliverable`, `--open`, `--date` |
 | `awb ledger list --from 2026-09-01 --to 2026-09-30` | entries of a period |
 | `awb report --by customer --from 2026-04-01` | a report by customer; also `--by tech`, `--by kind`, `--by project`, `--format html` |
+| `awb report --period --from 2026-04-01 --to 2026-09-30` | the period report: every project with activity in the period in three blocks (active customer work, finished customer work, technical questions), a summary above and the block rules at the end; codes only, `--format html` for a page |
+| `awb report --period --from 2026-04-01 --to 2026-09-30 --reveal --out FILE` | the same with the customer names put back: owner only, your own terminal, never inside an assistant session; FILE (mode 600) outside every git working copy, the shared side, the knowledge base and the projects, or no `--out` for the terminal |
 | `awb career add --title "..." --role "..." --stack "..." --outcome "..." --cv-line "..."` | one career entry, no customer reference at all |
 | `awb career update --since 2026-06-01` | CV bullets and a LinkedIn paragraph as a draft |
 | `awb career due` | days since the last update (exit 1 after 90) |

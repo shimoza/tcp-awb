@@ -211,6 +211,7 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 | a migration | `awb migrate init --from azure`, then `awb migrate next` | the next phase, its worker and its files |
 | review a text | `awb review init`, `claims`, `l0`, `pass` | the claim list with evidence and a review record |
 | the week | `awb ledger add ...`, `awb report --by customer` | one line per piece of work, reports by customer, technology or project |
+| the half-year | `awb report --period --from 2026-04-01 --to 2026-09-30` | every project with activity in three blocks: active customer work, finished customer work, technical questions; `--reveal --out FILE` puts the names back, owner only |
 | the status | `awb board show`, `awb board write` | the status of every active project on one page |
 | bring a commit live | `sudo awb deploy` | the new release, only the changed services restarted, the status at the end |
 | publish the console page | `sudo awb web publish --from-queue ID` | the checked page of a UI run live, the old one kept as a backup |
