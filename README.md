@@ -402,7 +402,7 @@ customer data out of the model as far as it can:
   the sessions refused today.
 - A tool guard keeps a session inside its project: a file or shell call that reaches another project, the client's
   folder or a key folder is refused before it runs and logged. The shell part reads the command line as the shell splits
-  it and refuses a path it cannot read (a variable, a quote or an escape inside it), so a path a
+  it and refuses a path it cannot read (a variable, a quote or an escape inside it, a cd it cannot follow), so a path a
   program builds at run time still gets past it; the guard keeps an honest session in its lane and is no fence against a
   hostile one.
 - A gate checks every commit for names, secrets, home paths and the owner's blocklist. A send gate lets only the

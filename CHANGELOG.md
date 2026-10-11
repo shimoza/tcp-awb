@@ -167,6 +167,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- A relative path of a shell command is taken against the folder the command stands in, through its links (findings 20
+  and 22 of the review of 2026-10-10). A bare `cd` leads to the home and `cd X` to X, so `cd && cat .ssh/...` is
+  refused, and so is a link inside the project that points out (`cat peek/STATE.md`). A link is resolved before a `..`
+  after it climbs. A `cd` the guard cannot follow (`cd -`, a variable, CDPATH) is refused, and the string of `bash -c`
+  and of `eval` is read as a command line too.
 - The tool guard reads a shell command the way the shell splits it (findings 8 and 21 of the review of 2026-10-10). A
   quote or a backslash inside a path (`tc''p-`, `tcp\-`) no longer splits it past the guard, an option with a path glued
   to it (`tar -C/...`, `curl -d@...`) is read from where the path begins, and `$PWD`, `${PWD}` and `~+` stand for the

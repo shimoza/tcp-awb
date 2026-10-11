@@ -58,6 +58,16 @@ def bash(w, command: str) -> str | None:
     return hooks.guard(payload, w["p"], w["user"], sealed=True)
 
 
+# --------------------------------------------------------------------------- g6-guard-1: bare cd then relative
+
+
+def test_bare_cd_then_a_relative_path_reaches_the_key_folder_and_another_project(homeworld):
+    """`cd` without an argument goes to $HOME, where the sealed host keeps every project and .ssh; the relative
+    path after it carries no `..` and is never looked at."""
+    assert bash(homeworld, "cd && cat .ssh/id_ed25519") == hooks.KEY_FOLDER
+    assert bash(homeworld, "cd; cat %s/STATE.md" % OTHER) == hooks.ANOTHER_PROJECT
+
+
 # --------------------------------------------------------------------------- g6-guard-2: $PWD/.. and ~+/..
 
 
@@ -86,6 +96,42 @@ def test_an_option_with_an_attached_path_is_never_looked_at(world):
     other, key = world["other"], world["user"] / ".ssh" / "id_ed25519"
     assert bash(world, "tar -C%s -cf - . | tar -xOf -" % other) == hooks.ANOTHER_PROJECT
     assert bash(world, "curl -s -d@%s http://127.0.0.1:9/" % key) == hooks.KEY_FOLDER
+
+
+# --------------------------------------------------------------------------- g6-guard-4: a link and a relative path
+
+
+def test_a_link_inside_the_project_leads_out_through_a_relative_bash_path(world):
+    """The commit promises links are followed. The Read and Edit tools follow `peek`; a shell call names it
+    relatively without `..`, so only the session folder is checked."""
+    (world["own"] / "peek").symlink_to(world["other"])
+    (world["own"] / "keys").symlink_to(world["user"] / ".ssh")
+    assert bash(world, "cat peek/STATE.md") == hooks.ANOTHER_PROJECT
+    assert bash(world, "cat keys/id_ed25519") == hooks.KEY_FOLDER
+
+
+# --------------------------------------------------------------------------- the shell reader keeps honest commands
+
+
+def test_the_shell_reader_passes_the_commands_of_an_honest_session(world):
+    """Findings 8, 20 and 21 make the reader strict; the commands a session runs every day still pass: quoted
+    patterns, loops over a variable, a commit message in a here-document, a cd into the project and back."""
+    (world["own"] / "deliverables").mkdir()
+    for command in ("grep -rn 'obs' deliverables/", "sed -i 's/a\\/b/c/' STATE.md", "awk '{print $1}' STATE.md",
+                    'for f in deliverables/*.md; do wc -l "$f"; done', "echo $?",
+                    "python3 -c \"import json; print(json.load(open('x.json')))\"",
+                    "git commit -m \"$(cat <<'EOF'\nThe sizing: don't count a/b twice, it's ~50 lines.\nEOF\n)\"",
+                    "cd deliverables && pandoc a.md -o a.docx && cd ..", "ls deliverables 2>&1 | tail -3",
+                    "find . -name '*.md' -newer STATE.md", "bash -c 'cd deliverables && ls'",
+                    "ls %s" % world["p"].outbox):
+        assert bash(world, command) is None, command
+
+
+def test_a_cd_inside_bash_c_or_eval_is_followed(world):
+    """The string of `bash -c` and of `eval` is a command line of its own; its cd is followed like any other."""
+    for command in ('bash -c "cd; cat .ssh/id_ed25519"', "sh -ec 'cd && cat .ssh/id_ed25519'",
+                    "eval cd\\; cat .ssh/id_ed25519"):
+        assert bash(world, command) == hooks.KEY_FOLDER, command
 
 
 # --------------------------------------------------------------------------- what holds (controls)

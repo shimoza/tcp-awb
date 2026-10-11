@@ -2911,8 +2911,36 @@
    "name": "review 2026-10-10: the shapes the guard already read (glob, brace, python -c, here-string, x/../../, --opt=, //) stay refused",
    "run": ".venv/bin/pytest tests/test_guard_review.py::test_holds_tokens_the_guard_does_read",
    "status": "passing"
+  },
+  {
+   "id": "R10-16",
+   "phase": "R10",
+   "name": "review 2026-10-10 findings 8, 20 and 21: the commands of an honest session still pass the stricter shell reader",
+   "run": ".venv/bin/pytest tests/test_guard_review.py::test_the_shell_reader_passes_the_commands_of_an_honest_session",
+   "status": "passing"
+  },
+  {
+   "id": "R10-17",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 20: a bare cd leads to the home and the relative path after it is checked there",
+   "run": ".venv/bin/pytest tests/test_guard_review.py::test_bare_cd_then_a_relative_path_reaches_the_key_folder_and_another_project",
+   "status": "passing"
+  },
+  {
+   "id": "R10-18",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 22: a link inside the project that points out is refused through a relative shell path",
+   "run": ".venv/bin/pytest tests/test_guard_review.py::test_a_link_inside_the_project_leads_out_through_a_relative_bash_path",
+   "status": "passing"
+  },
+  {
+   "id": "R10-19",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 20: a cd inside bash -c or eval is followed",
+   "run": ".venv/bin/pytest tests/test_guard_review.py::test_a_cd_inside_bash_c_or_eval_is_followed",
+   "status": "passing"
   }
  ],
- "total_tests": 416,
+ "total_tests": 420,
  "checked": "2026-10-11"
 }

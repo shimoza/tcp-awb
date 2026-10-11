@@ -28,15 +28,15 @@ Each hook reads the hook JSON of the client from standard input and answers the 
     pre-tool        PreToolUse         exit 2 when Read, Edit, MultiEdit, NotebookEdit, Write, Glob, Grep or Bash
                                        reaches another project folder, the client's folder (~/.claude) or a key
                                        folder (~/.ssh, ~/.config), or a folder that holds one of them: the file
-                                       argument, the path of a search, and for Bash every path of the command
-                                       line after the shell's quote removal that is absolute, under the home or
-                                       climbs with `..`, each as written and through its links. A shell path the
-                                       guard cannot read (a variable or a substitution in it, a quote or an
-                                       escape inside it) is refused too. The own project, <shared>, the
-                                       knowledge base, /tmp and the installed code pass. One line names the class
-                                       of the place, never the path, and one line goes into
-                                       <shared>/sessions/guard.log. Fails closed: no project folder, an input it
-                                       cannot read or an internal error refuse the call
+                                       argument, the path of a search, and for Bash every path of the
+                                       command line after the shell's quote removal, a relative one taken
+                                       against the folder each cd leaves it in, each as written and through its
+                                       links. A shell path the guard cannot read (a variable or a substitution
+                                       in it, a quote or an escape inside it, a cd it cannot follow) is refused
+                                       too. The own project, <shared>, the knowledge base, /tmp and the installed
+                                       code pass. One line names the class of the place, never the path, and one
+                                       line goes into <shared>/sessions/guard.log. Fails closed: no project
+                                       folder, an input it cannot read or an internal error refuse the call
     post-write      PostToolUse        exit 2 when the written file carries a hit of the name check, a secret, a
                                        bidi override or (under a deliverables folder at any depth) a blocking
                                        tell of the writing check: class and line only; also when a folder on its
@@ -751,6 +751,7 @@ _NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _VAR_RE = re.compile(r"\$[A-Za-z_{(]")
 _START_VAR_RE = re.compile(r"\$(?:\{(HOME|PWD)\}|(HOME|PWD)(?![A-Za-z0-9_]))")
 _DIRSTACK_RE = re.compile(r"~[+-]?\d+")
+_CD_WORDS = ("cd", "pushd")
 
 
 class _Refused(Exception):
@@ -797,8 +798,8 @@ def _absolute(raw: str, cwd: Path, home: Path) -> Path:
 
 
 def _one_path(raw: str, cwds: list[Path], home: Path, dirstack: bool) -> list[Path]:
-    """The places one token of a command line reaches when it is absolute, under the home or climbs with `..` from
-    the folders of `cwds`. $HOME, $PWD and ~+ are read; any other expansion inside a path is refused."""
+    """The places one token of a command line reaches: absolute, under the home, or relative to every folder the
+    command may stand in. $HOME, $PWD and ~+ are read; any other expansion inside a path is refused."""
     if _VAR_RE.search(raw):
         m = _START_VAR_RE.match(raw)
         if m is None or _VAR_RE.search(raw[m.end():]):
@@ -818,8 +819,6 @@ def _one_path(raw: str, cwds: list[Path], home: Path, dirstack: bool) -> list[Pa
             raw = os.path.expanduser(raw)
     if raw.startswith("/"):
         return [_based(raw)]
-    if not (raw == ".." or raw.startswith("../") or "/../" in raw or raw.endswith("/..")):
-        return []
     return [_based(os.path.join(str(c), raw)) for c in cwds]
 
 
@@ -874,6 +873,9 @@ class _ShellReader:
     """Reads a command line the way the shell splits it, far enough for the guard: words after quote removal,
     the commands inside $(...), backquotes and process substitution, here-documents as data, comments dropped.
     What it cannot read raises _Refused(UNREADABLE)."""
+
+    EXACT = (";", "&&", "\n")
+    """The separators after which the next command runs in the same shell, so a cd before them holds after them."""
 
     def __init__(self, s: str, home: Path):
         self.s, self.i, self.home = s, 0, home
@@ -1076,30 +1078,131 @@ class _ShellReader:
         return ""
 
 
+_CMD_PREFIXES = ("builtin", "command", "then", "do", "else", "elif", "if", "while", "until", "{", "!", "time")
+_ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\+?=")
+
+
+def _commands(items: list) -> list:
+    """The words of a list of items with their place: (word, the separator before its command, is it the command
+    word)."""
+    out, sep, at_cmd = [], "\n", True
+    for item in items:
+        if not isinstance(item, _Word):
+            sep, at_cmd = item, True
+            continue
+        if at_cmd and not item.dynamic and (item.value in _CMD_PREFIXES or _ASSIGN_RE.match(item.value)):
+            out.append((item, sep, False))
+            continue
+        out.append((item, sep, at_cmd))
+        at_cmd = False
+    return out
+
+
+_SHELLS = ("sh", "bash", "dash", "zsh", "ksh")
+_INNER_MAX = 20
+
+
+def _inner_commands(words: list) -> list[str]:
+    """The command strings a command line hands to another shell: `bash -c STRING` (also -lc, -ec) and `eval`."""
+    out = []
+    for n, (w, _, cmd) in enumerate(words):
+        if not cmd or w.dynamic:
+            continue
+        args = []
+        for t, _, c in words[n + 1:]:
+            if c:
+                break
+            args.append(t)
+        if w.value == "eval":
+            out.append(" ".join(a.value for a in args))
+        elif os.path.basename(w.value) in _SHELLS:
+            for i, a in enumerate(args[:-1]):
+                if a.value.startswith("-") and not a.value.startswith("--") and "c" in a.value:
+                    out.append(args[i + 1].value)
+                    break
+    return out
+
+
+def _cd_target(words: list, n: int) -> int | None:
+    """The index of the target word of the cd or pushd at index n of `words`, None for a bare one."""
+    for m in range(n + 1, len(words)):
+        t, _, cmd = words[m]
+        if cmd:
+            break
+        if t.value in ("-L", "-P", "-e", "-@") and not t.dynamic:
+            continue
+        return m
+    return None
+
+
 def _shell_checks(command: str, cwd: Path, home: Path) -> list:
-    """The checks of a shell command in their order: a Path to classify, or a class to refuse at once. Every path
-    after the shell's quote removal that is absolute, under the home or climbs with `..`, and the folder of the call
-    last. Refused as unreadable: a quote or an escape inside a word that carries a path, a variable or a
-    substitution inside a path other than $HOME and $PWD at its start, ~- and the directory stack, a quote that
-    never closes."""
+    """The checks of a shell command in their order: a Path to classify, or a class to refuse at once. A relative
+    path is taken against the folder the command stands in at that point: the folder of the call, changed by each
+    cd or pushd. When a folder change may not hold for what follows (a subshell, a pipe, a background job, ||, a
+    substitution), every relative path is taken against every folder the command may stand in. Every one of those
+    folders is checked last. The string of `bash -c` and of `eval` is read as a command line as well. Refused as
+    unreadable: a quote or an escape inside a word that carries a path, a variable or a substitution inside a path
+    other than $HOME and $PWD at its start, ~- and the directory stack, a cd or pushd the guard cannot follow,
+    CDPATH, a quote that never closes."""
     reader = _ShellReader(command, home)
     reader.read()
-    words = [w for items in [reader.items] + reader.nested for w in items if isinstance(w, _Word)]
-    dirstack = any(w.value == "pushd" for w in words)
+    lists, data = [reader.items] + reader.nested, list(reader.data)
+    inner, n = 0, 0
+    while n < len(lists):
+        for text in _inner_commands(_commands(lists[n])):
+            inner += 1
+            if inner > _INNER_MAX:
+                raise _Refused(UNREADABLE)
+            sub = _ShellReader(text, home)
+            sub.read()
+            lists += [sub.items] + sub.nested
+            data += sub.data
+        n += 1
+    words = [w for items in lists for w in _commands(items)]
+    if any("CDPATH" in w.value for w, _, _ in words):
+        raise _Refused(UNREADABLE)
+    dirstack = any(w.value == "pushd" for w, _, _ in words)
+    cds = [n for n, (w, _, cmd) in enumerate(words) if cmd and not w.dynamic and not w.mixed and w.value in _CD_WORDS]
+    exact = len(lists) == 1 and all(i in _ShellReader.EXACT for i in reader.items if isinstance(i, str))
+    targets = {n: _cd_target(words, n) for n in cds}
+    visited, here = [cwd], [cwd]
+
+    def move(n: int, base: list[Path]) -> list[Path]:
+        target = None if targets[n] is None else words[targets[n]][0]
+        if target is None:
+            if words[n][0].value == "pushd":
+                raise _Refused(UNREADABLE)
+            return [home]
+        if target.dynamic or target.mixed or target.value in ("", "-") or target.value.startswith("-"):
+            raise _Refused(UNREADABLE)
+        found = _one_path(target.value, base, home, dirstack)
+        if not found:
+            raise _Refused(UNREADABLE)
+        return found
+
+    if not exact:
+        for n in cds:
+            visited += [p for p in move(n, visited) if p not in visited]
+        here = visited
     checks: list = []
-    for w in words:
+    for n, (w, _, _) in enumerate(words):
+        if exact and n in cds:
+            here = move(n, here)
+            visited += [p for p in here if p not in visited]
+        if n in targets.values():
+            continue                            # a folder the command moves to is checked with the others, last
         if w.dynamic:
             if "/" in w.value or ".." in w.value:
                 checks.append(UNREADABLE)
             continue
         for tok in _SPLIT_RE.split(w.value):
-            checks += _token_paths(tok, [cwd], home, dirstack)
+            checks += _token_paths(tok, here, home, dirstack)
         if w.mixed and "/" in w.value:
             checks.append(UNREADABLE)
-    for text in reader.data:
+    for text in data:
         for tok in _SPLIT_RE.split(text):
-            checks += _token_paths(tok, [cwd], home, dirstack)
-    return checks + [cwd]
+            checks += _token_paths(tok, visited, home, dirstack)
+    return checks + visited
 
 
 def _tool_paths(tool: str, tool_input: dict, cwd: Path, home: Path) -> list:
@@ -1130,12 +1233,13 @@ def _tool_paths(tool: str, tool_input: dict, cwd: Path, home: Path) -> list:
 
 def place_class(path: Path, own: Path, p: config.Paths, home: Path) -> str | None:
     """The class of a refused place for `path`, or None when a session may reach it. The path is taken as written
-    and through its links; both must pass. The own project, the shared folder (outbox, datasets) and the knowledge
-    base pass; another project, the client's folder and the key folders of `home` do not, and neither does a
-    folder that holds one of them (a search from it would reach them)."""
+    and through its links, each link resolved before a `..` after it climbs, as the kernel does; both must pass.
+    The own project, the shared folder (outbox, datasets) and the knowledge base pass; another project, the
+    client's folder and the key folders of `home` do not, and neither does a folder that holds one of them (a
+    search from it would reach them)."""
     literal = Path(os.path.normpath(str(path)))
     try:
-        real = Path(os.path.realpath(literal))
+        real = Path(os.path.realpath(str(path)))
     except (OSError, ValueError):
         return UNKNOWN_PROJECT
     own_real = Path(os.path.realpath(own))
