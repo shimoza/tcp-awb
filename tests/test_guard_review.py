@@ -102,8 +102,8 @@ def test_an_option_with_an_attached_path_is_never_looked_at(world):
 
 
 def test_a_link_inside_the_project_leads_out_through_a_relative_bash_path(world):
-    """The commit promises links are followed. The Read and Edit tools follow `peek`; a shell call names it
-    relatively without `..`, so only the session folder is checked."""
+    """The commit promises links are followed. The file tools follow `peek`; a shell call names it relatively
+    without `..`, so only the session folder is checked."""
     (world["own"] / "peek").symlink_to(world["other"])
     (world["own"] / "keys").symlink_to(world["user"] / ".ssh")
     assert bash(world, "cat peek/STATE.md") == hooks.ANOTHER_PROJECT
