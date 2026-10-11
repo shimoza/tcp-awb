@@ -171,6 +171,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- `/kb`, `kb_find` of Ask and every search withhold an entry that carries what `awb kb add` refuses, not only a
+  registered name: a mail address or other structured data, a register or project code, an identifier, a home path,
+  a secret or a token (P3 of the review of 2026-10-10). An entry file written past `kb add` is no longer shown. A
+  source web address alone still passes.
 - The mail of a put names the file by its id alone, never by a name the session chose (finding 18 of the review of
   2026-10-10). Every field of an exchange mail is printable ASCII, so a session can no longer write a line separator,
   a bidi control or a paragraph of its own into a mail you trust.

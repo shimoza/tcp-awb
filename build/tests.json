@@ -3184,8 +3184,22 @@
    "name": "finding 18: a put lands under its id and tells the owner by the id alone",
    "run": ".venv/bin/pytest tests/test_xchg.py::test_a_put_lands_under_its_id_and_tells_the_owner_by_the_id_alone",
    "status": "passing"
+  },
+  {
+   "id": "R10-51",
+   "phase": "R10",
+   "name": "review 2026-10-10 P3: an entry written past kb add with a mail address is withheld where shown",
+   "run": ".venv/bin/pytest tests/test_tm0_review.py::test_an_entry_written_past_kb_add_with_a_mail_address_is_withheld_where_shown",
+   "status": "passing"
+  },
+  {
+   "id": "R10-52",
+   "phase": "R10",
+   "name": "P3: an entry written past kb add with a code or a home path is withheld, the clean one shown",
+   "run": ".venv/bin/pytest tests/test_tm0_review.py::test_an_entry_written_past_kb_add_with_a_code_or_a_home_path_is_withheld",
+   "status": "passing"
   }
  ],
- "total_tests": 455,
+ "total_tests": 457,
  "checked": "2026-10-11"
 }

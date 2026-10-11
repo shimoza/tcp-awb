@@ -1136,8 +1136,10 @@ def expired(where=None, today: date | None = None) -> list[Entry]:
 
 
 def screen(entries: Sequence[Entry], register_path: Path | None = None) -> tuple[list[Entry], int]:
-    """(entries that pass the name check now, count withheld). An entry that carries a name registered after it
-    was added is withheld. Raises KBError when the name check cannot run."""
+    """(entries that pass the checks of add now, count withheld). An entry that carries a name registered after it
+    was added is withheld, and so is one that carries what kb add refuses (a mail address or other structured data,
+    a register or project code, an identifier, a home path, a secret or a token): an entry file written past kb add
+    (P3 of the review of 2026-10-10). Raises KBError when the name check cannot run."""
     entries = list(entries)
     if not entries:
         return [], 0
@@ -1145,10 +1147,16 @@ def screen(entries: Sequence[Entry], register_path: Path | None = None) -> tuple
     _require_register(reg)
 
     def dirty(group: list[Entry]) -> bool:
-        # names only: structured data passed the checks of add, and a source URL must not send every search
-        # into one check per entry
-        hits = _name_hits("\n\n".join(_entry_text(e) for e in group), reg)
-        return any(isinstance(h, dict) and h.get("cls") == "name" for h in hits)
+        # every class of the name check but a web address: a source URL is the usual source of a fact and must not
+        # send every search into one check per entry; a name inside it is still a name hit
+        text = "\n\n".join(_entry_text(e) for e in group)
+        hits = _name_hits(text, reg)
+        if any(not isinstance(h, dict) or h.get("cls") != "url" for h in hits):
+            return True
+        norm = normalize.normalize(text).text
+        if max(sum(codes.count_codes(text)), sum(codes.count_codes(norm))):
+            return True
+        return any(_count(text, norm, gate.DETECTORS[cls]) for cls in _GATE_CLASSES if cls in gate.DETECTORS)
 
     def clean(group: list[Entry]) -> list[Entry]:
         # halves instead of one check per entry: a few requests for a long list, so a broad search never runs

@@ -10,7 +10,7 @@ import re
 
 import pytest
 
-from awb import gate, ledger
+from awb import check, gate, kb, ledger
 from awb.tcp import keys
 from tests import fixtures as fx
 from tests.test_xchg import buckets, lab_project, quiet, svc  # noqa: F401  (the fixtures of the exchange tests)
@@ -54,6 +54,45 @@ def test_a_possessive_of_a_plain_word_stays_no_name(tmp_path, home, register_pat
     msg.write_text(subject + "\n", encoding="utf-8")
     assert gate.scan_message(msg, None) == []
     ledger.add("other", subject, day="2026-09-22", p=home)
+
+
+# --------------------------------------------------------------------------- P3: structured data on /kb
+
+
+def test_an_entry_written_past_kb_add_with_a_mail_address_is_withheld_where_shown(home, register_path):
+    """b584f6d promises that /kb and the kb_find tool of Ask pass every entry through kb.screen before it is shown.
+    kb.screen counts name hits only, on the premise that structured data passed the checks of kb add. Attack: the
+    work user owns tcp-kb, so a hostile project session writes an entry file straight into entries/ (no kb add,
+    no commit hook runs for an uncommitted file) with a person's mail address; kb.screen hands it to the reader
+    page and to the model."""
+    e = kb.add("The invented cluster service offers three flavors in the test region.", scope="tcp",
+               tags=["cce"], grade="live", cls="stable", source="an invented live check", where=home,
+               register_path=register_path)
+    path = e.path
+    text = path.read_text(encoding="utf-8")
+    planted = "xqarv.pomblet@example.org"
+    path.write_text(text.rstrip("\n") + " Ask %s for the quota.\n" % planted, encoding="utf-8")
+    entry = kb.get(e.id, home)
+    assert any(h.get("cls") != "name" for h in check.check_text(entry.statement, register_path)), \
+        "setup: the planted address is no structured hit"
+    shown, withheld = kb.screen([entry], register_path)
+    assert not shown and withheld == 1, "a planted structured hit passed kb.screen"
+
+
+@pytest.mark.parametrize("planted", [fx.CUSTOMER_CODE, "tcp-q7m4", "/home/" + "xqarv/notes.txt"])
+def test_an_entry_written_past_kb_add_with_a_code_or_a_home_path_is_withheld(home, register_path, planted):
+    """P3: what kb add refuses (a register or project code, a home path) is withheld when it was
+    written into the entry file past kb add; the clean entry next to it is shown."""
+    clean = kb.add("The invented block storage offers two disk types in the test region.", scope="tcp",
+                   tags=["evs"], grade="live", cls="stable", source="an invented live check", where=home,
+                   register_path=register_path)
+    e = kb.add("The invented cluster service offers three flavors in the test region.", scope="tcp",
+               tags=["cce"], grade="live", cls="stable", source="an invented live check", where=home,
+               register_path=register_path)
+    text = e.path.read_text(encoding="utf-8")
+    e.path.write_text(text.rstrip("\n") + " Seen with %s.\n" % planted, encoding="utf-8")
+    shown, withheld = kb.screen([kb.get(clean.id, home), kb.get(e.id, home)], register_path)
+    assert [x.id for x in shown] == [clean.id] and withheld == 1
 
 
 # --------------------------------------------------------------------------- finding 18: free text in the put mail
