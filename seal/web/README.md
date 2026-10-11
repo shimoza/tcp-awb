@@ -67,7 +67,9 @@ The logins of the console live in `/etc/awb-web/users.json` (`sudo awb web user 
 15 minutes after 5 failures within 15 minutes, doubled for each further series up to 24 hours; 30 failures within an
 hour pause every sign-in there. An owner entry is a login like any other on the main host, so its name answers
 exactly like an unknown one; the owner host has its own sign-in, which is never locked: each failure moves the next
-try 1, 2, 4 ... 60 seconds ahead. One address (the /64 of an IPv6 address) gets 8 failures a minute and one sign-in
+try of that name from that address 1, 2, 4 ... 60 seconds ahead, so a stranger delays only his own address, and a
+wrong code after the right password does the same for the name from every address (whoever holds the password
+guesses at most 60 codes an hour; `sudo awb web user reset` ends it). A try inside a delay moves nothing. One address (the /64 of an IPv6 address) gets 8 failures a minute and one sign-in
 at a time; the failure is counted before the PBKDF2 runs, for the address and for the login, so tries sent at once
 from many addresses stop at the fifth. A sign-in waits up to 3 seconds for one of four PBKDF2 slots and answers "busy" (503, not
 counted) when none came free; at most 64 requests without a session are open at once; a login form is taken once;

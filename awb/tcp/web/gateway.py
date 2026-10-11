@@ -149,11 +149,14 @@ def totp_step(secret, code, now, skew=1):
 
 
 class Delays:
-    """The per-name limiter of the owner (design section 2 item 4): after each failure the name's next allowed time
-    moves 1, 2, 4 ... 60 seconds ahead; a try before it is answered like a wrong password without a pbkdf2 and is not
-    counted. Never a hard lock. The times live in a fixed array indexed by a keyed hash, so a flood of junk names
-    cannot evict a real one (it can at worst share a cell and delay it, never longer than 60 seconds)."""
-    CELLS = 4096
+    """The delays of the owner host (design section 2 item 4): after each failure of a key its next allowed time
+    moves 1, 2, 4 ... 60 seconds ahead; a try before it is answered like a wrong password without a pbkdf2, is not
+    counted and does not move the time. Never a hard lock. sign_in_owner keys a delay on the name and the address
+    key, so a stranger delays only his own address (finding 4 of the review of 2026-10-10), and keeps one more per
+    name that only a wrong code after the right password starts. The times live in a fixed array indexed by a keyed
+    hash, so a flood of junk keys cannot evict a real one (it can at worst share a cell and delay it, never longer
+    than 60 seconds)."""
+    CELLS = 65536
     MAX = 60
 
     def __init__(self):
@@ -538,10 +541,14 @@ class Auth:
 
     def sign_in_owner(self, login, password, code, client):
         """The owner host's sign-in: an owner entry's password, then a current TOTP code that was not used before.
-        'ok', 'fail' (a wrong password, a wrong or used code and a waiting name answer alike), 'limited' (this
+        'ok', 'fail' (a wrong password, a wrong or used code and a waiting try answer alike), 'limited' (this
         address key failed 8 times within a minute or has a sign-in in flight) or 'busy'. Every failure moves the
-        name's next try 1 ... 60 seconds ahead (Delays), never a lock; the code counts only after the password
-        matched. The owner host has its own PBKDF2 slots."""
+        next try of this name from this address key 1 ... 60 seconds ahead, so a stranger's wrong passwords delay
+        his own address and never the owner's (finding 4 of the review of 2026-10-10); a wrong code after the right
+        password also delays the name from every address, so whoever holds the password guesses at most 60 codes
+        an hour (the owner's way out is `awb web user reset`). A try inside a delay costs no pbkdf2 and moves
+        nothing; the right password and a current code always pass once the delays of the try are over. The code
+        counts only after the password matched. The owner host has its own PBKDF2 slots."""
         login = login[:100]
         now = self.clock()
         per_user, accounts = self.accounts()
@@ -549,12 +556,13 @@ class Auth:
         if account is not None and account.level != 'owner':
             account = None
         client = address_key(client)
-        name = 'owner:' + login
+        name = 'owner:' + login + '\0' + client
+        code_name = 'owner-code:' + login
         with self.lock:
             recent = [t for t in self.owner_failures.get(client, []) if now-t < 60]
             if len(recent) >= 8 or client in self.owner_inflight:
                 result = 'limited'
-            elif self.delays.waiting(name, now):
+            elif self.delays.waiting(name, now) or self.delays.waiting(code_name, now):
                 result = 'delayed'
             else:
                 result = ''
@@ -594,8 +602,11 @@ class Auth:
             if valid:
                 self.owner_failures.pop(client, None)
                 self.delays.success(name)
+                self.delays.success(code_name)
             elif valid is False:
                 self.delays.failure(name, now)
+                if word == 'owner-code':
+                    self.delays.failure(code_name, now)
         if valid is None:
             self.log(now, login, 'owner-busy')
             return 'busy'

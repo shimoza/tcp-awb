@@ -523,6 +523,37 @@ def test_the_owner_entry_answers_like_any_login_on_the_main_host_and_keeps_the_o
     assert auth.sign_in_owner("owner1", owner, gateway.totp_code(secret, int(clock[0] // 30)), "192.0.2.52") == "ok"
 
 
+def test_the_owner_host_delays_a_failure_by_name_and_address_and_a_wrong_code_by_name(readers):
+    """Finding 4 of the review of 2026-10-10: a stranger's wrong passwords, each sent the moment his delay ends, delay
+    only his own address key; the owner's right password and current code from another address pass at once. A try
+    inside a delay moves nothing. A wrong code after the right password delays the name from every address, and the
+    right password and a current code pass as soon as that delay is over."""
+    auth, pw, owner, path = readers
+    secret = json.loads(path.read_text())["users"]["owner1"]["totp"]
+    clock = [1_800_000_000.0]
+    auth.clock = lambda: clock[0]
+    stranger = auth.delays.cell("owner:owner1\0" + "203.0.113.9")
+    waits = []
+    for _ in range(9):
+        clock[0] = max(clock[0], auth.delays.until[stranger]) + 0.01
+        assert auth.sign_in_owner("owner1", "wrong", "000000", "203.0.113.9") == "fail"
+        waits.append(round(auth.delays.until[stranger] - clock[0]))
+        before = auth.delays.until[stranger]
+        assert auth.sign_in_owner("owner1", "wrong", "000000", "203.0.113.9") == "fail"   # inside the delay
+        assert auth.delays.until[stranger] == before
+    assert waits == [1, 2, 4, 8, 16, 32, 60, 60, 60]
+    code = gateway.totp_code(secret, int(clock[0] // 30))
+    assert auth.sign_in_owner("owner1", owner, code, "198.51.100.4") == "ok"
+    # a wrong code after the right password: the name waits from every address
+    clock[0] += 30
+    wrong = "000000" if gateway.totp_code(secret, int(clock[0] // 30)) != "000000" else "111111"
+    assert auth.sign_in_owner("owner1", owner, wrong, "192.0.2.10") == "fail"
+    code = gateway.totp_code(secret, int(clock[0] // 30))
+    assert auth.sign_in_owner("owner1", owner, code, "198.51.100.4") == "fail"
+    clock[0] += 1.01
+    assert auth.sign_in_owner("owner1", owner, code, "198.51.100.4") == "ok"
+
+
 def test_a_login_token_is_taken_once(tmp_path):
     auth = gateway.Auth(write_auth(tmp_path / "a.json", "awb", PASSWORD) or tmp_path / "a.json")
     token = auth.csrf_token()

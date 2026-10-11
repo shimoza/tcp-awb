@@ -86,3 +86,32 @@ def test_parallel_guesses_stop_at_the_series(readers, monkeypatch):
     for t in threads:
         t.join()
     assert len(checks) <= gateway.SERIES, (len(checks), sorted(results))
+
+
+# finding 4: one wrong try a minute from a third party keeps the owner out of the owner host -------------------
+
+def test_a_third_party_cannot_keep_the_owner_out(readers):
+    """the design: 'no number of wrong codes locks the owner out' and 'never a hard lock'. a try inside the delay is
+    answered 'fail' without checking the password, so an attacker who sends one wrong password for the owner's name
+    the moment its delay ends keeps the delay armed for good: ten correct owner sign-ins in ten minutes all fail."""
+    tmp_path, path, pw, owner = readers
+    secret = json.loads(path.read_text())["users"]["owner1"]["totp"]
+    now = [T0]
+    auth = _auth(tmp_path, path, lambda: now[0])
+    cell = auth.delays.cell("owner:owner1")
+
+    def attacker():
+        now[0] = max(now[0], auth.delays.until[cell]) + 0.01
+        assert auth.sign_in_owner("owner1", "wrong", "000000", "203.0.113.9") == "fail"
+
+    for _ in range(7):                  # ramp the name's delay to its 60 s ceiling
+        attacker()
+    results = []
+    for _ in range(10):
+        attacker()
+        now[0] += 30                    # the owner signs in half a minute later, with the right password and code
+        code = gateway.totp_code(secret, int(now[0] // gateway.TOTP_STEP))
+        results.append(auth.sign_in_owner("owner1", owner, code, "198.51.100.4"))
+        if results[-1] == "ok":
+            break
+    assert "ok" in results, results

@@ -3023,8 +3023,29 @@
    "name": "finding 10: 200 parallel bad logins from one /64 stop neither another login nor the owner host",
    "run": ".venv/bin/pytest tests/test_web_gateway.py::test_200_parallel_bad_logins_from_one_slash_64_stop_neither_another_login_nor_the_owner_host",
    "status": "passing"
+  },
+  {
+   "id": "R10-28",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 4: a third party cannot keep the owner off the owner host",
+   "run": ".venv/bin/pytest tests/test_web_front_review.py::test_a_third_party_cannot_keep_the_owner_out",
+   "status": "passing"
+  },
+  {
+   "id": "R10-29",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 4: one wrong password a second from a stranger does not keep the owner out",
+   "run": ".venv/bin/pytest tests/test_web_owner_review.py::test_one_wrong_password_a_second_keeps_the_owner_out_for_ten_minutes",
+   "status": "passing"
+  },
+  {
+   "id": "R10-30",
+   "phase": "R10",
+   "name": "finding 4: the owner host delays a failure by name and address, a wrong code by name",
+   "run": ".venv/bin/pytest tests/test_web_gateway.py::test_the_owner_host_delays_a_failure_by_name_and_address_and_a_wrong_code_by_name",
+   "status": "passing"
   }
  ],
- "total_tests": 432,
+ "total_tests": 435,
  "checked": "2026-10-11"
 }

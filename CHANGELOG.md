@@ -171,6 +171,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- A stranger can no longer keep the owner off the owner host (finding 4 of the review of 2026-10-10). A failure
+  there delays the next try of that name from that address only, so one wrong password a minute from elsewhere no
+  longer holds the owner's right password and code back. A wrong code after the right password still delays the
+  name from every address, so whoever holds the password guesses at most 60 codes an hour.
 - The main host answers the owner's login name exactly like an unknown name, the wait after five failures and the
   site cap included, so the name is no longer given away (finding 10 of the review of 2026-10-10). The owner host
   keeps its own sign-in, which never locks. A try for a login is counted before its password check, so guesses sent
