@@ -195,6 +195,12 @@ def main(argv: list[str] | None = None) -> int:
         ap.print_usage(sys.stderr)
         return 2
     results = run_checks()
+    if config.build_user():
+        # the build runner's planted cases (presentations/self-build SB3), on a host with the build side only
+        from awb import buildrun
+
+        problems = buildrun.selftest()
+        results.append(Result(not problems, "the build runner refuses its planted cases", "; ".join(problems)))
     for r in results:
         print("%s  %s%s" % ("PASS" if r.ok else "FAIL", r.what, " (%s)" % r.note if r.note and not r.ok else ""))
     from awb import egress

@@ -3839,8 +3839,8 @@
   {
    "id": "SB2-27",
    "phase": "SB2",
-   "name": "build: serve still exits 2 (SB3); build/queue/ is in .gitignore",
-   "run": ".venv/bin/pytest tests/test_build_queue.py::test_serve_stays_a_placeholder_and_the_queue_folder_is_ignored_by_git",
+   "name": "build queue: serve is the runner (replaces the placeholder test, SB3); in a test it opens no host build root, exits 2 with one line and makes nothing; build/queue/ is in .gitignore",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_serve_is_the_runner_it_opens_no_host_build_root_in_a_test_and_the_queue_folder_is_ignored_by_git",
    "status": "passing"
   },
   {
@@ -3968,8 +3968,274 @@
    "name": "work rules: drafts are checked before he sees them and translations come in one step, within 60 lines",
    "run": ".venv/bin/pytest tests/test_work_rules.py",
    "status": "passing"
+  },
+  {
+   "id": "SB3-1",
+   "phase": "SB3",
+   "name": "build runner: DONE: and one commit inside paths goes green then done, main.git and origin move, eleven ok lines, result.md fixed fields, clone and home gone, the quarantine ref kept",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_done_task_inside_its_paths_goes_green_then_done_and_main_moves",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-2",
+   "phase": "SB3",
+   "name": "build runner: a question or BLOCKED: is asked, main stays, the home stays without its model key",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_question_or_blocked_goes_asked_and_main_does_not_move",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-3",
+   "phase": "SB3",
+   "name": "build runner: an answer resumes the same session (--resume with the recorded id, same run); a lost transcript is stopped: session_gone",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_an_answer_resumes_the_same_session_and_a_lost_transcript_is_session_gone",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-4",
+   "phase": "SB3",
+   "name": "build runner: dirty tree, second branch, outside paths, co-author line, other author, deleted test, skipped test, changed tests.json entry, CHANGELOG deletion, missing CHANGELOG line, CLAUDE.local.md, hooks/pre-commit, lost rules line, file name with a newline: each its named red, main and origin stay, clone kept, home gone",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_each_planted_fault_is_its_named_red_and_main_stays",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-5",
+   "phase": "SB3",
+   "name": "build runner: a test named in tests_replaced may go, the removed test line is counted",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_replaced_test_named_in_tests_replaced_passes_check_ten",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-6",
+   "phase": "SB3",
+   "name": "build runner: a conftest.py only in the clone does not reach the export, the task is done",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_conftest_only_in_the_clone_never_reaches_the_export",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-7",
+   "phase": "SB3",
+   "name": "build runner: the block's check runs on the export; a failing check is red: check",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_task_check_runs_in_the_export_and_a_failing_one_is_red",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-8",
+   "phase": "SB3",
+   "name": "build runner: awb build widen reruns the checks on the kept branch with no new session",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_widened_path_reruns_the_checks_on_the_kept_branch_without_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-9",
+   "phase": "SB3",
+   "name": "build runner: a session that never returns under a 2 s clock is hung within 5 s and its child is gone",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_session_that_never_returns_under_a_2_s_clock_is_hung_within_5_s_and_no_child_is_left",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-10",
+   "phase": "SB3",
+   "name": "build runner: result.json with two objects or none is stopped: no_result",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_result_with_two_objects_or_none_is_stopped",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-11",
+   "phase": "SB3",
+   "name": "build runner: an API error with num_turns 0 is retried once as a new run after ten minutes, never a third time (D-S4)",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_an_api_error_before_the_first_tool_call_is_retried_once_after_ten_minutes",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-12",
+   "phase": "SB3",
+   "name": "build runner: awb build stop ID stops the session's unit with the one stop form, stopped: by_owner",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_stop_id_stops_the_session_with_the_one_stop_form",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-13",
+   "phase": "SB3",
+   "name": "build runner: main moved before the merge means a rebase in the build unit and a second round of checks; a conflict is stale and main stays his",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_main_that_moved_means_a_rebase_and_a_second_round_and_a_conflict_is_stale",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-14",
+   "phase": "SB3",
+   "name": "build runner: update-ref with the expected old value refuses when main moved under the merge; main is never rewound, the task is rebased and done",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_update_ref_refuses_when_main_moved_between_the_check_and_the_merge",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-15",
+   "phase": "SB3",
+   "name": "build runner: a push that is not a fast-forward is held: push refused, never done; retried after ten minutes, mailed once",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_refused_push_is_held_never_done_and_main_git_keeps_the_task",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-16",
+   "phase": "SB3",
+   "name": "build runner: with the push off done means main.git",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_without_the_push_done_is_main_git",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-17",
+   "phase": "SB3",
+   "name": "build runner: every git call of the runner is -C main.git and never the clone; a planted core.fsmonitor in the clone never runs",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_runner_never_runs_git_in_the_clone_and_never_reads_its_fsmonitor",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-18",
+   "phase": "SB3",
+   "name": "build runner: the mail has fixed fields only, no text of the agent",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_mail_has_fixed_fields_only",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-19",
+   "phase": "SB3",
+   "name": "build runner: state.tsv for the board holds ids, states, hashes and times only",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_state_tsv_has_ids_states_hashes_and_times_only",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-20",
+   "phase": "SB3",
+   "name": "build runner: live, main, N not deployed and the daemon code behind come from DEPLOYED and main.git",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_live_main_and_not_deployed_come_from_the_deploy_record",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-21",
+   "phase": "SB3",
+   "name": "build runner: a commit subject with a registered form is red: gate name and withheld from result.md",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_subject_with_a_registered_form_is_withheld_from_result_md",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-22",
+   "phase": "SB3",
+   "name": "build runner: the model key is in the task home for the session and gone with the home; never in a record, the board or a mail",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_model_key_is_in_the_home_for_the_session_and_gone_with_it",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-23",
+   "phase": "SB3",
+   "name": "build runner: a prompt with a registered form is held: prompt without a unit and starts in the same run once clean",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_prompt_that_fails_the_name_check_is_held_and_starts_once_it_is_clean",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-24",
+   "phase": "SB3",
+   "name": "build runner: a second serve is refused with one line while the lock is held",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_second_serve_is_refused_with_one_line",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-25",
+   "phase": "SB3",
+   "name": "build runner: serve exits 0 on awb build stop and 75 on restart-wanted",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_serve_ends_on_the_stop_file_and_exits_for_a_restart_wanted",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-26",
+   "phase": "SB3",
+   "name": "build runner: a restarted runner reattaches to a session that still runs and finishes it",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_restart_reattaches_to_a_running_session",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-27",
+   "phase": "SB3",
+   "name": "build runner: a session gone with the runner (no result) is interrupted with its line",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_restart_after_the_session_died_with_the_runner_is_interrupted",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-28",
+   "phase": "SB3",
+   "name": "build runner: a failed precondition holds the queue without a unit or a run, one board line, one mail",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_preconditions_hold_the_queue_without_a_spawn_and_mail_once",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-29",
+   "phase": "SB3",
+   "name": "build runner: a name check that cannot run at check 6 is held: checks pending and reruns to done",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_name_check_that_cannot_run_after_a_run_is_held_and_reruns",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-30",
+   "phase": "SB3",
+   "name": "build runner: an asked task keeps its paths reserved and its dependants wait",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_reserved_paths_and_the_depends_order_the_pick",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-31",
+   "phase": "SB3",
+   "name": "build runner: the real spawn is one fixed sudo -n systemd-run form with the clock and the isolation; the suite allows no address; a unit name outside the fixed forms is refused",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_real_spawn_is_one_fixed_systemd_run_form",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-32",
+   "phase": "SB3",
+   "name": "build runner: the client argv, the clock, the writable and hidden paths and the four unit names of a task",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_client_argv_and_the_session_units_of_a_task",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-33",
+   "phase": "SB3",
+   "name": "build runner: the real handle reads Result from systemd then resets the unit; the stop form",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_systemd_handle_reads_the_result_then_resets_the_unit",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-34",
+   "phase": "SB3",
+   "name": "build runner: junit outcomes by node id; a DOCTYPE is refused",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_junit_outcomes_name_each_test_by_its_node_id",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-35",
+   "phase": "SB3",
+   "name": "build runner: awb build unit refuses the owner of a sealed host",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_unit_helpers_never_run_as_the_owner_or_the_work_user",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-36",
+   "phase": "SB3",
+   "name": "build selftest: every planted case of N6, N7, N9 to N12 and the push is refused or classified",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_selftest_refuses_or_classifies_every_planted_case",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-37",
+   "phase": "SB3",
+   "name": "build selftest: every case has its planted removal in the tests",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_every_planted_case_is_named",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-38",
+   "phase": "SB3",
+   "name": "build selftest: each case fails the selftest when its check is monkeypatched away",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_each_selftest_case_fails_when_its_check_is_taken_away",
+   "status": "passing"
   }
  ],
- "total_tests": 567,
+ "total_tests": 605,
  "checked": "2026-10-11"
 }

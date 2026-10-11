@@ -485,9 +485,17 @@ def test_stop_writes_the_stop_file_or_the_stop_wish_of_a_running_task(places, ca
     assert "awb-task-B-012.service" in capsys.readouterr().out
 
 
-def test_serve_stays_a_placeholder_and_the_queue_folder_is_ignored_by_git(places, capsys):
+def test_serve_is_the_runner_it_opens_no_host_build_root_in_a_test_and_the_queue_folder_is_ignored_by_git(
+        places, capsys, monkeypatch, tmp_path):
+    """Replaces test_serve_stays_a_placeholder_and_the_queue_folder_is_ignored_by_git (SB3: serve is the runner, it
+    no longer exits 2 as a placeholder). The tests point AWB_BUILD_ROOT at a throw-away folder: serve there finds no
+    main.git, exits 2 with one line and makes nothing; the queue folder stays ignored by git."""
+    root = tmp_path / "build-root"
+    monkeypatch.setenv("AWB_BUILD_ROOT", str(root))
     assert cli.main(["build", "serve"]) == 2
-    assert "not built yet" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "cannot start" in err and err.strip().count("\n") == 0 and "not built yet" not in err
+    assert not root.exists()
     assert "build/queue/" in (ROOT / ".gitignore").read_text(encoding="utf-8").split("\n")
 
 

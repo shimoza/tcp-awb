@@ -501,8 +501,22 @@ awb build stop               # the runner ends after the current task
 `model` (opus, sonnet, fable; opus), `effort` (low, medium, high; medium), `budget` (USD, 1 to 100; 10) and `clock`
 (minutes, 10 to 480; 90) may be left out. `paths` are the files the task may change, `tests_replaced` the test ids
 it may drop or replace, `check` test node ids under `tests/` with `-k` or `-m`. A block with a fault is refused in
-one line of `awb build list` that names the key, never the value. The runner itself (`awb build serve`) comes
-with step SB3; until then the commands write the records it will read under `/srv/awb-build/runs/`.
+one line of `awb build list` that names the key, never the value.
+
+The runner (`awb build serve`, the unit `awb-buildd.service`) takes the next task whose `depends` are done and whose
+`paths` meet no path of a task that is not done, one at a time. It runs as you, never as a model. It starts each
+task as `awb-build` in units of a fixed form: a fresh home from the root template with the model key, a clone of
+`main` from a bundle, the headless session with the block's model, effort, budget and clock, then the hand-over of
+the branch as a bundle. It judges the bundle in `main.git`, never the clone: the unit ended by itself, the client
+ended well, the last line is `DONE:`, one to five commits as you on `task/<ID>` and nothing else, the gate with the
+register, the paths, the CHANGELOG and `build/tests.json`, then the whole suite, every test that passed before
+still passing and the block's `check` on a `git archive` export, as `awb-build` with no network. Green moves `main`
+in `main.git` (a rebase first when `main` moved), pushes it to GitHub after the gate over the whole range and ends
+`done`. Otherwise the run is `hung`, `red: <reason>`, `asked`, `stopped: <subtype>`, `stale` or `held: <reason>`,
+and nothing moves. Each ended run writes `/srv/awb-build/runs/<ID>/<n>/result.md` (fixed fields only), one line on
+the board (`state.tsv` in `tcp-shared/build`) and one mail. Only an API error before the first tool call is retried
+by itself, once, ten minutes later. `awb build selftest` runs the runner's planted cases in a throw-away folder;
+`sudo seal/verify.sh` and `awb seal check` run it too. The unit is installed and not enabled yet.
 
 The agent's free text stays out of your sessions: add one line to the `deny` list of `permissions` in your own
 `~/.claude/settings.json`, `"Read(//srv/awb-build/runs/**/message.txt)"`, and read the message with

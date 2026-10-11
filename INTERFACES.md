@@ -319,9 +319,10 @@ else, when the host file is closed to the uid, by a passwd home inside `BUILD_RO
 `BUILD_VENV`, `OUTSIDE_BUILD`; `build_place_class(path, own, root, write=False, tmp=None)`; `build_selftest() ->
 list[str]` (part of `selftest()`); `BUILD_HOOKS = ("pre-tool", "pre-write", "post-write")`, the other hooks exit 0
 for the build user; `hook_post_write(data, names=True)`. `awb/gate.py`: `blocklist_files()` is the selftest's own
-list alone for the build user. `awb/build.py`: `awb build serve`, a placeholder that exits 2 until SB3.
+list alone for the build user. `awb/build.py`: `awb build serve`, the runner since SB3 (`awb/buildrun.py`).
 
-Since SB2 `awb/build.py` holds the queue and the records; `serve` stays the placeholder until SB3. The queue:
+Since SB2 `awb/build.py` holds the queue and the records; `serve`, `selftest` and the hidden `unit` call
+`awb/buildrun.py` (SB3). The queue:
 `queue_dir() -> Path` (`AWB_BUILD_QUEUE`, else `~/tcp-awb/build/queue`), `QUEUE_FILE = "QUEUE.md"`,
 `parse(text, qdir=None) -> (list[Task], list[Note])`, `read_queue(qdir=None)`, `Task` (frozen: `id`, `title`, `line`,
 `model`, `effort`, `depends`, `paths`, `tests_replaced`, `check`, `budget`, `clock`, `prompt`; `prompt_name`,
@@ -336,6 +337,26 @@ line `<state>\t<time>`, written atomically), `runs_of(id)`, `latest(id)`, `new_r
 DESIGN.md section 6), `list_lines()`, `board_line()`, `ended_lines()` (marks each run `reported` with the state it
 printed). The commands: `add(path, qdir=None, runs=None, register=None) -> Task` (raises `Refused`),
 `cmd_show`, `cmd_answer`, `cmd_retry`, `cmd_widen`, `cmd_stop`, `main(argv)`.
+
+`awb/buildrun.py` (SB3), the runner. `Host` (every place and stand-in: `root`, `runs`, `queue`, `units`, `board`,
+`deployed`, `model_key`, `register`, `build_uid`, `git_run`, `wall`, `now`, `sleep`, `minute`, `poll`, `tick`,
+`suite_seconds`, `retry_wait`, `push`, `push_url`, `mail`, `precheck`, `resolve`, `python`, `hooks_path`, `client`,
+`awb`, `quiet`; `Host.from_config()`), `build_root()` (`AWB_BUILD_ROOT`, which the tests set, else
+`config.build_root()`). The units: `Spec(name, argv, seconds, cwd, home, rw, hidden, binds, allow, env,
+stdin, stdout, stderr)`, `Ended(result, code)`, `Units` with `start(spec)` (a handle with `poll() -> Ended | None`),
+`attach(name)`, `result(name)`, `stop(name)`, `probe()`; `SystemdUnits(user, run, popen)` with `argv(spec)`, the one
+fixed `sudo -n systemd-run` form; `sudo -n systemctl stop|reset-failed` of a name of `UNIT_RE` alone;
+`LocalUnits(commands)` for the tests and the selftest. The helpers the units run as the build user:
+`unit_main(args, fin, home, seconds)` (`prepare`, `rekey`, `handover`, `rebase`, `suite`, `clean`), `handin(key,
+bundle)`, `unit_allowed()`. The owner's git, in `main.git` only: `git(host, *args)`, `rev`, `is_ancestor`,
+`ensure_main`, `owner_identity`. The checks, each raising `Stop(state)` with its line in `ctx.lines`: `check_unit`,
+`check_client`, `check_answer`, `check_commits`, `check_identity`, `check_gate`, `check_paths`, `check_books`,
+`check_suite`, `check_hollow`, `check_own`; `parse_result`, `outcomes(xml)`, `scan_commits`, `push_main(host,
+register) -> "pushed" | "pending" | "refused"`. `Runner(host)` with `serve()`, `reconcile()`, `poll_once()`,
+`pick(tasks)`, `start(task, run)` (returns the started session for `run_session`), `resume`, `judge`,
+`judge_and_merge`, `publish`, `finish`. What he reads: `write_result`, `write_state_tsv`, `deployed_info`. The
+selftest: `World(base, python)`, `SELFTEST_CASES`, `selftest(only=None, python=None) -> list[str]`, `acquire_lock`,
+`snapshot_prompt`.
 
 ### `awb/vault.py`: encryption, the daemon, the client
 

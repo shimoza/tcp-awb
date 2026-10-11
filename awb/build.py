@@ -9,17 +9,20 @@
     awb build widen ID PATH...   more paths for a red task; the runner checks the kept branch again
     awb build stop [ID]          the runner ends after the current task, or stops the task ID
     awb build serve              the runner of the build queue, the ExecStart of awb-buildd.service
+    awb build selftest           the runner's planted cases of THREAT-MODEL N6 to N12 and the push, in a throw-away world
+    awb build unit ACTION ...    what the runner's units run as the build user (never the owner, never by hand)
 
-This release holds step SB2: the queue grammar (DESIGN.md section 2), the fixed header, the numbered run folders,
-the state words and the one-line forms (section 6) and the commands above. The runner itself is SB3: `serve`
-refuses with exit 2 and the commands only write the records the runner will read (`answer.txt`, `widen.txt`,
-`stop-wanted`, the stop file, a new run in `queued`). Nothing here starts a unit, an agent or a git command.
+This module holds the queue grammar (DESIGN.md section 2), the fixed header, the numbered run folders, the state
+words, the one-line forms (section 6) and the commands above. The commands only write the records the runner reads
+(`answer.txt`, `widen.txt`, `stop-wanted`, the stop file, a new run in `queued`); the runner itself, its units and its
+eleven checks are awb/buildrun.py (step SB3).
 
 The queue is his: `build/queue/QUEUE.md` and the prompt files beside it in his working copy, untracked (D-S15). The
 runner reads it and never writes it. The records are the runner's: `<build_root>/runs/<ID>/<n>/`, owner 700.
 """
 from __future__ import annotations
 
+import argparse
 import contextlib
 import dataclasses
 import fcntl
@@ -1028,7 +1031,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("paths", nargs="+")
     s = sub.add_parser("stop", help="the runner ends after the current task, or stops the task ID")
     s.add_argument("id", nargs="?")
-    sub.add_parser("serve", help="the runner of the build queue (not built yet: SB3)")
+    sub.add_parser("serve", help="the runner of the build queue, the ExecStart of awb-buildd.service")
+    sub.add_parser("selftest", help="the runner's planted cases, each must be refused or classified")
+    s = sub.add_parser("unit", help=argparse.SUPPRESS)
+    s.add_argument("args", nargs=argparse.REMAINDER)
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -1036,8 +1042,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         ap.print_usage(sys.stderr)
         return 2
-    if args.command == "serve":
-        return _err("the runner is not built yet (presentations/self-build SB3); nothing was done")
+    if args.command in ("serve", "selftest", "unit"):
+        from awb import buildrun
+
+        if args.command == "serve":
+            return buildrun.serve_main()
+        if args.command == "selftest":
+            return buildrun.selftest_main()
+        why = buildrun.unit_allowed()
+        if why:
+            return _err(why)
+        return buildrun.unit_main(args.args)
     why = _owner_only()
     if why:
         return _err(why)

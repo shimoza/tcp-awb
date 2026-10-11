@@ -92,7 +92,9 @@ The tree must be clean (commit first). The deploy runs the installed copy of its
 
 A build task is a block in `build/queue/QUEUE.md` of your working copy (untracked) and a prompt file beside it.
 The runner (`awb build serve`, step SB3) reads the queue and never writes it; its records are
-`/srv/awb-build/runs/<ID>/<n>/`, owner 700.
+`/srv/awb-build/runs/<ID>/<n>/`, owner 700: `task.md` and `prompt.txt` (the snapshot at the start), `result.json`,
+`session`, `deadline`, `ended`, `task.bundle`, `status.txt`, `checks.log` (one line per check), `suite.log`,
+`result.md` (fixed fields), `message.txt` (the agent's text, for `awb build show` alone), `commit`, `mail`, `state`.
 
 | command | what it does |
 |---|---|
@@ -104,7 +106,8 @@ The runner (`awb build serve`, step SB3) reads the queue and never writes it; it
 | `awb build retry ID` | a new numbered run of a task that ended without `done` (hung, red, stopped, held, interrupted, stale, asked); it starts from `main` |
 | `awb build widen ID PATH...` | more paths for a `red` task; the runner checks the kept branch again, no new session |
 | `awb build stop [ID]` | without ID: the runner ends after the current task; with ID: the runner stops `awb-task-ID.service` of that running task |
-| `awb build serve` | the runner of the build queue, the `ExecStart` of `awb-buildd.service`; a placeholder that exits 2 until the runner is built (SB3). A deploy never starts the runner and defers its restart while a build task runs |
+| `awb build serve` | the runner of the build queue, the `ExecStart` of `awb-buildd.service`, as the owner: one runner (a lock on `runs/.runner.lock`, a second one exits 1), the reconcile of a run left running, then every 30 s the open business (a green run's push, a held push after ten minutes, the checks again after `widen` or once the name check runs) and the next task. Before a session it needs the vault unlocked, the key service loaded, the gate's self-test, 5 GB free, the owner's identity, the model key and a no-op unit as `awb-build`; while one fails the queue is held (one board line, one mail). Exit 0 after `awb build stop`, 75 after `restart-wanted` (the unit starts again with the new code). A deploy never starts the runner and defers its restart while a build task runs |
+| `awb build selftest` | the runner's planted cases (THREAT-MODEL N6, N7, N9 to N12 and a push that is not a fast-forward) in a throw-away folder; each must be refused or classified, exit 1 names the case that passed. `seal/verify.sh` and `awb seal check` run it |
 
 `answer`, `retry`, `widen` and `stop ID` refuse an id that never ran and a task that is running or waits for the
 runner. States: `queued`, `running`, `green`, `done`, `asked`, `answered`, `widened`, `red: <reason>`, `hung`,

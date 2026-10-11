@@ -25,6 +25,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   (your own terminal only), `answer ID TEXT`, `retry ID`, `widen ID PATH...` and `stop [ID]` read and write the
   numbered run records under `/srv/awb-build/runs/`. A refused block names the key, never the value. The runner
   that takes the tasks comes with SB3.
+- The runner of the build queue (self-build step SB3). `awb build serve` takes the next task whose dependencies are
+  done and whose paths are free, one at a time. It runs it as `awb-build` in units of one fixed `sudo -n
+  systemd-run` form with a clock, a CPU share and no network but the model endpoint: a fresh home with the model
+  key, a clone of `main` from a bundle, the headless session, the branch handed back as a bundle. It never runs git
+  or code in the agent's clone. Eleven checks decide: the unit ended by itself, the client ended well, a `DONE:`
+  line, one to five commits as you and nothing else, the gate with the register, the paths, the CHANGELOG and
+  `build/tests.json`, the whole suite, no test lost and the task's own check on a fresh export. Green moves `main` in
+  `/srv/awb-build/main.git` (a rebase first when `main` moved) and pushes it to GitHub; anything else is `hung`,
+  `red`, `asked`, `stopped`, `stale` or `held` with one line, `result.md`, a board line and a mail. `awb build
+  selftest` proves the planted cases and `awb seal check` runs it. The unit stays installed and not enabled.
 - Every draft for others passes the voice checks before he sees it (the work profile, proposal 4). `awb write
   check` blocks in mode mail and doc what he struck out most: "we", "our" and "wir" for "I", the jargon gotchas,
   quirk, pilot light and whole trick (cadence, estate, verbatim, granular and sharp edges were banned already), a
