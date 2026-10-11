@@ -3653,8 +3653,204 @@
    "name": "verify: the template's .gitconfig passes with the comment no safe.directory and fails with a [safe] section or a directory = line",
    "run": ".venv/bin/pytest tests/test_seal.py::test_verify_checks_the_template_identity_without_a_safe_directory",
    "status": "passing"
+  },
+  {
+   "id": "SB2-1",
+   "phase": "SB2",
+   "name": "build queue: a full block is a task; model, effort, budget and clock take opus, medium, 10, 90; block() parses back",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_a_full_block_is_a_task_and_the_four_keys_take_their_defaults",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-2",
+   "phase": "SB2",
+   "name": "build queue: every value fault (model, effort, depends, paths with .. or absolute, tests_replaced, check with ; or outside tests/, budget, clock, prompt outside build/queue/, end) refuses the block in one line naming the key, never the value",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_every_fault_refuses_the_block_in_one_line_that_names_the_key_never_the_value",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-3",
+   "phase": "SB2",
+   "name": "build queue: a wrong heading or id, an unknown key, a key twice, a free line and a backtick in the title are refused without echo",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_a_wrong_heading_or_an_unknown_or_double_key_is_refused_without_echo",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-4",
+   "phase": "SB2",
+   "name": "build queue: the same id twice refuses the second block",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_the_same_id_twice_refuses_the_second_block",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-5",
+   "phase": "SB2",
+   "name": "build queue: a block without its end line or its prompt file is not a task",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_a_block_without_its_end_line_or_its_prompt_file_is_not_a_task",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-6",
+   "phase": "SB2",
+   "name": "build queue: no QUEUE.md is an empty queue; a QUEUE.md that is a link is not read",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_no_queue_file_is_an_empty_queue_and_a_linked_queue_file_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-7",
+   "phase": "SB2",
+   "name": "build queue: the fixed header with id and title, the prompt after it, nothing appended",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_the_header_is_fixed_and_the_prompt_follows_with_nothing_after",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-8",
+   "phase": "SB2",
+   "name": "build queue: the prompt is opened without following a link; a link inside build/queue is held: prompt in list and in read_prompt",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_the_prompt_is_read_without_following_a_link_and_a_link_is_held",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-9",
+   "phase": "SB2",
+   "name": "build queue: a prompt with a planted form, token or home path is held: prompt by its class and line, no value",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_a_prompt_with_a_planted_value_is_held_by_its_class",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-10",
+   "phase": "SB2",
+   "name": "build add: writes the prompt and the block, a second task follows, the same id again is refused",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_add_writes_the_prompt_and_the_block_and_the_queue_then_holds_the_task",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-11",
+   "phase": "SB2",
+   "name": "build add: a planted form, token or home path is refused by class and line and nothing is written",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_add_refuses_a_planted_form_token_or_home_path_and_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-12",
+   "phase": "SB2",
+   "name": "build add: a grammar fault is refused by its key, a file without --- is refused",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_add_refuses_a_grammar_fault_by_its_key_and_a_file_without_the_separator",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-13",
+   "phase": "SB2",
+   "name": "build add: refused when the name check cannot run (encrypted register, no daemon)",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_add_refuses_when_the_name_check_cannot_run",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-14",
+   "phase": "SB2",
+   "name": "build add: a reader during the write sees the old QUEUE.md; a failed rename leaves the old file and no temporary",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_add_writes_atomically_a_reader_during_the_write_sees_the_old_queue",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-15",
+   "phase": "SB2",
+   "name": "build add: an id that has a run is refused",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_add_refuses_an_id_that_has_a_run",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-16",
+   "phase": "SB2",
+   "name": "build records: runs are numbered 1, 2, ... in 700 folders; the twelve record files are named",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_runs_are_numbered_and_a_new_run_never_reuses_a_folder",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-17",
+   "phase": "SB2",
+   "name": "build records: a state outside the vocabulary reads as unknown and is never printed; write_state refuses one",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_a_state_outside_the_vocabulary_is_unknown_and_never_printed",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-18",
+   "phase": "SB2",
+   "name": "build lines: the one-line forms of DESIGN.md section 6 for done, hung, red, asked, stopped, held, interrupted, stale",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_the_one_line_forms_of_section_6",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-19",
+   "phase": "SB2",
+   "name": "build list: state, since and waits on (answer, depends, reserved paths, the runner), an incomplete block, the board line",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_list_says_state_since_and_what_each_task_waits_on",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-20",
+   "phase": "SB2",
+   "name": "build status --ended: each ended run once, an open run never, again after it ends again; status prints the board line",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_status_ended_prints_each_ended_run_once_and_again_after_it_ends_again",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-21",
+   "phase": "SB2",
+   "name": "build show: refused in a pipe and in an assistant session, unknown id refused, a terminal gets the message without control or bidi characters",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_show_refuses_a_pipe_and_an_assistant_session_and_prints_to_a_terminal",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-22",
+   "phase": "SB2",
+   "name": "build answer, retry, widen, stop: an unknown id and a running task are refused and nothing is written",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_answer_retry_and_widen_refuse_an_unknown_id_and_a_running_task",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-23",
+   "phase": "SB2",
+   "name": "build answer: only an asked task, a planted form refused without echo, answer.txt and answered",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_answer_goes_to_an_asked_task_only_and_passes_the_gate",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-24",
+   "phase": "SB2",
+   "name": "build retry: a new numbered run queued; refused while one waits, for a done task, for a task not in the queue",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_retry_makes_a_new_numbered_run_and_refuses_a_done_task_or_one_out_of_the_queue",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-25",
+   "phase": "SB2",
+   "name": "build widen: a red task only, plain paths only, widen.txt and widened",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_widen_adds_plain_paths_to_a_red_task_only",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-26",
+   "phase": "SB2",
+   "name": "build stop: the stop file; stop ID a running task only, stop-wanted",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_stop_writes_the_stop_file_or_the_stop_wish_of_a_running_task",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-27",
+   "phase": "SB2",
+   "name": "build: serve still exits 2 (SB3); build/queue/ is in .gitignore",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_serve_stays_a_placeholder_and_the_queue_folder_is_ignored_by_git",
+   "status": "passing"
+  },
+  {
+   "id": "SB2-28",
+   "phase": "SB2",
+   "name": "build: the queue is ~/tcp-awb/build/queue and the records <build_root>/runs by default",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_the_default_places_are_his_working_copy_and_the_build_root",
+   "status": "passing"
   }
  ],
- "total_tests": 522,
+ "total_tests": 550,
  "checked": "2026-10-11"
 }

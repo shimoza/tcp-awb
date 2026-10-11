@@ -19,6 +19,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   clones get commit hooks that run the installed gate. `/etc/awb/paths.conf` and the blocklist are now 640 root:awb.
   A deploy never starts the build runner and defers its restart while a build task runs. `sudo seal/verify.sh`
   proves it, as the build user and in a unit with the properties of a task.
+- The build queue, its records and its commands (self-build step SB2). A build task is a block in
+  `build/queue/QUEUE.md` (untracked) with a prompt file beside it; `awb build add FILE` checks the block's grammar and
+  the gate's classes with the register and writes both atomically. `awb build list`, `status [--ended]`, `show ID`
+  (your own terminal only), `answer ID TEXT`, `retry ID`, `widen ID PATH...` and `stop [ID]` read and write the
+  numbered run records under `/srv/awb-build/runs/`. A refused block names the key, never the value. The runner
+  that takes the tasks comes with SB3.
 
 - The knowledge leaves as a dataset. `awb dataset build` writes the folder `tcp-facts-<date>/` and its zip: every
   fact on one line grouped by topic, one file per topic, the export with its metadata, the orderable services, the

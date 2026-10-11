@@ -321,6 +321,22 @@ list[str]` (part of `selftest()`); `BUILD_HOOKS = ("pre-tool", "pre-write", "pos
 for the build user; `hook_post_write(data, names=True)`. `awb/gate.py`: `blocklist_files()` is the selftest's own
 list alone for the build user. `awb/build.py`: `awb build serve`, a placeholder that exits 2 until SB3.
 
+Since SB2 `awb/build.py` holds the queue and the records; `serve` stays the placeholder until SB3. The queue:
+`queue_dir() -> Path` (`AWB_BUILD_QUEUE`, else `~/tcp-awb/build/queue`), `QUEUE_FILE = "QUEUE.md"`,
+`parse(text, qdir=None) -> (list[Task], list[Note])`, `read_queue(qdir=None)`, `Task` (frozen: `id`, `title`, `line`,
+`model`, `effort`, `depends`, `paths`, `tests_replaced`, `check`, `budget`, `clock`, `prompt`; `prompt_name`,
+`block()`), `Note(id, line, kind, reason)` with `kind` "refused" or "incomplete" and `text()`, `ID_RE`, `KEYS`,
+`DEFAULTS`, `ALWAYS_ALLOWED`. The prompt: `HEADER`, `compose(task, prompt) -> str`, `read_prompt(task, qdir=None,
+register=None, names=True) -> str` (raises `PromptHeld`, the state `held: prompt`), `scan(label, text, register) ->
+list[str]`. The records: `runs_dir() -> Path` (`AWB_BUILD_RUNS`, else `<build_root>/runs`), `RUN_FILES`,
+`COMMAND_FILES` (`answer.txt`, `widen.txt`, `stop-wanted`, `reported`), `STOP_FILE`, `STATES`, `OPEN_STATES`,
+`STATE_RE`, `Run(id, n, folder, state, since)`, `read_state(folder)`, `write_state(folder, state, now=None)` (one
+line `<state>\t<time>`, written atomically), `runs_of(id)`, `latest(id)`, `new_run(id, runs=None, state="queued")`,
+`task_lock(id)` (flock of `runs/<ID>/.lock`, which the runner takes too). The lines: `line(run)` (the one-line forms of
+DESIGN.md section 6), `list_lines()`, `board_line()`, `ended_lines()` (marks each run `reported` with the state it
+printed). The commands: `add(path, qdir=None, runs=None, register=None) -> Task` (raises `Refused`),
+`cmd_show`, `cmd_answer`, `cmd_retry`, `cmd_widen`, `cmd_stop`, `main(argv)`.
+
 ### `awb/vault.py`: encryption, the daemon, the client
 
 Encryption with gpg symmetric AES256 through subprocess, always with `--batch --pinentry-mode loopback

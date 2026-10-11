@@ -84,10 +84,31 @@ Seal, once, with sudo: `seal/setup.sh --dry-run` (read the plan), `sudo seal/set
 | `sudo awb deploy --all` | restart every installed unit |
 | `sudo awb deploy --rollback` | the release that was live before this one |
 | `sudo awb deploy --to COMMIT` | another commit of the repository |
-| `awb build serve` | the runner of the build queue (self-build), the `ExecStart` of `awb-buildd.service`; a placeholder that exits 2 until the runner is built (SB3). A deploy never starts the runner and defers its restart while a build task runs |
 
 The tree must be clean (commit first). The deploy runs the installed copy of its own code, so a change of
 `awb/deploy.py` is live from the following deploy. `seal/setup.sh` (full) stays for the first seal of a host.
+
+## The build queue (owner side, presentations/self-build)
+
+A build task is a block in `build/queue/QUEUE.md` of your working copy (untracked) and a prompt file beside it.
+The runner (`awb build serve`, step SB3) reads the queue and never writes it; its records are
+`/srv/awb-build/runs/<ID>/<n>/`, owner 700.
+
+| command | what it does |
+|---|---|
+| `awb build add FILE` | a task into the queue. FILE holds the block (`## B-012: title`, then `key: value` lines; `model`, `effort`, `budget` and `clock` may be left out, `prompt` and `end` are written for you), a line `---` and the prompt. The grammar and the gate's classes with the register run first (a refusal names the key or the class and the line, never the value); then `build/queue/B-012.md` and `QUEUE.md` are each written to a fresh name and renamed, so a reader sees the old queue or the new one. Refused when the id is in the queue or has a run, and when the name check cannot run |
+| `awb build list` | one line per task in queue order: id, state, since when, what it waits on (the runner, a dependency, paths another open task holds, your answer, your word); a block that is refused or not complete yet gets its own line with the key and the line number |
+| `awb build status [--ended]` | the board line (`build: B-012 done 14:02, B-013 running since 14:10, ...`); with `--ended` the one line of each run that ended since the last call, each once |
+| `awb build show ID` | the agent's last message of the newest run (`message.txt`), control characters dropped; to your own terminal only, refused in a pipe, a file or an assistant session |
+| `awb build answer ID TEXT` | the answer to a task that is `asked` (gate classes with the register first); the runner resumes the same session |
+| `awb build retry ID` | a new numbered run of a task that ended without `done` (hung, red, stopped, held, interrupted, stale, asked); it starts from `main` |
+| `awb build widen ID PATH...` | more paths for a `red` task; the runner checks the kept branch again, no new session |
+| `awb build stop [ID]` | without ID: the runner ends after the current task; with ID: the runner stops `awb-task-ID.service` of that running task |
+| `awb build serve` | the runner of the build queue, the `ExecStart` of `awb-buildd.service`; a placeholder that exits 2 until the runner is built (SB3). A deploy never starts the runner and defers its restart while a build task runs |
+
+`answer`, `retry`, `widen` and `stop ID` refuse an id that never ran and a task that is running or waits for the
+runner. States: `queued`, `running`, `green`, `done`, `asked`, `answered`, `widened`, `red: <reason>`, `hung`,
+`hung: suite`, `stopped: <subtype>`, `held: <reason>`, `interrupted`, `stale`.
 
 ## The egress filter of the work user (seal/egress/ALLOW.md)
 

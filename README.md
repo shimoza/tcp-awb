@@ -467,6 +467,43 @@ keeps every tool call inside its own clone. The runner's unit `awb-buildd.servic
 | a new project, close or delete | as `awb`: projects belong to the work user |
 | a customer's material | as the owner: `awb import tcp-xxxx` (it asks for the customer's names on the first import; a project without a customer needs no names); the session hears of the copies at its next prompt |
 
+## The build queue
+
+The Workbench builds itself from a queue (`presentations/self-build`). A task is one block in
+`build/queue/QUEUE.md` of your working copy and a prompt file beside it; the folder is untracked. Write a file with
+the block, a line `---` and the prompt, and add it:
+
+```
+## B-012: the take from in/ checks the size before the get
+depends: none
+paths: awb/tcp/xchg.py tests/test_xchg.py
+tests_replaced: none
+check: tests/test_xchg.py -k size
+---
+Make the take check the size of a file before the get. ...
+```
+
+```bash
+awb build add task.md        # checked (the grammar, the gate with the register), then written atomically
+awb build list               # id, state, since when, waits on what
+awb build status --ended     # each run that ended since the last call, once
+awb build show B-012         # the agent's last message, in your own terminal only
+awb build answer B-012 "take 10 MB"
+awb build retry B-012        # a new run from main
+awb build widen B-012 awb/tcp/keys.py
+awb build stop               # the runner ends after the current task
+```
+
+`model` (opus, sonnet, fable; opus), `effort` (low, medium, high; medium), `budget` (USD, 1 to 100; 10) and `clock`
+(minutes, 10 to 480; 90) may be left out. `paths` are the files the task may change, `tests_replaced` the test ids
+it may drop or replace, `check` test node ids under `tests/` with `-k` or `-m`. A block with a fault is refused in
+one line of `awb build list` that names the key, never the value. The runner itself (`awb build serve`) comes
+with step SB3; until then the commands write the records it will read under `/srv/awb-build/runs/`.
+
+The agent's free text stays out of your sessions: add one line to the `deny` list of `permissions` in your own
+`~/.claude/settings.json`, `"Read(//srv/awb-build/runs/**/message.txt)"`, and read the message with
+`awb build show ID`.
+
 ## Layout
 
 | folder | what |

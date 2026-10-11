@@ -144,6 +144,9 @@ def invented_blocklist(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("AWB_ADMIN_SOCKET", str(none / "admin.sock"))
     monkeypatch.setenv("AWB_KEYS_ADMIN", str(none / "keys-admin.sock"))
     monkeypatch.setenv("AWB_MIRRORS", str(none / "mirrors"))
+    # never his build queue nor the runner's records (presentations/self-build SB2)
+    monkeypatch.setenv("AWB_BUILD_QUEUE", str(none / "build-queue"))
+    monkeypatch.setenv("AWB_BUILD_RUNS", str(none / "build-runs"))
     monkeypatch.setenv("AWB_PRICE_API", DEAD_URL)
     from awb.tcp import mirror
     monkeypatch.setattr(mirror, "ORG_API", DEAD_URL + "orgs/%s/repos?page=%d")
