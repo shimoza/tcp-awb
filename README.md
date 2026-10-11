@@ -167,6 +167,20 @@ test fails after 120 seconds (pytest-timeout) instead of hanging, also when it b
 (`tests/timeouts.py`); a test that never comes back to Python ends the run with the stacks of every thread 30 seconds
 later.
 
+The suite also runs from a read-only copy of the tree anywhere outside the homes, with a venv that has the test
+extras and not the package, as the self-build will run it on a `git archive` export:
+
+```bash
+seal/setup.sh --suite-venv /var/tmp/awb-suite-venv     # python3 -m venv --system-site-packages and the test extras
+cd /path/of/the/export && PYTHONDONTWRITEBYTECODE=1 /var/tmp/awb-suite-venv/bin/python -I -B -m pytest
+```
+
+The self-build also switches the cache plugin off (`no:cacheprovider`), so the run writes nothing next to the tree.
+
+When the interpreter does not import this tree by itself, `tests/conftest.py` gives the children of the tests a
+throw-away interpreter that does (one `.pth` line in a temporary folder), and a copy a test makes of the tree is
+writable for it; nothing is written into the tree.
+
 ### As a plugin for Claude Code
 
 The skills, the workers and the checkpoints also come as a plugin, with this repository as its marketplace. Install

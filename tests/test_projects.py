@@ -643,7 +643,9 @@ def test_spawn_writes_client_settings_whose_tool_guard_takes_the_shell_tools(hom
     assert ".claude/settings.json" in _git(Path(pr.path), "ls-files").split()
 
 
-def test_client_settings_use_this_interpreter_without_a_home_path(home, register_path):
+def test_client_settings_use_this_interpreter_and_its_isolation_without_a_home_path(home, register_path):
+    """Replaces test_client_settings_use_this_interpreter_without_a_home_path (SB0): the suite of a build runs as
+    `python -I`, and a spawn from an isolated interpreter writes `-I` into the hooks too (T3)."""
     from awb import gate
     pr = _spawn(home, register_path)
     text = (Path(pr.path) / ".claude" / "settings.json").read_text(encoding="utf-8")
@@ -653,7 +655,8 @@ def test_client_settings_use_this_interpreter_without_a_home_path(home, register
         shown = '"$HOME/%s"' % exe.relative_to(Path.home()).as_posix()
     except ValueError:
         shown = str(exe)
-    assert _settings(pr)["hooks"]["Stop"][0]["hooks"][0]["command"] == shown + " -m awb hook stop"
+    isolated = " -I" if sys.flags.isolated else ""
+    assert _settings(pr)["hooks"]["Stop"][0]["hooks"][0]["command"] == shown + isolated + " -m awb hook stop"
 
 
 @needs_hook_process

@@ -7,6 +7,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- The suite runs from any path, read-only, with a shared venv (self-build step SB0). `seal/setup.sh --suite-venv
+  DIR` builds the venv of a build (the system packages and the test extras, not the package), and the whole suite
+  passes from a read-only copy of the tree under `/var/tmp` with that interpreter by its absolute path, `-I -B`, the
+  cache provider off and no bytecode written. `python-pptx` joins the test extras; the tests used it already.
+
 - The knowledge leaves as a dataset. `awb dataset build` writes the folder `tcp-facts-<date>/` and its zip: every
   fact on one line grouped by topic, one file per topic, the export with its metadata, the orderable services, the
   price list of each region as CSV, a one-line prompt in `PROMPT.md` and `HOW-TO.pdf`, each text file opening

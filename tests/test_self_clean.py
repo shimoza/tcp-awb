@@ -37,6 +37,9 @@ CAP_RUN = re.compile(r"(?<![\w-])[A-ZÄÖÜ][a-zäöüß]+(?:[ \t]+[A-ZÄÖÜ][a
 
 
 def repo_files() -> list[str]:
+    if not (REPO / ".git").exists():
+        # a `git archive` export (the suite of a build, SB0) holds the tracked files and nothing else
+        return sorted(p.relative_to(REPO).as_posix() for p in REPO.rglob("*") if p.is_file() and not p.is_symlink())
     out = subprocess.run(
         ["git", "-C", str(REPO), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         capture_output=True, check=True,

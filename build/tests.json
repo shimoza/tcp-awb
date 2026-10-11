@@ -3457,8 +3457,57 @@
    "name": "egress filter: the update of a deploy names step_egress after step_units and installs the timer (replaces the pinned update-steps test)",
    "run": ".venv/bin/pytest tests/test_seal.py::test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_and_loads_the_egress_filter",
    "status": "passing"
+  },
+  {
+   "id": "SB0-1",
+   "phase": "SB0",
+   "name": "suite path: the read-only copy of the tree holds no venv and refuses a write",
+   "run": ".venv/bin/pytest tests/test_suite_path.py::test_the_copy_is_read_only_and_holds_no_venv",
+   "status": "passing"
+  },
+  {
+   "id": "SB0-2",
+   "phase": "SB0",
+   "name": "suite path: the gate self-test and awb hook selftest pass from a folder whose path holds a home-like name",
+   "run": ".venv/bin/pytest tests/test_suite_path.py::test_the_gate_and_hook_selftests_pass_from_a_folder_whose_path_holds_home",
+   "status": "passing"
+  },
+  {
+   "id": "SB0-3",
+   "phase": "SB0",
+   "name": "suite path: three fast modules pass from a read-only copy with the interpreter by absolute path, -I -B, nothing written",
+   "run": ".venv/bin/pytest tests/test_suite_path.py::test_three_fast_modules_pass_from_a_read_only_copy_with_the_interpreter_by_absolute_path",
+   "status": "passing"
+  },
+  {
+   "id": "SB0-4",
+   "phase": "SB0",
+   "name": "suite path: a child started as sys.executable -I -m awb imports the tree under test",
+   "run": ".venv/bin/pytest tests/test_suite_path.py::test_the_tree_interpreter_runs_the_code_under_test",
+   "status": "passing"
+  },
+  {
+   "id": "SB0-5",
+   "phase": "SB0",
+   "name": "suite path: seal/setup.sh --suite-venv: a venv with the test extras of pyproject.toml and no package",
+   "run": ".venv/bin/pytest tests/test_suite_path.py::test_the_venv_recipe_of_setup_takes_the_test_extras_and_no_package",
+   "status": "passing"
+  },
+  {
+   "id": "SB0-6",
+   "phase": "SB0",
+   "name": "suite path: seal/setup.sh --suite-venv refuses a relative path, a home and the repository",
+   "run": ".venv/bin/pytest tests/test_suite_path.py::test_the_venv_recipe_refuses_a_home_the_repository_and_a_relative_path",
+   "status": "passing"
+  },
+  {
+   "id": "SB0-7",
+   "phase": "SB0",
+   "name": "suite path: a spawn from an isolated interpreter writes -I into the hooks (replaces test_client_settings_use_this_interpreter_without_a_home_path)",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_client_settings_use_this_interpreter_and_its_isolation_without_a_home_path",
+   "status": "passing"
   }
  ],
- "total_tests": 494,
+ "total_tests": 501,
  "checked": "2026-10-11"
 }
