@@ -336,11 +336,8 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
         c.put_file(key, body_path, "application/octet-stream")
         size = body_path.stat().st_size
         ident = key.rsplit("/", 1)[-1]
-        # the name travels only when the name check of the service passes it, else the id stands for it
-        name = req.get("name")
-        if not (valid_name(name) and not _name_hits([name], ctx.paths_fn())):
-            name = ident
-        ctx.notify(*exchange_mail("put", project, ident=ident, size=size, name=name))
+        # the mail names the file by its id alone: no text the session chose (finding 18 of the review of 2026-10-10)
+        ctx.notify(*exchange_mail("put", project, ident=ident, size=size))
         return {"ok": True, "size": size}, None
     h = c.head(key)
     if h is None:
@@ -413,22 +410,28 @@ def put_problems(ctx: Context, req: dict, body_path: Path) -> list[str]:
 
 
 def exchange_mail(state: str, project: str, ident: str | None = None, size: int | None = None,
-                  name: str | None = None, customer: str | None = None, why: str | None = None) -> tuple[str, str]:
+                  customer: str | None = None, why: str | None = None) -> tuple[str, str]:
     """The subject and the message of an exchange mail, built from fixed fields only: the project code, the object
     id, the size, the state (and for a hold the customer code and a reason of HOLD_REASONS). A field that does not
-    read as its kind is sent as -; no key, no prefix, no error text, no file name the service did not pass."""
-    code = project if isinstance(project, str) and _CODE_RE.match(project) else "-"
+    read as its kind in full is sent as -; no key, no prefix, no error text and no file name (finding 18 of the
+    review of 2026-10-10: the id stands for the file). The mail is printable ASCII: anything else becomes a space."""
+    code = project if isinstance(project, str) and _CODE_RE.fullmatch(project) else "-"
     if state == "put":
-        ident = ident if isinstance(ident, str) and _PUT_ID_RE.match(ident) else "-"
-        shown = name if isinstance(name, str) and name else ident
-        return ("Workbench: %s put a file" % code,
-                "Project %s put %s (id %s, %d bytes) into its from-session folder of the lab bucket. Fetch it in the "
-                "OBS console." % (code, shown, ident, int(size or 0)))
-    cust = customer if isinstance(customer, str) and _CUST_RE.match(customer) else "-"
-    reason = HOLD_REASONS.get(why or "", "held")
-    return ("Workbench: a take for %s is held" % code,
-            "A take for %s (%s) is held: %s. The original is in the project's in/ folder of the owner bucket and in "
-            "the vault inbox. %s." % (code, cust, reason, hold_line(code)))
+        ident = ident if isinstance(ident, str) and _PUT_ID_RE.fullmatch(ident) else "-"
+        subject, message = ("Workbench: %s put a file" % code,
+                            "Project %s put the file %s (%d bytes) into its from-session folder of the lab bucket. "
+                            "Fetch it in the OBS console." % (code, ident, int(size or 0)))
+    else:
+        cust = customer if isinstance(customer, str) and _CUST_RE.fullmatch(customer) else "-"
+        reason = HOLD_REASONS.get(why or "", "held")
+        subject, message = ("Workbench: a take for %s is held" % code,
+                            "A take for %s (%s) is held: %s. The original is in the project's in/ folder of the owner "
+                            "bucket and in the vault inbox. %s." % (code, cust, reason, hold_line(code)))
+    return _MAIL_UNSAFE_RE.sub(" ", subject), _MAIL_UNSAFE_RE.sub(" ", message)
+
+
+_MAIL_UNSAFE_RE = re.compile(r"[^\x20-\x7e]")
+"""What never reaches a mail field: line breaks and separators, bidi and other controls, any letter outside ASCII."""
 
 
 def _tmp_dir(ctx: Context) -> str:

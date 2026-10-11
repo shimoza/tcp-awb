@@ -171,6 +171,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- The mail of a put names the file by its id alone, never by a name the session chose (finding 18 of the review of
+  2026-10-10). Every field of an exchange mail is printable ASCII, so a session can no longer write a line separator,
+  a bidi control or a paragraph of its own into a mail you trust.
 - The owner can narrow every leased key with `tf_services` in `keys.conf` (finding 16 of the review of 2026-10-10).
   The unlock used to refuse the line as an unknown setting, so the default list with OBS always applied. A shorter
   list is what the lease allows, an empty line allows no service, and `iam` or a name that is no service stops the

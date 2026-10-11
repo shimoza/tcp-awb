@@ -3163,8 +3163,29 @@
    "name": "finding 16: a tf_services line that is no list of services stops the unlock",
    "run": ".venv/bin/pytest tests/test_keys_review.py::test_a_tf_services_line_that_is_no_list_of_services_stops_the_unlock",
    "status": "passing"
+  },
+  {
+   "id": "R10-48",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 18: the put mail carries no line separator or bidi control of the session",
+   "run": ".venv/bin/pytest tests/test_tm0_review.py::test_the_put_mail_carries_no_line_separator_or_bidi_control_of_the_session",
+   "status": "passing"
+  },
+  {
+   "id": "R10-49",
+   "phase": "R10",
+   "name": "finding 18: the put mail names the file by its id alone and is printable ASCII of fixed fields",
+   "run": ".venv/bin/pytest tests/test_tm0_review.py::test_the_put_mail_names_the_file_by_its_id_alone",
+   "status": "passing"
+  },
+  {
+   "id": "R10-50",
+   "phase": "R10",
+   "name": "finding 18: a put lands under its id and tells the owner by the id alone",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_a_put_lands_under_its_id_and_tells_the_owner_by_the_id_alone",
+   "status": "passing"
   }
  ],
- "total_tests": 452,
+ "total_tests": 455,
  "checked": "2026-10-11"
 }

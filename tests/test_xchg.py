@@ -271,9 +271,10 @@ def test_a_project_without_a_customer_takes_from_its_own_folder_in_by_kind(svc, 
 # --------------------------------------------------------------------------- put
 
 
-def test_a_put_lands_under_its_id_and_tells_the_owner(svc, buckets, lab_project, capsys, tmp_path):
-    """Replaces test_a_put_lands_in_from_session_and_tells_the_owner (TM0 item 1): the object key is
-    <code>/from-session/<date>/<file id>, the name travels in the mail only after the service's name check."""
+def test_a_put_lands_under_its_id_and_tells_the_owner_by_the_id_alone(svc, buckets, lab_project, capsys, tmp_path):
+    """Replaces test_a_put_lands_under_its_id_and_tells_the_owner (finding 18 of the review of 2026-10-10): the object
+    key is <code>/from-session/<date>/<file id>, and the mail names the file by its id alone, never by a name the
+    session chose; the session's own output still shows its file name."""
     lab, _ = buckets
     f = Path(lab_project.path) / "evidence" / "result.md"
     f.write_text("The image imported in four minutes.\n", encoding="utf-8")
@@ -284,7 +285,7 @@ def test_a_put_lands_under_its_id_and_tells_the_owner(svc, buckets, lab_project,
     ident = keys_[0].rsplit("/", 1)[-1]
     assert ident.startswith("put-") and ident.endswith(".md") and "result.md" in out
     subject, message = svc.notes[-1]
-    assert lab_project.code in subject and ident in message and "result.md" in message
+    assert lab_project.code in subject and ident in message and "result" not in subject + message
     assert "from-session/" not in message and "awb-lab" not in message
     code, out, _ = run(["xchg", "list"], capsys)
     assert ident in out
