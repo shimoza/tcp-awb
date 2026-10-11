@@ -2995,8 +2995,36 @@
    "name": "the suite runs under the repeating alarm of tests/timeouts.py",
    "run": ".venv/bin/pytest tests/test_timeouts.py::test_the_suite_runs_under_the_repeating_alarm",
    "status": "passing"
+  },
+  {
+   "id": "R10-24",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 10: on the main host the owner login answers like an unknown login, cooldown included",
+   "run": ".venv/bin/pytest tests/test_web_front_review.py::test_owner_login_answers_like_an_unknown_login",
+   "status": "passing"
+  },
+  {
+   "id": "R10-25",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 11: parallel guesses for one login from many addresses stop at the series",
+   "run": ".venv/bin/pytest tests/test_web_front_review.py::test_parallel_guesses_stop_at_the_series",
+   "status": "passing"
+  },
+  {
+   "id": "R10-26",
+   "phase": "R10",
+   "name": "finding 10: the owner entry answers like any login on the main host and keeps the owner host",
+   "run": ".venv/bin/pytest tests/test_web_gateway.py::test_the_owner_entry_answers_like_any_login_on_the_main_host_and_keeps_the_owner_host",
+   "status": "passing"
+  },
+  {
+   "id": "R10-27",
+   "phase": "R10",
+   "name": "finding 10: 200 parallel bad logins from one /64 stop neither another login nor the owner host",
+   "run": ".venv/bin/pytest tests/test_web_gateway.py::test_200_parallel_bad_logins_from_one_slash_64_stop_neither_another_login_nor_the_owner_host",
+   "status": "passing"
   }
  ],
- "total_tests": 428,
+ "total_tests": 432,
  "checked": "2026-10-11"
 }

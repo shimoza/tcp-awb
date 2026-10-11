@@ -63,11 +63,13 @@ A new page of the console goes live with `sudo awb web publish --from-queue ID` 
 kept as `index.html.before-ID`. `awb web status` shows the page, the last backup and the gateway.
 
 The logins of the console live in `/etc/awb-web/users.json` (`sudo awb web user add LOGIN [--level owner]`, `reset`,
-`remove`, F4 and T9). Until that file exists the single login of `auth.json` works. A reader login waits 15 minutes
-after 5 failures within 15 minutes, doubled for each further series up to 24 hours; 30 failures within an hour pause
-every reader sign-in. An owner entry is never locked: each failure moves its next try 1, 2, 4 ... 60 seconds ahead.
-One address (the /64 of an IPv6 address) gets 8 failures a minute and one sign-in at a time; the failure is counted
-before the PBKDF2 runs. A sign-in waits up to 3 seconds for one of four PBKDF2 slots and answers "busy" (503, not
+`remove`, F4 and T9). Until that file exists the single login of `auth.json` works. On the main host a login waits
+15 minutes after 5 failures within 15 minutes, doubled for each further series up to 24 hours; 30 failures within an
+hour pause every sign-in there. An owner entry is a login like any other on the main host, so its name answers
+exactly like an unknown one; the owner host has its own sign-in, which is never locked: each failure moves the next
+try 1, 2, 4 ... 60 seconds ahead. One address (the /64 of an IPv6 address) gets 8 failures a minute and one sign-in
+at a time; the failure is counted before the PBKDF2 runs, for the address and for the login, so tries sent at once
+from many addresses stop at the fifth. A sign-in waits up to 3 seconds for one of four PBKDF2 slots and answers "busy" (503, not
 counted) when none came free; at most 64 requests without a session are open at once; a login form is taken once;
 a login keeps at most 5 sessions and a full table of 128 refuses a new one. The gateway logs every attempt (time, login, result) to `/var/lib/awb-web/signin.log` and
 rebuilds the waits from it after a restart; `sudo awb web status` reads it.

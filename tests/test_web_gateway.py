@@ -465,11 +465,14 @@ def test_a_sign_in_in_flight_limits_its_address_and_a_busy_slot_is_not_counted(r
     assert auth.sign_in("reader1", pw["reader1"], "192.0.2.2") == "ok"
 
 
-def test_200_parallel_bad_logins_from_one_slash_64_do_not_stop_the_owner(readers):
-    """Acceptance of T9 step 1: 200 parallel bad logins from 200 addresses of one /64 (junk names and the owner's
-    own name); a correct owner login from another address, sent again while it waits, goes through within 5
-    seconds."""
-    auth, pw, owner, _ = readers
+def test_200_parallel_bad_logins_from_one_slash_64_stop_neither_another_login_nor_the_owner_host(readers):
+    """Replaces test_200_parallel_bad_logins_from_one_slash_64_do_not_stop_the_owner (finding 10 of the review of
+    2026-10-10: on the main host an owner entry is a login like any other now, so five of the bad tries for its name
+    may make it wait there). 200 parallel bad logins from 200 addresses of one /64 (junk names and the owner's own
+    name); a correct reader login from another address and the owner's sign-in on the owner host, each sent again
+    while it waits, go through within 5 seconds."""
+    auth, pw, owner, path = readers
+    secret = json.loads(path.read_text())["users"]["owner1"]["totp"]
     results = []
 
     def bad(i):
@@ -479,36 +482,45 @@ def test_200_parallel_bad_logins_from_one_slash_64_do_not_stop_the_owner(readers
     for t in threads:
         t.start()
     started = time.monotonic()
-    while auth.sign_in("owner1", owner, "198.51.100.4") != "ok":    # the owner sends the form again
+    while auth.sign_in("reader2", pw["reader2"], "198.51.100.4") != "ok":     # the reader sends the form again
+        assert time.monotonic() - started < 5
+        time.sleep(0.25)
+    while auth.sign_in_owner("owner1", owner, gateway.totp_code(secret, int(time.time() // 30)),
+                             "198.51.100.5") != "ok":
         assert time.monotonic() - started < 5
         time.sleep(0.25)
     assert time.monotonic() - started < 5
     for t in threads:
         t.join()
-    assert set(results) <= {"fail", "limited"} and len(auth.failures.get("2001:db8:9:9::/64", [])) <= 8
+    assert set(results) <= {"fail", "limited", "cooldown"} and len(auth.failures.get("2001:db8:9:9::/64", [])) <= 8
 
 
-def test_the_owner_entry_waits_a_growing_delay_and_is_never_locked(readers):
-    """An owner entry gets no cooldown and no site cap: after each failure its next try waits 1, 2, 4 ... 60
-    seconds; a try inside the wait answers like a wrong password, uses no pbkdf2 and is not counted; the right
-    password after the wait works however many failures came before."""
-    auth, pw, owner, _ = readers
+def test_the_owner_entry_answers_like_any_login_on_the_main_host_and_keeps_the_owner_host(readers):
+    """Replaces test_the_owner_entry_waits_a_growing_delay_and_is_never_locked (finding 10 of the review of
+    2026-10-10: an owner entry that never met the cooldown or the site cap gave its name away). On the main host the
+    owner entry and an unknown name get the same answers, the wait after five failures included, and the site cap
+    closes the owner entry too; the owner host meets neither: the right password and a current code sign in
+    there."""
+    auth, pw, owner, path = readers
+    secret = json.loads(path.read_text())["users"]["owner1"]["totp"]
     clock = [1_800_000_000.0]
     auth.clock = lambda: clock[0]
-    waits = []
-    for i in range(10):
+    for i in range(5):
         assert auth.sign_in("owner1", "wrong", "198.51.100.%d" % i) == "fail"
-        waits.append(auth.delays.until[auth.delays.cell("owner1")] - clock[0])
-        assert auth.sign_in("owner1", owner, "198.51.100.%d" % i) == "fail"
-        clock[0] += waits[-1]
-    assert waits == [1, 2, 4, 8, 16, 32, 60, 60, 60, 60]
+        assert auth.sign_in("nobody7", "wrong", "198.51.101.%d" % i) == "fail"
+        clock[0] += 10
+    assert auth.sign_in("owner1", owner, "192.0.2.40") == auth.sign_in("nobody7", "wrong", "192.0.2.41") == "cooldown"
+    assert auth.sign_in_owner("owner1", owner, gateway.totp_code(secret, int(clock[0] // 30)), "192.0.2.42") == "ok"
+    clock[0] += 15 * 60
+    assert auth.sign_in("owner1", owner, "192.0.2.43") == "ok"
     for i in range(40):
         auth.sign_in("x%02d" % i, "wrong", "203.0.113.%d" % i)
         clock[0] += 1
     assert auth.limiter.site_closed_until(clock[0])
     assert auth.sign_in("reader1", pw["reader1"], "192.0.2.50") == "cooldown"
-    assert auth.sign_in("owner1", owner, "192.0.2.51") == "ok"
-    assert auth.delays.until[auth.delays.cell("owner1")] == 0
+    assert auth.sign_in("owner1", owner, "192.0.2.51") == "cooldown"
+    clock[0] += 30
+    assert auth.sign_in_owner("owner1", owner, gateway.totp_code(secret, int(clock[0] // 30)), "192.0.2.52") == "ok"
 
 
 def test_a_login_token_is_taken_once(tmp_path):

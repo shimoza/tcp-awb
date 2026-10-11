@@ -60,11 +60,14 @@ DEFAULT_ROUNDS = 600_000
 
 
 class Limiter:
-    """The per-login wait and the site-wide cap (F4). Pure: every call gets the time, the log replays into it."""
+    """The per-login wait and the site-wide cap (F4). Pure: every call gets the time, the log replays into it.
+    A sign-in reserves its try (`reserve`) before the pbkdf2 and gives it back (`release`) after it, so parallel
+    guesses for one login never pass the series together (finding 11 of the review of 2026-10-10)."""
 
     def __init__(self):
         self.logins = {}        # key -> {'fails': [t], 'until': t, 'level': n, 'last': t}
         self.site = deque()
+        self.pending = {}       # key -> tries of that key in flight (reserved before the pbkdf2)
 
     def _prune(self, now):
         while self.site and now-self.site[0] >= SITE_WINDOW:
@@ -81,10 +84,26 @@ class Limiter:
         return state['until'] if state and state['until'] > now else 0
 
     def refused(self, key, now):
-        """'site', 'login' or '' (free to try)."""
-        if self.site_closed_until(now):
+        """'site', 'login' or '' (free to try). A try in flight counts as a failure until it is released."""
+        if self.site_closed_until(now) or len(self.site) + sum(self.pending.values()) >= SITE_CAP:
             return 'site'
-        return 'login' if key is not None and self.waits_until(key, now) else ''
+        if key is None:
+            return ''
+        if self.waits_until(key, now):
+            return 'login'
+        state = self.logins.get(key)
+        recent = sum(1 for t in state['fails'] if now-t < SERIES_WINDOW and t >= state['until']) if state else 0
+        return 'login' if recent + self.pending.get(key, 0) >= SERIES else ''
+
+    def reserve(self, key):
+        self.pending[key] = self.pending.get(key, 0) + 1
+
+    def release(self, key):
+        left = self.pending.get(key, 0) - 1
+        if left > 0:
+            self.pending[key] = left
+        else:
+            self.pending.pop(key, None)
 
     def failure(self, key, now):
         self.site.append(now)
@@ -329,29 +348,30 @@ class Auth:
             self.slots.release()
 
     def sign_in(self, login, password, client):
-        """'ok', 'fail' (wrong password or unknown login, the same answer), 'cooldown' (the login waits or the site
-        is closed), 'limited' (this address key failed 8 times within a minute or has a sign-in in flight) or
-        'busy' (no free slot within SLOT_WAIT; not counted)."""
+        """The main host's sign-in: 'ok', 'fail' (wrong password or unknown login, the same answer), 'cooldown'
+        (the login waits or the site is closed), 'limited' (this address key failed 8 times within a minute or has
+        a sign-in in flight) or 'busy' (no free slot within SLOT_WAIT; not counted). An owner entry is a login like
+        any other here, cooldown and site cap included, so its name answers exactly like an unknown one (finding 10
+        of the review of 2026-10-10); the owner host has its own sign-in and its own delay (sign_in_owner)."""
         login = login[:100]
         now = self.clock()
         per_user, accounts = self.accounts()
         key = login if LOGIN_RE.fullmatch(login) else 'h:'+hashlib.sha256(login.encode()).hexdigest()[:24]
         client = address_key(client)
-        # an owner entry is never locked: no per-login cooldown and no site cap, the growing delay of Delays instead
-        owner = per_user and getattr(accounts.get(login), 'level', '') == 'owner'
         with self.lock:
             recent = [t for t in self.failures.get(client, []) if now-t < 60]
             if len(recent) >= 8 or client in self.inflight:
                 result = 'limited'
-            elif owner and self.delays.waiting(login, now):
-                result = 'delayed'
-            elif per_user and not owner and self.limiter.refused(key, now):
+            elif per_user and self.limiter.refused(key, now):
                 result = 'cooldown'
                 self.failures[client] = recent + [now]
             else:
                 result = ''
-                # the failure is counted before the pbkdf2 starts and taken back on a success or a busy slot
+                # the failure is counted before the pbkdf2 starts and taken back on a success or a busy slot: for
+                # the address key here, for the login by the reservation of the limiter
                 self.inflight.add(client)
+                if per_user:
+                    self.limiter.reserve(key)
                 self.failures[client] = recent + [now]
                 self.failures.move_to_end(client)
                 while len(self.failures) > 2048:
@@ -359,7 +379,8 @@ class Auth:
         if result:
             self.log(now, login, result if result != 'cooldown' else
                      ('site-cap' if self.limiter.site_closed_until(now) else 'cooldown'))
-            return 'fail' if result == 'delayed' else result
+            return result
+        valid = None
         try:
             account = accounts.get(login)
             valid = self.password(account, password,
@@ -367,6 +388,13 @@ class Auth:
         finally:
             with self.lock:
                 self.inflight.discard(client)
+                if per_user:
+                    self.limiter.release(key)
+                    # the outcome is recorded under the same lock as the release, so no other try sees neither
+                    if valid:
+                        self.limiter.success(key)
+                    elif valid is False:
+                        self.limiter.failure(key, now)
         with self.lock:
             if valid is None or valid:
                 kept = self.failures.get(client, [])
@@ -374,14 +402,6 @@ class Auth:
                     kept.remove(now)
             if valid:
                 self.failures.pop(client, None)
-                if owner:
-                    self.delays.success(login)
-                elif per_user:
-                    self.limiter.success(key)
-            elif valid is False and owner:
-                self.delays.failure(login, now)
-            elif valid is False and per_user:
-                self.limiter.failure(key, now)
         if valid is None:
             self.log(now, login, 'busy')
             return 'busy'

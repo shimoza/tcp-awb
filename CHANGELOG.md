@@ -171,6 +171,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- The main host answers the owner's login name exactly like an unknown name, the wait after five failures and the
+  site cap included, so the name is no longer given away (finding 10 of the review of 2026-10-10). The owner host
+  keeps its own sign-in, which never locks. A try for a login is counted before its password check, so guesses sent
+  at once from many addresses stop at the fifth (finding 11).
 - No tool call of a session reaches the session records in `<shared>/sessions` (finding 23 and P5 of the review of
   2026-10-10). A running session can no longer read the ids of refused sessions in `receipts.tsv`, plant their pass mark
   or rewrite `guard.log`. A search over the whole shared folder is refused for the same reason; its outbox and datasets
