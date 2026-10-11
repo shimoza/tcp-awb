@@ -171,6 +171,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- The owner can narrow every leased key with `tf_services` in `keys.conf` (finding 16 of the review of 2026-10-10).
+  The unlock used to refuse the line as an unknown setting, so the default list with OBS always applied. A shorter
+  list is what the lease allows, an empty line allows no service, and `iam` or a name that is no service stops the
+  unlock with the line number.
 - A person written with the English possessive (`<First> <Last>'s notes`, also with a typographic apostrophe) is
   still found by the short-text rule of the commit gate and the ledger (finding 7 of the review of 2026-10-10). A
   trailing `'s` or `’s` is no part of a name word.

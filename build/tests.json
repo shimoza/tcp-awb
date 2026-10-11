@@ -3142,8 +3142,29 @@
    "name": "finding 7: the possessive of a plain word makes no name",
    "run": ".venv/bin/pytest tests/test_tm0_review.py::test_a_possessive_of_a_plain_word_stays_no_name",
    "status": "passing"
+  },
+  {
+   "id": "R10-45",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 16: the owner can narrow the lease with tf_services of keys.conf",
+   "run": ".venv/bin/pytest tests/test_keys_review.py::test_the_owner_can_narrow_the_lease_with_tf_services_of_keys_conf",
+   "status": "passing"
+  },
+  {
+   "id": "R10-46",
+   "phase": "R10",
+   "name": "finding 16: a narrowed tf_services of keys.conf is what the lease carries, through the unlock",
+   "run": ".venv/bin/pytest tests/test_keys_review.py::test_a_narrowed_tf_services_of_keys_conf_is_what_the_lease_carries",
+   "status": "passing"
+  },
+  {
+   "id": "R10-47",
+   "phase": "R10",
+   "name": "finding 16: a tf_services line that is no list of services stops the unlock",
+   "run": ".venv/bin/pytest tests/test_keys_review.py::test_a_tf_services_line_that_is_no_list_of_services_stops_the_unlock",
+   "status": "passing"
   }
  ],
- "total_tests": 449,
+ "total_tests": 452,
  "checked": "2026-10-11"
 }

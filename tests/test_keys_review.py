@@ -197,3 +197,60 @@ def test_the_lab_key_of_the_bucket_tenant_under_another_alias_gives_no_lease(svc
         a = keys.request(svc.call_path, {"op": "lease", "tenant": alias, "minutes": 15})
         assert not a["ok"] and "exchange buckets" in a["error"], a
     assert not minted.sent
+
+
+# --------------------------------------------------------------------------- tf_services of keys.conf (finding 16)
+
+
+def test_the_owner_can_narrow_the_lease_with_tf_services_of_keys_conf(tmp_path):
+    """Promise (de44798, COMMANDS.md, keys.lease_policy): the lease allows the tf_services of keys.conf. The
+    owner's one knob to take obs (and with it the owner bucket) out of every lease is that line; read_settings
+    refuses it as an unknown setting, so the unlock fails and the default list with obs always applies."""
+    conf = tmp_path / "keys.conf"
+    conf.write_text("bucket_tenant = test-1\ntf_services = ecs, evs, vpc\n", encoding="utf-8")
+    settings = xchg.read_settings(conf)
+    assert settings.get("tf_services") == "ecs, evs, vpc"
+
+
+def _lease_statements(svc, monkeypatch, conf_text: str, tmp_path) -> list[dict]:
+    """The policy statements of a lease of test-2 after an unlock that reads `conf_text` as keys.conf."""
+    from awb.tcp import cloud
+
+    conf = tmp_path / "keys.conf"
+    conf.write_text(conf_text, encoding="utf-8")
+    monkeypatch.setenv("AWB_KEYS_CONF", str(conf))
+    minted = _Minted()
+    monkeypatch.setattr(cloud.Client, "request", minted.method())
+    store = {"test-1/lab/ak": AK, "test-1/lab/sk": SK, "test-2/lab/ak": "AKOTHERLAB", "test-2/lab/sk": "sk-other"}
+    svc._registered = lambda: {"test-1": ("eu-de",), "test-2": ("eu-de",)}
+    keys.unlock(svc.admin_path, sorted(store), reader=store.get)
+    a = keys.request(svc.call_path, {"op": "lease", "tenant": "test-2", "minutes": 15, "project": "tcp-ab2c"})
+    assert a["ok"], a
+    return minted.sent[-1]["auth"]["identity"]["policy"]["Statement"]
+
+
+def test_a_narrowed_tf_services_of_keys_conf_is_what_the_lease_carries(svc, monkeypatch, tmp_path):
+    """Finding 16, through the unlock: the list of keys.conf is the Allow of the lease, obs left out is no OBS at all,
+    an empty list allows nothing, and the two denies stay in every case."""
+    head = "bucket_tenant = test-1\nlab_bucket = awb-lab-eu-de\nowner_bucket = awb\n"
+    statements = _lease_statements(svc, monkeypatch, head + "tf_services = ecs, evs\n", tmp_path)
+    allows = [s for s in statements if s["Effect"] == "Allow"]
+    assert allows == [{"Effect": "Allow", "Action": ["ecs:*:*", "evs:*:*"]}]
+    assert [s["Action"] for s in statements if s["Effect"] == "Deny"] == [["iam:*:*"], ["obs:*:*"]]
+    statements = _lease_statements(svc, monkeypatch, head + "tf_services = ecs, obs\n", tmp_path)
+    assert {"Effect": "Allow", "Action": ["obs:*:*"], "Resource": ["obs:*:*:bucket:tcp-ab2c-*",
+                                                                   "obs:*:*:object:tcp-ab2c-*/*"]} in statements
+    statements = _lease_statements(svc, monkeypatch, head + "tf_services =\n", tmp_path)
+    assert [s["Effect"] for s in statements] == ["Deny", "Deny"], "an empty list allows nothing, not the default"
+    statements = _lease_statements(svc, monkeypatch, head, tmp_path)
+    assert statements[0]["Action"] == ["%s:*:*" % s for s in keys.TF_SERVICES if s != "obs"], "no line: the default"
+
+
+@pytest.mark.parametrize("value", ["ecs, s3!", "ecs evs", "ecs, iam", "ECS"])
+def test_a_tf_services_line_that_is_no_list_of_services_stops_the_unlock(tmp_path, value):
+    """Finding 16: a typo or IAM in the list fails the read of keys.conf by its line number, so the owner sees it at
+    the unlock instead of a lease that silently differs from what he wrote."""
+    conf = tmp_path / "keys.conf"
+    conf.write_text("bucket_tenant = test-1\ntf_services = %s\n" % value, encoding="utf-8")
+    with pytest.raises(xchg.XchgError, match="line 2"):
+        xchg.read_settings(conf)

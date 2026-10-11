@@ -77,7 +77,9 @@ INBOX = "inbox/"
 FROM = "from-session/"
 IN = "in/"
 DEFAULTS = {"lab_bucket": "awb-lab-eu-de", "owner_bucket": "awb", "region": "eu-de", "max_mb": "100"}
-SETTING_KEYS = ("bucket_tenant", "lab_bucket", "owner_bucket", "region", "max_mb", "notify_topic")
+SETTING_KEYS = ("bucket_tenant", "lab_bucket", "owner_bucket", "region", "max_mb", "notify_topic", "tf_services")
+_SERVICE_RE = re.compile(r"^[a-z][a-z0-9]{1,20}$")
+"""One service of tf_services: the short name of the lease policy's actions (ecs, evs, vpc)."""
 _NAME_RE = re.compile(r"^[^/\\\x00-\x1f\x7f]{1,200}$")
 _CODE_RE = re.compile(r"^tcp-[a-z0-9]{4}$")
 _CUST_RE = re.compile(r"^CUST-[A-Z2-7]{4}$")
@@ -116,8 +118,18 @@ def read_settings(path: Path | None = None) -> dict:
         key, value = key.strip(), value.strip()
         if not sep or key not in SETTING_KEYS:
             raise XchgError("line %d of keys.conf is not a known setting" % n)
+        if key == "tf_services" and not tf_services_ok(value):
+            raise XchgError("line %d of keys.conf: tf_services is a comma-separated list of service names, iam never"
+                            % n)
         out[key] = value
     return out
+
+
+def tf_services_ok(value: str) -> bool:
+    """The tf_services of keys.conf: service names in lower case separated by commas, empty for none, never iam
+    (finding 16 of the review of 2026-10-10: the owner narrows the lease with it)."""
+    names = [s.strip() for s in value.split(",")] if value.strip() else []
+    return all(_SERVICE_RE.match(s) and s != "iam" for s in names)
 
 
 def valid_name(name: str) -> bool:

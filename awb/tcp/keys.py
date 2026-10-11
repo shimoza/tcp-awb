@@ -821,7 +821,9 @@ class Service:
         """The policy of a leased key: the tf_services of keys.conf (all their actions); OBS only on the buckets of
         the project, named <code>-..., and only with a project code; every IAM action denied and every action on
         the two exchange buckets denied."""
-        listed = [s.strip() for s in str(self.settings.get("tf_services") or ",".join(TF_SERVICES)).split(",")]
+        # a tf_services line of keys.conf is the list, an empty one included (no service); no line is the default
+        value = self.settings.get("tf_services")
+        listed = [s.strip() for s in (str(value) if value is not None else ",".join(TF_SERVICES)).split(",")]
         services = [s for s in listed if re.match(r"^[a-z][a-z0-9]{1,20}$", s) and s != "iam"]
         statements = []
         plain = [s for s in services if s != "obs"]
