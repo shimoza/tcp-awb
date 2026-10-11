@@ -217,8 +217,9 @@ def board(paths):
              'current':sum(1 for r in rows if r['status']['summary'] and r['status']['behind']==0),
              'lagging':sum(1 for r in rows if r['status']['behind']),
              'without_status':sum(1 for r in rows if not r['status']['summary'])}
+    from awb.tcp import board as board_file
     return {'source':'AWB project register','generated_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            'summary':summary,'projects':rows}
+            'summary':summary,'projects':rows,'build':board_file.build_line(paths)}
 
 
 def project_detail(code,paths):

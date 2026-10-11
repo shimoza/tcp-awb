@@ -1451,3 +1451,211 @@ def test_the_root_run_leaves_restart_wanted_for_a_deferred_runner(world, tmp_pat
     assert not target.exists() and "was not written" in capsys.readouterr().out
     with pytest.raises(deploy.Refused):
         deploy.validate_plan(world.plan(build_restart_wanted="yes"), set(units_of_repo()))
+
+
+# --------------------------------------------------------------------------- the deploy by task (self-build SB4)
+
+
+class TaskWorld:
+    """main.git with a seed and a green task commit on main, the owner's copy cloned from it, a live release of the
+    seed with a journal, and the runner's record of B-001 (done, its commit)."""
+
+    def __init__(self, world: World, tmp: Path):
+        self.w = world
+        self.build = tmp / "build"
+        self.main = self.build / "main.git"
+        self.runs = self.build / "runs"
+        seed = tmp / "seed"
+        shutil.copytree(synth_tree(tmp).root, seed)
+        git(seed, "init", "-q", "-b", "main")
+        self.c0 = commit(seed, "the seed")
+        (seed / "README.md").write_text("a task line\n")
+        self.c1 = commit(seed, "the task")
+        self.seed = seed
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(self.main)], check=True)
+        git(seed, "push", "-q", str(self.main), "%s:refs/heads/main" % self.c0)
+        self.own = tmp / "own"
+        subprocess.run(["git", "clone", "-q", str(self.main), str(self.own)], check=True, capture_output=True)
+        git(seed, "push", "-q", str(self.main), "%s:refs/heads/main" % self.c1)
+        self.live(self.c0)
+        self.record("B-001", 1, "done", self.c1)
+
+    def live(self, c: str) -> None:
+        rel = self.w.root / "releases" / c
+        if not rel.exists():
+            shutil.copytree(REPO / "seal", rel / "seal")
+        (self.w.root / "src").unlink()
+        (self.w.root / "src").symlink_to("releases/%s" % c)
+        deploy.write_journal(self.w.root / "DEPLOYED", {"state": "done", "target": c, "previous": None, "units": {},
+                                                         "pending": [], "running": {}})
+
+    def record(self, tid: str, n: int, state: str, c: str | None) -> None:
+        folder = self.runs / tid / str(n)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "state").write_text("%s\t2026-10-11T14:02:00\n" % state)
+        if c:
+            (folder / "commit").write_text(c + "\n")
+
+    def host(self) -> deploy.Host:
+        h = plan_host(self.w, self.own)
+        h.build_root = self.build
+        return h
+
+    def plan(self, **kw) -> dict:
+        return deploy.owner_plan(deploy.Options(**kw), self.own, self.host())
+
+    def head(self) -> str:
+        return git(self.own, "rev-parse", "HEAD")
+
+
+@pytest.fixture
+def tw(world, tmp_path):
+    return TaskWorld(world, tmp_path)
+
+
+def test_task_fetches_main_fast_forwards_the_copy_and_deploys_the_green_commit(tw):
+    """SB4: --task takes the commit the runner recorded as green, after main.git's main reached the owner's copy.
+    Planted: a dry run that moves his copy; a target other than the green commit; a later commit of main.git
+    deployed instead of the task's."""
+    plan = tw.plan(task="B-001", dry_run=True)
+    assert plan["target"] == tw.c1 and tw.head() == tw.c0
+    assert any("would be fast-forwarded" in n for n in plan["notes"])
+    plan = tw.plan(task="B-001")
+    assert plan["target"] == tw.c1 and plan["deployed"] == tw.c0 and plan["changed"] == ["README.md"]
+    assert tw.head() == tw.c1 and any("fast-forwarded" in n and "B-001" in n for n in plan["notes"])
+    # main.git moves on with a second task; the first task's commit is still the target
+    (tw.seed / "README.md").write_text("a second task line\n")
+    c2 = commit(tw.seed, "the second task")
+    git(tw.seed, "push", "-q", str(tw.main), "%s:refs/heads/main" % c2)
+    plan = tw.plan(task="B-001")
+    assert plan["target"] == tw.c1 and tw.head() == c2
+    # a task that is live already
+    tw.live(tw.c1)
+    tw.record("B-002", 1, "done", c2)
+    tw.live(c2)
+    with pytest.raises(deploy.Refused, match="B-001 is live already"):
+        tw.plan(task="B-001")
+    assert tw.plan(task="B-002")["target"] == c2
+
+
+def test_task_refuses_a_dirty_tree_a_copy_ahead_an_unknown_id_and_a_commit_not_on_main(tw):
+    """SB4: each refusal comes before his copy moves and names the pull from main.git. Planted: a changed file in his
+    tree; a commit of his that main.git lacks; an id without a run, a malformed id, a run that is not done; a green
+    commit that is not on main of main.git; a copy on another branch."""
+    pull = "git pull --rebase %s main" % tw.main
+    (tw.own / "README.md").write_text("his change\n")
+    with pytest.raises(deploy.Refused, match="the working tree has changes") as err:
+        tw.plan(task="B-001")
+    assert pull in str(err.value) and tw.head() == tw.c0
+    (tw.own / "README.md").unlink()
+    (tw.own / "notes.md").write_text("his own commit\n")
+    mine = commit(tw.own, "his own work")
+    with pytest.raises(deploy.Refused, match=r"your main has 1 commit\(s\) main.git lacks") as err:
+        tw.plan(task="B-001")
+    assert pull in str(err.value) and "git push %s HEAD:main" % tw.main in str(err.value) and tw.head() == mine
+    git(tw.own, "reset", "-q", "--hard", tw.c0)
+    with pytest.raises(deploy.Refused, match="B-009 has no run.*an unknown id"):
+        tw.plan(task="B-009")
+    with pytest.raises(deploy.Refused, match="an id like B-012"):
+        tw.plan(task="../B-001")
+    tw.record("B-003", 1, "red: suite", None)
+    with pytest.raises(deploy.Refused, match="B-003 run 1 is red: suite, not done"):
+        tw.plan(task="B-003")
+    tw.record("B-004", 1, "done", None)
+    with pytest.raises(deploy.Refused, match="records no green commit"):
+        tw.plan(task="B-004")
+    side = git(tw.seed, "commit-tree", "-p", tw.c0, "-m", "a side commit", "%s^{tree}" % tw.c1)
+    git(tw.seed, "push", "-q", str(tw.main), "%s:refs/heads/side" % side)
+    tw.record("B-005", 1, "done", side)
+    with pytest.raises(deploy.Refused, match="is not on main of"):
+        tw.plan(task="B-005")
+    git(tw.own, "checkout", "-q", "-b", "other")
+    with pytest.raises(deploy.Refused, match="your copy is not on main") as err:
+        tw.plan(task="B-001")
+    assert pull in str(err.value)
+    assert git(tw.own, "rev-parse", "main") == tw.c0
+
+
+def test_the_two_refusals_with_a_planted_journal(tw):
+    """SB4, for every deploy: a deployed commit unknown to the repository and a target that does not descend from the
+    deployed commit are refused with the pull line. Planted: his copy behind the live release (the deploy that would
+    revert the runner's work); a journal and a release of a commit his repository lacks."""
+    pull = "git pull --rebase %s main" % tw.main
+    tw.live(tw.c1)                         # the runner's commit is live, his copy is still on the seed
+    git(tw.own, "fetch", "-q", str(tw.main), "refs/heads/main")
+    with pytest.raises(deploy.Refused, match="does not descend from the deployed commit") as err:
+        tw.plan()
+    assert pull in str(err.value)
+    with pytest.raises(deploy.Refused, match="does not descend"):
+        tw.plan(all=True)
+    unknown = "f" * 40
+    tw.live(unknown)
+    with pytest.raises(deploy.Refused, match="no commit of this repository") as err:
+        tw.plan()
+    assert pull in str(err.value)
+    with pytest.raises(deploy.Refused, match="no commit of this repository"):
+        tw.plan(to=tw.c0)
+    # his copy pulled: the same deploy passes
+    tw.live(tw.c1)
+    git(tw.own, "pull", "-q", "--rebase", str(tw.main), "main")
+    assert tw.plan()["target"] == tw.c1
+    # without a journal the old note stands
+    (tw.w.root / "DEPLOYED").unlink()
+    (tw.w.root / "src").unlink()
+    (tw.w.root / "src").symlink_to("releases/%s" % unknown)
+    plan = tw.plan()
+    assert plan["deployed"] is None and "no journal: every unit restarts" in plan["notes"]
+
+
+def test_rollback_and_to_still_pass_a_non_descendant(tw):
+    """SB4: --rollback and --to name a target on purpose. Planted: the descent refusal applied to them."""
+    tw.live(tw.c1)
+    j = deploy.read_journal(tw.w.root / "DEPLOYED")
+    j["previous"] = tw.c0
+    deploy.write_journal(tw.w.root / "DEPLOYED", j)
+    git(tw.own, "fetch", "-q", str(tw.main), "refs/heads/main")
+    plan = tw.plan(rollback=True)
+    assert plan["target"] == tw.c0 and plan["deployed"] == tw.c1 and plan["rollback"]
+    assert tw.plan(to=tw.c0)["target"] == tw.c0
+
+
+def test_the_root_run_hands_task_to_the_owner_child(world, capsys):
+    """SB4: --task reaches the plan child (with --dry-run on a dry run, so it fetches only); --task, --to and
+    --rollback exclude each other. Planted: a plan child without --task; a run with two of them."""
+    world.runner.plan = world.plan(notes=["task B-001 run 1: green commit bbbbbbb on main bbbbbbb, your main is there"])
+    assert world.main(["--dry-run", "--task", "B-001"]) == 0, capsys.readouterr()
+    plan_call = world.runner.named("deploy", "plan")[0][0]
+    assert plan_call[plan_call.index("--task") + 1] == "B-001" and "--dry-run" in plan_call
+    assert "# task B-001 run 1" in capsys.readouterr().out
+    assert world.main(["--task", "B-001"]) == 0
+    plan_call = world.runner.named("deploy", "plan")[-1][0]
+    assert "--task" in plan_call and "--dry-run" not in plan_call
+    for argv in (["--task", "B-001", "--to", "a" * 40], ["--task", "B-001", "--rollback"],
+                 ["--to", "a" * 40, "--rollback"]):
+        assert world.main(argv) == 2
+        assert "exclude each other" in capsys.readouterr().err
+
+
+def test_the_task_record_reads_as_the_build_module_reads_it(tmp_path):
+    """SB4: deploy reads the run records without importing awb.build (no unit that imports deploy restarts for a
+    change of the runner). Planted: an id form or a newest run that the two read differently."""
+    from awb import build
+
+    assert deploy.TASK_ID_RE.pattern == build.ID_RE.pattern
+    runs = tmp_path / "runs"
+    for n, state in ((1, "red: suite"), (2, "asked"), (10, "done")):
+        (runs / "B-012" / str(n)).mkdir(parents=True)
+        build.write_state(runs / "B-012" / str(n), state)
+    (runs / "B-012" / "010").mkdir()
+    (runs / "B-012" / "11").symlink_to(runs / "B-012" / "1")
+    (runs / "B-012" / "10" / "commit").write_text("c" * 40 + "\n")
+    r = build.latest("B-012", runs)
+    assert deploy.task_record("B-012", runs) == (r.n, r.state, "c" * 40) == (10, "done", "c" * 40)
+    assert set(deploy.TASK_DEPLOYABLE) <= set(build.OPEN_STATES + ("done", "held: push refused",
+                                                                   "held: push pending"))
+    assert all(build.STATE_RE.fullmatch(s) for s in deploy.TASK_DEPLOYABLE)
+    tree = ast.parse(Path(deploy.__file__).read_text(encoding="utf-8"))
+    imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    imported |= {"%s.%s" % (n.module, a.name) for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module
+                 for a in n.names}
+    assert "awb.build" not in imported and "awb.buildrun" not in imported

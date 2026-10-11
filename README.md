@@ -93,6 +93,8 @@ rules reach every project and every running session. The run ends with the statu
 the deploy left on an older release carries the next command only when a module it imports changed since,
 else the note "its code unchanged since".
 `awb deploy status` shows what runs where, `sudo awb deploy --rollback` goes back to the release before.
+`sudo awb deploy --task B-012` brings a green build task live: it pulls `main` of the build side into your copy
+first. A deploy from a copy that is behind the live release is refused, so it cannot take back a build task's work.
 
 ## What it does for an architect
 

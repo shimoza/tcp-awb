@@ -426,7 +426,8 @@ P_BOARD = {"source": "AWB project register", "generated_at": "2026-10-06T12:00:0
                     open={"items": ["boot test on the second flavor", "token path", "test instance", "EIP",
                                     "Terraform deployment"], "total": 5},
                     deliverables={"status": "available", "counts": {"valid": 3, "stale": 1}},
-                    board_redacted=False)]}
+                    board_redacted=False)],
+           "build": "build: B-001 done 11:40, B-002 asked; live eb928d2, main 1a2b3c4, 1 not deployed"}
 TAGS = ["ecs", "obs", "vpc"]
 BUDGET = {"questions_left": 31, "tokens_left": 254880, "daily_questions": 40, "daily_tokens": 300000,
           "resets": "00:00 UTC"}
@@ -596,6 +597,8 @@ def _schemas() -> dict:
                 "without_status": integer("Projects whose STATE.md has no Status: line yet."),
             }),
             "projects": array(ref("BoardProject"), "Active projects, latest change first."),
+            "build": string("The build line of the self-build from <shared>/build/state.tsv: the tasks, live, main and "
+                            "how many are not deployed. Ids, state words, short hashes and times only."),
         }, description="The status of every active project for management, codes only."),
         "ProjectOptions": obj({
             "kinds": array(string(), "The kinds the running backend accepts, in the order to show. Deployed: "

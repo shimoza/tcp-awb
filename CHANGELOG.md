@@ -40,6 +40,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   `build_model_key_source` in the host file names another key in one line), makes `tcp-shared/build` for the
   runner's board line, writes `build_push = yes` and gives the build settings `apiKeyHelper`. `sudo
   seal/verify.sh` checks the copy and the folder and runs `awb build selftest`.
+- The deploy by task and the build line (self-build step SB4). `sudo awb deploy --task B-012` fetches `main` of
+  `/srv/awb-build/main.git`, fast-forwards your `main` to it and deploys the commit the runner recorded as green
+  for that task; it is refused while your tree has changes, your copy is not on `main` or has commits `main.git`
+  lacks, for an unknown id and for a commit that is not on `main`. Every deploy now refuses a deployed commit your
+  repository does not know and a target that does not descend from it (unless `--to` or `--rollback`), both with
+  the line `git pull --rebase /srv/awb-build/main.git main`. `awb board` and the board of the portal (`build` of
+  GET /api/board) print the build line from `<shared>/build/state.tsv`: the tasks, live, main and how many are not
+  deployed, in fixed words only. `awb build status` ends with the same live, main and count, read fresh.
 - Every draft for others passes the voice checks before he sees it (the work profile, proposal 4). `awb write
   check` blocks in mode mail and doc what he struck out most: "we", "our" and "wir" for "I", the jargon gotchas,
   quirk, pilot light and whole trick (cadence, estate, verbatim, granular and sharp edges were banned already), a

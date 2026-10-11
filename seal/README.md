@@ -223,7 +223,10 @@ units whose code changed. `awb deploy --dry-run` prints the plan and every step 
 1. Checks the caller (sudo as the owner of `/etc/awb/paths.conf`, a git work tree in his home, the installed
    command) and takes the lock `/run/awb-deploy.lock`; a second deploy is refused with the pid of the first.
 2. Plans as the owner, in a child that dropped root for good: the tree must be clean, the target is HEAD (or
-   `--to COMMIT`, or `--rollback`), the changed files since the deployed commit map to units through the imports of
+   `--to COMMIT`, or `--rollback`, or with `--task ID` the green commit of a build task after `main` of
+   `<build_root>/main.git` was fetched and his `main` fast-forwarded to it), the deployed commit must be known to
+   the repository and the target must descend from it unless `--to` or `--rollback` names it (both refusals name
+   `git pull --rebase <build_root>/main.git main`), the changed files since the deployed commit map to units through the imports of
    each unit's entry module (as systemd shows it). Root validates the plan before it uses it.
 3. Writes the journal `/opt/tcp-awb/DEPLOYED` as `running` (root, 644: commits, unit names, states).
 4. Extracts `git archive <target>` (written by the owner child) into `releases/.<commit>.partial`, checks every

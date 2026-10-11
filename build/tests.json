@@ -4304,8 +4304,92 @@
    "name": "seal: the build settings carry no apiKeyHelper; the key mode's template as setup.sh writes it is the settings of SB3 with apiKeyHelper reading the task home's key",
    "run": ".venv/bin/pytest tests/test_seal.py::test_the_template_of_the_key_mode_is_the_settings_of_sb3_and_the_login_mode_has_no_key_helper",
    "status": "passing"
+  },
+  {
+   "id": "SB4-1",
+   "phase": "SB4",
+   "name": "deploy: --task fetches main of main.git, fast-forwards the owner's main (a dry run fetches only) and deploys the commit the runner recorded as green; a task already live is refused",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_task_fetches_main_fast_forwards_the_copy_and_deploys_the_green_commit",
+   "status": "passing"
+  },
+  {
+   "id": "SB4-2",
+   "phase": "SB4",
+   "name": "deploy: --task refuses a dirty tree, a copy ahead of main.git, a copy not on main, an unknown or malformed id, a run not done or without a commit and a commit not on main, each before the copy moves and with the pull line",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_task_refuses_a_dirty_tree_a_copy_ahead_an_unknown_id_and_a_commit_not_on_main",
+   "status": "passing"
+  },
+  {
+   "id": "SB4-3",
+   "phase": "SB4",
+   "name": "deploy: the two refusals of every deploy with a planted journal, a deployed commit unknown to the repository and a target that does not descend from it, both naming git pull --rebase from main.git; no journal keeps the old note",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_two_refusals_with_a_planted_journal",
+   "status": "passing"
+  },
+  {
+   "id": "SB4-4",
+   "phase": "SB4",
+   "name": "deploy: --rollback and --to still pass a target that does not descend from the deployed commit",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_rollback_and_to_still_pass_a_non_descendant",
+   "status": "passing"
+  },
+  {
+   "id": "SB4-5",
+   "phase": "SB4",
+   "name": "deploy: the root run hands --task (and --dry-run) to the owner child; --task, --to and --rollback exclude each other",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_root_run_hands_task_to_the_owner_child",
+   "status": "passing"
+  },
+  {
+   "id": "SB4-6",
+   "phase": "SB4",
+   "name": "deploy: the run records are read as awb.build reads them, without importing awb.build",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_task_record_reads_as_the_build_module_reads_it",
+   "status": "passing"
+  },
+  {
+   "id": "SB4-7",
+   "phase": "SB4",
+   "name": "board: the build line from a planted state.tsv: tasks by time, the newest three done, the held queue, live, main, not deployed, the daemon behind, the unsent mail",
+   "run": ".venv/bin/pytest tests/test_board.py::test_the_build_line_from_a_planted_state_tsv",
+   "status": "passing"
+  },
+  {
+   "id": "SB4-8",
+   "phase": "SB4",
+   "name": "board: without state.tsv, or a folder or a link at its place, one fixed line",
+   "run": ".venv/bin/pytest tests/test_board.py::test_the_build_line_without_the_file",
+   "status": "passing"
+  },
+  {
+   "id": "SB4-9",
+   "phase": "SB4",
+   "name": "board: a planted free text in any cell of state.tsv does not reach the build line",
+   "run": ".venv/bin/pytest tests/test_board.py::test_a_planted_free_text_does_not_reach_the_build_line",
+   "status": "passing"
+  },
+  {
+   "id": "SB4-10",
+   "phase": "SB4",
+   "name": "board: the line's vocabulary covers every state phrase and every queue hold the runner writes",
+   "run": ".venv/bin/pytest tests/test_board.py::test_the_vocabulary_of_the_line_covers_every_state_the_runner_writes",
+   "status": "passing"
+  },
+  {
+   "id": "SB4-11",
+   "phase": "SB4",
+   "name": "board: awb board show and GET /api/board carry the build line",
+   "run": ".venv/bin/pytest tests/test_board.py::test_awb_board_and_the_api_carry_the_build_line",
+   "status": "passing"
+  },
+  {
+   "id": "SB4-12",
+   "phase": "SB4",
+   "name": "build queue: awb build status ends with live, main and the count of done tasks not deployed, read fresh from the journal and main.git",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_status_carries_live_main_and_the_count_not_deployed",
+   "status": "passing"
   }
  ],
- "total_tests": 615,
+ "total_tests": 627,
  "checked": "2026-10-11"
 }

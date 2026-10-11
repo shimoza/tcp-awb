@@ -1,6 +1,9 @@
 """`sudo awb deploy`: one command that brings a commit of the repository live (T1, INTERFACES.md "The deploy").
 
-    sudo awb deploy [--dry-run] [--all] [--only UNIT...] [--restart] [--to COMMIT] [--rollback] [--mirrors DIR...]
+    sudo awb deploy [--dry-run] [--all] [--only UNIT...] [--restart] [--to COMMIT | --rollback | --task ID]
+                    [--mirrors DIR...]
+    sudo awb deploy --task ID       the green commit of a build task: fetch main.git, fast-forward the owner's main,
+                                    deploy that commit (self-build SB4)
     awb deploy --dry-run            the plan without root, as the owner
     awb deploy status               the journal, the release each daemon runs, locked or down since when, the
                                     egress filter's mode and counts
@@ -28,6 +31,15 @@ and not in COMMAND_ONLY restarts every unit and prints as unmapped.
 The build runner (`awb build serve`, presentations/self-build) is never started by a deploy: when it is not running
 it takes the new code at its next start. While an awb-task-* unit is active its restart is deferred and root leaves
 <build_root>/runs/restart-wanted; the runner exits between two tasks and systemd starts it with the new code.
+
+Two refusals hold for every deploy (SB4), because the build runner moves `main` in <build_root>/main.git and a copy
+that is behind would revert its work and restart both daemons: a deployed commit (the release `src` points at, read
+with the journal) that is no commit of the repository, and a target that does not descend from it unless `--to` or
+`--rollback` names it. Both name `git pull --rebase <build_root>/main.git main`. `--task ID` fetches `main` of
+main.git into the owner's copy and fast-forwards it (a dry run fetches only), refused while his tree has changes,
+his copy is not on `main` or his `main` has commits main.git lacks; the target is the commit the runner recorded
+as green in runs/<ID>/<n>/commit, which must be on that `main`. The run records are read here without importing
+awb.build, so a change of the runner's module restarts no unit that imports this one.
 
 The journal /opt/tcp-awb/DEPLOYED (root, 644) is written `running` before anything changes, updated after every
 step and marked `done` at the end; a run that dies leaves its units pending for the next one.
@@ -803,18 +815,160 @@ class Options:
     to: str | None = None
     rollback: bool = False
     mirrors: list[str] = field(default_factory=list)
+    task: str | None = None
+
+
+# --------------------------------------------------------------------------- the deploy by task (self-build SB4)
+
+TASK_ID_RE = re.compile(r"B-[0-9]{3,4}")              # awb.build.ID_RE (a test pins the two)
+TASK_STATE_RE = re.compile(r"[a-z][a-z0-9 :._-]{0,70}")
+TASK_DEPLOYABLE = ("done", "green", "held: push refused", "held: push pending")
+"""The states whose commit the runner already put on main of main.git (DESIGN.md section 3 step 8)."""
+TASK_FILE_MAX = 512
+
+
+def build_root(host: Host) -> Path:
+    """The folder of the self-build: the host's (tests), AWB_BUILD_ROOT (tests), else the host file's."""
+    if host.build_root is not None:
+        return Path(host.build_root)
+    env = os.environ.get("AWB_BUILD_ROOT")
+    return Path(env) if env else config.build_root()
+
+
+def main_git(host: Host) -> Path:
+    return build_root(host) / "main.git"
+
+
+def build_runs(host: Host) -> Path:
+    """The runner's records: AWB_BUILD_RUNS (tests, as awb.build.runs_dir), else <build_root>/runs."""
+    env = os.environ.get("AWB_BUILD_RUNS")
+    return Path(env) if env and host.build_root is None else build_root(host) / "runs"
+
+
+def pull_line(host: Host) -> str:
+    return "git pull --rebase %s main" % main_git(host)
+
+
+def _task_file(path: Path) -> str | None:
+    """A small record file of the runner: a regular file of this uid, never through a link, ASCII; else None."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid() or st.st_size > TASK_FILE_MAX:
+            return None
+        data = os.read(fd, TASK_FILE_MAX + 1)
+    finally:
+        os.close(fd)
+    try:
+        return data.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+
+
+def task_record(tid: str, runs: Path) -> tuple[int, str, str | None]:
+    """(run number, state, green commit) of the newest run of a task, read as awb.build reads it; Refused for an id
+    that is malformed or has no run."""
+    if not TASK_ID_RE.fullmatch(tid or ""):
+        raise Refused("--task takes an id like B-012")
+    base = Path(runs) / tid
+    try:
+        names = os.listdir(base)
+    except OSError:
+        names = []
+    numbers = [int(n) for n in names if n.isdigit() and not n.startswith("0") and len(n) <= 6
+               and (base / n).is_dir() and not (base / n).is_symlink()]
+    if not numbers:
+        raise Refused("task %s has no run in %s: an unknown id" % (tid, runs))
+    n = max(numbers)
+    raw = _task_file(base / str(n) / "state") or ""
+    state = raw.split("\n", 1)[0].split("\t", 1)[0]
+    if not TASK_STATE_RE.fullmatch(state):
+        state = "unknown"
+    commit = (_task_file(base / str(n) / "commit") or "").strip()
+    return n, state, commit if COMMIT_RE.match(commit) else None
+
+
+def _is_ancestor(run: Callable, repo: Path, older: str, newer: str) -> bool:
+    res = run(["git", "-C", str(repo), "merge-base", "--is-ancestor", older, newer], capture_output=True)
+    if res.returncode not in (0, 1):
+        raise Refused("git merge-base failed in the repository")
+    return res.returncode == 0
+
+
+def owner_task(opts: Options, repo: Path, host: Host) -> tuple[str, str]:
+    """`--task ID` in the owner child: the green commit of the task as the target, and the note for the plan. Fetches
+    main of main.git and fast-forwards the owner's main to it (a dry run fetches only). Every refusal comes before
+    his copy moves."""
+    run, tid = host.runner, opts.task or ""
+    n, state, green = task_record(tid, build_runs(host))
+    if state not in TASK_DEPLOYABLE:
+        raise Refused("task %s run %d is %s, not done: nothing of it is on main" % (tid, n, state))
+    if green is None:
+        raise Refused("task %s run %d records no green commit" % (tid, n))
+    if git(run, repo, "status", "--porcelain").strip():
+        raise Refused("the working tree has changes: commit them, then %s" % pull_line(host))
+    branch = run(["git", "-C", str(repo), "symbolic-ref", "--quiet", "HEAD"], capture_output=True, text=True)
+    if branch.returncode != 0 or branch.stdout.strip() != "refs/heads/main":
+        raise Refused("your copy is not on main: git switch main, then %s" % pull_line(host))
+    source = main_git(host)
+    if not (source / "HEAD").is_file():
+        raise Refused("there is no %s: the build side is not set up" % source)
+    res = run(["git", "-C", str(repo), "fetch", "--quiet", "--no-tags", "--no-recurse-submodules", str(source),
+               "refs/heads/main"], capture_output=True, text=True)
+    if res.returncode != 0:
+        raise Refused("git fetch of main from %s failed" % source)
+    main = git(run, repo, "rev-parse", "--verify", "--quiet", "FETCH_HEAD^{commit}").strip()
+    head = git(run, repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}").strip()
+    if not (COMMIT_RE.match(main) and COMMIT_RE.match(head)):
+        raise Refused("main of %s names no commit" % source)
+    ahead = int(git(run, repo, "rev-list", "--count", "%s..%s" % (main, head)).strip() or 0)
+    if ahead:
+        raise Refused("your main has %d commit(s) main.git lacks: %s, then git push %s HEAD:main"
+                      % (ahead, pull_line(host), source))
+    if not _commit_known(run, repo, green) or not _is_ancestor(run, repo, green, main):
+        raise Refused("the green commit %s of task %s is not on main of %s" % (short(green), tid, source))
+    live = live_release(host.root)
+    if live and COMMIT_RE.match(live) and live != green and _commit_known(run, repo, live) \
+            and _is_ancestor(run, repo, green, live):
+        raise Refused("task %s is live already: its commit %s is in the deployed %s" % (tid, short(green), short(live)))
+    if opts.dry_run:
+        note = "task %s run %d: green commit %s on main %s; your main %s would be fast-forwarded" % (
+            tid, n, short(green), short(main), short(head)) if head != main else \
+            "task %s run %d: green commit %s on main %s, your main is there" % (tid, n, short(green), short(main))
+        return green, note
+    if head != main:
+        res = run(["git", "-C", str(repo), "merge", "--ff-only", "--quiet", main], capture_output=True, text=True)
+        if res.returncode != 0:
+            raise Refused("the fast-forward of your main to %s failed: %s" % (short(main), pull_line(host)))
+        return green, "task %s run %d: green commit %s; your main fast-forwarded %s..%s from main.git" % (
+            tid, n, short(green), short(head), short(main))
+    return green, "task %s run %d: green commit %s on main %s, your main is there" % (tid, n, short(green), short(main))
+
+
+def _commit_known(run: Callable, repo: Path, commit) -> bool:
+    return isinstance(commit, str) and COMMIT_RE.match(commit) is not None and run(
+        ["git", "-C", str(repo), "cat-file", "-e", "%s^{commit}" % commit], capture_output=True).returncode == 0
 
 
 def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
     """The plan of a deploy, computed as the owner from the repository, the journal, systemd and the daemons. One
     JSON object; root validates it before use."""
     run = host.runner
+    notes: list[str] = []
+    task_target = None
+    if opts.task:
+        task_target, note = owner_task(opts, repo, host)
+        notes.append(note)
     if git(run, repo, "status", "--porcelain").strip():
         raise Refused("the working tree has changes: commit first")
     journal = read_journal(host.journal)
     live = live_release(host.root)
-    notes: list[str] = []
-    if opts.rollback:
+    if task_target:
+        want = task_target
+    elif opts.rollback:
         prev = (journal or {}).get("previous")
         if not (isinstance(prev, str) and COMMIT_RE.match(prev)):
             raise Refused("there is no earlier release to roll back to")
@@ -829,10 +983,22 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
     target_time = git(run, repo, "log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M", target).strip()
 
     def known(commit) -> bool:
-        return isinstance(commit, str) and COMMIT_RE.match(commit) is not None and run(
-            ["git", "-C", str(repo), "cat-file", "-e", "%s^{commit}" % commit], capture_output=True).returncode == 0
+        return _commit_known(run, repo, commit)
 
     first = live in (None, "plain")
+    # the two refusals of SB4: the deployed commit is read with the journal (what `src` points at); without a
+    # journal the old note below stands
+    deployed = None
+    if not first and journal is not None:
+        deployed = live if isinstance(live, str) and COMMIT_RE.match(live) else journal.get("target")
+        deployed = deployed if isinstance(deployed, str) and COMMIT_RE.match(deployed) else None
+    if deployed is not None:
+        if not known(deployed):
+            raise Refused("the deployed commit %s is no commit of this repository: %s, then deploy again"
+                          % (short(deployed), pull_line(host)))
+        if not (opts.rollback or opts.to) and not _is_ancestor(run, repo, deployed, target):
+            raise Refused("the target %s does not descend from the deployed commit %s: %s (or name it with --to "
+                          "COMMIT)" % (short(target), short(deployed), pull_line(host)))
     interrupted = False
     pending_last: list[str] = []
     base = None
@@ -2031,6 +2197,7 @@ def _parser():
     ap.add_argument("--restart", action="store_true", help="restart the two daemons instead of a reload")
     ap.add_argument("--to", metavar="COMMIT", help="deploy this commit instead of HEAD")
     ap.add_argument("--rollback", action="store_true", help="deploy the release that was live before this one")
+    ap.add_argument("--task", metavar="ID", help="deploy the green commit of a build task (fetches main.git first)")
     ap.add_argument("--mirrors", nargs="+", metavar="DIR", default=[], help="passed to setup.sh --update")
     return ap
 
@@ -2039,7 +2206,7 @@ def _parse_plan_args(argv: list[str]) -> Options:
     ap = _parser()
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
-    return Options(a.dry_run, a.all, a.only, a.restart, a.to, a.rollback, a.mirrors)
+    return Options(a.dry_run, a.all, a.only, a.restart, a.to, a.rollback, a.mirrors, a.task)
 
 
 def _plan_argv(opts: Options) -> list[str]:
@@ -2054,6 +2221,10 @@ def _plan_argv(opts: Options) -> list[str]:
         out += ["--to", opts.to]
     if opts.rollback:
         out.append("--rollback")
+    if opts.task:
+        out += ["--task", opts.task]
+        if opts.dry_run:
+            out.append("--dry-run")      # the owner child fetches but does not fast-forward
     return out
 
 
@@ -2132,9 +2303,9 @@ def main(argv: list[str] | None = None, *, root: Path = OPT, etc: Path = Path("/
         a = _parser().parse_args(argv)
     except SystemExit as exc:
         return 0 if exc.code in (0, None) else 2
-    opts = Options(a.dry_run, a.all, a.only, a.restart, a.to, a.rollback, a.mirrors)
-    if opts.rollback and opts.to:
-        print("awb deploy: --rollback and --to exclude each other", file=sys.stderr)
+    opts = Options(a.dry_run, a.all, a.only, a.restart, a.to, a.rollback, a.mirrors, a.task)
+    if sum(bool(x) for x in (opts.rollback, opts.to, opts.task)) > 1:
+        print("awb deploy: --rollback, --to and --task exclude each other", file=sys.stderr)
         return 2
     try:
         if host.geteuid() != 0:

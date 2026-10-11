@@ -2,7 +2,8 @@
 
     awb build add FILE           a task into the queue: its block and its prompt, checked, written atomically
     awb build list               one line per task: id, state, since when, waits on what
-    awb build status [--ended]   the board line, or with --ended each run that ended since the last call, once
+    awb build status [--ended]   the board line with live, main and the count not deployed, or with --ended each run
+                                 that ended since the last call, once
     awb build show ID            the agent's last message of the newest run, to his own terminal only
     awb build answer ID TEXT     the answer to a task that asked; the runner resumes the same session
     awb build retry ID           a new numbered run of the task, from main
@@ -718,6 +719,23 @@ def board_line(qdir: Path | None = None, runs: Path | None = None) -> str:
     return "build: " + (", ".join(parts) if parts else "the queue is empty")
 
 
+def deploy_tail(runs: Path | None = None) -> str:
+    """`; live <short>, main <short>, N not deployed` of `awb build status`, read fresh from /opt/tcp-awb/DEPLOYED
+    and main.git as the runner writes it into state.tsv (buildrun.deployed_info); with the daemon code behind."""
+    from awb import buildrun
+
+    try:
+        host = buildrun.Host(root=buildrun.build_root(), runs=Path(runs or runs_dir()), queue=queue_dir(), units=None,
+                             deployed=buildrun.DEPLOYED)
+        info = buildrun.deployed_info(host)
+    except Exception:
+        return "; live unknown, main unknown"
+    tail = "; live %s, main %s, %s not deployed" % (info["live"], info["main"], info["not_deployed"])
+    if info.get("behind"):
+        tail += "; daemon code behind: %s" % ", ".join(info["behind"])
+    return tail
+
+
 def ended_lines(runs: Path | None = None) -> list[str]:
     """`awb build status --ended`: the line of every task whose newest run ended since the last call, once. The
     mark is `reported` in the run folder, holding the state line it was printed for: a run that ends again after an
@@ -1068,7 +1086,7 @@ def main(argv: list[str] | None = None) -> int:
                 for ln in ended_lines():
                     _out(ln)
                 return 0
-            _out(board_line())
+            _out(board_line() + deploy_tail())
             return 0
         if args.command == "show":
             return cmd_show(args.id)

@@ -9,7 +9,10 @@ active project (the Status: and Next: lines of STATE.md) with its time and the c
 project waits on, its first open items, its deliverables by review state and its live resources. A project whose
 status lags behind its commits or has no status line yet is marked, never updated: the session of the project does
 that. Codes only, every text after the data check. The HTML prints on A4 as it is, for a PDF from the browser.
-Both carry the line of the last wipe measurement of the refresh: "wipe: L leaks, M losses of N (date)".
+Both carry the line of the last wipe measurement of the refresh: "wipe: L leaks, M losses of N (date)", and the build
+line of the self-build from <shared>/build/state.tsv, which the build runner writes (awb/buildrun.py): "build: B-012
+done 14:02, B-013 running since 14:10; live eb928d2, main 1a2b3c4, 1 not deployed". Every cell of that file is
+matched against a fixed form or vocabulary before it reaches the line; anything else is dropped or cut to its word.
 While the vault is locked both commands open with "locked since <time>" (T3); the project texts wait for the
 unlock, because the data check cannot run.
 """
@@ -17,6 +20,9 @@ from __future__ import annotations
 
 import datetime as dt
 import html
+import os
+import re
+import stat
 import sys
 from pathlib import Path
 
@@ -74,6 +80,8 @@ def markdown(board: dict) -> str:
            "line yet." % (s["projects"], s["current"], s["lagging"], s["without_status"]), ""]
     if board.get("wipe"):
         out += [board["wipe"], ""]
+    if board.get("build"):
+        out += [board["build"], ""]
     out += ["| Project | Customer | Status | Next | Status as of | Open | Live |", "|---|---|---|---|---|---|---|"]
 
     def cell(text) -> str:
@@ -160,7 +168,8 @@ def page(board: dict) -> str:
             "<th>Live</th></tr></thead><tbody>%s</tbody></table></div>%s</body></html>\n" % (
                 e(when(board["generated_at"])), STYLE, e(when(board["generated_at"])), s["projects"], s["current"],
                 s["lagging"], s["without_status"],
-                '<p class="lead">%s</p>' % e(board["wipe"]) if board.get("wipe") else "", rows, "".join(sections)))
+                "".join('<p class="lead">%s</p>' % e(board[k]) for k in ("wipe", "build") if board.get(k)), rows,
+                "".join(sections)))
 
 
 def write(board: dict, out: Path) -> tuple[Path, Path]:
@@ -211,6 +220,132 @@ def wipe_line(p) -> str:
     return "wipe: %d leaks, %d losses of %d (%s)" % (r["leaks"], r["losses"], r["cases"], r["date"])
 
 
+# --------------------------------------------------------------------------- the build line (self-build SB4)
+
+BUILD_TSV_MAX = 256 << 10
+DONE_SHOWN = 3
+_ID = re.compile(r"B-[0-9]{3,4}")                        # awb.build.ID_RE
+_STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}):\d{2}")    # awb.build._STAMP
+_SHORT = re.compile(r"[0-9a-f]{7}")
+BUILD_WORDS = ("queued", "running", "green", "done", "asked", "answered", "widened", "interrupted", "stale", "hung",
+               "red", "stopped", "held")
+"""The state words of awb.build.STATES; a reason after `word: ` shows only when it is in BUILD_REASONS."""
+GATE_CLASSES = ("name", "secret", "private-key", "token", "homepath", "blocklist", "identifier", "opaque",
+                "attribution")                          # awb.gate.CLASSES
+BUILD_REASONS = {
+    "hung": ("suite",),
+    "red": ("no commit", "second branch", "not on main", "too many commits", "merge commit", "dirty tree", "identity",
+            "outside paths", "link or submodule", "changelog", "tests.json", "rules list lost lines", "suite",
+            "tests lost", "check") + tuple("gate %s" % c for c in GATE_CLASSES),
+    "stopped": ("by_owner", "no_result", "session_gone", "error", "error_max_turns", "error_during_execution",
+                "error_max_budget_usd"),
+    "held": ("checks pending", "push refused", "push pending", "prompt", "prepare", "model endpoint", "no main",
+             "baseline", "gate selftest", "login missing"),
+}
+"""The fixed phrases of the runner (a test reads them out of awb/buildrun.py)."""
+QUEUE_HELD = ("vault locked", "no vault daemon", "key service not loaded", "no key service", "gate selftest",
+              "build root full", "build root missing", "no identity", "model key", "systemd-run as the build user",
+              "build model", "login missing", "model endpoint")
+"""The reasons the runner holds the whole queue for (awb/buildrun.py, preconditions)."""
+
+
+def build_tsv(p) -> Path:
+    return p.shared / "build" / "state.tsv"
+
+
+def _read_small(path: Path, cap: int) -> str | None:
+    """A regular file, never through a link, under a cap, UTF-8; else None."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        data = os.read(fd, cap + 1)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    if len(data) > cap:
+        return None
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def build_state_word(state: str) -> str | None:
+    """The state as the line may print it: the word, with its reason only when the reason is a fixed phrase."""
+    word, sep, reason = state.partition(": ")
+    if word not in BUILD_WORDS:
+        return None
+    return "%s: %s" % (word, reason) if sep and reason in BUILD_REASONS.get(word, ()) else word
+
+
+def build_state(p) -> dict | None:
+    """The rows of state.tsv, each cell matched before use; None without a readable file."""
+    text = _read_small(build_tsv(p), BUILD_TSV_MAX)
+    if text is None:
+        return None
+    out = {"queue": None, "tasks": [], "live": "unknown", "main": "unknown", "not_deployed": None, "behind": []}
+    seen = set()
+    for row in text.splitlines():
+        cells = row.split("\t")
+        kind = cells[0]
+        if kind == "queue" and len(cells) == 3 and cells[1] == "held":
+            out["queue"] = cells[2] if cells[2] in QUEUE_HELD else "held"
+        elif kind == "task" and len(cells) == 7:
+            tid, n, state, since, commit, mail = cells[1:]
+            word = build_state_word(state)
+            m = _STAMP.fullmatch(since)
+            if not _ID.fullmatch(tid) or tid in seen or not n.isdigit() or word is None:
+                continue
+            seen.add(tid)
+            out["tasks"].append({"id": tid, "state": word, "since": since if m else "", "time": m.group(1) if m else "",
+                                 "commit": commit if _SHORT.fullmatch(commit) else "",
+                                 "mail_not_sent": mail == "not_sent"})
+        elif kind in ("live", "main") and len(cells) == 2 and _SHORT.fullmatch(cells[1]):
+            out[kind] = cells[1]
+        elif kind == "not_deployed" and len(cells) == 2 and cells[1].isdigit() and len(cells[1]) <= 4:
+            out["not_deployed"] = int(cells[1])
+        elif kind == "daemons" and len(cells) == 2:
+            out["behind"] = [d for d in ("vault", "keys") if d in cells[1].split(",")]
+    return out
+
+
+def build_line(p) -> str:
+    """The board's build line: the tasks that are not done, the newest done ones, live / main / not deployed, the
+    daemon code behind and a mail that was not sent."""
+    data = build_state(p)
+    if data is None:
+        return "build: no runner state yet"
+    tasks = sorted(data["tasks"], key=lambda t: (t["since"], t["id"]))
+    done = [t for t in tasks if t["state"] == "done"]
+    shown = [t for t in tasks if t["state"] != "done" or t in done[-DONE_SHOWN:]]
+    parts = []
+    if data["queue"]:
+        parts.append("queue held" if data["queue"] == "held" else "queue held: %s" % data["queue"])
+    for t in shown:
+        if t["state"] == "done":
+            parts.append("%s done %s" % (t["id"], t["time"] or "unknown"))
+        elif t["state"] == "running":
+            parts.append("%s running since %s" % (t["id"], t["time"] or "unknown"))
+        else:
+            parts.append("%s %s" % (t["id"], t["state"]))
+    if len(done) > DONE_SHOWN:
+        parts.append("%d more done" % (len(done) - DONE_SHOWN))
+    line = "build: " + (", ".join(parts) or "no task yet")
+    nd = data["not_deployed"]
+    line += "; live %s, main %s, %s not deployed" % (data["live"], data["main"], "unknown" if nd is None else nd)
+    if data["behind"]:
+        line += "; daemon code behind: %s" % ", ".join(data["behind"])
+    unsent = [t["id"] for t in tasks if t["mail_not_sent"]]
+    if unsent:
+        line += "; mail not sent: %s" % " ".join(unsent)
+    return line
+
+
 def locked(p) -> str | None:
     """"locked since <time>" while the vault daemon says it is locked, else None (also without a daemon)."""
     from awb import vault
@@ -249,6 +384,7 @@ def main(argv: list[str] | None = None) -> int:
         print("awb board: %s" % err, file=sys.stderr)
         return 1
     board["wipe"] = wipe_line(p)
+    board["build"] = build_line(p)
     if args.command == "show":
         from awb import hooks
 

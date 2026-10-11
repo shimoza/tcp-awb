@@ -1174,6 +1174,7 @@ paths:
                             valid: 3
                             stale: 1
                         board_redacted: false
+                    build: "build: B-001 done 11:40, B-002 asked; live eb928d2, main 1a2b3c4, 1 not deployed"
         "401":
           description: No valid session. Sign in first.
           content:
@@ -4342,11 +4343,15 @@ components:
           description: Active projects, latest change first.
           items:
             "$ref": "#/components/schemas/BoardProject"
+        build:
+          type: string
+          description: "The build line of the self-build from <shared>/build/state.tsv: the tasks, live, main and how many are not deployed. Ids, state words, short hashes and times only."
       required:
         - source
         - generated_at
         - summary
         - projects
+        - build
     ProjectOptions:
       type: object
       properties:

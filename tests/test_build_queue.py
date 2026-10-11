@@ -504,3 +504,46 @@ def test_the_default_places_are_his_working_copy_and_the_build_root(monkeypatch)
     monkeypatch.delenv("AWB_BUILD_RUNS")
     assert build.queue_dir() == Path.home() / "tcp-awb" / "build" / "queue"
     assert build.runs_dir() == Path("/srv/awb-build/runs")
+
+
+def test_status_carries_live_main_and_the_count_not_deployed(places, tmp_path, monkeypatch, capsys):
+    """SB4: the board line of `awb build status` ends with live, main and how many done tasks are not deployed, read
+    fresh from the journal and main.git. Planted: a done task whose commit is live counted; the one after it not; a
+    missing journal and main.git that break the line."""
+    import json
+    import subprocess
+
+    from awb import buildrun
+
+    _, r = places
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.org", GIT_COMMITTER_NAME="t",
+               GIT_COMMITTER_EMAIL="t@example.org")
+    seed, root = tmp_path / "seed", tmp_path / "build-root"
+
+    def g(*a, cwd=seed):
+        return subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True, text=True, env=env).stdout.strip()
+
+    seed.mkdir()
+    g("init", "-q", "-b", "main")
+    commits = []
+    for i in range(2):
+        (seed / "a.txt").write_text("%d\n" % i)
+        g("add", "a.txt")
+        g("commit", "-q", "--no-verify", "-m", "c%d" % i)
+        commits.append(g("rev-parse", "HEAD"))
+    root.mkdir()
+    g("clone", "-q", "--bare", str(seed), str(root / "main.git"), cwd=tmp_path)
+    monkeypatch.setenv("AWB_BUILD_ROOT", str(root))
+    journal = tmp_path / "DEPLOYED"
+    journal.write_text(json.dumps({"state": "done", "target": commits[0]}))
+    monkeypatch.setattr(buildrun, "DEPLOYED", journal)
+    for tid, c in (("B-012", commits[0]), ("B-013", commits[1])):
+        run = build.new_run(tid, r, "done")
+        (run.folder / "commit").write_text(c + "\n")
+    assert cli.main(["build", "status"]) == 0
+    out = capsys.readouterr().out.strip()
+    assert out.startswith("build: B-012 done ") and out.endswith(
+        "; live %s, main %s, 1 not deployed" % (commits[0][:7], commits[1][:7]))
+    journal.unlink()
+    assert cli.main(["build", "status"]) == 0
+    assert capsys.readouterr().out.strip().endswith("; live unknown, main %s, 2 not deployed" % commits[1][:7])

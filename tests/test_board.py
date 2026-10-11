@@ -172,3 +172,99 @@ def test_board_and_health_open_with_locked_since(home, monkeypatch, capsys):
             assert cli.main(["board", "show"]) == 0
         assert capsys.readouterr().out.startswith("# Project status")
         assert health() == "ok\n"
+
+
+# --------------------------------------------------------------------------- the build line (self-build SB4)
+
+TSV = ("# written by awb build serve: ids, states, hashes and times; the board and the portal read it\n"
+       "queue\theld\tvault locked\n"
+       "task\tB-001\t1\tdone\t2026-10-11T11:40:00\t1a2b3c4\tsent\n"
+       "task\tB-002\t1\tasked\t2026-10-11T12:05:00\t-\tsent\n"
+       "task\tB-003\t2\trunning\t2026-10-11T14:10:00\t-\t-\n"
+       "task\tB-004\t1\tred: suite\t2026-10-11T13:00:00\t-\tnot_sent\n"
+       "live\teb928d2\n"
+       "main\t1a2b3c4\n"
+       "not_deployed\t1\n"
+       "daemons\tvault\n")
+
+
+def shared(tmp_path, text: str | None):
+    import types
+
+    if text is not None:
+        (tmp_path / "build").mkdir(exist_ok=True)
+        (tmp_path / "build" / "state.tsv").write_text(text, encoding="utf-8")
+    return types.SimpleNamespace(shared=tmp_path)
+
+
+def test_the_build_line_from_a_planted_state_tsv(tmp_path):
+    """SB4: the board reads <shared>/build/state.tsv and prints one build line. Planted: a task, the held queue, the
+    hashes, the count, the daemon behind or the unsent mail missing from the line; the order not by time."""
+    assert board.build_line(shared(tmp_path, TSV)) == (
+        "build: queue held: vault locked, B-001 done 11:40, B-002 asked, B-004 red: suite, B-003 running since 14:10; "
+        "live eb928d2, main 1a2b3c4, 1 not deployed; daemon code behind: vault; mail not sent: B-004")
+    many = "".join("task\tB-%03d\t1\tdone\t2026-10-11T0%d:00:00\tabcdef%d\tsent\n" % (i, i, i) for i in range(1, 6))
+    assert board.build_line(shared(tmp_path, many + "not_deployed\t0\n")) == (
+        "build: B-003 done 03:00, B-004 done 04:00, B-005 done 05:00, 2 more done; live unknown, main unknown, "
+        "0 not deployed")
+
+
+def test_the_build_line_without_the_file(tmp_path):
+    """SB4: no state.tsv (the runner never ran), a folder at its place, a link at its place: one fixed line."""
+    assert board.build_line(shared(tmp_path, None)) == "build: no runner state yet"
+    (tmp_path / "build" / "state.tsv").mkdir(parents=True)
+    assert board.build_line(shared(tmp_path, None)) == "build: no runner state yet"
+    (tmp_path / "build" / "state.tsv").rmdir()
+    (tmp_path / "elsewhere.tsv").write_text(TSV)
+    (tmp_path / "build" / "state.tsv").symlink_to(tmp_path / "elsewhere.tsv")
+    assert board.build_line(shared(tmp_path, None)) == "build: no runner state yet"
+
+
+def test_a_planted_free_text_does_not_reach_the_build_line(tmp_path):
+    """SB4: every cell is matched before use. Planted: a free reason after a known word, an unknown word, a name in
+    the id, the hash, the time and the queue reason, an extra column, a control character."""
+    text = ("queue\theld\tcall the zyxwo team now\n"
+            "task\tB-001\t1\tred: ask zyxwo about it\t2026-10-11T11:40:00\t1a2b3c4\tsent\n"
+            "task\tB-002\t1\tstopped: zyxwo\t2026-10-11T11:41:00\t-\tsent\n"
+            "task\tB-003\t1\tdeployed by zyxwo\t2026-10-11T11:42:00\t-\tsent\n"
+            "task\tZyxwo-1\t1\tdone\t2026-10-11T11:43:00\t-\tsent\n"
+            "task\tB-004\t1\tdone\tzyxwo\tzyxwo12\tsent\n"
+            "task\tB-005\t1\tdone\t2026-10-11T11:44:00\t-\tsent\textra zyxwo\n"
+            "task\tB-006\t1\tasked\x1b[2J\t2026-10-11T11:45:00\t-\tsent\n"
+            "live\tzyxwo\nmain\t1a2b3c4 zyxwo\nnot_deployed\tzyxwo\ndaemons\tzyxwo,vault\n")
+    line = board.build_line(shared(tmp_path, text))
+    assert "zyxwo" not in line.lower() and "\x1b" not in line
+    assert line == ("build: queue held, B-004 done unknown, B-001 red, B-002 stopped; live unknown, main unknown, "
+                    "unknown not deployed; daemon code behind: vault")
+
+
+def test_the_vocabulary_of_the_line_covers_every_state_the_runner_writes():
+    """SB4: the board cuts an unknown reason to its word, so each fixed phrase of the runner must be known here.
+    Planted: a new state literal in awb/buildrun.py or a gate class the board does not know."""
+    import re as _re
+    from pathlib import Path
+
+    from awb import build, gate
+
+    source = (Path(board.__file__).parents[1] / "buildrun.py").read_text(encoding="utf-8")
+    literals = set(_re.findall(r'"((?:red|held|stopped|hung): [a-z_. -]+)"', source))
+    literals |= {"red: gate %s" % c for c in gate.CLASSES}
+    assert literals and all(board.build_state_word(s) == s for s in literals if not s.endswith(" "))
+    assert set(board.BUILD_WORDS) == set(build.STATES)
+    assert board._ID.pattern == build.ID_RE.pattern
+    held = set(_re.findall(r'return "([a-z][a-z -]+)"\n', source.split("def preconditions", 1)[1].split(
+        "\n    def ", 1)[0]))
+    assert held and held <= set(board.QUEUE_HELD)
+
+
+def test_awb_board_and_the_api_carry_the_build_line(home, monkeypatch, capsys):
+    """SB4: awb board show and GET /api/board print the line. Planted: the line on one of them only."""
+    (home.shared / "build").mkdir(parents=True, exist_ok=True)
+    (home.shared / "build" / "state.tsv").write_text(TSV, encoding="utf-8")
+    want = board.build_line(home)
+    assert want.startswith("build: queue held: vault locked")
+    with patch.object(api, "board", return_value=copy.deepcopy(contract.P_BOARD)):
+        assert cli.main(["board", "show"]) == 0
+    assert want in capsys.readouterr().out
+    assert api.board(home)["build"] == want
+    assert want in board.page(dict(copy.deepcopy(contract.P_BOARD), build=want))

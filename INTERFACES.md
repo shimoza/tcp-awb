@@ -334,7 +334,7 @@ list[str]`. The records: `runs_dir() -> Path` (`AWB_BUILD_RUNS`, else `<build_ro
 `STATE_RE`, `Run(id, n, folder, state, since)`, `read_state(folder)`, `write_state(folder, state, now=None)` (one
 line `<state>\t<time>`, written atomically), `runs_of(id)`, `latest(id)`, `new_run(id, runs=None, state="queued")`,
 `task_lock(id)` (flock of `runs/<ID>/.lock`, which the runner takes too). The lines: `line(run)` (the one-line forms of
-DESIGN.md section 6), `list_lines()`, `board_line()`, `ended_lines()` (marks each run `reported` with the state it
+DESIGN.md section 6), `list_lines()`, `board_line()`, `deploy_tail()` (SB4: live, main, not deployed through `buildrun.deployed_info`), `ended_lines()` (marks each run `reported` with the state it
 printed). The commands: `add(path, qdir=None, runs=None, register=None) -> Task` (raises `Refused`),
 `cmd_show`, `cmd_answer`, `cmd_retry`, `cmd_widen`, `cmd_stop`, `main(argv)`.
 
@@ -358,6 +358,11 @@ register) -> "pushed" | "pending" | "refused"`. `Runner(host)` with `serve()`, `
 `judge_and_merge`, `publish`, `finish`. What he reads: `write_result`, `write_state_tsv`, `deployed_info`. The
 selftest: `World(base, python)`, `SELFTEST_CASES`, `selftest(only=None, python=None) -> list[str]`, `acquire_lock`,
 `snapshot_prompt`.
+
+The board's reader of `state.tsv` (SB4) is `awb/tcp/board.py`: `build_state(p) -> dict | None` (every cell matched:
+ids by `_ID`, state words in `BUILD_WORDS` with a reason only from `BUILD_REASONS`, queue holds from `QUEUE_HELD`,
+short hashes, times), `build_line(p) -> str`; `awb board` and `projects_api.board()` (the field `build` of GET
+/api/board) print it.
 
 ### `awb/vault.py`: encryption, the daemon, the client
 
@@ -997,7 +1002,16 @@ subcommands, run by root as the owner and refused as root: `plan --json [options
 archive` stream on standard output), `unlock`, `status --json [--probe SOCKET]...`. The build runner (SB1):
 `is_build_runner(argv)`, `active_task_units(runner) -> list[str] | None`, `build_runner_action(show, runner, reason)
 -> (action, reason, wanted)`; the plan carries `build_restart_wanted` (bool) and root writes
-`<build_root>/runs/restart-wanted` (`restart_wanted_path(host)`, `Host.build_root`, None for `config.build_root()`). The root path imports neither
+`<build_root>/runs/restart-wanted` (`restart_wanted_path(host)`, `Host.build_root`, None for `config.build_root()`).
+The deploy by task (SB4): `Options.task` (`--task ID`, excludes `--to` and `--rollback`; the plan child gets
+`--task ID` and, on a dry run, `--dry-run`); `owner_task(opts, repo, host) -> (target, note)` (fetch of
+`refs/heads/main` from `main_git(host)` into FETCH_HEAD, `merge --ff-only` unless a dry run);
+`task_record(tid, runs) -> (n, state, commit | None)` reads the newest run as `awb.build.latest` does, without
+importing it (`TASK_ID_RE`, `TASK_DEPLOYABLE`: `done`, `green`, `held: push refused`, `held: push pending`);
+`build_root(host)`, `main_git(host)`, `build_runs(host)` (`AWB_BUILD_ROOT`, `AWB_BUILD_RUNS` as the build module),
+`pull_line(host)`. `owner_plan` refuses for every deploy a deployed commit (with a journal: the release `src`
+points at, else the journal's target) unknown to the repository and, unless `--to` or `--rollback`, a target that
+does not descend from it. The root path imports neither
 `getpass` nor `socket` nor `awb.vault` nor `awb.tcp.keys`: every function that does is named `owner_*`.
 
 - Units: `templates(tree) -> {unit: {"kind", "files", "dropins"}}` from `seal/*.service`, `seal/web/*.service`,
