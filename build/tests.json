@@ -4234,8 +4234,22 @@
    "name": "build selftest: each case fails the selftest when its check is monkeypatched away",
    "run": ".venv/bin/pytest tests/test_build_runner.py::test_each_selftest_case_fails_when_its_check_is_taken_away",
    "status": "passing"
+  },
+  {
+   "id": "SB3-39",
+   "phase": "SB3",
+   "name": "seal: the dry run copies the model key to the owner's 400 copy, makes tcp-shared/build 3770 and writes the three host file keys; verify checks them and runs awb build selftest",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_plans_the_model_key_the_board_folder_and_the_push_and_verify_runs_the_runner_selftest",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-40",
+   "phase": "SB3",
+   "name": "seal: build_model_key run for real: made 400, left when current, copied again when the source changes, a link source refused, the key never printed",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_model_key_copy_is_the_owners_alone_and_follows_its_source_never_printed",
+   "status": "passing"
   }
  ],
- "total_tests": 605,
+ "total_tests": 607,
  "checked": "2026-10-11"
 }

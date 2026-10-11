@@ -45,8 +45,8 @@ The seal keeps the register of names away from every working session. It uses tw
 - `work-claude/CLAUDE.md`: the instructions of the work user, at most 60 lines.
 - `work-claude/managed-settings.json`: the six hooks once more, installed as a managed drop-in of the client.
 - `awb-buildd.service`: the runner of the build queue, as the owner with the group `awb`, `NoNewPrivileges=no` (it
-  calls `sudo -n systemd-run`) and `UMask=0022`. `setup.sh` installs it and does not enable it until the runner exists
-  (SB3); a deploy never starts it and defers its restart while a task runs.
+  calls `sudo -n systemd-run`) and `UMask=0022`. `setup.sh` installs it and does not enable it: the steering
+  session enables it after SB4 and SB5. A deploy never starts it and defers its restart while a task runs.
 - `build-claude/settings.json`: the client settings of a build task (section "The build side").
 - `../hooks-build/`: the commit hooks of a build clone, installed with every release as
   `/opt/tcp-awb/src/hooks-build`.
@@ -191,7 +191,19 @@ with the properties of a task (`ProtectSystem=strict`, `ProtectHome`, `PrivateTm
 connects while a TCP API host, GitHub, a write under `/opt` and `runs/`, a listing of `runs/` and of the work home
 fail. A probe of that unit counts only after the unit was shown to run as the build user.
 
-The model credential of the build user (D-S7: a dedicated key with a cap, or his login) is not part of the setup.
+- The model key of a build task (D-S7, his default of 2026-10-11: the Workbench's own key): `setup.sh` copies the
+  source that `build_model_key_source` of the host file names (`/etc/awb/anthropic.key` unless he changed it) to
+  `/etc/awb/build-model.key`, the owner's alone (400) in the root folder `/etc/awb`, again whenever the source
+  changes. It never prints it. The runner hands it to each task's home and removes it with the home; the build
+  settings read it with `apiKeyHelper`. A dedicated key later is one line: `build_model_key_source`. It is the
+  owner's file, not root's with the owner's group: the runner's unit carries the group `awb`, not his own group, and
+  the host has no ACL tools.
+- `tcp-shared/build` (the work user's, group `awb`, 3770): the runner writes `state.tsv` there for the board.
+- The host file gets `build_model_key`, `build_model_key_source` and `build_push` (yes unless he wrote no: the runner
+  pushes a green `main` to GitHub, D-S2).
+
+`verify.sh` also checks the copy of the key (the owner's, 400, the same bytes as its source), the board's folder and
+runs `awb build selftest` as the owner: the runner's planted cases, each refused or classified.
 
 ## The deploy
 

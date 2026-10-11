@@ -35,6 +35,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   `/srv/awb-build/main.git` (a rebase first when `main` moved) and pushes it to GitHub; anything else is `hung`,
   `red`, `asked`, `stopped`, `stale` or `held` with one line, `result.md`, a board line and a mail. `awb build
   selftest` proves the planted cases and `awb seal check` runs it. The unit stays installed and not enabled.
+- The build side gets its model key and the board's folder (self-build step SB3). `seal/setup.sh` copies the
+  Workbench's model key to `/etc/awb/build-model.key` (yours alone, 400, copied again when the source changes;
+  `build_model_key_source` in the host file names another key in one line), makes `tcp-shared/build` for the
+  runner's board line, writes `build_push = yes` and gives the build settings `apiKeyHelper`. `sudo
+  seal/verify.sh` checks the copy and the folder and runs `awb build selftest`.
 - Every draft for others passes the voice checks before he sees it (the work profile, proposal 4). `awb write
   check` blocks in mode mail and doc what he struck out most: "we", "our" and "wir" for "I", the jargon gotchas,
   quirk, pilot light and whole trick (cadence, estate, verbatim, granular and sharp edges were banned already), a

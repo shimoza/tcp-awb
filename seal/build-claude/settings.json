@@ -1,5 +1,6 @@
 {
   "autoMemoryEnabled": false,
+  "apiKeyHelper": "cat \"$HOME/.config/awb-build/model.key\"",
   "attribution": {
     "commit": "",
     "pr": ""

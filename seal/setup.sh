@@ -72,6 +72,8 @@ BUILD_CLIENT=/opt/claude-build
 BUILD_CLIENT_VERSION=2.1.296          # the client the build user runs, pinned by version and digest
 BUILD_CLIENT_SHA256=24972e3bc859fab2b46ed4c1e51f7d6130f06d3bd550811a114640de3370d0de
 INSTALL_ONLY="awb-buildd.service"     # installed, never enabled here: the runner comes with SB3
+BUILD_MODEL_KEY=/etc/awb/build-model.key     # the owner's copy for the runner (D-S7), never printed
+BUILD_MODEL_KEY_SOURCE=/etc/awb/anthropic.key   # the default source; build_model_key_source in the host file wins
 
 usage() {
     echo "usage: sudo $0 [--dry-run] [--update [--units-only]] [--mirrors DIR...]" >&2
@@ -693,6 +695,9 @@ mirrors = $MIRROR_ROOT
 egress = $(kept_conf egress count)
 build_user = $BUILD_USER
 build_root = $BUILD_ROOT
+build_model_key = $BUILD_MODEL_KEY
+build_model_key_source = $(kept_conf build_model_key_source "$BUILD_MODEL_KEY_SOURCE")
+build_push = $(kept_conf build_push yes)
 $web_keys
 EOF
     run_if_present "$CONF_DIR/blocklist.txt" chown root:"$WORK_GROUP" "$CONF_DIR/blocklist.txt"
@@ -986,6 +991,7 @@ build_folders() {
     run install -d -o "$BUILD_USER" -g "$BUILD_USER" -m 755 "$BUILD_ROOT/wt"
     run install -d -o "$owner" -g "$owner_gid" -m 700 "$BUILD_ROOT/runs"
     run install -d -o "$BUILD_USER" -g "$BUILD_USER" -m 700 "$BUILD_ROOT/home"
+    build_board
 }
 
 build_venv() {
@@ -1086,10 +1092,44 @@ CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
 export DISABLE_AUTOUPDATER CLAUDE_CODE_DISABLE_AUTO_MEMORY
 exec $bin "\$@"
 WRAP
+    build_model_key
+}
+
+build_model_key() {
+    # the model key of a build task (D-S7): a copy of the source the host file names, the owner's alone (400, in the
+    # root folder /etc/awb), refreshed when the source changes. The runner hands it to each task's home and removes
+    # it with the home. Its content is never printed. A dedicated key later is one line: build_model_key_source.
+    local src dst="$BUILD_MODEL_KEY"
+    src=$(kept_conf build_model_key_source "$BUILD_MODEL_KEY_SOURCE")
+    info "the model key of a build task: $dst, a copy of $src for the owner alone (400), refreshed when the source"
+    info "changes; the runner copies it into each task's home and removes it with the home"
+    if [ "$dry_run" -eq 1 ]; then
+        printf '+ install -o %s -g %s -m 400 %s %s.partial  # when missing or the source changed\n' "$owner" \
+            "$owner_gid" "$src" "$dst"
+        printf '+ mv -f -- %s.partial %s  # when missing or the source changed\n' "$dst" "$dst"
+        return 0
+    fi
+    if [ -L "$src" ] || [ ! -f "$src" ]; then
+        info "warning: the source of the model key is not a regular file: the build tasks wait, seal/verify.sh reports it"
+        return 0
+    fi
+    if [ -f "$dst" ] && [ ! -L "$dst" ] && cmp -s -- "$src" "$dst" &&
+        [ "$(stat -c '%U %a' -- "$dst")" = "$owner 400" ]; then
+        skip "the copy is current" install -o "$owner" -g "$owner_gid" -m 400 "$src" "$dst"
+        return 0
+    fi
+    run install -o "$owner" -g "$owner_gid" -m 400 "$src" "$dst.partial"
+    run mv -f -- "$dst.partial" "$dst"
+}
+
+build_board() {
+    info "the build line of the board: $work_home/tcp-shared/build, the work user's with the group $WORK_GROUP (3770),"
+    info "where the runner writes state.tsv for awb board and the portal"
+    run install -d -o "$WORK_USER" -g "$WORK_GROUP" -m 3770 "$work_home/tcp-shared/build"
 }
 
 step_build() {
-    info "the build side of the self-build (presentations/self-build, SB1)"
+    info "the build side of the self-build (presentations/self-build, SB1 and SB3)"
     step_build_user
     build_client
     info "the commit hooks of a build clone come with the release: $OPT/src/hooks-build (the installed gate"

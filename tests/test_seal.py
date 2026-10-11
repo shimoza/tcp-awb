@@ -1392,6 +1392,67 @@ def test_verify_lists_the_build_checks_and_reads_the_pin_of_setup(fakebin):
         assert "--property=%s" % prop in verify or '--property="%s"' % prop in verify, prop
 
 
+def test_setup_plans_the_model_key_the_board_folder_and_the_push_and_verify_runs_the_runner_selftest(fakebin):
+    """SB3: the dry run of a first seal and of an update copies the model key the host file names (default the
+    Workbench's key) to the owner's 400 copy, makes the board's build folder in tcp-shared and writes the three host
+    file keys; verify.sh checks the copy and the folder and runs awb build selftest as the owner."""
+    for args in (["--dry-run"], ["--update", "--dry-run"]):
+        res = run_script(SETUP, args, fakebin)
+        assert res.returncode == 0, res.stderr
+        lines = res.stdout.splitlines()
+        cmds = commands(res.stdout)
+        assert "+ install -o %s -g %d -m 400 /etc/awb/anthropic.key /etc/awb/build-model.key.partial  # when " \
+               "missing or the source changed" % (USER, os.getgid()) in cmds, args
+        assert "+ mv -f -- /etc/awb/build-model.key.partial /etc/awb/build-model.key  # when missing or the source " \
+               "changed" in cmds
+        board = [c for c in cmds if c.startswith("+ install -d -o awb -g awb -m 3770 ")]
+        assert len(board) == 1 and board[0].endswith("/tcp-shared/build")
+        for key in ("build_model_key = /etc/awb/build-model.key", "build_model_key_source = /etc/awb/anthropic.key",
+                    "build_push = yes"):
+            assert "    | " + key in lines, key
+    res = run_script(VERIFY, ["--dry-run"], fakebin)
+    checks = [line[6:] for line in res.stdout.splitlines() if line.startswith("CHECK ")]
+    for want in ("the model key of a build task is the owner's (400) and matches its source",
+                 "the board's build folder is the work user's, 3770",
+                 "the build runner refuses its planted cases (awb build selftest)"):
+        assert want in checks, want
+    assert "runuser -u \"$owner\" -- \\\n        env HOME=\"$owner_home\" /usr/local/bin/awb build selftest" in \
+        VERIFY.read_text(encoding="utf-8")
+
+
+def test_the_model_key_copy_is_the_owners_alone_and_follows_its_source_never_printed(tmp_path):
+    """SB3, D-S7: build_model_key of setup.sh run for real against a throw-away source, copy and host file: a missing
+    copy is made 400 with the source's bytes, a current one is left, a changed source is copied again, a source that
+    is a link is refused with a warning and the copy stays; the key's bytes are never printed."""
+    text = SETUP.read_text(encoding="utf-8")
+    kept = re.search(r"(?ms)^kept_conf\(\) \{.*?^\}\n", text).group(0)
+    src, dst, conf = tmp_path / "source.key", tmp_path / "copy.key", tmp_path / "paths.conf"
+    first = "fake-" + "model-key-one"
+    src.write_text(first + "\n")
+    conf.write_text("build_model_key_source = %s\n" % src)
+    tail = ("owner=%s\nowner_gid=%d\nCONF_FILE=%s\nBUILD_MODEL_KEY=%s\nBUILD_MODEL_KEY_SOURCE=/nonexistent\n%s"
+            "build_model_key\n" % (USER, os.getgid(), conf, dst, kept))
+
+    def run():
+        res, _ = _run_build(tmp_path, tail)
+        assert res.returncode == 0, res.stderr
+        assert "model-key" not in res.stdout + res.stderr
+        return res.stdout
+
+    out = run()
+    assert "+ install -o %s -g %d -m 400 %s %s.partial" % (USER, os.getgid(), src, dst) in out
+    assert dst.read_text() == first + "\n" and oct(dst.stat().st_mode & 0o777) == "0o400"
+    assert "= install " in run() and "the copy is current" in run()
+    src.write_text("fake-" + "model-key-two\n")
+    run()
+    assert dst.read_text() == "fake-" + "model-key-two\n"
+    src.unlink()
+    src.symlink_to(conf)
+    out = run()
+    assert "warning: the source of the model key is not a regular file" in out
+    assert dst.read_text() == "fake-" + "model-key-two\n"
+
+
 def test_the_host_file_keeps_its_mode_and_group_when_a_command_rewrites_it(tmp_path, monkeypatch):
     """SB1: the host file is 640 root:awb; `sudo awb egress enforce|count` and `sudo awb web host HOST` rewrite it and
     must not open it again (they wrote 644). Planted: a host file of mode 640 stays 640 after both, one of 660 loses

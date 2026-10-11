@@ -384,6 +384,9 @@ build_dry() {
         "the build client's command runs the pinned version with the updater off" \
         "the build hooks of the release run the gate --no-register by the installed interpreter" \
         "the build runner's unit is installed" \
+        "the model key of a build task is the owner's (400) and matches its source" \
+        "the board's build folder is the work user's, 3770" \
+        "the build runner refuses its planted cases (awb build selftest)" \
         "the tool guards refuse their planted cases, the build user's too" \
         "the build user cannot see the vault" "the build user cannot read the host file" \
         "the build user cannot read the blocklist" "the build user cannot connect to the check socket" \
@@ -472,6 +475,13 @@ build_checks() {
     done
     report "$out" "the build hooks of the release run the gate --no-register by the installed interpreter"
     allowed "the build runner's unit is installed" test "$(systemctl show -p LoadState --value awb-buildd.service)" = loaded
+    allowed "the model key of a build task is the owner's (400) and matches its source" sh -c \
+        'test -f "$1" && test ! -L "$1" && test "$(stat -c "%U %a" -- "$1")" = "$3 400" && cmp -s -- "$1" "$2"' \
+        verify "$(conf_value build_model_key)" "$(conf_value build_model_key_source)" "$owner"
+    allowed "the board's build folder is the work user's, 3770" test \
+        "$(stat -c '%U %G %a' -- "$shared/build" 2>/dev/null)" = "awb awb 3770"
+    allowed "the build runner refuses its planted cases (awb build selftest)" runuser -u "$owner" -- \
+        env HOME="$owner_home" /usr/local/bin/awb build selftest
     allowed "the tool guards refuse their planted cases, the build user's too" as_build /usr/local/bin/awb hook selftest
 
     # N1 to N5 with the build user's own uid
