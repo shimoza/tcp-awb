@@ -171,6 +171,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- The gateway listens on the front socket alone: `awb-web.service` no longer passes `--ports 8080 8081` and the
+  tunnel fence lets the tunnel's user reach no loopback port but the resolver (53), now that every ingress rule (the
+  site, `/ask` and the owner host) points at the front socket (finding 12 of the review of 2026-10-10). `--ports`
+  stays in the gateway for the tests; no installed file uses it.
 - The name check reads every letter of another script that Unicode lists as confusable with one Latin letter as that
   letter, Lisu capitals and Cherokee small letters included, also inside a word of mixed scripts (finding 17 of the
   review of 2026-10-10). The table of 417 letters is generated once from the confusables data of UTS #39 and kept in

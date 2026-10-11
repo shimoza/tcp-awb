@@ -7,14 +7,14 @@ copies in `/opt/awb-web` is a step of its own, done once, by the owner.
 
 | unit | user | what it runs | listens on |
 |---|---|---|---|
-| `awb-web.service` | `awb-web` | `awb/tcp/web/gateway.py`: sign-in, sessions, the checks of every request | the two sockets below; 127.0.0.1:8080 and 8081 until the switch, for the tunnel's user alone |
+| `awb-web.service` | `awb-web` | `awb/tcp/web/gateway.py`: sign-in, sessions, the checks of every request | the two sockets below and no TCP port |
 | `awb-web.socket` | root, group of the tunnel's user, 0660 | the front door: the gateway accepts a peer only when its uid is the tunnel's user (`SO_PEERCRED`) | `@FRONT_SOCKET@` (folder root 0750, same group) |
 | `awb-web-status.socket` | root, 0666 | GET /health and nothing else, for `awb web status`, the publish code and the deploy | `/run/awb-web-status.sock` |
 | `awb-owner-actions.socket` and `.service` | `awb-owner`, no network | `awb.tcp.web.owner_actions`: GET /api/owner/state, ui-runs and intake from the status file alone; it answers the gateway's uid only | `/run/awb-owner.sock` (root, group awb-web, 0660) |
 | `awb-owner-status.service` and `.timer` | the owner, group awb-owner | `awb owner status --write` every minute: the codes-only status file; the deploy never restarts it, the timer runs the new code | `/var/lib/awb-owner-status/status.json` (0640) |
 | `awb-web-publish.socket` and `.service` | root | `awb web publish --from-socket --newest`: one connection, one run id from owner-actions, one answer line; the page is read and checked as the owner and stays root owned (D-PUBLISH) | `/run/awb-web-publish.sock` (root, group awb-owner, 0660) |
 | `tunnel/cloudflared.conf` | the tunnel's user | cloudflared's drop-in `cloudflared.service.d/50-awb-fence.conf`: its own user, root copies the token into its runtime folder (0700) and loads the fence first, metrics pinned to 127.0.0.1:20241 | |
-| `tunnel/tunnel-fence.nft` | root | `/etc/awb/tunnel-fence.nft`: the tunnel's user opens no new loopback TCP connection but the resolver (53) and, for one release, 8080 and 8081; nobody else reaches its metrics port | |
+| `tunnel/tunnel-fence.nft` | root | `/etc/awb/tunnel-fence.nft`: the tunnel's user opens no new loopback TCP connection but the resolver (53); nobody else reaches its metrics port | |
 | `awb-console-data.service` | `awb` | `awb.tcp.web.projects_api`: the projects, read only | 127.0.0.1:8182 |
 | `awb-console-tenants.service` | `awb-console` | `awb.tcp.web.tenant_api`: the test tenants, read only; the key service lets this user alone read without a project (F2) | 127.0.0.1:8183 for the reader view |
 | `awb-console-tenants.socket` | root, group awb-web, 0660 | the owner view of the same service, GET /api/owner/tenants with the IAM domain names; it answers the gateway's uid alone | `/run/awb-owner-tenants.sock` |
@@ -104,12 +104,11 @@ with that user's group, and the gateway checks the peer's uid before it reads a 
 connection and a changed ingress reaches nothing but the front socket. `install.sh` restarts cloudflared when the
 drop-in or the fence changed.
 
-The order of the switch: the deploy brings the sockets and the fence while the gateway still listens on 8080 and
-8081 (and the fence still lets the tunnel reach those two). Those two ports answer the tunnel's user alone: the
-gateway reads the uid of a loopback client from the kernel's table and closes any other before a byte is read, and
-it takes `CF-Connecting-IP` only on a listener with that one peer, so no local process chooses its address key. Then, in the Cloudflare dashboard, both ingress rules of
-the tunnel (the site and the `/ask` path) point at `unix:<front_socket>`. The release after drops `--ports` from
-`awb-web.service` and the two ports from the fence.
+The front socket is the only way in. Every ingress rule of the tunnel (the site, the `/ask` path and the owner host)
+points at `unix:<front_socket>`, the gateway opens no TCP listener and the fence lets the tunnel's user reach no
+loopback port but the resolver. The gateway takes `CF-Connecting-IP` only from a listener whose one peer is the
+tunnel's user, so no local process chooses its address key (finding 12 of the review of 2026-10-10). The gateway's
+`--ports` remains for the tests alone; no installed file uses it.
 
 After the switch `--domain` may be left out: the script reads the host name from the installed `awb-web.service`.
 `sudo awb deploy` runs `releases/<commit>/seal/web/install.sh --only UNIT...` from the release it extracted, once an

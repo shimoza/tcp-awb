@@ -1316,8 +1316,7 @@ class TCPServer(ThreadingHTTPServer):
 
 def make_server(port, auth, index, portal_port, ask_port, projects_port=8182, tenants_port=8183, *, domain,
                 peer=None):
-    """A TCP listener on 127.0.0.1 (the tests, and the release of the switch to the front socket, there with the
-    tunnel's uid as its one `peer`)."""
+    """A TCP listener on 127.0.0.1, for the tests only: the installed unit takes the site on the front socket."""
     server = TCPServer(('127.0.0.1', port), Gateway)
     server.peer = peer
     return _configure(server, auth, index, portal_port, ask_port, projects_port, tenants_port, domain)
@@ -1455,8 +1454,8 @@ def main():
     ap.add_argument('--front-peer', help='the one user whose processes may connect to the front socket')
     ap.add_argument('--status-socket', help='a Unix socket that answers GET /health only')
     ap.add_argument('--ports', nargs='*', type=int, default=[],
-                    help='TCP listeners on 127.0.0.1 that answer the --front-peer user alone (only until the '
-                         'ingress points at the front socket)')
+                    help='TCP listeners on 127.0.0.1 that answer the --front-peer user alone (for the tests; no '
+                         'installed unit uses them, the site comes in on the front socket)')
     ap.add_argument('--v1-marker', help=argparse.SUPPRESS)
     ap.add_argument('--portal-port', type=int, default=8180)
     ap.add_argument('--ask-port', type=int, default=8181)
@@ -1464,7 +1463,7 @@ def main():
     ap.add_argument('--tenants-port', type=int, default=8183)
     args = ap.parse_args()
     if not args.front_socket and not args.ports:
-        ap.error('give --front-socket (and --ports only for the switch)')
+        ap.error('give --front-socket (--ports is for the tests)')
     peer = None
     if (args.front_socket or args.ports) and not args.front_peer:
         ap.error('--front-socket and --ports need --front-peer, the one user that may connect')

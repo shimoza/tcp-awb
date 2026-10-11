@@ -108,18 +108,20 @@ def _stubs_t9(tmp_path, conf=CONF_T9):
     return env, units, log, fence
 
 
-def test_the_rendered_front_units_and_the_fence(tmp_path):
+def test_the_rendered_front_units_and_the_fence_with_the_front_socket_alone(tmp_path):
     """The gateway listens on the front socket (root, group of the tunnel's user, 0660, its folder 0750) and the
-    status socket, takes the peer from paths.conf and keeps 8080 and 8081 for the one release of the switch;
-    cloudflared runs as its own user with a copy of the token in its own runtime folder, root loads the fence first; the fence refuses
-    every new loopback TCP connection of that user but the resolver and the two old ports, IPv4 and IPv6 (inet), and
-    keeps everyone else off the metrics port."""
+    status socket alone, takes the peer from paths.conf and opens no TCP port (finding 12 of the review of
+    2026-10-10, after the switch of every ingress rule to the front socket); cloudflared runs as its own user with a
+    copy of the token in its own runtime folder, root loads the fence first; the fence refuses every new loopback TCP
+    connection of that user but the resolver, IPv4 and IPv6 (inet), and keeps everyone else off the metrics port. No
+    template of seal/web passes --ports or names 8080 or 8081 to the gateway or the fence."""
     env, units, log, fence = _stubs_t9(tmp_path)
     done = _install(env, "--domain", "awb.example.test")
     assert done.returncode == 0, done.stderr
     web = (units / "awb-web.service").read_text()
     assert ("--domain awb.example.test --owner-host owner.example.test --front-socket /run/awb-web/front.sock "
-            "--front-peer cloudflared --status-socket /run/awb-web-status.sock --ports 8080 8081") in web
+            "--front-peer cloudflared --status-socket /run/awb-web-status.sock\n") in web
+    assert "--ports" not in web and "8080" not in web and "8081" not in web
     assert "Sockets=awb-web.socket awb-web-status.socket" in web and "Requires=awb-web.socket awb-web-status.socket" in web
     front = (units / "awb-web.socket").read_text()
     for line in ("ListenStream=/run/awb-web/front.sock", "SocketUser=root", "SocketGroup=cloudflared", "SocketMode=0660",
@@ -138,8 +140,17 @@ def test_the_rendered_front_units_and_the_fence(tmp_path):
     rules = [x.strip() for x in fence.read_text().splitlines() if x.strip() and not x.strip().startswith("#")]
     assert rules[:3] == ["table inet awb_tunnel_fence", "delete table inet awb_tunnel_fence",
                          "table inet awb_tunnel_fence {"]
-    assert ('oifname "lo" meta l4proto tcp ct state new meta skuid "cloudflared" tcp dport != { 53, 8080, 8081 } '
+    assert ('oifname "lo" meta l4proto tcp ct state new meta skuid "cloudflared" tcp dport != 53 '
             'counter reject with tcp reset') in rules
+    assert not any("8080" in r or "8081" in r for r in rules)
+    for f in (units / "awb-web.socket", units / "awb-web-status.socket"):
+        assert "ListenStream=127." not in f.read_text() and "ListenStream=80" not in f.read_text()
+    templates = Path(__file__).resolve().parents[1] / "seal" / "web"
+    for f in sorted(x for x in templates.rglob("*") if x.is_file() and x.name != "README.md"):
+        text = f.read_text(encoding="utf-8")
+        assert "--ports" not in text, f.name
+        if f.name in ("awb-web.service", "tunnel-fence.nft"):
+            assert "8080" not in text and "8081" not in text, f.name
     assert ('oifname "lo" meta l4proto tcp ct state new tcp dport 20241 meta skuid != "cloudflared" counter reject '
             'with tcp reset') in rules
     calls = log.read_text().splitlines()

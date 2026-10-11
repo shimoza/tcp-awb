@@ -3226,8 +3226,15 @@
    "name": "finding 17: the generator keeps letters and leaves symbols, digits, marks and folded letters alone",
    "run": ".venv/bin/pytest tests/test_tm0_review.py::test_the_generator_keeps_letters_and_leaves_symbols_digits_marks_and_folded_letters_alone",
    "status": "passing"
+  },
+  {
+   "id": "R10-57",
+   "phase": "R10",
+   "name": "finding 12: the gateway unit takes the site on the front socket alone and the fence lets the tunnel reach the resolver alone, no installed file passes --ports",
+   "run": ".venv/bin/pytest tests/test_web_seal.py::test_the_rendered_front_units_and_the_fence_with_the_front_socket_alone",
+   "status": "passing"
   }
  ],
- "total_tests": 461,
+ "total_tests": 462,
  "checked": "2026-10-11"
 }
