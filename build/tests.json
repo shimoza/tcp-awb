@@ -3121,8 +3121,29 @@
    "name": "finding 14: reader routes on both hosts, owner routes on the owner host, the owner tenants on their socket",
    "run": ".venv/bin/pytest tests/test_web_owner_api.py::test_reader_routes_answer_on_both_hosts_and_owner_routes_on_the_owner_host_the_tenants_on_their_socket",
    "status": "passing"
+  },
+  {
+   "id": "R10-42",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 7: a possessive after a listed first name still meets the short-text rule",
+   "run": ".venv/bin/pytest tests/test_tm0_review.py::test_a_possessive_after_a_listed_first_name_still_meets_the_short_text_rule",
+   "status": "passing"
+  },
+  {
+   "id": "R10-43",
+   "phase": "R10",
+   "name": "finding 7: a typographic apostrophe and a possessive in capitals meet the rule too",
+   "run": ".venv/bin/pytest tests/test_tm0_review.py::test_a_possessive_with_a_typographic_apostrophe_still_meets_the_short_text_rule",
+   "status": "passing"
+  },
+  {
+   "id": "R10-44",
+   "phase": "R10",
+   "name": "finding 7: the possessive of a plain word makes no name",
+   "run": ".venv/bin/pytest tests/test_tm0_review.py::test_a_possessive_of_a_plain_word_stays_no_name",
+   "status": "passing"
   }
  ],
- "total_tests": 446,
+ "total_tests": 449,
  "checked": "2026-10-11"
 }

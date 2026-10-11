@@ -190,6 +190,8 @@ _TOKEN_RE = re.compile(r"[^\W\d_]+(?:['’-][^\W\d_]+)*")
 _WORD_RE = re.compile(r"[^\s&+]+")
 _MIN_CAPS_LETTERS = 4
 """An ALL CAPS word counts as a name word from this many letters on; shorter ones are acronyms."""
+_POSSESSIVE_RE = re.compile(r"(?<=[^\W\d_])['’][sS]$")
+"""The English possessive at the end of a word, with a straight or a typographic apostrophe."""
 
 _TITLES = frozenset(w.casefold() for w in ("Herr", "Herrn", "Frau", "Mr", "Mrs", "Ms", "Dr", "Prof", "Dipl"))
 _MAX_TITLE_WORDS = 3
@@ -289,7 +291,9 @@ def _ordinary(word: str) -> bool:
 
 def _name_word(word: str) -> bool:
     """A word shaped like part of a name: capitalised (any alphabet, accents, O'Name, Name-Name) or in
-    capitals with at least _MIN_CAPS_LETTERS letters."""
+    capitals with at least _MIN_CAPS_LETTERS letters. An English possessive ('s, ’s) at the end is no part of the
+    word: Vrelkam's is the name Vrelkam (finding 7 of the review of 2026-10-10)."""
+    word = _POSSESSIVE_RE.sub("", word)
     letters = sum(1 for c in word if c.isalpha())
     if letters < 2:
         return False

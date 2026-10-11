@@ -171,6 +171,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- A person written with the English possessive (`<First> <Last>'s notes`, also with a typographic apostrophe) is
+  still found by the short-text rule of the commit gate and the ledger (finding 7 of the review of 2026-10-10). A
+  trailing `'s` or `’s` is no part of a name word.
 - The tenant view with the IAM domain names is no longer served on the loopback port 8183 (finding 14 of the review
   of 2026-10-10). The tenant service answers it on an owner socket of its own (root, group awb-web, 0660) and only
   to the gateway's uid; the port keeps the reader view. The owner host refuses every request whose
