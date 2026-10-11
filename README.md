@@ -128,6 +128,12 @@ every position fetched live from the public price API and a price sheet recomput
 Every total, sum and saving is computed by `awb calc` with exact decimals. The model never adds numbers in its head.
 The review accepts a computed number only together with its recorded calculation.
 
+**A price workbook.** `awb pricebook build estimate.txt --lang de` takes a specification of line items (service,
+flavor, region, quantity, hours, pricing mode and an assumption per line), refuses a service that is not offered,
+prices every line live and writes an Excel workbook with the figures as formulas, the assumption of each line in its
+own column, a sheet of sources (snapshot time, region, service description revision) and a Markdown summary to paste
+into a mail. `--against` an older version adds a sheet of what changed; `awb pricebook diff` shows it as text.
+
 **Migrations in phases.** `awb migrate` takes an Azure inventory (a sanitised copy of the customer's spreadsheet) to
 a reviewed plan: discover, map, estimate, plan, review. Every machine gets the nearest TCP flavor that is not smaller
 on vCPU and memory, from the live price API, with a reason for every row that needs a decision. Each phase is done
@@ -225,6 +231,7 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 | offered or not | `awb service check dms rds` | the section and revision of the latest service description |
 | a price | `awb price find ecs --grep s3.large` | the live records with every term |
 | check a price sheet | `awb price check sheet.csv` | every price fetched again, every total recomputed |
+| a price workbook | `awb pricebook build estimate.txt --lang de` | the workbook (.xlsx) and a summary (.md) for a mail; `awb pricebook diff OLD NEW` compares versions |
 | compute | `awb calc "730 * 0.0418 * 3" --places 2` | the exact result, recorded as `K-N` for the review |
 | the test tenants | `awb cloud tenants`, `awb tenant now test-1` | the tenants by alias and what runs there |
 | call the TCP API | `awb cloud call GET vpc "/v1/{project_id}/vpcs" --tenant test-1` | the answer, signed by the key service; a write needs `--role lab` and runs for the project of the folder |

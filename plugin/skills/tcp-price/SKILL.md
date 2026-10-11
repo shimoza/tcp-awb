@@ -11,6 +11,10 @@ A price is never taken from memory or from the knowledge base. It comes from the
   `awb price find ecs --grep s3.large`. Add `--region eu-nl` or `--region eu-ch2` for another region.
 - A price sheet before it leaves: `awb price check SHEET`. It fetches every price again and recomputes every line
   and the totals to the cent. Report what it finds, line by line.
+- A whole estimate as a workbook: write the specification (`awb pricebook build --help` and COMMANDS.md show the
+  format), then `awb pricebook build SPEC --lang de`. It prices every line live, refuses a service that is not
+  offered and writes the workbook and a summary for a mail. `--against OLD` adds what changed against an earlier
+  version; `awb pricebook diff OLD NEW` shows it as text.
 - Never add, multiply or take a percentage in your head. Every sum, a monthly figure from an hourly price and a
   saving goes through `awb calc "730 * 0.0418 * 3" --places 2` in the project. It records the calculation as
   K-N; give `calc:K-N` as the evidence of the sentence in the review.

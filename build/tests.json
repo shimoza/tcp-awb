@@ -3968,8 +3968,99 @@
    "name": "work rules: drafts are checked before he sees them and translations come in one step, within 60 lines",
    "run": ".venv/bin/pytest tests/test_work_rules.py",
    "status": "passing"
+  },
+  {
+   "id": "PB-1",
+   "phase": "PB",
+   "name": "pricebook spec: text and JSON forms read the same, modes are read and never guessed, a value continues on an indented line, every problem of a bad specification is listed",
+   "run": ".venv/bin/pytest tests/test_pricebook.py -k 'text_and_json or continues or modes or bad_specification_lists or text_form_refuses or needs_a_line'",
+   "status": "passing"
+  },
+  {
+   "id": "PB-2",
+   "phase": "PB",
+   "name": "pricebook build: lines, unit price from the API, quantity, hours, monthly and yearly figures as formulas with stored results, assumption in its own column, totals block, sheet Sources with snapshot time, region and service description revision (read back with openpyxl)",
+   "run": ".venv/bin/pytest tests/test_pricebook.py -k 'build_writes_lines or follows_it'",
+   "status": "passing"
+  },
+  {
+   "id": "PB-3",
+   "phase": "PB",
+   "name": "pricebook build: a service the service description does not offer or has withdrawn is refused before the price API is asked, the api key cannot hide one, a family name gets a hint",
+   "run": ".venv/bin/pytest tests/test_pricebook.py -k 'does_not_offer or withdrawn or cannot_hide or gets_a_hint'",
+   "status": "passing"
+  },
+  {
+   "id": "PB-4",
+   "phase": "PB",
+   "name": "pricebook build: lines the price API cannot price (ambiguous, other family, missing, no reserved rate, hours on a reserved or monthly rate, wrong id, no such OS) are refused with the reason and nothing is written; API not answering exits 2; empty region",
+   "run": ".venv/bin/pytest tests/test_pricebook.py -k 'cannot_price or api_not_answering or empty_region or part_of_the_os_unit'",
+   "status": "passing"
+  },
+  {
+   "id": "PB-5",
+   "phase": "PB",
+   "name": "pricebook build: reserved line is a flat monthly value, a record chosen by id, a tiered rate noted, a family of the API priced under the service, a line in another region",
+   "run": ".venv/bin/pytest tests/test_pricebook.py -k 'reserved_line or chosen_by_id or family_of_the_api or another_region'",
+   "status": "passing"
+  },
+  {
+   "id": "PB-6",
+   "phase": "PB",
+   "name": "pricebook build --lang de: German headers, sheet names, fixed texts, German summary and number format; language of the specification is the default; no em-dash and no comma before and or or in the fixed texts",
+   "run": ".venv/bin/pytest tests/test_pricebook.py -k 'german_headers or language_of_the_specification or texts_the_command_writes'",
+   "status": "passing"
+  },
+  {
+   "id": "PB-7",
+   "phase": "PB",
+   "name": "pricebook build: exact decimal arithmetic on a sum that floats get wrong (0.1 + 0.2, 1.005 half up), hours and rounding follow the calculation rules",
+   "run": ".venv/bin/pytest tests/test_pricebook.py -k 'floats_get_wrong or hours_and_the_rounding'",
+   "status": "passing"
+  },
+  {
+   "id": "PB-8",
+   "phase": "PB",
+   "name": "pricebook summary: totals, the three biggest lines, assumptions in a file a mail can take; the totals are recorded with awb calc for the review, not outside a project",
+   "run": ".venv/bin/pytest tests/test_pricebook.py -k 'summary_names or writing_check_for_a_mail or recorded_for_the_review or outside_a_project'",
+   "status": "passing"
+  },
+  {
+   "id": "PB-9",
+   "phase": "PB",
+   "name": "pricebook build files: --out and the summary beside it, the same specification and snapshot give the same bytes, a bad specification writes nothing and exits 2",
+   "run": ".venv/bin/pytest tests/test_pricebook.py -k 'out_names or same_bytes or bad_specification_writes'",
+   "status": "passing"
+  },
+  {
+   "id": "PB-10",
+   "phase": "PB",
+   "name": "pricebook diff: a changed quantity line by line and in the totals, no change, added and removed lines, other fields, --no-prices, two workbooks, workbook against specification, German against English workbook, a moved price, API unknown, a line that cannot be priced",
+   "run": ".venv/bin/pytest tests/test_pricebook.py -k 'diff'",
+   "status": "passing"
+  },
+  {
+   "id": "PB-11",
+   "phase": "PB",
+   "name": "pricebook build --against: the sheet of changes in English and in German with totals as formulas, the same version, a file that is no workbook",
+   "run": ".venv/bin/pytest tests/test_pricebook.py -k 'build_against'",
+   "status": "passing"
+  },
+  {
+   "id": "PB-12",
+   "phase": "PB",
+   "name": "pricebook xlsxlite: writer and reader agree, a text starting with = stays a text, what a workbook cannot hold is refused, a document type declaration is refused, a workbook that is no lines sheet is refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py -k 'writer or reader or no_lines_sheet'",
+   "status": "passing"
+  },
+  {
+   "id": "PB-13",
+   "phase": "PB",
+   "name": "pricebook pricebook rules: runtime code is the standard library only, the command is wired and documented in COMMANDS.md, README.md and CHANGELOG.md, the rows are in this list",
+   "run": ".venv/bin/pytest tests/test_pricebook.py -k 'runtime_code or wired or rows_of_this_file'",
+   "status": "passing"
   }
  ],
- "total_tests": 567,
+ "total_tests": 580,
  "checked": "2026-10-11"
 }

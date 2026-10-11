@@ -179,6 +179,65 @@ several OS tiers match), `region`, `term` (PAYG, R12, R24, R36, RU12, RU24, RU36
 `hours` (for an hourly rate), `total`, `source`, `date`. A row with the id `TOTAL` carries the grand total. Numbers
 take a decimal point; a comma counts only as a thousands separator next to one.
 
+## The price workbook
+
+`awb pricebook` builds one workbook per estimate from a specification file with live prices and compares versions. It
+needs no key and no vault, so sessions run it. Runtime code is the standard library only.
+
+| command | what it does |
+|---|---|
+| `awb pricebook build SPEC [--out FILE] [--lang en\|de] [--against OLD] [--no-record] [--project DIR]` | refuses a service the service description does not offer (before any price call), asks the public price API once per region, prices every line from the record it found and writes `FILE.xlsx` (default: the specification with the ending `.xlsx`) and a Markdown summary `FILE.md` for a mail. Nothing is written unless every line is priced. `--lang` picks the headers, the fixed texts and the number format of the summary (default: `language:` of the specification, else en). `--against OLD` (a workbook or a specification) adds the sheet of changes. The two totals are recorded with `awb calc` when the specification lies in a project, so the review takes them with `calc:K-N` (`--no-record` leaves that out). Exit 0 done, 1 a line refused (nothing written), 2 the price API did not answer, a bad specification or an error |
+| `awb pricebook diff OLD NEW [--lang en\|de] [--no-prices]` | what changed between two specifications, two workbooks or one of each, line by line (matched by item name) and in the totals. A specification is priced now, both versions against the same snapshot; `--no-prices` compares the settings of the lines only. Exit 0 no difference, 1 a difference, 2 the price API did not answer or an error |
+
+A specification is a text file (or JSON) that a person can read. Settings at the top (`title`, `region`,
+`language`), then one block per line item, headed by its name in square brackets. A line starting with `#` is a
+comment and a line starting with a blank continues the key above.
+
+```
+title: Sizing for CUST-Q7M4
+region: eu-de
+language: en
+
+[web servers]
+service: ecs
+flavor: s3.large.2
+os: Open Linux
+quantity: 4
+mode: payg
+assumption: Two zones and all day.
+assumption.de: Zwei Zonen und rund um die Uhr.
+
+[data disks]
+service: evs
+flavor: vss.ssd
+quantity: 2000
+assumption: 500 GB per server.
+```
+
+| key | meaning |
+|---|---|
+| `service` | the service as the service description or the price API names it (`ecs`, `Elastic Cloud Server`); it is checked against the service description |
+| `api` | the price API service when it is not the same (`ecsflex` under ECS); needed when `service` is not written like an API name. A name in `rules/services-not-offered.txt` or a withdrawn section is refused here too |
+| `flavor`, `os` | the record: `os` is the OS unit (`Open Linux`) or a part of it that fits one record only (`Linux` alone fits four of them); it is needed when the flavor has several OS tiers |
+| `id` | the id of a price record, instead of `flavor` and `os` (for records without a flavor and for tiered rates) |
+| `region` | `eu-de`, `eu-nl` or `eu-ch2`; the setting at the top is the default, which is `eu-de` |
+| `quantity` | a positive number with a decimal point, not a comma |
+| `hours` | hours per month, for an hourly rate only; 720 when left out (the public calculator counts 720). Not allowed for a reserved rate or a monthly unit. At most 744 |
+| `mode` | `payg` (default), `r12`, `r24`, `r36` (reserved) or `ru12`, `ru24`, `ru36` (reserved, up front); also written `pay as you go`, `reserved 12`, `up front 24` |
+| `assumption` | free text per line; `assumption.de` and `assumption.en` replace it in a workbook of that language |
+
+A line needs a unique item name. The JSON form has the same keys in a list `lines` (each with a `label`), with
+`assumption_de` for `assumption.de`. At most 120 lines. A specification carries codes (`CUST-Q7M4`), never a name.
+
+The monthly figure of a line is the rate times quantity times hours rounded half up to the cent (a reserved rate is a
+flat monthly value, so rate times quantity); the yearly figure is the monthly figure times 12. The workbook has the
+sheets Lines, Sources and (with `--against`) Changes, in German Positionen, Quellen and Änderungen. The lines carry
+the unit price, quantity, hours, monthly and yearly figure (formulas with their stored results), the assumption in
+its own column and the id of the price record. Below them a block of totals holds the monthly and yearly total and the
+cells `Months per year` and `Hours per month` that the formulas use. Sources holds the time of the price API
+snapshot of each region, the revision of the service description, the section of each service, notes such as a
+tiered rate and the recorded calculation ids. A rate in a currency other than EUR is refused.
+
 ## The cloud (owner side, read only)
 
 | command | what it does |

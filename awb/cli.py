@@ -38,6 +38,7 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     awb bucket sync|folder|pull|put|move                     awb/bucket.py   (owner side)
     awb reveal FILE --out PATH                               awb/reveal.py   (owner side)
     awb price find|snapshot|diff|check                       awb/tcp/price.py
+    awb pricebook build|diff                                 awb/tcp/pricebook.py
     awb cloud projects|get                                   awb/tcp/cloud.py   (owner side, read only)
     awb mirror docs|sd|status                                awb/tcp/mirror.py  (owner side updates)
     awb refresh [--part P]..., awb refresh apply RESULTS     awb/tcp/refresh.py
@@ -590,6 +591,7 @@ DELEGATED = {
     "words": ("words", "the vocabulary of the public corpus for the intake: update (owner side)"),
     "reveal": ("reveal", "put the real names back into a finished text (owner side)"),
     "price": ("tcp.price", "live prices of T Cloud Public (TCP): find, snapshot, diff, check a sheet"),
+    "pricebook": ("tcp.pricebook", "a price workbook from a specification, priced live: build, diff"),
     "cloud": ("tcp.cloud", "read-only calls to the TCP API with the owner's key"),
     "mirror": ("tcp.mirror", "public mirrors of TCP: the documentation sources and the service description"),
     "refresh": ("tcp.refresh", "the refresh: mirrors, prices, expired knowledge, projects, defaults, dataset; apply results"),
