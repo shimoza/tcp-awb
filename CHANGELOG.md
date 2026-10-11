@@ -31,6 +31,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   paragraph with a bold lead, an invented name for an option, admissions of weakness, sales tone, promises in his
   name and the history of the draft; it reports a section the request did not ask for by its heading (`--request
   FILE`).
+- The stop hook of a working session holds a reply that shows him a draft (a file under deliverables/ or a mail
+  draft) before `awb write check` of that file ran clean in the same turn, with one line naming the file. A mail
+  written into the reply must go into a file first; a Russian draft is exempt; the gate fails closed.
 
 - The knowledge leaves as a dataset. `awb dataset build` writes the folder `tcp-facts-<date>/` and its zip: every
   fact on one line grouped by topic, one file per topic, the export with its metadata, the orderable services, the

@@ -1585,6 +1585,31 @@ def keep_lines(results: list[Kept]) -> list[str]:
     return out
 
 
+# --------------------------------------------------------------------------- the language of a text
+
+LANGUAGES = ("en", "de", "ru")
+_CYRILLIC_RE = re.compile(r"[\u0400-\u04ff]")
+_LATIN_RE = re.compile(r"[A-Za-z\u00c0-\u024f]")
+_DE_WORDS = frozenset("der die das und ist nicht mit für ich sie wir ein eine einen dem den des auf auch wird "
+                      "werden bei oder sind zu von im nach über wie kein keine".split())
+_EN_WORDS = frozenset("the and is not with for you are this that of to in on it be by an or as at from have "
+                      "has will can".split())
+
+
+def language_of(text: str) -> str:
+    """en, de or ru: ru when at least 30 % of the letters of the prose are Cyrillic, else de when German function
+    words outnumber English ones, else en. Code blocks, inline code and URLs are not read."""
+    body = prose(text or "")
+    cyr = len(_CYRILLIC_RE.findall(body))
+    lat = len(_LATIN_RE.findall(body))
+    if cyr and cyr >= 0.3 * (cyr + lat):
+        return "ru"
+    words = [w.lower() for w in _WORD_RE.findall(body)]
+    de = sum(1 for w in words if w in _DE_WORDS)
+    en = sum(1 for w in words if w in _EN_WORDS)
+    return "de" if de > en else "en"
+
+
 # --------------------------------------------------------------------------- voice learning
 
 

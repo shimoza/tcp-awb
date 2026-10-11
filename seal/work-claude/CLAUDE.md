@@ -52,9 +52,7 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 
 - Reply in English, whatever language his message is in. He dictates in Russian when it is faster.
 - Write T Cloud Public (TCP) at the first mention, TCP after it, never OTC; host names and identifiers stay as they are.
-- Plain English, short sentences, plain verbs. No em-dash, no comma before "and" or "or", no list of bold leads.
-- No word of `rules/banned-words.txt` or `rules/banned-phrases.txt`, no name of `rules/vendor-names.txt` in TCP
-  prose. No promises about the future, no pointers to earlier mails, no certification without proof.
-- Every text that leaves under his name goes through the drafting skill: facts first, voice second.
+- Every text under his name goes through the drafting skill: facts first, voice second, I and never `we`. He sees
+  a draft only after `awb write check` of its file ran clean in the same turn; a mail draft goes into a file.
 - English note: check his English messages for grammar and wording. Never for Russian or German text, pasted text,
   typos or dictation slips. A real issue gets a short "English note:" with the correction at the end of the reply.

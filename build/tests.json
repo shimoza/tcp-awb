@@ -3891,8 +3891,43 @@
    "name": "write check: the replaced blocking-class cases speak as I and cover every blocking class",
    "run": ".venv/bin/pytest tests/test_writing.py::test_each_blocking_tell_is_found_once_on_its_line tests/test_writing.py::test_every_blocking_class_has_a_planted_case",
    "status": "passing"
+  },
+  {
+   "id": "VT-7",
+   "phase": "VT",
+   "name": "stop hook: a draft shown after a clean write check of this turn passes; without it one line names the file",
+   "run": ".venv/bin/pytest tests/test_draft_gate.py -k 'clean_after or without_the_check'",
+   "status": "passing"
+  },
+  {
+   "id": "VT-8",
+   "phase": "VT",
+   "name": "stop hook: a check before the last change, a check with tells or a forged clean run on a dirty draft hold the reply",
+   "run": ".venv/bin/pytest tests/test_draft_gate.py -k 'before_the_last or found_tells or claimed_clean'",
+   "status": "passing"
+  },
+  {
+   "id": "VT-9",
+   "phase": "VT",
+   "name": "stop hook: a mail draft needs mode mail; a mail written into the reply must go into a file; Russian is exempt",
+   "run": ".venv/bin/pytest tests/test_draft_gate.py -k 'mail or russian'",
+   "status": "passing"
+  },
+  {
+   "id": "VT-10",
+   "phase": "VT",
+   "name": "stop hook: the turn starts at his last message; an unchanged draft is judged by the hook's own check",
+   "run": ".venv/bin/pytest tests/test_draft_gate.py -k 'earlier'",
+   "status": "passing"
+  },
+  {
+   "id": "VT-11",
+   "phase": "VT",
+   "name": "stop hook: the draft gate fails closed (unreadable transcript, missing writing check, an error) and never echoes a name",
+   "run": ".venv/bin/pytest tests/test_draft_gate.py -k 'fails_closed or broken or registered'",
+   "status": "passing"
   }
  ],
- "total_tests": 556,
+ "total_tests": 561,
  "checked": "2026-10-11"
 }

@@ -50,7 +50,14 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        planted refusal passes
     stop            Stop               exit 2 with "run the review for: ..." while a deliverable has no valid
                                        review record, and while STATE.md lags behind the project's commits or
-                                       lacks its Status: and Next: lines (awb/status.py); exit 0 when
+                                       lacks its Status: and Next: lines (awb/status.py). Exit 2 as well with
+                                       one line per draft when the reply names a draft (a file under
+                                       deliverables/ or a mail draft, outside input/, evidence/ and reviews/)
+                                       that this turn changed without a clean `awb write check` of it after the
+                                       change, or whose own check now blocks; a mail written into the reply
+                                       must go into a file first; a draft in Russian is exempt. This draft gate
+                                       fails closed: a transcript it cannot read, a missing writing check or
+                                       an error of the gate hold the reply (`draft_gate`); exit 0 when
                                        `stop_hook_active` is set (no loop). Before
                                        that, silently: a ledger entry drafted from the new commits of the project
                                        (T-41, at most every DRAFT_HOURS) and the "English note:" of the last reply
@@ -1584,14 +1591,14 @@ def build_selftest() -> list[str]:
     return problems
 
 
-def _writing_tells(path: Path, scope: str) -> list[tuple[str, int, str]]:
+def _writing_tells(path: Path, scope: str, mode: str = "doc") -> list[tuple[str, int, str]]:
     """Blocking tells of `writing.check_file` as (class, line, hint). Raises Unavailable."""
     mod = _module("writing")
     fn = getattr(mod, "check_file", None) if mod is not None else None
     if fn is None:
         raise Unavailable("the writing check is not installed")
     try:
-        result = fn(path, mode="doc", scope=scope)
+        result = fn(path, mode=mode, scope=scope)
     except Exception as exc:
         raise Unavailable("%s in the writing check" % type(exc).__name__) from None
     tells = result[0] if isinstance(result, tuple) else result
@@ -1772,6 +1779,228 @@ def _quietly(fn, *args) -> None:
         pass
 
 
+# --------------------------------------------------------------------------- the draft gate of the stop hook
+
+TRANSCRIPT_TAIL = 4_000_000
+"""Bytes of the end of the transcript the draft gate reads: the current turn lies at the end."""
+WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+DRAFT_SKIP_DIRS = frozenset(("input", "evidence", "reviews", "history", ".git", "in", "out"))
+"""Folders of a project that never hold his drafts: intake material (a customer's mail is no draft), proof and
+review records."""
+DRAFT_SUFFIXES = (".md", ".txt", ".eml", ".html", ".htm", ".docx", ".odt", ".rtf")
+DRAFT_SCAN_LIMIT = 2000
+_DRAFT_PATH_RE = re.compile(r"[\w./~@+-]*[\w-]+\.(?:md|txt|eml|html?|docx|odt|rtf)(?![\w])", re.IGNORECASE)
+_MAIL_NAME_RE = re.compile(r"(?i)(?:^|[^a-z])e?-?mails?(?:[^a-z]|$)|\.eml$")
+_INLINE_MAIL_RE = re.compile(
+    r"(?im)^[ \t>*_]*(?:subject|betreff)[ \t*_]*:|^[ \t>*_]*(?:best|kind|warm|many thanks and)[ \t]+regards\b"
+    r"|^[ \t>*_]*(?:viele|beste|freundliche|herzliche)[ \t]+gr(?:\u00fc|ue)(?:\u00df|ss)e\b"
+    r"|^[ \t>*_]*mit[ \t]+freundlichen[ \t]+gr(?:\u00fc|ue)(?:\u00df|ss)en\b")
+_BASH_CHANGES_RE = re.compile(r"(?:>|\bsed\b[^|;&]*\s-i|\btee\b|\bmv\b|\bcp\b|\bperl\b|\bpython|\btruncate\b"
+                              r"|write\s+translate|\bpatch\b|\bpandoc\b)")
+_CLEAN_RE = re.compile(r"(?m)^result: 0 blocking\b")
+
+
+class _Turn:
+    """What the current turn of a session did: the reply text, the files written by a tool or changed by a shell
+    command (with their position) and the `awb write check` runs with their result."""
+
+    def __init__(self):
+        self.reply: list[str] = []
+        self.writes: list[tuple[int, str]] = []        # (position, path as written)
+        self.shell: list[tuple[int, str, str]] = []     # (position, command, tool_use_id)
+        self.results: dict[str, tuple[bool, str]] = {}  # tool_use_id -> (is_error, text)
+
+
+def _blocks(entry: dict) -> list:
+    content = (entry.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    return content if isinstance(content, list) else []
+
+
+def _is_prompt(entry: dict) -> bool:
+    """A message he typed: a user entry of the main thread with text and without a tool result."""
+    if entry.get("type") != "user" or entry.get("isSidechain") or entry.get("isMeta"):
+        return False
+    blocks = _blocks(entry)
+    return bool(blocks) and not any(isinstance(b, dict) and b.get("type") == "tool_result" for b in blocks)
+
+
+def _result_text(block: dict) -> str:
+    c = block.get("content")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return "\n".join(x.get("text", "") for x in c if isinstance(x, dict))
+    return ""
+
+
+def read_turn(transcript) -> _Turn:
+    """The current turn of a transcript (JSON lines): everything after his last message. Raises OSError when the
+    transcript cannot be read."""
+    with open(transcript, "rb") as f:
+        f.seek(0, 2)
+        size = f.tell()
+        f.seek(max(0, size - TRANSCRIPT_TAIL))
+        tail = f.read().decode("utf-8", "replace")
+    entries = []
+    for line in tail.splitlines():
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(obj, dict) and not obj.get("isSidechain"):
+            entries.append(obj)
+    start = max((i for i, e in enumerate(entries) if _is_prompt(e)), default=-1)
+    turn = _Turn()
+    for pos, e in enumerate(entries[start + 1:]):
+        for b in _blocks(e):
+            if not isinstance(b, dict):
+                continue
+            if e.get("type") == "assistant" and b.get("type") == "text":
+                turn.reply.append(str(b.get("text", "")))
+            elif e.get("type") == "assistant" and b.get("type") == "tool_use":
+                args = b.get("input") if isinstance(b.get("input"), dict) else {}
+                if b.get("name") in WRITE_TOOLS:
+                    target = args.get("file_path") or args.get("notebook_path")
+                    if isinstance(target, str):
+                        turn.writes.append((pos, target))
+                elif b.get("name") == "Bash" and isinstance(args.get("command"), str):
+                    turn.shell.append((pos, args["command"], str(b.get("id", ""))))
+            elif b.get("type") == "tool_result":
+                turn.results[str(b.get("tool_use_id", ""))] = (bool(b.get("is_error")), _result_text(b))
+    return turn
+
+
+def _is_mail_draft(rel: Path) -> bool:
+    return any(_MAIL_NAME_RE.search(part) for part in rel.parts)
+
+
+def _draft_files(root: Path) -> dict[str, Path]:
+    """The drafts of a project by their path relative to it: every file under deliverables/ and every mail draft
+    (a name with mail in it or a .eml file) outside the folders of DRAFT_SKIP_DIRS."""
+    out: dict[str, Path] = {}
+    n = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        here = Path(dirpath)
+        rel_dir = here.relative_to(root)
+        dirnames[:] = [d for d in dirnames if not (rel_dir == Path(".") and d in DRAFT_SKIP_DIRS)
+                       and not d.startswith(".")]
+        under = any(part.lower() == "deliverables" for part in rel_dir.parts)
+        for name in filenames:
+            n += 1
+            if n > DRAFT_SCAN_LIMIT:
+                return out
+            rel = rel_dir / name
+            if not name.lower().endswith(DRAFT_SUFFIXES):
+                continue
+            if under or _is_mail_draft(rel):
+                out[rel.as_posix()] = here / name
+    return out
+
+
+def _named_in(text: str, rel: str, root: Path) -> bool:
+    name = rel.rsplit("/", 1)[-1]
+    for m in _DRAFT_PATH_RE.finditer(text):
+        found = m.group(0).strip("./") if not m.group(0).startswith("/") else m.group(0)
+        if found == rel or found.endswith("/" + rel) or found == name:
+            return True
+        if found.startswith("/"):
+            try:
+                if Path(found).resolve() == (root / rel).resolve():
+                    return True
+            except (OSError, ValueError):
+                pass
+    return False
+
+
+def _touched(turn: _Turn, rel: str, path: Path) -> int:
+    """The position of the last change of a draft in this turn, -1 when the turn did not change it."""
+    last = -1
+    name = rel.rsplit("/", 1)[-1]
+    for pos, target in turn.writes:
+        try:
+            same = Path(target).resolve() == path.resolve() or target.endswith("/" + rel) or target == rel
+        except (OSError, ValueError):
+            same = False
+        if same:
+            last = max(last, pos)
+    for pos, cmd, _ in turn.shell:
+        if name in cmd and _BASH_CHANGES_RE.search(cmd) and "write check" not in cmd:
+            last = max(last, pos)
+    return last
+
+
+def _checked_clean(turn: _Turn, rel: str, after: int, mode: str) -> bool:
+    """An `awb write check` of the draft in this turn after its last change, in its mode, with a clean result."""
+    name = rel.rsplit("/", 1)[-1]
+    for pos, cmd, tid in turn.shell:
+        if pos <= after or "write check" not in cmd or name not in cmd:
+            continue
+        if mode == "mail" and not re.search(r"--mode[ =]mail\b", cmd):
+            continue
+        is_error, text = turn.results.get(tid, (True, ""))
+        if not is_error and _CLEAN_RE.search(text):
+            return True
+    return False
+
+
+def draft_gate(data: dict, root: Path) -> list[str]:
+    """The lines that hold a reply which shows him a draft before `awb write check` of that file ran clean in the
+    same turn. A draft is a file under deliverables/ or a mail draft that the reply names; a mail written into the
+    reply itself must go into a file first. A draft in Russian is exempt (his reading copy). Fails closed: a
+    transcript it cannot read, a writing check that is missing or fails hold the reply too."""
+    transcript = data.get("transcript_path")
+    if not isinstance(transcript, str) or not transcript:
+        return []
+    try:
+        turn = read_turn(transcript)
+    except OSError:
+        return ["the stop hook could not read this session's transcript, so a draft in this reply may be unchecked: "
+                "run awb write check on every draft you show"]
+    reply = "\n".join(turn.reply)
+    if not reply.strip():
+        return []
+    mod = _module("writing")
+    lang = getattr(mod, "language_of", None) if mod is not None else None
+    lines: list[str] = []
+    shown_mail = False
+    drafts = _draft_files(root)
+    for rel, path in sorted(drafts.items()):
+        if not _named_in(reply, rel, root):
+            continue
+        mode = "mail" if _is_mail_draft(Path(rel)) else "doc"
+        shown = _safe_names([rel])[0]
+        if mod is None or lang is None:
+            lines.append("%s is shown unchecked: the writing check is not installed" % shown)
+            continue
+        try:
+            text = mod.read_text(path)
+        except getattr(mod, "WritingError", Exception):
+            continue                                  # an image or a file without text is no draft to read
+        except OSError:
+            lines.append("%s is shown unchecked: it cannot be read" % shown)
+            continue
+        if lang(text) == "ru":
+            continue
+        shown_mail = shown_mail or mode == "mail"
+        try:
+            tells = _writing_tells(path, _platform(root), mode)
+        except Unavailable:
+            lines.append("%s is shown unchecked: the writing check failed on it" % shown)
+            continue
+        changed = _touched(turn, rel, path)
+        if tells or (changed >= 0 and not _checked_clean(turn, rel, changed, mode)):
+            lines.append("show %s only after `awb write check %s%s` ran clean in this turn"
+                         % (shown, shown, " --mode mail" if mode == "mail" else ""))
+    if not shown_mail and _INLINE_MAIL_RE.search(reply):
+        body = _INLINE_MAIL_RE.sub("", reply)
+        if lang is None or lang(body) != "ru":
+            lines.append("a mail draft in the reply: write it into a file in the project and show it after "
+                         "`awb write check FILE --mode mail` ran clean")
+    return lines
+
+
 def hook_stop(data: dict) -> int:
     if data.get("stop_hook_active"):
         return OK
@@ -1803,6 +2032,13 @@ def hook_stop(data: dict) -> int:
         late_msg = _status.reminder(root)
     except Exception:
         late_msg = None
+    try:
+        draft_lines = draft_gate(data, root)
+    except Exception as exc:
+        # fail closed: a gate that breaks holds the reply once (stop_hook_active lets the next stop through)
+        draft_lines = ["the draft check of the stop hook failed (%s): run awb write check on every draft you show"
+                       % type(exc).__name__]
+    drafts_msg = "\n".join(draft_lines) if draft_lines else None
     mod = _module("review")
     status = getattr(mod, "status", None) if mod is not None else None
     rows = None
@@ -1820,13 +2056,13 @@ def hook_stop(data: dict) -> int:
         name = _field(row, "file", "deliverable", "name", "path", default="")
         (unreadable if state == "unreadable" else pending).append(Path(str(name)).name or "unnamed")
     if not pending and not unreadable:
-        said = [m for m in (draft_msg, harvest_msg, late_msg) if m]
+        said = [m for m in (draft_msg, harvest_msg, late_msg, drafts_msg) if m]
         if said:
             print("\n".join(said), file=sys.stderr)
             return BLOCK
         return OK
     shown = _safe_names(pending + unreadable)
-    lines = [m for m in (draft_msg, harvest_msg, late_msg) if m]
+    lines = [m for m in (draft_msg, harvest_msg, late_msg, drafts_msg) if m]
     if pending:
         lines.append("run the review for: %s" % ", ".join(shown[:len(pending)]))
     if unreadable:

@@ -142,6 +142,7 @@ question, never patched. A send gate lets only the exact reviewed version leave.
 drafting skill writes mails, offers and PoC documents in that voice, with a check that the voice pass changed no
 fact. It blocks what he struck out most: "we" for "I", jargon, bold leads, admissions of weakness, sales tone and
 the history of the draft, and it names a section the request did not ask for.
+A session shows him a draft only after the check ran clean in the same turn.
 
 **Few questions.** A session asks at most one question per reply, at its end, with the default it takes. Every other
 open decision goes into the project's `OPEN.md` with its default. `awb report --by questions` counts the replies that

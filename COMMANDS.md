@@ -246,7 +246,9 @@ The work user of the seal reads the mirrors read-only under `/srv/tcp-mirrors/`:
 The goal and the tags carry no name. Tags come from `rules/tags.txt` and a tag not listed there is refused. Spawn
 and close each write a ledger entry. A session claims its project at start (another live session in the same project
 is named), the stop hook drafts a ledger entry from the day's commits at most every two hours and keeps the English
-note of the last reply. Session start says when STATE.md is over 150 lines or a project has been idle for 30
+note of the last reply. It also holds a reply that shows him a draft (a file under deliverables/ or a mail draft)
+before `awb write check` of that file ran clean in the same turn, with one line naming the file; a mail written
+into the reply must go into a file first, and a draft in Russian is exempt. Session start says when STATE.md is over 150 lines or a project has been idle for 30
 days. RESOURCES.md holds one row per cloud resource: id, type, region, cost class, expiry, state (live, deleted or
 kept) and a note.
 

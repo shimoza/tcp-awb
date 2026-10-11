@@ -55,7 +55,8 @@ edit short. It does not replace his review and it cannot promise that no reader 
    unlike him.
 6. Cut to the budget as a separate last step. Then run steps 4 and 5 again.
 7. Show him the draft with one line on which checks ran and what is still unverified. The review record stays out
-   of the text.
+   of the text. A mail draft goes into a file first. The stop hook holds a reply that shows a draft before
+   `awb write check` of that file ran clean in the same turn.
 
 ## German and Russian
 

@@ -592,6 +592,7 @@ background, next steps, conclusion and the like); the document title is never ju
 ```python
 def check_text(text, mode="doc", scope="tcp", request: str | None = None) -> tuple[list[Tell], dict]
 def check_file(path, mode="doc", scope="tcp", request: Path | None = None) -> tuple[list[Tell], dict]
+def language_of(text: str) -> str                                  # en, de or ru (ru from 30 % Cyrillic letters)
 ```
 
 The drafting skill (T-51, U-12) is `seal/work-claude/skills/drafting/SKILL.md`. `seal/setup.sh` installs it with
@@ -760,6 +761,8 @@ Recorded here so that the next builder works against them. Each module keeps `ma
   2 when a file could not be sealed. `projects.spawn` runs where the register cannot be read (an encrypted vault, the
   work user): names go through the check socket. On the work side a customer code counts when an intake issued it
   (its outbox folder). `awb init` leaves an encrypted register alone.
+  `draft_gate(data, root) -> list[str]` (in `hook_stop`): one line per draft the reply shows before a clean
+  `awb write check` of it in the same turn; `read_turn(transcript) -> _Turn`.
 
 ## Public names added by the reviews of release 2 (2026-09-22), written down 2026-09-24
 
