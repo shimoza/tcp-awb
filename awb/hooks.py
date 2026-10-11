@@ -2262,8 +2262,10 @@ def main(argv: list[str] | None = None) -> int:
         print("awb hook %s: the hook input is not a JSON object" % args.name, file=sys.stderr)
         return BLOCK if args.name == "pre-tool" else ERROR
     budget = _budget_possible()
+    before = None
     try:
         if budget:
+            before = (signal.getsignal(signal.SIGALRM), signal.getitimer(signal.ITIMER_REAL), time.monotonic())
             signal.signal(signal.SIGALRM, _on_alarm)
             signal.setitimer(signal.ITIMER_REAL, HOOK_BUDGET)
         return HANDLERS[args.name](data)
@@ -2275,7 +2277,12 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if budget:
             signal.setitimer(signal.ITIMER_REAL, 0)
-            signal.signal(signal.SIGALRM, signal.SIG_DFL)
+            if before is not None:
+                # the alarm of whoever called (a test's timeout) comes back with the time it had left
+                handler, (left, interval), since = before
+                signal.signal(signal.SIGALRM, handler if handler is not None else signal.SIG_DFL)
+                if left > 0:
+                    signal.setitimer(signal.ITIMER_REAL, max(left - (time.monotonic() - since), 0.001), interval)
 
 
 if __name__ == "__main__":

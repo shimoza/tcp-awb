@@ -23,6 +23,9 @@ class FakeOBS:
         self.modified: dict[str, str] = {}
         self.calls: list[tuple[str, str]] = []
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
+        # an accept that finds no connection after the poll gives up after a second instead of blocking the serving
+        # thread, so shutdown() always returns (a run hung in it on 2026-10-10)
+        self.server.socket.settimeout(1.0)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
 
     def __enter__(self) -> "FakeOBS":

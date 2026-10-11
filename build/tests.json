@@ -2967,8 +2967,36 @@
    "name": "review 2026-10-10 P5: a guarded session may not rewrite guard.log",
    "run": ".venv/bin/pytest tests/test_guard_review.py::test_a_guarded_session_may_not_rewrite_the_guard_log",
    "status": "passing"
+  },
+  {
+   "id": "PAR-2",
+   "phase": "PAR",
+   "name": "a teardown that blocks twice fails at the time limit and the run goes on",
+   "run": ".venv/bin/pytest tests/test_timeouts.py::test_a_teardown_that_blocks_twice_fails_at_the_limit_and_the_run_goes_on",
+   "status": "passing"
+  },
+  {
+   "id": "PAR-3",
+   "phase": "PAR",
+   "name": "a test whose alarm was switched off ends the run after the grace, with the stacks",
+   "run": ".venv/bin/pytest tests/test_timeouts.py::test_a_test_whose_alarm_was_switched_off_ends_the_run_after_the_grace",
+   "status": "passing"
+  },
+  {
+   "id": "PAR-4",
+   "phase": "PAR",
+   "name": "an in-process awb hook gives the caller's alarm back with the time it had left",
+   "run": ".venv/bin/pytest tests/test_timeouts.py::test_an_in_process_hook_gives_the_alarm_back",
+   "status": "passing"
+  },
+  {
+   "id": "PAR-5",
+   "phase": "PAR",
+   "name": "the suite runs under the repeating alarm of tests/timeouts.py",
+   "run": ".venv/bin/pytest tests/test_timeouts.py::test_the_suite_runs_under_the_repeating_alarm",
+   "status": "passing"
   }
  ],
- "total_tests": 424,
+ "total_tests": 428,
  "checked": "2026-10-11"
 }

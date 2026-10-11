@@ -127,6 +127,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- A test that blocks again after its time limit, or that lost its alarm, fails within the limit instead of holding the
+  whole run (a full run hung nine hours on 2026-10-10). After the limit the alarm repeats every second while the test
+  runs, a thread ends the run with the stacks of every thread 30 seconds later when the test never comes back to Python,
+  and an `awb hook` run inside a test gives the test's alarm back.
 - Two test runs at the same time no longer wait on each other. Every test gets a vault, knowledge base, mirrors,
   check, admin and key sockets of its own run instead of the host's, the price API and the mirror sources point at a
   refused local address, and two tests that called `monkeypatch.undo()` (which dropped that setup and reached the

@@ -163,7 +163,9 @@ python3 -m venv .venv
 
 The tests use invented names only (`tests/fixtures.py`) and a throw-away Workbench each. They never touch your own
 folders or the sockets of the services on the host, so two runs at the same time do not wait on each other. Every
-test fails after 120 seconds (pytest-timeout) instead of hanging.
+test fails after 120 seconds (pytest-timeout) instead of hanging, also when it blocks again in its teardown
+(`tests/timeouts.py`); a test that never comes back to Python ends the run with the stacks of every thread 30 seconds
+later.
 
 ### As a plugin for Claude Code
 

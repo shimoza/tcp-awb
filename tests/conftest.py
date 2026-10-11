@@ -8,6 +8,8 @@ import pytest
 
 from awb import config
 from tests import fixtures
+from tests.timeouts import (pytest_addoption, pytest_runtest_call, pytest_runtest_setup,  # noqa: F401
+                            pytest_runtest_teardown, pytest_timeout_set_timer)
 
 
 BLOCKLIST = Path(__file__).resolve().parent / "blocklist.txt"
