@@ -84,6 +84,7 @@ Seal, once, with sudo: `seal/setup.sh --dry-run` (read the plan), `sudo seal/set
 | `sudo awb deploy --all` | restart every installed unit |
 | `sudo awb deploy --rollback` | the release that was live before this one |
 | `sudo awb deploy --to COMMIT` | another commit of the repository |
+| `awb build serve` | the runner of the build queue (self-build), the `ExecStart` of `awb-buildd.service`; a placeholder that exits 2 until the runner is built (SB3). A deploy never starts the runner and defers its restart while a build task runs |
 
 The tree must be clean (commit first). The deploy runs the installed copy of its own code, so a change of
 `awb/deploy.py` is live from the following deploy. `seal/setup.sh` (full) stays for the first seal of a host.

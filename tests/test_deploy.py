@@ -1354,3 +1354,100 @@ def test_the_plan_records_whether_a_daemon_code_changed_since_its_release(world,
     with pytest.raises(deploy.Refused):
         deploy.validate_plan(world.plan(daemon_code={"awb-vaultd.service": {"release": "x", "code": "unchanged"}}),
                              set(units_of_repo()))
+
+
+# --------------------------------------------------------------------------- the build runner (self-build SB1)
+
+
+BUILD_SYNTH = {
+    "awb/cli.py": SYNTH["awb/cli.py"].replace("'ask': ('tcp.ask', 'a')}", "'ask': ('tcp.ask', 'a'), 'build': ('build', 'b')}"),
+    "awb/build.py": "from awb.cli import main\n",
+}
+
+
+def test_the_build_runner_unit_maps_to_the_build_module(tmp_path):
+    """SB1 item 2: awb-buildd.service runs `awb build serve`, so a change of awb/build.py restarts it and nothing else,
+    on the repository and on the invented package. Planted: a unit that runs another command does not map to it; the
+    two folders the build side adds outside the package restart nothing."""
+    units = units_of_repo()
+    assert "awb-buildd.service" in units and units["awb-buildd.service"]["kind"] == "service"
+    argv = deploy.template_entries(deploy.DirTree(REPO), units)["awb-buildd.service"]
+    assert argv == [BIN, "build", "serve"] and deploy.is_build_runner(argv)
+    assert not deploy.is_build_runner([BIN, "build", "list"]) and not deploy.is_build_runner([BIN, "vault", "serve"])
+    assert deploy.is_build_runner(["/opt/tcp-awb/venv/bin/python3", "-I", "-m", "awb", "build", "serve"])
+    assert restarted(deploy.DirTree(REPO), ["awb/build.py"]) == {"awb-buildd.service"}
+    tree = synth_tree(tmp_path, BUILD_SYNTH)
+    assert restarted(tree, ["awb/build.py"]) == {"awb-buildd.service"}
+    assert restarted(tree, ["seal/build-claude/settings.json", "hooks-build/pre-commit"]) == set()
+    eff = deploy.unit_map(tree).effects(["seal/awb-buildd.service"])
+    assert set(eff.units) == {"awb-buildd.service"} and eff.templates == {"awb-buildd.service"}
+
+
+def _build_plan(world: World, tmp_path, task_line: str | None, active: str = "active", rc: int = 0) -> dict:
+    """owner_plan for a commit that changes awb/build.py, with the runner in `active` state and `task_line` as the
+    answer of systemctl list-units (None: no task unit)."""
+    repo = tmp_path / ("b%d" % len(list(tmp_path.glob("b*"))))
+    shutil.copytree(synth_tree(tmp_path, BUILD_SYNTH).root, repo)
+    git(repo, "init", "-q")
+    c1 = commit(repo)
+    (repo / "awb" / "build.py").write_text("from awb.cli import main\nX = 1\n")
+    commit(repo)
+    deploy.write_journal(world.root / "DEPLOYED", {"state": "done", "target": c1, "previous": None, "units": {},
+                                                    "pending": [], "running": {}})
+    (world.root / "src").unlink()
+    (world.root / "src").symlink_to("releases/%s" % c1)
+    world.runner.unit("awb-buildd.service")["ActiveState"] = active
+    world.runner.on = lambda cmd, kw: subprocess.CompletedProcess(cmd, rc, task_line or "", "") \
+        if cmd[:2] == ["systemctl", "list-units"] else None
+    return deploy.owner_plan(deploy.Options(), repo, plan_host(world, repo, show={
+        "awb-buildd.service": "/usr/local/bin/awb build serve"}))
+
+
+def test_a_build_runner_restart_waits_for_its_task(world, tmp_path):
+    """SB1 item 2: the deploy defers the runner's restart while an awb-task-* unit is active and leaves restart-wanted.
+    Planted: an active task unit (deferred, wanted); the listing failing (deferred, wanted); no task (a restart); the
+    runner not running (left alone, nothing wanted); a planted line that is no task unit name (a restart)."""
+    def runner_row(plan):
+        row = next(u for u in plan["units"] if u["unit"] == "awb-buildd.service")
+        return row["action"], row["reason"], plan["build_restart_wanted"]
+
+    action, reason, wanted = runner_row(_build_plan(world, tmp_path, "awb-task-B-012.service loaded active running x\n"))
+    assert (action, wanted) == ("unchanged", True) and "deferred" in reason and "awb-task-B-012.service" in reason
+    action, reason, wanted = runner_row(_build_plan(world, tmp_path, None, rc=1))
+    assert (action, wanted) == ("unchanged", True) and "could not be listed" in reason
+    action, reason, wanted = runner_row(_build_plan(world, tmp_path, None))
+    assert (action, wanted) == ("restart", False) and "awb/build.py" in reason
+    action, reason, wanted = runner_row(_build_plan(world, tmp_path, "awb-task-B-012.service;rm loaded active\n"))
+    assert (action, wanted) == ("restart", False)
+    action, reason, wanted = runner_row(_build_plan(world, tmp_path, "awb-task-B-012.service loaded active\n",
+                                                    active="inactive"))
+    assert (action, wanted) == ("unchanged", False) and "not running" in reason
+    calls = [c for c, _ in world.runner.calls if c[:2] == ["systemctl", "list-units"]]
+    assert calls and all(c[-2:] == ["--", "awb-task-*"] for c in calls)
+
+
+def test_the_root_run_leaves_restart_wanted_for_a_deferred_runner(world, tmp_path, capsys):
+    """SB1 item 2: a plan with build_restart_wanted makes the root run write <build_root>/runs/restart-wanted (the
+    target, mode 600) and restart nothing of the runner; a plan without it writes nothing; a value that is not a
+    boolean does not validate. Planted: a link at the file's place is not followed."""
+    build = tmp_path / "build"
+    (build / "runs").mkdir(parents=True)
+    world.runner.plan = world.plan(build_restart_wanted=True)
+    assert world.main([], build_root=build) == 0, capsys.readouterr()
+    wanted = build / "runs" / deploy.RESTART_WANTED
+    assert wanted.read_text() == world.c1 + "\n" and oct(wanted.stat().st_mode & 0o777) == "0o600"
+    assert not [c for c in world.runner.systemctl() if "awb-buildd.service" in c]
+    assert "restart-wanted" in capsys.readouterr().out
+    wanted.unlink()
+    w2 = World(tmp_path / "w2")
+    w2.runner.plan = w2.plan()
+    assert w2.main([], build_root=build) == 0
+    assert not wanted.exists()
+    target = tmp_path / "elsewhere"
+    wanted.symlink_to(target)
+    w3 = World(tmp_path / "w3")
+    w3.runner.plan = w3.plan(build_restart_wanted=True)
+    assert w3.main([], build_root=build) == 0
+    assert not target.exists() and "was not written" in capsys.readouterr().out
+    with pytest.raises(deploy.Refused):
+        deploy.validate_plan(world.plan(build_restart_wanted="yes"), set(units_of_repo()))

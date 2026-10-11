@@ -25,6 +25,10 @@ target tree (`ast`, module and function level, DYNAMIC for importlib). A changed
 closure holds it; the fixed rules of RULES cover the files outside the package; a file under awb/ in no closure
 and not in COMMAND_ONLY restarts every unit and prints as unmapped.
 
+The build runner (`awb build serve`, presentations/self-build) is never started by a deploy: when it is not running
+it takes the new code at its next start. While an awb-task-* unit is active its restart is deferred and root leaves
+<build_root>/runs/restart-wanted; the runner exits between two tasks and systemd starts it with the new code.
+
 The journal /opt/tcp-awb/DEPLOYED (root, 644) is written `running` before anything changes, updated after every
 step and marked `done` at the end; a run that dies leaves its units pending for the next one.
 
@@ -61,6 +65,9 @@ LOG_NAME = "deploy.log"
 PRE_DEPLOY = "pre-deploy"
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 UNIT_RE = re.compile(r"^awb-[a-z0-9-]+\.(service|socket)$")
+TASK_UNIT_RE = re.compile(r"^awb-task-[A-Za-z0-9-]{1,40}\.service$")
+RESTART_WANTED = "restart-wanted"   # in <build_root>/runs: the build runner exits between two tasks
+RUNNING_STATES = ("active", "activating", "reloading")
 SINCE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 ACTIONS = ("restart", "reload", "unchanged", "not installed")
 KINDS = ("vault", "keys", "service", "web")
@@ -120,6 +127,8 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("seal/needrestart-awb.conf", ()),
     ("seal/egress/", ()),
     ("seal/awb-egress.timer", ()),
+    ("seal/build-claude/", ()),
+    ("hooks-build/", ()),
     ("seal/web/install.sh", ()),
     ("seal/README.md", ()),
     ("seal/web/README.md", ()),
@@ -167,6 +176,7 @@ class Host:
     cwd: Path | None = None
     bin: str = BIN
     daemons: Callable | None = None      # owner side: the states of the two daemons (tests give a stand-in)
+    build_root: Path | None = None       # None: config.build_root() (the self-build's folder)
 
     @property
     def units_dir(self) -> Path:
@@ -581,6 +591,47 @@ def daemon_kind(argv: list[str] | None) -> str | None:
     return DAEMON_COMMANDS.get(tuple(words)) if len(words) == 2 else None
 
 
+def is_build_runner(argv: list[str] | None) -> bool:
+    """True when the argv starts the build runner, `awb build serve` (the installed command or `-m awb`)."""
+    if not argv:
+        return False
+    if "-m" in argv:
+        i = argv.index("-m")
+        if i + 1 >= len(argv) or argv[i + 1] != "awb":
+            return False
+        rest = argv[i + 2:]
+    elif os.path.basename(argv[0]) == "awb":
+        rest = argv[1:]
+    else:
+        return False
+    return [a for a in rest if not a.startswith("-")][:2] == ["build", "serve"]
+
+
+def active_task_units(runner: Callable) -> list[str] | None:
+    """The active task units of the build runner (awb-task-*.service), None when systemd could not list them."""
+    res = runner(["systemctl", "list-units", "--plain", "--no-legend", "--state=active", "--type=service", "--",
+                  "awb-task-*"], capture_output=True, text=True)
+    if res.returncode != 0:
+        return None
+    names = [line.split()[0] for line in (res.stdout or "").splitlines() if line.split()]
+    return sorted(n for n in names if TASK_UNIT_RE.match(n))
+
+
+def build_runner_action(show: dict, runner: Callable, reason: str) -> tuple[str, str, bool]:
+    """(action, reason, restart wanted) for a build runner a deploy would restart. A runner that is not running is
+    left alone: it takes the new code when it starts (its unit waits for SB3, `awb build stop` keeps it down). While a
+    task unit is active, or when the task units cannot be listed, the restart is deferred: root leaves restart-wanted
+    and the runner exits between two tasks (presentations/self-build, DESIGN.md section 3)."""
+    if show.get("ActiveState") not in RUNNING_STATES:
+        return "unchanged", "the build runner is not running; it starts with the new code", False
+    tasks = active_task_units(runner)
+    if tasks is None:
+        return "unchanged", "deferred: the task units could not be listed; the runner exits between tasks", True
+    if tasks:
+        return "unchanged", "deferred: %s runs; the runner exits between tasks" % tasks[0], True
+    return "restart", reason, False
+
+
 def has_takeover(tree, rel: str) -> bool:
     """The module of a daemon in the target tree knows `--takeover` (the hand-over of T2)."""
     if rel not in tree.files():
@@ -835,6 +886,7 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
     activated = sorted({socket_service(tree, units, u) for u in units if u.endswith(".socket") and u not in held}
                        & set(units))
     plan_units = []
+    build_wanted = False
     for u, info in units.items():
         kind = daemon_kind(argvs[u]) if info["kind"] == "service" else None
         kind = kind or info["kind"]
@@ -863,6 +915,9 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
         if action == "restart" and kind in DAEMON_ORDER:
             action, reason = _reload_or_restart(kind, u, show[u], daemons.get(kind) or {}, tree, imap, opts,
                                                 u in eff.templates, reason)
+        if action == "restart" and is_build_runner(argvs[u]):
+            action, reason, wanted = build_runner_action(show[u], run, reason)
+            build_wanted = build_wanted or wanted
         plan_units.append({"unit": u, "kind": kind, "action": action, "reason": reason, "installed": installed})
     for name in opts.only:
         if name not in units:
@@ -907,6 +962,7 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
         "daemon_code": daemon_code,
         "activated": activated,
         "keep": keep,
+        "build_restart_wanted": build_wanted,
     }
 
 
@@ -1039,6 +1095,8 @@ def validate_plan(plan, allowed_units: set[str]) -> dict:
     for key in ("first", "interrupted", "rollback", "sync", "web"):
         if not isinstance(plan.get(key), bool):
             bad(key)
+    if not isinstance(plan.get("build_restart_wanted", False), bool):
+        bad("build_restart_wanted")
     for key in ("changed", "unmapped", "notes", "pending_last", "keep"):
         if not isinstance(plan.get(key), list) or not all(_plain(x) for x in plan[key]):
             bad(key)
@@ -1261,6 +1319,10 @@ def vault_busy(vault: str | None) -> bool:
 # --------------------------------------------------------------------------- printing the plan
 
 
+def restart_wanted_path(host: Host) -> Path:
+    return Path(host.build_root if host.build_root is not None else config.build_root()) / "runs" / RESTART_WANTED
+
+
 def plan_lines(plan: dict, dry: bool) -> list[str]:
     head = "# awb deploy: dry run for the owner, every step is printed, none is run" if dry else \
         "# awb deploy for the owner"
@@ -1280,6 +1342,8 @@ def plan_lines(plan: dict, dry: bool) -> list[str]:
     for u in plan["units"]:
         lines.append(("# %-28s %-14s %s" % (u["unit"], u["action"], u["reason"])).rstrip())
     lines.append("# pending from the last run: %s" % (" ".join(plan["pending_last"]) or "none"))
+    if plan.get("build_restart_wanted"):
+        lines.append("# the build runner restarts between two tasks: %s is left for it" % RESTART_WANTED)
     return lines
 
 
@@ -1330,6 +1394,8 @@ def program_lines(plan: dict, opts: Options, host: Host, owner_name: str, work_n
         out.append("# the vault passphrase is not asked: the reload keeps it")
     if "keys" in restarted:
         out.append("# the keys are loaded again from the password store (restart)")
+    if plan.get("build_restart_wanted"):
+        out.append("+ write %s   # the build runner exits between two tasks" % restart_wanted_path(host))
     if plan["sync"]:
         out.append("+ awb projects sync   # as %s, %s changed" % (work_name, plan["sync_reason"]))
     out.append("+ awb vault status; awb keys status   # as %s" % owner_name)
@@ -1487,6 +1553,25 @@ class Run:
                 self.mark(u["unit"], "restarted" if res.returncode == 0 else "failed")
                 if res.returncode != 0:
                     self.failed.append(u["unit"])
+
+    def build_wanted(self) -> None:
+        """restart-wanted for a build runner whose restart the plan deferred: written without following a link,
+        given to the owner, who runs the runner and removes it. A missing runs folder is a note, never a failure."""
+        if not self.plan.get("build_restart_wanted"):
+            return
+        path = restart_wanted_path(self.host)
+        say("+ write %s   # the build runner exits between two tasks" % path)
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        except OSError as err:
+            say("# %s was not written (%s): restart the build runner by hand after its task" % (path, err.strerror))
+            return
+        try:
+            os.write(fd, ("%s\n" % self.target).encode("ascii"))
+            if self.host.geteuid() == 0:
+                os.fchown(fd, self.caller.owner.pw_uid, self.caller.owner.pw_gid)
+        finally:
+            os.close(fd)
 
     def flip_back(self) -> None:
         prev = self.journal.get("previous")
@@ -2005,6 +2090,7 @@ def root_deploy(opts: Options, host: Host) -> int:
             run.install()
             run.daemons()
             run.services()
+            run.build_wanted()
             run.wait()
             run.unlock()
             run.read_status()

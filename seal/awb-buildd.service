@@ -1,0 +1,25 @@
+# The runner of the build queue (presentations/self-build, DESIGN.md section 1). Installed by seal/setup.sh, which
+# fills in the owner's user name; setup.sh installs it but does not enable or start it until the runner exists
+# (SB3). It runs as the owner with the group awb, as the vault daemon does: installed code and never a model. It
+# starts each task as the build user through `sudo -n systemd-run`, so NoNewPrivileges stays off here (sudo would be
+# refused with it), and UMask=0022 so that the bundles it hands the build user stay readable.
+# A deploy never restarts it while an awb-task-* unit is active: it leaves restart-wanted in <build_root>/runs and
+# the runner exits between two tasks with a non-zero code, which Restart=on-failure turns into a start with the new
+# code. `awb build stop` exits 0 and the runner stays down.
+[Unit]
+Description=Architect Workbench build runner
+After=local-fs.target network-online.target awb-vaultd.service awb-keyd.service
+RequiresMountsFor=/srv/awb-build
+
+[Service]
+User=@OWNER@
+Group=awb
+NoNewPrivileges=no
+UMask=0022
+ExecStart=/usr/local/bin/awb build serve
+Restart=on-failure
+RestartSec=30
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target
