@@ -356,13 +356,19 @@ and `clean` take `login` as a last argument in the login mode, `prepare` and `re
 register) -> "pushed" | "pending" | "refused"`. `Runner(host)` with `serve()`, `reconcile()`, `poll_once()`,
 `pick(tasks)`, `start(task, run)` (returns the started session for `run_session`), `resume`, `judge`,
 `judge_and_merge`, `publish`, `finish`. What he reads: `write_result`, `write_state_tsv`, `deployed_info`. The
-selftest: `World(base, python)`, `SELFTEST_CASES`, `selftest(only=None, python=None) -> list[str]`, `acquire_lock`,
-`snapshot_prompt`.
+selftest: `World(base, python)`, `SELFTEST_CASES`, `SELFTEST_REQUIRED` (a case missing from the cases fails the
+selftest), `selftest(only=None, python=None) -> list[str]`, `acquire_lock`, `snapshot_prompt`. SB5: every task unit
+of `SystemdUnits.argv` names `FAILED_UNIT % name` in `OnFailure=` (not `PROBE_UNIT`); `failed_main(unit)` (`awb
+build failed`, the oneshot's command) with `runner_alive(runs)` and `record_failed(host, name, result) -> "watched" |
+"written" | "not written"` (a `failed` row of `state.tsv`, at most `FAILED_ROWS`); `board_write(board, name,
+data)` and `board_read(board, name)` (the board's folder, no link followed); the probe: `probe_lines(model)`,
+`probe_spec(host, argv, allow)`, `run_probe(host, user) -> [(key, passed, line)]`, `write_probe`, `read_probe`,
+`probe_check(board) -> (passed, what, note)` for `awb seal check`, `probe_main()`.
 
 The board's reader of `state.tsv` (SB4) is `awb/tcp/board.py`: `build_state(p) -> dict | None` (every cell matched:
 ids by `_ID`, state words in `BUILD_WORDS` with a reason only from `BUILD_REASONS`, queue holds from `QUEUE_HELD`,
-short hashes, times), `build_line(p) -> str`; `awb board` and `projects_api.board()` (the field `build` of GET
-/api/board) print it.
+short hashes, times; SB5: `failed` rows by `_TASK_UNIT`, `UNIT_RESULTS` and the time), `build_line(p) -> str`;
+`awb board` and `projects_api.board()` (the field `build` of GET /api/board) print it.
 
 ### `awb/vault.py`: encryption, the daemon, the client
 
@@ -460,7 +466,8 @@ Integration (change these existing modules, keep every existing test green):
   task's properties.
 - `awb/seal.py`: `awb seal check` runs the parts of verify.sh that need no root (for the current user) and prints PASS
   or FAIL. On a host whose host file carries an `egress` line it also checks that the egress filter is loaded,
-  refreshed within 15 minutes and in that mode, from `/var/lib/awb-egress/status.json`.
+  refreshed within 15 minutes and in that mode, from `/var/lib/awb-egress/status.json`. On a host with a build user
+  it runs `buildrun.selftest()` and `buildrun.probe_check()` of `tcp-shared/build/probe.tsv` (SB5).
 - `awb/egress.py` with `seal/egress/work-egress.nft` and `seal/egress/ALLOW.md`: the egress filter of the work user
   (an nftables table by uid; `awb egress status|load|enforce|count`). `seal/verify.sh` checks it is loaded in the
   mode of the host file, takes the work user's uid alone, counts a planted connection of the work user and leaves one

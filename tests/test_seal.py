@@ -967,8 +967,11 @@ def test_the_dry_run_holds_cloudflared_and_terraform_in_the_seal_and_in_a_deploy
     assert "apt-mark" not in res.stdout
 
 
-def test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_loads_the_egress_filter_and_adds_the_build_side(fakebin):
-    """Replaces test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_and_loads_the_egress_filter
+def test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_loads_the_egress_filter_adds_the_build_side_and_its_failure_oneshot(fakebin):
+    """Replaces test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_loads_the_egress_filter_and_adds_the_build_side
+    (SB5 of the self-build: the line of the runner's unit no longer says the runner comes with SB3; the update
+    writes the oneshot awb-task-failed@.service of a failed task unit and reloads systemd), which replaced
+    test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_and_loads_the_egress_filter
     (SB1 of the self-build: the update adds the build side, step_build after step_managed, with its own user, mount,
     pip and git lines on the build root, and installs awb-buildd.service without enabling it), which replaced
     test_setup_update_mode_skips_the_seal_steps_holds_the_packages_and_hooks_the_kb (the egress filter of
@@ -1004,8 +1007,9 @@ def test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_
     for unit in sorted(p.name for p in list(SEAL.glob("*.service")) + list(SEAL.glob("*.timer"))):
         assert "+ write /etc/systemd/system/%s (mode 644, root:root)" % unit in cmds
         assert ("+ systemctl enable --now %s" % unit in cmds) is (unit != "awb-buildd.service"), unit
-    assert "# awb-buildd.service is installed, not enabled: the build runner comes with SB3 of the self-build" in \
-        res.stdout.splitlines()
+    assert "# awb-buildd.service is installed, not enabled: the steering session starts it by hand for a trial task and enables it on his word" in res.stdout.splitlines()
+    assert "+ write /etc/systemd/system/awb-task-failed@.service (mode 644, root:root)" in cmds
+    assert "    | ExecStart=/usr/local/bin/awb build failed %i" in res.stdout.splitlines()
     assert "+ write /etc/needrestart/conf.d/awb.conf (mode 644, root:root)" in cmds
     assert [c for c in cmds if " mv -T " in c or c.startswith("+ mv -T")] == [
         "+ mv -T -- /opt/tcp-awb/src.next /opt/tcp-awb/releases/pre-deploy  # if /opt/tcp-awb/src.next is the plain "
@@ -1068,8 +1072,10 @@ BUILD_SETTINGS = SEAL / "build-claude" / "settings.json"
 HOOKS_BUILD = REPO / "hooks-build"
 
 
-def test_setup_plans_the_build_side_in_the_seal_and_in_every_update(fakebin, tmp_path):
-    """SB1 item 1: the dry run of the first seal and of an update names the build user, the image, the fstab line, the
+def test_setup_plans_the_build_side_and_its_failure_oneshot_in_the_seal_and_in_every_update(fakebin, tmp_path):
+    """Replaces test_setup_plans_the_build_side_in_the_seal_and_in_every_update (SB5: the runner's unit line no longer
+    says it comes with SB3; the plan writes the oneshot awb-task-failed@.service as the owner with awb build failed).
+    SB1 item 1: the dry run of the first seal and of an update names the build user, the image, the fstab line, the
     mount, the folders with their owners and modes, the venv, the home template, the pinned client, the host file's
     two keys and the runner's unit, installed and not enabled; in that order where it matters (the user before its
     folders, the mount before anything on the image). --units-only touches none of it. Planted: the plan of a
@@ -1093,6 +1099,7 @@ def test_setup_plans_the_build_side_in_the_seal_and_in_every_update(fakebin, tmp
             "+ install -d -o root -g root -m 755 /opt/claude-build /opt/claude-build/versions /opt/claude-build/bin",
             "+ write /opt/claude-build/bin/claude (mode 755, root:root)",
             "+ write /etc/systemd/system/awb-buildd.service (mode 644, root:root)",
+            "+ write /etc/systemd/system/awb-task-failed@.service (mode 644, root:root)",
         ]
         out_ = ["missing: %s" % w for w in want if w not in cmds]
         if not any(c.startswith("+ useradd --system --gid awb-build -M -d /srv/awb-build/home --shell /bin/bash ")
@@ -1105,13 +1112,13 @@ def test_setup_plans_the_build_side_in_the_seal_and_in_every_update(fakebin, tmp
                    "kept only with sha256 " in c for c in cmds):
             out_.append("missing: the client copy")
         for key in ("build_user = awb-build", "build_root = /srv/awb-build",
-                    "exec /opt/claude-build/versions/2.1.296 \"$@\"", "DISABLE_AUTOUPDATER=1"):
+                    "exec /opt/claude-build/versions/2.1.296 \"$@\"", "DISABLE_AUTOUPDATER=1", "Type=oneshot",
+                    "User=%s" % USER, "ExecStart=/usr/local/bin/awb build failed %i"):
             if "    | " + key not in lines:
                 out_.append("missing: %s" % key)
         if "+ systemctl enable --now awb-buildd.service" in cmds:
             out_.append("the runner is enabled")
-        if "+ systemctl enable --now awb-buildd.service" in cmds or "# awb-buildd.service is installed, not enabled: " \
-                "the build runner comes with SB3 of the self-build" not in lines:
+        if "+ systemctl enable --now awb-buildd.service" in cmds or "# awb-buildd.service is installed, not enabled: the steering session starts it by hand for a trial task and enables it on his word" not in lines:
             out_.append("the runner's unit line")
         pos = {w: next((i for i, c in enumerate(cmds) if c.startswith(w)), None) for w in
                ("+ groupadd --system awb-build", "+ mount /srv/awb-build", "+ install -d -o awb-build")}
@@ -1578,3 +1585,106 @@ def test_the_host_file_keeps_its_mode_and_group_when_a_command_rewrites_it(tmp_p
     conf.chmod(0o660)
     egress.write_mode(egress.Host(conf=conf, chown_root=False), "count")
     assert oct(conf.stat().st_mode & 0o777) == "0o640"
+
+
+# --------------------------------------------------------------------------- SB5: the selftest, the probe and the oneshot
+
+def test_the_dry_runs_name_the_selftest_the_probe_of_a_task_and_the_failure_oneshot(fakebin):
+    """SB5: verify.sh's dry run names the runner's selftest, the oneshot of a failed task unit and the lines of `awb
+    build probe` in its order (the token host of his login among them); setup.sh's dry run writes the oneshot as
+    the owner. The shell's lines for each build model are the runner's own (probe_lines), so a line the probe
+    prints is the line verify counts. Planted: a verify.sh without the call of the probe lists none of its lines."""
+    from awb import buildrun
+
+    res = run_script(VERIFY, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    checks = [line[6:] for line in res.stdout.splitlines() if line.startswith("CHECK ")]
+    assert "the build runner refuses its planted cases (awb build selftest)" in checks
+    assert "the oneshot awb-task-failed@.service of a failed task unit is installed and writes the board line as the " \
+           "owner" in checks
+    net = [ln for _, ln in buildrun.probe_lines("login")]
+    assert checks[-len(net):] == net
+    assert "the probe unit reaches the token host of his login (platform.claude.com)" in net
+    text = VERIFY.read_text(encoding="utf-8")
+    assert "runuser -u \"$owner\" -- env HOME=\"$owner_home\" /usr/local/bin/awb build probe" in text
+    funcs = re.search(r"^net_lines\(\) \{\n.*?^\}\n", text, re.M | re.S).group(0)
+    for model in ("login", "key"):
+        out = subprocess.run(["bash", "-c", "MODEL_HOST=api.anthropic.com; TOKEN_HOST=platform.claude.com; "
+                              "TCP_API_HOST=iam.eu-de.otc.t-systems.com; GITHUB_HOST=github.com\n%s\nnet_lines %s"
+                              % (funcs, model)], capture_output=True, text=True, check=True).stdout.splitlines()
+        assert out == [ln for _, ln in buildrun.probe_lines(model)], model
+    for name, value in (("MODEL_HOST", buildrun.MODEL_HOST), ("TOKEN_HOST", buildrun.TOKEN_HOST),
+                        ("TCP_API_HOST", buildrun.TCP_API_HOST), ("GITHUB_HOST", buildrun.GITHUB_HOST)):
+        assert re.search(r"^%s=%s(\s|$)" % (name, re.escape(value)), text, re.M), name
+    res = run_script(SETUP, ["--update", "--dry-run"], fakebin)
+    lines = res.stdout.splitlines()
+    i = lines.index("+ write /etc/systemd/system/awb-task-failed@.service (mode 644, root:root)")
+    unit = [x[6:] for x in lines[i + 1:] if x.startswith("    | ")][:20]
+    for want in ("Type=oneshot", "User=%s" % USER, "Group=awb", "NoNewPrivileges=yes",
+                 "ExecStart=/usr/local/bin/awb build failed %i"):
+        assert want in unit, want
+    assert buildrun.FAILED_UNIT % "%i" == "awb-task-failed@%i.service"
+    # planted: the call of the probe cut out
+    planted = fakebin[0].parent / "verify-planted.sh"
+    planted.write_text(text.replace("    net_probe\n", ""), encoding="utf-8")
+    res = run_script(planted, ["--dry-run"], fakebin)
+    assert not [ln for ln in net if "CHECK " + ln in res.stdout.splitlines()]
+
+
+def test_the_selftest_refuses_to_report_clean_when_a_planted_case_is_removed(monkeypatch, capsys):
+    """SB5: the selftest holds a fixed list of its cases; a case taken out of SELFTEST_CASES (or doubled) is a failure,
+    never a shorter clean report. Control: every case there, each a stand-in that refuses, passes."""
+    from awb import buildrun
+
+    class NoWorld:
+        def __init__(self, *a, **k):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(buildrun, "World", NoWorld)
+    stand_in = [(name, lambda w: None) for name, _ in buildrun.SELFTEST_CASES]
+    assert sorted(n for n, _ in stand_in) == sorted(buildrun.SELFTEST_REQUIRED)
+    monkeypatch.setattr(buildrun, "SELFTEST_CASES", stand_in)
+    assert buildrun.selftest(python=sys.executable) == []
+    for removed in ("n9-deleted", "push-nonff"):
+        monkeypatch.setattr(buildrun, "SELFTEST_CASES", [c for c in stand_in if c[0] != removed])
+        assert buildrun.selftest(python=sys.executable) == ["%s: the planted case is missing" % removed]
+        monkeypatch.setattr(buildrun.config, "is_build_user", lambda: False)
+        assert buildrun.selftest_main() == 1
+        assert "selftest failed: %s: the planted case is missing" % removed in capsys.readouterr().out
+    monkeypatch.setattr(buildrun, "SELFTEST_CASES", stand_in + stand_in[:1])
+    assert buildrun.selftest(python=sys.executable) == ["%s: the planted case is there twice" % stand_in[0][0]]
+
+
+def test_seal_check_runs_the_selftest_and_reads_the_probe_record_on_a_build_host(tmp_path, monkeypatch, capsys):
+    """SB5: `awb seal check` on a host with a build user runs the runner's selftest and reads the record of the last
+    probe unit (the work user cannot start one). Planted: no record and a record with a failed line each fail the
+    command; a host without a build user prints neither line."""
+    from awb import buildrun
+
+    monkeypatch.setattr(seal, "run_checks", lambda: [])
+    monkeypatch.setattr(buildrun, "selftest", lambda: [])
+    shared = tmp_path / "shared"
+    (shared / "build").mkdir(parents=True)
+    monkeypatch.setattr(config, "paths", lambda: config.Paths(shared=shared, vault=tmp_path / "v",
+                                                             projects_root=tmp_path, check_socket=tmp_path / "s"))
+    monkeypatch.setattr(config, "build_user", lambda: "awb-build")
+    assert seal.main(["check"]) == 1
+    out = capsys.readouterr().out
+    assert "PASS  the build runner refuses its planted cases" in out
+    assert "FAIL  the probe unit with a task's own properties passed its checks (no record yet: sudo seal/verify.sh " \
+           "runs it)" in out
+    rows = "probe\t2026-10-11T21:00:00\tkey\t4\t0\n" + "".join("check\t%s\tpass\n" % k
+                                                               for k in ("unit", "model", "tcp", "github"))
+    (shared / "build" / "probe.tsv").write_text(rows)
+    assert seal.main(["check"]) == 0
+    assert "PASS  the probe unit with a task's own properties passed its 4 checks (sudo seal/verify.sh, 2026-10-11 " \
+           "21:00)" in capsys.readouterr().out
+    (shared / "build" / "probe.tsv").write_text(rows.replace("tcp\tpass", "tcp\tfail"))
+    assert seal.main(["check"]) == 1
+    assert "(failed: tcp)" in capsys.readouterr().out
+    monkeypatch.setattr(config, "build_user", lambda: None)
+    assert seal.main(["check"]) == 0
+    assert "probe unit" not in capsys.readouterr().out

@@ -31,8 +31,10 @@
 # runner's records, owner 700), home/ (the build user's own home), venv/ (the suite's venv, root) and home-template/
 # (root, immutable: the build settings, CLAUDE.md, the owner's git identity); /opt/claude-build, a root owned copy of
 # the client pinned by version and digest with its updater off; the unit of the runner, installed and not enabled
-# until the runner exists. /etc/awb and its two files go to root:awb (751, paths.conf and blocklist.txt 640): the
-# build user reads neither, the owner, the work user and the Ask page do.
+# (the steering session starts it by hand for the first trial task and enables it on his word); the oneshot
+# awb-task-failed@.service that every task unit names in OnFailure= (SB5), so a task unit that fails while no runner
+# waits on it writes one board line. /etc/awb and its two files go to root:awb (751, paths.conf and blocklist.txt
+# 640): the build user reads neither, the owner, the work user and the Ask page do.
 #
 # The egress filter of the work user (seal/egress/ALLOW.md) is an nftables table that root loads with `awb egress
 # load`, at boot through awb-egress.service and every 5 minutes through awb-egress.timer. It ships in the mode count
@@ -71,7 +73,8 @@ FSTAB=/etc/fstab
 BUILD_CLIENT=/opt/claude-build
 BUILD_CLIENT_VERSION=2.1.296          # the client the build user runs, pinned by version and digest
 BUILD_CLIENT_SHA256=24972e3bc859fab2b46ed4c1e51f7d6130f06d3bd550811a114640de3370d0de
-INSTALL_ONLY="awb-buildd.service"     # installed, never enabled here: the runner comes with SB3
+INSTALL_ONLY="awb-buildd.service"     # installed, never enabled here: the steering session starts it by hand
+BUILD_FAILED_UNIT=awb-task-failed@.service   # OnFailure= of every task unit (awb/buildrun.py FAILED_UNIT, SB5)
 BUILD_MODEL_DEFAULT=login             # D-S7 changed: his subscription login; build_model = key in the host file is the fallback
 BUILD_MODEL_KEY=/etc/awb/build-model.key     # the owner's copy for the runner (build_model = key), never printed
 BUILD_MODEL_KEY_SOURCE=/etc/awb/anthropic.key   # the default source; build_model_key_source in the host file wins
@@ -736,12 +739,13 @@ step_units() {
         name=$(basename -- "$f")
         write_file "$UNITS_DIR/$name" 644 root:root < <(sed -e "s|@OWNER@|$owner|g" "$f")
     done
+    [ "$units_only" -eq 1 ] || build_failed_unit
     run systemctl daemon-reload
     [ "$units_only" -eq 0 ] || return 0
     for f in "$seal_dir"/*.service "$seal_dir"/*.timer; do
         name=$(basename -- "$f")
         if [[ " $INSTALL_ONLY " == *" $name "* ]]; then
-            info "$name is installed, not enabled: the build runner comes with SB3 of the self-build"
+            info "$name is installed, not enabled: the steering session starts it by hand for a trial task and enables it on his word"
             continue
         fi
         try_run systemctl enable --now "$name"
@@ -1175,8 +1179,34 @@ build_board() {
     run install -d -o "$WORK_USER" -g "$WORK_GROUP" -m 3770 "$work_home/tcp-shared/build"
 }
 
+build_failed_unit() {
+    # written by step_units (not in --units-only), not a seal/*.service file: a template unit has no state a deploy
+    # could read or restart
+    info "$BUILD_FAILED_UNIT: the oneshot every task unit of the build runner names in OnFailure=; as the owner it"
+    info "writes one board line when a task unit fails while no runner waits on it (awb build failed)"
+    write_file "$UNITS_DIR/$BUILD_FAILED_UNIT" 644 root:root <<EOF
+# Written by seal/setup.sh (presentations/self-build SB5). Every awb-task-* unit of the build runner names
+# awb-task-failed@<unit>.service in OnFailure=. While a runner holds its lock it waits on the unit and reports it;
+# otherwise this writes one row into the board's state.tsv; the board line names the unit, its result and the
+# time until the runner writes the file again.
+[Unit]
+Description=Architect Workbench build: the task unit %i failed
+RequiresMountsFor=$BUILD_ROOT
+
+[Service]
+Type=oneshot
+User=$owner
+Group=$WORK_GROUP
+UMask=0027
+NoNewPrivileges=yes
+ExecStart=$BIN_LINK build failed %i
+TimeoutStartSec=60
+LimitCORE=0
+EOF
+}
+
 step_build() {
-    info "the build side of the self-build (presentations/self-build, SB1 and SB3)"
+    info "the build side of the self-build (presentations/self-build, SB1, SB3 and SB5)"
     step_build_user
     build_client
     info "the commit hooks of a build clone come with the release: $OPT/src/hooks-build (the installed gate"

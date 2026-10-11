@@ -46,7 +46,13 @@ The seal keeps the register of names away from every working session. It uses tw
 - `work-claude/managed-settings.json`: the six hooks once more, installed as a managed drop-in of the client.
 - `awb-buildd.service`: the runner of the build queue, as the owner with the group `awb`, `NoNewPrivileges=no` (it
   calls `sudo -n systemd-run`) and `UMask=0022`. `setup.sh` installs it and does not enable it: the steering
-  session enables it after SB4 and SB5. A deploy never starts it and defers its restart while a task runs.
+  session starts it by hand for the first trial task and enables it on his word. A deploy never starts it and
+  defers its restart while a task runs.
+- `awb-task-failed@.service` (written by `setup.sh` with the units, not a file here: a template unit has no state
+  a deploy could read): the oneshot every task unit names in `OnFailure=`. It runs `awb build failed <unit>` as the
+  owner with the group `awb`; while a runner holds its lock it writes nothing (the runner reports the unit), else
+  one `failed` row in `tcp-shared/build/state.tsv`, which the board line shows until the runner writes the file
+  again.
 - `build-claude/settings.json`: the client settings of a build task (section "The build side").
 - `../hooks-build/`: the commit hooks of a build clone, installed with every release as
   `/opt/tcp-awb/src/hooks-build`.
@@ -67,7 +73,9 @@ or the input cannot be read, the call is refused. The owner's sessions are not g
 refused cases and fails when one passes; `awb seal check` runs it.
 
 `awb seal check` runs the checks of `verify.sh` that need no root, for the user who runs it. Run it as the work
-user.
+user. On a host with the build side it also runs `awb build selftest` and reads `tcp-shared/build/probe.tsv`, the
+record of the last `awb build probe` that `verify.sh` ran (a unit as the build user needs root, which the work user
+lacks): it passes only when every network check of the build model passed.
 
 ## The egress filter
 

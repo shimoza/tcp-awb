@@ -14,9 +14,12 @@
 # The build side of the self-build (presentations/self-build, SB1): the build user, its image and folders with their
 # owners and modes, the home template, the pinned client, the build hooks and the runner's unit; then N1 to N5 as the
 # build user (the vault, the host file, the blocklist, four sockets, sudo, two homes, a push into main.git each fail)
-# and, inside a probe unit with the properties of a task, the model endpoint connects while a TCP API host, GitHub,
-# a write under /opt and runs/, a listing of runs/ and of the work user's home, the host file and the check socket
-# fail. A probe counts only after the unit was shown to run as the build user.
+# and, inside a probe unit with the properties of a task, a write under /opt and runs/, a listing of runs/ and of the
+# work user's home, the host file and the check socket fail. The network of a task is probed by the runner's own
+# code (`awb build probe`, as the owner, SB5): a unit of the runner's systemd-run form with the address list of a
+# task's session reaches the model endpoint (and with build_model = login the token host of his login) while a TCP
+# API host and GitHub stay closed. A probe counts only after the unit was shown to run as the build user. The
+# oneshot awb-task-failed@.service that every task unit names in OnFailure= is installed.
 # One line per check, PASS or FAIL; exit 1 on any FAIL.
 # --dry-run lists the checks and runs none (it works without root). Paths come from /etc/awb/paths.conf when it
 # is there, home folders from getent passwd. No line names a folder of the owner: they are counted.
@@ -317,8 +320,10 @@ BUILD_IMAGE=/var/lib/awb-build.img
 BUILD_SIZE_GB=20
 BUILD_CLIENT=/opt/claude-build
 MODEL_HOST=api.anthropic.com
+TOKEN_HOST=platform.claude.com        # awb/buildrun.py TOKEN_HOST: the refresh of his login
 TCP_API_HOST=iam.eu-de.otc.t-systems.com
 GITHUB_HOST=github.com
+BUILD_FAILED_UNIT=awb-task-failed@.service
 build_root=$(conf_value build_root)
 build_root="${build_root:-/srv/awb-build}"
 # exit 0 when the unix socket at $1 accepts a connection
@@ -327,13 +332,6 @@ s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 s.settimeout(3)
 try:
     s.connect(sys.argv[1])
-except OSError:
-    sys.exit(1)
-sys.exit(0)'
-# exit 0 when a TCP connection to $1 port 443 opens within 5 seconds
-TCP_PY='import socket, sys
-try:
-    socket.create_connection((sys.argv[1], 443), timeout=5).close()
 except OSError:
     sys.exit(1)
 sys.exit(0)'
@@ -384,6 +382,7 @@ build_dry() {
         "the build client's command runs the pinned version with the updater off" \
         "the build hooks of the release run the gate --no-register by the installed interpreter" \
         "the build runner's unit is installed" \
+        "the oneshot $BUILD_FAILED_UNIT of a failed task unit is installed and writes the board line as the owner" \
         "the build side runs on his login (build_model = login) and the login is there, or on the model key" \
         "the model key of a build task is the owner's (400) and matches its source" \
         "the board's build folder is the work user's, 3770" \
@@ -397,12 +396,36 @@ build_dry() {
         "the build user cannot run sudo -n true" "the build user cannot list the work user's home" \
         "the build user cannot list the owner's home" "the build user cannot push into main.git" \
         "the probe unit runs as the build user with the properties of a task" \
-        "the probe unit reaches the model endpoint ($MODEL_HOST)" \
-        "the probe unit cannot reach a TCP API host ($TCP_API_HOST)" \
-        "the probe unit cannot reach $GITHUB_HOST" "the probe unit cannot write under $OPT" \
+        "the probe unit cannot write under $OPT" \
         "the probe unit cannot write under runs/" "the probe unit cannot list runs/" \
         "the probe unit cannot list the work user's home" "the probe unit cannot read the host file" \
         "the probe unit cannot connect to the check socket"
+    net_probe
+}
+
+net_lines() {
+    # net_lines MODEL: the lines of awb build probe (awb/buildrun.py probe_lines), in its order
+    printf '%s\n' "the probe unit with a task's own properties runs as the build user" \
+        "the probe unit reaches the model endpoint ($MODEL_HOST)"
+    [ "$1" != login ] || printf '%s\n' "the probe unit reaches the token host of his login ($TOKEN_HOST)"
+    printf '%s\n' "the probe unit cannot reach a TCP API host ($TCP_API_HOST)" "the probe unit cannot reach $GITHUB_HOST"
+}
+
+net_probe() {
+    # the network of a task through the runner's own code: awb build probe as the owner starts each probe in a unit of
+    # the runner's one systemd-run form with the address list of a task's session. Each line counts only as PASS in
+    # its output; a missing line is a FAIL
+    local model out want
+    if [ "$dry_run" -eq 1 ]; then
+        while IFS= read -r want; do printf 'CHECK %s\n' "$want"; done < <(net_lines login)
+        return 0
+    fi
+    model=$(conf_value build_model)
+    model="${model:-login}"
+    out=$(runuser -u "$owner" -- env HOME="$owner_home" /usr/local/bin/awb build probe 2>/dev/null) || true
+    while IFS= read -r want; do
+        if printf '%s\n' "$out" | grep -qxF -- "PASS  $want"; then report 0 "$want"; else report 1 "$want"; fi
+    done < <(net_lines "$model")
 }
 
 build_model_check() {
@@ -504,6 +527,9 @@ build_checks() {
     done
     report "$out" "the build hooks of the release run the gate --no-register by the installed interpreter"
     allowed "the build runner's unit is installed" test "$(systemctl show -p LoadState --value awb-buildd.service)" = loaded
+    allowed "the oneshot $BUILD_FAILED_UNIT of a failed task unit is installed and writes the board line as the owner" \
+        sh -c 'test "$(stat -c "%U %a" -- "$1")" = "root 644" && grep -qx "Type=oneshot" "$1" && grep -qx "User=$2" "$1" &&
+        grep -qx "ExecStart=/usr/local/bin/awb build failed %i" "$1"' verify "/etc/systemd/system/$BUILD_FAILED_UNIT" "$owner"
     build_model_check "$t"
     allowed "the board's build folder is the work user's, 3770" test \
         "$(stat -c '%U %G %a' -- "$shared/build" 2>/dev/null)" = "awb awb 3770"
@@ -540,19 +566,13 @@ build_checks() {
     [ -n "$probe_allow" ] && [ "$(probe id -un 2>/dev/null)" = "$BUILD_USER" ] && out=0
     report "$out" "the probe unit runs as the build user with the properties of a task"
     [ "$out" -ne 0 ] || probe_ran=1
-    if [ "$probe_ran" -eq 1 ]; then
-        allowed "the probe unit reaches the model endpoint ($MODEL_HOST)" probe python3 -I -c "$TCP_PY" "$MODEL_HOST"
-    else
-        report 1 "the probe unit reaches the model endpoint ($MODEL_HOST) (the probe unit did not run)"
-    fi
-    probe_denied "the probe unit cannot reach a TCP API host ($TCP_API_HOST)" python3 -I -c "$TCP_PY" "$TCP_API_HOST"
-    probe_denied "the probe unit cannot reach $GITHUB_HOST" python3 -I -c "$TCP_PY" "$GITHUB_HOST"
     probe_denied "the probe unit cannot write under $OPT" touch -- "$OPT/.verify-probe"
     probe_denied "the probe unit cannot write under runs/" touch -- "$build_root/runs/.verify-probe"
     probe_denied "the probe unit cannot list runs/" ls -A -- "$build_root/runs"
     probe_denied "the probe unit cannot list the work user's home" ls -A -- "$work_home"
     probe_denied "the probe unit cannot read the host file" cat -- "$CONF_FILE"
     probe_denied "the probe unit cannot connect to the check socket" python3 -I -c "$CONNECT_PY" "$socket"
+    net_probe
 }
 
 build_checks

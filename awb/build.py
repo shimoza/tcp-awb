@@ -11,7 +11,11 @@
     awb build stop [ID]          the runner ends after the current task, or stops the task ID
     awb build serve              the runner of the build queue, the ExecStart of awb-buildd.service
     awb build selftest           the runner's planted cases of THREAT-MODEL N6 to N12 and the push, in a throw-away world
+    awb build probe              the probe unit with a task's own properties (the runner's systemd-run form): the
+                                 model endpoint connects, a TCP API host and GitHub do not; seal/verify.sh runs it
     awb build unit ACTION ...    what the runner's units run as the build user (never the owner, never by hand)
+    awb build failed UNIT        the ExecStart of awb-task-failed@.service, OnFailure= of every task unit: one board
+                                 line when no runner waits on the unit (never by hand)
 
 This module holds the queue grammar (DESIGN.md section 2), the fixed header, the numbered run folders, the state
 words, the one-line forms (section 6) and the commands above. The commands only write the records the runner reads
@@ -1051,8 +1055,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("id", nargs="?")
     sub.add_parser("serve", help="the runner of the build queue, the ExecStart of awb-buildd.service")
     sub.add_parser("selftest", help="the runner's planted cases, each must be refused or classified")
+    sub.add_parser("probe", help="the probe unit with a task's own properties: the model endpoint connects, a TCP "
+                                 "API host and GitHub do not")
     s = sub.add_parser("unit", help=argparse.SUPPRESS)
     s.add_argument("args", nargs=argparse.REMAINDER)
+    s = sub.add_parser("failed", help=argparse.SUPPRESS)
+    s.add_argument("unit")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -1060,13 +1068,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         ap.print_usage(sys.stderr)
         return 2
-    if args.command in ("serve", "selftest", "unit"):
+    if args.command in ("serve", "selftest", "unit", "probe", "failed"):
         from awb import buildrun
 
         if args.command == "serve":
             return buildrun.serve_main()
         if args.command == "selftest":
             return buildrun.selftest_main()
+        if args.command == "probe":
+            return buildrun.probe_main()
+        if args.command == "failed":
+            return buildrun.failed_main(args.unit)
         why = buildrun.unit_allowed()
         if why:
             return _err(why)

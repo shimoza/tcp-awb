@@ -494,7 +494,9 @@ def test_the_reserved_paths_and_the_depends_order_the_pick(world):
 
 # --------------------------------------------------------------------------- the units
 
-def test_the_real_spawn_is_one_fixed_systemd_run_form():
+def test_the_real_spawn_is_one_fixed_systemd_run_form_with_its_failure_oneshot():
+    """Replaces test_the_real_spawn_is_one_fixed_systemd_run_form (SB5: every task unit names the oneshot
+    awb-task-failed@<unit>.service in OnFailure=, the probe unit none)."""
     units = buildrun.SystemdUnits("awb-build")
     spec = buildrun.Spec("awb-task-B-012", ["/opt/claude-build/bin/claude", "-p"], 5400, "/srv/awb-build/wt/B-012-1",
                          "/srv/awb-build/home/B-012-1", rw=["/srv/awb-build/wt/B-012-1", "/srv/awb-build/home/B-012-1"],
@@ -512,7 +514,11 @@ def test_the_real_spawn_is_one_fixed_systemd_run_form():
         "--property=InaccessiblePaths=-/etc/awb -/srv/awb-build/runs -/srv/awb-build/wt/B-011-1",
         "--property=BindReadOnlyPaths=/srv/awb-build/home-template/.gitconfig:/srv/awb-build/home/B-012-1/.gitconfig",
         "--property=IPAddressDeny=any", "--property=IPAddressAllow=127.0.0.53 192.0.2.10",
+        "--property=OnFailure=awb-task-failed@awb-task-B-012.service",
         "--", "/opt/claude-build/bin/claude", "-p"]
+    assert "--property=OnFailure=awb-task-failed@awb-task-B-012-suite.service" in units.argv(
+        buildrun.Spec("awb-task-B-012-suite", ["x"], 1800, "/tmp", "/tmp"))
+    assert not [a for a in units.argv(buildrun.Spec("awb-task-probe", ["x"], 60, "/", "/tmp")) if "OnFailure" in a]
     # the suite unit allows no address; a unit name from the agent's side is refused
     assert "--property=IPAddressAllow" not in " ".join(units.argv(buildrun.Spec("awb-task-B-012-suite", ["x"], 1800,
                                                                                  "/tmp", "/tmp")))
@@ -839,3 +845,136 @@ def test_a_build_model_outside_login_and_key_holds_the_queue_and_the_host_file_d
         monkeypatch.setattr(config, "host_conf", lambda conf=conf: dict(conf))
         h = buildrun.Host.from_config()
         assert (h.model, h.model_key) == (model, key)
+
+
+# --------------------------------------------------------------------------- SB5: the probe unit and a failed task unit
+
+ALLOW = ["127.0.0.53", "192.0.2.10", "192.0.2.11"]
+
+
+def probe_host(w, tmp_path, *, reach=("api.anthropic.com", "platform.claude.com"), who=None, model="login"):
+    """The world's host with LocalUnits whose `id -un` prints `who` and whose python connects to the hosts of
+    `reach` only (exit 0), every other host refused (exit 1): no network is touched."""
+    import dataclasses
+    import getpass
+
+    fake = tmp_path / "fake"
+    fake.mkdir(exist_ok=True)
+    (fake / "python").write_text("#!/bin/sh\nfor a; do last=\"$a\"; done\ncase \" %s \" in *\" $last \"*) exit 0 ;; "
+                                 "esac\nexit 1\n" % " ".join(reach))
+    (fake / "id").write_text("#!/bin/sh\necho %s\n" % (who or getpass.getuser()))
+    for f in fake.iterdir():
+        f.chmod(0o755)
+    units = buildrun.LocalUnits({"/usr/bin/python3": [str(fake / "python")], "/usr/bin/id": [str(fake / "id")]})
+    return dataclasses.replace(w.host, units=units, model=model, resolve=lambda: list(ALLOW))
+
+
+def test_the_probe_runs_with_a_task_s_own_network_and_writes_the_record_seal_check_reads(world, tmp_path):
+    """SB5: `awb build probe` starts each probe as a unit of the runner's one form with the address list of a task's
+    session (model_allow, the token host with his login), the session's hidden places and environment; the control
+    shows the build user first. A connection to the model endpoint and the token host passes, one to a TCP API host
+    and GitHub is refused. Planted: GitHub reachable fails its line; another user in the control fails every line;
+    the key mode has no token line."""
+    import getpass
+
+    user = getpass.getuser()
+    host = probe_host(world, tmp_path)
+    res = buildrun.run_probe(host, user)
+    assert [(k, ok) for k, ok, _ in res] == [("unit", True), ("model", True), ("token", True), ("tcp", True),
+                                             ("github", True)]
+    assert [ln for _, _, ln in res] == [ln for _, ln in buildrun.probe_lines("login")]
+    specs = host.units.started
+    assert len(specs) == 5 and {s.name for s in specs} == {"awb-task-probe"}
+    assert all(s.allow == ALLOW and s.hidden == buildrun._hidden(host, None) for s in specs)
+    assert all(s.env == {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1"} for s in specs)
+    assert [s.argv[-1] for s in specs[1:]] == ["api.anthropic.com", "platform.claude.com",
+                                               "iam.eu-de.otc.t-systems.com", "github.com"]
+    assert buildrun.write_probe(host, res)
+    ok, what, note = buildrun.probe_check(host.board)
+    assert ok and "passed its 5 checks" in what and note == ""
+    # planted: GitHub open
+    bad = buildrun.run_probe(probe_host(world, tmp_path, reach=("api.anthropic.com", "platform.claude.com",
+                                                                 "github.com")), user)
+    assert [k for k, ok, _ in bad if not ok] == ["github"]
+    buildrun.write_probe(host, bad)
+    ok, _, note = buildrun.probe_check(host.board)
+    assert not ok and note == "failed: github"
+    # planted: the unit does not run as the build user
+    other = buildrun.run_probe(probe_host(world, tmp_path, who="someone"), user)
+    assert not any(ok for _, ok, _ in other) and all(ln.endswith("(the probe unit did not run)")
+                                                    for _, _, ln in other[1:])
+    # the key mode: no token host
+    key = buildrun.run_probe(probe_host(world, tmp_path, model="key"), user)
+    assert [k for k, _, _ in key] == ["unit", "model", "tcp", "github"] and all(ok for _, ok, _ in key)
+    # the endpoint does not resolve: every line fails
+    import dataclasses
+
+    none = buildrun.run_probe(dataclasses.replace(host, resolve=lambda: None), user)
+    assert not any(ok for _, ok, _ in none)
+
+
+def test_seal_check_reads_only_a_full_probe_record_of_its_build_model(world):
+    """SB5: no record, a login record without its token check, a failed line, a planted free text: never a pass."""
+    board = world.host.board
+    assert buildrun.probe_check(board) == (False, "the probe unit with a task's own properties passed its checks",
+                                           "no record yet: sudo seal/verify.sh runs it")
+    rows = "probe\t2026-10-11T21:00:00\tlogin\t4\t0\ncheck\tunit\tpass\ncheck\tmodel\tpass\ncheck\ttcp\tpass\n" \
+           "check\tgithub\tpass\n"
+    (board / "probe.tsv").write_text(rows)
+    assert buildrun.probe_check(board)[0] is False and buildrun.probe_check(board)[2] == "failed: token"
+    (board / "probe.tsv").write_text(rows + "check\ttoken\tpass\n")
+    assert buildrun.probe_check(board)[0] is True
+    (board / "probe.tsv").write_text(rows.replace("login", "zyxwo") + "check\ttoken\tpass\n")
+    assert buildrun.probe_check(board)[0] is False
+    (board / "probe.tsv").write_text(rows.replace("github\tpass", "github\tzyxwo") + "check\ttoken\tpass\n")
+    assert buildrun.probe_check(board)[2] == "failed: github"
+
+
+def test_a_failed_task_unit_writes_one_board_line_only_while_no_runner_waits(world, monkeypatch, capsys):
+    """SB5: the oneshot of OnFailure= (`awb build failed UNIT`) adds one `failed` row to state.tsv when no runner
+    holds its lock; the board line names the unit, the time and the result; the runner's next write drops it.
+    Planted: a held runner lock writes nothing; a unit name from elsewhere and the probe unit are refused; a result
+    outside systemd's words reads as unknown."""
+    import types
+
+    from awb.tcp import board as boardmod
+
+    h = world.host
+    h.board = world.base / "shared" / "build"
+    h.board.mkdir(parents=True)
+    shared = types.SimpleNamespace(shared=world.base / "shared")
+    r = buildrun.Runner(h)
+    r.write_board()
+    before = (h.board / "state.tsv").read_text()
+    fd = buildrun.acquire_lock(h.runs)
+    assert buildrun.runner_alive(h.runs)
+    assert buildrun.record_failed(h, "awb-task-B-012", "timeout") == "watched"
+    assert (h.board / "state.tsv").read_text() == before
+    os.close(fd)
+    assert not buildrun.runner_alive(h.runs)
+    assert buildrun.record_failed(h, "awb-task-B-012", "timeout") == "written"
+    text = (h.board / "state.tsv").read_text()
+    assert text.startswith(before) and len(text.splitlines()) == len(before.splitlines()) + 1
+    line = boardmod.build_line(shared)
+    assert re.search(r"; no runner watched: B-012 failed \d\d:\d\d \(timeout\)$", line), line
+    for i in range(7):
+        buildrun.record_failed(h, "awb-task-B-%03d-suite" % (100 + i), "exit-code")
+    rows = [x for x in (h.board / "state.tsv").read_text().splitlines() if x.startswith("failed\t")]
+    assert len(rows) == buildrun.FAILED_ROWS and rows[-1].startswith("failed\tawb-task-B-106-suite\texit-code\t")
+    assert "B-106-suite failed" in boardmod.build_line(shared) and "B-012 failed" not in boardmod.build_line(shared)
+    r.write_board()
+    assert "failed" not in (h.board / "state.tsv").read_text()
+    assert "no runner watched" not in boardmod.build_line(shared)
+    # the command: the vocabulary of the unit name and of the result
+    monkeypatch.setattr(buildrun.Host, "from_config", classmethod(lambda cls: h))
+    monkeypatch.setenv("MONITOR_SERVICE_RESULT", "zyxwo")
+    assert buildrun.failed_main("awb-task-B-012-prep") == 0
+    assert "failed\tawb-task-B-012-prep\tunknown\t" in (h.board / "state.tsv").read_text()
+    for planted in ("awb-task-probe", "awb-task-B-012; reboot", "sshd"):
+        assert buildrun.failed_main(planted) == 2
+    assert "not a task unit" in capsys.readouterr().err
+    # a link at the place of the board's folder: nothing written through it
+    os.rename(h.board, world.base / "elsewhere")
+    os.symlink(world.base / "elsewhere", h.board)
+    assert buildrun.record_failed(h, "awb-task-B-013", "timeout") == "not written"
+    assert "B-013" not in (world.base / "elsewhere" / "state.tsv").read_text()

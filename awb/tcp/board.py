@@ -13,6 +13,8 @@ Both carry the line of the last wipe measurement of the refresh: "wipe: L leaks,
 line of the self-build from <shared>/build/state.tsv, which the build runner writes (awb/buildrun.py): "build: B-012
 done 14:02, B-013 running since 14:10; live eb928d2, main 1a2b3c4, 1 not deployed". Every cell of that file is
 matched against a fixed form or vocabulary before it reaches the line; anything else is dropped or cut to its word.
+A task unit that failed while no runner watched (the oneshot awb-task-failed@.service, SB5) adds "; no runner
+watched: B-012 failed 14:02 (timeout)" until the runner writes the file again.
 While the vault is locked both commands open with "locked since <time>" (T3); the project texts wait for the
 unlock, because the data check cannot run.
 """
@@ -247,6 +249,10 @@ QUEUE_HELD = ("vault locked", "no vault daemon", "key service not loaded", "no k
               "build root full", "build root missing", "no identity", "model key", "systemd-run as the build user",
               "build model", "login missing", "model endpoint")
 """The reasons the runner holds the whole queue for (awb/buildrun.py, preconditions)."""
+UNIT_RESULTS = ("success", "exit-code", "signal", "core-dump", "timeout", "watchdog", "start-limit-hit", "resources",
+                "oom-kill", "protocol", "exec-condition", "start-failed", "unknown")
+"""awb.buildrun.RESULTS and `unknown`: the result of a task unit that failed while no runner watched (SB5)."""
+_TASK_UNIT = re.compile(r"awb-task-(B-[0-9]{3,4}(?:-(?:prep|hand|suite))?)")    # awb.buildrun.UNIT_RE, the probe out
 
 
 def build_tsv(p) -> Path:
@@ -288,7 +294,8 @@ def build_state(p) -> dict | None:
     text = _read_small(build_tsv(p), BUILD_TSV_MAX)
     if text is None:
         return None
-    out = {"queue": None, "tasks": [], "live": "unknown", "main": "unknown", "not_deployed": None, "behind": []}
+    out = {"queue": None, "tasks": [], "live": "unknown", "main": "unknown", "not_deployed": None, "behind": [],
+           "failed": []}
     seen = set()
     for row in text.splitlines():
         cells = row.split("\t")
@@ -311,6 +318,10 @@ def build_state(p) -> dict | None:
             out["not_deployed"] = int(cells[1])
         elif kind == "daemons" and len(cells) == 2:
             out["behind"] = [d for d in ("vault", "keys") if d in cells[1].split(",")]
+        elif kind == "failed" and len(cells) == 4:
+            m_unit, m = _TASK_UNIT.fullmatch(cells[1]), _STAMP.fullmatch(cells[3])
+            if m_unit and m and cells[2] in UNIT_RESULTS:
+                out["failed"].append({"unit": m_unit.group(1), "result": cells[2], "time": m.group(1)})
     return out
 
 
@@ -343,6 +354,9 @@ def build_line(p) -> str:
     unsent = [t["id"] for t in tasks if t["mail_not_sent"]]
     if unsent:
         line += "; mail not sent: %s" % " ".join(unsent)
+    if data["failed"]:
+        line += "; no runner watched: %s" % ", ".join(
+            "%s failed %s (%s)" % (f["unit"], f["time"], f["result"]) for f in data["failed"][-DONE_SHOWN:])
     return line
 
 

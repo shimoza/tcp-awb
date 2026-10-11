@@ -520,8 +520,28 @@ in `main.git` (a rebase first when `main` moved), pushes it to GitHub after the 
 `done`. Otherwise the run is `hung`, `red: <reason>`, `asked`, `stopped: <subtype>`, `stale` or `held: <reason>`,
 and nothing moves. Each ended run writes `/srv/awb-build/runs/<ID>/<n>/result.md` (fixed fields only), one line on
 the board (`state.tsv` in `tcp-shared/build`) and one mail. Only an API error before the first tool call is retried
-by itself, once, ten minutes later. `awb build selftest` runs the runner's planted cases in a throw-away folder;
-`sudo seal/verify.sh` and `awb seal check` run it too. The unit is installed and not enabled yet.
+by itself, once, ten minutes later. `awb build selftest` runs the runner's planted cases in a throw-away folder and
+fails when one of them is missing; `awb build probe` (as you) starts a unit of the runner's own form with the network
+of a task: the model endpoint and, with your login, `platform.claude.com` connect, a TCP API host and GitHub do not.
+`sudo seal/verify.sh` runs both; `awb seal check` runs the selftest and reads the record of the last probe. Every
+task unit names the oneshot `awb-task-failed@.service` in `OnFailure=`: a task unit that fails while no runner
+waits on it (the runner stopped or crashed) adds `no runner watched: B-012 failed 14:02 (timeout)` to the board line
+until the runner starts again and reports the task itself. The unit is installed and not enabled: start it with
+`sudo systemctl start awb-buildd.service`, stop it with `awb build stop`.
+
+What the build side does not prove (the accepted limits of `presentations/self-build/THREAT-MODEL.md`, section 6):
+
+- A green suite proves the code against the suite, not against the host. Your look at `result.md` and the diff
+  stat and your deploy stay between a task and the running Workbench.
+- The clones of one build user are kept apart by the guard hook and the unit's hidden paths, not by a user per
+  task. Tasks run one at a time; a second slot would need a second build user.
+- The runner has your reach (sudo, the token, the sockets). It is small, has no model, is installed and is
+  reviewed like the deploy.
+- `result.md` carries commit subjects and a diff stat the agent chose, after `awb check`. A subject line is a short
+  channel that stays open; `message.txt` is for your terminal only.
+- The address list of a task is resolved when it starts; an endpoint that moves during the task ends it `stopped`.
+- A name the gate does not know (a first name alone, a lower-case nickname) can pass the scan into `result.md` on
+  this host; it never reaches the board, the mail or GitHub without the register check of the commit.
 
 The agent's free text stays out of your sessions: add one line to the `deny` list of `permissions` in your own
 `~/.claude/settings.json`, `"Read(//srv/awb-build/runs/**/message.txt)"`, and read the message with

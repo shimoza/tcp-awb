@@ -37,6 +37,11 @@ is `stale`) and the checks run again; then `update-ref` of main with the expecte
 
 The units are behind `Units`: `SystemdUnits` builds the one fixed argument list; `LocalUnits` runs the same steps as
 this uid in this process (the tests and `awb build selftest`), with the same clock and kill of a process group.
+
+SB5: every task unit names the oneshot awb-task-failed@<unit>.service in OnFailure= (`awb build failed`, one board
+line when no runner waits on the unit); `awb build probe` proves the network of a task in units of the same form (the
+model endpoint and the token host of his login connect, a TCP API host and GitHub do not) and leaves the record that
+`awb seal check` reads; the selftest fails when one of its planted cases is missing.
 """
 from __future__ import annotations
 
@@ -114,6 +119,15 @@ TASKS_MAX = 512
 
 UNIT_RE = re.compile(r"awb-task-(?:probe|B-[0-9]{3,4}(?:-(?:prep|hand|suite))?)")
 """Every unit name the runner starts, stops or resets: the fixed forms, nothing from the agent's side."""
+PROBE_UNIT = "awb-task-probe"
+FAILED_UNIT = "awb-task-failed@%s.service"
+"""The oneshot every task unit names in OnFailure= (seal/setup.sh writes the template, SB5): it runs `awb build
+failed <unit>` as the owner, which writes one board line when no runner waits on the unit. The probe unit has none."""
+FAILED_ROWS = 5             # the failed rows state.tsv keeps, the newest last
+TCP_API_HOST = "iam.eu-de.otc.t-systems.com"    # seal/verify.sh names the same host
+GITHUB_HOST = "github.com"
+PROBE_SECONDS = 60
+PROBE_FILE = "probe.tsv"
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 SUBTYPE_RE = re.compile(r"[a-z0-9_]{1,40}")
@@ -406,6 +420,9 @@ class SystemdUnits(Units):
         props.append("IPAddressDeny=any")
         if spec.allow:
             props.append("IPAddressAllow=%s" % " ".join(spec.allow))
+        if spec.name != PROBE_UNIT:
+            # a task unit that fails while no runner waits on it is never silent (SB5)
+            props.append("OnFailure=%s" % (FAILED_UNIT % spec.name))
         out += ["--property=%s" % p for p in props]
         return out + ["--"] + list(spec.argv)
 
@@ -458,7 +475,7 @@ class SystemdUnits(Units):
             self.run(["sudo", "-n", "systemctl", "stop", _unit(name)], capture_output=True, timeout=120, check=False)
 
     def probe(self) -> bool:
-        spec = Spec("awb-task-probe", ["/usr/bin/true"], 60, "/", "/tmp")
+        spec = Spec(PROBE_UNIT, ["/usr/bin/true"], 60, "/", "/tmp")
         h = self.start(spec)
         while True:
             e = h.poll()
@@ -2454,23 +2471,265 @@ def write_state_tsv(host: Host, info: dict, held: str | None) -> None:
     rows.append("main\t%s" % info["main"])
     rows.append("not_deployed\t%s" % info["not_deployed"])
     rows.append("daemons\t%s" % (",".join(info.get("behind") or []) or "current"))
-    data = ("\n".join(rows) + "\n").encode("utf-8")
+    board_write(host.board, "state.tsv", ("\n".join(rows) + "\n").encode("utf-8"))
+
+
+def board_write(board: Path | None, name: str, data: bytes) -> bool:
+    """A file of the board's folder written atomically through a handle opened without following a link (the
+    folder is the work user's, 3770); True when it was written."""
+    if board is None:
+        return False
     try:
-        fd = os.open(host.board, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        fd = os.open(board, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
     except OSError:
-        return
+        return False
     try:
-        tmp = ".state.tsv.%d.tmp" % os.getpid()
+        tmp = ".%s.%d.tmp" % (name, os.getpid())
         with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp, dir_fd=fd)
         out = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o640, dir_fd=fd)
         with os.fdopen(out, "wb") as fh:
             fh.write(data)
-        os.rename(tmp, "state.tsv", src_dir_fd=fd, dst_dir_fd=fd)
+        os.rename(tmp, name, src_dir_fd=fd, dst_dir_fd=fd)
+        return True
     except OSError:
-        pass
+        return False
     finally:
         os.close(fd)
+
+
+def board_read(board: Path | None, name: str, cap: int = SMALL_MAX) -> str | None:
+    """A file of the board's folder: a regular file, no link followed at any step, under a cap, UTF-8; else None."""
+    if board is None:
+        return None
+    try:
+        fd = os.open(board, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        return None
+    try:
+        f = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+    except OSError:
+        os.close(fd)
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(f).st_mode):
+            return None
+        data = os.read(f, cap + 1)
+    except OSError:
+        return None
+    finally:
+        os.close(f)
+        os.close(fd)
+    if len(data) > cap:
+        return None
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+# --------------------------------------------------------------------------- a task unit that failed (SB5)
+
+def runner_alive(runs: Path) -> bool:
+    """True while a runner holds runs/.runner.lock (it waits on its units and reports them itself)."""
+    try:
+        fd = os.open(Path(runs) / ".runner.lock", os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+    return False
+
+
+def record_failed(host: Host, name: str, result: str) -> str:
+    """The oneshot's work: one `failed` row in state.tsv (the board line) when no runner waits on the unit. Returns
+    `watched`, `written` or `not written`. The runner's next write of state.tsv drops the row: its reconcile reports
+    the task by then."""
+    if runner_alive(host.runs):
+        return "watched"
+    rows = ["# written by awb build serve: ids, states, hashes and times; the board and the portal read it"]
+    failed: list[str] = []
+    for row in (board_read(host.board, "state.tsv", 256 << 10) or "").splitlines():
+        kind = row.split("\t", 1)[0]
+        if kind == "failed":
+            failed.append(row)
+        elif kind in ("queue", "task", "live", "main", "not_deployed", "daemons"):
+            rows.append(row)
+    failed.append("failed\t%s\t%s\t%s" % (name, result, host.now().strftime(build._STAMP)))
+    rows += failed[-FAILED_ROWS:]
+    ok = board_write(host.board, "state.tsv", ("\n".join(rows) + "\n").encode("utf-8"))
+    return "written" if ok else "not written"
+
+
+def failed_main(name: str) -> int:
+    """`awb build failed UNIT`, the ExecStart of awb-task-failed@.service (OnFailure= of every task unit): the unit
+    name of the instance and MONITOR_SERVICE_RESULT, each matched against its vocabulary."""
+    if config.is_work_user() or config.is_build_user():
+        print("awb build: the failure line is the owner's", file=sys.stderr)
+        return 2
+    if not UNIT_RE.fullmatch(name) or name == PROBE_UNIT:
+        print("awb build: not a task unit of the runner", file=sys.stderr)
+        return 2
+    result = os.environ.get("MONITOR_SERVICE_RESULT", "")
+    result = result if result in RESULTS else "unknown"
+    try:
+        host = Host.from_config()
+    except Exception as err:
+        print("awb build: the failure line cannot be written (%s)" % type(err).__name__, file=sys.stderr)
+        return 1
+    word = record_failed(host, name, result)
+    if word == "watched":
+        print("awb build: %s failed (%s); the runner waits on it and reports it" % (name, result))
+        return 0
+    if word == "written":
+        print("awb build: %s failed (%s) while no runner watched; one line on the board" % (name, result))
+        return 0
+    print("awb build: %s failed (%s); the board line could not be written" % (name, result), file=sys.stderr)
+    return 1
+
+
+# --------------------------------------------------------------------------- the probe unit (SB5)
+
+PROBE_PY = ("import socket, sys\n"
+            "try:\n"
+            "    socket.create_connection((sys.argv[1], 443), timeout=5).close()\n"
+            "except OSError:\n"
+            "    sys.exit(1)\n")
+"""Exit 0 when a TCP connection to port 443 of the host opens within five seconds, 1 when it does not."""
+PROBE_PYTHON = "/usr/bin/python3"
+PROBE_TARGETS = {"model": MODEL_HOST, "token": TOKEN_HOST, "tcp": TCP_API_HOST, "github": GITHUB_HOST}
+PROBE_REACH = ("model", "token")
+
+
+def probe_lines(model: str) -> list[tuple[str, str]]:
+    """(key, line) of each check of the probe unit, in order; the token host of his login only with build_model =
+    login. seal/verify.sh prints the same lines."""
+    out = [("unit", "the probe unit with a task's own properties runs as the build user"),
+           ("model", "the probe unit reaches the model endpoint (%s)" % MODEL_HOST)]
+    if model == "login":
+        out.append(("token", "the probe unit reaches the token host of his login (%s)" % TOKEN_HOST))
+    out += [("tcp", "the probe unit cannot reach a TCP API host (%s)" % TCP_API_HOST),
+            ("github", "the probe unit cannot reach %s" % GITHUB_HOST)]
+    return out
+
+
+def probe_spec(host: Host, argv: list[str], allow: list[str], stdout: Path | None = None) -> Spec:
+    """A unit with the network, the hidden places and the environment of a task's session (`Runner.spawn`): the
+    address list of model_allow, every clone, home and the records hidden, /etc/awb inaccessible."""
+    return Spec(PROBE_UNIT, argv, PROBE_SECONDS, "/", "/tmp", hidden=_hidden(host, None), allow=allow,
+                env={"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1"}, stdout=stdout)
+
+
+def _probe_wait(host: Host, spec: Spec) -> Ended:
+    handle = host.units.start(spec)
+    while True:
+        e = handle.poll()
+        if e is not None:
+            return e
+        time.sleep(0.2)
+
+
+def run_probe(host: Host, user: str) -> list[tuple[str, bool, str]]:
+    """(key, passed, line) per check. The control runs `id -un` first: a probe counts only after the unit was shown
+    to run as the build user (a unit that never starts would make every refused connection pass). A refused
+    connection passes only as the probe's own exit 1."""
+    lines = probe_lines(host.model)
+    allow = model_allow(host)
+    if allow is None:
+        return [(k, False, "%s (the model endpoint does not resolve)" % ln) for k, ln in lines]
+    with tempfile.TemporaryDirectory(prefix="awb-build-probe-") as tmp:
+        out = Path(tmp) / "id.out"
+        e = _probe_wait(host, probe_spec(host, ["/usr/bin/id", "-un"], allow, stdout=out))
+        who = (_text(out) or "").strip()
+    ran = e.result == "success" and e.code == 0 and who == user
+    res = [(lines[0][0], ran, lines[0][1])]
+    for key, line in lines[1:]:
+        if not ran:
+            res.append((key, False, line + " (the probe unit did not run)"))
+            continue
+        e = _probe_wait(host, probe_spec(host, [PROBE_PYTHON, "-I", "-c", PROBE_PY, PROBE_TARGETS[key]], allow))
+        if key in PROBE_REACH:
+            ok = e.result == "success" and e.code == 0
+        else:
+            ok = e.result == "exit-code" and e.code == 1
+        res.append((key, ok, line))
+    return res
+
+
+def write_probe(host: Host, results: list[tuple[str, bool, str]]) -> bool:
+    """<shared>/build/probe.tsv: the time, the build model and pass or fail per key; what `awb seal check` reads."""
+    failed = sum(1 for _, ok, _ in results if not ok)
+    rows = ["# written by awb build probe (seal/verify.sh): the checks of the probe unit, keys and times only",
+            "probe\t%s\t%s\t%d\t%d" % (host.now().strftime(build._STAMP), host.model, len(results) - failed,
+                                          failed)]
+    rows += ["check\t%s\t%s" % (key, "pass" if ok else "fail") for key, ok, _ in results]
+    return board_write(host.board, PROBE_FILE, ("\n".join(rows) + "\n").encode("utf-8"))
+
+
+def read_probe(board: Path | None) -> dict | None:
+    """The record of the last probe, every cell matched: {"time", "model", "checks": {key: passed}}; None without
+    a readable record."""
+    text = board_read(board, PROBE_FILE)
+    if text is None:
+        return None
+    out: dict = {"time": None, "model": None, "checks": {}}
+    for row in text.splitlines():
+        cells = row.split("\t")
+        if cells[0] == "probe" and len(cells) == 5 and cells[2] in MODELS:
+            try:
+                datetime.strptime(cells[1], build._STAMP)
+            except ValueError:
+                continue
+            out["time"], out["model"] = cells[1], cells[2]
+        elif cells[0] == "check" and len(cells) == 3 and cells[1] in PROBE_TARGETS.keys() | {"unit"} \
+                and cells[2] in ("pass", "fail"):
+            out["checks"][cells[1]] = cells[2] == "pass"
+    return out if out["time"] else None
+
+
+def probe_check(board: Path | None) -> tuple[bool, str, str]:
+    """For `awb seal check` (the work user cannot start a unit): (passed, what, note) from the record of the last
+    probe that seal/verify.sh ran. Passes only when every check of its build model passed."""
+    rec = read_probe(board)
+    if rec is None:
+        return False, "the probe unit with a task's own properties passed its checks", \
+            "no record yet: sudo seal/verify.sh runs it"
+    want = [k for k, _ in probe_lines(rec["model"])]
+    bad = [k for k in want if rec["checks"].get(k) is not True]
+    what = "the probe unit with a task's own properties passed its %d checks (sudo seal/verify.sh, %s)" % (
+        len(want), rec["time"].replace("T", " ")[:16])
+    return not bad, what, ("failed: %s" % ", ".join(bad)) if bad else ""
+
+
+def probe_main() -> int:
+    """`awb build probe`: the probe unit with a task's own properties, as the owner through the runner's one
+    systemd-run form; PASS or FAIL per line, the record for `awb seal check`. seal/verify.sh runs it."""
+    if config.is_work_user() or config.is_build_user():
+        print("awb build: the probe is the owner's", file=sys.stderr)
+        return 2
+    user = config.build_user()
+    if not user:
+        print("awb build: this host has no build user", file=sys.stderr)
+        return 2
+    try:
+        host = Host.from_config()
+    except Exception as err:
+        print("awb build: the probe cannot start (%s)" % type(err).__name__, file=sys.stderr)
+        return 2
+    results = run_probe(host, user)
+    for _, ok, line in results:
+        print("%s  %s" % ("PASS" if ok else "FAIL", line))
+    failed = sum(1 for _, ok, _ in results if not ok)
+    if not write_probe(host, results):
+        print("# the record for awb seal check could not be written")
+    print("# %d checks, %d failed" % (len(results), failed))
+    return 1 if failed else 0
 
 
 # --------------------------------------------------------------------------- the commands
@@ -2912,6 +3171,11 @@ SELFTEST_CASES: list[tuple[str, Callable[[World], str | None]]] = [
     ("push-nonff", _case_push),
 ]
 """The planted cases of THREAT-MODEL N6, N7, N9 to N12 and the push: each must be refused or classified."""
+SELFTEST_REQUIRED = ("n6-prompt", "n6-home", "n7-clock", "n9-deleted", "n9-skipped", "n9-conftest", "n9-outside",
+                     "n10-coauthor", "n10-author", "n11-newline", "n11-subject", "n11-check", "n11-fsmonitor",
+                     "n12-lock", "n12-reattach", "push-nonff")
+"""The cases the selftest must hold (SB5): a case taken out of SELFTEST_CASES fails the selftest, it never shrinks
+to a clean report."""
 
 
 def selftest(only: list[str] | None = None, python: str | None = None) -> list[str]:
@@ -2921,6 +3185,11 @@ def selftest(only: list[str] | None = None, python: str | None = None) -> list[s
         venv = build_root() / "venv" / "bin" / "python"
         python = str(venv) if venv.exists() else sys.executable
     failures: list[str] = []
+    if only is None:
+        names = [name for name, _ in SELFTEST_CASES]
+        failures += ["%s: the planted case is missing" % name for name in SELFTEST_REQUIRED if name not in names]
+        failures += ["%s: the planted case is there twice" % name for name in sorted(set(names))
+                     if names.count(name) > 1]
     with tempfile.TemporaryDirectory(prefix="awb-build-selftest-") as tmp:
         world = World(Path(tmp), python=python)
         try:

@@ -3510,8 +3510,8 @@
   {
    "id": "SB1-1",
    "phase": "SB1",
-   "name": "build side: the dry run of the seal and of an update names the build user, the image, fstab, mount, folders, venv, template, client, conf keys and the runner's unit (installed, not enabled)",
-   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_plans_the_build_side_in_the_seal_and_in_every_update",
+   "name": "build side: the dry run of the seal and of an update names the build user, the image, fstab, mount, folders, venv, template, client, conf keys and the runner's unit (installed, not enabled); SB5: the oneshot awb-task-failed@.service is written, the unit line no longer names SB3",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_plans_the_build_side_and_its_failure_oneshot_in_the_seal_and_in_every_update",
    "status": "passing"
   },
   {
@@ -3573,8 +3573,8 @@
   {
    "id": "SB1-10",
    "phase": "SB1",
-   "name": "build side: the update adds step_build and installs awb-buildd.service without enabling it (replaces test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_and_loads_the_egress_filter)",
-   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_loads_the_egress_filter_and_adds_the_build_side",
+   "name": "build side: the update adds step_build and installs awb-buildd.service without enabling it (replaces test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_and_loads_the_egress_filter); SB5: the oneshot awb-task-failed@.service is written, the unit line no longer names SB3",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_loads_the_egress_filter_adds_the_build_side_and_its_failure_oneshot",
    "status": "passing"
   },
   {
@@ -4182,8 +4182,8 @@
   {
    "id": "SB3-31",
    "phase": "SB3",
-   "name": "build runner: the real spawn is one fixed sudo -n systemd-run form with the clock and the isolation; the suite allows no address; a unit name outside the fixed forms is refused",
-   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_real_spawn_is_one_fixed_systemd_run_form",
+   "name": "build runner: the real spawn is one fixed sudo -n systemd-run form with the clock and the isolation; the suite allows no address; a unit name outside the fixed forms is refused; SB5: every task unit names its OnFailure= oneshot, the probe unit none",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_real_spawn_is_one_fixed_systemd_run_form_with_its_failure_oneshot",
    "status": "passing"
   },
   {
@@ -4388,8 +4388,57 @@
    "name": "build queue: awb build status ends with live, main and the count of done tasks not deployed, read fresh from the journal and main.git",
    "run": ".venv/bin/pytest tests/test_build_queue.py::test_status_carries_live_main_and_the_count_not_deployed",
    "status": "passing"
+  },
+  {
+   "id": "SB5-1",
+   "phase": "SB5",
+   "name": "seal: the dry runs name the selftest, the oneshot of a failed task unit and the lines of awb build probe; the shell's lines per build model are the runner's own; a verify.sh without the probe lists none",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_dry_runs_name_the_selftest_the_probe_of_a_task_and_the_failure_oneshot",
+   "status": "passing"
+  },
+  {
+   "id": "SB5-2",
+   "phase": "SB5",
+   "name": "seal: the selftest refuses to report clean when a planted case is taken out or doubled",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_selftest_refuses_to_report_clean_when_a_planted_case_is_removed",
+   "status": "passing"
+  },
+  {
+   "id": "SB5-3",
+   "phase": "SB5",
+   "name": "seal: awb seal check on a build host runs the selftest and passes only on a full probe record",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_seal_check_runs_the_selftest_and_reads_the_probe_record_on_a_build_host",
+   "status": "passing"
+  },
+  {
+   "id": "SB5-4",
+   "phase": "SB5",
+   "name": "build runner: the probe runs units of the runner's form with a task's own network, the control first; GitHub open, another user and the key mode planted",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_probe_runs_with_a_task_s_own_network_and_writes_the_record_seal_check_reads",
+   "status": "passing"
+  },
+  {
+   "id": "SB5-5",
+   "phase": "SB5",
+   "name": "build runner: the probe record passes only when every check of its build model passed",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_seal_check_reads_only_a_full_probe_record_of_its_build_model",
+   "status": "passing"
+  },
+  {
+   "id": "SB5-6",
+   "phase": "SB5",
+   "name": "build runner: a failed task unit writes one board row only while no runner holds the lock; names and results by vocabulary; no link followed",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_failed_task_unit_writes_one_board_line_only_while_no_runner_waits",
+   "status": "passing"
+  },
+  {
+   "id": "SB5-7",
+   "phase": "SB5",
+   "name": "board: an unwatched failed task unit reaches the build line, planted free text does not",
+   "run": ".venv/bin/pytest tests/test_board.py::test_a_task_unit_that_failed_unwatched_reaches_the_line_and_free_text_does_not",
+   "status": "passing"
   }
  ],
- "total_tests": 627,
+ "total_tests": 634,
  "checked": "2026-10-11"
 }

@@ -48,6 +48,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   the line `git pull --rebase /srv/awb-build/main.git main`. `awb board` and the board of the portal (`build` of
   GET /api/board) print the build line from `<shared>/build/state.tsv`: the tasks, live, main and how many are not
   deployed, in fixed words only. `awb build status` ends with the same live, main and count, read fresh.
+- The build user's selftest in the seal and the probe unit (self-build step SB5). `awb build probe` starts the network
+  probes as the owner through the runner's own `systemd-run` form, with the address list, the hidden places and the
+  environment of a task's session: the model endpoint and, with your login, `platform.claude.com` connect, a TCP API
+  host and GitHub do not. `sudo seal/verify.sh` runs it and the runner's selftest; `awb seal check` runs the selftest
+  and reads the record of the last probe. The selftest fails when one of its planted cases is taken out. Every task
+  unit names the oneshot `awb-task-failed@.service` in `OnFailure=`: a task unit that fails while no runner waits on
+  it puts one line on the board. The README names the limits the threat model accepts.
 - Every draft for others passes the voice checks before he sees it (the work profile, proposal 4). `awb write
   check` blocks in mode mail and doc what he struck out most: "we", "our" and "wir" for "I", the jargon gotchas,
   quirk, pilot light and whole trick (cadence, estate, verbatim, granular and sharp edges were banned already), a

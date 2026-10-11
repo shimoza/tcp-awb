@@ -5,8 +5,11 @@ the vault, the owner's password store, .claude, .ssh or home, enter the owner's 
 are) or run `sudo -n true`; it is in none of the groups of the owner or of the host admins; the check socket
 answers ping; it can write tcp-shared and the outbox; on a host whose seal installed the egress filter (an `egress`
 line in /etc/awb/paths.conf) the filter is loaded, refreshed within 15 minutes and in the mode of that line, and its
-status and counts follow the checks as comment lines; the tool guard of the hooks refuses its planted cases. One line per check, PASS or FAIL. Exit 0 when every check
-passes, 1 on any FAIL, 2 on a usage error.
+status and counts follow the checks as comment lines; the tool guard of the hooks refuses its planted cases. On a
+host with the build side (a `build_user` line) the build runner's selftest runs and the record of the last probe unit
+with a task's own properties (`awb build probe`, which `sudo seal/verify.sh` runs; the work user cannot start a unit)
+must show every check passed. One line per check, PASS or FAIL. Exit 0 when every check passes, 1 on any FAIL, 2 on
+a usage error.
 
 A "cannot" check passes only when the operating system refuses with a permission error. A path that is simply
 absent proves nothing and fails the check: a wrong path must never read as a sealed one.
@@ -201,6 +204,9 @@ def main(argv: list[str] | None = None) -> int:
 
         problems = buildrun.selftest()
         results.append(Result(not problems, "the build runner refuses its planted cases", "; ".join(problems)))
+        # the probe unit needs root to start; the work user reads the record of the last one verify.sh ran (SB5)
+        ok, what, note = buildrun.probe_check(config.paths().shared / "build")
+        results.append(Result(ok, what, note))
     for r in results:
         print("%s  %s%s" % ("PASS" if r.ok else "FAIL", r.what, " (%s)" % r.note if r.note and not r.ok else ""))
     from awb import egress

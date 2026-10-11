@@ -268,3 +268,26 @@ def test_awb_board_and_the_api_carry_the_build_line(home, monkeypatch, capsys):
     assert want in capsys.readouterr().out
     assert api.board(home)["build"] == want
     assert want in board.page(dict(copy.deepcopy(contract.P_BOARD), build=want))
+
+
+def test_a_task_unit_that_failed_unwatched_reaches_the_line_and_free_text_does_not(tmp_path):
+    """SB5: a `failed` row of the oneshot (awb build failed) adds "no runner watched: <unit> failed <time> (<result>)";
+    the three newest are shown. Planted: the probe unit, a unit name with a name in it, a result outside systemd's
+    words, a free time and an extra column never reach the line. The board's words match the runner's."""
+    from awb import buildrun
+
+    rows = ("failed\tawb-task-B-007\ttimeout\t2026-10-11T22:01:00\n"
+            "failed\tawb-task-B-008-suite\toom-kill\t2026-10-11T22:02:00\n"
+            "failed\tawb-task-probe\texit-code\t2026-10-11T22:03:00\n"
+            "failed\tawb-task-zyxwo\texit-code\t2026-10-11T22:03:00\n"
+            "failed\tawb-task-B-009\tzyxwo\t2026-10-11T22:03:00\n"
+            "failed\tawb-task-B-010\ttimeout\tzyxwo\n"
+            "failed\tawb-task-B-011\ttimeout\t2026-10-11T22:04:00\tzyxwo\n")
+    line = board.build_line(shared(tmp_path, TSV + rows))
+    assert line.endswith("; mail not sent: B-004; no runner watched: B-007 failed 22:01 (timeout), B-008-suite failed "
+                         "22:02 (oom-kill)"), line
+    assert "zyxwo" not in line and "probe" not in line
+    assert set(board.UNIT_RESULTS) == set(buildrun.RESULTS) | {"unknown"}
+    for name in ("awb-task-B-012", "awb-task-B-0123-prep", "awb-task-B-012-hand", "awb-task-B-012-suite"):
+        assert board._TASK_UNIT.fullmatch(name) and buildrun.UNIT_RE.fullmatch(name)
+    assert not board._TASK_UNIT.fullmatch("awb-task-probe") and buildrun.UNIT_RE.fullmatch("awb-task-probe")
