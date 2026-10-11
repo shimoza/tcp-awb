@@ -575,6 +575,25 @@ code blocks. Numbers and identifiers compare as sets, so a repeat the pass merge
 numbers are structure and are left out. Plain capitalised words are not compared. Exit 1 on any difference, 2 when
 a file cannot be read.
 
+The work profile of 2026-10 (proposal 4) added the tells of what he struck out most. Blocking in mode mail and doc,
+reported only in mode chat (`CHAT_SOFT`): `we-in-doc` (we, our, us and the German wir, unser, uns in mode doc;
+`we-in-mail` takes the German forms too), `bold-lead` (a paragraph that opens with a bold label ending in a colon
+or a full stop), `invented-label` (a quoted capitalised coinage next to option, approach, variant and the like),
+`weakness` (admissions and hedges: to be honest, I am not sure, sorry for, hopefully, ehrlich gesagt), `sales-tone`
+(game changer, state-of-the-art, perfect fit, peace of mind) and `draft-history` (previous draft, updated version,
+based on your feedback, I have shortened the text). `commitment` and `earlier-mail` know a few German forms and
+guarantee, rest assured, you can count on. The jargon (gotchas, quirk, pilot light, whole trick) joined
+`rules/banned-words.txt` and `rules/banned-phrases.txt`. Reported: `extra-section`, one tell at the first such
+heading that names every heading the request did not ask for: with `--request FILE` a heading that shares no
+content word (cut to five letters) with the request, without it a heading of `EXTRA_HEADINGS` (summary,
+background, next steps, conclusion and the like); the document title is never judged. New metric key
+`extra_sections`.
+
+```python
+def check_text(text, mode="doc", scope="tcp", request: str | None = None) -> tuple[list[Tell], dict]
+def check_file(path, mode="doc", scope="tcp", request: Path | None = None) -> tuple[list[Tell], dict]
+```
+
 The drafting skill (T-51, U-12) is `seal/work-claude/skills/drafting/SKILL.md`. `seal/setup.sh` installs it with
 the other client files (`CLIENT_FILES`) to `~/.claude/skills/drafting/SKILL.md` of the work user (owner root, mode
 644) and sets the immutable flag on the file and on both skill folders. `seal/verify.sh` checks the copy and the

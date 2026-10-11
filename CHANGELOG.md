@@ -25,6 +25,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   (your own terminal only), `answer ID TEXT`, `retry ID`, `widen ID PATH...` and `stop [ID]` read and write the
   numbered run records under `/srv/awb-build/runs/`. A refused block names the key, never the value. The runner
   that takes the tasks comes with SB3.
+- Every draft for others passes the voice checks before he sees it (the work profile, proposal 4). `awb write
+  check` blocks in mode mail and doc what he struck out most: "we", "our" and "wir" for "I", the jargon gotchas,
+  quirk, pilot light and whole trick (cadence, estate, verbatim, granular and sharp edges were banned already), a
+  paragraph with a bold lead, an invented name for an option, admissions of weakness, sales tone, promises in his
+  name and the history of the draft; it reports a section the request did not ask for by its heading (`--request
+  FILE`).
 
 - The knowledge leaves as a dataset. `awb dataset build` writes the folder `tcp-facts-<date>/` and its zip: every
   fact on one line grouped by topic, one file per topic, the export with its metadata, the orderable services, the

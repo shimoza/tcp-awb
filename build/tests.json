@@ -3849,8 +3849,50 @@
    "name": "build: the queue is ~/tcp-awb/build/queue and the records <build_root>/runs by default",
    "run": ".venv/bin/pytest tests/test_build_queue.py::test_the_default_places_are_his_working_copy_and_the_build_root",
    "status": "passing"
+  },
+  {
+   "id": "VT-1",
+   "phase": "VT",
+   "name": "write check: every struck-out tell of the work profile blocks in mode mail and doc (jargon, we/wir, Oxford comma, dash, bold lead, invented label, weakness, sales tone, promise, draft history, German earlier mail)",
+   "run": ".venv/bin/pytest tests/test_voice_tells.py::test_each_struck_out_tell_blocks_in_mail_and_doc",
+   "status": "passing"
+  },
+  {
+   "id": "VT-2",
+   "phase": "VT",
+   "name": "write check: we, our, us, wir, unser, uns block in mail and doc, never in chat",
+   "run": ".venv/bin/pytest tests/test_voice_tells.py::test_we_our_and_wir_block_in_mail_and_doc_and_not_in_chat",
+   "status": "passing"
+  },
+  {
+   "id": "VT-3",
+   "phase": "VT",
+   "name": "write check: the near misses of the new tells pass (US, a real service name, lower-case quotes, bold mid-sentence, a draft contract, a product version)",
+   "run": ".venv/bin/pytest tests/test_voice_tells.py::test_the_near_misses_do_not_block",
+   "status": "passing"
+  },
+  {
+   "id": "VT-4",
+   "phase": "VT",
+   "name": "write check: chat reports the drafting tells without blocking",
+   "run": ".venv/bin/pytest tests/test_voice_tells.py::test_chat_reports_the_drafting_tells_without_blocking",
+   "status": "passing"
+  },
+  {
+   "id": "VT-5",
+   "phase": "VT",
+   "name": "write check: a section the request did not ask for is reported with its heading, with and without --request",
+   "run": ".venv/bin/pytest tests/test_voice_tells.py -k 'section or request'",
+   "status": "passing"
+  },
+  {
+   "id": "VT-6",
+   "phase": "VT",
+   "name": "write check: the replaced blocking-class cases speak as I and cover every blocking class",
+   "run": ".venv/bin/pytest tests/test_writing.py::test_each_blocking_tell_is_found_once_on_its_line tests/test_writing.py::test_every_blocking_class_has_a_planted_case",
+   "status": "passing"
   }
  ],
- "total_tests": 550,
+ "total_tests": 556,
  "checked": "2026-10-11"
 }

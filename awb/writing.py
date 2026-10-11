@@ -1,6 +1,6 @@
 """The writing checker, the fact keeper of the voice pass and the voice learner.
 
-    awb write check FILE [--mode mail|doc|chat] [--scope tcp|hcs]
+    awb write check FILE [--mode mail|doc|chat] [--scope tcp|hcs] [--request REQUEST]
     awb write keep BEFORE AFTER
     awb voice learn DRAFT SENT
 
@@ -25,6 +25,17 @@ Blocking classes:
     vendor-name      scope tcp only: a name of rules/vendor-names.txt
     certification    BSI, ISO 27001, SOC 2, TISAX, KRITIS, C5, IT-Grundschutz
     bold-lead-list   a run of three or more bullets where more than one starts with bold
+    we-in-doc        we, our, us (and the German wir, unser, uns, which we-in-mail takes too) in mode doc
+    bold-lead        a paragraph that opens with a bold label ending in a colon or a full stop
+    invented-label   a quoted capitalised coinage next to option, approach, variant and the like
+    weakness         admissions of weakness and hedges (to be honest, I am not sure, sorry for, hopefully)
+    sales-tone       praise instead of a fact (game changer, state-of-the-art, perfect fit, peace of mind)
+    draft-history    the history of the draft (previous draft, updated version, based on your feedback)
+
+The last six and bold-lead-list are reported, not blocking, in mode chat (CHAT_SOFT). They come from the work
+profile of 2026-10: what he struck out most in drafts. So does the reported `extra-section`: one tell at the first
+section the request did not ask for, its hint names every such heading (with the request: a heading that shares no
+content word with it; without: a heading of EXTRA_HEADINGS such as Background or Next steps; the title never).
 
 Reported, not blocking: the tell `list-of-three` for every list of exactly three items (a bullet list with three
 top-level items or three items inline such as "fast, cheap and simple") and the tell `sentence-length` when the
@@ -63,8 +74,9 @@ split by markup or spelled with look-alike letters is still found. A hit found i
 Line numbers count from 1. Line 0 is the file name: `check_file` also checks the name of the file (its suffix
 dropped, - _ and . read as spaces) for the same classes.
 
-Modes: doc (default), mail (adds we-in-mail), chat (like doc, but a bold-lead list is reported and not blocking,
-because bold helps scanning in a chat answer). Scopes: tcp (vendor names block) and hcs (vendor names are fine).
+Modes: doc (default, we-in-doc), mail (we-in-mail and the i-rate), chat (no we tell, and the tells of CHAT_SOFT are
+reported and not blocking: a chat answer is for him, and bold helps scanning there). Scopes: tcp (vendor names
+block) and hcs (vendor names are fine).
 
 Facts before voice (V-15, T-56). For a text in his name the facts are checked first and the voice pass comes
 second. `awb write keep BEFORE AFTER` compares the text before the voice pass with the text after it: the numbers
@@ -122,9 +134,12 @@ VENDORS_FILE = "vendor-names.txt"
 VOICE_FILE = "voice.txt"
 
 BLOCKING = ("em-dash", "comma-and-or", "banned-word", "banned-phrase", "we-in-mail", "commitment",
-            "earlier-mail", "vendor-name", "certification", "bold-lead-list")
+            "earlier-mail", "vendor-name", "certification", "bold-lead-list", "we-in-doc", "bold-lead",
+            "invented-label", "weakness", "sales-tone", "draft-history")
 REPORTED = ("list-of-three", "sentence-length", "fragment", "comma-splice", "verdict-heading", "connector",
-            "i-rate")
+            "i-rate", "extra-section")
+CHAT_SOFT = ("bold-lead-list", "bold-lead", "invented-label", "weakness", "sales-tone", "draft-history")
+"""Blocking in mode mail and doc, reported only in mode chat: a chat answer is for him, not a draft for others."""
 CLASSES = BLOCKING + REPORTED
 
 FILE_NAME_LINE = 0
@@ -304,7 +319,65 @@ EARLIER_MAIL = (
     ("last", "in my last e-mail"), ("last", "in my last email"), ("previous", "as per my previous"),
     ("wrote", "as I wrote"),
 )
-WE_WORDS = ("we", "our", "us")
+WE_WORDS = ("we", "our", "ours", "us", "wir", "unser", "unsere", "unserem", "unseren", "unserer", "unseres", "uns")
+"""We instead of I, in English and in German (the work profile of 2026-10: 24 of his deletions)."""
+COMMITMENTS_MORE = (
+    ("guarantee", "I guarantee"), ("guarantee", "we guarantee"), ("assured", "rest assured"),
+    ("count", "you can count on"), ("sure", "I make sure"), ("care", "I take care of"),
+    ("werde", "ich werde"), ("werde", "werde ich"), ("werden", "wir werden"), ("werden", "werden wir"),
+    ("verspreche", "ich verspreche"), ("garantiere", "ich garantiere"), ("garantieren", "wir garantieren"),
+    ("melde", "ich melde mich"),
+)
+EARLIER_MAIL_MORE = (
+    ("besprochen", "wie besprochen"), ("erw\u00e4hnt", "wie erw\u00e4hnt"), ("geschrieben", "wie geschrieben"),
+    ("geschrieben", "wie bereits geschrieben"), ("letzten", "in meiner letzten Mail"),
+)
+# admissions of weakness and hedges: say what is known and what is open, without apology (14 of his deletions)
+WEAKNESS = (
+    ("honest", "to be honest"), ("honestly", "honestly"), ("admittedly", "admittedly"),
+    ("admit", "I must admit"), ("admit", "I have to admit"), ("expert", "I'm not an expert"),
+    ("expert", "I am not an expert"), ("expert", "I'm no expert"), ("expert", "I am no expert"),
+    ("wrong", "I may be wrong"), ("wrong", "I might be wrong"), ("wrong", "I could be wrong"),
+    ("sure", "I'm not sure"), ("sure", "I am not sure"), ("certain", "I'm not certain"),
+    ("certain", "I am not certain"), ("afraid", "I'm afraid"), ("afraid", "I am afraid"),
+    ("sorry", "sorry for"), ("sorry", "I'm sorry"), ("sorry", "I am sorry"), ("apologize", "I apologize"),
+    ("apologise", "I apologise"), ("apologies", "my apologies"), ("mistake", "my mistake"), ("bad", "my bad"),
+    ("hopefully", "hopefully"), ("understand", "if I understand correctly"), ("know", "as far as I know"),
+    ("helps", "I hope this helps"), ("helps", "I hope that helps"),
+    ("ehrlich", "ehrlich gesagt"), ("sicher", "ich bin mir nicht sicher"), ("sicher", "ich bin nicht sicher"),
+    ("Experte", "ich bin kein Experte"), ("Entschuldigung", "Entschuldigung"), ("entschuldigen", "entschuldigen Sie"),
+    ("hoffentlich", "hoffentlich"),
+)
+# sales tone: a fact instead of praise (7 of his deletions)
+SALES_TONE = (
+    "game changer", "game-changer", "cutting-edge", "cutting edge", "state-of-the-art", "state of the art",
+    "world-class", "world class", "best-of-breed", "industry-leading", "market-leading", "next-generation",
+    "unparalleled", "unmatched", "unrivalled", "unrivaled", "revolutionary", "revolutionize", "revolutionise",
+    "empower", "empowers", "empowering", "excited to", "thrilled", "delighted to", "perfect fit",
+    "perfect solution", "ideal solution", "ideal partner", "the best choice", "great opportunity", "amazing",
+    "incredible", "awesome", "hassle-free", "effortless", "effortlessly", "peace of mind", "future-proof",
+    "one-stop shop", "turnkey", "win-win", "erstklassig", "erstklassige", "einzigartig", "einzigartige",
+    "bahnbrechend", "bahnbrechende",
+)
+_VERSION_WORDS = "(?:text|draft|mail|e-mail|email|wording|document|reply|answer|version)"
+_CHANGED = "(?:updated|revised|rewritten|rewrote|reworded|shortened|corrected|reworked|changed|edited|polished)"
+# the history of drafts: the reader gets the text, never its versions (6 of his deletions)
+DRAFT_HISTORY = (
+    ("draft", r"(?:previous|earlier|last|first|second|third|updated|revised|new|old|this)\s+draft"),
+    ("version", r"(?:updated|revised|corrected|reworked|shortened|earlier|previous)\s+version"),
+    ("feedback", r"(?:per|based\s+on|following|after)\s+your\s+(?:feedback|comments|edits|corrections)"),
+    ("changed", r"I(?:\s+have|['\u2019]ve)?\s+%s\s+(?:the|this|my)\s+%s" % (_CHANGED, _VERSION_WORDS)),
+    ("Entwurf", r"(?i:(?:vorherigen|letzten|ersten|neuen|\u00fcberarbeiteten)\s+Entwurf)"),
+)
+_LABEL_WORDS = ("option|options|approach|plan|pattern|model|variant|path|track|setup|strategy|design|scenario|route"
+                "|playbook|Option|Variante|Ansatz|Modell")
+_QUOTED_LABEL = r"[\"\u201c\u201e\u00ab]\s*[A-Z][\w-]*(?:\s+[A-Z][\w-]*){0,3}\s*[\"\u201d\u201c\u00bb]"
+# an invented name for an option: a quoted capitalised coinage next to the word for the option (22 deletions of
+# invented labels and jargon; the jargon itself is in rules/banned-words.txt and rules/banned-phrases.txt)
+INVENTED_LABEL = (
+    ("label", r"%s\s+(?i:%s)" % (_QUOTED_LABEL, _LABEL_WORDS)),
+    ("label", r"(?i:%s)\s*:?\s*%s" % (_LABEL_WORDS, _QUOTED_LABEL)),
+)
 # (label, regular expression). Acronyms that are ordinary letters in lower case (BSI, C5) match in capitals only.
 CERTIFICATIONS = (
     ("BSI", r"BSI"),
@@ -372,6 +445,10 @@ class _Compiled:
     allowed: tuple | None = None
     others: tuple | None = None
     his: tuple | None = None
+    weakness: tuple | None = None
+    sales: tuple | None = None
+    history: tuple | None = None
+    labels: tuple | None = None
 
 
 _COMPILED: dict = {}
@@ -387,14 +464,18 @@ def _compiled(rules: Rules, rules_dir: Path | None = None) -> _Compiled:
         words=_named([(w, _phrase_source(w)) for w in rules.banned_words], ci),
         phrases=_named([(_label_word(p), _phrase_source(p)) for p in rules.banned_phrases], ci),
         vendors=_named([("", _phrase_source(v)) for v in rules.vendor_names], ci),
-        commitments=_named([(lab, _phrase_source(p)) for lab, p in COMMITMENTS], ci),
-        earlier=_named([(lab, _phrase_source(p)) for lab, p in EARLIER_MAIL], ci),
+        commitments=_named([(lab, _phrase_source(p)) for lab, p in COMMITMENTS + COMMITMENTS_MORE], ci),
+        earlier=_named([(lab, _phrase_source(p)) for lab, p in EARLIER_MAIL + EARLIER_MAIL_MORE], ci),
         we=_named([(w, re.escape(w)) for w in WE_WORDS], ci),
         certifications=_named(CERTIFICATIONS),
         allowed=_named([("", _phrase_source(t)) for t in rules.allowed_terms], ci),
         others=_named([(_label_word(c), _phrase_source(c)) for c in rules.other_connectors
                        if c not in rules.banned_words], ci),
         his=_named([(c, _phrase_source(c)) for c in rules.connectors], ci),
+        weakness=_named([(lab, _phrase_source(p)) for lab, p in WEAKNESS], ci),
+        sales=_named([(_label_word(p), _phrase_source(p)) for p in SALES_TONE], ci),
+        history=_named(DRAFT_HISTORY, ci),
+        labels=_named(INVENTED_LABEL),
     )
     _COMPILED[key] = (rules, comp)
     return comp
@@ -615,8 +696,14 @@ def _prose_hits(text: str, mode: str, scope: str, comp: _Compiled) -> list[_Hit]
              if not any(p.start <= h.start and h.end <= p.end for p in phrases) and not _in_allowed(h)]
     if mode == "mail":
         hits += _find(text, comp.we, "we-in-mail", _skip_we)
+    elif mode == "doc":
+        hits += _find(text, comp.we, "we-in-doc", _skip_we)
     hits += _find(text, comp.commitments, "commitment")
     hits += _find(text, comp.earlier, "earlier-mail")
+    hits += _find(text, comp.weakness, "weakness")
+    hits += _find(text, comp.sales, "sales-tone")
+    hits += _find(text, comp.history, "draft-history")
+    hits += _find(text, comp.labels, "invented-label")
     if scope == "tcp":
         hits += _find(text, comp.vendors, "vendor-name")
     hits += _find(text, comp.certifications, "certification")
@@ -634,6 +721,16 @@ def _hint(cls: str, label: str = "") -> str:
         return 'banned phrase with "%s" (rules/%s)' % (label, PHRASES_FILE)
     if cls == "we-in-mail":
         return 'a mail speaks as I: no "%s" in mode mail' % label
+    if cls == "we-in-doc":
+        return 'a text in his name speaks as I: no "%s"' % label
+    if cls == "weakness":
+        return 'an admission of weakness with "%s": say what is known and what is open, without apology' % label
+    if cls == "sales-tone":
+        return 'sales tone with "%s": state the fact, not the praise' % label
+    if cls == "draft-history":
+        return 'a pointer to an earlier version with "%s": write only what holds now' % label
+    if cls == "invented-label":
+        return "an invented name for an option: call it by what it is"
     if cls == "commitment":
         return 'a commitment with "%s": say what happens, not what you promise' % label
     if cls == "earlier-mail":
@@ -1020,6 +1117,51 @@ def _is_verdict(heading: str) -> bool:
                                    for w in words[1:])
 
 
+_BOLD_LEAD_RE = re.compile(r"^ {0,3}(?:\*\*|__)[^*_\n]{1,60}?(?:[:.](?:\*\*|__)|(?:\*\*|__)[ \t]*[:.])")
+"""A paragraph that opens with a bold label: **Network:** text, **Network**: text, **Note.** text."""
+EXTRA_HEADINGS = frozenset("""
+summary executive-summary overview background context introduction next-steps conclusion conclusions
+key-takeaways takeaways benefits why-this-matters about about-me history changes change-log changelog appendix
+tl;dr tldr notes final-notes closing-remarks disclaimer
+""".split())
+"""Headings of sections that drafts add on their own (43 of his deletions were whole sections). Without the
+request a section with one of these headings is reported; words are joined by - here."""
+_STEM_STOP = frozenset("""
+with what when where which that this these those from into about your their there here have does will would
+should could more most some than then them they were been also only each other such just like over under
+""".split())
+
+
+def _stems(text: str) -> set[str]:
+    """Content words of a text, cut to their first five letters (a crude stem: migrate, migration, migrating)."""
+    out = set()
+    for w in _LETTERS_RE.findall((text or "").lower()):
+        if len(w) >= 4 and w not in _STEM_STOP:
+            out.add(w[:5])
+    return out
+
+
+def _extra_sections(lines: list[_Line], request: str | None) -> list[tuple[int, str]]:
+    """(line, heading) of every section the request did not ask for. The first heading is the title when it is
+    the first line with text and is never judged."""
+    heads = [(i, heading_text(ln.text)) for i, ln in enumerate(lines) if ln.kind == "heading"]
+    first_text = next((i for i, ln in enumerate(lines) if ln.kind not in ("blank", "rule")), None)
+    if heads and heads[0][0] == first_text:
+        heads = heads[1:]
+    asked = _stems(request) if request is not None else None
+    out = []
+    for i, h in heads:
+        if not h:
+            continue
+        if asked is None:
+            key = re.sub(r"[\s:]+", "-", h.lower().strip(" .:")).strip("-")
+            if key in EXTRA_HEADINGS:
+                out.append((i + 1, h))
+        elif not (_stems(h) & asked):
+            out.append((i + 1, h))
+    return out
+
+
 def _p90(values: list[int]) -> int:
     """The 90th percentile by nearest rank."""
     if not values:
@@ -1052,8 +1194,11 @@ def _check_args(mode: str, scope: str) -> None:
         raise WritingError("scope must be tcp or hcs")
 
 
-def check_text(text: str, mode: str = "doc", scope: str = "tcp") -> tuple[list[Tell], dict]:
-    """(tells, metrics) of a text. Raises WritingError on an unknown mode or scope or an unreadable rule file."""
+def check_text(text: str, mode: str = "doc", scope: str = "tcp",
+               request: str | None = None) -> tuple[list[Tell], dict]:
+    """(tells, metrics) of a text. `request` is the text of the request the draft answers: with it a section
+    whose heading shares no word with the request is reported as `extra-section`; without it the sections of
+    EXTRA_HEADINGS are. Raises WritingError on an unknown mode or scope or an unreadable rule file."""
     _check_args(mode, scope)
     rules = load_rules()
     comp = _compiled(rules)
@@ -1065,9 +1210,20 @@ def check_text(text: str, mode: str = "doc", scope: str = "tcp") -> tuple[list[T
 
     lined = _lined_hits(masked, mode, scope, comp)
     hits = [h for _, h in lined]
-    tells = [Tell(line, h.cls, True, _hint(h.cls, h.label)) for line, h in lined]
+    tells = [Tell(line, h.cls, not (mode == "chat" and h.cls in CHAT_SOFT), _hint(h.cls, h.label))
+             for line, h in lined]
 
     lines, sentences = _structure(masked)
+    for i, ln in enumerate(lines):
+        if ln.kind == "text" and _BOLD_LEAD_RE.match(ln.text) and (i == 0 or lines[i - 1].kind != "text"):
+            tells.append(Tell(i + 1, "bold-lead", mode != "chat",
+                              "a paragraph that starts with a bold label: write the sentence without it"))
+    extra = _extra_sections(lines, request)
+    if extra:
+        tells.append(Tell(extra[0][0], "extra-section", False,
+                          "%s the request did not ask for: %s. Cut each one he did not ask for"
+                          % ("a section" if len(extra) == 1 else "%d sections" % len(extra),
+                             "; ".join(h for _, h in extra))))
     lists_of_three = 0
     for run in _bullet_runs(lines):
         first = run[0] + 1
@@ -1154,6 +1310,7 @@ def check_text(text: str, mode: str = "doc", scope: str = "tcp") -> tuple[list[T
         "comma_splices": splices,
         "headings": headings,
         "verdict_headings": verdicts,
+        "extra_sections": len(extra),
         "his_connectors_per_1000": _per_1000(his, words),
         "other_connectors_per_1000": _per_1000(len(others), words),
         "targets": dict(targets),
@@ -1231,11 +1388,14 @@ def read_text(path: Path) -> str:
     return text
 
 
-def check_file(path: Path, mode: str = "doc", scope: str = "tcp") -> tuple[list[Tell], dict]:
-    """(tells, metrics) of a file, the tells of its name first (line 0)."""
+def check_file(path: Path, mode: str = "doc", scope: str = "tcp",
+               request: Path | None = None) -> tuple[list[Tell], dict]:
+    """(tells, metrics) of a file, the tells of its name first (line 0). `request` is a file with the request
+    the draft answers (see `check_text`)."""
     _check_args(mode, scope)
     path = Path(path)
-    tells, metrics = check_text(read_text(path), mode, scope)
+    asked = read_text(Path(request)) if request is not None else None
+    tells, metrics = check_text(read_text(path), mode, scope, request=asked)
     named = check_name(path.name, mode, scope)
     if named:
         metrics["blocking"] += sum(1 for t in named if t.blocking)
@@ -1814,6 +1974,7 @@ def metric_lines(metrics: dict) -> list[str]:
         "fragments  %d (%s%% of sentences)" % (metrics["fragments"], _num(metrics["fragment_share"])),
         "comma splices  %d" % metrics["comma_splices"],
         "headings written as verdicts  %d of %d" % (metrics["verdict_headings"], metrics["headings"]),
+        "sections not asked for  %d" % metrics.get("extra_sections", 0),
         "his connectors per 1000 words  %s" % _num(metrics["his_connectors_per_1000"]),
         "other connectors per 1000 words  %s%s" % (_num(metrics["other_connectors_per_1000"]),
                                                    target("other_connectors_per_1000")),
@@ -1830,6 +1991,8 @@ def _main_write(argv: list[str]) -> int:
     s.add_argument("file", type=Path)
     s.add_argument("--mode", choices=MODES, default="doc")
     s.add_argument("--scope", choices=SCOPES, default="tcp")
+    s.add_argument("--request", type=Path, default=None,
+                   help="a file with the request: a section it did not ask for is reported")
     k = sub.add_parser("keep", help="the facts of a text before and after the voice pass must be the same")
     k.add_argument("before", type=Path)
     k.add_argument("after", type=Path)
@@ -1843,7 +2006,7 @@ def _main_write(argv: list[str]) -> int:
         ap.print_usage(sys.stderr)
         return EXIT_ERROR
     try:
-        tells, metrics = check_file(args.file, args.mode, args.scope)
+        tells, metrics = check_file(args.file, args.mode, args.scope, request=args.request)
     except (WritingError, OSError) as err:
         return _fail(prog, err)
     for t in tells:

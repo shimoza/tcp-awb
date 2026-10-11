@@ -103,10 +103,11 @@ def test_writing_sees_a_vendor_name_split_by_emphasis_and_in_a_file_name(tmp_pat
     assert [(t.line, t.cls) for t in tells if t.blocking] == [(0, "vendor-name")]
 
 
-def test_writing_counts_a_hit_found_both_ways_once():
-    tells, metrics = writing.check_text("We leverage it and we lev*er*age it.\n")
+def test_writing_counts_a_hit_found_both_ways_once_in_his_voice():
+    # replaced on 2026-10-11 (D-VT-3): "we" blocks in mode doc, the planted text speaks as I
+    tells, metrics = writing.check_text("I leverage it and I lev*er*age it.\n")
     assert [t.cls for t in tells if t.blocking] == ["banned-word", "banned-word"]
-    tells, _ = writing.check_text("We leverage it.\n")
+    tells, _ = writing.check_text("I leverage it.\n")
     assert [t.cls for t in tells if t.blocking] == ["banned-word"]
 
 

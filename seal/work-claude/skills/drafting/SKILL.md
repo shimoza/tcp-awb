@@ -23,7 +23,8 @@ edit short. It does not replace his review and it cannot promise that no reader 
 ## How he writes
 
 - Answer in the first line. The result or the ask comes first, the reasons after it.
-- First person singular: I checked, I see, I need. A mail never says we, our or us.
+- First person singular: I checked, I see, I need. A mail or a document never speaks as `we`, `our`, `us`
+  or `wir`.
 - Facts and numbers instead of reassurance: region, flavor, error code, price with its date and source.
 - No commitment in his name. Say what is true now and what is still open, not what he will do.
 - No invented names for options. Call an option by what it is, for example "CCE with two node pools".
@@ -35,6 +36,8 @@ edit short. It does not replace his review and it cannot promise that no reader 
 - No em-dash, no comma before "and" or "or", no list where every line starts with bold, no heading that states a
   verdict. Headings name topics.
 - Where he already gave the words, keep his words.
+- No section the request did not ask for, no admission of weakness, no sales tone, no history of the
+  draft and no invented jargon. These are what he struck out most often.
 
 ## The order of the checks: facts first, voice second
 
@@ -46,7 +49,8 @@ edit short. It does not replace his review and it cannot promise that no reader 
 3. The voice pass. Rewrite with the rules above. Add no fact and drop no fact.
 4. `awb write keep BEFORE AFTER`. Every number, identifier, negation and code block must still be there. A
    difference blocks: put the fact back.
-5. `awb write check FILE --mode mail` (or `doc` or `chat`). Fix every blocking tell. Then read the reported
+5. `awb write check FILE --mode mail` (or `doc` or `chat`). Save the request as a file and add
+   `--request REQUEST`: a section it did not ask for is named. Fix every blocking tell. Then read the reported
    numbers: sentence length, fragments, comma splices, verdict headings, connectors and the I rate. Fix what reads
    unlike him.
 6. Cut to the budget as a separate last step. Then run steps 4 and 5 again.

@@ -66,13 +66,15 @@ def assert_hint_quotes_at_most_one_word(hint: str, sentence: str) -> None:
 
 # --------------------------------------------------------------------------- blocking classes
 
+# Replaced on 2026-10-11 (build/DECISIONS.md D-VT-3): "we" blocks in mode doc too, so the planted sentences speak
+# as I, and the classes of the work profile have their cases here.
 CASES = [
-    ("em-dash", "The plan is simple \u2014 we test first.", "doc", None),
-    ("em-dash", "The plan is simple \u2013 we test first.", "doc", None),
-    ("comma-and-or", "We use the cluster, and we test it.", "doc", "and"),
-    ("comma-and-or", "We test it today, or we test it next week.", "doc", "or"),
+    ("em-dash", "The plan is simple \u2014 I test first.", "doc", None),
+    ("em-dash", "The plan is simple \u2013 I test first.", "doc", None),
+    ("comma-and-or", "I use the cluster, and I test it.", "doc", "and"),
+    ("comma-and-or", "I test it today, or I test it next week.", "doc", "or"),
     ("banned-word", "This is a robust design.", "doc", "robust"),
-    ("banned-phrase", "Let us circle back next week.", "doc", "circle"),
+    ("banned-phrase", "The team can circle back next week.", "doc", "circle"),
     ("we-in-mail", "Our team checked the quota.", "mail", "our"),
     ("commitment", "I will send the numbers on the next day.", "doc", "will"),
     ("earlier-mail", "As mentioned, the quota is fine.", "doc", "mentioned"),
@@ -80,11 +82,18 @@ CASES = [
     ("certification", "The site has TISAX.", "doc", "TISAX"),
     ("certification", "The site is audited for ISO 27001 this year.", "doc", "ISO"),
     ("bold-lead-list", "- **Plan:** one\n- **Test:** two\n- **Run:** three", "doc", None),
+    ("we-in-doc", "Our team checked the quota.", "doc", "our"),
+    ("we-in-doc", "Wir pr\u00fcfen die Quota.", "doc", "wir"),
+    ("bold-lead", "**Network:** the VPC has two subnets.", "doc", None),
+    ("invented-label", "The \u201cFast Lane\u201d option is cheaper.", "doc", None),
+    ("weakness", "To be honest, the quota is tight.", "doc", "honest"),
+    ("sales-tone", "The cluster is a game changer for the team.", "doc", "changer"),
+    ("draft-history", "Compared to the previous draft the quota is lower.", "doc", "draft"),
 ]
 
 
 @pytest.mark.parametrize("cls,sentence,mode,word", CASES, ids=["%s-%d" % (c[0], i) for i, c in enumerate(CASES)])
-def test_each_blocking_class_is_found_once_on_its_line(cls, sentence, mode, word):
+def test_each_blocking_tell_is_found_once_on_its_line(cls, sentence, mode, word):
     text, line = planted(sentence)
     tells, metrics = writing.check_text(text, mode=mode)
     assert blocking(tells) == [(cls, line)]
@@ -96,7 +105,7 @@ def test_each_blocking_class_is_found_once_on_its_line(cls, sentence, mode, word
     assert metrics["blocking"] == 1
 
 
-def test_every_class_is_known_and_blocking_classes_are_blocking():
+def test_every_blocking_class_has_a_planted_case():
     assert set(writing.BLOCKING) == {c[0] for c in CASES}
     assert not set(writing.BLOCKING) & set(writing.REPORTED)
 
@@ -129,17 +138,19 @@ def test_every_banned_phrase_of_the_rules_file_is_found_once_as_a_phrase():
         assert_hint_quotes_at_most_one_word(tells[0].hint, ph)
 
 
-def test_whole_words_only():
-    for text in ("The robustness is fine.", "The ensured state is fine.", "We navigated it.",
+def test_whole_words_only_in_his_voice():
+    for text in ("The robustness is fine.", "The ensured state is fine.", "I navigated it.",
                  "The ensure_state flag is set.", "The file docs/robust.md is short."):
         assert_only_the_probe(text)
 
 
-def test_all_commitments_and_earlier_mail_pointers():
-    for text in ("I'll send it.", "We will send it.", "We'll send it.", "I am raising the quota.",
-                 "I\u2019m raising the quota.", "The team will come back to it.", "I promise a fix.",
-                 "I commit to the date."):
+def test_all_commitments_and_earlier_mail_pointers_with_we_apart():
+    for text in ("I'll send it.", "I am raising the quota.", "I\u2019m raising the quota.",
+                 "The team will come back to it.", "I promise a fix.", "I commit to the date."):
         assert [c for c, _ in blocking(writing.check_text(text)[0])] == ["commitment"], text
+    for text in ("We will send it.", "We'll send it."):
+        assert sorted(c for c, _ in blocking(writing.check_text(text)[0])) == ["commitment", "we-in-doc"], text
+        assert [c for c, _ in blocking(writing.check_text(text, mode="chat")[0])] == ["commitment"], text
     for text in ("As discussed, the quota is fine.", "In my last mail the quota was fine.",
                  "As per my previous note, the quota is fine.", "As I wrote, the quota is fine."):
         assert [c for c, _ in blocking(writing.check_text(text)[0])] == ["earlier-mail"], text
@@ -156,7 +167,7 @@ def test_all_certifications():
 # --------------------------------------------------------------------------- controls
 
 CONTROLS = [
-    "We use Terraform and Ansible for the setup.",
+    "I use Terraform and Ansible for the setup.",
     "The setup is PoC-ready next week.",
     "The test takes 10\u201320 minutes.",
     "The link has low latency, bandwidth is fine.",
@@ -174,12 +185,12 @@ CONTROLS = [
 
 
 @pytest.mark.parametrize("text", CONTROLS, ids=["control-%d" % i for i in range(len(CONTROLS))])
-def test_controls_do_not_trigger(text):
+def test_controls_in_his_voice_do_not_trigger(text):
     assert_only_the_probe(planted(text)[0])
 
 
-def test_the_counterparts_of_the_controls_do_trigger():
-    assert blocking(writing.check_text("We use Terraform, and Ansible.")[0]) == [("comma-and-or", 1)]
+def test_the_counterparts_of_the_controls_in_his_voice_do_trigger():
+    assert blocking(writing.check_text("I use Terraform, and Ansible.")[0]) == [("comma-and-or", 1)]
     assert blocking(writing.check_text("The setup is ready \u2014 next week.")[0]) == [("em-dash", 1)]
     assert blocking(writing.check_text("The test takes 10 \u2013 20 minutes.")[0]) == [("em-dash", 1)]
     assert blocking(writing.check_text("Text.\n\nhowever it works.\n")[0]) == [("banned-word", 3)]
@@ -192,15 +203,16 @@ def test_code_blocks_and_inline_code_are_skipped_but_an_open_fence_is_not_code()
     assert blocking(writing.check_text(text)[0]) == [("banned-word", 4)]
 
 
-def test_mode_mail_refuses_we_and_our_mode_doc_allows_them():
+def test_mail_and_doc_refuse_we_and_our_chat_allows_them():
     text = "Intro.\n\nWe checked the quota and our team agrees with us.\n"
     tells, _ = writing.check_text(text, mode="mail")
     assert blocking(tells) == [("we-in-mail", 3)] * 3
     assert sorted(re.findall(r'"(\w+)"', " ".join(t.hint for t in tells))) == ["our", "us", "we"]
-    assert blocking(writing.check_text(text, mode="doc")[0]) == []
+    assert blocking(writing.check_text(text, mode="doc")[0]) == [("we-in-doc", 3)] * 3
     assert blocking(writing.check_text(text, mode="chat")[0]) == []
     # the country in capitals and a region name are not the pronoun
     assert_only_the_probe("The region us-east is in the US.", mode="mail")
+    assert_only_the_probe("The region us-east is in the US.", mode="doc")
 
 
 def test_scope_hcs_allows_the_vendor_name():
@@ -263,10 +275,10 @@ def test_long_words_and_rates():
     assert m["comma_before_and_or_per_1000"] == round(1000 / 6, 1)
 
 
-def test_lists_of_exactly_three_are_reported_not_blocking():
+def test_lists_of_exactly_three_are_reported_not_blocking_in_his_voice():
     text = ("# Lists\n\n- one\n- two\n- three\n\nThe setup is fast, cheap and simple.\n\n"
-            "- one\n- two\n- three\n- four\n\nWe checked ecs, evs, obs and vpc.\n\n"
-            "If it fails, we retry and log it.\n")
+            "- one\n- two\n- three\n- four\n\nI checked ecs, evs, obs and vpc.\n\n"
+            "If it fails, I retry and log it.\n")
     tells, m = writing.check_text(text)
     assert blocking(tells) == []
     found = [(t.line, t.blocking) for t in tells if t.cls == "list-of-three"]
@@ -345,13 +357,16 @@ def test_cli_write_check_prints_class_line_hint_and_metrics(tmp_path, capsys):
     assert _tell_lines(capsys.readouterr().out) == []
 
 
-def test_cli_write_check_mode_and_scope(tmp_path, capsys):
+def test_cli_write_check_mode_and_scope_with_we_in_both_modes(tmp_path, capsys):
     f = tmp_path / "note.md"
     f.write_text("Our team runs it on %s hardware.\n" % VENDOR, encoding="utf-8")
     assert cli.main(["write", "check", "--mode", "mail", "--scope", "hcs", str(f)]) == 1
     assert [c for c, _, _ in _tell_lines(capsys.readouterr().out)] == ["we-in-mail"]
-    assert cli.main(["write", "check", "--scope", "hcs", str(f)]) == 0
+    assert cli.main(["write", "check", "--scope", "hcs", str(f)]) == 1
+    assert [c for c, _, _ in _tell_lines(capsys.readouterr().out)] == ["we-in-doc"]
+    assert cli.main(["write", "check", "--mode", "chat", "--scope", "hcs", str(f)]) == 0
     capsys.readouterr()
+    f.write_text("The team runs it on %s hardware.\n" % VENDOR, encoding="utf-8")
     assert cli.main(["write", "check", str(f)]) == 1
     assert [c for c, _, _ in _tell_lines(capsys.readouterr().out)] == ["vendor-name"]
 
