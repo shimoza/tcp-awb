@@ -2,7 +2,7 @@
 
 Every module below is built against this file. A builder may add private helpers, never change a public
 signature without a note in `build/PROGRESS.md`. Runtime code: standard library plus the poppler command line
-tools. Test code may use python-docx, openpyxl, reportlab (all installed in `.venv`).
+tools. Test code may use python-docx, python-pptx, openpyxl, reportlab (all installed in `.venv`).
 
 Ground rules for every module:
 
@@ -924,6 +924,10 @@ archive` stream on standard output), `unlock`, `status --json [--probe SOCKET]..
   statements, so a running process keeps importing from the release it started on.
 - `seal/setup.sh --update [--units-only] [--mirrors DIR...]` from a release folder; `AWB_SETUP_OPT` and
   `AWB_SETUP_BIN` move the install root and the bin link for the tests (refused as root; only the code step runs).
+- `seal/setup.sh [--dry-run] --suite-venv DIR`: the function `suite_venv`, the venv the suite runs with from a
+  read-only export (`python3 -m venv --system-site-packages DIR`, then pip with the `test` extras of `pyproject.toml`,
+  never the package), run alone by any user; DIR absolute, outside the repository, `$HOME` and the home of root and of
+  every user from uid 1000. The self-build's SB1 calls it for `/srv/awb-build/venv`.
   `seal/web/install.sh [--domain HOST] [--only UNIT...]`.
 
 ## Wipe mode and `awb import` (T4, 2026-10-08)

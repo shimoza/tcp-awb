@@ -12,7 +12,7 @@ authors = [{name = "shimoza"}]
 dependencies = []
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-timeout", "python-docx", "openpyxl", "reportlab"]
+test = ["pytest", "pytest-timeout", "python-docx", "python-pptx", "openpyxl", "reportlab"]
 
 [project.scripts]
 awb = "awb.cli:main"

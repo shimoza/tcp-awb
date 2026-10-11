@@ -11,7 +11,7 @@ The instructions for a Claude Code session that works on this repository.
   there. Tests use a temporary vault with invented names.
 - Every text a session writes carries codes (`CUST-Q7M4`, `tcp-q7m4`) and never a name. The commit gate
   (`awb gate`) refuses names, secrets, home paths and whatever the owner's local blocklist names.
-- Runtime code is standard library plus the poppler tools. Tests may use python-docx, openpyxl, reportlab.
+- Runtime code is standard library plus the poppler tools. Tests may use python-docx, python-pptx, openpyxl, reportlab.
 - `build/tests.json` lists every test with its status: run the tests and continue with the first failing one. A test
   is never edited to make it pass.
 - Commits carry the owner as author and nothing else: no co-author line and no "generated with" line. The

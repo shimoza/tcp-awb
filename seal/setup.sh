@@ -54,6 +54,7 @@ FORBIDDEN_GROUPS=(ubuntu docker adm sudo lxd)
 
 usage() {
     echo "usage: sudo $0 [--dry-run] [--update [--units-only]] [--mirrors DIR...]" >&2
+    echo "       $0 [--dry-run] --suite-venv DIR" >&2
     exit 2
 }
 
@@ -68,6 +69,7 @@ mirrors=0
 mirror_sources=()
 update=0
 units_only=0
+suite_dir=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --dry-run)
@@ -77,8 +79,14 @@ while [ $# -gt 0 ]; do
         --update) update=1 ;;
         --units-only) units_only=1 ;;
         --mirrors) mirrors=1 ;;
+        --suite-venv)
+            [ $# -ge 2 ] || usage
+            suite_dir="$2"
+            shift
+            ;;
         -h | --help)
             echo "usage: sudo $0 [--dry-run] [--update [--units-only]] [--mirrors DIR...]"
+            echo "       $0 [--dry-run] --suite-venv DIR"
             exit 0
             ;;
         -*) usage ;;
@@ -93,6 +101,53 @@ if [ "$mirrors" -eq 1 ] && [ "${#mirror_sources[@]}" -eq 0 ]; then
     die "--mirrors needs at least one folder"
 fi
 [ "$units_only" -eq 0 ] || [ "$update" -eq 1 ] || die "--units-only goes with --update"
+
+# --------------------------------------------------------------------------- the venv of the suite
+
+# suite_venv DIR: the venv the whole suite runs with from a read-only export of the tree (presentations/self-build,
+# SB0): python3 -m venv --system-site-packages and the test extras of pyproject.toml, nothing else. The package
+# itself is never installed: the suite imports it from the tree it runs in, by the interpreter's absolute path with
+# python -I -B. DIR is an absolute path outside every home and outside the repository. SB1 calls it as root for
+# /srv/awb-build/venv; `--suite-venv DIR` runs it alone, as any user, and touches nothing else of the host.
+suite_venv() {
+    local dir="$1" here extras
+    here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+    case "$dir" in
+        /?*) ;;
+        *) die "--suite-venv needs an absolute path" ;;
+    esac
+    case "$dir" in
+        *..* | "$here" | "$here"/* | "${HOME:-/nonexistent}" | "${HOME:-/nonexistent}"/*) die "the venv of the suite lies outside every home and outside the repository: $dir" ;;
+    esac
+    # the homes of root and of every person (uid 1000 and up) from getent passwd
+    while IFS=: read -r _ _ uid _ _ h _; do
+        { [ "$uid" -eq 0 ] || [ "$uid" -ge 1000 ]; } && [ "${h%/}" != "" ] || continue
+        case "$dir" in
+            "${h%/}" | "${h%/}"/*) die "the venv of the suite lies outside every home and outside the repository: $dir" ;;
+        esac
+    done < <(getent passwd)
+    extras=$(python3 -I -c 'import sys, tomllib
+with open(sys.argv[1], "rb") as f:
+    print(" ".join(tomllib.load(f)["project"]["optional-dependencies"]["test"]))' "$here/pyproject.toml") ||
+        die "the test extras of pyproject.toml could not be read"
+    printf '# the venv of the suite in %s: the system packages and the test extras, not the package\n' "$dir"
+    if [ -e "$dir/bin/python" ]; then
+        printf '= python3 -m venv --system-site-packages %s  # already there\n' "$dir"
+    else
+        printf '+ python3 -m venv --system-site-packages %s\n' "$dir"
+        [ "$dry_run" -eq 1 ] || python3 -m venv --system-site-packages "$dir"
+    fi
+    printf '+ %s/bin/python -I -m pip install --no-cache-dir --disable-pip-version-check %s\n' "$dir" "$extras"
+    # shellcheck disable=SC2086  # the extras are words without blanks, one per requirement
+    [ "$dry_run" -eq 1 ] || "$dir/bin/python" -I -m pip install --no-cache-dir --disable-pip-version-check \
+        --quiet $extras
+}
+
+if [ -n "$suite_dir" ]; then
+    [ "$update" -eq 0 ] && [ "$mirrors" -eq 0 ] || die "--suite-venv goes alone (with --dry-run at most)"
+    suite_venv "$suite_dir"
+    exit 0
+fi
 
 # a test-only install root and bin link, so that the code step can run for real under pytest: never as root,
 # only the code step runs and git is called directly
