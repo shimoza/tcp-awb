@@ -178,20 +178,30 @@ def test_seal_check_runs_the_self_test_of_the_guard(home, tmp_path, monkeypatch)
     assert [r.ok for r in seal.run_checks(home, tmp_path) if r.what == what] == [False]
 
 
-def test_client_settings_carry_the_six_hooks_with_the_tool_guard():
-    """Replaces test_client_settings_carry_the_five_hooks of tests/test_hooks.py: PreToolUse carries the knowledge
-    base guard of the write tools and the place guard of every file tool."""
+def test_client_settings_guard_every_file_and_shell_tool_and_the_work_user_denies_the_rest():
+    """Replaces test_client_settings_carry_the_six_hooks_with_the_tool_guard (finding 9 of the review of 2026-10-10):
+    the place guard takes Monitor, the client's second shell tool, and the work user's settings deny every tool of
+    the client that reaches a file, a command or work elsewhere and that the guard does not see."""
     s = hooks.client_settings("/usr/local/bin/awb hook")
     got = {event: [(e.get("matcher"), h["command"]) for e in entries for h in e["hooks"]]
            for event, entries in s["hooks"].items()}
     assert got == {
         "UserPromptSubmit": [(None, "/usr/local/bin/awb hook prompt")],
         "PreToolUse": [("Write|Edit|MultiEdit|NotebookEdit", "/usr/local/bin/awb hook pre-write"),
-                       ("Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash", "/usr/local/bin/awb hook pre-tool")],
+                       ("Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash|Monitor",
+                        "/usr/local/bin/awb hook pre-tool")],
         "PostToolUse": [("Write|Edit|MultiEdit|NotebookEdit", "/usr/local/bin/awb hook post-write")],
         "Stop": [(None, "/usr/local/bin/awb hook stop")],
         "SessionStart": [(None, "/usr/local/bin/awb hook session-start")],
     }
+    assert set(hooks.SHELL_TOOLS) <= set(hooks.GUARD_TOOLS)
+    assert not set(hooks.GUARD_TOOLS) & set(hooks.DENIED_TOOLS)
+    for tool in ("mcp__*", "PowerShell", "LSP", "Artifact", "SendUserFile", "EnterWorktree", "Workflow"):
+        assert tool in hooks.DENIED_TOOLS
     root = Path(hooks.__file__).resolve().parent.parent
     work = json.loads((root / "seal" / "work-claude" / "settings.json").read_text(encoding="utf-8"))
-    assert work["hooks"] == s["hooks"] and work["permissions"] == {"deny": ["mcp__*"]}
+    assert work["hooks"] == s["hooks"] and work["permissions"] == {"deny": list(hooks.DENIED_TOOLS)}
+    managed = json.loads((root / "seal" / "work-claude" / "managed-settings.json").read_text(encoding="utf-8"))
+    assert managed == {"hooks": s["hooks"]}
+    plugin = json.loads((root / "plugin" / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    assert [e.get("matcher") for e in plugin["hooks"]["PreToolUse"]] == [hooks.WRITE_MATCHER, hooks.GUARD_MATCHER]

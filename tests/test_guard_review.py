@@ -110,6 +110,20 @@ def test_a_link_inside_the_project_leads_out_through_a_relative_bash_path(world)
     assert bash(world, "cat keys/id_ed25519") == hooks.KEY_FOLDER
 
 
+# --------------------------------------------------------------------------- g6-guard-5: a shell tool outside the matcher
+
+
+def test_the_monitor_tool_runs_a_shell_command_outside_the_guard(world):
+    """The client's Monitor tool runs a shell command "in the same shell environment as Bash"; it is neither in
+    GUARD_MATCHER nor in the work user's deny list, so guard() returns None for it."""
+    other = world["other"] / "STATE.md"
+    payload = {"tool_name": "Monitor", "tool_input": {"command": "cat %s" % other, "description": "x",
+                                                       "timeout_ms": 1000},
+               "cwd": str(world["own"]), "session_id": "s-1"}
+    assert hooks.guard(payload, world["p"], world["user"], sealed=True) == hooks.ANOTHER_PROJECT
+    assert "Monitor" in hooks.GUARD_MATCHER.split("|")
+
+
 # --------------------------------------------------------------------------- g6-guard-6: a relative Glob pattern
 
 

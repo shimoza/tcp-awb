@@ -29,21 +29,23 @@ The seal keeps the register of names away from every working session. It uses tw
   the vault daemon or the key service: a restart locks them and the console loses projects and chat.
 - The package holds (T9 step 4, RT-26): `apt-mark hold cloudflared terraform`, so the routine upgrade leaves the
   tunnel and Terraform alone; an upgrade is a deliberate step (`apt-mark unhold`, upgrade, `apt-mark hold`).
-- `work-claude/settings.json`: the client settings of the work user: the six Workbench hooks
-  (`/usr/local/bin/awb hook NAME`) and a deny rule for every connector tool (`mcp__*`). Connectors of the account
-  would hand raw customer text to a session.
+- `work-claude/settings.json`: the client settings of the work user: the six Workbench hooks (`/usr/local/bin/awb hook
+  NAME`) and deny rules for every connector tool (`mcp__*`) and for every tool of the client that reads or sends a file,
+  runs a command or starts work elsewhere and that the tool guard does not see (`DENIED_TOOLS` of `awb/hooks.py`:
+  PowerShell, LSP, the artifact and worktree tools, Workflow, RemoteTrigger, SendUserFile, the MCP resource tools).
+  Connectors of the account would hand raw customer text to a session.
 - `work-claude/CLAUDE.md`: the instructions of the work user, at most 60 lines.
 - `work-claude/managed-settings.json`: the six hooks once more, installed as a managed drop-in of the client.
 
-The hook `pre-tool` keeps a session inside its project. Read, Edit, MultiEdit, NotebookEdit, Write, Glob, Grep and Bash
-are refused when their target (the file argument, the path and the pattern of a search, for Bash every path of the
-command line after the shell's quote removal, a relative one taken against the folder each `cd` leaves it in) lies in
-another `tcp-*` project folder, in the work user's `~/.claude`, `~/.ssh` or `~/.config`, or is a folder that holds one
-of them. Links are followed, each before a `..` after it climbs. A shell path the guard cannot read is refused too: a
-quote or an escape inside a word that carries a path, a variable or a substitution in a path other than `$HOME` and
-`$PWD` at its start, `~-`, a `cd` it cannot follow. The own project, `tcp-shared` (outbox, datasets), the knowledge
-base, `/tmp` and the installed code pass. The refusal is one line with the class of the place (another project, the
-client's folder, a key folder, a path the guard cannot read), never the path, and one line in
+The hook `pre-tool` keeps a session inside its project. Read, Edit, MultiEdit, NotebookEdit, Write, Glob, Grep, Bash and
+Monitor are refused when their target (the file argument, the path and the pattern of a search, for a shell command
+every path of the command line after the shell's quote removal, a relative one taken against the folder each `cd` leaves
+it in) lies in another `tcp-*` project folder, in the work user's `~/.claude`, `~/.ssh` or `~/.config`, or is a folder
+that holds one of them. Links are followed, each before a `..` after it climbs. A shell path the guard cannot read is
+refused too: a quote or an escape inside a word that carries a path, a variable or a substitution in a path other than
+`$HOME` and `$PWD` at its start, `~-`, a `cd` it cannot follow. The own project, `tcp-shared` (outbox, datasets), the
+knowledge base, `/tmp` and the installed code pass. The refusal is one line with the class of the place (another
+project, the client's folder, a key folder, a path the guard cannot read), never the path, and one line in
 `tcp-shared/sessions/guard.log` (time, session id, tool, class, project). The stop hook counts them per project and day
 in `tcp-shared/english/refused.tsv`. The hook fails closed: when the project folder of the session cannot be determined,
 or the input cannot be read, the call is refused. The owner's sessions are not guarded. `awb hook selftest` plants
@@ -104,9 +106,9 @@ user.
    six hooks as managed settings of the client. No user or project file can switch managed hooks off (a
    project file with `disableAllHooks` can switch off the hooks of the user settings). Managed settings apply to
    every user of the host, so `awb hook` exits 0 at once for every user but `work_user` of `/etc/awb/paths.conf`:
-   the owner's own sessions are not checked. The deny rule for connectors (`mcp__*`) is not a managed setting,
-   because it would take the connectors of the owner's own sessions too; it stays in the immutable settings of
-   the work user, and no project file can allow what a user file denies.
+   the owner's own sessions are not checked. The deny rules (the connectors and the tools the guard does not
+   see) are not managed settings, because they would take those tools of the owner's own sessions too; they
+   stay in the immutable settings of the work user, and no project file can allow what a user file denies.
 
 Home folders come from `getent passwd`. No home path is written into any file of this folder.
 

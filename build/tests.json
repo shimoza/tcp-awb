@@ -2481,8 +2481,8 @@
   {
    "id": "TG-13",
    "phase": "T-guard",
-   "name": "client settings carry the six hooks with the tool guard",
-   "run": ".venv/bin/pytest tests/test_guard.py::test_client_settings_carry_the_six_hooks_with_the_tool_guard",
+   "name": "client settings guard every file and shell tool (Bash, Monitor), the work user denies every tool the guard does not see",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_client_settings_guard_every_file_and_shell_tool_and_the_work_user_denies_the_rest",
    "status": "passing"
   },
   {
@@ -2946,8 +2946,15 @@
    "name": "review 2026-10-10 P4: a relative Glob or Grep pattern that climbs is refused",
    "run": ".venv/bin/pytest tests/test_guard_review.py::test_a_relative_glob_pattern_that_climbs_is_never_looked_at",
    "status": "passing"
+  },
+  {
+   "id": "R10-21",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 9: the Monitor tool is in the matcher and its command meets the guard",
+   "run": ".venv/bin/pytest tests/test_guard_review.py::test_the_monitor_tool_runs_a_shell_command_outside_the_guard",
+   "status": "passing"
   }
  ],
- "total_tests": 421,
+ "total_tests": 422,
  "checked": "2026-10-11"
 }

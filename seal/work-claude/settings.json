@@ -21,7 +21,7 @@
         ]
       },
       {
-        "matcher": "Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash",
+        "matcher": "Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash|Monitor",
         "hooks": [
           {
             "type": "command",
@@ -64,7 +64,22 @@
   },
   "permissions": {
     "deny": [
-      "mcp__*"
+      "mcp__*",
+      "PowerShell",
+      "LSP",
+      "NotebookRead",
+      "Artifact",
+      "ArtifactComments",
+      "ArtifactData",
+      "DesignSync",
+      "SendUserFile",
+      "EnterWorktree",
+      "ExitWorktree",
+      "Workflow",
+      "RemoteTrigger",
+      "ListMcpResourcesTool",
+      "ReadMcpResourceTool",
+      "ReadMcpResourceDirTool"
     ]
   }
 }

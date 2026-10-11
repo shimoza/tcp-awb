@@ -617,9 +617,10 @@ def _settings(pr) -> dict:
     return json.loads((Path(pr.path) / ".claude" / "settings.json").read_text(encoding="utf-8"))
 
 
-def test_spawn_writes_client_settings_with_the_six_hooks_and_the_tool_guard(home, register_path):
-    """Replaces test_spawn_writes_client_settings_with_the_five_hooks: PreToolUse carries two entries, the
-    knowledge base guard of the write tools (pre-write) and the place guard of every file tool (pre-tool)."""
+def test_spawn_writes_client_settings_whose_tool_guard_takes_the_shell_tools(home, register_path):
+    """Replaces test_spawn_writes_client_settings_with_the_six_hooks_and_the_tool_guard (finding 9 of the review of
+    2026-10-10): PreToolUse carries two entries, the knowledge base guard of the write tools (pre-write) and the
+    place guard of every file tool and of both shell tools, Bash and Monitor (pre-tool)."""
     pr = _spawn(home, register_path)
     settings = _settings(pr)
     assert set(settings) == {"hooks"}
@@ -630,7 +631,7 @@ def test_spawn_writes_client_settings_with_the_six_hooks_and_the_tool_guard(home
     assert got == {
         "UserPromptSubmit": [(None, "command", "prompt")],
         "PreToolUse": [(write, "command", "pre-write"),
-                       ("Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash", "command", "pre-tool")],
+                       ("Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash|Monitor", "command", "pre-tool")],
         "PostToolUse": [(write, "command", "post-write")],
         "Stop": [(None, "command", "stop")],
         "SessionStart": [(None, "command", "session-start")],

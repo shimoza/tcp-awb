@@ -25,18 +25,20 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        files: facts go in through `awb kb add`, `amend` and `retire` only. A path
                                        the hook cannot read blocks too. What gets around it (a shell command) is
                                        caught by the commit hook of the knowledge base, `awb kb verify --staged`
-    pre-tool        PreToolUse         exit 2 when Read, Edit, MultiEdit, NotebookEdit, Write, Glob, Grep or Bash
-                                       reaches another project folder, the client's folder (~/.claude) or a key
-                                       folder (~/.ssh, ~/.config), or a folder that holds one of them: the file
-                                       argument, the path and the pattern of a search, and for Bash every path
-                                       of the command line after the shell's quote removal, a relative one taken
-                                       against the folder each cd leaves it in, each as written and through its
-                                       links. A shell path the guard cannot read (a variable or a substitution
-                                       in it, a quote or an escape inside it, a cd it cannot follow) is refused
-                                       too. The own project, <shared>, the knowledge base, /tmp and the installed
-                                       code pass. One line names the class of the place, never the path, and one
-                                       line goes into <shared>/sessions/guard.log. Fails closed: no project
-                                       folder, an input it cannot read or an internal error refuse the call
+    pre-tool        PreToolUse         exit 2 when Read, Edit, MultiEdit, NotebookEdit, Write, Glob, Grep, Bash
+                                       or Monitor reaches another project folder, the client's folder
+                                       (~/.claude) or a key folder (~/.ssh, ~/.config), or a folder that holds
+                                       one of them: the file argument, the path and the pattern of a search, and
+                                       for a shell command every path of the command line after the shell's
+                                       quote removal, a relative one taken against the folder each cd leaves it
+                                       in, each as written and through its links. A shell path the guard cannot
+                                       read (a variable or a substitution in it, a quote or an escape inside it,
+                                       a cd it cannot follow) is refused too. The own project, <shared>, the
+                                       knowledge base, /tmp and the installed code pass. One line names the class
+                                       of the place, never the path, and one line goes into
+                                       <shared>/sessions/guard.log. Fails closed: no project folder, an input it
+                                       cannot read or an internal error refuse the call. The work user's settings
+                                       deny the tools of DENIED_TOOLS
     post-write      PostToolUse        exit 2 when the written file carries a hit of the name check, a secret, a
                                        bidi override or (under a deliverables folder at any depth) a blocking
                                        tell of the writing check: class and line only; also when a folder on its
@@ -733,9 +735,19 @@ def hook_pre_write(data: dict) -> int:
 
 # --------------------------------------------------------------------------- pre-tool: a session stays in its project
 
-GUARD_MATCHER = "Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash"
-"""The tools whose target paths the pre-tool hook guards."""
+GUARD_MATCHER = "Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash|Monitor"
+"""The tools whose target paths the pre-tool hook guards: every file tool and every tool of the client that runs a
+shell command (Bash, Monitor)."""
 GUARD_TOOLS = tuple(GUARD_MATCHER.split("|"))
+SHELL_TOOLS = ("Bash", "Monitor")
+"""The guarded tools whose `command` runs in a shell."""
+DENIED_TOOLS = ("mcp__*", "PowerShell", "LSP", "NotebookRead", "Artifact", "ArtifactComments", "ArtifactData",
+                "DesignSync", "SendUserFile", "EnterWorktree", "ExitWorktree", "Workflow", "RemoteTrigger",
+                "ListMcpResourcesTool", "ReadMcpResourceTool", "ReadMcpResourceDirTool")
+"""The deny rules of the work user's settings: the connectors, and every tool of the client that reads or sends a
+file, runs a command or starts work elsewhere and is not guarded. The rest of the client's tools (agents, tasks,
+questions, skills, the web tools, plan mode, schedules of a prompt) reach no path; their prompts and their agents'
+tool calls meet the hooks."""
 ANOTHER_PROJECT = "another project"
 CLIENT_FOLDER = "the client's folder"
 KEY_FOLDER = "a key folder"
@@ -1206,9 +1218,9 @@ def _shell_checks(command: str, cwd: Path, home: Path) -> list:
 
 
 def _tool_paths(tool: str, tool_input: dict, cwd: Path, home: Path) -> list:
-    """The checks of one tool call (see _shell_checks for Bash); a Glob or Grep without a path searches the session
-    folder, and its pattern is taken under that path."""
-    if tool == "Bash":
+    """The checks of one tool call (see _shell_checks); a Glob or Grep without a path searches the session folder,
+    and its pattern is taken under that path."""
+    if tool in SHELL_TOOLS:
         command = tool_input.get("command")
         if not isinstance(command, str):
             raise _Refused(UNKNOWN_PROJECT)
@@ -1347,9 +1359,9 @@ def refusal(cls: str) -> str:
 
 
 def hook_pre_tool(data: dict) -> int:
-    """Read, Edit, MultiEdit, NotebookEdit, Write, Glob, Grep and Bash stay inside the session's project: a target
-    in another project, in the client's folder or in a key folder, and a shell path the guard cannot read, are
-    refused with one line naming the class."""
+    """Read, Edit, MultiEdit, NotebookEdit, Write, Glob, Grep, Bash and Monitor stay inside the session's project: a
+    target in another project, in the client's folder or in a key folder, and a shell path the guard cannot read,
+    are refused with one line naming the class."""
     cls = guard(data)
     if cls is None:
         return OK

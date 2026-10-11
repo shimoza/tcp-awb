@@ -167,6 +167,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- The tool guard takes Monitor, the client's second tool that runs a shell command (finding 9 of the review of
+  2026-10-10). The work user's settings now deny, next to the connectors, every tool of the client that reads or sends a
+  file, runs a command or starts work elsewhere and that the guard does not see: PowerShell, LSP, the artifact and
+  worktree tools, Workflow, RemoteTrigger, SendUserFile and the MCP resource tools.
 - A relative Glob or Grep pattern is taken under the folder of the search and through its links, so `../<project>/*.md`
   is refused (P4 of the review of 2026-10-10). A `..` after a glob character is refused.
 - A relative path of a shell command is taken against the folder the command stands in, through its links (findings 20
