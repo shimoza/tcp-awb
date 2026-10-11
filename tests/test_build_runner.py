@@ -644,3 +644,198 @@ def test_each_selftest_case_fails_when_its_check_is_taken_away(monkeypatch, case
     monkeypatch.setattr(module, attr, planted)
     failures = buildrun.selftest(only=[case], python=sys.executable)
     assert len(failures) == 1 and failures[0].startswith(case + ": "), failures
+
+
+# --------------------------------------------------------------------------- the login mode (D-S7 changed)
+
+TOKEN = "fake-" + "login-token-one"
+
+
+def plant_login(w, token: str = TOKEN, expires: int = 1_900_000_000_000) -> Path:
+    """A fake login of the client in the build user's own home (<root>/home/.claude/.credentials.json, 600)."""
+    d = w.root / "home" / ".claude"
+    d.mkdir(mode=0o700, exist_ok=True)
+    f = d / ".credentials.json"
+    f.write_text(json.dumps({"claudeAiOauth": {"accessToken": token, "refreshToken": token + "-r",
+                                               "expiresAt": expires, "scopes": ["user:inference"]}}))
+    f.chmod(0o600)
+    return f
+
+
+def cred(login: Path) -> str:
+    """The prompt line the stand-in client checks the task home's copy against: a digest, never the token."""
+    import hashlib
+
+    return "CREDSHA: %s\n" % hashlib.sha256(login.read_bytes()).hexdigest()
+
+
+def nowhere(w, run, needle: str) -> None:
+    """The needle is in no file of runs/ (every run, every record), no board file and no mail."""
+    for f in w.runs.rglob("*"):
+        if f.is_file() and not f.is_symlink():
+            assert needle.encode() not in f.read_bytes(), f
+    for f in w.board.rglob("*"):
+        if f.is_file():
+            assert needle.encode() not in f.read_bytes(), f
+    assert not any(needle in s + m for s, m in w.mails)
+
+
+def test_login_mode_copies_the_login_into_the_task_home_for_the_session_and_never_into_runs(world):
+    """D-S7 changed: with build_model = login the prepare unit copies the build user's login into the task home
+    (600, read by the stand-in client there), the session and the other units do not see the build user's own client
+    state, the home goes with its copy when the task is done, the login stays where it was and its bytes are in no
+    record, log, board file or mail."""
+    world.host.model = "login"
+    login = plant_login(world)
+    before = login.read_bytes()
+    run = world.run("login", extra=cred(login))
+    assert run.state == "done"
+    assert not world.host.home(run.id, run.n).exists()
+    assert login.read_bytes() == before and oct(login.stat().st_mode & 0o777) == "0o600"
+    nowhere(world, run, TOKEN)
+    specs = {s.name: s for s in world.units.started}
+    prep = [s for s in world.units.started if s.name.endswith("-prep")][0]
+    assert prep.argv[-1] == "login" and prep.argv[-6] == "prepare"
+    own = str(world.root / "home" / ".claude")
+    assert own in specs["awb-task-%s" % run.id].hidden
+    assert own in specs["awb-task-%s-suite" % run.id].hidden
+    assert own not in prep.hidden
+    cleans = [s for s in world.units.started if s.argv[3:4] == ["clean"]]
+    assert cleans and all(s.argv[-1] == "login" and own not in s.hidden for s in cleans)
+    hands = [s for s in world.units.started if s.argv[3:4] == ["handover"]]
+    assert hands and all(own in s.hidden for s in hands)
+
+
+def test_login_mode_without_a_login_holds_the_task_at_once_names_the_command_and_retries_nothing(world):
+    """No login in the build user's home: the task ends held: login missing before a session (nothing made, no
+    session unit), the mail and result.md name the one login command, later polls start neither this task nor the
+    next one; after his login and awb build retry the task runs and is done."""
+    world.host.model = "login"
+    run = world.run("login")
+    assert run.state == buildrun.LOGIN_HELD
+    assert not any(s.name == "awb-task-%s" % run.id for s in world.units.started)
+    assert not world.host.home(run.id, run.n).exists() and not world.host.clone(run.id, run.n).exists()
+    mail = [m for s, m in world.mails if run.id in s]
+    assert len(mail) == 1 and mail[0].count(buildrun.LOGIN_COMMAND) == 1
+    assert "awb build retry %s" % run.id in mail[0]
+    assert buildrun.LOGIN_COMMAND in (run.folder / "result.md").read_text()
+    assert buildrun.LOGIN_COMMAND == "sudo -u awb-build -H /opt/claude-build/bin/claude login"
+    started = len(world.units.started)
+    world.task("login", tid=run.id)
+    other = world.task("good")
+    (world.queue / "QUEUE.md").write_text((world.queue / "QUEUE.md").read_text())
+    r = world.runner()
+    for _ in range(3):
+        r.poll_once()
+    assert len(world.units.started) == started
+    assert build.latest(run.id, world.runs).n == run.n and build.runs_of(other, world.runs) == []
+    assert r.held_queue == "login missing"
+    world.task("login", tid=run.id, extra=cred(plant_login(world)))
+    assert build.cmd_retry(run.id, world.queue, world.runs) == 0
+    for _ in range(5):
+        if not r.poll_once():
+            break
+    after = build.latest(run.id, world.runs)
+    assert (after.n, after.state) == (run.n + 1, "done")
+
+
+def test_login_mode_asked_keeps_the_home_without_the_login_and_the_resume_copies_it_again(world):
+    world.host.model = "login"
+    login = plant_login(world)
+    run = world.run("ask")
+    assert run.state == "asked"
+    home = world.host.home(run.id, run.n)
+    assert home.is_dir() and not (home / buildrun.LOGIN_IN_HOME).exists()
+    assert build.cmd_answer(run.id, "SCENARIO: login\n" + cred(login), world.runs, world.register) == 0
+    world.task("login", tid=run.id)
+    world.runner().poll_once()
+    after = build.latest(run.id, world.runs)
+    assert (after.n, after.state) == (run.n, "done")
+    rekey = [s for s in world.units.started if s.argv[3:4] == ["rekey"]]
+    assert len(rekey) == 1 and rekey[0].argv[-1] == "login"
+    nowhere(world, run, TOKEN)
+
+
+def test_login_mode_a_refreshed_token_goes_back_and_nothing_else_does(world, tmp_path):
+    """A refresh may rotate the refresh token: a newer login of the task goes back to the build user's home
+    before the task home goes. A file that is not the login's shape, an older one and a link never do, and a login
+    that is not there is never made."""
+    world.host.model = "login"
+    login = plant_login(world)
+    new = TOKEN + "-refreshed"
+    run = world.run("refresh", extra=cred(login))
+    assert run.state == "done"
+    back = json.loads(login.read_text())["claudeAiOauth"]
+    assert back["accessToken"] == new and back["expiresAt"] == 1_900_000_000_000 + 3600000
+    assert oct(login.stat().st_mode & 0o777) == "0o600"
+    nowhere(world, run, new)
+    # the clean unit on planted task homes
+    root = world.root
+    home = root / "home" / "B-900-1"
+
+    def task_home(content: str | None, link: bool = False):
+        import shutil
+
+        shutil.rmtree(home, ignore_errors=True)
+        (home / ".claude").mkdir(parents=True)
+        f = home / buildrun.LOGIN_IN_HOME
+        if link:
+            f.symlink_to(tmp_path / "elsewhere.json")
+            (tmp_path / "elsewhere.json").write_text(content or "")
+        elif content is not None:
+            f.write_text(content)
+
+    good = login.read_bytes()
+    exp = back["expiresAt"]
+    for content, link in ((json.dumps({"claudeAiOauth": {"accessToken": "x", "refreshToken": "y",
+                                                         "expiresAt": exp - 1}}), False),
+                          (json.dumps({"other": {"expiresAt": exp + 9}}), False),
+                          (json.dumps({"claudeAiOauth": {"accessToken": "x", "expiresAt": exp + 9}}), False),
+                          ("not json", False),
+                          (json.dumps({"claudeAiOauth": {"accessToken": "x", "refreshToken": "y",
+                                                         "expiresAt": exp + 9}}), True)):
+        task_home(content, link)
+        assert buildrun.unit_clean(str(root), "B-900", "1", "home", "login") == 0
+        assert login.read_bytes() == good and not home.exists()
+    # key mode never sends anything back
+    task_home(json.dumps({"claudeAiOauth": {"accessToken": "x", "refreshToken": "y", "expiresAt": exp + 9}}))
+    assert buildrun.unit_clean(str(root), "B-900", "1", "home") == 0
+    assert login.read_bytes() == good
+    # no login there: none is made
+    login.unlink()
+    task_home(json.dumps({"claudeAiOauth": {"accessToken": "x", "refreshToken": "y", "expiresAt": exp + 9}}))
+    assert buildrun.unit_clean(str(root), "B-900", "1", "home", "login") == 0
+    assert not login.exists()
+
+
+def test_key_mode_still_hands_the_key_and_ignores_a_login_that_is_there(world, tmp_path):
+    """build_model = key (7fac409): the key goes into the task home as before and the login of the build user's home
+    is not copied; the stand-in that wants a login asks."""
+    key = tmp_path / "model.key"
+    key.write_text("fake-model-key-for-tests\n")
+    key.chmod(0o400)
+    world.host.model, world.host.model_key = "key", key
+    login = plant_login(world)
+    run = world.run("key", extra="KEY: fake-model-key-for-tests\n")
+    assert run.state == "done"
+    prep = [s for s in world.units.started if s.name.endswith("-prep")][0]
+    assert prep.argv[-1] != "login"
+    run = world.run("login", extra=cred(login))
+    assert run.state == "asked"
+    assert not (world.host.home(run.id, run.n) / buildrun.LOGIN_IN_HOME).exists()
+    nowhere(world, run, TOKEN)
+
+
+def test_a_build_model_outside_login_and_key_holds_the_queue_and_the_host_file_defaults_to_login(world, monkeypatch):
+    world.host.model = "both"
+    world.task("good")
+    r = world.runner()
+    assert not r.poll_once() and r.held_queue == "build model" and not world.units.started
+    from awb import config
+
+    for conf, model, key in (({}, "login", None),
+                             ({"build_model_key": "/etc/awb/build-model.key"}, "login", None),
+                             ({"build_model": "key", "build_model_key": "/k"}, "key", Path("/k"))):
+        monkeypatch.setattr(config, "host_conf", lambda conf=conf: dict(conf))
+        h = buildrun.Host.from_config()
+        assert (h.model, h.model_key) == (model, key)

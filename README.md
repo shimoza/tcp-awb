@@ -459,9 +459,10 @@ Workbench itself will run as this user, never as you or as `awb`. It has no pass
 own, so it reaches neither the vault, the sockets, the projects nor `/etc/awb` (root:awb 751, the host file and the
 blocklist 640). Its folder `/srv/awb-build` is a 20 GB loop image (`main.git`, the clones, the runner's records, the
 suite's venv, a root owned home template), its client a pinned root owned copy in `/opt/claude-build`, and its hook
-keeps every tool call inside its own clone. Its model key is a copy of the Workbench's key (`/etc/awb/build-model.key`,
-yours alone, 400) that the runner puts into each task's home and removes with it; `build_model_key_source` in
-`/etc/awb/paths.conf` names another key in one line. The runner's unit `awb-buildd.service` is installed and not
+keeps every tool call inside its own clone. It runs on your subscription login, which you make once as yourself
+with `sudo -u awb-build -H /opt/claude-build/bin/claude login`; the runner copies it into each task's home and
+removes it with the home, and the tasks spend your shared quota. `build_model = key` in `/etc/awb/paths.conf` switches
+to a copy of the Workbench's key (`/etc/awb/build-model.key`, yours alone, 400) in one line. The runner's unit `awb-buildd.service` is installed and not
 enabled yet; `sudo seal/verify.sh` proves the rest. `seal/README.md`, section "The build side", has the details.
 
 | when | what to run |
@@ -507,7 +508,7 @@ one line of `awb build list` that names the key, never the value.
 
 The runner (`awb build serve`, the unit `awb-buildd.service`) takes the next task whose `depends` are done and whose
 `paths` meet no path of a task that is not done, one at a time. It runs as you, never as a model. It starts each
-task as `awb-build` in units of a fixed form: a fresh home from the root template with the model key, a clone of
+task as `awb-build` in units of a fixed form: a fresh home from the root template with your login, a clone of
 `main` from a bundle, the headless session with the block's model, effort, budget and clock, then the hand-over of
 the branch as a bundle. It judges the bundle in `main.git`, never the clone: the unit ended by itself, the client
 ended well, the last line is `DONE:`, one to five commits as you on `task/<ID>` and nothing else, the gate with the

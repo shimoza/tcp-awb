@@ -1392,32 +1392,138 @@ def test_verify_lists_the_build_checks_and_reads_the_pin_of_setup(fakebin):
         assert "--property=%s" % prop in verify or '--property="%s"' % prop in verify, prop
 
 
-def test_setup_plans_the_model_key_the_board_folder_and_the_push_and_verify_runs_the_runner_selftest(fakebin):
-    """SB3: the dry run of a first seal and of an update copies the model key the host file names (default the
-    Workbench's key) to the owner's 400 copy, makes the board's build folder in tcp-shared and writes the three host
-    file keys; verify.sh checks the copy and the folder and runs awb build selftest as the owner."""
-    for args in (["--dry-run"], ["--update", "--dry-run"]):
-        res = run_script(SETUP, args, fakebin)
-        assert res.returncode == 0, res.stderr
-        lines = res.stdout.splitlines()
-        cmds = commands(res.stdout)
-        assert "+ install -o %s -g %d -m 400 /etc/awb/anthropic.key /etc/awb/build-model.key.partial  # when " \
-               "missing or the source changed" % (USER, os.getgid()) in cmds, args
-        assert "+ mv -f -- /etc/awb/build-model.key.partial /etc/awb/build-model.key  # when missing or the source " \
-               "changed" in cmds
-        board = [c for c in cmds if c.startswith("+ install -d -o awb -g awb -m 3770 ")]
-        assert len(board) == 1 and board[0].endswith("/tcp-shared/build")
-        for key in ("build_model_key = /etc/awb/build-model.key", "build_model_key_source = /etc/awb/anthropic.key",
-                    "build_push = yes"):
-            assert "    | " + key in lines, key
+def test_setup_plans_his_login_by_default_the_key_only_with_build_model_key_and_verify_names_the_mode(fakebin,
+                                                                                                    monkeypatch):
+    """D-S7 changed (replaces the SB3 test that pinned the key as the default): the dry run of a first seal and of an
+    update writes build_model = login, copies no key, removes a key copy left from the key mode, names the login
+    command and installs the build settings as they are (no apiKeyHelper); with build_model = key it copies the key
+    as in SB3 and writes the settings with apiKeyHelper. Both make the board's build folder and write the host file
+    keys. verify.sh names the mode, checks the key copy, the folder and runs awb build selftest as the owner. A
+    build model outside login and key, and the test's override outside a dry run, are refused."""
+    login_cmd = "sudo -u awb-build -H /opt/claude-build/bin/claude login"
+    for model in ("login", "key"):
+        monkeypatch.setenv("AWB_SETUP_BUILD_MODEL", model)
+        for args in (["--dry-run"], ["--update", "--dry-run"]):
+            res = run_script(SETUP, args, fakebin)
+            assert res.returncode == 0, res.stderr
+            lines = res.stdout.splitlines()
+            cmds = commands(res.stdout)
+            install = "+ install -o %s -g %d -m 400 /etc/awb/anthropic.key /etc/awb/build-model.key.partial  # when " \
+                      "missing or the source changed" % (USER, os.getgid())
+            settings = "+ install -o root -g root -m 644 %s /srv/awb-build/home-template/.claude/settings.json" % \
+                BUILD_SETTINGS
+            helper = '    |   "apiKeyHelper": "cat \\"$HOME/.config/awb-build/model.key\\"",'
+            if model == "login":
+                assert install not in cmds and "+ rm -f -- /etc/awb/build-model.key  # if present" in cmds, args
+                assert settings in cmds and helper not in lines
+                assert res.stdout.count(login_cmd) == 1
+            else:
+                assert install in cmds and "+ rm -f -- /etc/awb/build-model.key  # if present" not in cmds, args
+                assert settings not in cmds and helper in lines
+                assert "+ write /srv/awb-build/home-template/.claude/settings.json (mode 644, root:root)" in cmds
+                assert login_cmd not in res.stdout
+            board = [c for c in cmds if c.startswith("+ install -d -o awb -g awb -m 3770 ")]
+            assert len(board) == 1 and board[0].endswith("/tcp-shared/build")
+            for key in ("build_model = %s" % model, "build_model_key = /etc/awb/build-model.key",
+                        "build_model_key_source = /etc/awb/anthropic.key", "build_push = yes"):
+                assert "    | " + key in lines, key
+    monkeypatch.setenv("AWB_SETUP_BUILD_MODEL", "both")
+    res = run_script(SETUP, ["--dry-run"], fakebin)
+    assert res.returncode == 1 and "AWB_SETUP_BUILD_MODEL is login or key" in res.stderr
+    monkeypatch.setenv("AWB_SETUP_BUILD_MODEL", "key")
+    res = run_script(SETUP, ["--update"], fakebin, build_host="")
+    assert res.returncode == 1 and "AWB_SETUP_BUILD_MODEL goes with --dry-run only" in res.stderr
+    no_marks(fakebin)
     res = run_script(VERIFY, ["--dry-run"], fakebin)
     checks = [line[6:] for line in res.stdout.splitlines() if line.startswith("CHECK ")]
-    for want in ("the model key of a build task is the owner's (400) and matches its source",
+    for want in ("the build side runs on his login (build_model = login) and the login is there, or on the model key",
+                 "the model key of a build task is the owner's (400) and matches its source",
                  "the board's build folder is the work user's, 3770",
                  "the build runner refuses its planted cases (awb build selftest)"):
         assert want in checks, want
     assert "runuser -u \"$owner\" -- \\\n        env HOME=\"$owner_home\" /usr/local/bin/awb build selftest" in \
         VERIFY.read_text(encoding="utf-8")
+    text = SETUP.read_text(encoding="utf-8")
+    assert re.search(r"(?m)^BUILD_MODEL_DEFAULT=login\s", text)
+    assert 'build_model=$(build_model_mode)\n' in text
+
+
+def _model_check(tmp_path: Path, conf: str, login: str | None, helper: bool, key: bool = False) -> str:
+    """build_model_check of verify.sh, taken from the script as it is, run for real against a throw-away host file,
+    build root and template: the build user is this user, report prints PASS or FAIL as verify does."""
+    text = VERIFY.read_text(encoding="utf-8")
+    fn = re.search(r"(?ms)^build_model_check\(\) \{.*?^\}\n", text).group(0)
+    root, t = tmp_path / "root", tmp_path / "template"
+    (root / "home" / ".claude").mkdir(parents=True, exist_ok=True)
+    (t / ".claude").mkdir(parents=True, exist_ok=True)
+    body = '{\n  "autoMemoryEnabled": false,\n%s  "x": 1\n}\n' % (
+        '  "apiKeyHelper": "cat \\"$HOME/.config/awb-build/model.key\\"",\n' if helper else "")
+    (t / ".claude" / "settings.json").write_text(body)
+    cred = root / "home" / ".claude" / ".credentials.json"
+    if cred.exists():
+        cred.unlink()
+    if login is not None:
+        cred.write_text(login)
+    conf_file = tmp_path / "paths.conf"
+    conf_file.write_text(conf)
+    keyfile = tmp_path / "copy.key"
+    if key:
+        if keyfile.exists():
+            keyfile.unlink()
+        keyfile.write_text("k\n")
+        (tmp_path / "source.key").write_text("k\n")
+        keyfile.chmod(0o400)
+    script = ("set -u\nreport() { if [ \"$1\" -eq 0 ]; then echo \"PASS  $2\"; else echo \"FAIL  $2\"; fi; }\n"
+              "allowed() { local w=\"$1\"; shift; if \"$@\" >/dev/null 2>&1; then report 0 \"$w\"; "
+              "else report 1 \"$w\"; fi; }\n"
+              "conf_value() { sed -n \"s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p\" %s | tail -n 1; }\n"
+              "BUILD_USER=%s\nBUILD_CLIENT=/opt/claude-build\nbuild_root=%s\nowner=%s\n%s"
+              "build_model_check %s\n" % (conf_file, USER, root, USER, fn, t))
+    res = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30)
+    assert res.returncode == 0, res.stderr
+    return res.stdout
+
+
+def test_verify_names_the_build_model_and_the_login_by_its_presence_only(tmp_path):
+    """D-S7 changed: verify's one line names the mode; with login it passes only when the build user's home holds
+    the client's login (a regular file of the build user) and the template carries no apiKeyHelper, and a missing
+    login names the one command he runs; the login's content is never printed. With key the line and the key's
+    check of SB3 run."""
+    secret = "fake-" + "login-token-verify"
+    out = _model_check(tmp_path, "", None, helper=False)
+    assert out.startswith("FAIL  the build side runs on his login (build_model = login): no login yet, as the owner "
+                          "run sudo -u %s -H /opt/claude-build/bin/claude login" % USER)
+    out = _model_check(tmp_path, "build_model = login\n", '{"claudeAiOauth": {"accessToken": "%s"}}' % secret,
+                       helper=False)
+    assert out == "PASS  the build side runs on his login (build_model = login): a login is there\n"
+    out = _model_check(tmp_path, "", '{"claudeAiOauth": {"accessToken": "%s"}}' % secret, helper=True)
+    assert out.startswith("FAIL  the build side runs on his login") and secret not in out
+    conf = "build_model = key\nbuild_model_key = %s\nbuild_model_key_source = %s\n" % (
+        tmp_path / "copy.key", tmp_path / "source.key")
+    out = _model_check(tmp_path, conf, None, helper=True, key=True)
+    assert out == ("PASS  the build side runs on the model key (build_model = key)\n"
+                   "PASS  the model key of a build task is the owner's (400) and matches its source\n")
+    out = _model_check(tmp_path, conf, None, helper=False, key=True)
+    assert out.startswith("FAIL  the build side runs on the model key")
+    out = _model_check(tmp_path, "build_model = both\n", None, helper=False)
+    assert out == "FAIL  the build model of the host file is login or key (build_model = both)\n"
+
+
+def test_the_template_of_the_key_mode_is_the_settings_of_sb3_and_the_login_mode_has_no_key_helper():
+    """The build settings in the repository carry no apiKeyHelper (the login mode installs them as they are); the
+    key mode's template, as setup.sh writes it, is valid JSON whose apiKeyHelper reads the runner's key in the task
+    home, and verify's template check takes both."""
+    from awb import buildrun
+
+    src = BUILD_SETTINGS.read_text(encoding="utf-8")
+    assert "apiKeyHelper" not in src
+    helper = re.search(r"(?m)^BUILD_KEY_HELPER='([^']*)'", SETUP.read_text(encoding="utf-8")).group(1)
+    lines = src.splitlines(keepends=True)
+    keyed = "".join(lines[:2]) + helper + "\n" + "".join(lines[2:])
+    assert json.loads(keyed)["apiKeyHelper"] == 'cat "$HOME/%s"' % buildrun.KEY_IN_HOME
+    assert json.loads(keyed) == dict(json.loads(src), apiKeyHelper='cat "$HOME/%s"' % buildrun.KEY_IN_HOME)
+    assert "head -n 2 \"$seal_dir/build-claude/settings.json\"" in SETUP.read_text(encoding="utf-8")
+    assert "tail -n +3 \"$seal_dir/build-claude/settings.json\"" in SETUP.read_text(encoding="utf-8")
 
 
 def test_the_model_key_copy_is_the_owners_alone_and_follows_its_source_never_printed(tmp_path):

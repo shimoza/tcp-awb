@@ -5,7 +5,7 @@ next task whose dependencies are done and whose paths meet no reserved path. It 
 the build user, each through one fixed `sudo -n systemd-run` form with a clock, a CPU share and the isolation of
 DESIGN.md section 4:
 
-    awb-task-<ID>-prep     the task home from the root template, the model key, the clone from a bundle of main
+    awb-task-<ID>-prep     the task home from the root template, the login or the model key, the clone of main
     awb-task-<ID>          the headless session (the pinned client) on the snapshot of the prompt
     awb-task-<ID>-hand     the hand-over: task.bundle and status.txt of the clone (later the rebase and the cleaning)
     awb-task-<ID>-suite    the suite, the baseline and the task's own check on a `git archive` export of a commit
@@ -76,8 +76,19 @@ MODEL_HOST = "api.anthropic.com"
 PUSH_URL = "https://github.com/shimoza/tcp-awb.git"
 RESOLV = Path("/etc/resolv.conf")
 KEY_IN_HOME = ".config/awb-build/model.key"
-"""Where the prepare unit puts the model key in the task home; seal/build-claude/settings.json reads it with
-apiKeyHelper. The home and the key go when the task closes."""
+"""Where the prepare unit puts the model key in the task home (build_model = key); the template's settings read it
+with apiKeyHelper. The home and the key go when the task closes."""
+LOGIN_IN_HOME = ".claude/.credentials.json"
+"""The client's login (build_model = login, D-S7 changed): his subscription login lies in the build user's own home
+<build_root>/home/.claude/; the prepare unit copies it into the task home (600) and the clean unit removes it with
+the home, after a newer token of the task went back. The owner never reads it and it never enters runs/."""
+LOGIN_MAX = 64 << 10
+TOKEN_HOST = "platform.claude.com"
+"""Where the pinned client refreshes the login's token (its TOKEN_URL); allowed for the session in the login mode."""
+MODELS = ("login", "key")
+LOGIN_COMMAND = "sudo -u awb-build -H %s login" % CLIENT
+"""The one command he runs, as the owner in his own terminal, when the build user has no login yet."""
+LOGIN_HELD = "held: login missing"
 
 POLL = 30.0
 TICK = 1.0
@@ -219,6 +230,9 @@ class Host:
     board: Path | None = None
     deployed: Path = DEPLOYED
     model_key: Path | None = None
+    model: str = "key"
+    """build_model of the host file: `login` (his subscription login in the build user's home, the default of the
+    host file) or `key` (the model key above). The tests and the selftest default to `key` without a key."""
     register: Path | None = None
     build_uid: int | None = None
     git_run: Callable = subprocess.run
@@ -283,10 +297,12 @@ class Host:
             uid = pwd.getpwnam(user).pw_uid
         except KeyError:
             uid = None
-        key = conf.get("build_model_key")
+        model = conf.get("build_model", "login")
+        key = conf.get("build_model_key") if model == "key" else None
         p = config.paths()
         return cls(root=build_root(), runs=build.runs_dir(), queue=build.queue_dir(),
                    units=SystemdUnits(user), board=p.shared / "build", model_key=Path(key) if key else None,
+                   model=model,
                    register=p.register, build_uid=uid, push=conf.get("build_push", "yes") == "yes",
                    push_url=conf.get("build_push_url", PUSH_URL), mail=send_mail)
 
@@ -618,10 +634,10 @@ def _helper_places(root: str, tid: str, n: str) -> tuple[Path, Path, Path, Path]
     return r, r / "wt" / name, r / "wt" / (name + ".out"), r / "home" / name
 
 
-def _write_key(home: Path, key: bytes) -> None:
-    d = home / os.path.dirname(KEY_IN_HOME)
+def _write_key(home: Path, key: bytes, rel: str = KEY_IN_HOME) -> None:
+    d = home / os.path.dirname(rel)
     d.mkdir(parents=True, exist_ok=True, mode=0o700)
-    target = home / KEY_IN_HOME
+    target = home / rel
     with contextlib.suppress(FileNotFoundError):
         os.unlink(target)
     fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
@@ -629,18 +645,99 @@ def _write_key(home: Path, key: bytes) -> None:
         fh.write(key)
 
 
-def unit_prepare(root: str, tid: str, n: str, hooks: str, fin, resume: str | None = None) -> int:
+def _read_login(base: Path) -> bytes | None:
+    """The client's login under `base` (a home): a regular file of this uid, reached without following a link at
+    any step, at most LOGIN_MAX bytes and not empty; None otherwise. Never printed."""
+    fds = []
+    try:
+        fds.append(os.open(base, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC))
+        parts = LOGIN_IN_HOME.split("/")
+        for part in parts[:-1]:
+            fds.append(os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fds[-1]))
+        fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=fds[-1])
+        fds.append(fd)
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid() or not 0 < st.st_size <= LOGIN_MAX:
+            return None
+        data = os.read(fd, LOGIN_MAX + 1)
+        return data if 0 < len(data) <= LOGIN_MAX else None
+    except OSError:
+        return None
+    finally:
+        for f in reversed(fds):
+            os.close(f)
+
+
+def _login_expiry(data: bytes | None) -> float | None:
+    """expiresAt of a login file (`claudeAiOauth` with an access and a refresh token as strings); None when the
+    bytes are not that shape."""
+    if data is None:
+        return None
+    try:
+        obj = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    oauth = obj.get("claudeAiOauth") if isinstance(obj, dict) else None
+    if not isinstance(oauth, dict):
+        return None
+    exp = oauth.get("expiresAt")
+    if not all(isinstance(oauth.get(k), str) and oauth.get(k) for k in ("accessToken", "refreshToken")) or \
+            isinstance(exp, bool) or not isinstance(exp, (int, float)):
+        return None
+    return float(exp)
+
+
+def _login_back(r: Path, home: Path) -> None:
+    """A token the task's client refreshed goes back to the build user's own home before the task home goes: only
+    over a login that is there, only in the login's shape and only when it expires later than the one there. The
+    refresh may rotate the refresh token, so the next task would otherwise start from a spent one."""
+    persistent = r / "home"
+    new = _read_login(home)
+    old = _read_login(persistent)
+    exp_new, exp_old = _login_expiry(new), _login_expiry(old)
+    if new is None or exp_new is None or exp_old is None or exp_new <= exp_old:
+        return
+    d = persistent / os.path.dirname(LOGIN_IN_HOME)
+    if d.is_symlink() or not d.is_dir():
+        return
+    tmp = d / (".credentials.awb-%d" % os.getpid())
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(tmp)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(new)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, persistent / LOGIN_IN_HOME)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(tmp)
+
+
+def unit_prepare(root: str, tid: str, n: str, hooks: str, fin, resume: str | None = None,
+                 model: str = "key") -> int:
     """The task home and the clone. stdin: the hand-in (the key, then a bundle of main). A fresh home from the root
     template (a home that is there already is refused: a task never inherits another's), the key, a clone of main
     from the bundle (no remote left), the branch task/<ID>, core.hooksPath to the installed build hooks, the start
     commit in out/start.txt. With `resume` (a session id) only the key goes into the existing home; exit 4 says
-    the session's transcript is gone."""
+    the session's transcript is gone. With `model` login the hand-in carries no key: the login of the build user's
+    own home is copied into the task home instead (600), and exit 7, before anything is made, says there is none."""
     r, clone, out, home = _helper_places(root, tid, n)
+    if model not in MODELS:
+        return 2
     head = fin.readline(64)
     m = _HANDIN_RE.fullmatch(head)
     if not m:
         return 2
     key = fin.read(int(m.group(1)))
+    login = None
+    if model == "login":
+        if key:
+            return 2
+        login = _read_login(r / "home")
+        if login is None:
+            return 7
     if resume is not None:
         if not UUID_RE.fullmatch(resume) or not home.is_dir() or home.is_symlink():
             return 4
@@ -649,6 +746,8 @@ def unit_prepare(root: str, tid: str, n: str, hooks: str, fin, resume: str | Non
             return 4
         if key:
             _write_key(home, key)
+        if login:
+            _write_key(home, login, LOGIN_IN_HOME)
         return 0
     if os.path.lexists(home) or os.path.lexists(clone) or os.path.lexists(out):
         return 3
@@ -663,6 +762,9 @@ def unit_prepare(root: str, tid: str, n: str, hooks: str, fin, resume: str | Non
             os.chmod(home / rel, 0o444)
     if key:
         _write_key(home, key)
+    if login:
+        _write_key(home, login, LOGIN_IN_HOME)
+    login = None
     os.mkdir(out, 0o755)
     bundle = out / "main.bundle"
     with open(bundle, "wb") as fh:
@@ -762,17 +864,22 @@ def unit_suite(root: str, tid: str, n: str, mode: str, python: str, tokens: list
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def unit_clean(root: str, tid: str, n: str, what: str) -> int:
-    """`key`: the model key out of the task home; `home`: the task home; `all`: the home, the clone and the out
-    folder. rmtree follows no link."""
+def unit_clean(root: str, tid: str, n: str, what: str, model: str = "key") -> int:
+    """`key`: the model key and the login out of the task home; `home`: the task home; `all`: the home, the clone
+    and the out folder. rmtree follows no link. With `model` login a token the task refreshed goes back to the build
+    user's own home first (_login_back)."""
     r, clone, out, home = _helper_places(root, tid, n)
-    if what == "key":
-        with contextlib.suppress(FileNotFoundError):
-            os.unlink(home / KEY_IN_HOME)
-        return 0
     targets = [home] if what == "home" else [home, clone, out] if what == "all" else []
-    if not targets:
+    if (what != "key" and not targets) or model not in MODELS:
         return 2
+    if model == "login" and home.is_dir() and not home.is_symlink():
+        with contextlib.suppress(OSError):
+            _login_back(r, home)
+    if what == "key":
+        for rel in (KEY_IN_HOME, LOGIN_IN_HOME):
+            with contextlib.suppress(FileNotFoundError, NotADirectoryError):
+                os.unlink(home / rel)
+        return 0
     for t in targets:
         if os.path.islink(t):
             os.unlink(t)
@@ -792,17 +899,18 @@ def unit_main(args: list[str], fin=None, home: str | None = None, seconds: float
         return 2
     action, rest = args[0], args[1:]
     try:
-        if action == "prepare" and len(rest) == 4:
-            return unit_prepare(*rest, fin=fin)
-        if action == "rekey" and len(rest) == 4:
-            return unit_prepare(rest[0], rest[1], rest[2], HOOKS_BUILD, fin, resume=rest[3])
+        if action == "prepare" and len(rest) in (4, 5):
+            return unit_prepare(*rest[:4], fin=fin, model=rest[4] if len(rest) == 5 else "key")
+        if action == "rekey" and len(rest) in (4, 5):
+            return unit_prepare(rest[0], rest[1], rest[2], HOOKS_BUILD, fin, resume=rest[3],
+                                model=rest[4] if len(rest) == 5 else "key")
         if action == "handover" and len(rest) == 3:
             return unit_handover(*rest)
         if action == "rebase" and len(rest) == 4:
             return unit_rebase(*rest, fin=fin)
         if action == "suite" and len(rest) >= 5:
             return unit_suite(rest[0], rest[1], rest[2], rest[3], rest[4], rest[5:], fin, seconds)
-        if action == "clean" and len(rest) == 4:
+        if action == "clean" and len(rest) in (4, 5):
             return unit_clean(*rest)
     except (ValueError, OSError, tarfile.TarError, subprocess.SubprocessError):
         return 2
@@ -1448,7 +1556,7 @@ def check_own(host: Host, ctx: Ctx) -> None:
 def _hidden(host: Host, ctx: Ctx | None, clone: bool = True) -> list[str]:
     """What a task's unit may not see: the records, every other clone and every other task home (and, for the
     suite, its own clone: the suite sees the export alone)."""
-    out = [str(host.runs)]
+    out = [str(host.runs)] + _login_paths(host)
     mine = {"%s-%d.out" % (ctx.tid, ctx.n)} if ctx else set()
     if ctx and clone:
         mine.add("%s-%d" % (ctx.tid, ctx.n))
@@ -1481,18 +1589,26 @@ def wait(host: Host, handle, ctx: Ctx | None, deadline: float | None, stop_name:
         host.sleep(host.tick)
 
 
+def _login_paths(host: Host) -> list[str]:
+    """The build user's own client state in home/ (his login, the account file): hidden from every unit but the
+    prepare and the clean unit, which copy the login in and a refreshed one back."""
+    return [str(host.homes / ".claude"), str(host.homes / ".claude.json")]
+
+
 def unit_run(host: Host, ctx: Ctx, kind: str, args: list[str], stdin: Path | None = None,
              seconds: float = HAND_SECONDS, rw: list[str] | None = None) -> Ended:
     name = "awb-task-%s-%s" % (ctx.tid, kind)
     home = host.home(ctx.tid, ctx.n)
+    hidden = [str(host.runs)] + ([] if args[0] in ("prepare", "rekey", "clean") else _login_paths(host))
     spec = Spec(name, [host.awb, "build", "unit", *args], seconds, "/tmp", str(home) if kind == "prep" else "/tmp",
-                rw=rw if rw is not None else [str(host.wt), str(host.homes)], hidden=[str(host.runs)], stdin=stdin,
+                rw=rw if rw is not None else [str(host.wt), str(host.homes)], hidden=hidden, stdin=stdin,
                 stderr=ctx.folder / ("%s.err" % args[0]))
     return wait(host, host.units.start(spec), ctx, None)
 
 
 def clean(host: Host, ctx: Ctx, what: str) -> None:
-    unit_run(host, ctx, "hand", ["clean", str(host.root), ctx.tid, str(ctx.n), what])
+    unit_run(host, ctx, "hand", ["clean", str(host.root), ctx.tid, str(ctx.n), what] +
+             (["login"] if host.model == "login" else []))
 
 
 def handover(host: Host, ctx: Ctx) -> bool:
@@ -1517,11 +1633,16 @@ def model_allow(host: Host) -> list[str] | None:
     allow: list[str] = []
     text = _text_any(RESOLV) or ""
     allow += re.findall(r"(?m)^nameserver\s+([0-9a-fA-F.:]+)", text)
-    try:
-        addrs = {a[4][0] for a in socket.getaddrinfo(MODEL_HOST, 443, proto=socket.IPPROTO_TCP)}
-    except OSError:
-        return None
-    return allow + sorted(addrs) if addrs else None
+    addrs: set[str] = set()
+    for name in (MODEL_HOST, TOKEN_HOST) if host.model == "login" else (MODEL_HOST,):
+        try:
+            found = {a[4][0] for a in socket.getaddrinfo(name, 443, proto=socket.IPPROTO_TCP)}
+        except OSError:
+            return None
+        if not found:
+            return None
+        addrs |= found
+    return allow + sorted(addrs)
 
 
 def client_argv(host: Host, task: build.Task, session: str | None) -> list[str]:
@@ -1588,6 +1709,9 @@ class Runner:
         """Before a session is spent: the vault unlocked, the key service loaded, the gate's self-test, room on the
         build root, the identity, the model key and a no-op unit as the build user."""
         h = self.host
+        why = self.model_hold()
+        if why is not None:
+            return why
         if h.precheck is not None:
             return h.precheck()
         from awb import deploy, gate, vault
@@ -1614,10 +1738,23 @@ class Runner:
             return "build root missing"
         if owner_identity(h) is None:
             return "no identity"
-        if h.model_key is not None and _key(h) is None:
+        if h.model == "key" and h.model_key is not None and _key(h) is None:
             return "model key"
         if not h.units.probe():
             return "systemd-run as the build user"
+        return None
+
+    def model_hold(self) -> str | None:
+        """The build model of the host file is login or key; with login, a task held for a missing login holds the
+        whole queue until he logs in and retries it (the owner cannot look into the build user's home himself)."""
+        h = self.host
+        if h.model not in MODELS:
+            return "build model"
+        if h.model == "login":
+            for tid in build.ids_with_runs(h.runs):
+                r = build.latest(tid, h.runs)
+                if r is not None and r.state == LOGIN_HELD:
+                    return "login missing"
         return None
 
     def poll_once(self) -> bool:
@@ -1759,16 +1896,18 @@ class Runner:
             return self.finish(ctx, "held: model endpoint")
         bundle = ctx.folder / "main.bundle"
         git(h, "bundle", "create", "--quiet", str(bundle), "refs/heads/main")
-        key = _key(h) or b""
+        key = (_key(h) or b"") if h.model == "key" else b""
         _write(ctx.folder / "handin", handin(key, bundle))
         key = b""
         os.unlink(bundle)
         try:
-            e = unit_run(h, ctx, "prep", ["prepare", str(h.root), task.id, str(run.n), h.hooks_path],
-                         stdin=ctx.folder / "handin", seconds=PREP_SECONDS)
+            e = unit_run(h, ctx, "prep", ["prepare", str(h.root), task.id, str(run.n), h.hooks_path] +
+                         (["login"] if h.model == "login" else []), stdin=ctx.folder / "handin", seconds=PREP_SECONDS)
         finally:
             with contextlib.suppress(FileNotFoundError):
                 os.unlink(ctx.folder / "handin")
+        if e.code == 7 and h.model == "login":
+            return self.finish(ctx, LOGIN_HELD)
         got = (_take(h.out(task.id, run.n) / "start.txt", h.uid(), 128) or b"").decode("ascii", "replace").strip()
         if e.code != 0 or got != start:
             clean(h, ctx, "all")
@@ -1803,13 +1942,16 @@ class Runner:
             build.write_state(ctx.folder, "answered", h.now())
             self.held_queue = "model endpoint"
             return None
-        _write(ctx.folder / "handin", handin(_key(h) or b"", None))
+        _write(ctx.folder / "handin", handin((_key(h) or b"") if h.model == "key" else b"", None))
         try:
-            e = unit_run(h, ctx, "prep", ["rekey", str(h.root), task.id, str(run.n), session],
-                         stdin=ctx.folder / "handin", seconds=PREP_SECONDS)
+            e = unit_run(h, ctx, "prep", ["rekey", str(h.root), task.id, str(run.n), session] +
+                         (["login"] if h.model == "login" else []), stdin=ctx.folder / "handin", seconds=PREP_SECONDS)
         finally:
             with contextlib.suppress(FileNotFoundError):
                 os.unlink(ctx.folder / "handin")
+        if e.code == 7 and h.model == "login":
+            clean(h, ctx, "home")
+            return self.finish(ctx, LOGIN_HELD)
         if e.code != 0:
             clean(h, ctx, "home")
             return self.finish(ctx, "stopped: session_gone")
@@ -2204,6 +2346,11 @@ def _suite_line(ctx: Ctx) -> str:
     return "%d passed, %d failed, %d skipped%s" % (c.get("passed", 0), c.get("failed", 0), c.get("skipped", 0), t)
 
 
+def login_note(tid: str) -> str:
+    """What he does when the build user has no login: one command as the owner, then the retry."""
+    return "as the owner in your terminal: %s, then awb build retry %s" % (LOGIN_COMMAND, tid)
+
+
 def next_step(ctx: Ctx, state: str) -> str:
     w = state.split(":", 1)[0]
     if w == "done":
@@ -2212,6 +2359,8 @@ def next_step(ctx: Ctx, state: str) -> str:
         return "answer with awb build answer %s" % ctx.tid
     if w == "red":
         return "awb build retry %s or awb build widen %s PATH..." % (ctx.tid, ctx.tid)
+    if state == LOGIN_HELD:
+        return login_note(ctx.tid)
     if w == "held":
         return "the runner tries again when the cause clears"
     return "awb build retry %s" % ctx.tid
@@ -2472,6 +2621,18 @@ if sc == "key":
     p = os.path.join(os.environ["HOME"], ".config", "awb-build", "model.key")
     if not os.path.exists(p) or open(p).read().strip() != val("KEY"):
         out("BLOCKED: no model key in the home")
+    value(); done()
+if sc in ("login", "refresh"):
+    p = os.path.join(os.environ["HOME"], ".claude", ".credentials.json")
+    import hashlib
+    if not os.path.exists(p) or os.stat(p).st_mode & 0o777 != 0o600 or \
+            hashlib.sha256(open(p, "rb").read()).hexdigest() != val("CREDSHA"):
+        out("BLOCKED: no login in the home")
+    if sc == "refresh":
+        old = json.load(open(p))["claudeAiOauth"]
+        new = dict(old, accessToken=old["accessToken"] + "-refreshed", refreshToken=old["refreshToken"] + "-refreshed",
+                   expiresAt=old["expiresAt"] + 3600000)
+        open(p, "w").write(json.dumps({"claudeAiOauth": new}))
     value(); done()
 if sc == "apierror":
     out("API Error: overloaded", turns=0, subtype="error_during_execution")

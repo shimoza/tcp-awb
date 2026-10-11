@@ -191,18 +191,27 @@ with the properties of a task (`ProtectSystem=strict`, `ProtectHome`, `PrivateTm
 connects while a TCP API host, GitHub, a write under `/opt` and `runs/`, a listing of `runs/` and of the work home
 fail. A probe of that unit counts only after the unit was shown to run as the build user.
 
-- The model key of a build task (D-S7, his default of 2026-10-11: the Workbench's own key): `setup.sh` copies the
-  source that `build_model_key_source` of the host file names (`/etc/awb/anthropic.key` unless he changed it) to
-  `/etc/awb/build-model.key`, the owner's alone (400) in the root folder `/etc/awb`, again whenever the source
-  changes. It never prints it. The runner hands it to each task's home and removes it with the home; the build
-  settings read it with `apiKeyHelper`. A dedicated key later is one line: `build_model_key_source`. It is the
-  owner's file, not root's with the owner's group: the runner's unit carries the group `awb`, not his own group, and
-  the host has no ACL tools.
+- The model credential of a build task (D-S7, changed 2026-10-11): `build_model` in the host file, `login` unless he
+  wrote `key`. With `login` the build user runs on his subscription login, made once by him as the owner with
+  `sudo -u awb-build -H /opt/claude-build/bin/claude login`; the client keeps it in `/srv/awb-build/home/.claude/`.
+  The prepare unit copies it into the task home (600) and the clean unit removes it with the home, after a token the
+  task refreshed went back (a refresh may rotate the refresh token). The runner never reads it, the session's unit
+  and the suite's do not see the build user's own `.claude`, and the session may reach the token host
+  (`platform.claude.com`) beside the model endpoint. Without a login a task ends at once as `held: login missing`
+  and holds the queue until he logs in and runs `awb build retry ID`. `setup.sh` copies no key then, removes a copy
+  left from the key mode and installs the build settings without `apiKeyHelper`.
+- With `key` (the fallback): `setup.sh` copies the source that `build_model_key_source` names
+  (`/etc/awb/anthropic.key` unless he changed it) to `/etc/awb/build-model.key`, the owner's alone (400) in the root
+  folder `/etc/awb`, again whenever the source changes, and never prints it; the template's settings get
+  `apiKeyHelper`. The runner hands the key to each task's home and removes it with the home. It is the owner's file,
+  not root's with the owner's group: the runner's unit carries the group `awb`, not his own group, and the host has
+  no ACL tools.
 - `tcp-shared/build` (the work user's, group `awb`, 3770): the runner writes `state.tsv` there for the board.
-- The host file gets `build_model_key`, `build_model_key_source` and `build_push` (yes unless he wrote no: the runner
-  pushes a green `main` to GitHub, D-S2).
+- The host file gets `build_model` (login unless he wrote key), `build_model_key`, `build_model_key_source` and
+  `build_push` (yes unless he wrote no: the runner pushes a green `main` to GitHub, D-S2).
 
-`verify.sh` also checks the copy of the key (the owner's, 400, the same bytes as its source), the board's folder and
+`verify.sh` also names the build model in one line (with `login`: whether a login is there, by its presence only;
+with `key`: the copy of the key, the owner's, 400, the same bytes as its source), checks the board's folder and
 runs `awb build selftest` as the owner: the runner's planted cases, each refused or classified.
 
 ## The deploy

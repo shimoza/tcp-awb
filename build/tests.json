@@ -4238,8 +4238,8 @@
   {
    "id": "SB3-39",
    "phase": "SB3",
-   "name": "seal: the dry run copies the model key to the owner's 400 copy, makes tcp-shared/build 3770 and writes the three host file keys; verify checks them and runs awb build selftest",
-   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_plans_the_model_key_the_board_folder_and_the_push_and_verify_runs_the_runner_selftest",
+   "name": "seal: the dry run writes build_model = login by default, copies no key, removes a key copy left over and names the login command; with build_model = key it copies the key and writes apiKeyHelper as in SB3; both make tcp-shared/build 3770; verify names the mode and runs awb build selftest (replaces the SB3 test that pinned the key, D-S7 changed)",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_plans_his_login_by_default_the_key_only_with_build_model_key_and_verify_names_the_mode",
    "status": "passing"
   },
   {
@@ -4248,8 +4248,64 @@
    "name": "seal: build_model_key run for real: made 400, left when current, copied again when the source changes, a link source refused, the key never printed",
    "run": ".venv/bin/pytest tests/test_seal.py::test_the_model_key_copy_is_the_owners_alone_and_follows_its_source_never_printed",
    "status": "passing"
+  },
+  {
+   "id": "SB3-41",
+   "phase": "SB3",
+   "name": "build runner, login mode: the login is copied into the task home (600) for the session, the session, suite and hand-over units do not see the build user's own .claude, the home goes with its copy and the login is in no runs/ file, log, board file or mail",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_login_mode_copies_the_login_into_the_task_home_for_the_session_and_never_into_runs",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-42",
+   "phase": "SB3",
+   "name": "build runner, login mode: no login means held: login missing before a session, one mail with the login command, no retry and the queue held until awb build retry",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_login_mode_without_a_login_holds_the_task_at_once_names_the_command_and_retries_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-43",
+   "phase": "SB3",
+   "name": "build runner, login mode: an asked task keeps its home without the login and the resume copies it again",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_login_mode_asked_keeps_the_home_without_the_login_and_the_resume_copies_it_again",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-44",
+   "phase": "SB3",
+   "name": "build runner, login mode: a refreshed token goes back to the build user's home; another shape, an older one, a link, the key mode and a missing login never do",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_login_mode_a_refreshed_token_goes_back_and_nothing_else_does",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-45",
+   "phase": "SB3",
+   "name": "build runner, key mode: the key goes into the task home as in SB3 and a login that is there is not copied",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_key_mode_still_hands_the_key_and_ignores_a_login_that_is_there",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-46",
+   "phase": "SB3",
+   "name": "build runner: a build model outside login and key holds the queue; the host file defaults to login and reads the key only with build_model = key",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_build_model_outside_login_and_key_holds_the_queue_and_the_host_file_defaults_to_login",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-47",
+   "phase": "SB3",
+   "name": "seal: verify's build model line, run for real: with login PASS only with a login there and no apiKeyHelper, the missing login names the command, the content never printed; with key the key's check of SB3",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_verify_names_the_build_model_and_the_login_by_its_presence_only",
+   "status": "passing"
+  },
+  {
+   "id": "SB3-48",
+   "phase": "SB3",
+   "name": "seal: the build settings carry no apiKeyHelper; the key mode's template as setup.sh writes it is the settings of SB3 with apiKeyHelper reading the task home's key",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_template_of_the_key_mode_is_the_settings_of_sb3_and_the_login_mode_has_no_key_helper",
+   "status": "passing"
   }
  ],
- "total_tests": 607,
+ "total_tests": 615,
  "checked": "2026-10-11"
 }

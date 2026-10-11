@@ -384,6 +384,7 @@ build_dry() {
         "the build client's command runs the pinned version with the updater off" \
         "the build hooks of the release run the gate --no-register by the installed interpreter" \
         "the build runner's unit is installed" \
+        "the build side runs on his login (build_model = login) and the login is there, or on the model key" \
         "the model key of a build task is the owner's (400) and matches its source" \
         "the board's build folder is the work user's, 3770" \
         "the build runner refuses its planted cases (awb build selftest)" \
@@ -402,6 +403,34 @@ build_dry() {
         "the probe unit cannot write under runs/" "the probe unit cannot list runs/" \
         "the probe unit cannot list the work user's home" "the probe unit cannot read the host file" \
         "the probe unit cannot connect to the check socket"
+}
+
+build_model_check() {
+    # build_model_check TEMPLATE: one line names the build model (D-S7 changed). With login: whether the build user's
+    # home holds the client's login (its presence only, never its content), the template without apiKeyHelper and no
+    # key copy left. With key: the copy of the model key and the template's apiKeyHelper, as in SB3
+    local t="$1" model login="$build_root/home/.claude/.credentials.json" out=0
+    model=$(conf_value build_model)
+    model="${model:-login}"
+    case "$model" in
+        login)
+            grep -q '"apiKeyHelper"' "$t/.claude/settings.json" 2>/dev/null && out=1
+            [ ! -e /etc/awb/build-model.key ] || out=1
+            if [ -f "$login" ] && [ ! -L "$login" ] && [ "$(stat -c %U -- "$login")" = "$BUILD_USER" ]; then
+                report "$out" "the build side runs on his login (build_model = login): a login is there"
+            else
+                report 1 "the build side runs on his login (build_model = login): no login yet, as the owner run sudo -u $BUILD_USER -H $BUILD_CLIENT/bin/claude login"
+            fi
+            ;;
+        key)
+            grep -q '"apiKeyHelper"' "$t/.claude/settings.json" 2>/dev/null || out=1
+            report "$out" "the build side runs on the model key (build_model = key)"
+            allowed "the model key of a build task is the owner's (400) and matches its source" sh -c \
+                'test -f "$1" && test ! -L "$1" && test "$(stat -c "%U %a" -- "$1")" = "$3 400" && cmp -s -- "$1" "$2"' \
+                verify "$(conf_value build_model_key)" "$(conf_value build_model_key_source)" "$owner"
+            ;;
+        *) report 1 "the build model of the host file is login or key (build_model = $model)" ;;
+    esac
 }
 
 build_checks() {
@@ -449,7 +478,7 @@ build_checks() {
         verify "$build_root/venv" "$BUILD_USER"
     t="$build_root/home-template"
     allowed "the home template carries the build settings and CLAUDE.md of the repository and the owner's identity" \
-        sh -c 'cmp -s -- "$1/build-claude/settings.json" "$3/.claude/settings.json" &&
+        sh -c 'grep -v "^  \"apiKeyHelper\": " "$3/.claude/settings.json" | cmp -s -- "$1/build-claude/settings.json" - &&
         cmp -s -- "$2/CLAUDE.md" "$3/.claude/CLAUDE.md" && grep -Eq "^[[:space:]]+name = .+" "$3/.gitconfig" &&
         grep -Eq "^[[:space:]]+email = .+" "$3/.gitconfig" &&
         ! grep -Eqi "^[[:space:]]*\[safe\]|^[[:space:]]*directory[[:space:]]*=" "$3/.gitconfig"' \
@@ -475,9 +504,7 @@ build_checks() {
     done
     report "$out" "the build hooks of the release run the gate --no-register by the installed interpreter"
     allowed "the build runner's unit is installed" test "$(systemctl show -p LoadState --value awb-buildd.service)" = loaded
-    allowed "the model key of a build task is the owner's (400) and matches its source" sh -c \
-        'test -f "$1" && test ! -L "$1" && test "$(stat -c "%U %a" -- "$1")" = "$3 400" && cmp -s -- "$1" "$2"' \
-        verify "$(conf_value build_model_key)" "$(conf_value build_model_key_source)" "$owner"
+    build_model_check "$t"
     allowed "the board's build folder is the work user's, 3770" test \
         "$(stat -c '%U %G %a' -- "$shared/build" 2>/dev/null)" = "awb awb 3770"
     allowed "the build runner refuses its planted cases (awb build selftest)" runuser -u "$owner" -- \

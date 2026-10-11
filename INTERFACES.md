@@ -339,7 +339,7 @@ printed). The commands: `add(path, qdir=None, runs=None, register=None) -> Task`
 `cmd_show`, `cmd_answer`, `cmd_retry`, `cmd_widen`, `cmd_stop`, `main(argv)`.
 
 `awb/buildrun.py` (SB3), the runner. `Host` (every place and stand-in: `root`, `runs`, `queue`, `units`, `board`,
-`deployed`, `model_key`, `register`, `build_uid`, `git_run`, `wall`, `now`, `sleep`, `minute`, `poll`, `tick`,
+`deployed`, `model_key`, `model` (`login` or `key`, from `build_model`), `register`, `build_uid`, `git_run`, `wall`, `now`, `sleep`, `minute`, `poll`, `tick`,
 `suite_seconds`, `retry_wait`, `push`, `push_url`, `mail`, `precheck`, `resolve`, `python`, `hooks_path`, `client`,
 `awb`, `quiet`; `Host.from_config()`), `build_root()` (`AWB_BUILD_ROOT`, which the tests set, else
 `config.build_root()`). The units: `Spec(name, argv, seconds, cwd, home, rw, hidden, binds, allow, env,
@@ -347,8 +347,9 @@ stdin, stdout, stderr)`, `Ended(result, code)`, `Units` with `start(spec)` (a ha
 `attach(name)`, `result(name)`, `stop(name)`, `probe()`; `SystemdUnits(user, run, popen)` with `argv(spec)`, the one
 fixed `sudo -n systemd-run` form; `sudo -n systemctl stop|reset-failed` of a name of `UNIT_RE` alone;
 `LocalUnits(commands)` for the tests and the selftest. The helpers the units run as the build user:
-`unit_main(args, fin, home, seconds)` (`prepare`, `rekey`, `handover`, `rebase`, `suite`, `clean`), `handin(key,
-bundle)`, `unit_allowed()`. The owner's git, in `main.git` only: `git(host, *args)`, `rev`, `is_ancestor`,
+`unit_main(args, fin, home, seconds)` (`prepare`, `rekey`, `handover`, `rebase`, `suite`, `clean`; `prepare`, `rekey`
+and `clean` take `login` as a last argument in the login mode, `prepare` and `rekey` exit 7 without a login),
+`handin(key, bundle)`, `unit_allowed()`, `LOGIN_IN_HOME`, `LOGIN_COMMAND`, `LOGIN_HELD`. The owner's git, in `main.git` only: `git(host, *args)`, `rev`, `is_ancestor`,
 `ensure_main`, `owner_identity`. The checks, each raising `Stop(state)` with its line in `ctx.lines`: `check_unit`,
 `check_client`, `check_answer`, `check_commits`, `check_identity`, `check_gate`, `check_paths`, `check_books`,
 `check_suite`, `check_hollow`, `check_own`; `parse_result`, `outcomes(xml)`, `scan_commits`, `push_main(host,

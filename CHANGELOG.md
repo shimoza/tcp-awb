@@ -135,6 +135,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The build tasks run on your subscription login (self-build SB3, D-S7 changed). `build_model = login` is the new
+  default of `/etc/awb/paths.conf`: you log the build user in once with `sudo -u awb-build -H
+  /opt/claude-build/bin/claude login`, the runner copies that login into each task's home (600) and removes it with
+  the home, a token the task refreshed goes back, and the login never lands in `runs/`, a log, the board or a mail.
+  Without a login a task ends at once as `held: login missing` with that one command and the queue waits for `awb
+  build retry ID`. `seal/setup.sh` copies no model key then, removes a copy left over and installs the build
+  settings without `apiKeyHelper`; `build_model = key` brings the key path of SB3 back in one line. `sudo
+  seal/verify.sh` names the mode and, with login, whether a login is there.
 - The README of the public dataset comes from the build. The build's README.md and the how-to (PROMPT.md and
   HOW-TO.pdf) carry the section "MCP clients" after the warning, with the configurations for Claude Desktop,
   Claude Code and VS Code and a line that points at LICENSE. `awb dataset put --github` now copies README.md

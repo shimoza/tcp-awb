@@ -72,8 +72,10 @@ BUILD_CLIENT=/opt/claude-build
 BUILD_CLIENT_VERSION=2.1.296          # the client the build user runs, pinned by version and digest
 BUILD_CLIENT_SHA256=24972e3bc859fab2b46ed4c1e51f7d6130f06d3bd550811a114640de3370d0de
 INSTALL_ONLY="awb-buildd.service"     # installed, never enabled here: the runner comes with SB3
-BUILD_MODEL_KEY=/etc/awb/build-model.key     # the owner's copy for the runner (D-S7), never printed
+BUILD_MODEL_DEFAULT=login             # D-S7 changed: his subscription login; build_model = key in the host file is the fallback
+BUILD_MODEL_KEY=/etc/awb/build-model.key     # the owner's copy for the runner (build_model = key), never printed
 BUILD_MODEL_KEY_SOURCE=/etc/awb/anthropic.key   # the default source; build_model_key_source in the host file wins
+BUILD_KEY_HELPER='  "apiKeyHelper": "cat \"$HOME/.config/awb-build/model.key\"",'   # the template's line with build_model = key
 
 usage() {
     echo "usage: sudo $0 [--dry-run] [--update [--units-only]] [--mirrors DIR...]" >&2
@@ -133,6 +135,13 @@ case "$build_host" in
     "") ;;
     fresh | present) [ "$dry_run" -eq 1 ] || die "AWB_SETUP_BUILD_HOST goes with --dry-run only" ;;
     *) die "AWB_SETUP_BUILD_HOST is fresh or present" ;;
+esac
+# AWB_SETUP_BUILD_MODEL=login|key, with --dry-run only (the tests set it): the build model of the plan instead of
+# build_model of the host file this host carries.
+case "${AWB_SETUP_BUILD_MODEL:-}" in
+    "") ;;
+    login | key) [ "$dry_run" -eq 1 ] || die "AWB_SETUP_BUILD_MODEL goes with --dry-run only" ;;
+    *) die "AWB_SETUP_BUILD_MODEL is login or key" ;;
 esac
 
 # --------------------------------------------------------------------------- the venv of the suite
@@ -670,6 +679,17 @@ kept_conf() {
     printf '%s' "${value:-$2}"
 }
 
+# build_model_mode: build_model of the host file (login unless it says key; a test's dry run may name it); any
+# other value refuses the plan before the first change
+build_model_mode() {
+    local mode="${AWB_SETUP_BUILD_MODEL:-}"
+    [ -n "$mode" ] || mode=$(kept_conf build_model "$BUILD_MODEL_DEFAULT")
+    case "$mode" in
+        login | key) printf '%s' "$mode" ;;
+        *) die "build_model in $CONF_FILE is login or key" ;;
+    esac
+}
+
 step_conf() {
     local web_keys owner_host
     info "the host file of the Workbench paths: /etc/awb root:awb 751 (a user outside the group may reach a file it"
@@ -695,6 +715,7 @@ mirrors = $MIRROR_ROOT
 egress = $(kept_conf egress count)
 build_user = $BUILD_USER
 build_root = $BUILD_ROOT
+build_model = $build_model
 build_model_key = $BUILD_MODEL_KEY
 build_model_key_source = $(kept_conf build_model_key_source "$BUILD_MODEL_KEY_SOURCE")
 build_push = $(kept_conf build_push yes)
@@ -1048,7 +1069,13 @@ build_template() {
     clear_target "$t/.claude" d
     run install -d -o root -g root -m 755 "$t" "$t/.claude"
     clear_target "$t/.claude/settings.json" f
-    run install -o root -g root -m 644 "$seal_dir/build-claude/settings.json" "$t/.claude/settings.json"
+    if [ "$build_model" = key ]; then
+        info "build_model = key: the settings read the model key in the task home with apiKeyHelper"
+        write_file "$t/.claude/settings.json" 644 root:root < <(head -n 2 "$seal_dir/build-claude/settings.json"
+            printf '%s\n' "$BUILD_KEY_HELPER"; tail -n +3 "$seal_dir/build-claude/settings.json")
+    else
+        run install -o root -g root -m 644 "$seal_dir/build-claude/settings.json" "$t/.claude/settings.json"
+    fi
     clear_target "$t/.claude/CLAUDE.md" f
     run install -o root -g root -m 644 "$repo/CLAUDE.md" "$t/.claude/CLAUDE.md"
     clear_target "$t/.gitconfig" f
@@ -1092,7 +1119,27 @@ CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
 export DISABLE_AUTOUPDATER CLAUDE_CODE_DISABLE_AUTO_MEMORY
 exec $bin "\$@"
 WRAP
-    build_model_key
+    build_model_credential
+}
+
+build_model_credential() {
+    # D-S7 changed: build_model = login (the default) runs the tasks on his subscription login, which he makes once
+    # in the build user's own home; no key copy then, and one left from an earlier key mode goes. key: the copy below
+    if [ "$build_model" = key ]; then
+        info "the build model is the model key (build_model = key in the host file)"
+        build_model_key
+        return 0
+    fi
+    info "the build model is his login (build_model = login): the build user's home keeps the client's login, made"
+    info "once by him as the owner: sudo -u $BUILD_USER -H $BUILD_CLIENT/bin/claude login"
+    info "no model key is copied; a copy left from the key mode is removed"
+    if [ "$dry_run" -eq 1 ]; then
+        printf '+ rm -f -- %s  # if present\n' "$BUILD_MODEL_KEY"
+    elif [ -e "$BUILD_MODEL_KEY" ] || [ -L "$BUILD_MODEL_KEY" ]; then
+        run rm -f -- "$BUILD_MODEL_KEY"
+    else
+        skip "not present" rm -f -- "$BUILD_MODEL_KEY"
+    fi
 }
 
 build_model_key() {
@@ -1231,6 +1278,7 @@ update_steps() {
 for src in "${mirror_sources[@]}"; do
     check_mirror "$src"
 done
+build_model=$(build_model_mode)
 
 if [ "$dry_run" -eq 1 ]; then
     if [ "$update" -eq 1 ]; then
