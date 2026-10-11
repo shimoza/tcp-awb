@@ -167,6 +167,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- No tool call of a session reaches the session records in `<shared>/sessions` (finding 23 and P5 of the review of
+  2026-10-10). A running session can no longer read the ids of refused sessions in `receipts.tsv`, plant their pass mark
+  or rewrite `guard.log`. A search over the whole shared folder is refused for the same reason; its outbox and datasets
+  stay open.
 - The tool guard takes Monitor, the client's second tool that runs a shell command (finding 9 of the review of
   2026-10-10). The work user's settings now deny, next to the connectors, every tool of the client that reads or sends a
   file, runs a command or starts work elsewhere and that the guard does not see: PowerShell, LSP, the artifact and

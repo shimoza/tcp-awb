@@ -2953,8 +2953,22 @@
    "name": "review 2026-10-10 finding 9: the Monitor tool is in the matcher and its command meets the guard",
    "run": ".venv/bin/pytest tests/test_guard_review.py::test_the_monitor_tool_runs_a_shell_command_outside_the_guard",
    "status": "passing"
+  },
+  {
+   "id": "R10-22",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 23: no tool reaches the session records, a refused session gets no pass mark",
+   "run": ".venv/bin/pytest tests/test_guard_review.py::test_a_session_can_neither_read_the_receipts_nor_plant_a_pass_mark",
+   "status": "passing"
+  },
+  {
+   "id": "R10-23",
+   "phase": "R10",
+   "name": "review 2026-10-10 P5: a guarded session may not rewrite guard.log",
+   "run": ".venv/bin/pytest tests/test_guard_review.py::test_a_guarded_session_may_not_rewrite_the_guard_log",
+   "status": "passing"
   }
  ],
- "total_tests": 422,
+ "total_tests": 424,
  "checked": "2026-10-11"
 }

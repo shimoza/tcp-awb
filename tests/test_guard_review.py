@@ -1,7 +1,7 @@
 """The tool guard (baf45e5) and the start receipt (727cfd3) against a hostile project session, from the attacker
 review of 2026-10-10 (group g6-guard); each part names its finding.
 
-The tests are the review's, copied with the prefix test_g6_ dropped.
+The tests are the review's, copied with the prefix test_g6_ dropped; the one of finding 23 is replaced (see there).
 Invented names and codes only (tests/fixtures.py); no real name anywhere.
 """
 from __future__ import annotations
@@ -132,6 +132,47 @@ def test_a_relative_glob_pattern_that_climbs_is_never_looked_at(world):
     payload = {"tool_name": "Glob", "tool_input": {"pattern": "../%s/*.md" % OTHER},
                "cwd": str(world["own"]), "session_id": "s-1"}
     assert hooks.guard(payload, world["p"], world["user"], sealed=True) == hooks.ANOTHER_PROJECT
+
+
+# --------------------------------------------------------------------------- g6-guard-7: receipt pass mark forged
+
+
+def test_a_session_can_neither_read_the_receipts_nor_plant_a_pass_mark(world, monkeypatch):
+    """Replaces the review's test_g6_a_session_plants_the_pass_mark_of_a_refused_session, whose first step asserted
+    that a session may Read receipts.tsv: <shared>/sessions is now refused to every tool call, so that step fails by
+    design. Same attack, same end: no tool reaches the session records, the refused session gets no pass mark and
+    its prompts stay refused. The rest of <shared> stays open."""
+    p, refused_sid = world["p"], "refused-session-1"
+    monkeypatch.setattr(hooks.config, "paths", lambda *a, **k: p)
+    missing_line = "Start refused, guard missing: the commit gate of the project (x)."
+    monkeypatch.setattr(hooks, "receipt", lambda *a, **k: (["gate"], ["gate"], missing_line))
+    hooks._log_receipt(p, refused_sid, world["own"], ["gate"])
+    log = p.shared / "sessions" / hooks.RECEIPTS_LOG
+    mark = hooks._receipt_mark(p, refused_sid)
+
+    def tool(name, **inp):
+        return hooks.guard({"tool_name": name, "tool_input": inp, "cwd": str(world["own"]), "session_id": "s-2"},
+                           p, world["user"], sealed=True)
+
+    assert tool("Read", file_path=str(log)) == hooks.SESSION_RECORDS
+    assert tool("Write", file_path=str(mark), content="ok\n") == hooks.SESSION_RECORDS
+    assert tool("Bash", command="cut -f2 %s" % log) == hooks.SESSION_RECORDS
+    assert tool("Bash", command="touch %s" % mark) == hooks.SESSION_RECORDS
+    assert tool("Grep", pattern="ok", path=str(p.shared)) == hooks.SESSION_RECORDS
+    assert tool("Read", file_path=str(p.outbox / "offer.md")) is None
+    assert not mark.exists()
+    assert hooks._prompt_receipt({"session_id": refused_sid, "cwd": str(world["own"])}) == missing_line
+
+
+# --------------------------------------------------------------------------- g6-guard-8: the audit trail
+
+
+def test_a_guarded_session_may_not_rewrite_the_guard_log(world):
+    """Every refusal is promised as one line in guard.log; the same session may Write the file empty."""
+    log = hooks.guard_log(world["p"])
+    payload = {"tool_name": "Write", "tool_input": {"file_path": str(log), "content": ""},
+               "cwd": str(world["own"]), "session_id": "s-1"}
+    assert hooks.guard(payload, world["p"], world["user"], sealed=True) is not None
 
 
 # --------------------------------------------------------------------------- the shell reader keeps honest commands

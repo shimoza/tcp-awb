@@ -40,12 +40,13 @@ The seal keeps the register of names away from every working session. It uses tw
 The hook `pre-tool` keeps a session inside its project. Read, Edit, MultiEdit, NotebookEdit, Write, Glob, Grep, Bash and
 Monitor are refused when their target (the file argument, the path and the pattern of a search, for a shell command
 every path of the command line after the shell's quote removal, a relative one taken against the folder each `cd` leaves
-it in) lies in another `tcp-*` project folder, in the work user's `~/.claude`, `~/.ssh` or `~/.config`, or is a folder
-that holds one of them. Links are followed, each before a `..` after it climbs. A shell path the guard cannot read is
-refused too: a quote or an escape inside a word that carries a path, a variable or a substitution in a path other than
-`$HOME` and `$PWD` at its start, `~-`, a `cd` it cannot follow. The own project, `tcp-shared` (outbox, datasets), the
-knowledge base, `/tmp` and the installed code pass. The refusal is one line with the class of the place (another
-project, the client's folder, a key folder, a path the guard cannot read), never the path, and one line in
+it in) lies in another `tcp-*` project folder, in the work user's `~/.claude`, `~/.ssh` or `~/.config`, in
+`tcp-shared/sessions` (the receipt marks and `guard.log`), or is a folder that holds one of them. Links are followed,
+each before a `..` after it climbs. A shell path the guard cannot read is refused too: a quote or an escape inside a
+word that carries a path, a variable or a substitution in a path other than `$HOME` and `$PWD` at its start, `~-`, a
+`cd` it cannot follow. The own project, the rest of `tcp-shared` (outbox, datasets), the knowledge base, `/tmp` and the
+installed code pass. The refusal is one line with the class of the place (another project, the client's folder, a key
+folder, the session records, a path the guard cannot read), never the path, and one line in
 `tcp-shared/sessions/guard.log` (time, session id, tool, class, project). The stop hook counts them per project and day
 in `tcp-shared/english/refused.tsv`. The hook fails closed: when the project folder of the session cannot be determined,
 or the input cannot be read, the call is refused. The owner's sessions are not guarded. `awb hook selftest` plants
