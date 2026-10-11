@@ -45,6 +45,14 @@ Every resource a project creates carries the project code as a tag and a row in 
 daily snapshot tells what ran on which tenant on which day. `awb close` refuses while something is still running.
 What a session learned live on the platform goes into the knowledge base with the grade `live`.
 
+The most frequent live check (raise a few resources, check one thing, tear down) is a lab recipe: `awb lab run
+ecs-boot-ssh --project tcp-q7m4 --tenant test-1` does it in one command. The recipe (a JSON file under `recipes/`)
+names the question, the calls, the checks, the teardown, a time budget and a cost guard. The run tags and records
+every resource, always tears down, also on a failed check, an error, the time budget or Ctrl-C, proves each
+resource gone and writes the evidence with a ready `awb kb add` line. `awb lab list` shows the recipes and `awb lab
+dry-run` the calls a run would make. A resource it cannot delete stays in `RESOURCES.md` as live with the line to
+delete it.
+
 ## The exchange: files in and out
 
 Files come in through two inboxes in object storage (OBS). You drop a file there and tell the session in your own
@@ -228,6 +236,7 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 | compute | `awb calc "730 * 0.0418 * 3" --places 2` | the exact result, recorded as `K-N` for the review |
 | the test tenants | `awb cloud tenants`, `awb tenant now test-1` | the tenants by alias and what runs there |
 | call the TCP API | `awb cloud call GET vpc "/v1/{project_id}/vpcs" --tenant test-1` | the answer, signed by the key service; a write needs `--role lab` and runs for the project of the folder |
+| a live check in one command | `awb lab run ecs-boot-ssh --project tcp-q7m4 --tenant test-1` | raise, check, evidence in `evidence/`, always torn down and proven gone; `awb lab list` and `awb lab dry-run RECIPE` first |
 | a migration | `awb migrate init --from azure`, then `awb migrate next` | the next phase, its worker and its files |
 | review a text | `awb review init`, `claims`, `l0`, `pass` | the claim list with evidence and a review record |
 | the week | `awb ledger add ...`, `awb report --by customer` | one line per piece of work, reports by customer, technology or project |
@@ -249,7 +258,7 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 3. Ask in plain words. The session reads the project's SCOPE, STATE and OPEN files, looks facts up with `awb kb`,
    prices with `awb price` and `awb calc` and writes what it found to `evidence/`, with a source for each statement.
 4. When it builds on a tenant, it calls through the key service with the project code. Every resource goes into
-   `RESOURCES.md`.
+   `RESOURCES.md`. A check that a recipe covers runs as `awb lab run RECIPE`, with its evidence and its teardown.
 5. A text for a customer or a partner goes through the drafting skill and `awb review`. Only the reviewed version
    leaves.
 6. The session writes its ledger entry, commits and harvests by itself: what it learned live on the platform goes
@@ -518,6 +527,7 @@ The agent's free text stays out of your sessions: add one line to the `deny` lis
 | `seal/` | setup and verification of the two-user seal, the service units, the work user's client settings |
 | `plugin/` | the Claude Code plugin; `.claude-plugin/marketplace.json` makes this repository its marketplace |
 | `workflows/` | the review and refresh workflows for Claude Code |
+| `recipes/` | the lab recipes of `awb lab`, one live check on a test tenant per file; the format in `recipes/README.md` |
 | `calibration/` | the review calibration set, the red-team pack and the records of the red team and the security review |
 | `tests/` | every test, invented names only |
 | `docs/api/` | the contract of the web API (`awb api check`) |

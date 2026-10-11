@@ -7,6 +7,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- Lab recipes: a live check on a test tenant as one command (the work profile: 391 live checks in 45 of 86
+  projects). `awb lab run RECIPE --project CODE --tenant ALIAS [--param K=V]...` checks the project's grant, tags
+  and records every resource in RESOURCES.md as it is made, runs the checks and always tears down (also on a failed
+  check, an error, the time budget and Ctrl-C or SIGTERM), proves each resource gone with a read and writes
+  `evidence/lab-<recipe>-<date>-<n>.md` with a ready `awb kb add` line. A resource it cannot delete stays live with
+  the line to delete it and the command exits 4. `awb lab list` and `awb lab dry-run RECIPE` (no call made). The
+  format is in `recipes/README.md`; the first recipes are `ecs-boot-ssh`, `obs-policy-deny` and `elb-health`, their
+  unproven API shapes marked "to confirm live".
 - The suite runs from any path, read-only, with a shared venv (self-build step SB0). `seal/setup.sh --suite-venv
   DIR` builds the venv of a build (the system packages and the test extras, not the package), and the whole suite
   passes from a read-only copy of the tree under `/var/tmp` with that interpreter by its absolute path, `-I -B`, the

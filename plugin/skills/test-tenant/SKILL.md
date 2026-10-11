@@ -28,6 +28,17 @@ You never hold a key. The key service of the owner signs every call:
 - What you learn live (a call that behaves unlike the docs, a limit, an error and its fix) goes into the knowledge
   base at once: `awb kb add --grade live --class api --source "live call on ALIAS, project tcp-xxxx, DATE" ...`.
 
+## Lab recipes
+
+A live check that a recipe covers runs in one command, with its evidence and its teardown:
+
+- The recipes and their question: `awb lab list`. The calls one would make, no call made: `awb lab dry-run RECIPE`.
+- Run it as a background command (it takes minutes): `awb lab run RECIPE --project tcp-xxxx --tenant ALIAS
+  [--param K=V]...`. It tags and records every resource, always tears down and proves each resource gone.
+- Read the evidence it names under `evidence/`. When every check passed it prints a ready `awb kb add` line: run it.
+- Exit 4 means a resource is left live: tell the owner in one line, its row in RESOURCES.md says what to delete.
+- A step marked "to confirm live" was not proven by a live call before: say in the evidence which ones held.
+
 ## Tags
 
 Every resource you create for a project carries two tags: `awb-project` with the project code (tcp-xxxx) and
