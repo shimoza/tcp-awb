@@ -251,7 +251,8 @@ _HOMEPATH_RE = re.compile(
 BLOCKLIST_FILES = (Path("/etc/awb/blocklist.txt"), Path("~/.config/awb/blocklist.txt"))
 """The owner's local blocklists: one regular expression per line, a line starting with # is a comment. The host
 file is root owned; the one in the home folder serves the owner before the seal. AWB_BLOCKLIST names more files,
-separated by a colon (tests). The work user of a sealed host reads the host file only."""
+separated by a colon (tests). The work user of a sealed host reads the host file only; the build user reads none
+(the host file is 640 root:awb, closed to it, and the runner's gate checks it)."""
 _BLOCKLIST_CACHE: dict = {}
 _SELFTEST_FILES: list[Path] = []
 """The self-test's own blocklist while it runs, set in the process and never through the environment, so that the
@@ -263,7 +264,11 @@ def blocklist_files() -> list[Path]:
 
     if config.is_work_user():
         return [BLOCKLIST_FILES[0], *_SELFTEST_FILES]
-    extra = [Path(x) for x in os.environ.get("AWB_BLOCKLIST", "").split(":") if x]
+    if config.is_build_user():
+        # the host blocklist is closed to the build user (640 root:awb); the runner's gate over main.git, run by the
+        # owner with the register, checks it on every commit of a task (presentations/self-build, check 6)
+        return [*_SELFTEST_FILES]
+    extra =[Path(x) for x in os.environ.get("AWB_BLOCKLIST", "").split(":") if x]
     return [BLOCKLIST_FILES[0], BLOCKLIST_FILES[1].expanduser(), *extra, *_SELFTEST_FILES]
 
 

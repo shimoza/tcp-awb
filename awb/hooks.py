@@ -77,6 +77,13 @@ Each hook reads the hook JSON of the client from standard input and answers the 
 The platform of a project (tcp or hcs, which decides whether vendor names block in a deliverable) comes from
 the prefix of its project code, the name of its folder. A line in SCOPE.md cannot change it.
 
+The build user of the self-build (config.is_build_user, presentations/self-build) is the second guarded uid. Its
+hooks are pre-tool, pre-write and post-write; the other three exit 0 for it (the runner checks the prompt and the
+commits, a task has no project files). Its pre-tool keeps every call inside its own clone, the folder under
+<build_root>/wt that the session started in: the clone, the suite's venv (read only) and /tmp pass, every other
+place is refused with its class, and no clone folder refuses every call. Its post-write checks the secret classes
+and the bidi override; the name check is the runner's, with the register, on main.git.
+
 The name check is `check.check_text` (it goes to the vault daemon when the register cannot be read here). The
 writing check, the review status, the knowledge base and the career log live in their own modules. Each is
 imported only when a hook needs it; a module that is missing or fails makes its part of the hook step back with
@@ -1381,6 +1388,116 @@ def hook_pre_tool(data: dict) -> int:
     return BLOCK
 
 
+# --------------------------------------------------------------------------- pre-tool for the build user
+
+NO_CLONE = "no build clone"
+ANOTHER_CLONE = "another build clone"
+BUILD_VENV = "the build venv, which is read only"
+OUTSIDE_BUILD = "a place outside the build clone"
+"""The classes of a place the build user's guard refuses (THREAT-MODEL.md of the self-build, N5)."""
+BUILD_WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+BUILD_DEVICES = ("/dev/null", "/dev/zero", "/dev/random", "/dev/urandom", "/dev/stdin", "/dev/stdout", "/dev/stderr",
+                 "/dev/fd")
+"""Device paths a shell command of a task names (2>/dev/null and the like): they reach no file of anyone."""
+BUILD_TMP = "/tmp"
+"""The temporary folder a build task may use (its unit makes it private)."""
+BUILD_HOOKS = ("pre-tool", "pre-write", "post-write")
+"""The hooks that check the build user; the others exit 0 for it."""
+
+
+def _build_clone(data: dict, wt: Path) -> Path | None:
+    """The clone of a build session: the folder directly under `wt` that the client started in (CLAUDE_PROJECT_DIR,
+    else the session folder of the call). None when that lies outside `wt`, is `wt` itself or is reached through a
+    link."""
+    started = os.environ.get("CLAUDE_PROJECT_DIR") or (data.get("cwd") if isinstance(data.get("cwd"), str) else None)
+    if not started:
+        return None
+    real = Path(os.path.realpath(started))
+    if real != Path(os.path.normpath(os.path.abspath(started))):
+        return None     # a link on the way: a clone is entered by its own path only
+    if real == wt or wt not in real.parents:
+        return None
+    own = wt / real.relative_to(wt).parts[0]
+    if os.path.islink(own) or not own.is_dir():
+        return None
+    return own
+
+
+def build_place_class(path: Path, own: Path, root: Path, write: bool = False, tmp: Path | None = None) -> str | None:
+    """The class of a refused place for the build user, or None when it may reach `path`: its own clone, /tmp, the
+    device paths and (unless `write`) the suite's venv under `root`. The path as written and through its links must
+    both pass. A place under <root>/wt that is not the own clone, or a folder above the own clone, is another
+    clone's; everything else is outside. `tmp` is BUILD_TMP unless given (the selftest plants its own)."""
+    literal = Path(os.path.normpath(str(path)))
+    if any(_inside(literal, Path(d)) for d in BUILD_DEVICES):
+        return None     # /dev/stdin and /dev/fd/N resolve to the session's own pipes and terminal
+    try:
+        real = Path(os.path.realpath(str(path)))
+    except (OSError, ValueError):
+        return NO_CLONE
+    wt, venv = root / "wt", root / "venv"
+    tmp = Path(os.path.realpath(tmp if tmp is not None else BUILD_TMP))
+    for t in dict.fromkeys((literal, real)):
+        if _inside(t, own) or _inside(t, tmp):
+            continue
+        if _inside(t, venv):
+            if write:
+                return BUILD_VENV
+            continue
+        if _inside(t, wt) or _inside(own, t):
+            return ANOTHER_CLONE
+        return OUTSIDE_BUILD
+    return None
+
+
+def build_guard(data: dict, root: Path | None = None, home: Path | None = None, tmp: Path | None = None) -> str | None:
+    """The class of the place a tool call of the build user reaches outside its clone, or None when it may run.
+    Fails closed: no clone folder, an input it cannot read or an internal error refuse the call."""
+    tool = data.get("tool_name")
+    if tool not in GUARD_TOOLS:
+        return None
+    try:
+        root = Path(os.path.realpath(root if root is not None else config.build_root()))
+        own = _build_clone(data, root / "wt")
+        if own is None:
+            return NO_CLONE
+        home = home or Path.home()
+        cwd_raw = data.get("cwd")
+        cwd = Path(cwd_raw) if isinstance(cwd_raw, str) and cwd_raw else own
+        tool_input = data.get("tool_input")
+        if not isinstance(tool_input, dict):
+            return NO_CLONE
+        for check in dict.fromkeys(_tool_paths(tool, tool_input, cwd, home)):
+            cls = check if isinstance(check, str) else build_place_class(check, own, root,
+                                                                         tool in BUILD_WRITE_TOOLS, tmp)
+            if cls:
+                return NO_CLONE if cls == UNKNOWN_PROJECT else cls
+    except _Refused as exc:
+        return NO_CLONE if str(exc) == UNKNOWN_PROJECT else str(exc)
+    except Exception:
+        return NO_CLONE
+    return None
+
+
+def build_refusal(cls: str) -> str:
+    if cls == NO_CLONE:
+        return ("refused: this build session runs in no clone under %s/wt, so no tool call runs."
+                % config.build_root())
+    if cls == UNREADABLE:
+        return refusal(UNREADABLE)
+    return "refused: this call reaches %s. A build task stays inside its own clone." % cls
+
+
+def hook_build_tool(data: dict) -> int:
+    """pre-tool for the build user: one line naming the class, never the path; no log (the build user writes no
+    shared file)."""
+    cls = build_guard(data)
+    if cls is None:
+        return OK
+    print(build_refusal(cls), file=sys.stderr)
+    return BLOCK
+
+
 def refusals(p: config.Paths, code: str, day: date | None = None) -> int:
     """The refused tool calls of a project on a day, from guard.log."""
     want = (day or date.today()).isoformat()
@@ -1426,6 +1543,44 @@ def selftest() -> list[str]:
         finally:
             if saved is not None:
                 os.environ["CLAUDE_PROJECT_DIR"] = saved
+    return problems + build_selftest()
+
+
+def build_selftest() -> list[str]:
+    """The build user's guard on a throw-away build root (THREAT-MODEL.md of the self-build, N5): a Read of a project
+    path, of the owner's home and of another clone is refused, a Write into the venv is refused, a Read and a shell
+    command in the own clone pass, a call from no clone is refused. The problems found; empty when the guard works."""
+    import tempfile
+
+    problems: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="awb-build-guard-") as tmp:
+        base = Path(os.path.realpath(tmp))
+        root, owner_home, project = base / "build", base / "owner", base / "work" / "tcp-aaaa"
+        own, other = root / "wt" / "B-001-1", root / "wt" / "B-002-1"
+        for d in (own, other, root / "venv" / "bin", owner_home, project):
+            d.mkdir(parents=True)
+        saved = os.environ.pop("CLAUDE_PROJECT_DIR", None)
+        try:
+            cases = [
+                ("Read", {"file_path": str(project / "STATE.md")}, OUTSIDE_BUILD),
+                ("Read", {"file_path": str(owner_home / "notes.md")}, OUTSIDE_BUILD),
+                ("Read", {"file_path": str(other / "CLAUDE.md")}, ANOTHER_CLONE),
+                ("Write", {"file_path": str(root / "venv" / "bin" / "python"), "content": ""}, BUILD_VENV),
+                ("Read", {"file_path": str(own / "CLAUDE.md")}, None),
+                ("Bash", {"command": "%s/bin/python -m pytest -q tests 2>/dev/null" % (root / "venv")}, None),
+            ]
+            for n, (tool, tool_input, want) in enumerate(cases, 1):
+                got = build_guard({"tool_name": tool, "cwd": str(own), "tool_input": tool_input}, root, base,
+                                  base / "tmp")
+                if got != want:
+                    problems.append("build case %d (%s): %s where %s was due" % (n, tool, got or "passed",
+                                                                                want or "a pass"))
+            if build_guard({"tool_name": "Read", "cwd": str(base), "tool_input": {"file_path": str(own / "x")}},
+                           root, base, base / "tmp") != NO_CLONE:
+                problems.append("a build call without a clone folder passed")
+        finally:
+            if saved is not None:
+                os.environ["CLAUDE_PROJECT_DIR"] = saved
     return problems
 
 
@@ -1450,7 +1605,9 @@ def _writing_tells(path: Path, scope: str) -> list[tuple[str, int, str]]:
     return out
 
 
-def hook_post_write(data: dict) -> int:
+def hook_post_write(data: dict, names: bool = True) -> int:
+    """The written file: secrets, a bidi override, the size and, with `names` (every uid but the build user), the
+    name check of the file and of its folders and the writing check of a deliverable."""
     try:
         path = _written_file(data)
     except ValueError:
@@ -1482,6 +1639,11 @@ def hook_post_write(data: dict) -> int:
         if _has_override(text):
             problems.append("the written file carries a bidi override (U+202D or U+202E), which a viewer renders "
                             "reversed. Take it out.")
+    if not names:
+        if problems:
+            print("\n".join(problems), file=sys.stderr)
+            return BLOCK
+        return OK
     folders = ""
     if root is not None:
         try:
@@ -2171,7 +2333,10 @@ def for_this_user() -> bool:
     """False when the host file names a work user (`work_user`, written by seal/setup.sh) and this is another
     user. The seal installs the hooks as managed settings of the client, which run for every user of the host;
     the owner's own sessions are not Workbench sessions and are left alone. Only the root-owned host file counts
-    (HOST_FILE), never AWB_CONF: a client started with its own AWB_CONF must not switch the hooks off."""
+    (HOST_FILE), never AWB_CONF: a client started with its own AWB_CONF must not switch the hooks off. The build user
+    of the self-build is checked too (config.is_build_user), by BUILD_HOOKS alone."""
+    if config.is_build_user():
+        return True
     try:
         text = Path(HOST_FILE).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
@@ -2193,6 +2358,13 @@ HANDLERS = {
     "post-write": hook_post_write,
     "stop": hook_stop,
     "session-start": hook_session_start,
+}
+
+
+BUILD_HANDLERS = {
+    "pre-tool": hook_build_tool,
+    "pre-write": hook_pre_write,
+    "post-write": lambda data: hook_post_write(data, names=False),
 }
 
 
@@ -2252,6 +2424,9 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             print("awb hook session-start: the receipt failed (%s)" % type(exc).__name__, file=sys.stderr)
             return ERROR
+    build = config.is_build_user()
+    if build and args.name not in BUILD_HOOKS:
+        return OK
     try:
         raw = sys.stdin.read() if sys.stdin is not None else ""
         data = json.loads(raw) if raw.strip() else {}
@@ -2268,6 +2443,8 @@ def main(argv: list[str] | None = None) -> int:
             before = (signal.getsignal(signal.SIGALRM), signal.getitimer(signal.ITIMER_REAL), time.monotonic())
             signal.signal(signal.SIGALRM, _on_alarm)
             signal.setitimer(signal.ITIMER_REAL, HOOK_BUDGET)
+        if build:
+            return BUILD_HANDLERS[args.name](data)
         return HANDLERS[args.name](data)
     except _OverBudget:
         return _over_budget(args.name)

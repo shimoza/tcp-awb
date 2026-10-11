@@ -25,6 +25,10 @@ The work user of a sealed host is the exception: its paths come from the root-ow
 environment and AWB_CONF are left out for it, because a session can change the shell profile of the work user and
 must not point the hooks at another check socket, knowledge base or vault that way.
 
+The build user of the self-build (presentations/self-build) cannot read the host file at all: it is 640 root:awb
+and the build user is in no group but its own. The host file still names it (`build_user`, `build_root`) for the
+owner's side; is_build_user() and build_root() say how the build user is known without it.
+
     ~/tcp-kb/          the knowledge base of the TCP scope (its own git repository)
     check socket       /run/awb/check.sock, the name check of the vault daemon for working sessions
     admin socket       <vault>/admin.sock, for the owner's commands only
@@ -122,6 +126,62 @@ def is_work_user() -> bool:
         return pwd.getpwuid(os.geteuid()).pw_name == want
     except KeyError:
         return False
+
+
+BUILD_ROOT = "/srv/awb-build"
+"""The folder of the self-build (presentations/self-build): a capped loop image that seal/setup.sh mounts and names
+as `build_root` in the host file. The build user cannot read the host file (640 root:awb), and its task units make
+/etc/awb inaccessible, so its hooks take this value; seal/setup.sh writes the same one."""
+_BUILD_USER_RE = re.compile(r"(?m)^[ \t]*build_user[ \t]*=[ \t]*(\S+)[ \t]*$")
+_BUILD_ROOT_RE = re.compile(r"(?m)^[ \t]*build_root[ \t]*=[ \t]*(/\S*)[ \t]*$")
+
+
+def _root_host_text() -> str:
+    """The root host file (HOST_CONF), never AWB_CONF. Raises OSError (PermissionError for a uid it is closed to)
+    and UnicodeDecodeError."""
+    return Path(HOST_CONF).read_text(encoding="utf-8")
+
+
+def build_user() -> str | None:
+    """The build user the root host file names (`build_user`); None without one or when it cannot be read."""
+    try:
+        m = _BUILD_USER_RE.search(_root_host_text())
+    except (OSError, UnicodeDecodeError):
+        return None
+    return m.group(1) if m else None
+
+
+def build_root() -> Path:
+    """The folder of the self-build: `build_root` of the root host file when this uid may read it, else BUILD_ROOT."""
+    try:
+        m = _BUILD_ROOT_RE.search(_root_host_text())
+    except (OSError, UnicodeDecodeError):
+        m = None
+    return Path(m.group(1) if m else BUILD_ROOT)
+
+
+def is_build_user() -> bool:
+    """True when this process runs as the build user of the self-build. Root never is. When the root host file can be
+    read, its `build_user` decides by name. When it exists but is closed to this uid (640 root:awb, or /etc/awb made
+    inaccessible by the task unit), the password database decides: the build user's home lies inside BUILD_ROOT
+    (seal/setup.sh makes it so). Neither file nor home can be changed by a session."""
+    euid = os.geteuid()
+    if euid == 0:
+        return False
+    try:
+        entry = pwd.getpwuid(euid)
+    except KeyError:
+        return False
+    try:
+        text = _root_host_text()
+    except PermissionError:
+        home = Path(os.path.normpath(entry.pw_dir or "/"))
+        root = Path(BUILD_ROOT)
+        return home != root and root in home.parents
+    except (OSError, UnicodeDecodeError):
+        return False
+    m = _BUILD_USER_RE.search(text)
+    return bool(m) and entry.pw_name == m.group(1)
 
 
 KNOWN_MODES = ("sealed",)

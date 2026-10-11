@@ -979,3 +979,190 @@ def test_t8_awb_paste_command_line(project, monkeypatch, capsys):
     monkeypatch.chdir(project.parent)
     monkeypatch.setattr(sys, "stdin", io.StringIO("x\n"))
     assert paste.main([]) == 2
+
+
+# --------------------------------------------------------------------------- the build user (self-build SB1)
+
+
+@pytest.fixture
+def build_root(tmp_path, monkeypatch):
+    """A throw-away build root outside /tmp's pass: <tmp>/build with two clones and the venv; the own clone is where
+    the client started."""
+    base = Path(os.path.realpath(tmp_path))
+    root = base / "build"
+    for d in ("wt/B-001-1/tests", "wt/B-002-1", "venv/bin", "runs/B-001/1"):
+        (root / d).mkdir(parents=True)
+    (root / "wt" / "B-001-1" / "CLAUDE.md").write_text("# rules\n", encoding="utf-8")
+    (root / "wt" / "B-002-1" / "CLAUDE.md").write_text("# rules\n", encoding="utf-8")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(root / "wt" / "B-001-1"))
+    return root
+
+
+def _build(root: Path, tool: str, tool_input: dict, cwd: Path | None = None) -> str | None:
+    own = root / "wt" / "B-001-1"
+    return hooks.build_guard({"tool_name": tool, "cwd": str(cwd or own), "tool_input": tool_input}, root,
+                             root.parent / "home", root.parent / "tmp")
+
+
+def test_the_build_guard_keeps_a_task_in_its_clone(build_root, tmp_path):
+    """SB1 item 3, THREAT-MODEL N5. Planted refusals: a Read of a project path, of the owner's home and of another
+    clone, a Write into the venv, a Read of the runs, a shell command that names another clone or climbs out of the
+    clone, a link from the clone to another clone. Passes: a Read and a Write in the own clone, a Read of the venv,
+    the venv's interpreter in a shell command with 2>/dev/null, /tmp."""
+    root = build_root
+    own, other = root / "wt" / "B-001-1", root / "wt" / "B-002-1"
+    project = tmp_path / "work" / "tcp-aaaa"
+    project.mkdir(parents=True)
+    owner_home = tmp_path / "owner"
+    owner_home.mkdir()
+    refused = [
+        ("Read", {"file_path": str(project / "STATE.md")}, hooks.OUTSIDE_BUILD),
+        ("Read", {"file_path": str(owner_home / ".ssh" / "id_ed25519")}, hooks.OUTSIDE_BUILD),
+        ("Read", {"file_path": str(other / "CLAUDE.md")}, hooks.ANOTHER_CLONE),
+        ("Write", {"file_path": str(root / "venv" / "bin" / "python"), "content": "x"}, hooks.BUILD_VENV),
+        ("Read", {"file_path": str(root / "runs" / "B-001" / "1" / "result.md")}, hooks.OUTSIDE_BUILD),
+        ("Glob", {"pattern": "*.md", "path": str(root / "wt")}, hooks.ANOTHER_CLONE),
+        ("Bash", {"command": "cat ../B-002-1/CLAUDE.md"}, hooks.ANOTHER_CLONE),
+        ("Bash", {"command": "cd .. && ls"}, hooks.ANOTHER_CLONE),
+        ("Bash", {"command": "ls /etc/awb"}, hooks.OUTSIDE_BUILD),
+        ("Grep", {"pattern": "x", "path": "/"}, hooks.ANOTHER_CLONE),
+    ]
+    for tool, tool_input, want in refused:
+        assert _build(root, tool, tool_input) == want, (tool, tool_input)
+    (own / "peek").symlink_to(other)
+    assert _build(root, "Read", {"file_path": str(own / "peek" / "CLAUDE.md")}) == hooks.ANOTHER_CLONE
+    passes = [
+        ("Read", {"file_path": str(own / "CLAUDE.md")}),
+        ("Write", {"file_path": "tests/test_new.py", "content": "x"}),
+        ("Read", {"file_path": str(root / "venv" / "bin" / "python")}),
+        ("Bash", {"command": "%s/bin/python -I -B -m pytest -q tests 2>/dev/null" % (root / "venv")}),
+        ("Bash", {"command": "git log --oneline -3 && git status --porcelain"}),
+        ("Grep", {"pattern": "def main", "path": "awb"}),
+        ("Read", {"file_path": str(root.parent / "tmp" / "scratch.txt")}),
+    ]
+    for tool, tool_input in passes:
+        assert _build(root, tool, tool_input) is None, (tool, tool_input)
+    # a refusal names the class, never the path
+    line = hooks.build_refusal(hooks.ANOTHER_CLONE)
+    assert "another build clone" in line and str(root) not in line
+
+
+def test_the_build_guard_refuses_every_call_without_a_clone(build_root, monkeypatch):
+    """SB1 item 3: no clone folder means refused, fail closed. Planted: the client started in the build root, in wt/
+    itself, outside the build root, and a clone that is a link; an input that is not an object; a broken root."""
+    root = build_root
+    own = root / "wt" / "B-001-1"
+    read = {"file_path": str(own / "CLAUDE.md")}
+    for started in (root, root / "wt", root.parent):
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(started))
+        assert _build(root, "Read", read, cwd=started) == hooks.NO_CLONE, started
+    (root / "wt" / "B-003-1").symlink_to(own)
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(root / "wt" / "B-003-1"))
+    assert _build(root, "Read", read, cwd=root / "wt" / "B-003-1") == hooks.NO_CLONE
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(own))
+    assert hooks.build_guard({"tool_name": "Read", "cwd": str(own), "tool_input": "x"}, root) == hooks.NO_CLONE
+    assert hooks.build_guard({"tool_name": "Read", "cwd": str(own), "tool_input": read}, object()) == hooks.NO_CLONE
+    # a tool the guard does not see is not its business (the build settings deny the rest)
+    assert _build(root, "TodoWrite", {"todos": []}) is None
+    assert "no clone" in hooks.build_refusal(hooks.NO_CLONE)
+
+
+def test_the_build_selftest_holds_the_n5_cases_and_fails_without_its_guard(monkeypatch):
+    """SB1 item 3: `awb hook selftest` plants the three refusals of N5 as the build user. Planted: the place check
+    removed, every planted refusal passes and the selftest reports each."""
+    assert hooks.build_selftest() == []
+    assert hooks.selftest() == []
+    monkeypatch.setattr(hooks, "build_place_class", lambda *a, **k: None)
+    problems = hooks.build_selftest()
+    assert len(problems) == 4 and all(p.startswith("build case") for p in problems)
+    assert hooks.selftest()[-4:] == problems
+
+
+def _host_file(tmp_path, monkeypatch, text: str | None, mode: int = 0o644) -> Path:
+    f = tmp_path / "etc-awb" / "paths.conf"
+    f.parent.mkdir(exist_ok=True)
+    if text is not None:
+        f.write_text(text, encoding="utf-8")
+        f.chmod(mode)
+    monkeypatch.setattr(config, "HOST_CONF", str(f))
+    monkeypatch.setattr(hooks, "HOST_FILE", f)
+    return f
+
+
+def test_the_build_user_is_known_by_the_host_file_or_by_its_home(tmp_path, monkeypatch):
+    """SB1: the build user cannot read the host file (640 root:awb) and its task unit hides /etc/awb. Planted: a
+    readable host file that names this user (build user) or another (not); a closed host file with this user's home
+    inside the build root (build user) or elsewhere (not); no host file (not); root (never)."""
+    if os.geteuid() == 0:
+        pytest.skip("a closed file is open to root")
+    import pwd
+
+    real = pwd.getpwuid(os.geteuid())
+    me = real.pw_name
+
+    def home(path: str):
+        entry = pwd.struct_passwd((me, "x", real.pw_uid, real.pw_gid, "", path, "/bin/bash"))
+        monkeypatch.setattr(config.pwd, "getpwuid", lambda uid: entry)
+
+    f = _host_file(tmp_path, monkeypatch, "work_user = awbwork\nbuild_user = %s\nbuild_root = /srv/x\n" % me)
+    assert config.is_build_user() and config.build_user() == me and config.build_root() == Path("/srv/x")
+    f.write_text("work_user = awbwork\nbuild_user = someone-else\n", encoding="utf-8")
+    assert not config.is_build_user() and config.build_root() == Path(config.BUILD_ROOT)
+    f.chmod(0)
+    home(config.BUILD_ROOT + "/home")
+    assert config.is_build_user() and config.build_user() is None and config.build_root() == Path(config.BUILD_ROOT)
+    home(config.BUILD_ROOT)
+    assert not config.is_build_user()
+    home("/var/lib/elsewhere")
+    assert not config.is_build_user()
+    f.chmod(0o644)
+    f.unlink()
+    home(config.BUILD_ROOT + "/home")
+    assert not config.is_build_user()
+    monkeypatch.setattr(config.os, "geteuid", lambda: 0)
+    assert not config.is_build_user()
+
+
+def test_the_build_user_runs_three_hooks_and_never_the_name_check(build_root, tmp_path, monkeypatch, capsys):
+    """SB1: the managed settings run all six hooks for every user; for the build user prompt, stop and session-start
+    exit 0 without a word, pre-tool is the build guard and post-write checks secrets without the name check (the
+    runner's gate does it with the register). Planted: a name check that fails if it is called; a written file with
+    a secret blocks, a clean one passes; a Read of another clone through `awb hook pre-tool` is refused."""
+    monkeypatch.setattr(config, "is_build_user", lambda: True)
+    monkeypatch.setattr(config, "build_root", lambda: build_root)
+    monkeypatch.setattr(hooks, "BUILD_TMP", str(tmp_path / "tmp"))
+    monkeypatch.setattr(hooks, "file_hits", lambda *a, **k: pytest.fail("the name check ran for the build user"))
+    monkeypatch.setattr(hooks, "name_hits", lambda *a, **k: pytest.fail("the name check ran for the build user"))
+    own = build_root / "wt" / "B-001-1"
+    for name in ("prompt", "stop", "session-start"):
+        code, out, err = run_hook(name, {"prompt": "x", "cwd": str(own)}, monkeypatch, capsys)
+        assert (code, out, err) == (0, "", ""), name
+    code, _, err = run_hook("pre-tool", {"tool_name": "Read", "cwd": str(own),
+                                         "tool_input": {"file_path": str(build_root / "wt" / "B-002-1" / "x")}},
+                            monkeypatch, capsys)
+    assert code == 2 and "another build clone" in err
+    code, _, _ = run_hook("pre-tool", {"tool_name": "Read", "cwd": str(own),
+                                       "tool_input": {"file_path": str(own / "CLAUDE.md")}}, monkeypatch, capsys)
+    assert code == 0
+    from awb import gate
+    secret = own / "settings.py"
+    secret.write_bytes(gate._selftest_cases()["secret"])
+    code, _, err = run_hook("post-write", {"tool_name": "Write", "cwd": str(own),
+                                          "tool_input": {"file_path": str(secret)}}, monkeypatch, capsys)
+    assert code == 2 and "carries a secret" in err
+    clean = own / "clean.py"
+    clean.write_text("X = 1\n", encoding="utf-8")
+    code, _, err = run_hook("post-write", {"tool_name": "Write", "cwd": str(own),
+                                          "tool_input": {"file_path": str(clean)}}, monkeypatch, capsys)
+    assert code == 0 and err == ""
+
+
+def test_the_build_user_leaves_the_host_blocklist_to_the_runner(monkeypatch, tmp_path):
+    """SB1: the host blocklist is 640 root:awb; the build user's gate reads none but the selftest's own (a read it
+    may not do would refuse every commit of a task). Planted: the owner's view lists the host file."""
+    from awb import gate
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    monkeypatch.setattr(config, "is_build_user", lambda: False)
+    assert gate.BLOCKLIST_FILES[0] in gate.blocklist_files()
+    monkeypatch.setattr(config, "is_build_user", lambda: True)
+    assert gate.blocklist_files() == list(gate._SELFTEST_FILES)
