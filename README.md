@@ -401,8 +401,9 @@ customer data out of the model as far as it can:
   active"; a missing guard refuses the start and every prompt with one line that names it. `awb board show` counts
   the sessions refused today.
 - A tool guard keeps a session inside its project: a file or shell call that reaches another project, the client's
-  folder or a key folder is refused before it runs and logged. The Bash part reads the command line, so a path the
-  shell builds at run time gets past it; the guard keeps an honest session in its lane and is no fence against a
+  folder or a key folder is refused before it runs and logged. The shell part reads the command line as the shell splits
+  it and refuses a path it cannot read (a variable, a quote or an escape inside it), so a path a
+  program builds at run time still gets past it; the guard keeps an honest session in its lane and is no fence against a
   hostile one.
 - A gate checks every commit for names, secrets, home paths and the owner's blocklist. A send gate lets only the
   exact reviewed version of a deliverable leave.

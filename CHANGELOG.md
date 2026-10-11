@@ -167,6 +167,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- The tool guard reads a shell command the way the shell splits it (findings 8 and 21 of the review of 2026-10-10). A
+  quote or a backslash inside a path (`tc''p-`, `tcp\-`) no longer splits it past the guard, an option with a path glued
+  to it (`tar -C/...`, `curl -d@...`) is read from where the path begins, and `$PWD`, `${PWD}` and `~+` stand for the
+  session folder, so `$PWD/../<project>` is refused. A quote or an escape inside a word that carries a path, any other
+  variable or substitution inside a path, `~-` and a quote that never closes are refused as a path the guard cannot
+  read.
 - A take from the owner inbox checks the file before it moves it (findings 6 and 19 of the review of 2026-10-10). A
   file in a folder that is not exactly one customer code (`cust-zz22`, `CUST-ZZ22-old`, a deeper level) is no
   longer read as a file of the top and stays in the inbox, and so does a file above `max_mb` of keys.conf; the take

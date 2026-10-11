@@ -28,9 +28,11 @@ Each hook reads the hook JSON of the client from standard input and answers the 
     pre-tool        PreToolUse         exit 2 when Read, Edit, MultiEdit, NotebookEdit, Write, Glob, Grep or Bash
                                        reaches another project folder, the client's folder (~/.claude) or a key
                                        folder (~/.ssh, ~/.config), or a folder that holds one of them: the file
-                                       argument, the path of a search, and for Bash every absolute or
-                                       home-relative path of the command line and every relative one with `..`,
-                                       each as written and through its links. The own project, <shared>, the
+                                       argument, the path of a search, and for Bash every path of the command
+                                       line after the shell's quote removal that is absolute, under the home or
+                                       climbs with `..`, each as written and through its links. A shell path the
+                                       guard cannot read (a variable or a substitution in it, a quote or an
+                                       escape inside it) is refused too. The own project, <shared>, the
                                        knowledge base, /tmp and the installed code pass. One line names the class
                                        of the place, never the path, and one line goes into
                                        <shared>/sessions/guard.log. Fails closed: no project folder, an input it
@@ -737,6 +739,7 @@ GUARD_TOOLS = tuple(GUARD_MATCHER.split("|"))
 ANOTHER_PROJECT = "another project"
 CLIENT_FOLDER = "the client's folder"
 KEY_FOLDER = "a key folder"
+UNREADABLE = "a path the guard cannot read"
 UNKNOWN_PROJECT = "an unknown project"
 """The classes of a refused place; a refusal names the class, never the path."""
 KEY_FOLDERS = (".ssh", ".config")
@@ -744,6 +747,10 @@ _PROJECT_DIR_RE = re.compile(r"^(?:tcp|hcs)-")
 _GLOB_CHARS = "*?[{"
 _SPLIT_RE = re.compile(r"[\s'\"`;|&<>(),=:]+")
 _SID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_VAR_RE = re.compile(r"\$[A-Za-z_{(]")
+_START_VAR_RE = re.compile(r"\$(?:\{(HOME|PWD)\}|(HOME|PWD)(?![A-Za-z0-9_]))")
+_DIRSTACK_RE = re.compile(r"~[+-]?\d+")
 
 
 class _Refused(Exception):
@@ -773,36 +780,336 @@ def _expand(raw: str, home: Path) -> str:
     return os.path.expanduser(raw) if raw.startswith("~") else raw
 
 
-def _absolute(raw: str, cwd: Path, home: Path) -> Path:
-    if "\x00" in raw:
+def _based(text: str) -> Path:
+    """The folder a path reaches before its first glob character. A `..` after a glob character climbs from a
+    folder the guard cannot know, so it is refused."""
+    if "\x00" in text:
         raise _Refused(UNKNOWN_PROJECT)
-    text = _glob_base(_expand(raw, home))
-    path = Path(text)
-    return path if path.is_absolute() else cwd / path
+    cut = min((text.find(c) for c in _GLOB_CHARS if c in text), default=-1)
+    if cut >= 0 and ".." in text[cut:].split("/"):
+        raise _Refused(UNREADABLE)
+    return Path(_glob_base(text))
 
 
-def _bash_paths(command: str, cwd: Path, home: Path) -> list[Path]:
-    """Every absolute or home-relative path of a command line, and every relative one that climbs with `..`. The
-    guard reads the command line, not what the shell computes: a path built at run time gets past it."""
-    out = []
-    for tok in _SPLIT_RE.split(command.replace("${HOME}", "$HOME")):
-        tok = tok.strip("{}[]!")
-        if not tok:
-            continue
-        if tok.startswith(("/", "~", "$HOME")):
-            out.append(_absolute(tok, cwd, home))
-        elif tok == ".." or tok.startswith("../") or "/../" in tok or tok.endswith("/.."):
-            out.append(_absolute(tok, cwd, home))
+def _absolute(raw: str, cwd: Path, home: Path) -> Path:
+    text = _expand(raw, home)
+    return _based(text if text.startswith("/") else os.path.join(str(cwd), text))
+
+
+def _one_path(raw: str, cwds: list[Path], home: Path, dirstack: bool) -> list[Path]:
+    """The places one token of a command line reaches when it is absolute, under the home or climbs with `..` from
+    the folders of `cwds`. $HOME, $PWD and ~+ are read; any other expansion inside a path is refused."""
+    if _VAR_RE.search(raw):
+        m = _START_VAR_RE.match(raw)
+        if m is None or _VAR_RE.search(raw[m.end():]):
+            if "/" in raw or ".." in raw:
+                raise _Refused(UNREADABLE)
+            return []
+        raw = (str(home) if (m.group(1) or m.group(2)) == "HOME" else ".") + raw[m.end():]
+    if raw.startswith("~"):
+        head, sep, tail = raw.partition("/")
+        if head == "~":
+            raw = str(home) + sep + tail
+        elif head == "~+":
+            raw = "." + sep + tail
+        elif head == "~-" or (dirstack and _DIRSTACK_RE.fullmatch(head)):
+            raise _Refused(UNREADABLE)
+        else:
+            raw = os.path.expanduser(raw)
+    if raw.startswith("/"):
+        return [_based(raw)]
+    if not (raw == ".." or raw.startswith("../") or "/../" in raw or raw.endswith("/..")):
+        return []
+    return [_based(os.path.join(str(c), raw)) for c in cwds]
+
+
+def _token_paths(tok: str, cwds: list[Path], home: Path, dirstack: bool) -> list[Path]:
+    """The places of one token. A token that starts with - or @ (an option, a curl data file) is read from every
+    point where a path may begin: after the option letter, after @, at the first /, ~, $ or `..`."""
+    tok = tok.strip("{}[]!")
+    if not tok:
+        return []
+    cands = [tok]
+    if tok[0] in "-@":
+        cands = []
+        if tok[0] == "-" and tok[1:2] != "-":
+            cands.append(tok[2:])
+        if "@" in tok:
+            cands.append(tok[tok.index("@") + 1:])
+        for start in ("/", "~", "$", ".."):
+            if start in tok:
+                cands.append(tok[tok.index(start):])
+    out: list[Path] = []
+    for cand in dict.fromkeys(cands):
+        if cand and cand[0] not in "-@":
+            out += _one_path(cand, cwds, home, dirstack)
     return out
 
 
-def _tool_paths(tool: str, tool_input: dict, cwd: Path, home: Path) -> list[Path]:
-    """The target paths of one tool call; a Glob or Grep without a path searches the session folder."""
+class _Word:
+    """One word of a command line after the shell's quote removal: its text, its units (a run of plain characters,
+    one quoted string, one escaped character) and whether the shell computes part of it at run time."""
+
+    def __init__(self) -> None:
+        self.text: list[str] = []
+        self.units: list[str] = []
+        self.dynamic = False
+
+    def add(self, s: str, unit: str) -> None:
+        self.text.append(s)
+        if unit != "plain" or not self.units or self.units[-1] != "plain":
+            self.units.append(unit)
+
+    @property
+    def value(self) -> str:
+        return "".join(self.text)
+
+    @property
+    def mixed(self) -> bool:
+        """A quote or an escape inside the word, next to other text: `tc''p-x`, `tcp\\-x`, `--out="a/b"`."""
+        return len(self.units) > 1 and any(u != "plain" for u in self.units)
+
+
+class _ShellReader:
+    """Reads a command line the way the shell splits it, far enough for the guard: words after quote removal,
+    the commands inside $(...), backquotes and process substitution, here-documents as data, comments dropped.
+    What it cannot read raises _Refused(UNREADABLE)."""
+
+    def __init__(self, s: str, home: Path):
+        self.s, self.i, self.home = s, 0, home
+        self.items: list = []
+        self.nested: list[list] = []
+        self.data: list[str] = []
+        self.pending: list[tuple[str, bool]] = []
+
+    def fail(self):
+        raise _Refused(UNREADABLE)
+
+    def read(self, stop: str | None = None) -> None:
+        """Words and separators up to the end, or up to the `stop` character that closes a substitution."""
+        s, cur, depth = self.s, None, 0
+
+        def end():
+            nonlocal cur
+            if cur is not None:
+                self.items.append(cur)
+                cur = None
+
+        while self.i < len(s):
+            c = s[self.i]
+            if (stop == "`" and c == "`") or (stop == ")" and c == ")" and depth == 0):
+                end()
+                self.i += 1
+                return
+            if c in " \t":
+                end()
+                self.i += 1
+            elif c == "\n":
+                end()
+                self.items.append("\n")
+                self.i += 1
+                self.bodies()
+            elif c == "#" and cur is None:
+                nl = s.find("\n", self.i)
+                self.i = len(s) if nl < 0 else nl
+            elif s.startswith("&>", self.i):
+                end()
+                self.i += 1
+            elif c in ";&|()":
+                end()
+                sep = s[self.i:self.i + 2] if s.startswith(("&&", "||"), self.i) else c
+                self.items.append(sep)
+                depth += 1 if c == "(" else -1 if c == ")" else 0
+                self.i += len(sep)
+            elif c in "<>":
+                end()
+                if s.startswith("<<<", self.i):
+                    self.i += 3
+                elif s.startswith("<<", self.i):
+                    self.i += 2
+                    strip = s.startswith("-", self.i)
+                    self.i += 1 if strip else 0
+                    while self.i < len(s) and s[self.i] in " \t":
+                        self.i += 1
+                    delim = self.word_at()
+                    if delim is None:
+                        self.fail()
+                    self.pending.append((delim.value, strip))
+                elif s.startswith(("<(", ">("), self.i):
+                    self.i += 2
+                    self.sub(")")
+                else:
+                    self.i += 2 if s[self.i + 1:self.i + 2] in ("&", "|", ">") else 1
+            else:
+                if cur is None:
+                    cur = _Word()
+                self.unit(cur)
+        if stop is not None:
+            self.fail()
+        end()
+
+    def sub(self, stop: str) -> None:
+        """The command inside a substitution, read into a list of its own: it runs in a subshell."""
+        saved, self.items = self.items, []
+        self.read(stop)
+        self.nested.append(self.items)
+        self.items = saved
+
+    def word_at(self) -> _Word | None:
+        """One word from the current position (a here-document delimiter)."""
+        w = None
+        while self.i < len(self.s) and self.s[self.i] not in " \t\n;&|()<>":
+            w = w or _Word()
+            self.unit(w)
+        return w
+
+    def bodies(self) -> None:
+        """The here-documents opened on the line that just ended: their lines up to the delimiter are data."""
+        for delim, strip in self.pending:
+            lines = []
+            while self.i < len(self.s):
+                nl = self.s.find("\n", self.i)
+                line = self.s[self.i:] if nl < 0 else self.s[self.i:nl]
+                self.i = len(self.s) if nl < 0 else nl + 1
+                if (line.lstrip("\t") if strip else line) == delim:
+                    break
+                lines.append(line)
+            self.data.append("\n".join(lines))
+        self.pending = []
+
+    def unit(self, w: _Word) -> None:
+        """One unit of a word at the current position."""
+        s, c = self.s, self.s[self.i]
+        if c == "\\":
+            if s.startswith("\\\n", self.i):
+                self.i += 2
+                return
+            if self.i + 1 < len(s):
+                w.add(s[self.i + 1], "escaped")
+            self.i += 2
+        elif c == "'":
+            close = s.find("'", self.i + 1)
+            if close < 0:
+                self.fail()
+            w.add(s[self.i + 1:close], "quoted")
+            self.i = close + 1
+        elif c == '"' or s.startswith('$"', self.i):
+            self.i += 1 if c == '"' else 2
+            w.add(self.double(w), "quoted")
+        elif s.startswith("$'", self.i):
+            close, j = None, self.i + 2
+            while j < len(s):
+                if s[j] == "\\":
+                    w.dynamic = True                   # $'\x2f' builds any character at run time
+                    j += 2
+                    continue
+                if s[j] == "'":
+                    close = j
+                    break
+                j += 1
+            if close is None:
+                self.fail()
+            w.add(s[self.i + 2:close], "quoted")
+            self.i = close + 1
+        elif c == "$" or c == "`":
+            w.add(self.expansion(w), "plain")
+        else:
+            w.add(c, "plain")
+            self.i += 1
+
+    def double(self, w: _Word) -> str:
+        """The text of a double-quoted string, the opening quote read; expansions as in expansion()."""
+        s, out = self.s, []
+        while self.i < len(s):
+            c = s[self.i]
+            if c == '"':
+                self.i += 1
+                return "".join(out)
+            if c == "\\" and self.i + 1 < len(s) and s[self.i + 1] in '$`"\\\n':
+                out.append(s[self.i + 1] if s[self.i + 1] != "\n" else "")
+                self.i += 2
+            elif c in "$`":
+                start = not w.text and not out
+                out.append(self.expansion(w, start))
+            else:
+                out.append(c)
+                self.i += 1
+        self.fail()
+
+    def expansion(self, w: _Word, start: bool | None = None) -> str:
+        """A $ or a backquote at the current position. $HOME and $PWD at the start of a word are read (the home,
+        the folder the command stands in); every other variable and every substitution makes the word one the
+        shell computes; the commands inside a substitution are read as commands."""
+        s = self.s
+        start = not w.text if start is None else start
+        if s[self.i] == "`":
+            self.i += 1
+            w.dynamic = True
+            self.sub("`")
+            return ""
+        nxt = s[self.i + 1:self.i + 2]
+        if nxt == "(":
+            self.i += 2
+            w.dynamic = True
+            self.sub(")")
+            return ""
+        if nxt == "{":
+            close = s.find("}", self.i + 2)
+            if close < 0:
+                self.fail()
+            name = s[self.i + 2:close]
+            self.i = close + 1
+        else:
+            m = _NAME_RE.match(s, self.i + 1)
+            if m is None:
+                if nxt and nxt in "0123456789@*#?$!-":
+                    self.i += 2
+                    w.dynamic = True
+                    return ""
+                self.i += 1
+                return "$"
+            name = m.group(0)
+            self.i = m.end()
+        if start and name in ("HOME", "PWD"):
+            return str(self.home) if name == "HOME" else "."
+        w.dynamic = True
+        return ""
+
+
+def _shell_checks(command: str, cwd: Path, home: Path) -> list:
+    """The checks of a shell command in their order: a Path to classify, or a class to refuse at once. Every path
+    after the shell's quote removal that is absolute, under the home or climbs with `..`, and the folder of the call
+    last. Refused as unreadable: a quote or an escape inside a word that carries a path, a variable or a
+    substitution inside a path other than $HOME and $PWD at its start, ~- and the directory stack, a quote that
+    never closes."""
+    reader = _ShellReader(command, home)
+    reader.read()
+    words = [w for items in [reader.items] + reader.nested for w in items if isinstance(w, _Word)]
+    dirstack = any(w.value == "pushd" for w in words)
+    checks: list = []
+    for w in words:
+        if w.dynamic:
+            if "/" in w.value or ".." in w.value:
+                checks.append(UNREADABLE)
+            continue
+        for tok in _SPLIT_RE.split(w.value):
+            checks += _token_paths(tok, [cwd], home, dirstack)
+        if w.mixed and "/" in w.value:
+            checks.append(UNREADABLE)
+    for text in reader.data:
+        for tok in _SPLIT_RE.split(text):
+            checks += _token_paths(tok, [cwd], home, dirstack)
+    return checks + [cwd]
+
+
+def _tool_paths(tool: str, tool_input: dict, cwd: Path, home: Path) -> list:
+    """The checks of one tool call (see _shell_checks for Bash); a Glob or Grep without a path searches the session
+    folder."""
     if tool == "Bash":
         command = tool_input.get("command")
         if not isinstance(command, str):
             raise _Refused(UNKNOWN_PROJECT)
-        return [cwd] + _bash_paths(command, cwd, home)
+        return _shell_checks(command, cwd, home)
     names = {"Glob": ("path", "pattern"), "Grep": ("path", "glob")}.get(tool, ("file_path", "notebook_path", "path"))
     out = []
     for key in names:
@@ -893,7 +1200,8 @@ def _log_refusal(p: config.Paths, data: dict, tool: str, cls: str, own: Path | N
 def guard(data: dict, p: config.Paths | None = None, home: Path | None = None,
           sealed: bool | None = None) -> str | None:
     """The class of the place a tool call reaches outside its project, or None when it may run. Fails closed:
-    a call whose project or target cannot be read is refused as UNKNOWN_PROJECT. Only a host without a seal (the
+    a call whose project or input cannot be read is refused as UNKNOWN_PROJECT, a shell path the guard cannot read
+    as UNREADABLE. Only a host without a seal (the
     plugin on an architect's own machine, `sealed` false) lets a session outside any project pass."""
     tool = data.get("tool_name")
     if tool not in GUARD_TOOLS:
@@ -909,8 +1217,8 @@ def guard(data: dict, p: config.Paths | None = None, home: Path | None = None,
         tool_input = data.get("tool_input")
         if not isinstance(tool_input, dict):
             return UNKNOWN_PROJECT
-        for path in _tool_paths(tool, tool_input, cwd, home):
-            cls = place_class(path, own, p, home)
+        for check in dict.fromkeys(_tool_paths(tool, tool_input, cwd, home)):
+            cls = check if isinstance(check, str) else place_class(check, own, p, home)
             if cls:
                 return cls
     except _Refused as exc:
@@ -924,12 +1232,16 @@ def refusal(cls: str) -> str:
     if cls == UNKNOWN_PROJECT:
         return ("refused: the project folder of this session cannot be determined, so no tool call runs. Start the "
                 "session in its project folder.")
+    if cls == UNREADABLE:
+        return ("refused: the guard cannot tell where this call goes (a variable, a substitution, a quote or an escape "
+                "inside a path, or a change of folder it cannot follow). Write the path plainly, inside the project.")
     return "refused: this call reaches %s. A session stays inside its own project folder." % cls
 
 
 def hook_pre_tool(data: dict) -> int:
     """Read, Edit, MultiEdit, NotebookEdit, Write, Glob, Grep and Bash stay inside the session's project: a target
-    in another project, in the client's folder or in a key folder is refused with one line naming the class."""
+    in another project, in the client's folder or in a key folder, and a shell path the guard cannot read, are
+    refused with one line naming the class."""
     cls = guard(data)
     if cls is None:
         return OK

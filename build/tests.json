@@ -2883,8 +2883,36 @@
    "name": "period report: --reveal never goes to a pipe, a project, the shared side or a git working copy",
    "run": ".venv/bin/pytest tests/test_period.py::test_reveal_never_goes_to_a_pipe_a_project_or_a_git_working_copy",
    "status": "passing"
+  },
+  {
+   "id": "R10-12",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 8: a quote or a backslash inside an absolute path does not split it past the guard",
+   "run": ".venv/bin/pytest tests/test_guard_review.py::test_quote_and_backslash_split_an_absolute_path_past_the_guard",
+   "status": "passing"
+  },
+  {
+   "id": "R10-13",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 8: an option with a path glued to it (tar -C/..., curl -d@...) is read from where the path begins",
+   "run": ".venv/bin/pytest tests/test_guard_review.py::test_an_option_with_an_attached_path_is_never_looked_at",
+   "status": "passing"
+  },
+  {
+   "id": "R10-14",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 21: $PWD/.., ${PWD}/.. and ~+/.. climb out of the project and are refused",
+   "run": ".venv/bin/pytest tests/test_guard_review.py::test_pwd_variable_with_dotdot_reaches_another_project",
+   "status": "passing"
+  },
+  {
+   "id": "R10-15",
+   "phase": "R10",
+   "name": "review 2026-10-10: the shapes the guard already read (glob, brace, python -c, here-string, x/../../, --opt=, //) stay refused",
+   "run": ".venv/bin/pytest tests/test_guard_review.py::test_holds_tokens_the_guard_does_read",
+   "status": "passing"
   }
  ],
- "total_tests": 412,
- "checked": "2026-10-10"
+ "total_tests": 416,
+ "checked": "2026-10-11"
 }
