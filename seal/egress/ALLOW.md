@@ -90,8 +90,9 @@ First match wins, in this order. `awb egress status` shows the counts of the las
 
 ## How it was measured
 
-- `ss -tunape` every 2 seconds for 90 minutes on 2026-10-11, the peers of uid `awb` and `awb-ask`: `api.anthropic.com`
-  on every sample and `http-intake.logs.us5.datadoghq.com` once; nothing else, no UDP but the resolver on loopback.
+- `ss -tunape` once and then every 2 seconds for 40 minutes (11:23 to 12:03 UTC) on 2026-10-11, the peers of uid `awb`
+  and `awb-ask`: `api.anthropic.com` on every sample and `http-intake.logs.us5.datadoghq.com` on the first one;
+  nothing else, no UDP but the resolver on loopback. The mode count is the longer measurement.
 - The client's own list of the hosts it needs (code.claude.com/docs/en/network-config, read on 2026-10-11) against the
   work user's install: native, version 2.1.296, no plugin installed, the official marketplace known, `autoUpdates` off.
 - The crontab of the work user: `claude update` at 01:35 and the commit of the knowledge base at 01:40 (no remote).
