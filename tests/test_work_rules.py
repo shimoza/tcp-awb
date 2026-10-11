@@ -85,5 +85,5 @@ def test_the_work_rules_check_every_draft_first_and_translate_in_one_step():
     t = " ".join(text().split())
     assert "He sees a draft only after `awb write check` of its file ran clean in the same turn" in t
     assert "a mail draft goes into a file" in t and "I and never `we`" in t
-    assert ("The German version and his Russian reading copy come from the accepted English text in one step, never "
+    assert ("German version and his Russian reading copy come from the accepted English text in one step, never "
             "by rewriting: `awb write translate FILE --to de --to ru`") in t

@@ -29,6 +29,7 @@ read or name-check problem, 3 no model path (the prompt file is written).
 """
 from __future__ import annotations
 
+import importlib
 import os
 import sys
 import tempfile
@@ -130,10 +131,21 @@ def _write(path: Path, text: str) -> None:
 # --------------------------------------------------------------------------- the model
 
 
+def _ask_module():
+    """awb.tcp.ask, the Ask path of the platform, or None. Imported by name: the core runs without the platform
+    package (tests/test_price.py), and without it there is no model path."""
+    try:
+        return importlib.import_module("awb.tcp.ask")
+    except Exception:
+        return None
+
+
 def default_sender():
     """(sender, key) of the Ask path when its key is readable here, else None. Tests replace it."""
+    ask = _ask_module()
+    if ask is None:
+        return None
     try:
-        from awb.tcp import ask
         key = ask.read_key()
     except Exception:
         return None
@@ -154,9 +166,10 @@ def _screen(text: str) -> None:
 
 
 def ask_model(system: str, user: str, sender, key) -> str:
-    """The text of the model's answer. Uses the budget of the Ask path when that path is the sender."""
-    from awb.tcp import ask
-
+    """The text of the model's answer, counted against the daily budget of the Ask path."""
+    ask = _ask_module()
+    if ask is None:
+        raise TranslateError("the Ask path is not installed, so no model can be asked")
     left_q, left_t = ask.budget_left()
     if left_q <= 0 or left_t <= 0:
         raise TranslateError("the daily budget of the Ask path is used up; it resets at midnight")

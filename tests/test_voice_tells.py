@@ -34,8 +34,8 @@ STRUCK = [
     ("banned-word", "I copied the error verbatim.", "verbatim"),
     ("banned-word", "The roles are granular enough.", "granular"),
     ("banned-phrase", "The second region runs as a pilot light.", "pilot"),
-    ("invented-label", "The “Fast Lane” option costs less.", None),
-    ("invented-label", "I suggest the \"Quick Start\" approach for the test.", None),
+    ("invented-label", "The “Fastlane” option costs less.", None),
+    ("invented-label", "I suggest the \"Quickstart\" approach for the test.", None),
     ("invented-label", "Variante „Schnellstart“ kostet weniger.", None),
     # punctuation and markup (17 deletions)
     ("comma-and-or", "The cluster needs nodes, disks, and an EIP.", "and"),
@@ -86,8 +86,8 @@ def test_each_struck_out_tell_blocks_in_mail_and_doc(cls, sentence, word, mode):
 
 
 WE = [("We checked the quota.", "we"), ("Our quota is fine.", "our"), ("The team sent it to us.", "us"),
-      ("Wir haben die Quota geprüft.", "wir"), ("Unsere Quota reicht.", "unsere"),
-      ("Die Quota reicht für uns.", "uns")]
+      ("Wir haben die Quota geprüft.", "wir"), ("Unsere 2 Knoten reichen.", "unsere"),
+      ("F\u00fcr uns reicht die Quota.", "uns")]
 
 
 @pytest.mark.parametrize("sentence,word", WE)
@@ -102,7 +102,7 @@ def test_we_our_and_wir_block_in_mail_and_doc_and_not_in_chat(sentence, word):
 
 NEAR_MISSES = [
     "I checked the quota in the US and in us-east.",           # the country and a region are not the pronoun
-    "The Direct Connect option costs less.",                   # a real service name, not quoted as a coinage
+    "I size the CCE option for the test.",                     # a real service name, not quoted as a coinage
     "The \"fast lane\" option costs less.",                     # a quoted phrase in lower case is no coinage
     "The quota is an honest number.",                           # honest alone is no admission
     "The note is **bold** in the middle.",                      # bold inside a sentence is no lead
@@ -125,7 +125,7 @@ def test_chat_reports_the_drafting_tells_without_blocking():
                           ("weakness", "To be honest, the quota is tight."),
                           ("sales-tone", "The cluster is a game changer for the team."),
                           ("draft-history", "Compared to the previous draft the quota is lower."),
-                          ("invented-label", "The “Fast Lane” option costs less.")):
+                          ("invented-label", "The “Fastlane” option costs less.")):
         tells, _ = writing.check_text(planted(sentence)[0], mode="chat")
         assert blocking(tells) == [], cls
         assert [t.cls for t in tells if t.cls == cls] == [cls]

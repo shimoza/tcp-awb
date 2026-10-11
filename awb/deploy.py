@@ -100,6 +100,7 @@ DYNAMIC: dict[tuple[str, str], object] = {
                                                   "awb.extract.pdf", "awb.extract.text"),
     ("awb/hooks.py", "_module"): ("awb.check", "awb.gate", "awb.writing", "awb.review", "awb.kb", "awb.career"),
     ("awb/deploy.py", "owner_keys"): ("awb.tcp.keys",),
+    ("awb/translate.py", "_ask_module"): ("awb.tcp.ask",),
 }
 
 # Modules no unit imports: they run as a command and in no daemon, so a change of one restarts nothing.
