@@ -115,3 +115,40 @@ def test_a_third_party_cannot_keep_the_owner_out(readers):
         if results[-1] == "ok":
             break
     assert "ok" in results, results
+
+
+# finding 12: the tcp listeners take the per-address key from a header any local process sets -----------------
+
+def test_a_local_client_cannot_pick_its_own_address_key(readers):
+    """2b83362 keeps --ports 8080 8081 in the unit for one release, and every local user (the work user too)
+    reaches them. client_key() trusts CF-Connecting-IP on every listener, so a local client that sends a new value
+    per try never meets the 8-a-minute limit: the ninth failure from one loopback client is still answered 200."""
+    tmp_path, path, pw, owner = readers
+    auth = _auth(tmp_path, path, time.time)
+    (tmp_path / "index.html").write_text("<html>x</html>")
+    server = gateway.make_server(0, auth, tmp_path / "index.html", 1, 1, domain=DOMAIN)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def attempt(login, address):
+        c = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        c.request("GET", "/login", headers={"Host": DOMAIN})
+        r = c.getresponse()
+        page, cookie = r.read(), r.getheader("Set-Cookie").split(";")[0]
+        c.close()
+        csrf = re.search(rb'name="csrf" value="([^"]+)"', page).group(1).decode()
+        body = urlencode({"csrf": csrf, "username": login, "password": "wrong", "next": "/"})
+        c = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        c.request("POST", "/login", body=body, headers={
+            "Host": DOMAIN, "Cookie": cookie, "Origin": "https://" + DOMAIN, "CF-Connecting-IP": address,
+            "Content-Type": "application/x-www-form-urlencoded"})
+        r = c.getresponse()
+        r.read()
+        c.close()
+        return r.status
+
+    try:
+        statuses = [attempt("spray%d" % i, "192.0.2.%d" % (i + 1)) for i in range(9)]
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert statuses[-1] == 429, statuses

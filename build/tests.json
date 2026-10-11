@@ -1746,8 +1746,8 @@
   {
    "id": "F4-8",
    "phase": "F4",
-   "name": "an unknown login is counted and answered exactly like a wrong password",
-   "run": ".venv/bin/pytest tests/test_web_users.py::test_an_unknown_login_is_counted_and_answered_like_a_wrong_password",
+   "name": "an unknown login is counted and answered exactly like a wrong password (behind the tunnel)",
+   "run": ".venv/bin/pytest tests/test_web_users.py::test_an_unknown_login_is_counted_and_answered_like_a_wrong_password_behind_the_tunnel",
    "status": "passing"
   },
   {
@@ -3044,8 +3044,29 @@
    "name": "finding 4: the owner host delays a failure by name and address, a wrong code by name",
    "run": ".venv/bin/pytest tests/test_web_gateway.py::test_the_owner_host_delays_a_failure_by_name_and_address_and_a_wrong_code_by_name",
    "status": "passing"
+  },
+  {
+   "id": "R10-31",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 12: a local client cannot pick its own address key",
+   "run": ".venv/bin/pytest tests/test_web_front_review.py::test_a_local_client_cannot_pick_its_own_address_key",
+   "status": "passing"
+  },
+  {
+   "id": "R10-32",
+   "phase": "R10",
+   "name": "finding 12: a TCP listener answers its one peer alone and only that peer names the client",
+   "run": ".venv/bin/pytest tests/test_web_gateway.py::test_a_tcp_listener_answers_its_one_peer_alone_and_only_that_peer_names_the_client",
+   "status": "passing"
+  },
+  {
+   "id": "R10-33",
+   "phase": "R10",
+   "name": "finding 12: the bruteforce limit per address the tunnel names",
+   "run": ".venv/bin/pytest tests/test_web_gateway.py::test_bruteforce_limit_per_address_the_tunnel_names",
+   "status": "passing"
   }
  ],
- "total_tests": 435,
+ "total_tests": 438,
  "checked": "2026-10-11"
 }

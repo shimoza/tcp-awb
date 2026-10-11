@@ -2,8 +2,9 @@
 # @DOMAIN@ the host name of the site, @VAULT@ and @SHARED@ the folders of /etc/awb/paths.conf, @WORK_HOME@ the
 # home of the work user, @OWNER_HOST@, @FRONT_SOCKET@ and @CLOUDFLARED_USER@ the values of the same names in
 # /etc/awb/paths.conf. Not installed by setup.sh: the switch is a step of its own.
-# The site comes in on the front socket only (awb-web.socket). --ports 8080 8081 stay for one release, until the
-# tunnel's ingress points at unix:@FRONT_SOCKET@; the release after drops them (seal/web/README.md).
+# The site comes in on the front socket (awb-web.socket). --ports 8080 8081 stay until the tunnel's ingress points at
+# unix:@FRONT_SOCKET@; they answer the --front-peer user alone and the release after the switch drops them
+# (seal/web/README.md).
 [Unit]
 Description=AWB authenticated web gateway
 After=network.target awb-portal.service awb-ask.service awb-web.socket awb-web-status.socket

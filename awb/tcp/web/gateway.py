@@ -828,11 +828,15 @@ class Gateway(BaseHTTPRequestHandler):
             self.server.auth.unauthenticated.release()
 
     def client_key(self):
-        """The client address for the limiter: CF-Connecting-IP behind the tunnel, else the TCP peer."""
+        """The client address for the limiter: CF-Connecting-IP only on a listener whose one peer is the tunnel's
+        user, checked before a byte was read; anywhere else the TCP peer, whatever the header says (finding 12 of
+        the review of 2026-10-10: a local client picked a new address key per try)."""
         if isinstance(self.client_address, tuple) and self.client_address:
             fallback = str(self.client_address[0])
         else:
             fallback = 'local'
+        if getattr(self.server, 'peer', None) is None:
+            return fallback[:100]
         return self.headers.get('CF-Connecting-IP', fallback)[:100]
 
     def first_checks(self):
@@ -1180,9 +1184,25 @@ def owner_page(path=None):
     return data, document_csp(data)
 
 
-def make_server(port, auth, index, portal_port, ask_port, projects_port=8182, tenants_port=8183, *, domain):
-    """A TCP listener on 127.0.0.1 (the tests, and the one release of the switch to the front socket)."""
-    server = ThreadingHTTPServer(('127.0.0.1', port), Gateway)
+class TCPServer(ThreadingHTTPServer):
+    """A TCP listener on 127.0.0.1. With `peer` set, a connection whose local process is not of that uid is closed
+    before a byte is read, as on the front socket (finding 12 of the review of 2026-10-10); without it every local
+    client is served, and none of them chooses its address key."""
+    peer = None
+
+    def verify_request(self, request, client_address):
+        if self.peer is None or loopback_peer_uid(request) == self.peer:
+            return True
+        print('-', '-', 'main', '-', 'peer', flush=True)
+        return False
+
+
+def make_server(port, auth, index, portal_port, ask_port, projects_port=8182, tenants_port=8183, *, domain,
+                peer=None):
+    """A TCP listener on 127.0.0.1 (the tests, and the release of the switch to the front socket, there with the
+    tunnel's uid as its one `peer`)."""
+    server = TCPServer(('127.0.0.1', port), Gateway)
+    server.peer = peer
     return _configure(server, auth, index, portal_port, ask_port, projects_port, tenants_port, domain)
 
 
@@ -1190,6 +1210,37 @@ def peer_uid(sock):
     """The uid of the process at the other end of a Unix socket (SO_PEERCRED)."""
     cred = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize('3i'))
     return struct.unpack('3i', cred)[1]
+
+
+def _proc_address(address):
+    """An (ip, port) in the form of /proc/net/tcp and tcp6: each 32-bit word of the address in host order, hex."""
+    ip, port = address[0], address[1]
+    packed = socket.inet_pton(socket.AF_INET6 if ':' in ip else socket.AF_INET, ip)
+    words = ''.join('%08X' % int.from_bytes(packed[i:i+4], sys.byteorder) for i in range(0, len(packed), 4))
+    return '%s:%04X' % (words, port)
+
+
+def loopback_peer_uid(sock, tables=('/proc/net/tcp', '/proc/net/tcp6')):
+    """The uid of the local process at the other end of a loopback TCP connection: the owner of the socket whose
+    local address is our peer and whose remote address is us, from the kernel's table; None when it is not found."""
+    try:
+        want = (_proc_address(sock.getpeername()), _proc_address(sock.getsockname()))
+    except (OSError, ValueError, IndexError):
+        return None
+    for table in tables:
+        try:
+            with open(table, encoding='ascii', errors='replace') as fh:
+                lines = fh.read().splitlines()[1:]
+        except OSError:
+            continue
+        for line in lines:
+            fields = line.split()
+            if len(fields) > 7 and (fields[1], fields[2]) == want:
+                try:
+                    return int(fields[7])
+                except ValueError:
+                    return None
+    return None
 
 
 def unix_listener(path, mode=0o660):
@@ -1287,7 +1338,8 @@ def main():
     ap.add_argument('--front-peer', help='the one user whose processes may connect to the front socket')
     ap.add_argument('--status-socket', help='a Unix socket that answers GET /health only')
     ap.add_argument('--ports', nargs='*', type=int, default=[],
-                    help='TCP listeners on 127.0.0.1 (only for the one release of the switch to the front socket)')
+                    help='TCP listeners on 127.0.0.1 that answer the --front-peer user alone (only until the '
+                         'ingress points at the front socket)')
     ap.add_argument('--v1-marker', help=argparse.SUPPRESS)
     ap.add_argument('--portal-port', type=int, default=8180)
     ap.add_argument('--ask-port', type=int, default=8181)
@@ -1297,9 +1349,9 @@ def main():
     if not args.front_socket and not args.ports:
         ap.error('give --front-socket (and --ports only for the switch)')
     peer = None
-    if args.front_socket:
-        if not args.front_peer:
-            ap.error('--front-socket needs --front-peer')
+    if (args.front_socket or args.ports) and not args.front_peer:
+        ap.error('--front-socket and --ports need --front-peer, the one user that may connect')
+    if args.front_peer:
         try:
             peer = pwd.getpwnam(args.front_peer).pw_uid
         except KeyError:
@@ -1314,7 +1366,7 @@ def main():
         servers.append(make_front_server(sock, auth, args.index, *rest, domain=args.domain, peer=peer))
     if args.status_socket:
         servers.append(make_status_server(handed.get(args.status_socket) or unix_listener(args.status_socket, 0o666)))
-    servers += [make_server(port, auth, args.index, *rest, domain=args.domain) for port in args.ports]
+    servers += [make_server(port, auth, args.index, *rest, domain=args.domain, peer=peer) for port in args.ports]
     for server in servers:
         server.v1_marker = args.v1_marker
         server.owner_host = (args.owner_host or '').lower() or None

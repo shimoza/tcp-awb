@@ -3,6 +3,7 @@ site-wide cap, the per-address limit, the sign-in log and `awb web status`. A te
 the logins are invented."""
 import argparse
 import hashlib
+import os
 import json
 import re
 import threading
@@ -161,9 +162,12 @@ def test_each_further_series_doubles_the_wait_up_to_24_hours_and_a_success_reset
     assert auth.limiter.waits_until("reader1", clock()) - clock() == 900
 
 
-def test_an_unknown_login_is_counted_and_answered_like_a_wrong_password(site):
+def test_an_unknown_login_is_counted_and_answered_like_a_wrong_password_behind_the_tunnel(site):
+    """Replaces test_an_unknown_login_is_counted_and_answered_like_a_wrong_password (finding 12 of the review of
+    2026-10-10): its server took CF-Connecting-IP from any local client, which only a listener whose one peer is
+    the tunnel's uid does now. The server here has this test's uid as that peer; the asserts are the same."""
     auth, pw, clock, tmp_path = site
-    server = gateway.make_server(0, auth, tmp_path / "auth.json", 1, 1, domain=DOMAIN)
+    server = gateway.make_server(0, auth, tmp_path / "auth.json", 1, 1, domain=DOMAIN, peer=os.getuid())
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     def attempt(login, password, address):

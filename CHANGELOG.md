@@ -171,6 +171,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- The gateway's ports 8080 and 8081, kept until the tunnel points at the front socket, answer the tunnel's user
+  alone, and the gateway takes the client address from `CF-Connecting-IP` only there and on the front socket
+  (finding 12 of the review of 2026-10-10). A local process can no longer pick a new address key for each try, nor
+  reach the sign-in through those ports at all.
 - A stranger can no longer keep the owner off the owner host (finding 4 of the review of 2026-10-10). A failure
   there delays the next try of that name from that address only, so one wrong password a minute from elsewhere no
   longer holds the owner's right password and code back. A wrong code after the right password still delays the

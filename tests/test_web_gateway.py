@@ -237,15 +237,6 @@ class LoginTests(unittest.TestCase):
         self.assertNotIn("Cookie", forwarded)
         self.assertNotIn("Authorization", forwarded)
 
-    def test_bruteforce_limit(self):
-        for _ in range(8):
-            h, d = self.form(password="wrong")
-            h["CF-Connecting-IP"] = "failed-logins"
-            self.assertEqual(self.request("/login", "POST", h, urlencode(d))[0], 200)
-        h, d = self.form(password="wrong")
-        h["CF-Connecting-IP"] = "failed-logins"
-        self.assertEqual(self.request("/login", "POST", h, urlencode(d))[0], 429)
-
     def test_host_method_and_body_size_limits(self):
         self.assertEqual(self.request(headers={"Host": "evil.invalid"})[0], 400)
         self.assertEqual(self.request("/projects", "DELETE", self.session_headers())[0], 405)
@@ -408,6 +399,94 @@ def test_the_gateway_without_ports_opens_no_tcp_listener_and_answers_health_on_t
     # without a front socket and without ports it does not start; a front socket needs its peer
     assert subprocess.run(base[:-2], capture_output=True).returncode == 2
     assert subprocess.run(base[:-2] + ["--front-socket", str(tmp_path / "f3.sock")], capture_output=True).returncode == 2
+
+
+def test_a_tcp_listener_answers_its_one_peer_alone_and_only_that_peer_names_the_client(tmp_path):
+    """Finding 12 of the review of 2026-10-10: the TCP listeners kept until the ingress points at the front socket
+    take the tunnel's uid as their one peer. The uid of a loopback client is read from the kernel's table; a
+    listener whose peer is another uid closes the connection before a byte is read, one whose peer is the client's
+    uid answers and takes the address key from CF-Connecting-IP, and one without a peer never does."""
+    write_auth(tmp_path / "auth.json", "awb", PASSWORD)
+    (tmp_path / "index.html").write_text("x")
+    auth = gateway.Auth(tmp_path / "auth.json")
+    seen = []
+
+    class Seen(gateway.Gateway):
+        def route(self, session):
+            seen.append(self.client_key())
+            self.reply(204)
+
+    def ask(peer):
+        server = gateway.make_server(0, auth, tmp_path / "index.html", 1, 1, domain=DOMAIN, peer=peer)
+        server.RequestHandlerClass = Seen
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            c = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+            c.request("GET", "/", headers={"Host": DOMAIN, "CF-Connecting-IP": "192.0.2.77"})
+            try:
+                return c.getresponse().status
+            except (http.client.HTTPException, OSError):
+                return None
+            finally:
+                c.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    me = os.getuid()
+    assert ask(me + 1) is None and seen == []
+    assert ask(me) == 204 and seen == ["192.0.2.77"]
+    assert ask(None) == 204 and seen == ["192.0.2.77", "127.0.0.1"]
+    listener = _socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    client = _socket.create_connection(listener.getsockname())
+    accepted, _ = listener.accept()
+    try:
+        assert gateway.loopback_peer_uid(accepted) == me
+        assert gateway.loopback_peer_uid(accepted, tables=()) is None
+    finally:
+        for s in (client, accepted, listener):
+            s.close()
+
+
+def test_bruteforce_limit_per_address_the_tunnel_names(tmp_path):
+    """Replaces LoginTests.test_bruteforce_limit (finding 12 of the review of 2026-10-10): that test kept its
+    failures apart from the other tests of its class by a CF-Connecting-IP of its own, which a listener without the
+    tunnel's uid as its peer no longer takes. On a listener whose one peer is this test's uid (the tunnel's stand-in)
+    eight failures under one address give the ninth 429 and another address still signs in; on a listener without a
+    peer eight failures under eight addresses give the ninth 429."""
+    write_auth(tmp_path / "auth.json", "awb", PASSWORD)
+    (tmp_path / "index.html").write_text("x")
+
+    def attempt(server, address, password="wrong"):
+        c = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        c.request("GET", "/login", headers={"Host": DOMAIN})
+        r = c.getresponse()
+        page, cookie = r.read(), r.getheader("Set-Cookie").split(";")[0]
+        c.close()
+        csrf = re.search(rb'name="csrf" value="([^"]+)"', page).group(1).decode()
+        body = urlencode({"csrf": csrf, "username": "awb", "password": password, "next": "/"})
+        c = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        c.request("POST", "/login", body=body, headers={
+            "Host": DOMAIN, "Cookie": cookie, "Origin": "https://" + DOMAIN, "CF-Connecting-IP": address,
+            "Content-Type": "application/x-www-form-urlencoded"})
+        r = c.getresponse()
+        r.read()
+        c.close()
+        return r.status
+
+    for peer, addresses in ((os.getuid(), ["failed-logins"] * 9), (None, ["192.0.2.%d" % i for i in range(9)])):
+        server = gateway.make_server(0, gateway.Auth(tmp_path / "auth.json"), tmp_path / "index.html", 1, 1,
+                                     domain=DOMAIN, peer=peer)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            assert [attempt(server, a) for a in addresses] == [200] * 8 + [429], peer
+            if peer is not None:
+                assert attempt(server, "another-address", PASSWORD) == 303
+        finally:
+            server.shutdown()
+            server.server_close()
 
 
 def test_inherited_sockets_are_found_by_their_path(tmp_path, monkeypatch):
