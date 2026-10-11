@@ -60,8 +60,13 @@ edit short. It does not replace his review and it cannot promise that no reader 
 
 ## German and Russian
 
-The checker is built for English. For a German text follow the same steps. The numbers of `awb write check` do not
-apply to it, the blocking rules on names, commitments and earlier mails still do.
+He accepts the English text first. The German version and his Russian reading copy are then made from that
+accepted text in one step, never by rewriting: `awb write translate FILE --to de --to ru`. It writes
+`FILE.de.md` and `FILE.ru.md` next to the file, proves with `awb write keep` that every number, identifier and code
+block is still there and runs `awb write check` on the German text. When no model is reachable it writes the prompt
+file and stops: translate along that prompt into the named file, then run the same command with `--verify`.
+The checker is built for English. In a German text the blocking rules on `wir`, commitments, earlier mails,
+weakness, sales tone and the history of the draft still apply, the sentence numbers do not.
 
 ## After he sends it
 

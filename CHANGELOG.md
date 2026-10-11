@@ -34,6 +34,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - The stop hook of a working session holds a reply that shows him a draft (a file under deliverables/ or a mail
   draft) before `awb write check` of that file ran clean in the same turn, with one line naming the file. A mail
   written into the reply must go into a file first; a Russian draft is exempt; the gate fails closed.
+- `awb write translate FILE --to de --to ru` makes the German version and his Russian reading copy from the
+  accepted text in one step, keeps every number, identifier and code block (refused on a difference) and runs the
+  writing check on the German text. It reaches a model through the Ask path only; a working session cannot read
+  that key, so the command writes the prompt file and stops with one line, and `--verify` proves the session's
+  translation.
 
 - The knowledge leaves as a dataset. `awb dataset build` writes the folder `tcp-facts-<date>/` and its zip: every
   fact on one line grouped by topic, one file per topic, the export with its metadata, the orderable services, the

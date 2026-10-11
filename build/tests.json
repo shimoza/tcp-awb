@@ -3926,8 +3926,50 @@
    "name": "stop hook: the draft gate fails closed (unreadable transcript, missing writing check, an error) and never echoes a name",
    "run": ".venv/bin/pytest tests/test_draft_gate.py -k 'fails_closed or broken or registered'",
    "status": "passing"
+  },
+  {
+   "id": "VT-12",
+   "phase": "VT",
+   "name": "translate: German and Russian in one step with a fake model through the Ask path, facts kept, German checked, Russian exempt",
+   "run": ".venv/bin/pytest tests/test_translate.py::test_german_and_russian_in_one_step_with_every_fact_kept",
+   "status": "passing"
+  },
+  {
+   "id": "VT-13",
+   "phase": "VT",
+   "name": "translate: a lost number, a changed identifier or code block refuses and nothing lands next to the source",
+   "run": ".venv/bin/pytest tests/test_translate.py -k 'lost_number or changed_identifier'",
+   "status": "passing"
+  },
+  {
+   "id": "VT-14",
+   "phase": "VT",
+   "name": "translate: an unaccepted source and a registered name are never sent; the German result must pass write check",
+   "run": ".venv/bin/pytest tests/test_translate.py -k 'not_accepted or registered_name or must_pass'",
+   "status": "passing"
+  },
+  {
+   "id": "VT-15",
+   "phase": "VT",
+   "name": "translate: without a model path the prompt file is written and one line said; --verify proves the session's file",
+   "run": ".venv/bin/pytest tests/test_translate.py -k 'model_path or verify'",
+   "status": "passing"
+  },
+  {
+   "id": "VT-16",
+   "phase": "VT",
+   "name": "translate: keep across languages reads a decimal comma and a German compound",
+   "run": ".venv/bin/pytest tests/test_translate.py::test_keep_across_languages_reads_a_decimal_comma_and_a_compound",
+   "status": "passing"
+  },
+  {
+   "id": "VT-17",
+   "phase": "VT",
+   "name": "work rules: drafts are checked before he sees them and translations come in one step, within 60 lines",
+   "run": ".venv/bin/pytest tests/test_work_rules.py",
+   "status": "passing"
   }
  ],
- "total_tests": 561,
+ "total_tests": 567,
  "checked": "2026-10-11"
 }

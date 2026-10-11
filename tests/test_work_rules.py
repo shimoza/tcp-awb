@@ -77,3 +77,13 @@ def test_the_work_rules_name_the_import_and_the_promise_of_wipe_mode():
     assert "`held: run awb import tcp-xxxx as the owner in your own terminal`" in t
     assert "every name the rules recognise as a token" in t
     assert "never an `awb intake`, register or bucket block" in t
+
+
+def test_the_work_rules_check_every_draft_first_and_translate_in_one_step():
+    """The work profile of 2026-10, proposal 4: every draft for others passes the voice checks before he sees it,
+    and the Russian reading copy and the German version come from the accepted text in one step."""
+    t = " ".join(text().split())
+    assert "He sees a draft only after `awb write check` of its file ran clean in the same turn" in t
+    assert "a mail draft goes into a file" in t and "I and never `we`" in t
+    assert ("The German version and his Russian reading copy come from the accepted English text in one step, never "
+            "by rewriting: `awb write translate FILE --to de --to ru`") in t

@@ -2,6 +2,7 @@
 
     awb write check FILE [--mode mail|doc|chat] [--scope tcp|hcs] [--request REQUEST]
     awb write keep BEFORE AFTER
+    awb write translate FILE --to de|en|ru [--to ...] [--verify]     (awb/translate.py)
     awb voice learn DRAFT SENT
 
 `check_text` reads a text the way he writes it (Markdown or plain text) and returns tells and metrics. A tell is
@@ -1473,7 +1474,25 @@ def _fact_kind(token: str) -> tuple[str, str] | None:
     return None
 
 
-def facts_of(text: str) -> dict[str, list[tuple[str, int]]]:
+def _across(found: tuple[str, str] | None, token: str) -> list[tuple[str, str]]:
+    """The facts of one token when the two texts are in different languages (a comma between digits was read as
+    a point before: 2,5 and 2.5, 1.000 and 1,000 are the same number). An identifier needs a Latin letter or a digit (a Cyrillic abbreviation is a
+    word of the translation) and a hyphenated word that is no fact gives the facts of its parts (TCP-Konto)."""
+    if found is not None:
+        kind, value = found
+        if kind == "identifier" and not re.search(r"[A-Za-z0-9]", value):
+            return []
+        return [found]
+    out: list[tuple[str, str]] = []
+    if "-" in token:
+        for part in token.split("-"):
+            got = _fact_kind(part) if part else None
+            if got is not None and got[0] != "negation":
+                out.extend(_across(got, part))
+    return out
+
+
+def facts_of(text: str, across: bool = False) -> dict[str, list[tuple[str, int]]]:
     """(value, line) of every fact of a text by kind: numbers (digits, and the number words two to ninety as
     digits), identifiers (a token with digits and letters or with . / : + _ inside, a region such as eu-de, a word
     in capitals, a CamelCase word, an inline code span, a URL, a mail address), negations (not, no, never, n't,
@@ -1511,12 +1530,17 @@ def facts_of(text: str) -> dict[str, list[tuple[str, int]]]:
         marker = _KEEP_MARKER_RE.match(rest)
         if marker:
             rest = " " * marker.end() + rest[marker.end():]
+        if across:
+            rest = re.sub(r"(?<=\d),(?=\d)", ".", rest)
         for m in _KEEP_TOKEN_RE.finditer(rest):
             if m.group(0).lower() == "one":
                 out["one"].append(("1", n))
                 continue
             found = _fact_kind(m.group(0))
-            if found:
+            if across:
+                for kind, value in _across(found, m.group(0)):
+                    out[kind].append((value, n))
+            elif found:
                 out[found[0]].append((found[1], n))
     return out
 
@@ -1525,14 +1549,18 @@ def _lines_of(items: list[tuple[str, int]], values) -> list[int]:
     return sorted({line for value, line in items if value in values})
 
 
-def keep(before: str, after: str) -> list[Kept]:
+KEEP_ACROSS = ("number", "identifier", "code block")
+"""What `keep` compares between two languages: negations are words of each language and are left to the reader."""
+
+
+def keep(before: str, after: str, across: bool = False) -> list[Kept]:
     """V-15: the facts of the text before a voice pass against the text after it, one `Kept` per kind in the order
     of KEEP_KINDS. Numbers and identifiers are compared as sets of values (a repeat that the pass merged is not a
     change), negations by their count, code blocks by their content. The word "one" pairs with a 1 that the other
     text has and lacks there: "one node" and "1 node" are the same fact."""
-    a, b = facts_of(before), facts_of(after)
+    a, b = facts_of(before, across), facts_of(after, across)
     out: list[Kept] = []
-    for kind in KEEP_KINDS:
+    for kind in (KEEP_ACROSS if across else KEEP_KINDS):
         if kind == "negation":
             n_a, n_b = len(a[kind]), len(b[kind])
             differ = n_a != n_b
@@ -2010,6 +2038,10 @@ def _main_write(argv: list[str]) -> int:
     from awb.cli import SafeParser
 
     prog = "awb write"
+    if argv and argv[0] == "translate":
+        from awb import translate
+
+        return translate.main(argv[1:])
     ap = SafeParser(prog=prog, description="Check a text against the house style. Prints class, line and hint.")
     sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
     s = sub.add_parser("check", help="check one file")
@@ -2018,6 +2050,7 @@ def _main_write(argv: list[str]) -> int:
     s.add_argument("--scope", choices=SCOPES, default="tcp")
     s.add_argument("--request", type=Path, default=None,
                    help="a file with the request: a section it did not ask for is reported")
+    sub.add_parser("translate", help="the German, English or Russian version of an accepted draft, facts kept")
     k = sub.add_parser("keep", help="the facts of a text before and after the voice pass must be the same")
     k.add_argument("before", type=Path)
     k.add_argument("after", type=Path)

@@ -593,6 +593,28 @@ background, next steps, conclusion and the like); the document title is never ju
 def check_text(text, mode="doc", scope="tcp", request: str | None = None) -> tuple[list[Tell], dict]
 def check_file(path, mode="doc", scope="tcp", request: Path | None = None) -> tuple[list[Tell], dict]
 def language_of(text: str) -> str                                  # en, de or ru (ru from 30 % Cyrillic letters)
+KEEP_ACROSS = ("number", "identifier", "code block")
+def keep(before: str, after: str, across: bool = False) -> list[Kept]   # across: two languages
+```
+
+`keep(..., across=True)` compares numbers (a comma between digits reads as a point), identifiers (with a Latin
+letter or a digit; a hyphenated word gives the facts of its parts, so TCP-Konto keeps TCP) and code blocks, not
+negations.
+
+`awb write translate FILE --to de|en|ru [--to ...] [--mode mail|doc] [--scope tcp|hcs] [--verify]`
+(`awb/translate.py`) writes FILE.<lang>.md next to FILE from the accepted source (no blocking tell; a Russian
+source is exempt). The model is reached through the Ask path only (`ask.read_key`, `ask.post`, `ask.MODEL`, the
+Ask budget) after the name check of the source; without a readable key (the work user and the owner) it writes
+`<project>/reviews/.translate/<name>.<lang>.prompt.md` and stops with one line (exit 3). `--verify` proves a
+translation the session wrote. The result passes `keep(across=True)` (else exit 1: the model's text goes to
+`<name>.<lang>.refused.md` in the prompt folder) and the writing check in the source's mode (exit 1 on a blocking
+tell; the Russian copy is exempt). Exit 2 on a usage, read or name-check problem.
+
+```python
+def translate(path: Path, langs: list[str], mode="doc", scope="tcp", verify=False, model=None)
+    -> tuple[list[Result], list[str]]                              # model: (sender, key); None asks default_sender
+def default_sender() -> tuple | None                               # (ask.post, key) or None
+def target_path(path: Path, lang: str) -> Path                     # offer.md -> offer.de.md
 ```
 
 The drafting skill (T-51, U-12) is `seal/work-claude/skills/drafting/SKILL.md`. `seal/setup.sh` installs it with
