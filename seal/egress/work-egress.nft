@@ -1,0 +1,69 @@
+# The egress filter of the work user (seal/egress/ALLOW.md, awb/egress.py), rendered by `awb egress load` (root) to
+# /var/lib/awb-egress/work-egress.nft with the address sets after the table, and loaded as one transaction. Its own
+# table, replaced as a whole when its rules change; between two loads the timer replaces the addresses of the sets
+# in place and the counters keep counting.
+# 1. Only packets of the work user's uid enter the chain work. Every other uid passes the base chain untouched: the
+#    key service, the vault daemon and the owner (the owner's uid), the Ask page and the project chat (awb-ask).
+# 2. In the chain work: loopback (the resolver 127.0.0.53, the local services) and established connections pass; a
+#    new connection on tcp 443 to an address of the allow list passes and is counted as allowed.
+# 3. Every other new connection is counted in the named counter of its class, first match wins, and goes to the
+#    chain refused: accept in the mode count, a reset or an ICMP refusal in the mode enforce.
+table inet awb_egress
+delete table inet awb_egress
+table inet awb_egress {
+    counter c_allowed { }
+    counter c_probe { }
+    counter c_metadata { }
+    counter c_dns { }
+    counter c_ntp { }
+    counter c_tcp_api { }
+    counter c_github { }
+    counter c_ssh { }
+    counter c_mail { }
+    counter c_web { }
+    counter c_other_tcp { }
+    counter c_other_udp { }
+    counter c_icmp { }
+    counter c_other { }
+
+    set allow4 { type ipv4_addr; flags interval; }
+    set allow6 { type ipv6_addr; flags interval; }
+    set tcp_api4 { type ipv4_addr; flags interval; }
+    set tcp_api6 { type ipv6_addr; flags interval; }
+    set github4 { type ipv4_addr; flags interval; }
+    set github6 { type ipv6_addr; flags interval; }
+
+    chain output {
+        type filter hook output priority filter; policy accept;
+        meta skuid "@WORK_USER@" jump work
+    }
+
+    chain work {
+        oifname "lo" accept
+        ct state established,related accept
+        ip daddr @allow4 tcp dport 443 counter name "c_allowed" accept
+        ip6 daddr @allow6 tcp dport 443 counter name "c_allowed" accept
+        ip daddr 192.0.2.0/24 counter name "c_probe" goto refused
+        ip6 daddr 2001:db8::/32 counter name "c_probe" goto refused
+        ip daddr 169.254.0.0/16 counter name "c_metadata" goto refused
+        ip6 daddr fe80::/10 counter name "c_metadata" goto refused
+        meta l4proto { tcp, udp } th dport 53 counter name "c_dns" goto refused
+        udp dport 123 counter name "c_ntp" goto refused
+        ip daddr @tcp_api4 counter name "c_tcp_api" goto refused
+        ip6 daddr @tcp_api6 counter name "c_tcp_api" goto refused
+        ip daddr @github4 counter name "c_github" goto refused
+        ip6 daddr @github6 counter name "c_github" goto refused
+        tcp dport 22 counter name "c_ssh" goto refused
+        tcp dport { 25, 465, 587 } counter name "c_mail" goto refused
+        tcp dport { 80, 443 } counter name "c_web" goto refused
+        udp dport 443 counter name "c_web" goto refused
+        meta l4proto tcp counter name "c_other_tcp" goto refused
+        meta l4proto udp counter name "c_other_udp" goto refused
+        meta l4proto { icmp, ipv6-icmp } counter name "c_icmp" goto refused
+        counter name "c_other" goto refused
+    }
+
+    chain refused {
+@VERDICT@
+    }
+}

@@ -32,6 +32,7 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     awb images list|release                                  awb/images.py
     awb hook prompt|pre-write|post-write|stop|session-start  awb/hooks.py
     awb seal check                                           awb/seal.py
+    awb egress status, sudo awb egress load|enforce|count    awb/egress.py   (the egress filter of the work user)
     awb import CODE [FILE...] [--customer C|new] [--review] [--redo]    awb/importcmd.py (owner side)
     awb words update                                         awb/words.py    (owner side)
     awb bucket sync|folder|pull|put|move                     awb/bucket.py   (owner side)
@@ -582,6 +583,7 @@ DELEGATED = {
     "hook": ("hooks", "entry points for the client hooks of working sessions"),
     "images": ("images", "pictures of the intake, held on the vault side: list, release"),
     "seal": ("seal", "checks of the seal between the vault and working sessions"),
+    "egress": ("egress", "the egress filter of the work user: status; sudo awb egress load|enforce|count"),
     "bucket": ("bucket", "the owner's bucket: sync, folder, pull, put, move"),
     "import": ("importcmd", "customer material into a project in one command: the bucket, the vault inbox or files"),
     "words": ("words", "the vocabulary of the public corpus for the intake: update (owner side)"),

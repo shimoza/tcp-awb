@@ -3233,8 +3233,232 @@
    "name": "finding 12: the gateway unit takes the site on the front socket alone and the fence lets the tunnel reach the resolver alone, no installed file passes --ports",
    "run": ".venv/bin/pytest tests/test_web_seal.py::test_the_rendered_front_units_and_the_fence_with_the_front_socket_alone",
    "status": "passing"
+  },
+  {
+   "id": "EG-1",
+   "phase": "EG",
+   "name": "egress filter: the allow list names the client and the price api and keeps tenants and buckets off",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_allow_list_names_the_client_and_the_price_api_and_keeps_tenants_and_buckets_off",
+   "status": "passing"
+  },
+  {
+   "id": "EG-2",
+   "phase": "EG",
+   "name": "egress filter: a bad row of the allow list stops the load",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_a_bad_row_of_the_allow_list_stops_the_load",
+   "status": "passing"
+  },
+  {
+   "id": "EG-3",
+   "phase": "EG",
+   "name": "egress filter: an allow list without an allowed row stops the load",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_an_allow_list_without_an_allowed_row_stops_the_load",
+   "status": "passing"
+  },
+  {
+   "id": "EG-4",
+   "phase": "EG",
+   "name": "egress filter: the sets collapse overlaps and keep both families",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_sets_collapse_overlaps_and_keep_both_families",
+   "status": "passing"
+  },
+  {
+   "id": "EG-5",
+   "phase": "EG",
+   "name": "egress filter: a host without an answer keeps its addresses for seven days",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_a_host_without_an_answer_keeps_its_addresses_for_seven_days",
+   "status": "passing"
+  },
+  {
+   "id": "EG-6",
+   "phase": "EG",
+   "name": "egress filter: the rendered rules count or refuse by mode for ipv4 and ipv6",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_rendered_rules_count_or_refuse_by_mode_for_ipv4_and_ipv6",
+   "status": "passing"
+  },
+  {
+   "id": "EG-7",
+   "phase": "EG",
+   "name": "egress filter: only the work users uid enters the chain so the key service passes untouched",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_only_the_work_users_uid_enters_the_chain_so_the_key_service_passes_untouched",
+   "status": "passing"
+  },
+  {
+   "id": "EG-8",
+   "phase": "EG",
+   "name": "egress filter: the template keeps no placeholder and names no address of a host",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_template_keeps_no_placeholder_and_names_no_address_of_a_host",
+   "status": "passing"
+  },
+  {
+   "id": "EG-9",
+   "phase": "EG",
+   "name": "egress filter: the mode parses from the host file",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_mode_parses_from_the_host_file",
+   "status": "passing"
+  },
+  {
+   "id": "EG-10",
+   "phase": "EG",
+   "name": "egress filter: the mode comes from the root host file alone",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_mode_comes_from_the_root_host_file_alone",
+   "status": "passing"
+  },
+  {
+   "id": "EG-11",
+   "phase": "EG",
+   "name": "egress filter: writing the mode keeps every other line",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_writing_the_mode_keeps_every_other_line",
+   "status": "passing"
+  },
+  {
+   "id": "EG-12",
+   "phase": "EG",
+   "name": "egress filter: a load then refreshes the sets in place and records what each class counted",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_a_load_then_refreshes_the_sets_in_place_and_records_what_each_class_counted",
+   "status": "passing"
+  },
+  {
+   "id": "EG-13",
+   "phase": "EG",
+   "name": "egress filter: a change of the rules reloads the table and loses no count",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_a_change_of_the_rules_reloads_the_table_and_loses_no_count",
+   "status": "passing"
+  },
+  {
+   "id": "EG-14",
+   "phase": "EG",
+   "name": "egress filter: a counter below its last value counts from zero",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_a_counter_below_its_last_value_counts_from_zero",
+   "status": "passing"
+  },
+  {
+   "id": "EG-15",
+   "phase": "EG",
+   "name": "egress filter: a host file without a mode leaves the table alone",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_a_host_file_without_a_mode_leaves_the_table_alone",
+   "status": "passing"
+  },
+  {
+   "id": "EG-16",
+   "phase": "EG",
+   "name": "egress filter: load and the switches need root and the switches the owner",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_load_and_the_switches_need_root_and_the_switches_the_owner",
+   "status": "passing"
+  },
+  {
+   "id": "EG-17",
+   "phase": "EG",
+   "name": "egress filter: enforce is refused with an unexpected class in the last 24 hours",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_enforce_is_refused_with_an_unexpected_class_in_the_last_24_hours",
+   "status": "passing"
+  },
+  {
+   "id": "EG-18",
+   "phase": "EG",
+   "name": "egress filter: enforce passes after a quiet day and count goes back",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_enforce_passes_after_a_quiet_day_and_count_goes_back",
+   "status": "passing"
+  },
+  {
+   "id": "EG-19",
+   "phase": "EG",
+   "name": "egress filter: old counts outside the window do not stop enforce",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_old_counts_outside_the_window_do_not_stop_enforce",
+   "status": "passing"
+  },
+  {
+   "id": "EG-20",
+   "phase": "EG",
+   "name": "egress filter: enforce is refused before 24 hours and after a gap",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_enforce_is_refused_before_24_hours_and_after_a_gap",
+   "status": "passing"
+  },
+  {
+   "id": "EG-21",
+   "phase": "EG",
+   "name": "egress filter: a failed enforce load goes back to count",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_a_failed_enforce_load_goes_back_to_count",
+   "status": "passing"
+  },
+  {
+   "id": "EG-22",
+   "phase": "EG",
+   "name": "egress filter: the command exits one on a refusal and two on an error",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_command_exits_one_on_a_refusal_and_two_on_an_error",
+   "status": "passing"
+  },
+  {
+   "id": "EG-23",
+   "phase": "EG",
+   "name": "egress filter: the status lines and the seal check show the mode and the counts",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_status_lines_and_the_seal_check_show_the_mode_and_the_counts",
+   "status": "passing"
+  },
+  {
+   "id": "EG-24",
+   "phase": "EG",
+   "name": "egress filter: awb seal check carries the egress line only where the seal installed the filter",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_awb_seal_check_carries_the_egress_line_only_where_the_seal_installed_the_filter",
+   "status": "passing"
+  },
+  {
+   "id": "EG-25",
+   "phase": "EG",
+   "name": "egress filter: awb deploy status prints the egress lines",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_awb_deploy_status_prints_the_egress_lines",
+   "status": "passing"
+  },
+  {
+   "id": "EG-26",
+   "phase": "EG",
+   "name": "egress filter: setup installs the units and loads the filter in count mode",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_setup_installs_the_units_and_loads_the_filter_in_count_mode",
+   "status": "passing"
+  },
+  {
+   "id": "EG-27",
+   "phase": "EG",
+   "name": "egress filter: the update of a deploy loads the filter too",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_update_of_a_deploy_loads_the_filter_too",
+   "status": "passing"
+  },
+  {
+   "id": "EG-28",
+   "phase": "EG",
+   "name": "egress filter: setup keeps the mode of the host file",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_setup_keeps_the_mode_of_the_host_file",
+   "status": "passing"
+  },
+  {
+   "id": "EG-29",
+   "phase": "EG",
+   "name": "egress filter: the units load at boot before the logins and every five minutes",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_units_load_at_boot_before_the_logins_and_every_five_minutes",
+   "status": "passing"
+  },
+  {
+   "id": "EG-30",
+   "phase": "EG",
+   "name": "egress filter: verify lists the egress checks",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_verify_lists_the_egress_checks",
+   "status": "passing"
+  },
+  {
+   "id": "EG-31",
+   "phase": "EG",
+   "name": "egress filter: a deploy maps the egress files to no restart",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_a_deploy_maps_the_egress_files_to_no_restart",
+   "status": "passing"
+  },
+  {
+   "id": "EG-32",
+   "phase": "EG",
+   "name": "egress filter: the update of a deploy names step_egress after step_units and installs the timer (replaces the pinned update-steps test)",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_and_loads_the_egress_filter",
+   "status": "passing"
   }
  ],
- "total_tests": 462,
+ "total_tests": 494,
  "checked": "2026-10-11"
 }

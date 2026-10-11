@@ -952,8 +952,10 @@ def test_the_dry_run_holds_cloudflared_and_terraform_in_the_seal_and_in_a_deploy
     assert "apt-mark" not in res.stdout
 
 
-def test_setup_update_mode_skips_the_seal_steps_holds_the_packages_and_hooks_the_kb(fakebin):
-    """Replaces test_setup_update_mode_skips_the_seal_steps_and_holds_the_packages (TM0 item 7: the update installs
+def test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_and_loads_the_egress_filter(fakebin):
+    """Replaces test_setup_update_mode_skips_the_seal_steps_holds_the_packages_and_hooks_the_kb (the egress filter of
+    the work user: the update installs seal/*.timer with the units and runs step_egress after step_units), which
+    replaced test_setup_update_mode_skips_the_seal_steps_and_holds_the_packages (TM0 item 7: the update installs
     the commit gate of the knowledge base, step_kb_hooks after step_holds), which replaced
     test_setup_update_mode_skips_the_seal_steps (T9 step 4: the update holds cloudflared and terraform,
     step_holds after step_needrestart). Planted: the full mode prints the chown of the shared tree, the users and the moves (so the checks can fail);
@@ -977,7 +979,7 @@ def test_setup_update_mode_skips_the_seal_steps_holds_the_packages_and_hooks_the
     assert re.search(r"^\+ write /opt/tcp-awb/venv/lib/python3[^/]*/site-packages/awb\.pth ", joined, re.M)
     assert "    | /opt/tcp-awb/src" in res.stdout.splitlines()
     assert "+ exchange /opt/tcp-awb/src.next /opt/tcp-awb/src  # renameat2 RENAME_EXCHANGE, one call" in cmds
-    for unit in sorted(p.name for p in SEAL.glob("*.service")):
+    for unit in sorted(p.name for p in list(SEAL.glob("*.service")) + list(SEAL.glob("*.timer"))):
         assert "+ write /etc/systemd/system/%s (mode 644, root:root)" % unit in cmds
         assert "+ systemctl enable --now %s" % unit in cmds
     assert "+ write /etc/needrestart/conf.d/awb.conf (mode 644, root:root)" in cmds
@@ -988,14 +990,15 @@ def test_setup_update_mode_skips_the_seal_steps_holds_the_packages_and_hooks_the
     text = SETUP.read_text(encoding="utf-8")
     assert not re.search(r'rm -rf[^\n]*\$OPT/src["\s]', text)
     assert re.search(r"^update_steps\(\) \{\n(    #.*\n)?    if \[ \"\$units_only\" -eq 1 \]; then\n        step_units\n"
-                     r"        return 0\n    fi\n    step_code\n    step_conf\n    step_units\n    step_needrestart\n"
+                     r"        return 0\n    fi\n    step_code\n    step_conf\n    step_units\n    step_egress\n    step_needrestart\n"
                      r"    step_holds\n    step_kb_hooks\n    step_client\n    step_managed\n    step_mirrors\n\}", text, re.M)
     # --units-only: the units and daemon-reload, nothing else
     res = run_script(SETUP, ["--update", "--units-only", "--dry-run"], fakebin)
     assert res.returncode == 0, res.stderr
     only = commands(res.stdout)
     assert only == ["+ write /etc/systemd/system/%s (mode 644, root:root)" % p.name
-                    for p in sorted(SEAL.glob("*.service"))] + ["+ systemctl daemon-reload"]
+                    for p in sorted(SEAL.glob("*.service")) + sorted(SEAL.glob("*.timer"))] + ["+ systemctl daemon-reload"]
+    assert "+ /usr/local/bin/awb egress load" in cmds and "+ systemctl enable --now awb-egress.timer" in cmds
     assert run_script(SETUP, ["--units-only", "--dry-run"], fakebin).returncode == 1
 
 

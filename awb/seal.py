@@ -3,7 +3,9 @@
 Run as the work user it proves the seal from the inside: it cannot read the register (plain or encrypted), list
 the vault, the owner's password store, .claude, .ssh or home, enter the owner's home (where the owner's folders
 are) or run `sudo -n true`; it is in none of the groups of the owner or of the host admins; the check socket
-answers ping; it can write tcp-shared and the outbox; the tool guard of the hooks refuses its planted cases. One line per check, PASS or FAIL. Exit 0 when every check
+answers ping; it can write tcp-shared and the outbox; on a host whose seal installed the egress filter (an `egress`
+line in /etc/awb/paths.conf) the filter is loaded, refreshed within 15 minutes and in the mode of that line, and its
+status and counts follow the checks as comment lines; the tool guard of the hooks refuses its planted cases. One line per check, PASS or FAIL. Exit 0 when every check
 passes, 1 on any FAIL, 2 on a usage error.
 
 A "cannot" check passes only when the operating system refuses with a permission error. A path that is simply
@@ -168,6 +170,10 @@ def run_checks(p: config.Paths | None = None, home: Path | None = None) -> list[
     out.append(Result(ok, "can write tcp-shared", note))
     ok, note = _can_write(p.outbox)
     out.append(Result(ok, "can write the outbox", note))
+    from awb import egress
+    found = egress.check()
+    if found is not None:
+        out.append(Result(found[0], found[1]))
     from awb import hooks
     problems = hooks.selftest()
     out.append(Result(not problems, "the tool guard of the hooks refuses its planted cases", "; ".join(problems)))
@@ -191,6 +197,10 @@ def main(argv: list[str] | None = None) -> int:
     results = run_checks()
     for r in results:
         print("%s  %s%s" % ("PASS" if r.ok else "FAIL", r.what, " (%s)" % r.note if r.note and not r.ok else ""))
+    from awb import egress
+    if egress.has_line():
+        for line in egress.status_lines():
+            print("# " + line)
     failed = sum(1 for r in results if not r.ok)
     print("# %d checks, %d failed" % (len(results), failed))
     return 1 if failed else 0

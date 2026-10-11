@@ -1,0 +1,18 @@
+# The egress filter of the work user (seal/egress/ALLOW.md, awb/egress.py). Root loads the table at boot, before the
+# logins, the crontab and the units of the work user, and awb-egress.timer runs the same load every 5 minutes: it
+# resolves the host names of the list, replaces the addresses of the sets in place and records the counters. The
+# mode (egress = count|enforce) comes from /etc/awb/paths.conf. Type=oneshot: a deploy never restarts it,
+# setup.sh --update runs `awb egress load` itself.
+[Unit]
+Description=Architect Workbench egress filter of the work user
+Wants=network-online.target nss-lookup.target
+After=network-online.target nss-lookup.target
+Before=systemd-user-sessions.service cron.service awb-portal.service awb-console-data.service awb-project-create.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/awb egress load
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

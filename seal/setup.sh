@@ -6,7 +6,7 @@
 #
 # --update is what `sudo awb deploy` runs, from the release folder it has just extracted, never from a working
 # tree. Its steps are an explicit allow list (update_steps): the code, the host file, the units, the needrestart
-# rule, the package holds of cloudflared and terraform, the client files and the managed drop-in. The users, the homes, the moves, the ssh keys and (without
+# rule, the package holds of cloudflared and terraform, the egress filter, the client files and the managed drop-in. The users, the homes, the moves, the ssh keys and (without
 # --mirrors) the mirrors are left alone, so a deploy never chowns the shared tree again. --units-only renders and
 # installs the unit templates and reloads systemd, nothing else (the flip back of a failed reload uses it).
 #
@@ -23,6 +23,11 @@
 #
 # The client files of the work user are root owned and immutable; the six hooks are also installed as managed
 # settings of the client (a drop-in under /etc/claude-code), which no user or project file can switch off.
+#
+# The egress filter of the work user (seal/egress/ALLOW.md) is an nftables table that root loads with `awb egress
+# load`, at boot through awb-egress.service and every 5 minutes through awb-egress.timer. It ships in the mode count
+# (egress = count in the host file: nothing refused, every connection outside the list counted by class); only
+# `sudo awb egress enforce` turns it to enforce, and a rewrite of the host file keeps the mode it finds.
 #
 # Every command is printed before it runs. --dry-run prints every command and runs none (it works without root).
 # The script is idempotent: a second run leaves what is in place as it is. A step that would touch the owner's
@@ -597,6 +602,7 @@ projects = $work_home
 kb = $work_home/tcp-kb
 check_socket = $CHECK_SOCKET
 mirrors = $MIRROR_ROOT
+egress = $(kept_conf egress count)
 $web_keys
 EOF
 }
@@ -608,15 +614,22 @@ step_units() {
     info "the work user. A running unit is left running: sudo awb deploy restarts what changed"
     info "The vault locks on a stop, a crash or a reboot. awb vault reload (what awb deploy uses after a code update)"
     info "hands the passphrase to the new process over a private socket pair and keeps it unlocked"
-    for f in "$seal_dir"/*.service; do
+    for f in "$seal_dir"/*.service "$seal_dir"/*.timer; do
         name=$(basename -- "$f")
         write_file "$UNITS_DIR/$name" 644 root:root < <(sed -e "s|@OWNER@|$owner|g" "$f")
     done
     run systemctl daemon-reload
     [ "$units_only" -eq 0 ] || return 0
-    for f in "$seal_dir"/*.service; do
+    for f in "$seal_dir"/*.service "$seal_dir"/*.timer; do
         try_run systemctl enable --now "$(basename -- "$f")"
     done
+}
+
+step_egress() {
+    info "the egress filter of the work user (seal/egress/ALLOW.md): awb egress load resolves the list as root, loads"
+    info "the table inet awb_egress in the mode of the host file (count unless the owner ran sudo awb egress enforce)"
+    info "or refreshes its address sets in place, and records the counters; awb egress status shows them"
+    try_run "$BIN_LINK" egress load
 }
 
 step_needrestart() {
@@ -773,6 +786,7 @@ steps() {
     step_code
     step_conf
     step_units
+    step_egress
     step_needrestart
     step_holds
     step_kb_hooks
@@ -791,6 +805,7 @@ update_steps() {
     step_code
     step_conf
     step_units
+    step_egress
     step_needrestart
     step_holds
     step_kb_hooks

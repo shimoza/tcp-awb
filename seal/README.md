@@ -25,6 +25,10 @@ The seal keeps the register of names away from every working session. It uses tw
   daemon, the key service, the Ask page and the portal. `setup.sh` installs every `*.service` of this folder and
   fills in the owner in the `User=` lines. These templates are the unit list of `awb deploy`, with the templates of
   `web/`.
+- `awb-egress.service`, `awb-egress.timer`: the egress filter of the work user (section "The egress filter"). Root
+  runs `awb egress load` at boot, before the logins and the units of the work user, and every 5 minutes.
+- `egress/ALLOW.md`, `egress/work-egress.nft`: the allow list with the reason per destination and how it was
+  measured, and the nftables template of the filter.
 - `needrestart-awb.conf`: goes to `/etc/needrestart/conf.d/awb.conf`, so that a package upgrade never restarts
   the vault daemon or the key service: a restart locks them and the console loses projects and chat.
 - The package holds (T9 step 4, RT-26): `apt-mark hold cloudflared terraform`, so the routine upgrade leaves the
@@ -55,13 +59,34 @@ refused cases and fails when one passes; `awb seal check` runs it.
 `awb seal check` runs the checks of `verify.sh` that need no root, for the user who runs it. Run it as the work
 user.
 
+## The egress filter
+
+An nftables table, `inet awb_egress`, for the work user's uid alone (D-M16 of `presentations/modes/DESIGN.md`, here
+on the sealed host). Loopback (the resolver, the local services) and established connections pass. A new connection
+on tcp 443 to an address of the allow list passes: the host names of `egress/ALLOW.md`, resolved by root every 5
+minutes, IPv4 and IPv6. Every other new connection is counted in a named counter of its class (`probe`, `metadata`,
+`dns`, `ntp`, `tcp_api`, `github`, `ssh`, `mail`, `web`, `other_tcp`, `other_udp`, `icmp`, `other`) and then:
+
+- in the mode `count`, accepted. The filter ships in this mode and changes nothing for a session.
+- in the mode `enforce`, refused (a reset for tcp, an ICMP refusal for the rest).
+
+The mode is the line `egress = count|enforce` of `/etc/awb/paths.conf`, read from that root file alone, count when it
+is missing; the setup writes count and keeps the line it finds. `sudo awb egress enforce` switches, and is refused
+unless the last 24 hours were counted without a gap and no class counted a connection but `probe` (the planted one
+of `verify.sh`) and the classes the owner names with `--accept`. `sudo awb egress count` goes back. Every other uid
+passes untouched: the key service and the vault daemon run as the owner, so the test tenants and the buckets stay
+reachable through the key service and are not on the list (they are watched as `tcp_api`, so a leased key used from
+a session shows). `/var/lib/awb-egress/` keeps the resolved addresses, the counts per class and time and the status
+that `awb egress status`, `awb seal check` and `awb deploy status` read; never the address of a connection.
+
 ## Order
 
 1. Read what would happen: `seal/setup.sh --dry-run` (no root needed; `SUDO_USER` must name the owner, as sudo
    sets it). Every command is printed and none is run. A line with `# if present` depends on the host.
 2. Set it up: `sudo seal/setup.sh`. Add `--mirrors DIR...` for read-only bind mounts of public doc mirrors under
    `/srv/tcp-mirrors/` (one fstab line each).
-3. Prove it: `sudo seal/verify.sh`. `--dry-run` lists the checks.
+3. Prove it: `sudo seal/verify.sh`. `--dry-run` lists the checks. The egress filter runs in the mode count; after a
+   day, read `awb egress status` and decide on `sudo awb egress enforce`.
 4. Unlock the vault as the owner: `awb vault unlock`. Then log in as `awb` (the owner's ssh keys work) and run
    `awb seal check`.
 5. From then on, after every commit: `cd ~/tcp-awb && sudo awb deploy` (`awb deploy --dry-run` shows the plan
@@ -87,8 +112,8 @@ user.
    is a root owned wrapper of three lines that runs `/opt/tcp-awb/venv/bin/python3 -I -m awb`: `-I` ignores the
    invoking user's site folder, `PYTHONPATH` and the working folder, so no package planted there is loaded ahead
    of the installed code. The `AWB_*` variables are not `PYTHON*` variables and still apply.
-6. Writes `/etc/awb/paths.conf` with the owner, the shared side, the vault, the projects root, the knowledge base
-   and the check socket.
+6. Writes `/etc/awb/paths.conf` with the owner, the shared side, the vault, the projects root, the knowledge base,
+   the check socket and the egress mode (`egress = count`, or the line it finds).
 7. Installs every `*.service` of this folder, enables and starts them (a failed start only warns: the Ask page
    waits for its key file, which stays the owner's step). A unit that runs is left running: `sudo awb deploy`
    restarts what a commit changed. The vault locks on a stop, a crash or a reboot. `awb vault reload` (what `awb
@@ -98,6 +123,8 @@ user.
    While the vault is locked every prompt of a work session is refused with the time of
    the lock (`awb hook prompt` exits 2) and a session starts without its project files. Writes `/etc/needrestart/conf.d/awb.conf`: needrestart, which unattended upgrades run,
    leaves the vault daemon and the key service running.
+7a. Loads the egress filter (`awb egress load`, section "The egress filter") in the mode of the host file and
+   enables `awb-egress.timer`.
 8. Copies the owner's `~/.ssh/authorized_keys` to the work user.
 9. Installs `work-claude/settings.json` and `work-claude/CLAUDE.md` into the `.claude` folder of the work home,
    owned by root, readable for the work user and immutable (`chattr +i`): the folder is the work user's own
@@ -165,8 +192,10 @@ bash, coreutils, util-linux (`runuser`, `mount`, `mountpoint`), e2fsprogs (`chat
   configuration folder leaves the work user's settings behind (the managed hooks still run).
 - The commit gate of a project is a session-owned control: `--no-verify` or another `core.hooksPath` skip it.
   It holds nothing against a hostile session; push stays off, so a committed name stays on the host.
-- The deny rule `mcp__*` bounds what a session takes in through connectors, not what it sends out: the Bash
-  tool and the web tools can reach the network. Egress is out of the seal's scope; a session holds sanitised
+- The deny rule `mcp__*` bounds what a session takes in through connectors, not what it sends out. What it sends out
+  is bounded by the egress filter, and only in the mode enforce: until then every connection passes and is counted.
+  Even then the allowed hosts stay ways out (an upload to the model API under another account's key, the telemetry
+  intake) and so does DNS through the host's resolver; `egress/ALLOW.md` lists the limits. A session holds sanitised
   text only.
 - `chattr +i` needs a file system that keeps the flag (ext4, xfs, btrfs). `verify.sh` reports a FAIL when the
   flag is missing.

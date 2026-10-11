@@ -396,7 +396,12 @@ Integration (change these existing modules, keep every existing test green):
 - `seal/work-claude/CLAUDE.md`: at most 60 lines: codes only, never repeat a name he types, intake is his, where
   things are, the ledger and career commands, the writing rules in short, English note rule.
 - `awb/seal.py`: `awb seal check` runs the parts of verify.sh that need no root (for the current user) and prints PASS
-  or FAIL. Tests: `bash -n` on every script, `setup.sh --dry-run` output contains each required step and no command
+  or FAIL. On a host whose host file carries an `egress` line it also checks that the egress filter is loaded,
+  refreshed within 15 minutes and in that mode, from `/var/lib/awb-egress/status.json`.
+- `awb/egress.py` with `seal/egress/work-egress.nft` and `seal/egress/ALLOW.md`: the egress filter of the work user
+  (an nftables table by uid; `awb egress status|load|enforce|count`). `seal/verify.sh` checks it is loaded in the
+  mode of the host file, takes the work user's uid alone, counts a planted connection of the work user and leaves one
+  of the owner's uid uncounted. Tests: `bash -n` on every script, `setup.sh --dry-run` output contains each required step and no command
   touches the owner's vault or password store except to set their modes.
 
 ## `awb/hooks.py`: client hooks for working sessions

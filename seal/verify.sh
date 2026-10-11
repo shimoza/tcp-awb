@@ -8,7 +8,10 @@
 # password store, .claude, .ssh, home or any folder in the owner's home, sudo -n true. The work user is in none of the
 # groups of the owner or of the host admins. The check socket answers ping, the work user can write tcp-shared and
 # the owner can write the outbox. The client files of the work user are those of the repository and immutable, the
-# managed drop-in carries the hooks. One line per check, PASS or FAIL; exit 1 on any FAIL.
+# managed drop-in carries the hooks. The egress table of the work user is loaded in the mode of the host file, takes
+# the work user's uid alone, counts a planted connection of the work user to 192.0.2.1 (and refuses it in the mode
+# enforce) and leaves one of the owner's uid, which the key service runs under, uncounted; its timer is active.
+# One line per check, PASS or FAIL; exit 1 on any FAIL.
 # --dry-run lists the checks and runs none (it works without root). Paths come from /etc/awb/paths.conf when it
 # is there, home folders from getent passwd. No line names a folder of the owner: they are counted.
 set -euo pipefail
@@ -222,6 +225,84 @@ for h in pre-commit commit-msg pre-push; do
 done
 allowed "the owner is in the group $WORK_GROUP" sh -c 'id -nG "$1" | tr " " "\n" | grep -qx "$2"' verify \
     "$owner" "$WORK_GROUP"
+
+# --------------------------------------------------------------------------- the egress filter (seal/egress)
+
+EGRESS_TABLE=awb_egress
+PROBE_ADDR=192.0.2.1
+# exit 0 connected, 3 refused (a reset), 4 no answer within 2 seconds or another error
+PROBE_PY='import socket, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(2)
+try:
+    s.connect((sys.argv[1], 443))
+except ConnectionRefusedError:
+    sys.exit(3)
+except OSError:
+    sys.exit(4)
+sys.exit(0)'
+
+probe_packets() {
+    # the packets of the named counter c_probe, empty when the table is not loaded
+    nft list counter inet "$EGRESS_TABLE" c_probe 2>/dev/null | sed -n 's/.*packets \([0-9][0-9]*\).*/\1/p' | head -n 1
+}
+
+egress_checks() {
+    local mode refused out rules work_uid pid key_uid before after rc
+    if [ "$dry_run" -eq 1 ]; then
+        printf 'CHECK %s\n' "the egress table of the work user is loaded" \
+            "the egress filter runs in the mode of the host file (count or enforce)" \
+            "only the work user's uid enters the egress chain (the key service's uid passes untouched)" \
+            "the key service runs under a uid other than the work user's" \
+            "a planted connection of the work user outside the list is counted (and refused in the mode enforce)" \
+            "a planted connection of the owner's uid passes the filter uncounted" \
+            "the timer of the egress filter is active"
+        return 0
+    fi
+    mode=$(conf_value egress)
+    mode="${mode:-count}"
+    allowed "the egress table of the work user is loaded" nft list table inet "$EGRESS_TABLE"
+    refused=$(nft list chain inet "$EGRESS_TABLE" refused 2>/dev/null || true)
+    case "$mode" in
+        count) [[ "$refused" == *accept* && "$refused" != *reject* ]] && out=0 || out=1 ;;
+        enforce) [[ "$refused" == *"reject with tcp reset"* ]] && out=0 || out=1 ;;
+        *) out=1 ;;
+    esac
+    report "$out" "the egress filter runs in the mode of the host file ($mode)"
+    work_uid=$(id -u "$WORK_USER")
+    rules=$(nft list chain inet "$EGRESS_TABLE" output 2>/dev/null | grep -Ev '^[[:space:]]*(table|chain|type|\}|$)' || true)
+    if [ "$(printf '%s\n' "$rules" | grep -c .)" -eq 1 ] &&
+        printf '%s\n' "$rules" | grep -Eq "^[[:space:]]*meta skuid (\"?$WORK_USER\"?|$work_uid) jump work$"; then
+        out=0
+    else
+        out=1
+    fi
+    report "$out" "only the work user's uid enters the egress chain (the key service's uid passes untouched)"
+    pid=$(systemctl show -p MainPID --value awb-keyd.service 2>/dev/null || echo 0)
+    key_uid=""
+    [ "${pid:-0}" = 0 ] || key_uid=$(stat -c %u "/proc/$pid" 2>/dev/null || true)
+    [ -n "$key_uid" ] && [ "$key_uid" != "$work_uid" ] && out=0 || out=1
+    report "$out" "the key service runs under a uid other than the work user's"
+    before=$(probe_packets)
+    rc=0
+    as_work python3 -I -c "$PROBE_PY" "$PROBE_ADDR" >/dev/null 2>&1 || rc=$?
+    after=$(probe_packets)
+    out=1
+    if [ -n "$before" ] && [ -n "$after" ] && [ "$after" -gt "$before" ]; then
+        if [ "$mode" != enforce ] || [ "$rc" -eq 3 ]; then
+            out=0
+        fi
+    fi
+    report "$out" "a planted connection of the work user outside the list is counted (and refused in the mode enforce)"
+    before=$(probe_packets)
+    runuser -u "$owner" -- python3 -I -c "$PROBE_PY" "$PROBE_ADDR" >/dev/null 2>&1 || true
+    after=$(probe_packets)
+    [ -n "$before" ] && [ "$before" = "$after" ] && out=0 || out=1
+    report "$out" "a planted connection of the owner's uid passes the filter uncounted"
+    allowed "the timer of the egress filter is active" systemctl is-active --quiet awb-egress.timer
+}
+
+egress_checks
 
 if [ "$dry_run" -eq 1 ]; then
     exit 0

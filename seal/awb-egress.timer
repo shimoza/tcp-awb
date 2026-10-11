@@ -1,0 +1,14 @@
+# The refresh of the egress filter (awb-egress.service): every 5 minutes root resolves the host names of
+# seal/egress/ALLOW.md, replaces the addresses of the sets and records what each class counted. Installed and
+# enabled by seal/setup.sh.
+[Unit]
+Description=Architect Workbench egress filter, refresh every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=awb-egress.service
+
+[Install]
+WantedBy=timers.target

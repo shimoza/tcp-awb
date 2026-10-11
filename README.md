@@ -428,6 +428,11 @@ awb seal check                   # as awb: what the work user can and cannot rea
 ```
 
 The setup installs the vault daemon, the key service and the web services from the unit templates of `seal/`.
+It also loads the egress filter of the work user: an nftables table that counts every new connection of `awb` to
+a host outside `seal/egress/ALLOW.md` (the model API, the client's login, update and telemetry hosts and the TCP
+price API), by class. It ships counting and refuses nothing. After a day of counts with nothing unexpected,
+`sudo awb egress enforce` makes it refuse; `awb egress status` and `awb deploy status` show the mode and the counts,
+`sudo awb egress count` goes back. The test tenants stay reachable through the key service, which runs as you.
 Things you want no commit to carry (names of other workspaces, a naming scheme) go into a local blocklist, one regular expression per
 line: `/etc/awb/blocklist.txt` or `~/.config/awb/blocklist.txt`. It never enters the repository.
 
@@ -435,6 +440,7 @@ line: `/etc/awb/blocklist.txt` or `~/.config/awb/blocklist.txt`. It never enters
 |---|---|
 | after a reboot | `awb vault unlock`, then `awb keys unlock` (as the owner) |
 | after a commit | `sudo awb deploy`: the vault and the keys stay unlocked |
+| to stop what a session could send out | `awb egress status`, then `sudo awb egress enforce` when the last 24 hours counted nothing unexpected |
 | after a library upgrade | `sudo awb deploy --only awb-vaultd.service awb-keyd.service` |
 | a new project, close or delete | as `awb`: projects belong to the work user |
 | a customer's material | as the owner: `awb import tcp-xxxx` (it asks for the customer's names on the first import; a project without a customer needs no names); the session hears of the copies at its next prompt |

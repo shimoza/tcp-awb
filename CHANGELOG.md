@@ -171,6 +171,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- An egress filter for the work user. An nftables table by uid lets a session reach loopback, the model API, the
+  client's login, update and telemetry hosts and the TCP price API (`seal/egress/ALLOW.md`, each with its reason and
+  how it was measured) and counts every other new connection by class. It ships in the mode count and refuses
+  nothing: `awb egress status`, `awb seal check` and `awb deploy status` show the counts of the last 24 hours, and
+  `sudo awb egress enforce` turns it to refusing only when those 24 hours counted nothing unexpected (`--accept
+  CLASS` for a class you expect to lose); `sudo awb egress count` goes back. The test tenants stay reachable through
+  the key service, which runs under the owner's uid and passes untouched; `seal/verify.sh` proves that with a
+  planted connection of each uid.
 - The gateway listens on the front socket alone: `awb-web.service` no longer passes `--ports 8080 8081` and the
   tunnel fence lets the tunnel's user reach no loopback port but the resolver (53), now that every ingress rule (the
   site, `/ask` and the owner host) points at the front socket (finding 12 of the review of 2026-10-10). `--ports`

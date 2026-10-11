@@ -79,7 +79,7 @@ Seal, once, with sudo: `seal/setup.sh --dry-run` (read the plan), `sudo seal/set
 |---|---|
 | `cd ~/tcp-awb && sudo awb deploy` | after a commit: bring it live, restart only what changed, ask the vault passphrase once when the vault daemon restarted, end with the status lines |
 | `awb deploy --dry-run` | the plan and every step, without root; nothing runs and nothing is asked |
-| `awb deploy status` | the journal, the release each daemon runs, locked or down since when, a split between a daemon and the code |
+| `awb deploy status` | the journal, the release each daemon runs, locked or down since when, a split between a daemon and the code, the egress filter's mode and its counts of the last 24 hours |
 | `sudo awb deploy --only awb-vaultd.service awb-keyd.service` | these units only, also when nothing changed (after a library upgrade) |
 | `sudo awb deploy --all` | restart every installed unit |
 | `sudo awb deploy --rollback` | the release that was live before this one |
@@ -87,6 +87,19 @@ Seal, once, with sudo: `seal/setup.sh --dry-run` (read the plan), `sudo seal/set
 
 The tree must be clean (commit first). The deploy runs the installed copy of its own code, so a change of
 `awb/deploy.py` is live from the following deploy. `seal/setup.sh` (full) stays for the first seal of a host.
+
+## The egress filter of the work user (seal/egress/ALLOW.md)
+
+| command | what it does |
+|---|---|
+| `awb egress status [--json]` | any user: the mode, when the table was loaded and refreshed, and per class what the last 24 hours counted outside the list (`allowed` counts the connections to the list) |
+| `sudo awb egress load` | root: resolve the host names of `seal/egress/ALLOW.md`, load the table `inet awb_egress` in the mode of `/etc/awb/paths.conf` or refresh its address sets in place, record the counters. `seal/setup.sh`, `awb-egress.service` at boot and `awb-egress.timer` every 5 minutes run it |
+| `sudo awb egress enforce [--accept CLASS...]` | your own shell: refuse every new connection of the work user outside the list. Refused (exit 1, the mode stays count) unless the last 24 hours were counted without a gap of more than 30 minutes and no class counted a connection but `probe` (the planted one of `seal/verify.sh`) and the classes you name with `--accept` because you expect to lose them |
+| `sudo awb egress count` | your own shell: back to counting, nothing refused; the 24 hours start again |
+
+The mode is the line `egress = count|enforce` of `/etc/awb/paths.conf` (count when it is missing); the setup writes
+count and keeps what it finds. The classes: `probe`, `metadata`, `dns`, `ntp`, `tcp_api`, `github`, `ssh`, `mail`,
+`web`, `other_tcp`, `other_udp`, `icmp`, `other` (`seal/egress/ALLOW.md` says what each holds).
 
 ## The console page (owner side, your own shell)
 
@@ -230,7 +243,7 @@ kept) and a note.
 | `awb write check FILE --mode mail` | house style: long dash, comma before and/or, banned words, "we" in a mail, commitments, references to earlier mails, vendor name, certification terms. Modes mail, doc, chat. Reported with lines, never blocking: fragments, comma splices, headings written as verdicts, connectors outside his set (and, so, then, but, also, because), a mail with too little "I" |
 | `awb write keep BEFORE AFTER` | the voice pass changed no fact: numbers, identifiers, negations and code blocks of the text before and after it are compared, any difference blocks (exit 1). Prints kinds, counts and lines, never a value |
 | `awb voice learn DRAFT SENT` | store a draft and the version you sent, write suggestions for the style rules |
-| `awb seal check` | the checks of the seal that need no root, for the current user |
+| `awb seal check` | the checks of the seal that need no root, for the current user; on a host with the egress filter also its load and mode, and its counts as comment lines |
 
 ## The red-team pack (owner side)
 

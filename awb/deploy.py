@@ -2,7 +2,8 @@
 
     sudo awb deploy [--dry-run] [--all] [--only UNIT...] [--restart] [--to COMMIT] [--rollback] [--mirrors DIR...]
     awb deploy --dry-run            the plan without root, as the owner
-    awb deploy status               the journal, the release each daemon runs, locked or down since when
+    awb deploy status               the journal, the release each daemon runs, locked or down since when, the
+                                    egress filter's mode and counts
 
 Three users take part and each does only its own part:
 
@@ -117,6 +118,8 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("seal/setup.sh", ()),
     ("seal/verify.sh", ()),
     ("seal/needrestart-awb.conf", ()),
+    ("seal/egress/", ()),
+    ("seal/awb-egress.timer", ()),
     ("seal/web/install.sh", ()),
     ("seal/README.md", ()),
     ("seal/web/README.md", ()),
@@ -1871,6 +1874,9 @@ def owner_status(host: Host) -> int:
             print("  %-28s %-14s %s" % (u, e.get("action"), e.get("result")))
     units = [u for u, e in (j.get("units") or {}).items() if e.get("kind") in DAEMON_ORDER]
     for line in status_lines(j, validate_status(owner_daemon_states()), systemd_show(host.runner, units)):
+        print(line)
+    from awb import egress
+    for line in egress.status_lines():
         print(line)
     return 0
 
