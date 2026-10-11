@@ -171,6 +171,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- The name check reads every letter of another script that Unicode lists as confusable with one Latin letter as that
+  letter, Lisu capitals and Cherokee small letters included, also inside a word of mixed scripts (finding 17 of the
+  review of 2026-10-10). The table of 417 letters is generated once from the confusables data of UTS #39 and kept in
+  the repository (`python -m awb.confusables confusables.txt` builds it again); symbols, digits and marks stay out,
+  so a box border is no letter.
 - `/kb`, `kb_find` of Ask and every search withhold an entry that carries what `awb kb add` refuses, not only a
   registered name: a mail address or other structured data, a register or project code, an identifier, a home path,
   a secret or a token (P3 of the review of 2026-10-10). An entry file written past `kb add` is no longer shown. A

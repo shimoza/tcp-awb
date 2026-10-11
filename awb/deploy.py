@@ -106,6 +106,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/tcp_facts_mcp.py": "the MCP server of the dataset, copied into every build and run by its recipient",
     "awb/tcp/web/contract.py": "awb api write|check, writes and checks docs/api/openapi.yaml",
     "awb/tcp/ui.py": "awb ui submit|status|watch, run by the owner; a watch runs as his own background process",
+    "awb/confusables.py": "python -m awb.confusables, run once by a build session to write awb/confusables_latin.py",
 }
 
 # Files outside the package, first match wins. A value is a tuple of effects: "all" (every unit), "rules" (the

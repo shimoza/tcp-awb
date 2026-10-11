@@ -3198,8 +3198,36 @@
    "name": "P3: an entry written past kb add with a code or a home path is withheld, the clean one shown",
    "run": ".venv/bin/pytest tests/test_tm0_review.py::test_an_entry_written_past_kb_add_with_a_code_or_a_home_path_is_withheld",
    "status": "passing"
+  },
+  {
+   "id": "R10-53",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 17: a registered name in Lisu capitals never reaches the put mail",
+   "run": ".venv/bin/pytest tests/test_tm0_review.py::test_a_registered_name_in_lisu_capitals_never_reaches_the_put_mail",
+   "status": "passing"
+  },
+  {
+   "id": "R10-54",
+   "phase": "R10",
+   "name": "finding 17: a registered name in Lisu or Cherokee lookalikes, also in a mixed-script word, is a hit of the name check, the gate and the ledger",
+   "run": ".venv/bin/pytest tests/test_tm0_review.py::test_a_registered_name_in_lookalike_letters_or_mixed_scripts_is_a_hit_of_every_check",
+   "status": "passing"
+  },
+  {
+   "id": "R10-55",
+   "phase": "R10",
+   "name": "finding 17: the generated table maps letters of other scripts to one Latin letter and keeps the fold of before",
+   "run": ".venv/bin/pytest tests/test_tm0_review.py::test_the_generated_table_maps_letters_of_other_scripts_to_one_latin_letter",
+   "status": "passing"
+  },
+  {
+   "id": "R10-56",
+   "phase": "R10",
+   "name": "finding 17: the generator keeps letters and leaves symbols, digits, marks and folded letters alone",
+   "run": ".venv/bin/pytest tests/test_tm0_review.py::test_the_generator_keeps_letters_and_leaves_symbols_digits_marks_and_folded_letters_alone",
+   "status": "passing"
   }
  ],
- "total_tests": 457,
+ "total_tests": 461,
  "checked": "2026-10-11"
 }

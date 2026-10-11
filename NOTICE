@@ -2,3 +2,7 @@ Architect Workbench
 Copyright 2026 shimoza
 
 Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+awb/confusables_latin.py is derived from confusables.txt of Unicode Technical Standard #39 (Unicode Security
+Mechanisms), Copyright 2026 Unicode, Inc., used under the Unicode License v3
+(https://www.unicode.org/license.txt).

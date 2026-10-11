@@ -7,10 +7,11 @@ Every name is an invented fixture name of tests/fixtures.py; no test prints a va
 from __future__ import annotations
 
 import re
+import unicodedata
 
 import pytest
 
-from awb import check, gate, kb, ledger
+from awb import check, confusables, confusables_latin, gate, kb, ledger, matcher
 from awb.tcp import keys
 from tests import fixtures as fx
 from tests.test_xchg import buckets, lab_project, quiet, svc  # noqa: F401  (the fixtures of the exchange tests)
@@ -54,6 +55,98 @@ def test_a_possessive_of_a_plain_word_stays_no_name(tmp_path, home, register_pat
     msg.write_text(subject + "\n", encoding="utf-8")
     assert gate.scan_message(msg, None) == []
     ledger.add("other", subject, day="2026-09-22", p=home)
+
+
+# --------------------------------------------------------------------------- finding 17: lookalike letters
+
+
+def test_a_registered_name_in_lisu_capitals_never_reaches_the_put_mail(svc, buckets, lab_project,  # noqa: F811
+                                                                                 tmp_path):
+    """33ba690 promises that the name of a put travels into the owner's mail only after the service's name check,
+    and the matcher promises that letters of other scripts that look like Latin letters count as those letters.
+    Attack: a hostile project session sends a raw put on the call socket whose name writes the registered short
+    form with a Lisu capital (U+A4DC looks like Z, U+A4F3 like O), which the lookalike table does not list. The
+    check passes it, so the mail shows the customer's name to the owner's mail provider; the same spelling passes
+    kb.screen, ledger.screen and the commit gate."""
+    lab, _ = buckets
+    form = fx.CUSTOMER_FORMS[1]
+    lisu = "ꓜ" + form[1:-1].upper() + "ꓳ"          # reads as the short form in capitals
+    up = tmp_path / "x.md"
+    up.write_text("The image imported in four minutes.\n", encoding="utf-8")
+    key = "%s/from-session/2026-10-10/put-0123456789ab.md" % lab_project.code
+    planted = "offer %s.md" % lisu
+    a = keys.request(svc.call_path, {"op": "obs", "method": "PUT", "project": lab_project.code, "key": key,
+                                     "name": planted}, upload=up)
+    assert a["ok"], "setup: the clean bytes were refused"
+    _, message = svc.notes[-1]
+    assert lisu not in message, "a registered name in lookalike letters reached the put mail"
+
+
+def _lookalike(word: str, script: str) -> str:
+    """`word` with every letter that has a lookalike of `script` in the generated table written in that script."""
+    by_letter: dict[str, str] = {}
+    for c, latin in sorted(confusables_latin.LATIN.items()):
+        if unicodedata.name(c, "").startswith(script) and latin not in by_letter:
+            by_letter[latin] = c
+    return "".join(by_letter.get(c, c) for c in word)
+
+
+@pytest.mark.parametrize("script, shape", [("LISU", str.upper), ("CHEROKEE SMALL", str.lower),
+                                           ("CHEROKEE LETTER", str.upper)])
+def test_a_registered_name_in_lookalike_letters_or_mixed_scripts_is_a_hit_of_every_check(tmp_path, home,
+                                                                                         register_path, script, shape):
+    """Finding 17: the short form written in the lookalikes of one script, Latin letters left where the script has
+    none (a mixed-script word: the Cherokee cases), is a name hit of the name check, the commit gate and the
+    ledger."""
+    form = shape(fx.CUSTOMER_FORMS[1])
+    word = _lookalike(form, script)
+    assert word != form and not word.isascii(), "setup: the script has no lookalike of the form"
+    text = "the offer of %s is ready" % word
+    assert [h["cls"] for h in check.check_text(text, register_path)] == ["name"]
+    msg = tmp_path / "COMMIT_EDITMSG"
+    msg.write_text(text + "\n", encoding="utf-8")
+    assert [f.cls for f in gate.scan_message(msg, gate._load_matcher(register_path))] == ["name"]
+    with pytest.raises(ledger.Refused):
+        ledger.add("other", text, day="2026-09-22", p=home)
+
+
+def test_the_generated_table_maps_letters_of_other_scripts_to_one_latin_letter():
+    """Finding 17: the table of awb/confusables_latin.py, generated from the UTS #39 data: no ASCII key, no digit,
+    no mark, every value one Latin letter, the scripts of the review included, and the matcher's own fold kept."""
+    table = confusables_latin.LATIN
+    assert len(table) > 300 and confusables_latin.SOURCE.startswith("confusables.txt ")
+    for c, latin in table.items():
+        assert len(c) == 1 and not c.isascii() and unicodedata.digit(c, None) is None
+        assert not unicodedata.category(c).startswith("M")
+        assert len(latin) == 1 and latin.isascii() and latin.isalpha()
+        assert c not in matcher._LOOKALIKES and c not in matcher._LIGATURES
+    assert (table["ꓜ"], table["ꓳ"], table["ꮓ"], table["ꮃ"]) == ("Z", "O", "z", "w")
+    assert table["ꓲ"] == "I", "a stroke that is no lower case letter reads as I"
+    assert matcher.fold_text("ＩſІ") == "IsI", "the fold of before stays"
+    assert matcher.fold_text("│।") == "│।", "a box border and a danda stay what they are"
+
+
+def test_the_generator_keeps_letters_and_leaves_symbols_digits_marks_and_folded_letters_alone():
+    """Finding 17: the rules of awb/confusables.py on lines in the form of the data file."""
+    data = "\n".join([
+        "A4DC ;\t005A ;\tMA\t# ( ꓜ → Z ) LISU LETTER DZA → LATIN CAPITAL LETTER Z\t# ",
+        "A4F2 ;\t006C ;\tMA\t# ( ꓲ → l ) LISU LETTER I → LATIN SMALL LETTER L\t# ",
+        "A781 ;\t006C ;\tMA\t# ( ꞁ → l ) LATIN SMALL LETTER TURNED L → LATIN SMALL LETTER L\t# ",
+        "2502 ;\t006C ;\tMA\t# ( │ → l ) BOX DRAWINGS LIGHT VERTICAL → LATIN SMALL LETTER L\t# ",
+        "0661 ;\t006C ;\tMA\t# ( ١ → l ) ARABIC-INDIC DIGIT ONE → LATIN SMALL LETTER L\t# ",
+        "0363 ;\t0061 ;\tMA\t# ( ͣ → a ) COMBINING LATIN SMALL LETTER A → LATIN SMALL LETTER A\t# ",
+        "017F ;\t0066 ;\tMA\t# ( ſ → f ) LATIN SMALL LETTER LONG S → LATIN SMALL LETTER F\t# ",
+        "0031 ;\t006C ;\tMA\t# ( 1 → l ) DIGIT ONE → LATIN SMALL LETTER L\t# ",
+        "0433 ;\t0072 ;\tMA\t# ( г → r ) CYRILLIC SMALL LETTER GHE → LATIN SMALL LETTER R\t# ",
+        "AB48 ;\t0072 0072 ;\tMA\t# ( ꭈ → rr ) LATIN SMALL LETTER DOUBLE R → rr\t# ",
+        "1D1A ;\t1D0B ;\tMA\t# ( ᴚ → ᴋ ) LATIN LETTER SMALL CAPITAL TURNED R → K\t# ",
+    ])
+    table = confusables.latin_table(data)
+    assert table == {"ꓜ": "Z", "ꓲ": "I", "ꞁ": "l", "г": "r", "ᴚ": "k"}
+    text = confusables.render(table, "confusables.txt 0.0 of 2026-01-01")
+    space: dict = {}
+    exec(compile(text, "<generated>", "exec"), space)   # noqa: S102  (the generated module, read back)
+    assert space["LATIN"] == table and text.isascii()
 
 
 # --------------------------------------------------------------------------- P3: structured data on /kb

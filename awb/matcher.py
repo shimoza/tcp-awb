@@ -2,8 +2,9 @@
 
 Matching is case-insensitive and runs over a folded view of the text: compatibility forms (full width and
 mathematical letters, ligatures) become plain letters and accents are dropped. Letters of other scripts
-that look like Latin letters (a Cyrillic o, a Greek capital Z) count as those letters. The forms are folded
-the same way. Positions always refer to the text that was given, never to the view.
+that look like Latin letters (a Cyrillic o, a Greek capital Z, a Lisu capital, a Cherokee small letter: every
+letter that the confusables data of UTS #39 maps to one Latin letter) count as those letters, also inside a word of
+mixed scripts. The forms are folded the same way. Positions always refer to the text that was given, never to the view.
 
 A form matches at a boundary: not preceded and not followed by a letter or a digit, so underscores, dots,
 slashes, hyphens, quotes and brackets all count as boundaries and names inside file names, host names and
@@ -37,6 +38,8 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
+
+from awb import confusables_latin
 
 MIN_GLUED_LETTERS = 5
 SHORT_GLUED_LETTERS = (3, 4)
@@ -97,7 +100,8 @@ _LIGATURES = {
     "ı": "i", "ſ": "s", "ŀ": "l", "Ŀ": "L", "ħ": "h", "Ħ": "H", "ŧ": "t", "Ŧ": "T", "ĸ": "k",
 }
 
-# letters of other scripts that look like a Latin letter in common fonts (after accents are dropped)
+# letters of other scripts that look like a Latin letter in common fonts (after accents are dropped), kept by hand;
+# the table of awb/confusables_latin.py adds every other letter that UTS #39 confuses with one Latin letter
 _LOOKALIKES = dict(zip(
     # Cyrillic
     "аеорсухѕіјһԁԛԝӏкɡ"
@@ -119,6 +123,9 @@ _LOOKALIKES = dict(zip(
     "ABCEGHJKLMSTVWZ"
     "wvyWVYzZ",
 ))
+_CONFUSABLE = confusables_latin.LATIN
+"""Letters of other scripts (Lisu, Cherokee small letters, Armenian, Coptic and more) that UTS #39 confuses with one
+Latin letter, generated once by awb/confusables.py (finding 17 of the review of 2026-10-10)."""
 
 
 def _fold(s: str) -> str:
@@ -126,13 +133,15 @@ def _fold(s: str) -> str:
     return s.lower().replace("ı", "i").replace("ſ", "s")
 
 
-@functools.lru_cache(maxsize=4096)
-def _fold_char(c: str) -> str:
-    """The plain letters a non-ASCII character stands for in the view. Case is kept."""
+def _fold_with(c: str, confusable: dict[str, str]) -> str:
+    """The plain letters a non-ASCII character stands for in the view, with `confusable` as the table of the letters
+    of other scripts that the two lists above do not hold. Case is kept."""
     if c in _LIGATURES:
         return _LIGATURES[c]
     if c in _LOOKALIKES:
         return _LOOKALIKES[c]
+    if c in confusable:
+        return confusable[c]
     digit = unicodedata.digit(c, None)
     if digit is not None:
         return str(digit)
@@ -140,7 +149,14 @@ def _fold_char(c: str) -> str:
     d = "".join(x for x in d if not unicodedata.combining(x))
     if not d:
         return ""
-    return "".join(_LIGATURES.get(x) or _LOOKALIKES.get(x) or x for x in d)
+    return "".join(_LIGATURES.get(x) or _LOOKALIKES.get(x) or confusable.get(x) or x for x in d)
+
+
+@functools.lru_cache(maxsize=4096)
+def _fold_char(c: str) -> str:
+    """The plain letters a non-ASCII character stands for in the view: the two lists above, then the table generated
+    from the confusables data of UTS #39 (awb/confusables_latin.py), then digits and the compatibility forms."""
+    return _fold_with(c, _CONFUSABLE)
 
 
 def fold_text(text: str) -> str:
