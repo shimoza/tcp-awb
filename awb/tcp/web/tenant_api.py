@@ -1,7 +1,9 @@
 """Bounded read-only tenant inventory through the existing key-service socket.
 
 It runs as its own service and system user (awb-console, F2): the key service lets that user alone read the test
-tenants without a project. GET /api/tenants behind the gateway, 127.0.0.1:8183."""
+tenants without a project. GET /api/tenants (the reader view) behind the gateway on 127.0.0.1:8183; GET
+/api/owner/tenants (with the IAM domain names) only on the owner socket `--owner-socket` (root, group awb-web, 0660,
+from systemd), which answers the gateway's uid alone (finding 14 of the review of 2026-10-10)."""
 # Moved from the web adapters of 2026-10-02 into the repository on 2026-10-04, behaviour unchanged (tests/test_web_*.py).
 
 import argparse
@@ -10,7 +12,11 @@ import datetime as dt
 import hashlib
 import json
 import os
+import pwd
 import re
+import socket
+import socketserver
+import struct
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -209,8 +215,8 @@ def reader_view(data):
 
 
 class Handler(BaseHTTPRequestHandler):
-    """GET /api/tenants (the reader view), GET /api/owner/tenants (with the IAM domain names, reached only through
-    the gateway's owner host), refresh=1 starts a refresh in the background. Read only."""
+    """GET /api/tenants (the reader view) on the TCP port, GET /api/owner/tenants (with the IAM domain names) on the
+    owner socket alone, refresh=1 starts a refresh in the background. Read only."""
 
     def reply(self, status, data):
         raw = json.dumps(data, ensure_ascii=False).encode()
@@ -224,7 +230,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         url = urlsplit(self.path)
-        if url.path not in ('/api/tenants', '/api/owner/tenants'):
+        if url.path != ('/api/owner/tenants' if getattr(self.server, 'owner_view', False) else '/api/tenants'):
             self.reply(404, {'error': 'Not found.'})
             return
         try:
@@ -248,17 +254,68 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def make_server(port=8183, inventory=None):
+    """The reader view on 127.0.0.1; the owner view is never served here."""
     server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     server.inventory = inventory or Inventory()
+    server.owner_view = False
     return server
+
+
+class OwnerServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    """The owner view on a listening Unix socket: a connection whose peer uid (SO_PEERCRED) is not `peer`, the
+    gateway's, is closed before a byte is read."""
+    daemon_threads = True
+
+    def __init__(self, sock, peer, inventory):
+        socketserver.BaseServer.__init__(self, sock.getsockname(), Handler)
+        self.socket, self.peer, self.inventory, self.owner_view = sock, peer, inventory, True
+
+    def verify_request(self, request, client_address):
+        try:
+            uid = struct.unpack('3i', request.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                                         struct.calcsize('3i')))[1]
+        except OSError:
+            uid = -1
+        if uid != self.peer:
+            print('- - peer', flush=True)
+            return False
+        return True
+
+
+def owner_listener(path, environ=os.environ):
+    """The owner socket systemd handed over (LISTEN_FDS), else one bound at `path` with mode 0660."""
+    if environ.get('LISTEN_PID') == str(os.getpid()) and environ.get('LISTEN_FDS') == '1':
+        return socket.socket(fileno=3)
+    if os.path.exists(path):
+        os.unlink(path)
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    old = os.umask(0o117)
+    try:
+        sock.bind(path)
+    finally:
+        os.umask(old)
+    sock.listen(16)
+    return sock
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=8183)
     parser.add_argument('--cache', type=Path, default=CACHE)
+    parser.add_argument('--owner-socket', help='the Unix socket of the owner view (from systemd, else bound here)')
+    parser.add_argument('--owner-peer', help='the one user whose processes may use the owner socket (the gateway)')
     args = parser.parse_args()
-    make_server(args.port, Inventory(args.cache)).serve_forever()
+    if bool(args.owner_socket) != bool(args.owner_peer):
+        parser.error('--owner-socket and --owner-peer go together')
+    inventory = Inventory(args.cache)
+    if args.owner_socket:
+        try:
+            peer = pwd.getpwnam(args.owner_peer).pw_uid
+        except KeyError:
+            parser.error('the user of --owner-peer does not exist')
+        owner = OwnerServer(owner_listener(args.owner_socket), peer, inventory)
+        threading.Thread(target=owner.serve_forever, daemon=True).start()
+    make_server(args.port, inventory).serve_forever()
 
 
 if __name__ == '__main__':

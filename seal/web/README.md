@@ -16,7 +16,8 @@ copies in `/opt/awb-web` is a step of its own, done once, by the owner.
 | `tunnel/cloudflared.conf` | the tunnel's user | cloudflared's drop-in `cloudflared.service.d/50-awb-fence.conf`: its own user, root copies the token into its runtime folder (0700) and loads the fence first, metrics pinned to 127.0.0.1:20241 | |
 | `tunnel/tunnel-fence.nft` | root | `/etc/awb/tunnel-fence.nft`: the tunnel's user opens no new loopback TCP connection but the resolver (53) and, for one release, 8080 and 8081; nobody else reaches its metrics port | |
 | `awb-console-data.service` | `awb` | `awb.tcp.web.projects_api`: the projects, read only | 127.0.0.1:8182 |
-| `awb-console-tenants.service` | `awb-console` | `awb.tcp.web.tenant_api`: the test tenants, read only; the key service lets this user alone read without a project (F2) | 127.0.0.1:8183 |
+| `awb-console-tenants.service` | `awb-console` | `awb.tcp.web.tenant_api`: the test tenants, read only; the key service lets this user alone read without a project (F2) | 127.0.0.1:8183 for the reader view |
+| `awb-console-tenants.socket` | root, group awb-web, 0660 | the owner view of the same service, GET /api/owner/tenants with the IAM domain names; it answers the gateway's uid alone | `/run/awb-owner-tenants.sock` |
 | `awb-project-create.socket` and `.service` | `awb` | `awb.tcp.web.create_api projects`: new projects | `/run/awb-project-create.sock` |
 | `awb-customers.socket` and `.service` | the owner | `awb.tcp.web.create_api customers`: new customers, the register | `/run/awb-customers.sock` |
 | `awb-materials.socket` and `.service` | the owner | `awb.tcp.web.materials_api`: copy-only imports from the buckets, read through the key service; no network of its own | `/run/awb-materials.sock` |
@@ -83,7 +84,10 @@ log rotated them out; `sudo awb web status` reads both.
 
 The gateway serves a second host name, `owner_host`, with its own exact Origin: the sign-in there takes an owner
 entry's password and a TOTP code, the cookie `__Host-awb-owner` is Strict, without Max-Age, ends after 15 idle
-minutes and after one hour, and GET / is `awb/tcp/web/owner.html` of the release. On the main host the owner routes,
+minutes and after one hour, and GET / is `awb/tcp/web/owner.html` of the release. The main host is the same site, so
+a Strict cookie still goes with a request its page makes: the owner host refuses with 403 every request whose
+`Sec-Fetch-Site` is there and not `same-origin` or `none`, GETs too. The tenant view with the IAM domain names comes
+from the owner socket of the tenant service, never from its TCP port. On the main host the owner routes,
 the customers, the customer and project operations, POST /api/projects and every materials route answer 404. In the
 Cloudflare dashboard the owner host needs its DNS name and one ingress line to the front socket.
 

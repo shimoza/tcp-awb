@@ -174,9 +174,11 @@ def test_every_module_has_a_unit_or_is_listed(tmp_path):
     assert problems(deploy.DirTree(copy)) == ["dynamic: awb/newthing.py:load"]
 
 
-def test_the_map_from_changed_files_with_the_held_sockets(tmp_path):
-    """Replaces test_the_map_from_changed_files (T9 step 1): the gateway holds its two socket units (Sockets=),
-    so awb/cli.py restarts every unit but the gateway and those two. Planted: each row of the task's table. On the invented package (where only the vault entry imports the
+def test_the_map_from_changed_files_with_the_held_sockets_of_the_gateway_and_the_tenants(tmp_path):
+    """Replaces test_the_map_from_changed_files_with_the_held_sockets (finding 14 of the review of 2026-10-10: the
+    tenant service holds its owner socket unit too, Sockets=), which replaced test_the_map_from_changed_files (T9
+    step 1): the gateway holds its two socket units and the tenant service its one, so awb/cli.py restarts every
+    unit but those. Planted: each row of the task's table. On the invented package (where only the vault entry imports the
     vault module): awb/vault.py restarts awb-vaultd only, the gateway the gateway only, rules/work.md the Ask page
     and the chat plus projects sync, awb/cli.py every unit that starts through the package (the gateway is a plain
     script that imports none of it), a changed unit file its unit and as a restart, never a reload."""
@@ -189,7 +191,7 @@ def test_the_map_from_changed_files_with_the_held_sockets(tmp_path):
     assert set(eff.units) == {"awb-ask.service"} and eff.sync
     ask_page = dict(deploy.template_entries(tree, units), **{"awb-ask.service": [BIN, "ask", "serve"]})
     assert restarted(tree, ["rules/work.md"], ask_page) == {"awb-ask.service"}
-    held = {"awb-web.service", "awb-web.socket", "awb-web-status.socket"}
+    held = {"awb-web.service", "awb-web.socket", "awb-web-status.socket", "awb-console-tenants.socket"}
     assert restarted(tree, ["awb/cli.py"]) == set(units) - held
     assert restarted(tree, ["seal/web/awb-web.socket"]) == {"awb-web.socket"}
     assert restarted(tree, ["tests/test_vault.py", "docs/x.md", "COMMANDS.md", "seal/setup.sh"]) == set()

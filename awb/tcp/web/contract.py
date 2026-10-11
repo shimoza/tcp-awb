@@ -1330,6 +1330,9 @@ OWNER_SERVER = {"url": "https://{owner_host}/", "description": "The owner host (
 OWNER_POST = {"403": gateway("The owner host refused the request: another origin, Sec-Fetch-Site other than "
                              "same-origin, or no valid X-AWB-CSRF of this owner session.",
                              "Cross-site requests are not allowed.", "The owner page expired. Reload it.")}
+OWNER_SITE = {"403": gateway("The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin "
+                             "nor none: the main host is the same site, so its page could send the owner cookie.",
+                             "Open the owner page directly.")}
 OWNER_STALE = "2026-10-08T12:00:00Z"
 OWNER_UNAVAILABLE = "The owner status is not available yet."
 
@@ -1423,8 +1426,8 @@ def _owner_paths() -> dict:
 
 
 def _owner_only(paths: dict) -> None:
-    """The operations of the owner host: its server, the owner session, repository state, and the owner host's own
-    refusals on a POST."""
+    """The operations of the owner host: its server, the owner session, repository state, the owner host's refusal
+    of a request from another origin (every method) and its own refusals on a POST."""
     for path, item in paths.items():
         for method, op in item.items():
             if method not in METHODS:
@@ -1440,6 +1443,7 @@ def _owner_only(paths: dict) -> None:
             if moved:
                 op["description"] = (op.get("description", "") + " On the owner host only since T9 step 2; the main "
                                      "host answers 404 Not found.").strip()
+            op["responses"] = dict(sorted(merge(op["responses"], OWNER_SITE).items()))
             if method == "post":
                 op["responses"] = dict(sorted(merge(op["responses"], OWNER_POST).items()))
 

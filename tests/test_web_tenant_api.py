@@ -178,3 +178,59 @@ class ServiceTests(unittest.TestCase):
             def get(self, refresh=False):
                 raise RuntimeError("no key service")
         self.assertEqual(self.ask(Broken()), (503, {"error": "The tenant inventory is unavailable."}))
+
+
+def test_the_owner_view_is_on_its_socket_for_its_one_peer_and_never_on_the_port(tmp_path):
+    """Finding 14 of the review of 2026-10-10: GET /api/owner/tenants, with the IAM domain names, answers on the
+    owner socket alone, and there only a connection whose uid is the socket's one peer (the gateway's); another uid
+    is closed before a byte is read. The TCP port keeps the reader view, the owner socket offers nothing else."""
+    import http.client
+    import os
+    import socket
+    import threading
+
+    class Fake:
+        def get(self, refresh=False):
+            return {"tenants": [{"alias": "test-1", "domain_name": "sample-domain-00000001", "status": "complete"}]}
+
+    def ask(path, peer, route):
+        server = api.OwnerServer(api.owner_listener(str(path), environ={}), peer, Fake())
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.settimeout(5)
+            s.connect(str(path))
+            out = b""
+            try:
+                s.sendall(b"GET " + route + b" HTTP/1.0\r\n\r\n")
+                while True:
+                    part = s.recv(65536)
+                    if not part:
+                        break
+                    out += part
+            except (ConnectionResetError, BrokenPipeError):
+                pass            # closed before a byte was read
+            s.close()
+            return out
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    answer = ask(tmp_path / "a.sock", os.getuid(), b"/api/owner/tenants")
+    assert answer.startswith(b"HTTP/1.0 200") and b"sample-domain-00000001" in answer
+    assert oct(os.stat(tmp_path / "a.sock").st_mode & 0o777) == "0o660"
+    assert ask(tmp_path / "b.sock", os.getuid() + 1, b"/api/owner/tenants") == b""
+    assert ask(tmp_path / "c.sock", os.getuid(), b"/api/tenants").startswith(b"HTTP/1.0 404")
+    server = api.make_server(0, Fake())
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        for route, status in (("/api/owner/tenants", 404), ("/api/tenants", 200)):
+            c = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+            c.request("GET", route)
+            r = c.getresponse()
+            body = r.read()
+            c.close()
+            assert r.status == status and b"sample-domain-00000001" not in body, route
+    finally:
+        server.shutdown()
+        server.server_close()

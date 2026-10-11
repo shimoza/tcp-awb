@@ -3,7 +3,8 @@
 # home of the work user. Not installed by setup.sh: the switch is a step of its own.
 [Unit]
 Description=AWB console tenant inventory, read only (its own user: the key service lets it alone read without a project)
-After=network.target awb-keyd.service
+After=network.target awb-keyd.service awb-console-tenants.socket
+Requires=awb-console-tenants.socket
 
 [Service]
 Type=simple
@@ -12,7 +13,8 @@ Group=awb
 StateDirectory=awb-console-tenants
 StateDirectoryMode=0700
 Environment=AWB_CONF=/etc/awb/paths.conf
-ExecStart=/opt/tcp-awb/venv/bin/python3 -I -m awb.tcp.web.tenant_api --port 8183 --cache /var/lib/awb-console-tenants/tenants.json
+ExecStart=/opt/tcp-awb/venv/bin/python3 -I -m awb.tcp.web.tenant_api --port 8183 --cache /var/lib/awb-console-tenants/tenants.json --owner-socket /run/awb-owner-tenants.sock --owner-peer awb-web
+Sockets=awb-console-tenants.socket
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=yes

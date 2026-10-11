@@ -182,7 +182,12 @@ def test_owner_routes_and_moved_routes_answer_404_on_the_main_host_before_any_ba
     assert status == 401
 
 
-def test_reader_routes_answer_on_both_hosts_and_owner_routes_on_the_owner_host(site):
+def test_reader_routes_answer_on_both_hosts_and_owner_routes_on_the_owner_host_the_tenants_on_their_socket(site):
+    """Replaces test_reader_routes_answer_on_both_hosts_and_owner_routes_on_the_owner_host (finding 14 of the review
+    of 2026-10-10): GET /api/owner/tenants goes to the owner socket of the tenant service now, not to its TCP port.
+    The same asserts, the owner tenants answered by a stand-in on that socket and nothing of it on the TCP port."""
+    owner_tenants = unix_backend(site.root / "owner-tenants.sock", "owner-tenants")
+    site.gw.owner_tenants_socket = str(site.root / "owner-tenants.sock")
     token = site.owner_session()
     reader = {"Cookie": "__Host-awb-session=" + site.reader_session()}
     for route in ("/api/projects", "/api/projects/tcp-q7m4", "/api/board", "/api/project-options", "/api/tenants"):
@@ -200,6 +205,9 @@ def test_reader_routes_answer_on_both_hosts_and_owner_routes_on_the_owner_host(s
         assert "Cookie" not in headers and "Authorization" not in headers and headers["Host"] == DOMAIN
     status, _, raw = site.request("/api/owner/tenants", host=OWNER, headers=owner_headers(site, token))
     assert status == 200 and json.loads(raw)["path"] == "/api/owner/tenants"
+    assert json.loads(raw)["backend"] == "owner-tenants"
+    assert [c[1] for c in owner_tenants.calls] == ["/api/owner/tenants"]
+    assert all(c[1] != "/api/owner/tenants" for c in site.tcp.calls)
     # the old HTML pages, Ask and the chat stay on the main host
     for route in ("/kb", "/ask", "/portal", "/api/projects/tcp-q7m4/chat", "/api/owner/unknown"):
         assert site.request(route, host=OWNER, headers=owner_headers(site, token))[0] == 404, route
@@ -207,6 +215,29 @@ def test_reader_routes_answer_on_both_hosts_and_owner_routes_on_the_owner_host(s
     status, h, _ = site.request("/api/owner/state", host=OWNER, headers=reader)
     assert status == 401
     assert site.request("/", host=OWNER, headers=reader)[1]["Location"] == "/login"
+    owner_tenants.shutdown()
+    owner_tenants.server_close()
+
+
+def test_the_owner_host_refuses_every_request_from_another_origin_before_any_backend(site):
+    """Finding 15 of the review of 2026-10-10: the main host is the same site as the owner host, so a Strict owner
+    cookie still goes with a request the main page makes. Every request to the owner host whose Sec-Fetch-Site is
+    there and not same-origin or none is refused with 403 before any backend, the sign-in page and GETs included;
+    same-origin, none and no header pass."""
+    token = site.owner_session()
+    cookie = {"Cookie": gateway.OWNER_COOKIE + "=" + token}
+    for value in ("same-site", "cross-site", "Same-Origin", ""):
+        for path in ("/login", "/", "/api/owner/state", "/api/owner/tenants?refresh=1", "/api/projects"):
+            status, _, body = site.request(path, host=OWNER, headers={**cookie, "Sec-Fetch-Site": value})
+            assert (status, body) == (403, b"Open the owner page directly.\n"), (value, path)
+    assert site.tcp.calls == [] and all(b.calls == [] for b in site.unix.values())
+    for value in ("same-origin", "none", None):
+        h = dict(cookie, **({"Sec-Fetch-Site": value} if value else {}))
+        assert site.request("/api/projects", host=OWNER, headers=h)[0] == 200, value
+        assert site.request("/login", host=OWNER, headers={"Sec-Fetch-Site": value} if value else {})[0] == 200
+    # the main host is not touched by the rule: its page sends same-origin, a navigation none
+    reader = {"Cookie": "__Host-awb-session=" + site.reader_session(), "Sec-Fetch-Site": "same-origin"}
+    assert site.request("/api/projects", headers=reader)[0] == 200
 
 
 def test_the_owner_page_is_the_fixed_file_with_its_script_hash_and_coop(site):

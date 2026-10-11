@@ -1,0 +1,15 @@
+# Template of the web side (seal/web/README.md). The owner socket of the tenant inventory (finding 14 of the review
+# of 2026-10-10): GET /api/owner/tenants with the IAM domain names. Root owns it, its group is the gateway's, so the
+# gateway may connect but cannot change its mode; the service answers the gateway's uid alone.
+[Unit]
+Description=AWB tenant inventory owner socket (the gateway only)
+
+[Socket]
+ListenStream=/run/awb-owner-tenants.sock
+SocketUser=root
+SocketGroup=awb-web
+SocketMode=0660
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

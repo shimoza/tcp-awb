@@ -232,7 +232,7 @@ for rel in "${added[@]}"; do
 done
 restart restart awb-keyd.service
 restart stop awb-customers.service awb-project-create.service awb-materials.service awb-owner-actions.service awb-web-publish.service
-restart restart awb-customers.socket awb-project-create.socket awb-materials.socket awb-owner-actions.socket awb-web-publish.socket awb-web.socket awb-web-status.socket
+restart restart awb-customers.socket awb-project-create.socket awb-materials.socket awb-owner-actions.socket awb-web-publish.socket awb-web.socket awb-web-status.socket awb-console-tenants.socket
 restart start awb-owner-status.service
 restart restart awb-portal.service awb-ask.service awb-console-data.service
 restart enable --now awb-console-tenants.service

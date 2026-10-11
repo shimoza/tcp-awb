@@ -1154,6 +1154,12 @@ class Gateway(BaseHTTPRequestHandler):
                                      'Set-Cookie': OWNER_LOGIN_COOKIE+'='+token+'; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=600'})
 
     def owner_route(self, session):
+        if self.headers.get('Sec-Fetch-Site') not in {None, 'same-origin', 'none'}:
+            # the main host is the same site, so SameSite=Strict still sends the owner cookie with a request of its
+            # page: every request from another origin is refused here, GETs too (finding 15 of the review)
+            self.refusal = 'owner-site'
+            self.reply(403, b'Open the owner page directly.\n')
+            return
         url = self.first_checks()
         if url is None:
             return
@@ -1244,7 +1250,8 @@ class Gateway(BaseHTTPRequestHandler):
             self.forward(('unix', self.server.owner_socket), path, None, extra)
             return
         if path == '/api/owner/tenants' and self.command in {'GET', 'HEAD'}:
-            self.forward(('tcp', self.server.tenants_port), self.path, None)
+            # the IAM domain names: on the tenant service's owner socket, which answers this uid alone (finding 14)
+            self.forward(('unix', self.server.owner_tenants_socket), self.path, None)
             return
         if path.startswith('/api/owner/'):
             self.reply(404, b'Not found.\n')
@@ -1280,6 +1287,7 @@ def _configure(server, auth, index, portal_port, ask_port, projects_port, tenant
     server.v1_marker = None
     server.owner_host = None
     server.owner_socket = '/run/awb-owner.sock'
+    server.owner_tenants_socket = '/run/awb-owner-tenants.sock'
     server.owner_page = owner_page()
     return server
 

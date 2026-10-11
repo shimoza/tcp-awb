@@ -1950,7 +1950,7 @@
    "id": "T9-8",
    "phase": "T9",
    "name": "a code change restarts the gateway and never the sockets it holds (Sockets=); a socket only another user may open is not probed by the deploy",
-   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_map_from_changed_files_with_the_held_sockets",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_map_from_changed_files_with_the_held_sockets_of_the_gateway_and_the_tenants",
    "status": "passing"
   },
   {
@@ -3086,8 +3086,43 @@
    "name": "finding 13: refused tries are one line per address and minute, counted, and awb web status counts them",
    "run": ".venv/bin/pytest tests/test_web_users.py::test_refused_tries_are_one_line_per_address_and_minute_and_counted",
    "status": "passing"
+  },
+  {
+   "id": "R10-37",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 14: the owner tenant route is not open on the loopback port",
+   "run": ".venv/bin/pytest tests/test_web_owner_review.py::test_the_owner_tenant_route_is_not_open_on_the_loopback_port",
+   "status": "passing"
+  },
+  {
+   "id": "R10-38",
+   "phase": "R10",
+   "name": "review 2026-10-10 finding 15: a same-site request with the owner cookie reaches no backend",
+   "run": ".venv/bin/pytest tests/test_web_owner_review.py::test_a_same_site_request_with_the_owner_cookie_reaches_no_backend",
+   "status": "passing"
+  },
+  {
+   "id": "R10-39",
+   "phase": "R10",
+   "name": "finding 14: the owner view is on its socket for its one peer and never on the port",
+   "run": ".venv/bin/pytest tests/test_web_tenant_api.py::test_the_owner_view_is_on_its_socket_for_its_one_peer_and_never_on_the_port",
+   "status": "passing"
+  },
+  {
+   "id": "R10-40",
+   "phase": "R10",
+   "name": "finding 15: the owner host refuses every request from another origin before any backend",
+   "run": ".venv/bin/pytest tests/test_web_owner_api.py::test_the_owner_host_refuses_every_request_from_another_origin_before_any_backend",
+   "status": "passing"
+  },
+  {
+   "id": "R10-41",
+   "phase": "R10",
+   "name": "finding 14: reader routes on both hosts, owner routes on the owner host, the owner tenants on their socket",
+   "run": ".venv/bin/pytest tests/test_web_owner_api.py::test_reader_routes_answer_on_both_hosts_and_owner_routes_on_the_owner_host_the_tenants_on_their_socket",
+   "status": "passing"
   }
  ],
- "total_tests": 441,
+ "total_tests": 446,
  "checked": "2026-10-11"
 }

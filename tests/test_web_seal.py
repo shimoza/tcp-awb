@@ -239,6 +239,9 @@ WEB_UNITS = ["awb-ask.service.d/95-project-chat.conf", "awb-console-data.service
              "awb-web-status.socket", "awb-web.service", "awb-web.socket"]
 
 
+WEB_UNITS_WITH_TENANT_SOCKET = sorted(WEB_UNITS + ["awb-console-tenants.socket"])
+
+
 def test_every_module_a_template_starts_exists_with_owner_actions():
     """Replaces test_every_module_a_template_starts_exists (T9 step 2 adds owner-actions, an eighth module a template
     starts): every module a template starts exists, the gateway and owner-actions among them."""
@@ -256,12 +259,12 @@ def test_every_module_a_template_starts_exists_with_owner_actions():
             importlib.import_module(name)
 
 
-def test_the_templates_name_no_host_and_only_documented_placeholders_with_publish():
-    """Replaces test_the_templates_name_no_host_and_only_documented_placeholders_with_the_owner_level (T9 step 3 adds
-    the publish socket and service): the exact set of templates, each naming no host and only placeholders the
-    README documents."""
+def test_the_templates_name_no_host_and_only_documented_placeholders_with_the_tenant_owner_socket():
+    """Replaces test_the_templates_name_no_host_and_only_documented_placeholders_with_publish (finding 14 of the
+    review of 2026-10-10 adds the owner socket of the tenant service): the exact set of templates, each naming no
+    host and only placeholders the README documents."""
     readme = (WEB / "README.md").read_text(encoding="utf-8")
-    assert [p.relative_to(WEB).as_posix() for p in templates()] == WEB_UNITS
+    assert [p.relative_to(WEB).as_posix() for p in templates()] == WEB_UNITS_WITH_TENANT_SOCKET
     assert [p.name for p in tunnel_templates()] == ["cloudflared.conf", "tunnel-fence.nft"]
     for path in templates() + tunnel_templates():
         text = path.read_text(encoding="utf-8")
@@ -272,9 +275,10 @@ def test_the_templates_name_no_host_and_only_documented_placeholders_with_publis
         assert "`%s`" % placeholder in readme
 
 
-def test_the_switch_script_renders_backs_up_retires_and_restarts_in_order_with_publish(tmp_path):
-    """Replaces test_the_switch_script_renders_backs_up_retires_and_restarts_in_order_with_the_owner_level (T9 step
-    3: the publish socket is enabled and restarts with the other sockets after its service stopped)."""
+def test_the_switch_script_renders_backs_up_retires_and_restarts_in_order_with_the_tenant_owner_socket(tmp_path):
+    """Replaces test_the_switch_script_renders_backs_up_retires_and_restarts_in_order_with_publish (finding 14 of
+    the review of 2026-10-10: the owner socket of the tenant service is enabled and restarts with the other
+    sockets)."""
     env, units, log, fence = _stubs_t9(tmp_path)
     (units / "awb-ask.service.d").mkdir(parents=True)
     (units / "awb-web.service").write_text("the unit of before\n")
@@ -287,7 +291,7 @@ def test_the_switch_script_renders_backs_up_retires_and_restarts_in_order_with_p
     assert done.returncode == 0, done.stderr
     written = sorted(p.relative_to(units).as_posix() for p in units.rglob("*") if p.is_file()
                      and not p.name.endswith((".before-switch", ".off")))
-    assert written == sorted(WEB_UNITS + ["cloudflared.service.d/50-awb-fence.conf"])
+    assert written == sorted(WEB_UNITS_WITH_TENANT_SOCKET + ["cloudflared.service.d/50-awb-fence.conf"])
     for rel in written:
         text = (units / rel).read_text()
         assert "@" not in text and "/opt/awb-web" not in text, rel
@@ -298,14 +302,16 @@ def test_the_switch_script_renders_backs_up_retires_and_restarts_in_order_with_p
     assert calls[3] == "systemctl daemon-reload"
     enabled = [c for c in calls if c.startswith("systemctl enable --now ") and c.endswith((".socket", ".timer"))]
     assert enabled == ["systemctl enable --now %s" % u for u in (
-        "awb-customers.socket", "awb-materials.socket", "awb-owner-actions.socket", "awb-owner-status.timer",
+        "awb-console-tenants.socket", "awb-customers.socket", "awb-materials.socket", "awb-owner-actions.socket",
+        "awb-owner-status.timer",
         "awb-project-create.socket", "awb-web-publish.socket", "awb-web-status.socket", "awb-web.socket")]
     rest = calls[4 + len(enabled):]
     assert rest == ["systemctl restart awb-keyd.service",
                     "systemctl stop awb-customers.service awb-project-create.service awb-materials.service "
                     "awb-owner-actions.service awb-web-publish.service",
                     "systemctl restart awb-customers.socket awb-project-create.socket awb-materials.socket "
-                    "awb-owner-actions.socket awb-web-publish.socket awb-web.socket awb-web-status.socket",
+                    "awb-owner-actions.socket awb-web-publish.socket awb-web.socket awb-web-status.socket "
+                    "awb-console-tenants.socket",
                     "systemctl start awb-owner-status.service",
                     "systemctl restart awb-portal.service awb-ask.service awb-console-data.service",
                     "systemctl enable --now awb-console-tenants.service",

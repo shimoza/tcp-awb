@@ -839,7 +839,7 @@ paths:
                   value:
                     error: Sign in to open the project data.
         "403":
-          description: "The gateway refused a request from another site. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
+          description: "The gateway refused a request from another site. The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
           content:
             text/html:
               schema:
@@ -851,6 +851,9 @@ paths:
                 cross-site-requests-are-not:
                   value: |
                     Cross-site requests are not allowed.
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
                 the-owner-page-expired-reload:
                   value: |
                     The owner page expired. Reload it.
@@ -1329,6 +1332,16 @@ paths:
                 sign-in-to-open-the:
                   value:
                     error: Sign in to open the project data.
+        "403":
+          description: "The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
         "502":
           description: The backend did not answer, or its answer was too large.
           content:
@@ -1396,6 +1409,16 @@ paths:
                 sign-in-to-open-the:
                   value:
                     error: Sign in to open the project data.
+        "403":
+          description: "The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
         "502":
           description: The backend did not answer, or its answer was too large.
           content:
@@ -1511,7 +1534,7 @@ paths:
                   value:
                     error: Sign in to open the project data.
         "403":
-          description: "Since D-NOW every submission of the web is refused, valid or not. The gateway refused a request from another site. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
+          description: "Since D-NOW every submission of the web is refused, valid or not. The gateway refused a request from another site. The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
           content:
             application/json:
               schema:
@@ -1530,6 +1553,9 @@ paths:
                 cross-site-requests-are-not:
                   value: |
                     Cross-site requests are not allowed.
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
                 the-owner-page-expired-reload:
                   value: |
                     The owner page expired. Reload it.
@@ -1674,6 +1700,16 @@ paths:
                 sign-in-to-open-the:
                   value:
                     error: Sign in to open the project data.
+        "403":
+          description: "The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
         "502":
           description: The backend did not answer, or its answer was too large.
           content:
@@ -1914,6 +1950,16 @@ paths:
                 sign-in-to-open-the:
                   value:
                     error: Sign in to open the project data.
+        "403":
+          description: "The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
         "404":
           description: No such project.
           content:
@@ -2044,6 +2090,16 @@ paths:
                 sign-in-to-open-the:
                   value:
                     error: Sign in to open the project data.
+        "403":
+          description: "The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
         "404":
           description: No such project.
           content:
@@ -2235,7 +2291,7 @@ paths:
                   value:
                     error: Sign in to open the project data.
         "403":
-          description: "The gateway refused a request from another site. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
+          description: "The gateway refused a request from another site. The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
           content:
             text/html:
               schema:
@@ -2247,6 +2303,9 @@ paths:
                 cross-site-requests-are-not:
                   value: |
                     Cross-site requests are not allowed.
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
                 the-owner-page-expired-reload:
                   value: |
                     The owner page expired. Reload it.
@@ -2442,7 +2501,7 @@ paths:
                   value:
                     error: Sign in to open the project data.
         "403":
-          description: "The gateway refused a request from another site. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
+          description: "The gateway refused a request from another site. The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
           content:
             text/html:
               schema:
@@ -2454,6 +2513,9 @@ paths:
                 cross-site-requests-are-not:
                   value: |
                     Cross-site requests are not allowed.
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
                 the-owner-page-expired-reload:
                   value: |
                     The owner page expired. Reload it.
@@ -2608,6 +2670,16 @@ paths:
                 sign-in-to-open-the:
                   value:
                     error: Sign in to open the project data.
+        "403":
+          description: "The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
         "404":
           description: No such project or no such ready import.
           content:
@@ -3141,7 +3213,7 @@ paths:
                   value:
                     error: Sign in to open the project data.
         "403":
-          description: The request did not come through the gateway's owner host.
+          description: "The request did not come through the gateway's owner host. The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
           content:
             application/json:
               schema:
@@ -3150,6 +3222,13 @@ paths:
                 not-allowed:
                   value:
                     error: Not allowed.
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
         "502":
           description: The backend did not answer, or its answer was too large.
           content:
@@ -3227,7 +3306,7 @@ paths:
                   value:
                     error: Sign in to open the project data.
         "403":
-          description: The request did not come through the gateway's owner host.
+          description: "The request did not come through the gateway's owner host. The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
           content:
             application/json:
               schema:
@@ -3236,6 +3315,13 @@ paths:
                 not-allowed:
                   value:
                     error: Not allowed.
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
         "502":
           description: The backend did not answer, or its answer was too large.
           content:
@@ -3320,7 +3406,7 @@ paths:
                   value:
                     error: Sign in to open the project data.
         "403":
-          description: A session of the main host (a reader's), or a request that did not come through the gateway's owner host.
+          description: "A session of the main host (a reader's), or a request that did not come through the gateway's owner host. The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
           content:
             application/json:
               schema:
@@ -3332,6 +3418,13 @@ paths:
                 not-allowed:
                   value:
                     error: Not allowed.
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
         "502":
           description: The backend did not answer, or its answer was too large.
           content:
@@ -3398,7 +3491,7 @@ paths:
                   value:
                     error: Sign in to open the project data.
         "403":
-          description: The request did not come through the gateway's owner host.
+          description: "The request did not come through the gateway's owner host. The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
           content:
             application/json:
               schema:
@@ -3407,6 +3500,13 @@ paths:
                 not-allowed:
                   value:
                     error: Not allowed.
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
         "502":
           description: The backend did not answer, or its answer was too large.
           content:
@@ -3500,7 +3600,7 @@ paths:
                   value:
                     error: Sign in to open the project data.
         "403":
-          description: "The code is missing, wrong, of an older step or used before (the gateway and owner-actions each check it), or the request did not come through the owner host. The gateway refused a request from another site. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
+          description: "The code is missing, wrong, of an older step or used before (the gateway and owner-actions each check it), or the request did not come through the owner host. The gateway refused a request from another site. The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
           content:
             application/json:
               schema:
@@ -3522,6 +3622,9 @@ paths:
                 cross-site-requests-are-not:
                   value: |
                     Cross-site requests are not allowed.
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
                 the-owner-page-expired-reload:
                   value: |
                     The owner page expired. Reload it.
@@ -3727,6 +3830,16 @@ paths:
                 sign-in-to-open-the:
                   value:
                     error: Sign in to open the project data.
+        "403":
+          description: "The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
         "502":
           description: The backend did not answer, or its answer was too large.
           content:

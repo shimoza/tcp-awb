@@ -171,6 +171,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- The tenant view with the IAM domain names is no longer served on the loopback port 8183 (finding 14 of the review
+  of 2026-10-10). The tenant service answers it on an owner socket of its own (root, group awb-web, 0660) and only
+  to the gateway's uid; the port keeps the reader view. The owner host refuses every request whose
+  `Sec-Fetch-Site` is there and not `same-origin` or `none`, GETs and the sign-in page included, so a page of the
+  main host can no longer send the owner cookie along (finding 15).
 - A restart of the gateway keeps every running wait of the sign-in, also after a flood of refused tries (finding 13
   of the review of 2026-10-10). The waits live in a small state file next to the sign-in log, and a refused try
   writes one line per address and minute, the rest of the minute as one counted line, so cheap tries no longer push
