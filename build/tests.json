@@ -4437,8 +4437,36 @@
    "name": "board: an unwatched failed task unit reaches the build line, planted free text does not",
    "run": ".venv/bin/pytest tests/test_board.py::test_a_task_unit_that_failed_unwatched_reaches_the_line_and_free_text_does_not",
    "status": "passing"
+  },
+  {
+   "id": "SB5-8",
+   "phase": "SB5",
+   "name": "build runner: a refused TCP API host or GitHub counts only after the model endpoint connected in the same run (else not proven); a failed line names no name resolution or no connection",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_refusal_counts_only_after_the_model_endpoint_connected_in_the_same_run",
+   "status": "passing"
+  },
+  {
+   "id": "SB5-9",
+   "phase": "SB5",
+   "name": "build runner: the probe script exits 2 when the name does not resolve and 1 when no connection opens",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_probe_script_tells_no_name_resolution_from_no_connection",
+   "status": "passing"
+  },
+  {
+   "id": "SB5-10",
+   "phase": "SB5",
+   "name": "build runner: a resolv.conf that links to the resolver's stub file gives the nameserver in the allow list; a link out of /etc and /run, a file others may write and a loop are refused",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_resolv_conf_that_links_to_the_stub_file_gives_the_resolver",
+   "status": "passing"
+  },
+  {
+   "id": "SB5-11",
+   "phase": "SB5",
+   "name": "build runner: no nameserver gives no allow list, the queue is held as no resolver for the task unit and the probe starts no unit",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_no_resolver_holds_the_queue_and_the_probe_starts_no_unit",
+   "status": "passing"
   }
  ],
- "total_tests": 634,
+ "total_tests": 638,
  "checked": "2026-10-11"
 }

@@ -244,6 +244,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - The work rules say that material lies in the project's `in/`, that no customer is normal and that a text he wrote
   and pastes is his brief. The hold line is for an unreadable file of `in/` alone. The sentence about
   `inbox/CUST-XXXX/` is gone from the rules, the README and COMMANDS.md.
+- A build task's unit can resolve names again. When `/etc/resolv.conf` was a link to systemd-resolved's stub file,
+  the runner read no nameserver and every task unit and the probe unit got an allow list without the resolver, so
+  no unit reached the model endpoint. The runner now follows a system link under `/etc` or `/run` (root, a system
+  account or the owner, no foreign write bit) and holds the queue with `no resolver for the task unit` when none is
+  found. `awb build probe` counts a refused TCP API host or GitHub only after the same run reached the model
+  endpoint (else "not proven"), and a failed line names the probe's exit: no name resolution or no connection.
 
 ### Security
 

@@ -80,6 +80,11 @@ DEPLOYED = Path("/opt/tcp-awb/DEPLOYED")
 MODEL_HOST = "api.anthropic.com"
 PUSH_URL = "https://github.com/shimoza/tcp-awb.git"
 RESOLV = Path("/etc/resolv.conf")
+RESOLV_PLACES = ("/etc", "/run")
+"""Where resolv.conf and every link on its way may lie: /etc/resolv.conf is often a link to systemd-resolved's stub
+file under /run."""
+RESOLV_HOPS = 8
+NO_RESOLVER = "no resolver for the task unit"
 KEY_IN_HOME = ".config/awb-build/model.key"
 """Where the prepare unit puts the model key in the task home (build_model = key); the template's settings read it
 with apiKeyHelper. The home and the key go when the task closes."""
@@ -1642,14 +1647,64 @@ def handover(host: Host, ctx: Ctx) -> bool:
     return e.code == 0
 
 
+def _system_owner(uid: int) -> bool:
+    """Root, a system account (systemd-resolve owns the stub file) or the runner's own uid; never another user."""
+    return uid == 0 or uid < 1000 or uid == os.geteuid()
+
+
+def _resolv_text(path: Path | None = None) -> str | None:
+    """resolv.conf, following a link of the system (/etc/resolv.conf -> /run/systemd/resolve/stub-resolv.conf):
+    every link and the file lie under RESOLV_PLACES and belong to root, a system account or this uid, the file is
+    regular and writable by no group or other, at most RESOLV_HOPS links. None for anything else."""
+    p = os.path.normpath(str(path or RESOLV))
+    for _ in range(RESOLV_HOPS + 1):
+        if not any(p.startswith(d.rstrip("/") + "/") for d in RESOLV_PLACES):
+            return None
+        try:
+            st = os.lstat(p)
+        except OSError:
+            return None
+        if not _system_owner(st.st_uid):
+            return None
+        if stat.S_ISLNK(st.st_mode):
+            try:
+                p = os.path.normpath(os.path.join(os.path.dirname(p), os.readlink(p)))
+            except OSError:
+                return None
+            continue
+        try:
+            fd = os.open(p, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        except OSError:
+            return None
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode) or not _system_owner(st.st_uid) or st.st_mode & 0o022 \
+                    or st.st_size > SMALL_MAX:
+                return None
+            data = os.read(fd, SMALL_MAX + 1)
+        except OSError:
+            return None
+        finally:
+            os.close(fd)
+        if len(data) > SMALL_MAX:
+            return None
+        return data.decode("utf-8", "replace")
+    return None
+
+
+def resolvers() -> list[str]:
+    """The nameserver addresses of resolv.conf (a system link followed, `_resolv_text`); empty when none is found."""
+    return re.findall(r"(?m)^nameserver\s+([0-9a-fA-F.:]+)", _resolv_text() or "")
+
+
 def model_allow(host: Host) -> list[str] | None:
-    """The resolver and the model endpoint's addresses, resolved now (D-S9); None when the endpoint does not
-    resolve."""
+    """The resolver and the model endpoint's addresses, resolved now (D-S9); None when resolv.conf names no
+    resolver (a unit with IPAddressDeny=any could resolve no name) or the endpoint does not resolve."""
     if host.resolve is not None:
         return host.resolve()
-    allow: list[str] = []
-    text = _text_any(RESOLV) or ""
-    allow += re.findall(r"(?m)^nameserver\s+([0-9a-fA-F.:]+)", text)
+    allow = resolvers()
+    if not allow:
+        return None
     addrs: set[str] = set()
     for name in (MODEL_HOST, TOKEN_HOST) if host.model == "login" else (MODEL_HOST,):
         try:
@@ -1723,12 +1778,14 @@ class Runner:
             os.close(fd)
 
     def preconditions(self) -> str | None:
-        """Before a session is spent: the vault unlocked, the key service loaded, the gate's self-test, room on the
-        build root, the identity, the model key and a no-op unit as the build user."""
+        """Before a session is spent: a resolver for the task unit, the vault unlocked, the key service loaded, the
+        gate's self-test, room on the build root, the identity, the model key and a no-op unit as the build user."""
         h = self.host
         why = self.model_hold()
         if why is not None:
             return why
+        if h.resolve is None and not resolvers():
+            return "no resolver for the task unit"
         if h.precheck is not None:
             return h.precheck()
         from awb import deploy, gate, vault
@@ -2598,10 +2655,24 @@ def failed_main(name: str) -> int:
 
 PROBE_PY = ("import socket, sys\n"
             "try:\n"
-            "    socket.create_connection((sys.argv[1], 443), timeout=5).close()\n"
+            "    found = socket.getaddrinfo(sys.argv[1], 443, proto=socket.IPPROTO_TCP)\n"
             "except OSError:\n"
-            "    sys.exit(1)\n")
-"""Exit 0 when a TCP connection to port 443 of the host opens within five seconds, 1 when it does not."""
+            "    sys.exit(2)\n"
+            "for family, kind, proto, _, addr in found:\n"
+            "    s = socket.socket(family, kind, proto)\n"
+            "    s.settimeout(5)\n"
+            "    try:\n"
+            "        s.connect(addr)\n"
+            "        sys.exit(0)\n"
+            "    except OSError:\n"
+            "        pass\n"
+            "    finally:\n"
+            "        s.close()\n"
+            "sys.exit(1)\n")
+"""Exit 0 when a TCP connection to port 443 of the host opens within five seconds, 1 when the name resolved and no
+connection opened, 2 when the name did not resolve."""
+PROBE_EXIT = {1: "no connection", 2: "no name resolution"}
+PROBE_UNPROVEN = "not proven: the unit could not reach the model endpoint"
 PROBE_PYTHON = "/usr/bin/python3"
 PROBE_TARGETS = {"model": MODEL_HOST, "token": TOKEN_HOST, "tcp": TCP_API_HOST, "github": GITHUB_HOST}
 PROBE_REACH = ("model", "token")
@@ -2638,8 +2709,12 @@ def _probe_wait(host: Host, spec: Spec) -> Ended:
 def run_probe(host: Host, user: str) -> list[tuple[str, bool, str]]:
     """(key, passed, line) per check. The control runs `id -un` first: a probe counts only after the unit was shown
     to run as the build user (a unit that never starts would make every refused connection pass). A refused
-    connection passes only as the probe's own exit 1."""
+    connection passes only as the probe's own exit 1 (the name resolved, no connection opened) and only after the
+    model endpoint connected in the same run: a unit that can resolve no name refuses every host, so a refusal alone
+    proves nothing. A failed line names the probe's exit (no name resolution or no connection)."""
     lines = probe_lines(host.model)
+    if host.resolve is None and not resolvers():
+        return [(k, False, "%s (%s)" % (ln, NO_RESOLVER)) for k, ln in lines]
     allow = model_allow(host)
     if allow is None:
         return [(k, False, "%s (the model endpoint does not resolve)" % ln) for k, ln in lines]
@@ -2649,16 +2724,23 @@ def run_probe(host: Host, user: str) -> list[tuple[str, bool, str]]:
         who = (_text(out) or "").strip()
     ran = e.result == "success" and e.code == 0 and who == user
     res = [(lines[0][0], ran, lines[0][1])]
+    reached = False
     for key, line in lines[1:]:
         if not ran:
             res.append((key, False, line + " (the probe unit did not run)"))
             continue
         e = _probe_wait(host, probe_spec(host, [PROBE_PYTHON, "-I", "-c", PROBE_PY, PROBE_TARGETS[key]], allow))
+        why = PROBE_EXIT.get(e.code) if e.result == "exit-code" else None
         if key in PROBE_REACH:
             ok = e.result == "success" and e.code == 0
+            reached = reached or (ok and key == "model")
+            res.append((key, ok, line if ok else "%s (%s)" % (line, why or e.result)))
+        elif not reached:
+            res.append((key, False, "%s (%s)" % (line, PROBE_UNPROVEN)))
+        elif e.result == "exit-code" and e.code == 1:
+            res.append((key, True, line))
         else:
-            ok = e.result == "exit-code" and e.code == 1
-        res.append((key, ok, line))
+            res.append((key, False, "%s (%s)" % (line, "connected" if e.result == "success" else why or e.result)))
     return res
 
 

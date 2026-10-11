@@ -247,7 +247,7 @@ BUILD_REASONS = {
 """The fixed phrases of the runner (a test reads them out of awb/buildrun.py)."""
 QUEUE_HELD = ("vault locked", "no vault daemon", "key service not loaded", "no key service", "gate selftest",
               "build root full", "build root missing", "no identity", "model key", "systemd-run as the build user",
-              "build model", "login missing", "model endpoint")
+              "build model", "login missing", "model endpoint", "no resolver for the task unit")
 """The reasons the runner holds the whole queue for (awb/buildrun.py, preconditions)."""
 UNIT_RESULTS = ("success", "exit-code", "signal", "core-dump", "timeout", "watchdog", "start-limit-hit", "resources",
                 "oom-kill", "protocol", "exec-condition", "start-failed", "unknown")

@@ -522,7 +522,9 @@ and nothing moves. Each ended run writes `/srv/awb-build/runs/<ID>/<n>/result.md
 the board (`state.tsv` in `tcp-shared/build`) and one mail. Only an API error before the first tool call is retried
 by itself, once, ten minutes later. `awb build selftest` runs the runner's planted cases in a throw-away folder and
 fails when one of them is missing; `awb build probe` (as you) starts a unit of the runner's own form with the network
-of a task: the model endpoint and, with your login, `platform.claude.com` connect, a TCP API host and GitHub do not.
+of a task: the model endpoint and, with your login, `platform.claude.com` connect, a TCP API host and GitHub do not
+(a refusal counts only after the model endpoint connected in the same run). Without a nameserver in
+`/etc/resolv.conf` (a system link followed) the queue is held as `no resolver for the task unit`.
 `sudo seal/verify.sh` runs both; `awb seal check` runs the selftest and reads the record of the last probe. Every
 task unit names the oneshot `awb-task-failed@.service` in `OnFailure=`: a task unit that fails while no runner
 waits on it (the runner stopped or crashed) adds `no runner watched: B-012 failed 14:02 (timeout)` to the board line
