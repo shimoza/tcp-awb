@@ -308,6 +308,19 @@ that the intake can write the outbox (`tcp-shared/outbox`, mode 2770, group awb)
 read-only to `/opt/tcp-awb` (root-owned, own venv, `/usr/local/bin/awb` points at it). Paths come from
 `/etc/awb/paths.conf` (see `awb/config.py`).
 
+Since SB1 of the self-build (`presentations/self-build`, 2026-10-11) a build user `awb-build` (system user, its own
+group alone, no password, home `/srv/awb-build/home`) and its folder `/srv/awb-build` (a 20 GB loop image) exist
+beside them; `seal/README.md`, section "The build side", lists the folders, owners and modes. `/etc/awb` is root:awb
+751, `paths.conf` and `blocklist.txt` 640 root:awb; the host file gains `build_user` and `build_root`.
+`awb/config.py`: `BUILD_ROOT = "/srv/awb-build"`, `build_user() -> str | None` and `build_root() -> Path` (from the
+root host file, else `BUILD_ROOT`), `is_build_user() -> bool` (never root; by `build_user` of a readable host file,
+else, when the host file is closed to the uid, by a passwd home inside `BUILD_ROOT`). `awb/hooks.py`:
+`build_guard(data, root=None, home=None, tmp=None) -> str | None` with the classes `NO_CLONE`, `ANOTHER_CLONE`,
+`BUILD_VENV`, `OUTSIDE_BUILD`; `build_place_class(path, own, root, write=False, tmp=None)`; `build_selftest() ->
+list[str]` (part of `selftest()`); `BUILD_HOOKS = ("pre-tool", "pre-write", "post-write")`, the other hooks exit 0
+for the build user; `hook_post_write(data, names=True)`. `awb/gate.py`: `blocklist_files()` is the selftest's own
+list alone for the build user. `awb/build.py`: `awb build serve`, a placeholder that exits 2 until SB3.
+
 ### `awb/vault.py`: encryption, the daemon, the client
 
 Encryption with gpg symmetric AES256 through subprocess, always with `--batch --pinentry-mode loopback
@@ -395,6 +408,13 @@ Integration (change these existing modules, keep every existing test green):
   for `mcp__*` (connectors of the account hand raw customer text to a session, T-101), no other change.
 - `seal/work-claude/CLAUDE.md`: at most 60 lines: codes only, never repeat a name he types, intake is his, where
   things are, the ledger and career commands, the writing rules in short, English note rule.
+- `seal/setup.sh` (and `--update`) adds `step_build` after `step_managed`: the build user, the image
+  (`/var/lib/awb-build.img`, made once when `/` keeps 10 GB after it, `FSTAB` line with `loop,nofail,nodev,nosuid,
+  noatime`), the folders on it only when it is mounted, `suite_venv /srv/awb-build/venv`, the immutable home template
+  (`seal/build-claude/settings.json`, `CLAUDE.md`, the owner's identity), `/opt/claude-build` (pinned by
+  `BUILD_CLIENT_VERSION` and `BUILD_CLIENT_SHA256`). Units in `INSTALL_ONLY` (`awb-buildd.service`) are written and
+  not enabled. `seal/verify.sh` adds the build checks and the probes as `awb-build`, in a transient unit with the
+  task's properties.
 - `awb/seal.py`: `awb seal check` runs the parts of verify.sh that need no root (for the current user) and prints PASS
   or FAIL. On a host whose host file carries an `egress` line it also checks that the egress filter is loaded,
   refreshed within 15 minutes and in that mode, from `/var/lib/awb-egress/status.json`.
@@ -892,7 +912,10 @@ it). `ping` and `status` answer `ops` and `release`. Call socket ops: ping, tena
 run_dir=Path("/run"), runner=subprocess.run, geteuid=os.geteuid, **more)`; `more` fills the other fields of `Host`
 (`environ`, `module_file`, `getpwnam`, `getgrouplist`, `clock`, `sleep`, `cwd`, `bin`, `daemons`). Hidden
 subcommands, run by root as the owner and refused as root: `plan --json [options]`, `archive COMMIT` (the `git
-archive` stream on standard output), `unlock`, `status --json [--probe SOCKET]...`. The root path imports neither
+archive` stream on standard output), `unlock`, `status --json [--probe SOCKET]...`. The build runner (SB1):
+`is_build_runner(argv)`, `active_task_units(runner) -> list[str] | None`, `build_runner_action(show, runner, reason)
+-> (action, reason, wanted)`; the plan carries `build_restart_wanted` (bool) and root writes
+`<build_root>/runs/restart-wanted` (`restart_wanted_path(host)`, `Host.build_root`, None for `config.build_root()`). The root path imports neither
 `getpass` nor `socket` nor `awb.vault` nor `awb.tcp.keys`: every function that does is named `owner_*`.
 
 - Units: `templates(tree) -> {unit: {"kind", "files", "dropins"}}` from `seal/*.service`, `seal/web/*.service`,

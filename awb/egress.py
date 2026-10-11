@@ -167,7 +167,7 @@ def conf_value(text: str, key: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _atomic_write(path: Path, text: str, host: Host, mode_bits: int = 0o644) -> None:
+def _atomic_write(path: Path, text: str, host: Host, mode_bits: int = 0o644, gid: int = 0) -> None:
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".%s." % path.name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -175,7 +175,7 @@ def _atomic_write(path: Path, text: str, host: Host, mode_bits: int = 0o644) -> 
             fh.flush()
             os.fchmod(fh.fileno(), mode_bits)
             if host.chown_root and host.geteuid() == 0:
-                os.fchown(fh.fileno(), 0, 0)
+                os.fchown(fh.fileno(), 0, gid)
             os.fsync(fh.fileno())
         os.replace(tmp, path)
     except BaseException:
@@ -196,7 +196,10 @@ def write_mode(host: Host, new: str) -> None:
         raise EgressError("the host file cannot be read: run seal/setup.sh first")
     lines = [line for line in text.splitlines() if not _EGRESS_RE.match(line)]
     lines.append("egress = %s" % new)
-    _atomic_write(path, "\n".join(lines) + "\n", host)
+    # the host file keeps its mode, never a group or other write bit, and its group (640 root:awb since SB1 of the
+    # self-build, closed to other users)
+    st = path.stat()
+    _atomic_write(path, "\n".join(lines) + "\n", host, st.st_mode & 0o755, st.st_gid)
 
 
 # --------------------------------------------------------------------------- the allow list

@@ -1,0 +1,66 @@
+{
+  "autoMemoryEnabled": false,
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "env": {
+    "DISABLE_AUTOUPDATER": "1",
+    "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/awb hook pre-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash|Monitor",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/awb hook pre-tool"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/awb hook post-write"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "deny": [
+      "mcp__*",
+      "WebFetch",
+      "WebSearch",
+      "PowerShell",
+      "LSP",
+      "NotebookRead",
+      "Artifact",
+      "ArtifactComments",
+      "ArtifactData",
+      "DesignSync",
+      "SendUserFile",
+      "EnterWorktree",
+      "ExitWorktree",
+      "Workflow",
+      "RemoteTrigger",
+      "ListMcpResourcesTool",
+      "ReadMcpResourceTool",
+      "ReadMcpResourceDirTool"
+    ]
+  }
+}

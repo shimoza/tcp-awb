@@ -24,6 +24,16 @@
 # The client files of the work user are root owned and immutable; the six hooks are also installed as managed
 # settings of the client (a drop-in under /etc/claude-code), which no user or project file can switch off.
 #
+# The build side of the self-build (presentations/self-build, SB1), in the first seal and in every update: the build
+# user awb-build (a system user, its own group alone, no password, a login shell for one `claude login`), its folder
+# /srv/awb-build on a loop image of a fixed size mounted by an fstab line (a runaway task fills the image, never the
+# filesystem of the vault), on it main.git (the owner's, bare, 755), wt/ (the build user's clones), runs/ (the
+# runner's records, owner 700), home/ (the build user's own home), venv/ (the suite's venv, root) and home-template/
+# (root, immutable: the build settings, CLAUDE.md, the owner's git identity); /opt/claude-build, a root owned copy of
+# the client pinned by version and digest with its updater off; the unit of the runner, installed and not enabled
+# until the runner exists. /etc/awb and its two files go to root:awb (751, paths.conf and blocklist.txt 640): the
+# build user reads neither, the owner, the work user and the Ask page do.
+#
 # The egress filter of the work user (seal/egress/ALLOW.md) is an nftables table that root loads with `awb egress
 # load`, at boot through awb-egress.service and every 5 minutes through awb-egress.timer. It ships in the mode count
 # (egress = count in the host file: nothing refused, every connection outside the list counted by class); only
@@ -51,6 +61,17 @@ MANAGED_DIR=/etc/claude-code/managed-settings.d
 MANAGED_FILE=/etc/claude-code/managed-settings.d/awb-workbench.json
 CLIENT_FILES="settings.json CLAUDE.md skills/drafting/SKILL.md"
 FORBIDDEN_GROUPS=(ubuntu docker adm sudo lxd)
+BUILD_USER=awb-build
+BUILD_ROOT=/srv/awb-build             # awb/config.py BUILD_ROOT holds the same path
+BUILD_IMAGE=/var/lib/awb-build.img
+BUILD_SIZE_GB=20                      # D-S17
+BUILD_FLOOR_GB=10                     # the image is made only when / keeps this much free after it
+BUILD_FSTAB="$BUILD_IMAGE $BUILD_ROOT ext4 loop,nofail,nodev,nosuid,noatime 0 0"
+FSTAB=/etc/fstab
+BUILD_CLIENT=/opt/claude-build
+BUILD_CLIENT_VERSION=2.1.296          # the client the build user runs, pinned by version and digest
+BUILD_CLIENT_SHA256=24972e3bc859fab2b46ed4c1e51f7d6130f06d3bd550811a114640de3370d0de
+INSTALL_ONLY="awb-buildd.service"     # installed, never enabled here: the runner comes with SB3
 
 usage() {
     echo "usage: sudo $0 [--dry-run] [--update [--units-only]] [--mirrors DIR...]" >&2
@@ -126,7 +147,7 @@ suite_venv() {
             "${h%/}" | "${h%/}"/*) die "the venv of the suite lies outside every home and outside the repository: $dir" ;;
         esac
     done < <(getent passwd)
-    extras=$(python3 -I -c 'import sys, tomllib
+    extras=$(/usr/bin/python3 -I -c 'import sys, tomllib
 with open(sys.argv[1], "rb") as f:
     print(" ".join(tomllib.load(f)["project"]["optional-dependencies"]["test"]))' "$here/pyproject.toml") ||
         die "the test extras of pyproject.toml could not be read"
@@ -639,15 +660,17 @@ kept_conf() {
 
 step_conf() {
     local web_keys owner_host
-    info "the host file of the Workbench paths"
+    info "the host file of the Workbench paths: /etc/awb root:awb 751 (a user outside the group may reach a file it"
+    info "owns there, awb-owner its secret, and lists nothing), paths.conf and blocklist.txt 640 root:awb"
     run mkdir -p "$CONF_DIR"
-    run chmod 755 "$CONF_DIR"
+    run chown root:"$WORK_GROUP" "$CONF_DIR"
+    run chmod 751 "$CONF_DIR"
     owner_host=$(kept_conf owner_host "")
     web_keys="front_socket = $(kept_conf front_socket /run/awb-web/front.sock)
 cloudflared_user = $(kept_conf cloudflared_user cloudflared)"
     [ -z "$owner_host" ] || web_keys="$web_keys
 owner_host = $owner_host"
-    write_file "$CONF_FILE" 644 root:root <<EOF
+    write_file "$CONF_FILE" 640 root:"$WORK_GROUP" <<EOF
 # written by seal/setup.sh, read by awb/config.py
 owner = $owner
 work_user = $WORK_USER
@@ -658,8 +681,12 @@ kb = $work_home/tcp-kb
 check_socket = $CHECK_SOCKET
 mirrors = $MIRROR_ROOT
 egress = $(kept_conf egress count)
+build_user = $BUILD_USER
+build_root = $BUILD_ROOT
 $web_keys
 EOF
+    run_if_present "$CONF_DIR/blocklist.txt" chown root:"$WORK_GROUP" "$CONF_DIR/blocklist.txt"
+    run_if_present "$CONF_DIR/blocklist.txt" chmod 640 "$CONF_DIR/blocklist.txt"
 }
 
 step_units() {
@@ -676,7 +703,12 @@ step_units() {
     run systemctl daemon-reload
     [ "$units_only" -eq 0 ] || return 0
     for f in "$seal_dir"/*.service "$seal_dir"/*.timer; do
-        try_run systemctl enable --now "$(basename -- "$f")"
+        name=$(basename -- "$f")
+        if [[ " $INSTALL_ONLY " == *" $name "* ]]; then
+            info "$name is installed, not enabled: the build runner comes with SB3 of the self-build"
+            continue
+        fi
+        try_run systemctl enable --now "$name"
     done
 }
 
@@ -789,6 +821,254 @@ step_managed() {
     run install -o root -g root -m 644 "$src" "$MANAGED_FILE"
 }
 
+# --------------------------------------------------------------------------- the build side (self-build SB1)
+
+build_mounted=0
+build_source=""
+
+step_build_user() {
+    local entry home shell g
+    info "the build user $BUILD_USER of the self-build: a system user in its own group alone, no password, the shell"
+    info "/bin/bash so that claude login works once, its home $BUILD_ROOT/home inside the build root"
+    if getent group "$BUILD_USER" >/dev/null; then
+        skip "the group exists" groupadd --system "$BUILD_USER"
+    else
+        run groupadd --system "$BUILD_USER"
+    fi
+    if entry=$(getent passwd "$BUILD_USER"); then
+        [ "$(printf '%s\n' "$entry" | cut -d: -f3)" != 0 ] || die "the build user must not have uid 0"
+        skip "the user exists" useradd --system --gid "$BUILD_USER" -M -d "$BUILD_ROOT/home" --shell /bin/bash \
+            "$BUILD_USER"
+        home=$(printf '%s\n' "$entry" | cut -d: -f6)
+        shell=$(printf '%s\n' "$entry" | cut -d: -f7)
+        [ "$home" = "$BUILD_ROOT/home" ] || run usermod -d "$BUILD_ROOT/home" "$BUILD_USER"
+        [ "$shell" = /bin/bash ] || run usermod --shell /bin/bash "$BUILD_USER"
+    else
+        run useradd --system --gid "$BUILD_USER" -M -d "$BUILD_ROOT/home" --shell /bin/bash \
+            --comment "Architect Workbench build" "$BUILD_USER"
+    fi
+    info "the build user is in no group but its own: not $WORK_GROUP (the check socket), not sudo, not the owner's"
+    if getent passwd "$BUILD_USER" >/dev/null; then
+        for g in $(id -nG "$BUILD_USER"); do
+            [ "$g" = "$BUILD_USER" ] || run gpasswd -d "$BUILD_USER" "$g"
+        done
+    fi
+}
+
+build_image() {
+    # the image is made once and never formatted again; a host without the room or a mount that fails leaves the build
+    # side for the next run with one warning, and nothing is made on the root filesystem in its place
+    local avail dir
+    dir=$(dirname -- "$BUILD_IMAGE")
+    info "the build root $BUILD_ROOT: an ext4 image of $BUILD_SIZE_GB GB at $BUILD_IMAGE, allocated at once, made once and"
+    info "mounted by an fstab line (nofail: a missing image never stops a boot); a runaway task fills the image only"
+    if [ "$dry_run" -eq 1 ]; then
+        printf '+ fallocate -l %sG %s  # if missing, when %s keeps %s GB free after it\n' "$BUILD_SIZE_GB" \
+            "$BUILD_IMAGE" "$dir" "$BUILD_FLOOR_GB"
+        printf '+ chmod 600 %s  # if missing\n' "$BUILD_IMAGE"
+        printf '+ mkfs.ext4 -q -F -L awb-build -m 0 %s  # if missing\n' "$BUILD_IMAGE"
+    elif [ -e "$BUILD_IMAGE" ]; then
+        skip "already there, never formatted again" mkfs.ext4 -q -F -L awb-build -m 0 "$BUILD_IMAGE"
+    else
+        avail=$(df --output=avail -B1G -- "$dir" 2>/dev/null | tail -n 1 | tr -d ' ') || avail=""
+        if ! [[ "$avail" =~ ^[0-9]+$ ]] || [ "$avail" -lt $((BUILD_SIZE_GB + BUILD_FLOOR_GB)) ]; then
+            info "warning: $dir has ${avail:-an unknown number of} GB free; the image needs $BUILD_SIZE_GB GB and leaves"
+            info "$BUILD_FLOOR_GB GB: the build side waits for the next run, seal/verify.sh reports it"
+            return 0
+        fi
+        show fallocate -l "${BUILD_SIZE_GB}G" "$BUILD_IMAGE"
+        if ! fallocate -l "${BUILD_SIZE_GB}G" "$BUILD_IMAGE"; then
+            rm -f -- "$BUILD_IMAGE"
+            info "warning: the image could not be allocated, the build side waits for the next run"
+            return 0
+        fi
+        run chmod 600 "$BUILD_IMAGE"
+        show mkfs.ext4 -q -F -L awb-build -m 0 "$BUILD_IMAGE"
+        if ! mkfs.ext4 -q -F -L awb-build -m 0 "$BUILD_IMAGE"; then
+            rm -f -- "$BUILD_IMAGE"
+            info "warning: the image could not be formatted and was removed, the build side waits for the next run"
+            return 0
+        fi
+    fi
+    run mkdir -p "$BUILD_ROOT"
+    append_line "$FSTAB" "$BUILD_FSTAB"
+    if [ "$dry_run" -eq 0 ] && mountpoint -q "$BUILD_ROOT"; then
+        skip "already mounted" mount "$BUILD_ROOT"
+    else
+        try_run mount "$BUILD_ROOT"
+    fi
+    if [ "$dry_run" -eq 0 ] && ! mountpoint -q "$BUILD_ROOT"; then
+        info "warning: $BUILD_ROOT is not mounted, so no build folder is made on the root filesystem in its place"
+        return 0
+    fi
+    run chown root:root "$BUILD_ROOT"
+    run chmod 755 "$BUILD_ROOT"
+    build_mounted=1
+}
+
+as_owner_git() {
+    # as_owner_git ARG...: git as the owner (git refuses a repository of another user)
+    runuser -u "$owner" -- env HOME="$owner_home" git "$@"
+}
+
+find_build_source() {
+    # the repository the release came from: the working tree in the full mode; in the update mode the folder sudo awb
+    # deploy ran in, when it is a working tree of the owner that holds the release commit. Empty otherwise.
+    local top
+    build_source=""
+    [ "$real" -eq 1 ] || return 0
+    if [ "$update" -eq 0 ]; then
+        build_source=$repo
+        return 0
+    fi
+    top=$(as_owner_git -C "$PWD" rev-parse --show-toplevel 2>/dev/null) || return 0
+    [ -n "$top" ] && [ "$(stat -c %U -- "$top" 2>/dev/null)" = "$owner" ] || return 0
+    [[ "$release" =~ ^[0-9a-f]{40}$ ]] || return 0
+    as_owner_git -C "$top" cat-file -e "$release^{commit}" 2>/dev/null || return 0
+    build_source=$top
+}
+
+build_folders() {
+    local main="$BUILD_ROOT/main.git"
+    info "on the image: main.git (the owner's, bare, 755; main moves only here), wt/ (the build user's clones, 755),"
+    info "runs/ (the runner's records, owner 700), home/ (the build user's own, 700)"
+    run install -d -o "$owner" -g "$owner_gid" -m 755 "$main"
+    run_unless_present "$main/HEAD" runuser -u "$owner" -- env HOME="$owner_home" git init --bare --quiet -b main "$main"
+    if [ "$dry_run" -eq 1 ]; then
+        printf '+ %s  # once, while main.git has no main\n' "$(quote_args runuser -u "$owner" -- env HOME="$owner_home" \
+            git -C "$main" fetch --no-tags --quiet "<the repository>" refs/heads/main:refs/heads/main)"
+        info "<the repository> is the working tree of a first seal, in an update the folder sudo awb deploy ran in"
+        info "when it holds the release commit"
+    elif as_owner_git -C "$main" rev-parse --verify --quiet refs/heads/main >/dev/null 2>&1; then
+        skip "main is there" git -C "$main" fetch --no-tags --quiet "<the repository>" refs/heads/main:refs/heads/main
+    elif [ -n "$build_source" ]; then
+        try_run runuser -u "$owner" -- env HOME="$owner_home" git -C "$main" fetch --no-tags --quiet "$build_source" \
+            refs/heads/main:refs/heads/main
+    else
+        info "main.git has no main yet and this run found no repository to take it from: as the owner, run once"
+        info "git -C $main fetch --no-tags <the working copy> refs/heads/main:refs/heads/main"
+    fi
+    run install -d -o "$BUILD_USER" -g "$BUILD_USER" -m 755 "$BUILD_ROOT/wt"
+    run install -d -o "$owner" -g "$owner_gid" -m 700 "$BUILD_ROOT/runs"
+    run install -d -o "$BUILD_USER" -g "$BUILD_USER" -m 700 "$BUILD_ROOT/home"
+}
+
+build_venv() {
+    info "the suite's venv in $BUILD_ROOT/venv, root owned: the build user runs it and never changes it"
+    if ! (suite_venv "$BUILD_ROOT/venv"); then
+        info "warning: the venv of the suite is not complete, seal/verify.sh reports it"
+    fi
+}
+
+plain_value() {
+    # plain_value TEXT: a value git config takes as it is (printable, no quote, backslash, comment sign or bracket)
+    [ -n "$1" ] && [ "${#1}" -le 200 ] && [[ "$1" =~ ^[[:print:]]+$ ]] || return 1
+    case "$1" in
+        *'"'* | *'\'* | *';'* | *'#'* | *'['* | *']'*) return 1 ;;
+    esac
+}
+
+build_identity() {
+    # build_identity TARGET: the owner's name and mail (D-S16), from the repository the release came from (its own
+    # config first, then his global one); the content is not printed. Without both, the file there stays as it is
+    local target="$1" name="" mail="" tmp
+    if [ "$real" -eq 0 ]; then
+        printf '+ write %s (mode 644, root:root)  # [user] name and email of the owner, from git config in the repository\n' \
+            "$target"
+        return 0
+    fi
+    if [ -n "$build_source" ]; then
+        name=$(as_owner_git -C "$build_source" config --get user.name 2>/dev/null) || name=""
+        mail=$(as_owner_git -C "$build_source" config --get user.email 2>/dev/null) || mail=""
+    else
+        name=$(as_owner_git config --global --get user.name 2>/dev/null) || name=""
+        mail=$(as_owner_git config --global --get user.email 2>/dev/null) || mail=""
+    fi
+    if ! plain_value "$name" || ! plain_value "$mail"; then
+        info "warning: no plain user.name and user.email of the owner were found: $target stays as it is"
+        return 0
+    fi
+    guard install "$target"
+    printf '+ write %s (mode 644, root:root)  # [user] name and email of the owner\n' "$target"
+    [ "$dry_run" -eq 0 ] || return 0
+    tmp=$(mktemp "$(dirname -- "$target")/.awb-setup.XXXXXX")
+    printf '# written by seal/setup.sh: a build task commits as the owner (D-S16); no safe.directory\n[user]\n\tname = %s\n\temail = %s\n' \
+        "$name" "$mail" >"$tmp"
+    chown root:root "$tmp"
+    chmod 644 "$tmp"
+    mv -f -- "$tmp" "$target"
+}
+
+build_template() {
+    local t="$BUILD_ROOT/home-template" f
+    info "the home template of a build task, root owned and immutable: .claude/settings.json (seal/build-claude),"
+    info ".claude/CLAUDE.md (the repository's) and .gitconfig (the owner's identity, no safe.directory)"
+    clear_target "$t" d
+    clear_target "$t/.claude" d
+    run install -d -o root -g root -m 755 "$t" "$t/.claude"
+    clear_target "$t/.claude/settings.json" f
+    run install -o root -g root -m 644 "$seal_dir/build-claude/settings.json" "$t/.claude/settings.json"
+    clear_target "$t/.claude/CLAUDE.md" f
+    run install -o root -g root -m 644 "$repo/CLAUDE.md" "$t/.claude/CLAUDE.md"
+    clear_target "$t/.gitconfig" f
+    build_identity "$t/.gitconfig"
+    for f in "$t/.claude/settings.json" "$t/.claude/CLAUDE.md" "$t/.gitconfig" "$t/.claude" "$t"; do
+        run_if_present "$f" chattr +i "$f"
+    done
+}
+
+build_client() {
+    local src="$owner_home/.local/share/claude/versions/$BUILD_CLIENT_VERSION"
+    local bin="$BUILD_CLIENT/versions/$BUILD_CLIENT_VERSION" digest
+    info "the client of the build user: $bin, a root owned copy of version $BUILD_CLIENT_VERSION from the owner's"
+    info "native install, taken only with the pinned sha256; $BUILD_CLIENT/bin/claude runs it with the updater off"
+    run install -d -o root -g root -m 755 "$BUILD_CLIENT" "$BUILD_CLIENT/versions" "$BUILD_CLIENT/bin"
+    if [ "$dry_run" -eq 1 ]; then
+        printf '+ install -o root -g root -m 755 %s %s.partial  # if missing; kept only with sha256 %s\n' "$src" \
+            "$bin" "$BUILD_CLIENT_SHA256"
+        printf '+ mv -f -- %s.partial %s  # if missing\n' "$bin" "$bin"
+    elif [ -f "$bin" ] && [ "$(sha256sum <"$bin" | cut -d' ' -f1)" = "$BUILD_CLIENT_SHA256" ]; then
+        skip "there, with the pinned digest" install -o root -g root -m 755 "$src" "$bin"
+    elif [ -L "$src" ] || [ ! -f "$src" ]; then
+        info "warning: version $BUILD_CLIENT_VERSION is not in the owner's native install: the build client waits,"
+        info "seal/verify.sh reports it"
+    else
+        run install -o root -g root -m 755 "$src" "$bin.partial"
+        digest=$(sha256sum <"$bin.partial" | cut -d' ' -f1)
+        if [ "$digest" = "$BUILD_CLIENT_SHA256" ]; then
+            run mv -f -- "$bin.partial" "$bin"
+        else
+            run rm -f -- "$bin.partial"
+            info "warning: the copy of $BUILD_CLIENT_VERSION does not carry the pinned digest and was removed"
+        fi
+    fi
+    write_file "$BUILD_CLIENT/bin/claude" 755 root:root <<WRAP
+#!/bin/sh
+# written by seal/setup.sh: the pinned client of the build user (presentations/self-build); the updater and the auto
+# memory stay off, whatever a settings file says
+DISABLE_AUTOUPDATER=1
+CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
+export DISABLE_AUTOUPDATER CLAUDE_CODE_DISABLE_AUTO_MEMORY
+exec $bin "\$@"
+WRAP
+}
+
+step_build() {
+    info "the build side of the self-build (presentations/self-build, SB1)"
+    step_build_user
+    build_client
+    info "the commit hooks of a build clone come with the release: $OPT/src/hooks-build (the installed gate"
+    info "--no-register by the installed interpreter's absolute path); the runner points each clone's hooks there"
+    build_image
+    if [ "$dry_run" -eq 0 ] && [ "$build_mounted" -eq 0 ]; then
+        return 0
+    fi
+    find_build_source
+    build_folders
+    build_venv
+    build_template
+}
+
 check_mirror() {
     # check_mirror DIR: an absolute folder that neither lies in nor holds the vault, the password store or keys
     local src="${1%/}" q
@@ -848,6 +1128,7 @@ steps() {
     step_ssh
     step_client
     step_managed
+    step_build
     step_mirrors
 }
 
@@ -866,6 +1147,7 @@ update_steps() {
     step_kb_hooks
     step_client
     step_managed
+    step_build
     step_mirrors
 }
 

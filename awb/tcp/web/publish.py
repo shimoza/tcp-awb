@@ -519,9 +519,14 @@ def _owner_host(a, host: Host) -> int:
         raise Refused("%s is missing: run seal/setup.sh first" % path) from None
     lines = [line for line in text.splitlines() if not re.match(r"\s*owner_host\s*=", line)]
     lines.append("owner_host = %s" % name)
+    # the host file keeps its mode, never a group or other write bit, and its group (640 root:awb since SB1 of the
+    # self-build, closed to other users)
+    st = path.stat()
     tmp = path.with_name(".%s.new-%d" % (path.name, os.getpid()))
     tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    os.chmod(tmp, 0o644)
+    os.chmod(tmp, st.st_mode & 0o755)
+    if path == Path(config.HOST_CONF):
+        host.chown(tmp, 0, st.st_gid)
     os.replace(tmp, path)
     _say("owner_host = %s in %s; the next sudo awb deploy renders it. In Cloudflare: the DNS name %s and one "
          "ingress line to the front socket" % (name, path, name))

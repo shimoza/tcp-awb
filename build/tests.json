@@ -3506,8 +3506,141 @@
    "name": "suite path: a spawn from an isolated interpreter writes -I into the hooks (replaces test_client_settings_use_this_interpreter_without_a_home_path)",
    "run": ".venv/bin/pytest tests/test_projects.py::test_client_settings_use_this_interpreter_and_its_isolation_without_a_home_path",
    "status": "passing"
+  },
+  {
+   "id": "SB1-1",
+   "phase": "SB1",
+   "name": "build side: the dry run of the seal and of an update names the build user, the image, fstab, mount, folders, venv, template, client, conf keys and the runner's unit (installed, not enabled)",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_plans_the_build_side_in_the_seal_and_in_every_update",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-2",
+   "phase": "SB1",
+   "name": "build side: the image is made once, kept above its floor, never formatted again; no folder without the mount",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_build_image_is_made_once_and_nothing_lands_on_the_root_filesystem_unmounted",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-3",
+   "phase": "SB1",
+   "name": "build side: the owner's name and mail enter the template's .gitconfig only as plain values",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_owner_identity_goes_into_the_template_only_as_plain_values",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-4",
+   "phase": "SB1",
+   "name": "build side: awb-buildd.service as the owner, group awb, NoNewPrivileges=no, UMask=0022, awb build serve, the build root mounted first",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_build_runner_unit_runs_as_the_owner_and_may_call_sudo",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-5",
+   "phase": "SB1",
+   "name": "build side: the build settings deny mcp__*, WebFetch, WebSearch and the work user's denied tools and run three hooks",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_build_settings_deny_the_network_and_the_connectors_and_keep_three_hooks",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-6",
+   "phase": "SB1",
+   "name": "build side: hooks-build refuse a staged secret and a co-author line by the installed interpreter, never a .venv of the clone",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_build_hooks_run_the_installed_gate_without_the_register",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-7",
+   "phase": "SB1",
+   "name": "build side: verify.sh lists the build checks and the probes, reads the client pin of setup.sh and counts a probe only after its unit ran",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_verify_lists_the_build_checks_and_reads_the_pin_of_setup",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-8",
+   "phase": "SB1",
+   "name": "build side: awb egress and awb web host keep the host file at 640 and drop a group write bit",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_host_file_keeps_its_mode_and_group_when_a_command_rewrites_it",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-9",
+   "phase": "SB1",
+   "name": "build side: the full dry run with /etc/awb root:awb 751 and the host file 640 root:awb (replaces test_setup_dry_run_prints_every_step)",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_dry_run_prints_every_step_and_closes_the_host_file_to_other_users",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-10",
+   "phase": "SB1",
+   "name": "build side: the update adds step_build and installs awb-buildd.service without enabling it (replaces test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_and_loads_the_egress_filter)",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_loads_the_egress_filter_and_adds_the_build_side",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-11",
+   "phase": "SB1",
+   "name": "build guard: a project path, the owner's home, another clone, the venv for a write and the runs are refused; the own clone, the venv for a read and /tmp pass",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_the_build_guard_keeps_a_task_in_its_clone",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-12",
+   "phase": "SB1",
+   "name": "build guard: no clone folder, a clone reached through a link or an unreadable input refuse every call",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_the_build_guard_refuses_every_call_without_a_clone",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-13",
+   "phase": "SB1",
+   "name": "build guard: awb hook selftest plants the three refusals of N5 and fails without the place check",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_the_build_selftest_holds_the_n5_cases_and_fails_without_its_guard",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-14",
+   "phase": "SB1",
+   "name": "build guard: the build user by build_user of a readable host file, else by its home in the build root; never root",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_the_build_user_is_known_by_the_host_file_or_by_its_home",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-15",
+   "phase": "SB1",
+   "name": "build guard: prompt, stop and session-start exit 0 for the build user; post-write checks secrets without the name check",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_the_build_user_runs_three_hooks_and_never_the_name_check",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-16",
+   "phase": "SB1",
+   "name": "build guard: the build user's gate reads no host blocklist",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_the_build_user_leaves_the_host_blocklist_to_the_runner",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-17",
+   "phase": "SB1",
+   "name": "deploy: awb-buildd.service maps to awb/build.py; seal/build-claude and hooks-build restart nothing",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_build_runner_unit_maps_to_the_build_module",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-18",
+   "phase": "SB1",
+   "name": "deploy: the runner's restart is deferred while an awb-task-* unit runs or cannot be listed; a runner that is not running is left alone",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_a_build_runner_restart_waits_for_its_task",
+   "status": "passing"
+  },
+  {
+   "id": "SB1-19",
+   "phase": "SB1",
+   "name": "deploy: root writes runs/restart-wanted for a deferred runner, never through a link",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_root_run_leaves_restart_wanted_for_a_deferred_runner",
+   "status": "passing"
   }
  ],
- "total_tests": 501,
+ "total_tests": 520,
  "checked": "2026-10-11"
 }

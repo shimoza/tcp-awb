@@ -450,6 +450,14 @@ price API), by class. It ships counting and refuses nothing. After a day of coun
 Things you want no commit to carry (names of other workspaces, a naming scheme) go into a local blocklist, one regular expression per
 line: `/etc/awb/blocklist.txt` or `~/.config/awb/blocklist.txt`. It never enters the repository.
 
+A fourth user, `awb-build`, is there for the self-build (`presentations/self-build`): unattended build tasks of the
+Workbench itself will run as this user, never as you or as `awb`. It has no password, no sudo and no group but its
+own, so it reaches neither the vault, the sockets, the projects nor `/etc/awb` (root:awb 751, the host file and the
+blocklist 640). Its folder `/srv/awb-build` is a 20 GB loop image (`main.git`, the clones, the runner's records, the
+suite's venv, a root owned home template), its client a pinned root owned copy in `/opt/claude-build`, and its hook
+keeps every tool call inside its own clone. The runner's unit `awb-buildd.service` is installed and not enabled yet;
+`sudo seal/verify.sh` proves the rest. `seal/README.md`, section "The build side", has the details.
+
 | when | what to run |
 |---|---|
 | after a reboot | `awb vault unlock`, then `awb keys unlock` (as the owner) |

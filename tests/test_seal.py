@@ -98,7 +98,10 @@ def test_scripts_read_homes_from_getent_and_carry_none(fakebin):
         assert OWNER_HOME not in text
 
 
-def test_setup_dry_run_prints_every_step(fakebin):
+def test_setup_dry_run_prints_every_step_and_closes_the_host_file_to_other_users(fakebin):
+    """Replaces test_setup_dry_run_prints_every_step (SB1 of the self-build): the host file is written 640 root:awb
+    in /etc/awb root:awb 751 (it pinned 644 root:root), and the one pip install of the seal is the one into the
+    suite's venv on the build image (it pinned none). Everything else is the same."""
     res = run_script(SETUP, ["--dry-run"], fakebin)
     assert res.returncode == 0, res.stderr
     no_marks(fakebin)
@@ -125,11 +128,16 @@ def test_setup_dry_run_prints_every_step(fakebin):
     assert has(r"^\+ python3 -m venv --system-site-packages /opt/tcp-awb/venv")
     assert has(r"^\+ write /opt/tcp-awb/venv/lib/python3[^/]*/site-packages/awb\.pth \(mode 644, root:root\)$")
     assert has(r"^\+ exchange /opt/tcp-awb/src\.next /opt/tcp-awb/src  # renameat2 RENAME_EXCHANGE, one call$")
-    assert not has(r"pip install") and not has(r"rm -rf -- /opt/tcp-awb/src$")
+    assert [c for c in cmds if "pip install" in c] == [
+        "+ /srv/awb-build/venv/bin/python -I -m pip install --no-cache-dir --disable-pip-version-check pytest "
+        "pytest-timeout python-docx python-pptx openpyxl reportlab"]
+    assert not has(r"rm -rf -- /opt/tcp-awb/src$")
     # T3 (build/DECISIONS.md, 2026-10-07, D-T3a): a wrapper in place of the symlink, see the wrapper tests below
     assert has(r"^\+ write /usr/local/bin/awb \(mode 755, root:root\)$")
     # the host file and the unit
-    assert has(r"^\+ write /etc/awb/paths\.conf \(mode 644, root:root\)$")
+    assert has(r"^\+ chown root:awb /etc/awb$") and has(r"^\+ chmod 751 /etc/awb$")
+    assert has(r"^\+ write /etc/awb/paths\.conf \(mode 640, root:awb\)$")
+    assert has(r"^\+ chmod 640 /etc/awb/blocklist\.txt  # if present$")
     for key in ("owner = %s" % USER, "vault = %s" % VAULT, "check_socket = /run/awb/check.sock",
                 "mirrors = /srv/tcp-mirrors"):
         assert "    | " + key in out.splitlines()
@@ -952,8 +960,11 @@ def test_the_dry_run_holds_cloudflared_and_terraform_in_the_seal_and_in_a_deploy
     assert "apt-mark" not in res.stdout
 
 
-def test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_and_loads_the_egress_filter(fakebin):
-    """Replaces test_setup_update_mode_skips_the_seal_steps_holds_the_packages_and_hooks_the_kb (the egress filter of
+def test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_loads_the_egress_filter_and_adds_the_build_side(fakebin):
+    """Replaces test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_and_loads_the_egress_filter
+    (SB1 of the self-build: the update adds the build side, step_build after step_managed, with its own user, mount,
+    pip and git lines on the build root, and installs awb-buildd.service without enabling it), which replaced
+    test_setup_update_mode_skips_the_seal_steps_holds_the_packages_and_hooks_the_kb (the egress filter of
     the work user: the update installs seal/*.timer with the units and runs step_egress after step_units), which
     replaced test_setup_update_mode_skips_the_seal_steps_and_holds_the_packages (TM0 item 7: the update installs
     the commit gate of the knowledge base, step_kb_hooks after step_holds), which replaced
@@ -969,29 +980,38 @@ def test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_
                 or re.match(r"^[+=] mount\b", c) or "authorized_keys" in c
                 or re.search(r"rm -rf -- /opt/tcp-awb/src( |$)", c)]
 
-    assert seal_steps(full)
+    assert seal_steps([c for c in full if "awb-build" not in c])
     res = run_script(SETUP, ["--update", "--dry-run"], fakebin)
     assert res.returncode == 0, res.stderr
     no_marks(fakebin)
     cmds = commands(res.stdout)
-    assert seal_steps(cmds) == []
+    assert [c for c in seal_steps(cmds) if "awb-build" not in c] == []
+    assert seal_steps(cmds) == ["+ groupadd --system awb-build",
+                                "+ useradd --system --gid awb-build -M -d /srv/awb-build/home --shell /bin/bash "
+                                "--comment Architect\\ Workbench\\ build awb-build",
+                                "+ mount /srv/awb-build"]
     joined = "\n".join(cmds)
     assert re.search(r"^\+ write /opt/tcp-awb/venv/lib/python3[^/]*/site-packages/awb\.pth ", joined, re.M)
     assert "    | /opt/tcp-awb/src" in res.stdout.splitlines()
     assert "+ exchange /opt/tcp-awb/src.next /opt/tcp-awb/src  # renameat2 RENAME_EXCHANGE, one call" in cmds
     for unit in sorted(p.name for p in list(SEAL.glob("*.service")) + list(SEAL.glob("*.timer"))):
         assert "+ write /etc/systemd/system/%s (mode 644, root:root)" % unit in cmds
-        assert "+ systemctl enable --now %s" % unit in cmds
+        assert ("+ systemctl enable --now %s" % unit in cmds) is (unit != "awb-buildd.service"), unit
+    assert "# awb-buildd.service is installed, not enabled: the build runner comes with SB3 of the self-build" in \
+        res.stdout.splitlines()
     assert "+ write /etc/needrestart/conf.d/awb.conf (mode 644, root:root)" in cmds
     assert [c for c in cmds if " mv -T " in c or c.startswith("+ mv -T")] == [
         "+ mv -T -- /opt/tcp-awb/src.next /opt/tcp-awb/releases/pre-deploy  # if /opt/tcp-awb/src.next is the plain "
         "folder of before T1, else rm -f"]
-    assert "pip" not in joined and not re.search(r"(^|[ |;&])git ", joined, re.M)
+    assert [c for c in cmds if "pip" in c] == [c for c in cmds if c.startswith("+ /srv/awb-build/venv/bin/python -I -m pip ")]
+    gits = [c for c in cmds if not c.startswith("+ write ") and re.search(r"(^|[ |;&])git ", c)]
+    assert len(gits) == 2 and all("/srv/awb-build/main.git" in c for c in gits)
     text = SETUP.read_text(encoding="utf-8")
     assert not re.search(r'rm -rf[^\n]*\$OPT/src["\s]', text)
     assert re.search(r"^update_steps\(\) \{\n(    #.*\n)?    if \[ \"\$units_only\" -eq 1 \]; then\n        step_units\n"
                      r"        return 0\n    fi\n    step_code\n    step_conf\n    step_units\n    step_egress\n    step_needrestart\n"
-                     r"    step_holds\n    step_kb_hooks\n    step_client\n    step_managed\n    step_mirrors\n\}", text, re.M)
+                     r"    step_holds\n    step_kb_hooks\n    step_client\n    step_managed\n    step_build\n    step_mirrors\n\}", text,
+                     re.M)
     # --units-only: the units and daemon-reload, nothing else
     res = run_script(SETUP, ["--update", "--units-only", "--dry-run"], fakebin)
     assert res.returncode == 0, res.stderr
@@ -1032,3 +1052,294 @@ def test_the_seal_installs_the_commit_gate_of_the_knowledge_base_and_verify_chec
     assert all(present(h) for h in gate.HOOK_NAMES)
     (kb / ".git" / "hooks" / "commit-msg").unlink()
     assert not present("commit-msg")
+
+
+# --------------------------------------------------------------------------- SB1: the build side of the self-build
+
+BUILD_UNIT = SEAL / "awb-buildd.service"
+BUILD_SETTINGS = SEAL / "build-claude" / "settings.json"
+HOOKS_BUILD = REPO / "hooks-build"
+
+
+def test_setup_plans_the_build_side_in_the_seal_and_in_every_update(fakebin, tmp_path):
+    """SB1 item 1: the dry run of the first seal and of an update names the build user, the image, the fstab line, the
+    mount, the folders with their owners and modes, the venv, the home template, the pinned client, the host file's
+    two keys and the runner's unit, installed and not enabled; in that order where it matters (the user before its
+    folders, the mount before anything on the image). --units-only touches none of it. Planted: the plan of a
+    first seal without the build step (cut from a copy of the script) fails every check."""
+    def problems(out: str) -> list[str]:
+        lines = out.splitlines()
+        cmds = commands(out)
+        want = [
+            "+ groupadd --system awb-build",
+            "+ fallocate -l 20G /var/lib/awb-build.img  # if missing, when /var/lib keeps 10 GB free after it",
+            "+ mkfs.ext4 -q -F -L awb-build -m 0 /var/lib/awb-build.img  # if missing",
+            "+ append to /etc/fstab: /var/lib/awb-build.img /srv/awb-build ext4 loop,nofail,nodev,nosuid,noatime 0 0",
+            "+ mount /srv/awb-build",
+            "+ install -d -o %s -g %d -m 755 /srv/awb-build/main.git" % (USER, os.getgid()),
+            "+ install -d -o awb-build -g awb-build -m 755 /srv/awb-build/wt",
+            "+ install -d -o %s -g %d -m 700 /srv/awb-build/runs" % (USER, os.getgid()),
+            "+ install -d -o awb-build -g awb-build -m 700 /srv/awb-build/home",
+            "+ python3 -m venv --system-site-packages /srv/awb-build/venv",
+            "+ install -o root -g root -m 644 %s /srv/awb-build/home-template/.claude/settings.json" % BUILD_SETTINGS,
+            "+ chattr +i /srv/awb-build/home-template  # if present",
+            "+ install -d -o root -g root -m 755 /opt/claude-build /opt/claude-build/versions /opt/claude-build/bin",
+            "+ write /opt/claude-build/bin/claude (mode 755, root:root)",
+            "+ write /etc/systemd/system/awb-buildd.service (mode 644, root:root)",
+        ]
+        out_ = ["missing: %s" % w for w in want if w not in cmds]
+        if not any(c.startswith("+ useradd --system --gid awb-build -M -d /srv/awb-build/home --shell /bin/bash ")
+                   for c in cmds):
+            out_.append("missing: useradd")
+        if not any(c.startswith("+ runuser -u %s -- env HOME=%s git init --bare --quiet -b main "
+                                "/srv/awb-build/main.git" % (USER, OWNER_HOME)) for c in cmds):
+            out_.append("missing: git init")
+        if not any(".local/share/claude/versions/2.1.296 /opt/claude-build/versions/2.1.296.partial  # if missing; "
+                   "kept only with sha256 " in c for c in cmds):
+            out_.append("missing: the client copy")
+        for key in ("build_user = awb-build", "build_root = /srv/awb-build",
+                    "exec /opt/claude-build/versions/2.1.296 \"$@\"", "DISABLE_AUTOUPDATER=1"):
+            if "    | " + key not in lines:
+                out_.append("missing: %s" % key)
+        if "+ systemctl enable --now awb-buildd.service" in cmds:
+            out_.append("the runner is enabled")
+        if "+ systemctl enable --now awb-buildd.service" in cmds or "# awb-buildd.service is installed, not enabled: " \
+                "the build runner comes with SB3 of the self-build" not in lines:
+            out_.append("the runner's unit line")
+        pos = {w: next((i for i, c in enumerate(cmds) if c.startswith(w)), None) for w in
+               ("+ groupadd --system awb-build", "+ mount /srv/awb-build", "+ install -d -o awb-build")}
+        if None not in pos.values() and not (pos["+ groupadd --system awb-build"] < pos["+ mount /srv/awb-build"]
+                                             < pos["+ install -d -o awb-build"]):
+            out_.append("the order")
+        return out_
+
+    for args in (["--dry-run"], ["--update", "--dry-run"]):
+        res = run_script(SETUP, args, fakebin)
+        assert res.returncode == 0, res.stderr
+        no_marks(fakebin)
+        assert problems(res.stdout) == [], args
+    res = run_script(SETUP, ["--update", "--units-only", "--dry-run"], fakebin)
+    assert "awb-build" not in "\n".join(c for c in commands(res.stdout) if "awb-buildd.service" not in c)
+    # planted: the build step cut out of a copy of the seal
+    copy = tmp_path / "repo"
+    shutil.copytree(SEAL, copy / "seal")
+    for name in ("pyproject.toml", "CLAUDE.md"):
+        shutil.copy(REPO / name, copy / name)
+    planted = copy / "seal" / "setup.sh"
+    planted.write_text(SETUP.read_text(encoding="utf-8").replace("    step_build\n", ""), encoding="utf-8")
+    res = run_script(planted, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    found = problems(res.stdout)
+    assert "missing: + groupadd --system awb-build" in found and "missing: git init" in found
+
+
+def _build_snippet(tmp: Path, tail: str) -> str:
+    """The printing helpers and the build section of setup.sh, run for real against a throw-away image path, root and
+    fstab: every command that would change the host is a fake on PATH."""
+    lines = SETUP.read_text(encoding="utf-8").splitlines(keepends=True)
+    start = next(i for i, x in enumerate(lines) if x.startswith("# ----") and "printing and the guard" in x)
+    end = next(i for i, x in enumerate(lines) if x.startswith("# ----") and x.rstrip().endswith("the steps"))
+    bs = next(i for i, x in enumerate(lines) if x.startswith("# ----") and "the build side (self-build SB1)" in x)
+    be = next(i for i, x in enumerate(lines) if x.startswith("check_mirror() {"))
+    return ("set -euo pipefail\ndie() { echo \"setup: $*\" >&2; exit 1; }\ndry_run=0\nreal=1\nupdate=1\ntest_root=1\n"
+            "OPT=/opt/tcp-awb\n"
+            "BUILD_IMAGE=%s\nBUILD_ROOT=%s\nBUILD_SIZE_GB=20\nBUILD_FLOOR_GB=10\nFSTAB=%s\n"
+            "BUILD_FSTAB=\"$BUILD_IMAGE $BUILD_ROOT ext4 loop,nofail 0 0\"\nprotected=(%s)\n%s\n%s\n%s\n"
+            % (tmp / "img", tmp / "root", tmp / "fstab", tmp / "vault", "".join(lines[start:end]),
+               "".join(lines[bs:be]), tail))
+
+
+def _run_build(tmp: Path, tail: str, df: int = 100, mounted: bool = True, mkfs_ok: bool = True):
+    fake = tmp / "fake"
+    fake.mkdir(exist_ok=True)
+    log = tmp / "calls.log"
+    if log.exists():
+        log.unlink()
+    scripts = {
+        "df": 'echo Avail; echo " %d"' % df,
+        "fallocate": 'for a; do last="$a"; done; : > "$last"; echo "fallocate $*" >> "%s"' % log,
+        "mkfs.ext4": 'echo "mkfs $*" >> "%s"; exit %d' % (log, 0 if mkfs_ok else 1),
+        "mount": 'echo "mount $*" >> "%s"' % log,
+        "mountpoint": "exit %d" % (0 if mounted else 1),
+        "chown": 'echo "chown $*" >> "%s"' % log,
+    }
+    for name, body in scripts.items():
+        (fake / name).write_text("#!/bin/sh\n%s\n" % body)
+        (fake / name).chmod(0o755)
+    env = dict(os.environ, PATH="%s:%s" % (fake, os.environ["PATH"]))
+    res = subprocess.run(["bash", "-c", _build_snippet(tmp, tail)], capture_output=True, text=True, env=env, timeout=60)
+    return res, (log.read_text() if log.exists() else "")
+
+
+def test_the_build_image_is_made_once_and_nothing_lands_on_the_root_filesystem_unmounted(tmp_path):
+    """SB1 item 1, D-S17: the image is allocated and formatted only when it is missing and the filesystem keeps its
+    floor; an existing image is never formatted again; the fstab line goes in once; when the mount does not hold, no
+    build folder is made (it would land on the root filesystem). Planted: an existing image, too little space, a
+    mount that does not hold, a failing mkfs, two runs."""
+    stub = ("step_build_user() { :; }\nbuild_client() { :; }\nfind_build_source() { :; }\n"
+            "build_folders() { echo FOLDERS; }\nbuild_venv() { :; }\nbuild_template() { :; }\nstep_build\n")
+    (tmp_path / "img").write_text("an image\n")
+    res, calls = _run_build(tmp_path, stub)
+    assert res.returncode == 0, res.stderr
+    assert "mkfs" not in calls and "fallocate" not in calls and "FOLDERS" in res.stdout
+    assert "# already there, never formatted again" in res.stdout and "  # already mounted" in res.stdout
+    res, _ = _run_build(tmp_path, stub)
+    assert (tmp_path / "fstab").read_text().count(str(tmp_path / "img")) == 1
+    (tmp_path / "img").unlink()
+    res, calls = _run_build(tmp_path, stub, df=25)
+    assert res.returncode == 0 and "fallocate" not in calls and "FOLDERS" not in res.stdout
+    assert "waits for the next run" in res.stdout and not (tmp_path / "img").exists()
+    res, calls = _run_build(tmp_path, stub, mounted=False)
+    assert res.returncode == 0 and "fallocate -l 20G" in calls and "mkfs -q -F -L awb-build -m 0" in calls
+    assert "FOLDERS" not in res.stdout and "is not mounted" in res.stdout and "chown root:root" not in calls
+    (tmp_path / "img").unlink()
+    res, calls = _run_build(tmp_path, stub, mkfs_ok=False)
+    assert res.returncode == 0 and not (tmp_path / "img").exists() and "FOLDERS" not in res.stdout
+
+
+@pytest.mark.parametrize("value, plain", [("A Name", True), ("someone@example.org", True), ("", False),
+                                          ('a "quoted" name', False), ("a\\name", False), ("x; y", False),
+                                          ("x # y", False), ("[user]", False), ("line\nbreak", False)])
+def test_the_owner_identity_goes_into_the_template_only_as_plain_values(tmp_path, value, plain):
+    """D-S16: the template's .gitconfig takes the owner's name and mail as they are, so a value git config would read
+    differently (a quote, a backslash, a comment sign, a bracket, a line break) is refused and the file stays."""
+    script = _build_snippet(tmp_path, 'if plain_value "$X"; then echo plain; else echo refused; fi')
+    res = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30, env=dict(os.environ, X=value))
+    assert res.stdout.strip() == ("plain" if plain else "refused"), res.stderr
+
+
+def test_the_build_runner_unit_runs_as_the_owner_and_may_call_sudo():
+    """SB1 item 2: User=@OWNER@, Group=awb, NoNewPrivileges=no (sudo -n systemd-run would be refused with it),
+    UMask=0022, the installed command, Restart=on-failure, the build root mounted first."""
+    keys = _service_keys(BUILD_UNIT)
+    assert keys["User"] == ["@OWNER@"] and keys["Group"] == ["awb"]
+    assert keys["NoNewPrivileges"] == ["no"] and keys["UMask"] == ["0022"]
+    assert keys["ExecStart"] == ["/usr/local/bin/awb build serve"] and keys["Restart"] == ["on-failure"]
+    assert "\nRequiresMountsFor=/srv/awb-build\n" in BUILD_UNIT.read_text(encoding="utf-8")
+    assert "INSTALL_ONLY=\"awb-buildd.service\"" in SETUP.read_text(encoding="utf-8")
+
+
+def test_the_build_settings_deny_the_network_and_the_connectors_and_keep_three_hooks():
+    """SB1 item 1: the build settings deny mcp__*, WebFetch and WebSearch and every tool the work user's settings
+    deny, switch auto memory and the commit attribution off, and run pre-tool, pre-write and post-write through the
+    installed command with the matchers of the work user's settings (the managed drop-in runs the same commands,
+    which the client runs once)."""
+    data = json.loads(BUILD_SETTINGS.read_text(encoding="utf-8"))
+    work = json.loads(WORK_SETTINGS.read_text(encoding="utf-8"))
+    deny = data["permissions"]["deny"]
+    assert {"mcp__*", "WebFetch", "WebSearch"} <= set(deny) and set(hooks.DENIED_TOOLS) <= set(deny)
+    assert data["autoMemoryEnabled"] is False and data["attribution"] == {"commit": "", "pr": ""}
+    assert data["env"]["DISABLE_AUTOUPDATER"] == "1"
+    assert set(data["hooks"]) == {"PreToolUse", "PostToolUse"}
+    assert data["hooks"]["PreToolUse"] == work["hooks"]["PreToolUse"]
+    assert data["hooks"]["PostToolUse"] == work["hooks"]["PostToolUse"]
+    commands_ = [h["command"] for entries in data["hooks"].values() for e in entries for h in e["hooks"]]
+    assert sorted(commands_) == ["/usr/local/bin/awb hook %s" % n for n in sorted(hooks.BUILD_HOOKS)]
+
+
+def _hook_copy(tmp: Path) -> Path:
+    """hooks-build with the installed interpreter's path replaced by this suite's interpreter."""
+    out = tmp / "hooks-build"
+    out.mkdir()
+    for name in ("pre-commit", "commit-msg"):
+        text = (HOOKS_BUILD / name).read_text(encoding="utf-8")
+        assert text.count("python=/opt/tcp-awb/venv/bin/python3\n") == 1
+        (out / name).write_text(text.replace("python=/opt/tcp-awb/venv/bin/python3\n", "python=%s\n" % sys.executable))
+        (out / name).chmod(0o755)
+    return out
+
+
+def test_the_build_hooks_run_the_installed_gate_without_the_register(tmp_path):
+    """SB1 item 1: the commit hooks of a build clone run `awb gate --selftest --no-register`, then the staged files
+    or the message, by the interpreter's absolute path, never a .venv of the clone. Planted: a staged secret and a
+    co-author line are refused; a clean commit passes; a .venv/bin/python planted in the clone is never run."""
+    for name in ("pre-commit", "commit-msg"):
+        text = (HOOKS_BUILD / name).read_text(encoding="utf-8")
+        assert os.access(HOOKS_BUILD / name, os.X_OK) and text.startswith("#!/bin/sh\n")
+        code_lines = [x for x in text.splitlines() if not x.startswith("#")]
+        assert "python=/opt/tcp-awb/venv/bin/python3" in code_lines and not [x for x in code_lines if ".venv" in x]
+        assert "--no-register" in text and "--selftest --no-register" in text and '-I -B -m awb gate' in text
+    hooks_dir = _hook_copy(tmp_path)
+    repo = tmp_path / "clone"
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.org", GIT_COMMITTER_NAME="t",
+               GIT_COMMITTER_EMAIL="t@example.org")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "core.hooksPath", str(hooks_dir)], check=True)
+    trap = repo / ".venv" / "bin" / "python"
+    trap.parent.mkdir(parents=True)
+    trap.write_text("#!/bin/sh\ntouch %s\nexit 0\n" % (tmp_path / "trap-ran"))
+    trap.chmod(0o755)
+    (repo / ".gitignore").write_text(".venv\n")
+
+    def commit_(name: str, content: bytes, message: str) -> subprocess.CompletedProcess:
+        (repo / name).write_bytes(content)
+        subprocess.run(["git", "-C", str(repo), "add", name, ".gitignore"], check=True)
+        return subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", message], capture_output=True, text=True,
+                              env=env, timeout=120)
+
+    res = commit_("ok.py", b"X = 1\n", "a clean commit")
+    assert res.returncode == 0, res.stderr
+    res = commit_("leak.py", gate._selftest_cases()["secret"], "a secret")
+    assert res.returncode != 0 and "secret" in res.stdout + res.stderr
+    subprocess.run(["git", "-C", str(repo), "rm", "-q", "--cached", "leak.py"], check=True)
+    res = commit_("ok2.py", b"Y = 2\n", "a change\n\nCo-Authored-By: Claude <noreply@" + "anthropic.com>")
+    assert res.returncode != 0 and "attribution" in res.stdout + res.stderr
+    assert not (tmp_path / "trap-ran").exists()
+
+
+def test_verify_lists_the_build_checks_and_reads_the_pin_of_setup(fakebin):
+    """SB1 item 4: the dry run of verify.sh names the build side and the probes of N1 to N5 and N8; verify.sh reads
+    the client's version and digest from setup.sh with patterns that match it; setup.sh and awb/config.py name the
+    same build root; a probe of the unit counts only after the unit was shown to run (a unit that never starts would
+    make every denied probe pass)."""
+    res = run_script(VERIFY, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    checks = [line[6:] for line in res.stdout.splitlines() if line.startswith("CHECK ")]
+    for want in ("the build user is in no group but its own", "the build image is 20 GB",
+                 "the build user cannot see the vault", "the build user cannot connect to the check socket",
+                 "the build user cannot run sudo -n true", "the build user cannot push into main.git",
+                 "the build user cannot list the work user's home",
+                 "the probe unit runs as the build user with the properties of a task",
+                 "the probe unit reaches the model endpoint (api.anthropic.com)",
+                 "the probe unit cannot reach a TCP API host (iam.eu-de.otc.t-systems.com)",
+                 "the probe unit cannot reach github.com", "the probe unit cannot write under /opt/tcp-awb",
+                 "the probe unit cannot write under runs/", "the probe unit cannot list runs/",
+                 "the tool guards refuse their planted cases, the build user's too"):
+        assert want in checks, want
+    setup = SETUP.read_text(encoding="utf-8")
+    verify = VERIFY.read_text(encoding="utf-8")
+    pin = re.search(r"^BUILD_CLIENT_SHA256=([0-9a-f]{64})\s", setup, re.M)
+    version = re.search(r"^BUILD_CLIENT_VERSION=([0-9.]+)\s", setup, re.M)
+    assert pin and version
+    for pattern, text in (("s/^BUILD_CLIENT_SHA256=\\([0-9a-f]\\{64\\}\\).*/\\1/p", pin.group(1)),
+                          ("s/^BUILD_CLIENT_VERSION=\\([0-9.]*\\).*/\\1/p", version.group(1))):
+        assert pattern in verify
+        out = subprocess.run(["sed", "-n", pattern, str(SETUP)], capture_output=True, text=True).stdout.strip()
+        assert out == text
+    assert re.search(r"^BUILD_ROOT=%s\s" % re.escape(config.BUILD_ROOT), setup, re.M)
+    assert 'build_root="${build_root:-%s}"' % config.BUILD_ROOT in verify
+    assert 'elif [ "$probe_ran" -eq 0 ]; then\n        report 1 "$what (the probe unit did not run)"' in verify
+    for prop in ("ProtectSystem=strict", "ProtectHome=yes", "PrivateTmp=yes", "NoNewPrivileges=yes",
+                 "InaccessiblePaths=/etc/awb", "IPAddressDeny=any", "IPAddressAllow=$probe_allow"):
+        assert "--property=%s" % prop in verify or '--property="%s"' % prop in verify, prop
+
+
+def test_the_host_file_keeps_its_mode_and_group_when_a_command_rewrites_it(tmp_path, monkeypatch):
+    """SB1: the host file is 640 root:awb; `sudo awb egress enforce|count` and `sudo awb web host HOST` rewrite it and
+    must not open it again (they wrote 644). Planted: a host file of mode 640 stays 640 after both, one of 660 loses
+    the group write bit."""
+    from awb import egress
+    from awb.tcp.web import publish
+
+    conf = tmp_path / "paths.conf"
+    conf.write_text("owner = x\nwork_user = awb\negress = count\n", encoding="utf-8")
+    conf.chmod(0o640)
+    egress.write_mode(egress.Host(conf=conf, chown_root=False), "enforce")
+    assert oct(conf.stat().st_mode & 0o777) == "0o640" and "egress = enforce" in conf.read_text()
+    monkeypatch.setattr(publish, "_domain", lambda unit: None)
+    host = publish.Host(geteuid=lambda: 0, environ={"AWB_CONF": str(conf)}, chown=lambda *a: pytest.fail("chown"))
+    assert publish.main(["host", "owner.example.test"], host=host) == 0
+    assert oct(conf.stat().st_mode & 0o777) == "0o640" and "owner_host = owner.example.test" in conf.read_text()
+    conf.chmod(0o660)
+    egress.write_mode(egress.Host(conf=conf, chown_root=False), "count")
+    assert oct(conf.stat().st_mode & 0o777) == "0o640"

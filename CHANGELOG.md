@@ -11,6 +11,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   DIR` builds the venv of a build (the system packages and the test extras, not the package), and the whole suite
   passes from a read-only copy of the tree under `/var/tmp` with that interpreter by its absolute path, `-I -B`, the
   cache provider off and no bytecode written. `python-pptx` joins the test extras; the tests used it already.
+- The build user of the self-build (step SB1). `seal/setup.sh` and every deploy set up `awb-build` (a system user in
+  its own group alone, no password, no sudo), its folder `/srv/awb-build` on a 20 GB loop image (`main.git`, the
+  clones, the runner's records, the suite's venv, an immutable home template with its own client settings), a
+  pinned root owned copy of the client in `/opt/claude-build` and the runner's unit `awb-buildd.service`, installed
+  and not enabled yet. `awb hook pre-tool` keeps the build user inside its own clone and fails closed; the build
+  clones get commit hooks that run the installed gate. `/etc/awb/paths.conf` and the blocklist are now 640 root:awb.
+  A deploy never starts the build runner and defers its restart while a build task runs. `sudo seal/verify.sh`
+  proves it, as the build user and in a unit with the properties of a task.
 
 - The knowledge leaves as a dataset. `awb dataset build` writes the folder `tcp-facts-<date>/` and its zip: every
   fact on one line grouped by topic, one file per topic, the export with its metadata, the orderable services, the

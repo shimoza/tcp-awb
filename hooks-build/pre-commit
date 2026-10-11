@@ -1,0 +1,22 @@
+#!/bin/sh
+# The commit gate of a build clone (presentations/self-build), installed with the release as
+# /opt/tcp-awb/src/hooks-build; the runner points core.hooksPath of each clone here. It runs the installed gate by the
+# installed interpreter's absolute path, never code of the clone and never a .venv (a clone has none). The build user
+# cannot reach the register, so the gate runs --no-register: every class but the name. The runner's own gate over
+# main.git, as the owner with the register, checks the names of every commit of a task.
+# First the self-test, then the staged content and paths.
+
+python=/opt/tcp-awb/venv/bin/python3
+top=$(git rev-parse --show-toplevel) || exit 2
+cd "$top" || exit 2
+if ! "$python" -I -B -m awb gate --selftest --no-register >/dev/null 2>&1; then
+    echo "awb gate: commit refused, the gate failed its self-test and cannot be trusted to find anything." >&2
+    exit 1
+fi
+"$python" -I -B -m awb gate --staged --no-register
+code=$?
+if [ "$code" -ne 0 ]; then
+    echo "awb gate: commit refused (exit code $code), see the class and file:line above." >&2
+    echo "awb gate: remove what was found from the staged files, stage them again and commit again." >&2
+fi
+exit "$code"

@@ -16,6 +16,10 @@ The seal keeps the register of names away from every working session. It uses tw
 - The web side (the gateway, the console data, creation, materials and the project chat) has its own templates
   and switch steps in `web/README.md`; `setup.sh` does not install them.
 - A code change goes live with one command, `sudo awb deploy` (section "The deploy" below).
+- The build user `awb-build` (section "The build side") will run the unattended build tasks of the self-build
+  (`presentations/self-build`). It is a system user in its own group alone, with no password and no sudo, outside the
+  group `awb`: it reaches neither the vault, nor the sockets, nor the projects, nor the host file. Its folder
+  `/srv/awb-build` is a 20 GB loop image, so a runaway task fills the image and never the filesystem of the vault.
 
 ## Files
 
@@ -40,6 +44,12 @@ The seal keeps the register of names away from every working session. It uses tw
   Connectors of the account would hand raw customer text to a session.
 - `work-claude/CLAUDE.md`: the instructions of the work user, at most 60 lines.
 - `work-claude/managed-settings.json`: the six hooks once more, installed as a managed drop-in of the client.
+- `awb-buildd.service`: the runner of the build queue, as the owner with the group `awb`, `NoNewPrivileges=no` (it
+  calls `sudo -n systemd-run`) and `UMask=0022`. `setup.sh` installs it and does not enable it until the runner exists
+  (SB3); a deploy never starts it and defers its restart while a task runs.
+- `build-claude/settings.json`: the client settings of a build task (section "The build side").
+- `../hooks-build/`: the commit hooks of a build clone, installed with every release as
+  `/opt/tcp-awb/src/hooks-build`.
 
 The hook `pre-tool` keeps a session inside its project. Read, Edit, MultiEdit, NotebookEdit, Write, Glob, Grep, Bash and
 Monitor are refused when their target (the file argument, the path and the pattern of a search, for a shell command
@@ -113,7 +123,10 @@ that `awb egress status`, `awb seal check` and `awb deploy status` read; never t
    invoking user's site folder, `PYTHONPATH` and the working folder, so no package planted there is loaded ahead
    of the installed code. The `AWB_*` variables are not `PYTHON*` variables and still apply.
 6. Writes `/etc/awb/paths.conf` with the owner, the shared side, the vault, the projects root, the knowledge base,
-   the check socket and the egress mode (`egress = count`, or the line it finds).
+   the check socket, the egress mode (`egress = count`, or the line it finds) and the build user and its folder
+   (`build_user`, `build_root`). `/etc/awb` is root:awb 751, `paths.conf` and `blocklist.txt` 640 root:awb: the owner,
+   the work user and the Ask page read them, the build user and the other service users do not (`awb-owner` still
+   reaches its own file there). `awb egress enforce|count` and `awb web host` keep that mode and group.
 7. Installs every `*.service` of this folder, enables and starts them (a failed start only warns: the Ask page
    waits for its key file, which stays the owner's step). A unit that runs is left running: `sudo awb deploy`
    restarts what a commit changed. The vault locks on a stop, a crash or a reboot. `awb vault reload` (what `awb
@@ -137,8 +150,46 @@ that `awb egress status`, `awb seal check` and `awb deploy status` read; never t
    the owner's own sessions are not checked. The deny rules (the connectors and the tools the guard does not
    see) are not managed settings, because they would take those tools of the owner's own sessions too; they
    stay in the immutable settings of the work user, and no project file can allow what a user file denies.
+11. Sets up the build side (section "The build side"), in the first seal and in every update.
 
 Home folders come from `getent passwd`. No home path is written into any file of this folder.
+
+## The build side
+
+The build user `awb-build` and what it needs, set up by `setup.sh` (and `--update`), proven by `verify.sh`:
+
+- The user: a system user, its group alone, no password, the shell `/bin/bash` (so that `claude login` works once),
+  its home `/srv/awb-build/home`. It is in no group but its own, so the check socket, the key service's call socket,
+  the host file and the blocklist are closed to it.
+- `/srv/awb-build`: an ext4 image `/var/lib/awb-build.img` of 20 GB, allocated at once, formatted once and mounted
+  by an fstab line with `nofail,nodev,nosuid`. The image is made only when the filesystem keeps 10 GB free after it;
+  an existing image is never formatted again; when the mount does not hold, no folder is made on the root
+  filesystem in its place.
+- On it: `main.git` (the owner's, bare, 755; `main` moves only here; filled once from the repository the seal or
+  the deploy ran from), `wt/` (the build user's clones, 755), `runs/` (the runner's records, owner 700), `home/`
+  (the build user's own, 700), `venv/` (the suite's venv, root owned: the system packages and the test extras) and
+  `home-template/` (root owned and immutable: `.claude/settings.json` from `build-claude/`, `.claude/CLAUDE.md` of
+  the repository and `.gitconfig` with the owner's name and mail, no `safe.directory`).
+- `/opt/claude-build`: a root owned copy of the client in the version `setup.sh` pins, taken from the owner's native
+  install only when its sha256 is the pinned one; `bin/claude` runs it with the updater and the auto memory off.
+- The build settings deny `mcp__*`, `WebFetch`, `WebSearch` and every tool the work user's settings deny, switch the
+  auto memory and the commit attribution off and run three hooks: `pre-tool`, `pre-write`, `post-write`. For the
+  build user `pre-tool` keeps every call inside its own clone under `wt/`: the clone, the venv (read only), `/tmp`
+  and the device paths pass, everything else is refused with its class, and a session in no clone is refused
+  outright. `post-write` checks secrets and the bidi override; the names are the runner's, checked with the register
+  on `main.git`. The other three hooks of the managed settings exit 0 for the build user.
+- `hooks-build/pre-commit` and `commit-msg` run the installed gate with `--no-register` by
+  `/opt/tcp-awb/venv/bin/python3`, never code or a `.venv` of the clone.
+
+`verify.sh` proves it as root: the owners and modes above, the image size and mount, the pin, the immutable
+template, then N1 to N5 of `presentations/self-build/THREAT-MODEL.md` as the build user (the vault, the host file,
+the blocklist, four sockets, `sudo -n true`, two homes and a push into `main.git` each fail) and, in a transient unit
+with the properties of a task (`ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `NoNewPrivileges`,
+`/etc/awb` inaccessible, `IPAddressDeny=any` with the resolver and the model endpoint allowed), the model endpoint
+connects while a TCP API host, GitHub, a write under `/opt` and `runs/`, a listing of `runs/` and of the work home
+fail. A probe of that unit counts only after the unit was shown to run as the build user.
+
+The model credential of the build user (D-S7: a dedicated key with a cap, or his login) is not part of the setup.
 
 ## The deploy
 
@@ -156,8 +207,8 @@ units whose code changed. `awb deploy --dry-run` prints the plan and every step 
    entry (files, folders and links only, no setuid bit), drops the group and other write bits and renames it.
 5. Runs `releases/<commit>/seal/setup.sh --update` from the release, never from the working tree. The update mode
    names its steps one by one: the code (the `.pth` line, the wrapper, the flip), the host file, the units, the
-   needrestart rule, the package holds, the client files and the managed drop-in. It never touches the users, the homes, the moves or
-   the ssh keys, so the shared tree is not chowned again. `--units-only` installs the unit templates and reloads
+   needrestart rule, the package holds, the client files, the managed drop-in and the build side. It never touches the
+   work user, the homes, the moves or the ssh keys, so the shared tree is not chowned again. `--units-only` installs the unit templates and reloads
    systemd, nothing else.
 6. Restarts the vault daemon, then the key service, then the Ask page and the portal, then the web units through
    `releases/<commit>/seal/web/install.sh --only UNIT...` (when the web side was switched). Each must be active
@@ -179,9 +230,15 @@ ops, the target has the hand-over and the unit file did not change; a failed rel
 the previous code and units back and stops, it never restarts. The first deploy that carries the hand-over restarts
 both daemons with one last passphrase prompt. A deploy is refused while an intake holds the vault.
 
+The build runner (`awb build serve`) is the one unit a deploy never starts: when it is not running it takes the new
+code at its next start. While an `awb-task-*` unit is active, or when systemd cannot list them, its restart is
+deferred: root writes `/srv/awb-build/runs/restart-wanted` (the target, owner 600) and the runner exits between two
+tasks with a non-zero code, which `Restart=on-failure` turns into a start with the new code.
+
 ## Needs
 
-bash, coreutils, util-linux (`runuser`, `mount`, `mountpoint`), e2fsprogs (`chattr`, `lsattr`), diffutils
+bash, coreutils, util-linux (`runuser`, `mount`, `mountpoint`, `fallocate`, `losetup`), e2fsprogs (`chattr`,
+`lsattr`, `mkfs.ext4`), diffutils
 (`cmp`), `useradd` and `gpasswd`, systemd, git, gpg, python3 with venv and setuptools, poppler (`pdftotext`,
 `pdfinfo`).
 

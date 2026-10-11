@@ -1,0 +1,20 @@
+#!/bin/sh
+# The commit message gate of a build clone (presentations/self-build), installed with the release as
+# /opt/tcp-awb/src/hooks-build. The installed gate by the installed interpreter's absolute path, --no-register (the
+# runner checks the names with the register): a secret, a token, a home path, an assistant named as co-author and
+# every other class but the name refuse the message git gives as $1.
+
+python=/opt/tcp-awb/venv/bin/python3
+msg="$1"
+top=$(git rev-parse --show-toplevel) || exit 2
+cd "$top" || exit 2
+if ! "$python" -I -B -m awb gate --selftest --no-register >/dev/null 2>&1; then
+    echo "awb gate: commit refused, the gate failed its self-test and cannot be trusted to find anything." >&2
+    exit 1
+fi
+"$python" -I -B -m awb gate --message "$msg" --no-register
+code=$?
+if [ "$code" -ne 0 ]; then
+    echo "awb gate: commit refused (exit code $code), the commit message carries a finding, see the class above." >&2
+fi
+exit "$code"
