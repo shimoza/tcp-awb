@@ -196,6 +196,29 @@ def test_the_readme_carries_the_warning_and_the_mcp_clients_section_as_the_how_t
         assert block in head and re.search(r"```(json|bash)\n%s\n```" % re.escape(block), readme), block
 
 
+def test_the_readme_the_prompt_and_the_pdf_name_the_sources_and_the_apache_attribution(home, facts, tmp_path):
+    new("ECS flavors are listed by GET /v1/{project_id}/cloudservers/flavors", grade="docs",
+        source="vendor documentation: a product page")                   # a docs fact from outside the mirror
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    assert dataset.DOCS_LICENCE.split() == ["Apache", "License", "2.0"]    # words apart: the run check of the tests
+    sources = ("1 of the 2 documentation facts come from the open source repositories of the GitHub organisation "
+               "opentelekomcloud-docs, published under the %s. The public source of each of the "
+               "others is in facts.jsonl. The documentation website is not crawled, its robots.txt disallows all "
+               "robots. Sources whose terms forbid automated analysis are not used, so the community portal and internal "
+               "documentation are left out. The live checks ran on the compiler's own TCP test tenants."
+               % dataset.DOCS_LICENCE)
+    attribution = ("The documentation facts draw on the repositories of github.com/opentelekomcloud-docs, licensed "
+                   "under the %s (www.apache.org/licenses/LICENSE-2.0)." % dataset.DOCS_LICENCE)
+    readme, prompt = (built.folder / "README.md").read_text(), (built.folder / "PROMPT.md").read_text()
+    for name, text, after in (("README.md", readme, "## Use"), ("PROMPT.md", prompt, "## Three steps")):
+        assert sources in text and attribution in text, name
+        assert text.index("come from the vendor documentation") < text.index(sources) < text.index(after), name
+        assert text.index("## Dates and licence") < text.index(attribution) < text.index("The full licence text"), name
+    pdf = " ".join(subprocess.run(["pdftotext", str(built.folder / "HOW-TO.pdf"), "-"], capture_output=True,
+                                  text=True, check=True).stdout.split())
+    assert sources in pdf and attribution in pdf
+
+
 def test_no_setting_puts_a_person_into_the_dataset(home, facts, tmp_path, monkeypatch):
     """The old author setting is gone: a planted AWB_DATASET_AUTHOR and dataset_author reach no file of the build."""
     monkeypatch.setenv("AWB_DATASET_AUTHOR", fx.PLANTED_PERSON)

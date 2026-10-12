@@ -364,6 +364,10 @@ does (a statement that opens with the service's name), the requirement areas (fa
 matters the dataset never holds (certificates and attestations, SLA values, support hours and response times, prices
 and subcontractors as commitments).
 The files and the PDF metadata say who compiled them: `TCP Facts, github.com/shimoza/tcp-facts`, never a person.
+Its README, PROMPT.md and HOW-TO.pdf also say where the facts come from: how many documentation facts come from the
+repositories of the GitHub organisation opentelekomcloud-docs (Apache License 2.0, with an attribution line in the
+licence section), that the documentation website is not crawled, that no community portal or internal
+documentation is used and that the live checks ran on the compiler's own test tenants.
 Its README and PROMPT.md carry the section "MCP clients" with the configurations of the next part, HOW-TO.pdf the same.
 `awb dataset put` sends the zip, the PDF and the manifest into the owner's bucket. With `--github` it also puts the
 files and the build's README.md into the root of the public repository

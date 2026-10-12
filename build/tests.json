@@ -2241,6 +2241,13 @@
    "status": "passing"
   },
   {
+   "id": "DS-SRC1",
+   "phase": "T11",
+   "name": "dataset: README.md, PROMPT.md and HOW-TO.pdf say how many documentation facts come from the opentelekomcloud-docs repositories under the Apache License 2.0, that the documentation website is not crawled, that no community portal or internal documentation is used and that the live checks ran on the compiler's own test tenants, and carry the Apache 2.0 attribution line",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_the_readme_the_prompt_and_the_pdf_name_the_sources_and_the_apache_attribution",
+   "status": "passing"
+  },
+  {
    "id": "DS-COV1",
    "phase": "T11",
    "name": "dataset: the area and the service of a statement are read from its opening words (a negative is no area, the longest service form wins)",
@@ -5230,6 +5237,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 747,
+ "total_tests": 748,
  "checked": "2026-10-12"
 }

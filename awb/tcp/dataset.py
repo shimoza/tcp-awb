@@ -71,6 +71,11 @@ COMPILED_BY = "TCP Facts, github.com/%s" % GITHUB_REPO    # the dataset and its 
 CREDIT = ("Compiled from public sources and live checks. Licence %s: name the dataset and its address when you "
           "reuse it. No warranty: the service description and the price list of the provider are the binding "
           "documents." % LICENCE)
+DOCS_ORG = "opentelekomcloud-docs"                  # the GitHub organisation the documentation is built from
+DOCS_LICENCE = "Apache License 2.0"
+_MIRROR_SOURCE_RE = re.compile(r"\b(?:docs|documentation) mirror\b", re.I)   # a source line in the docs mirror
+SOURCE_ATTRIBUTION = ("The documentation facts draw on the repositories of github.com/%s, licensed under the %s "
+                      "(www.apache.org/licenses/LICENSE-2.0)." % (DOCS_ORG, DOCS_LICENCE))
 BUCKET_PREFIX = "datasets/%s/" % SLUG
 PRICE_COLUMNS = (("id", "id"), ("service", "productId"), ("product", "productName"), ("flavor", "opiFlavour"),
                  ("os", "osUnit"), ("vcpu", "vCpu"), ("ram", "ram"), ("unit", "unit"), ("currency", "currency"),
@@ -326,8 +331,23 @@ def whats_new(previous: list[dict], records: list[dict], services: list[offered.
     return text
 
 
+def sources_text(n_docs: int, n_mirror: int) -> str:
+    """Where the facts come from: the documentation facts from the docs mirror (counted by their source line), the
+    sources never used and the tenants of the live checks."""
+    return ("%d of the %d documentation facts come from the open source repositories of the GitHub organisation %s, "
+            "published under the %s. The public source of each of the others is in facts.jsonl. The documentation "
+            "website is not crawled, its robots.txt disallows all robots. Sources whose terms forbid automated "
+            "analysis are not used, so the community portal and internal documentation are left out. The live checks "
+            "ran on the compiler's own TCP test tenants." % (n_mirror, n_docs, DOCS_ORG, DOCS_LICENCE))
+
+
+def mirror_count(records: list[dict]) -> int:
+    """The documentation facts whose source line names the docs mirror."""
+    return sum(1 for r in records if r.get("grade") == "docs" and _MIRROR_SOURCE_RE.search(r.get("source", "")))
+
+
 def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_services: int, revision: str,
-                   prices: dict, cover: list[tuple[str, str]] = ()) -> list[tuple[str, str]]:
+                   prices: dict, cover: list[tuple[str, str]] = (), n_mirror: int = 0) -> list[tuple[str, str]]:
     """The how-to as (style, text) blocks: h1, h2, p, code (code:json, code:bash for the fence). PROMPT.md and
     HOW-TO.pdf are made from it."""
     price_line = ", ".join("%s %s records" % (r, c) for r, c in prices.items()) or "no price list"
@@ -339,6 +359,7 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
         ("p", "%d facts were tested live on a TCP tenant, %d come from the vendor documentation and %d from the "
               "service description (revision %s). No fact from hearsay, no expired fact, no customer, no project, "
               "no credential." % (grades.get("live", 0), grades.get("docs", 0), grades.get("contract", 0), revision)),
+        ("p", sources_text(grades.get("docs", 0), n_mirror)),
         ("h2", "Three steps"),
         ("p", "1. Take facts.md (all facts, one line each). For one topic only, take its file from topics/. For a "
               "price question add the CSV of the region from prices/."),
@@ -367,6 +388,7 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
                                                                                          BEST_BEFORE_DAYS)),
         ("p", "Dataset: %s." % COMPILED_BY),
         ("p", CREDIT),
+        ("p", SOURCE_ATTRIBUTION),
         ("p", LICENCE_LINE),
     ]
 
@@ -718,15 +740,16 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
     named = operator_named(records)
     check_lines.append("operator named in prose: %s" % (", ".join(named) if named else "none"))
     cover = coverage_blocks(records, orderable, revision)
-    blocks = _how_to_blocks(day, best_before, len(records), grades, len(svc), revision, counts, cover)
+    blocks = _how_to_blocks(day, best_before, len(records), grades, len(svc), revision, counts, cover,
+                            mirror_count(records))
     (root / "PROMPT.md").write_text(blocks_to_markdown(blocks), encoding="utf-8")
     (root / "HOW-TO.pdf").write_bytes(pdf_bytes(blocks, "%s %s: how to use it" % (NAME, day)))
     (root / "README.md").write_text(blocks_to_markdown(
         [("h1", "%s %s" % (NAME, day)), ("p", "Build of %s. A later build of the same day replaces this one under the same "
                                               "name; the manifest carries the build time." % built_at)]
-        + blocks[1:3] + [("h2", "Use"), ("p", "Attach facts.md and type:"),
+        + blocks[1:4] + [("h2", "Use"), ("p", "Attach facts.md and type:"),
                                                           ("code", ONE_LINER), ("p", "PROMPT.md has the rest.")]
-        + cover + WARNING + MCP_CLIENTS + blocks[-7:]), encoding="utf-8")
+        + cover + WARNING + MCP_CLIENTS + blocks[blocks.index(("h2", "Files")):]), encoding="utf-8")
 
     shutil.copyfile(MCP_TEMPLATE, root / MCP_FILE)
     for path in sorted(root.rglob("*")):

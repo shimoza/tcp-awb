@@ -52,6 +52,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The README, PROMPT.md and HOW-TO.pdf of the dataset TCP Facts say where the facts come from: how many of the
+  documentation facts come from the repositories of the GitHub organisation opentelekomcloud-docs (Apache License
+  2.0), that facts.jsonl holds the source of the others, that the documentation website is not crawled, that no
+  community portal or internal documentation is used and that the live checks ran on the compiler's own test
+  tenants. The licence section carries an attribution line for the Apache 2.0 sources (test DS-SRC1).
 - The MCP server of the dataset (`tcp_facts_mcp.py`) follows the Model Context Protocol revision 2026-07-28:
   `server/discover`, the version and the capabilities in the `_meta` of each request (no handshake; an unknown version
   answers -32022 with the versions it speaks; the handshake revisions stay), `resultType`, `ttlMs` and `cacheScope`,
