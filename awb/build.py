@@ -1031,6 +1031,7 @@ def cmd_add(path: str, qdir: Path | None = None, runs: Path | None = None, regis
     return 0
 
 
+# The runner of the queue lives in awb/buildrun.py.
 def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 

@@ -7,6 +7,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- A comment above `main` in `awb/build.py` names `awb/buildrun.py` as the runner of the queue (B-001).
+
 ## Week 41, 2026-10-05 to 2026-10-11
 
 ### Added
