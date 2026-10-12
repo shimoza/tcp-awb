@@ -57,6 +57,16 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+# AWB_VERIFY_CONF=FILE, with --dry-run only and never as root (the tests set it): the host file the listed checks
+# take their paths from, in place of /etc/awb/paths.conf, so that a dry run never reads the host file of the host
+# it runs on; a FILE that is not there stands for a fresh host
+conf_read=$CONF_FILE
+if [ -n "${AWB_VERIFY_CONF:-}" ]; then
+    [ "$dry_run" -eq 1 ] || die "AWB_VERIFY_CONF goes with --dry-run only"
+    [ "$(id -u)" -ne 0 ] || die "AWB_VERIFY_CONF is for the tests and refused as root"
+    conf_read=$AWB_VERIFY_CONF
+fi
+
 owner="${SUDO_USER:-}"
 owner_home="<owner-home>"
 owner_group=""
@@ -80,8 +90,9 @@ fi
 
 conf_value() {
     # conf_value KEY: the value of KEY in the host file, empty when there is none
-    [ -r "$CONF_FILE" ] || return 0
-    sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$CONF_FILE" | tail -n 1
+    local from="${conf_read:-$CONF_FILE}"
+    [ -r "$from" ] || return 0
+    sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$from" | tail -n 1
 }
 
 vault=$(conf_value vault)

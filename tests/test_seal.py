@@ -65,8 +65,12 @@ def run_script(script: Path, args: list[str], fakebin, sudo_user: str | None = U
     if build_host is None:
         build_host = "fresh" if "--dry-run" in args else ""
     folder, _ = fakebin
-    env = {k: v for k, v in os.environ.items() if k not in ("SUDO_USER", "AWB_SETUP_BUILD_HOST")}
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("SUDO_USER", "AWB_SETUP_BUILD_HOST", "AWB_SETUP_CONF", "AWB_VERIFY_CONF")}
     env["PATH"] = "%s:%s" % (folder, os.environ.get("PATH", "/usr/bin:/bin"))
+    if "--dry-run" in args:
+        # a dry run reads no host file of this host: /etc/awb/paths.conf stands in as a file that is not there
+        env["AWB_SETUP_CONF"] = env["AWB_VERIFY_CONF"] = str(folder.parent / "host-paths.conf")
     if build_host:
         env["AWB_SETUP_BUILD_HOST"] = build_host
     if sudo_user is not None:
@@ -746,7 +750,8 @@ def _layout(tmp: Path) -> tuple[Path, Path, dict]:
     (site / "__editable___tcp_awb_0_1_0_finder.py").write_text("")
     (tmp / "bin").mkdir()
     env = {k: v for k, v in os.environ.items() if k not in ("SUDO_USER",)}
-    env.update(SUDO_USER=USER, AWB_SETUP_OPT=str(opt), AWB_SETUP_BIN=str(tmp / "bin" / "awb"))
+    env.update(SUDO_USER=USER, AWB_SETUP_OPT=str(opt), AWB_SETUP_BIN=str(tmp / "bin" / "awb"),
+               AWB_SETUP_CONF=str(tmp / "host-paths.conf"))
     return repo, opt, env
 
 

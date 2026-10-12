@@ -102,7 +102,9 @@ that `awb egress status`, `awb seal check` and `awb deploy status` read; never t
 1. Read what would happen: `seal/setup.sh --dry-run` (no root needed; `SUDO_USER` must name the owner, as sudo
    sets it). Every command is printed and none is run. A line with `# if present` depends on the host.
    `AWB_SETUP_BUILD_HOST=fresh` or `present` makes the build side's probes answer for a host without or with the
-   build user and its venv, as the tests do.
+   build user and its venv, as the tests do. `AWB_SETUP_CONF=FILE` (and `AWB_VERIFY_CONF=FILE` for
+   `seal/verify.sh --dry-run`) takes the kept values from FILE instead of `/etc/awb/paths.conf`; a FILE that is not
+   there stands for a fresh host. The tests set both, so a plan never depends on the host file of the host it runs on.
 2. Set it up: `sudo seal/setup.sh`. Add `--mirrors DIR...` for read-only bind mounts of public doc mirrors under
    `/srv/tcp-mirrors/` (one fstab line each).
 3. Prove it: `sudo seal/verify.sh`. `--dry-run` lists the checks. The egress filter runs in the mode count; after a

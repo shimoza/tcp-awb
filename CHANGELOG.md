@@ -82,6 +82,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- A dry run of `seal/setup.sh` or `seal/verify.sh` under the tests no longer reads the host file of the host the
+  suite runs on. `AWB_SETUP_CONF=FILE` and `AWB_VERIFY_CONF=FILE` (dry run only, setup.sh also with its test-only
+  install root, never as root) name the host file the plan keeps its values from; a FILE that is not there stands
+  for a fresh host, and the plan still writes `/etc/awb/paths.conf`. The test helpers set both: since the host's
+  egress mode became enforce, the dry run of the count mode test kept `enforce` from `/etc/awb/paths.conf` and failed.
 - The build user's guard lets the venv's interpreter pass for a Read and a run (B-001). The venv's `python` is a
   link to the base interpreter in `/usr/bin` and the guard refused it as outside the clone, so an agent in a task
   could run no test. Only the link of `python`, `python3` or `python3.N` in the venv's `bin` to the base interpreter

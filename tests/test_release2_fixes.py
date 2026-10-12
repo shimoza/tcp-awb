@@ -294,6 +294,8 @@ def _dry_run(script: Path, tmp_path: Path) -> str:
     env = {k: v for k, v in os.environ.items() if k != "SUDO_USER"}
     env["PATH"] = "%s:%s" % (fake, os.environ.get("PATH", "/usr/bin:/bin"))
     env["SUDO_USER"] = getpass.getuser()
+    # no host file of this host: /etc/awb/paths.conf stands in as a file that is not there
+    env["AWB_SETUP_CONF"] = env["AWB_VERIFY_CONF"] = str(tmp_path / "host-paths.conf")
     res = subprocess.run(["bash", str(script), "--dry-run"], capture_output=True, text=True, env=env, timeout=60,
                          cwd=tmp_path)
     assert res.returncode == 0, res.stderr

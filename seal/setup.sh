@@ -204,6 +204,15 @@ if [ -n "${AWB_SETUP_OPT:-}" ] || [ -n "${AWB_SETUP_BIN:-}" ]; then
     BIN_LINK=$AWB_SETUP_BIN
     test_root=1
 fi
+# AWB_SETUP_CONF=FILE, for the tests only (with --dry-run or the test-only install root, never as root): the host
+# file whose values the plan keeps, in place of /etc/awb/paths.conf, so that a plan never reads the host file of the
+# host it is printed on; a FILE that is not there stands for a fresh host. The plan still writes /etc/awb/paths.conf.
+conf_read=$CONF_FILE
+if [ -n "${AWB_SETUP_CONF:-}" ]; then
+    [ "$dry_run" -eq 1 ] || [ "$test_root" -eq 1 ] || die "AWB_SETUP_CONF goes with --dry-run only"
+    [ "$(id -u)" -ne 0 ] || die "AWB_SETUP_CONF is for the tests and refused as root"
+    conf_read=$AWB_SETUP_CONF
+fi
 
 # --------------------------------------------------------------------------- who is who
 
@@ -678,7 +687,8 @@ EOF
 # D-HOST outlive a rewrite: owner_host is his, set once with sudo awb web host HOST)
 kept_conf() {
     local value=""
-    [ ! -r "$CONF_FILE" ] || value=$(sed -n "s/^$1[[:space:]]*=[[:space:]]*//p" "$CONF_FILE" | head -n 1)
+    local from="${conf_read:-$CONF_FILE}"
+    [ ! -r "$from" ] || value=$(sed -n "s/^$1[[:space:]]*=[[:space:]]*//p" "$from" | head -n 1)
     printf '%s' "${value:-$2}"
 }
 
