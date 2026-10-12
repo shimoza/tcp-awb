@@ -494,9 +494,10 @@ def test_the_reserved_paths_and_the_depends_order_the_pick(world):
 
 # --------------------------------------------------------------------------- the units
 
-def test_the_real_spawn_is_one_fixed_systemd_run_form_with_its_failure_oneshot():
-    """Replaces test_the_real_spawn_is_one_fixed_systemd_run_form (SB5: every task unit names the oneshot
-    awb-task-failed@<unit>.service in OnFailure=, the probe unit none)."""
+def test_the_real_spawn_is_one_fixed_form_and_the_suite_unit_has_its_own_loopback_alone():
+    """Replaces test_the_real_spawn_is_one_fixed_systemd_run_form_with_its_failure_oneshot (B-001: the suite unit
+    allowed no address, so every test that talks to a stand-in server on 127.0.0.1 waited for its timeout and the
+    suite hit the clock; it now gets a network namespace of its own and loopback alone)."""
     units = buildrun.SystemdUnits("awb-build")
     spec = buildrun.Spec("awb-task-B-012", ["/opt/claude-build/bin/claude", "-p"], 5400, "/srv/awb-build/wt/B-012-1",
                          "/srv/awb-build/home/B-012-1", rw=["/srv/awb-build/wt/B-012-1", "/srv/awb-build/home/B-012-1"],
@@ -519,14 +520,22 @@ def test_the_real_spawn_is_one_fixed_systemd_run_form_with_its_failure_oneshot()
     assert "--property=OnFailure=awb-task-failed@awb-task-B-012-suite.service" in units.argv(
         buildrun.Spec("awb-task-B-012-suite", ["x"], 1800, "/tmp", "/tmp"))
     assert not [a for a in units.argv(buildrun.Spec("awb-task-probe", ["x"], 60, "/", "/tmp")) if "OnFailure" in a]
-    # the suite unit allows no address; a unit name from the agent's side is refused
-    assert "--property=IPAddressAllow" not in " ".join(units.argv(buildrun.Spec("awb-task-B-012-suite", ["x"], 1800,
-                                                                                 "/tmp", "/tmp")))
+    # the suite unit: its own network namespace, everything denied but loopback; the session unit has no namespace
+    suite = units.argv(buildrun.Spec("awb-task-B-012-suite", ["x"], 1800, "/tmp", "/tmp",
+                                     allow=list(buildrun.SUITE_ALLOW), netns=True))
+    net = [a for a in suite if a.startswith(("--property=PrivateNetwork", "--property=IPAddress"))]
+    assert net == ["--property=PrivateNetwork=yes", "--property=IPAddressDeny=any",
+                   "--property=IPAddressAllow=localhost"]
+    assert suite.index("--property=PrivateNetwork=yes") < suite.index("--")
+    assert not [a for a in units.argv(spec) if "PrivateNetwork" in a]
+    # a unit name from the agent's side is refused
     with pytest.raises(ValueError):
         units.argv(buildrun.Spec("awb-task-B-012; reboot", ["x"], 1, "/tmp", "/tmp"))
 
 
-def test_the_client_argv_and_the_session_units_of_a_task(world):
+def test_the_client_argv_the_session_units_and_the_suite_on_its_own_loopback(world):
+    """Replaces test_the_client_argv_and_the_session_units_of_a_task (B-001: the suite unit pinned allow == [];
+    it now allows loopback alone, in a namespace of its own, and the session unit keeps its own allow list)."""
     run = world.run("good")
     agent = [s for s in world.units.started if s.name == "awb-task-%s" % run.id][0]
     assert agent.argv == [buildrun.CLIENT, "-p", "--model", "opus", "--effort", "medium", "--max-budget-usd", "10",
@@ -539,7 +548,8 @@ def test_the_client_argv_and_the_session_units_of_a_task(world):
     assert {s.name for s in world.units.started} == {"awb-task-%s%s" % (run.id, k) for k in ("", "-prep", "-hand",
                                                                                               "-suite")}
     suite = [s for s in world.units.started if s.name.endswith("-suite")]
-    assert all(s.allow == [] and s.rw == [str(world.host.out(run.id, 1))] for s in suite)
+    assert all(s.allow == ["localhost"] and s.netns and s.rw == [str(world.host.out(run.id, 1))] for s in suite)
+    assert not agent.netns and "localhost" not in agent.allow
     assert all(str(world.host.clone(run.id, 1)) in s.hidden for s in suite)
 
 

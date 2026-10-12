@@ -219,10 +219,12 @@ def pdf_text(data: bytes) -> str:
 
 
 def sync_sd(base: Path, *, fetch: Callable[[str], tuple[bytes, str]] | None = None,
-            page: str = SD_PAGE) -> dict:
+            page: str | None = None) -> dict:
     """The current service description into its revision folder. Returns state (new, unchanged, replaced),
-    revision and folder. Nothing is written unless the answer is a PDF with a revision line."""
+    revision and folder. Nothing is written unless the answer is a PDF with a revision line. `page` defaults to
+    SD_PAGE as it is at the call, so a test that points SD_PAGE elsewhere is obeyed."""
     fetch = fetch or _fetch_pdf
+    page = page or SD_PAGE
     try:
         data, final_url = jobs.retry(lambda: fetch(page), attempts=3, delay=2.0,
                                      retry_on=(urllib.error.URLError, TimeoutError, ConnectionError))

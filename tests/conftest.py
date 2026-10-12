@@ -39,8 +39,10 @@ def _tree_python(base: Path) -> Path:
     """A throw-away venv over the suite's interpreter that finds the package of this tree through one .pth line, as
     the installed venv finds the live release on a sealed host: the children the tests start as `<python> -I -m
     awb` (a daemon's hand-over, a hook, the wrapper) run the code under test, never another checkout's and never
-    "No module named awb". It holds a symlink to the base interpreter, pyvenv.cfg, the .pth line and the awb entry
-    script of a venv; nothing is installed and the tree is not written."""
+    "No module named awb". It holds a symlink to the base interpreter, pyvenv.cfg, the .pth lines and the awb entry
+    script of a venv; nothing is installed and the tree is not written: the children run with `-I`, which drops
+    PYTHONDONTWRITEBYTECODE, so the .pth switches bytecode off itself (B-001: the children wrote awb/__pycache__
+    into the build's export and test_repository_scans_clean read it as opaque files)."""
     import site
 
     real = Path(os.path.realpath(sys._base_executable if hasattr(sys, "_base_executable") else sys.executable))
@@ -51,7 +53,8 @@ def _tree_python(base: Path) -> Path:
         (base / "bin" / name).symlink_to(real)
     site_dir = base / "lib" / ("python%d.%d" % sys.version_info[:2]) / "site-packages"
     site_dir.mkdir(parents=True)
-    lines = [str(ROOT)] + [d for d in site.getsitepackages() if os.path.isdir(d)]
+    lines = [str(ROOT)] + [d for d in site.getsitepackages() if os.path.isdir(d)] + [
+        "import sys; sys.dont_write_bytecode = True"]
     (site_dir / "awb-tree.pth").write_text("\n".join(lines) + "\n", encoding="utf-8")
     script = base / "bin" / "awb"
     script.write_text("#!%s\nimport sys\nfrom awb.cli import main\nsys.exit(main())\n" % (base / "bin" / "python"),
@@ -109,9 +112,17 @@ DEAD_URL = "http://127.0.0.1:9/"
 
 
 _HOST_WORK_USER = config.work_user()
-SEALED_FOR_ANOTHER_USER = _HOST_WORK_USER is not None and _HOST_WORK_USER != pwd.getpwuid(os.geteuid()).pw_name
-"""True on a sealed host when the tests run as the owner: a hook started as its own process then stays silent by
-design (it checks the work user only), so a test that needs a hook process answering is skipped there."""
+AS_BUILD_USER = config.is_build_user()
+"""True when the suite runs as the build user of the self-build (check 9 of a build task, in its suite unit, where
+/etc/awb is hidden): the code then reads this uid as the build user, as it must on the host."""
+SEALED_FOR_ANOTHER_USER = (_HOST_WORK_USER is not None and _HOST_WORK_USER != pwd.getpwuid(os.geteuid()).pw_name) \
+    or AS_BUILD_USER
+"""True on a sealed host when the tests run as the owner or as the build user: a hook started as its own process
+then stays silent by design (it checks the work user only; the build user gets the build hooks alone), so a test
+that needs a hook process answering is skipped there."""
+
+not_as_build_user = pytest.mark.skipif(AS_BUILD_USER, reason="the suite runs as the build user: the test takes the "
+                                                             "user who runs it for the owner of the host")
 
 
 @pytest.fixture(autouse=True)

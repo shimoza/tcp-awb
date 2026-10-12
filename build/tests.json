@@ -4182,15 +4182,15 @@
   {
    "id": "SB3-31",
    "phase": "SB3",
-   "name": "build runner: the real spawn is one fixed sudo -n systemd-run form with the clock and the isolation; the suite allows no address; a unit name outside the fixed forms is refused; SB5: every task unit names its OnFailure= oneshot, the probe unit none",
-   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_real_spawn_is_one_fixed_systemd_run_form_with_its_failure_oneshot",
+   "name": "build runner: the real spawn is one fixed sudo -n systemd-run form with the clock and the isolation; the suite unit has a network namespace of its own and allows loopback alone (B-001), the session unit no namespace; a unit name outside the fixed forms is refused; SB5: every task unit names its OnFailure= oneshot, the probe unit none",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_real_spawn_is_one_fixed_form_and_the_suite_unit_has_its_own_loopback_alone",
    "status": "passing"
   },
   {
    "id": "SB3-32",
    "phase": "SB3",
-   "name": "build runner: the client argv, the clock, the writable and hidden paths and the four unit names of a task",
-   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_client_argv_and_the_session_units_of_a_task",
+   "name": "build runner: the client argv, the clock, the writable and hidden paths and the four unit names of a task; the suite unit allows loopback alone in a namespace of its own (B-001)",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_client_argv_the_session_units_and_the_suite_on_its_own_loopback",
    "status": "passing"
   },
   {
@@ -4465,8 +4465,15 @@
    "name": "build runner: no nameserver gives no allow list, the queue is held as no resolver for the task unit and the probe starts no unit",
    "run": ".venv/bin/pytest tests/test_build_runner.py::test_no_resolver_holds_the_queue_and_the_probe_starts_no_unit",
    "status": "passing"
+  },
+  {
+   "id": "SB5-12",
+   "phase": "SB5",
+   "name": "mirror: sync_sd reads the service description page at the call, so the suite's dead local address is obeyed and the refresh test never leaves the host (B-001)",
+   "run": ".venv/bin/pytest tests/test_mirror.py::test_the_service_description_page_is_read_at_the_call_so_the_suite_never_leaves_the_host",
+   "status": "passing"
   }
  ],
- "total_tests": 638,
+ "total_tests": 639,
  "checked": "2026-10-11"
 }

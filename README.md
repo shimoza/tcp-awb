@@ -515,7 +515,7 @@ task as `awb-build` in units of a fixed form: a fresh home from the root templat
 the branch as a bundle. It judges the bundle in `main.git`, never the clone: the unit ended by itself, the client
 ended well, the last line is `DONE:`, one to five commits as you on `task/<ID>` and nothing else, the gate with the
 register, the paths, the CHANGELOG and `build/tests.json`, then the whole suite, every test that passed before
-still passing and the block's `check` on a `git archive` export, as `awb-build` with no network. Green moves `main`
+still passing and the block's `check` on a `git archive` export, as `awb-build` on loopback only. Green moves `main`
 in `main.git` (a rebase first when `main` moved), pushes it to GitHub after the gate over the whole range and ends
 `done`. Otherwise the run is `hung`, `red: <reason>`, `asked`, `stopped: <subtype>`, `stale` or `held: <reason>`,
 and nothing moves. Each ended run writes `/srv/awb-build/runs/<ID>/<n>/result.md` (fixed fields only), one line on

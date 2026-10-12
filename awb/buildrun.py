@@ -121,6 +121,10 @@ TAIL_LINES = 60
 CPU_QUOTA = "200%"
 MEMORY_MAX = "6G"
 TASKS_MAX = 512
+SUITE_ALLOW = ("localhost",)
+"""The suite unit's one allowed range: loopback (127.0.0.0/8 and ::1) for the suite's own stand-in servers. The unit
+has a network namespace of its own (PrivateNetwork=yes), so this is its own loopback, not the host's listeners; the
+outside stays denied and has no route besides."""
 
 UNIT_RE = re.compile(r"awb-task-(?:probe|B-[0-9]{3,4}(?:-(?:prep|hand|suite))?)")
 """Every unit name the runner starts, stops or resets: the fixed forms, nothing from the agent's side."""
@@ -361,6 +365,7 @@ class Spec:
     hidden: list[str] = field(default_factory=list)
     binds: list[tuple[str, str]] = field(default_factory=list)
     allow: list[str] = field(default_factory=list)
+    netns: bool = False   # a network namespace of its own: its own loopback and nothing else
     env: dict[str, str] = field(default_factory=dict)
     stdin: Path | None = None
     stdout: Path | None = None
@@ -422,6 +427,8 @@ class SystemdUnits(Units):
             props.append("ReadWritePaths=%s" % " ".join(spec.rw))
         props.append("InaccessiblePaths=%s" % " ".join(["-/etc/awb"] + ["-" + p for p in spec.hidden]))
         props += ["BindReadOnlyPaths=%s:%s" % pair for pair in spec.binds]
+        if spec.netns:
+            props.append("PrivateNetwork=yes")
         props.append("IPAddressDeny=any")
         if spec.allow:
             props.append("IPAddressAllow=%s" % " ".join(spec.allow))
@@ -1458,12 +1465,13 @@ def export(host: Host, ctx: Ctx, commit: str, name: str) -> Path:
 
 
 def run_suite(host: Host, ctx: Ctx, mode: str, tar: Path, tokens: tuple[str, ...] = ()) -> tuple[Ended, float]:
-    """The suite unit: no network, nothing writable but its out folder, the clock of D-S6."""
+    """The suite unit: no network but its own loopback (SUITE_ALLOW in a namespace of its own), nothing writable but
+    its out folder, the clock of D-S6."""
     out = host.out(ctx.tid, ctx.n)
     spec = Spec("awb-task-%s-suite" % ctx.tid,
                 [host.awb, "build", "unit", "suite", str(host.root), ctx.tid, str(ctx.n), mode, host.suite_python,
                  *tokens], host.suite_seconds, "/tmp", "/tmp", rw=[str(out)], hidden=_hidden(host, ctx, clone=False),
-                stdin=tar, stderr=ctx.folder / ("%s.err" % mode))
+                allow=list(SUITE_ALLOW), netns=True, stdin=tar, stderr=ctx.folder / ("%s.err" % mode))
     t0 = host.wall()
     ended = wait(host, host.units.start(spec), ctx, None)
     return ended, (host.wall() - t0) / 60.0

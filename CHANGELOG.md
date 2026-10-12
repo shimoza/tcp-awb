@@ -250,6 +250,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   account or the owner, no foreign write bit) and holds the queue with `no resolver for the task unit` when none is
   found. `awb build probe` counts a refused TCP API host or GitHub only after the same run reached the model
   endpoint (else "not proven"), and a failed line names the probe's exit: no name resolution or no connection.
+- The suite of a build task no longer hangs in its unit (B-001 ended `hung: suite` at 16 % after 30 minutes). The
+  suite unit allowed no address at all, so every test that talks to its own stand-in server on 127.0.0.1 waited for
+  a timeout. It now has a network namespace of its own with its loopback alone (`PrivateNetwork=yes`,
+  `IPAddressAllow=localhost`): no name resolves, the outside and the host's own listeners stay out of reach.
+  `awb refresh` in the tests no longer fetches the real service description page (`mirror.sync_sd` read a default
+  bound at import). The suite's helper interpreter writes no bytecode into the export, and the tests that need a
+  work-side hook process or take the runner for the owner are skipped when the suite runs as the build user.
 
 ### Security
 

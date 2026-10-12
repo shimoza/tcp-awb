@@ -342,8 +342,9 @@ printed). The commands: `add(path, qdir=None, runs=None, register=None) -> Task`
 `deployed`, `model_key`, `model` (`login` or `key`, from `build_model`), `register`, `build_uid`, `git_run`, `wall`, `now`, `sleep`, `minute`, `poll`, `tick`,
 `suite_seconds`, `retry_wait`, `push`, `push_url`, `mail`, `precheck`, `resolve`, `python`, `hooks_path`, `client`,
 `awb`, `quiet`; `Host.from_config()`), `build_root()` (`AWB_BUILD_ROOT`, which the tests set, else
-`config.build_root()`). The units: `Spec(name, argv, seconds, cwd, home, rw, hidden, binds, allow, env,
-stdin, stdout, stderr)`, `Ended(result, code)`, `Units` with `start(spec)` (a handle with `poll() -> Ended | None`),
+`config.build_root()`). The units: `Spec(name, argv, seconds, cwd, home, rw, hidden, binds, allow, netns,
+env, stdin, stdout, stderr)` (`netns`: `PrivateNetwork=yes`; the suite unit has it with `SUITE_ALLOW`, loopback
+alone), `Ended(result, code)`, `Units` with `start(spec)` (a handle with `poll() -> Ended | None`),
 `attach(name)`, `result(name)`, `stop(name)`, `probe()`; `SystemdUnits(user, run, popen)` with `argv(spec)`, the one
 fixed `sudo -n systemd-run` form; `sudo -n systemctl stop|reset-failed` of a name of `UNIT_RE` alone;
 `LocalUnits(commands)` for the tests and the selftest. The helpers the units run as the build user:
@@ -916,7 +917,8 @@ Recorded here so that the next builder works against them. Each module keeps `ma
 - `awb/tcp/mirror.py`: `ORG`, `SD_PAGE`, `ROOT_ENV = "AWB_MIRRORS"`, `SEALED_ROOT`, `DOCS`, `SD`, `MirrorError`,
   `root()`, `owner_side()`, `list_repos(fetch_json=None) -> Listing`, `sync_repo(repo, dest) -> dict`,
   `load_manifest(folder)`, `sync_docs(base, repos, job, only=None) -> counts`, `pdf_text(data)`,
-  `sync_sd(base, fetch=None, page=SD_PAGE) -> dict`, `current_sd(base)`, `status(base)`, `main(argv)`.
+  `sync_sd(base, fetch=None, page=None) -> dict` (None: `SD_PAGE` at the call), `current_sd(base)`, `status(base)`,
+  `main(argv)`.
 - `awb/tcp/refresh.py`: `PARTS`, `VERDICTS`, `Part(name, lines, overdue, error)`, `refresh_dir(p, day)`,
   `part_mirrors`, `part_prices`, `method_for(entry)`, `worklist(entries, today)`, `part_knowledge`, `part_projects`,
   `part_defaults(p, base, code_root=None)`, `run(p, parts=, update=, today=, max_state_age=, job=) -> (parts,

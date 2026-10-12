@@ -25,6 +25,7 @@ import pytest
 
 from awb import config, gate, hooks, seal
 from tests import fixtures
+from tests.conftest import not_as_build_user
 
 REPO = Path(__file__).resolve().parent.parent
 SEAL = REPO / "seal"
@@ -1211,6 +1212,7 @@ def test_the_build_image_is_made_once_and_nothing_lands_on_the_root_filesystem_u
     assert res.returncode == 0 and not (tmp_path / "img").exists() and "FOLDERS" not in res.stdout
 
 
+@not_as_build_user
 def test_setup_plans_the_build_side_against_a_host_that_has_it(fakebin):
     """D-SB1-11: with AWB_SETUP_BUILD_HOST=present the probes of the build side answer "present", so the dry run of
     the seal and of an update prints the group, the user and the suite's venv as "=" lines and no groupadd, useradd,

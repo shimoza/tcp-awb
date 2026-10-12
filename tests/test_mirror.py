@@ -156,6 +156,20 @@ def test_the_service_description_refuses_what_is_not_a_revised_pdf(tmp_path):
     assert not (base / "service-description").exists() or not any((base / "service-description").iterdir())
 
 
+def test_the_service_description_page_is_read_at_the_call_so_the_suite_never_leaves_the_host(tmp_path):
+    """B-001: sync_sd bound SD_PAGE as its default when the module loaded, so the suite's DEAD_URL (conftest) never
+    reached it and `awb refresh` in tests/test_cli.py fetched the real page; in the build's suite unit, which has no
+    route out, that test waited for its timeout. The conftest has pointed SD_PAGE at the dead local address here."""
+    from tests.conftest import DEAD_URL
+
+    assert mirror.SD_PAGE.startswith(DEAD_URL)
+    asked = []
+    mirror.sync_sd(tmp_path / "m", fetch=lambda url: (asked.append(url), (pdf("17.08.2026"), url))[1])
+    assert asked == [mirror.SD_PAGE]
+    with pytest.raises(mirror.MirrorError, match="could not be fetched"):
+        mirror.sync_sd(tmp_path / "m2")
+
+
 def test_the_root_and_the_work_user(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("AWB_MIRRORS", str(tmp_path / "m"))
     assert mirror.root() == tmp_path / "m"
