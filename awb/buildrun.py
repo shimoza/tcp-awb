@@ -49,6 +49,7 @@ import contextlib
 import dataclasses
 import errno
 import fcntl
+import ipaddress
 import json
 import math
 import os
@@ -80,9 +81,18 @@ DEPLOYED = Path("/opt/tcp-awb/DEPLOYED")
 MODEL_HOST = "api.anthropic.com"
 PUSH_URL = "https://github.com/shimoza/tcp-awb.git"
 RESOLV = Path("/etc/resolv.conf")
+"""The host's own resolv.conf, on the owner's host a link to the stub file of systemd-resolved (127.0.0.53). Never
+read for a task unit since the finding of 2026-10-12; see UPSTREAM_RESOLV."""
+RESOLV_AT = "/etc/resolv.conf"
+"""Where glibc reads its nameservers; a task's session and probe unit see the runner's own file bound over it."""
+UPSTREAM_RESOLV = Path("/run/systemd/resolve/resolv.conf")
+"""The upstream nameservers systemd-resolved writes beside its stub file. A task unit resolves through them alone,
+since the stub 127.0.0.53 is the host itself: with it in the allow list a unit reached sshd on 127.0.0.53:22
+(finding of 2026-10-12)."""
 RESOLV_PLACES = ("/etc", "/run")
-"""Where resolv.conf and every link on its way may lie: /etc/resolv.conf is often a link to systemd-resolved's stub
-file under /run."""
+"""Where the upstream file and every link on its way may lie."""
+UNIT_RESOLV = "resolv.conf"
+"""The file the runner writes into the run folder (the upstream nameservers alone) and binds over RESOLV_AT."""
 RESOLV_HOPS = 8
 NO_RESOLVER = "no resolver for the task unit"
 KEY_IN_HOME = ".config/awb-build/model.key"
@@ -1739,11 +1749,11 @@ def _system_owner(uid: int) -> bool:
     return uid == 0 or uid < 1000 or uid == os.geteuid()
 
 
-def _resolv_text(path: Path | None = None) -> str | None:
-    """resolv.conf, following a link of the system (/etc/resolv.conf -> /run/systemd/resolve/stub-resolv.conf):
-    every link and the file lie under RESOLV_PLACES and belong to root, a system account or this uid, the file is
-    regular and writable by no group or other, at most RESOLV_HOPS links. None for anything else."""
-    p = os.path.normpath(str(path or RESOLV))
+def _resolv_text(path: Path) -> str | None:
+    """A resolv.conf, following a link of the system: every link and the file lie under RESOLV_PLACES and belong to
+    root, a system account or this uid, the file is regular and writable by no group or other, at most RESOLV_HOPS
+    links. None for anything else."""
+    p = os.path.normpath(str(path))
     for _ in range(RESOLV_HOPS + 1):
         if not any(p.startswith(d.rstrip("/") + "/") for d in RESOLV_PLACES):
             return None
@@ -1779,14 +1789,39 @@ def _resolv_text(path: Path | None = None) -> str | None:
     return None
 
 
+def on_host(addr: str) -> bool:
+    """True for an address of the host itself: loopback, unspecified, multicast, not an address at all or one a
+    socket can bind (an interface's own). A task unit never gets one in its allow list."""
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return True
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    if ip.is_loopback or ip.is_unspecified or ip.is_multicast:
+        return True
+    try:
+        with socket.socket(socket.AF_INET6 if ip.version == 6 else socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.bind((str(ip), 0))
+    except OSError:
+        return False
+    return True
+
+
 def resolvers() -> list[str]:
-    """The nameserver addresses of resolv.conf (a system link followed, `_resolv_text`); empty when none is found."""
-    return re.findall(r"(?m)^nameserver\s+([0-9a-fA-F.:]+)", _resolv_text() or "")
+    """The upstream nameservers of systemd-resolved (UPSTREAM_RESOLV, a system link followed, `_resolv_text`),
+    never the stub or another address of the host (`on_host`) and never a scoped one; empty when none is found."""
+    out: list[str] = []
+    for addr in re.findall(r"(?m)^nameserver\s+([0-9a-fA-F.:]+)\s*$", _resolv_text(UPSTREAM_RESOLV) or ""):
+        if addr not in out and not on_host(addr):
+            out.append(addr)
+    return out
 
 
 def model_allow(host: Host) -> list[str] | None:
-    """The resolver and the model endpoint's addresses, resolved now (D-S9); None when resolv.conf names no
-    resolver (a unit with IPAddressDeny=any could resolve no name) or the endpoint does not resolve."""
+    """The upstream nameservers and the model endpoint's addresses, resolved now (D-S9); None when no upstream
+    nameserver is found (a unit with IPAddressDeny=any could resolve no name) or the endpoint does not resolve or
+    resolves to the host itself."""
     if host.resolve is not None:
         return host.resolve()
     allow = resolvers()
@@ -1798,10 +1833,21 @@ def model_allow(host: Host) -> list[str] | None:
             found = {a[4][0] for a in socket.getaddrinfo(name, 443, proto=socket.IPPROTO_TCP)}
         except OSError:
             return None
-        if not found:
+        if not found or any(on_host(a) for a in found):
             return None
         addrs |= found
     return allow + sorted(addrs)
+
+
+def resolv_bind(host: Host, folder: Path) -> tuple[str, str]:
+    """The resolv.conf of a task's session or probe unit: the upstream nameservers alone, written into `folder` (the
+    run folder) and bound read-only over /etc/resolv.conf, so glibc in the unit never asks the stub. A stand-in
+    address list (`Host.resolve`) names no nameserver."""
+    path = Path(folder) / UNIT_RESOLV
+    servers = resolvers() if host.resolve is None else []
+    _write(path, "".join("nameserver %s\n" % a for a in servers) or "# no nameserver\n", 0o644)
+    os.chmod(path, 0o644)   # the build user reads it inside the unit, whatever the runner's umask
+    return str(path), RESOLV_AT
 
 
 def client_argv(host: Host, task: build.Task, session: str | None) -> list[str]:
@@ -2141,7 +2187,8 @@ class Runner:
                     rw=[str(clone), str(home)], hidden=_hidden(h, ctx),
                     binds=[(str(t / ".claude" / "settings.json"), str(home / ".claude" / "settings.json")),
                            (str(t / ".claude" / "CLAUDE.md"), str(home / ".claude" / "CLAUDE.md")),
-                           (str(t / ".gitconfig"), str(home / ".gitconfig"))],
+                           (str(t / ".gitconfig"), str(home / ".gitconfig")),
+                           resolv_bind(h, ctx.folder)],
                     allow=allow, env={"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1"},
                     stdin=ctx.folder / ("prompt.answer.txt" if session else "prompt.txt"),
                     stdout=ctx.folder / "result.json", stderr=ctx.folder / "agent.err")
@@ -2749,8 +2796,9 @@ def failed_main(name: str) -> int:
 # --------------------------------------------------------------------------- the probe unit (SB5)
 
 PROBE_PY = ("import socket, sys\n"
+            "port = int(sys.argv[1]) if len(sys.argv) > 2 else 443\n"
             "try:\n"
-            "    found = socket.getaddrinfo(sys.argv[1], 443, proto=socket.IPPROTO_TCP)\n"
+            "    found = socket.getaddrinfo(sys.argv[-1], port, proto=socket.IPPROTO_TCP)\n"
             "except OSError:\n"
             "    sys.exit(2)\n"
             "for family, kind, proto, _, addr in found:\n"
@@ -2764,13 +2812,38 @@ PROBE_PY = ("import socket, sys\n"
             "    finally:\n"
             "        s.close()\n"
             "sys.exit(1)\n")
-"""Exit 0 when a TCP connection to port 443 of the host opens within five seconds, 1 when the name resolved and no
-connection opened, 2 when the name did not resolve."""
+"""`PROBE_PY [PORT] HOST`: exit 0 when a TCP connection to the port (443 by default) of the host opens within five
+seconds, 1 when the name resolved and no connection opened, 2 when the name did not resolve."""
 PROBE_EXIT = {1: "no connection", 2: "no name resolution"}
 PROBE_UNPROVEN = "not proven: the unit could not reach the model endpoint"
 PROBE_PYTHON = "/usr/bin/python3"
 PROBE_TARGETS = {"model": MODEL_HOST, "token": TOKEN_HOST, "tcp": TCP_API_HOST, "github": GITHUB_HOST}
 PROBE_REACH = ("model", "token")
+PROBE_SSH_PORT = 22
+PROBE_LOCAL = {"loopback": "127.0.0.1", "stub": "127.0.0.53"}
+"""The host's own addresses a task unit must not reach on any port (finding of 2026-10-12: sshd listens on
+0.0.0.0:22, so the stub's address answered); the third check takes the host's own address (`host_address`)."""
+
+
+def host_address() -> str | None:
+    """The host's own address on its default route: a UDP socket connected to a documentation address sends
+    nothing and names the source address the host would use. None without a route."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 9))
+            addr = s.getsockname()[0]
+    except OSError:
+        return None
+    return None if addr == "0.0.0.0" else addr
+
+
+def probe_target(key: str) -> list[str] | None:
+    """The probe's arguments for a check: a host name (port 443) or port 22 and an address of the host itself;
+    None when the host has no address to try."""
+    if key in PROBE_TARGETS:
+        return [PROBE_TARGETS[key]]
+    addr = PROBE_LOCAL[key] if key in PROBE_LOCAL else host_address()
+    return None if addr is None else [str(PROBE_SSH_PORT), addr]
 
 
 def probe_lines(model: str) -> list[tuple[str, str]]:
@@ -2781,15 +2854,23 @@ def probe_lines(model: str) -> list[tuple[str, str]]:
     if model == "login":
         out.append(("token", "the probe unit reaches the token host of his login (%s)" % TOKEN_HOST))
     out += [("tcp", "the probe unit cannot reach a TCP API host (%s)" % TCP_API_HOST),
-            ("github", "the probe unit cannot reach %s" % GITHUB_HOST)]
+            ("github", "the probe unit cannot reach %s" % GITHUB_HOST),
+            ("loopback", "the probe unit cannot connect to the host's loopback (%s:%d)" % (PROBE_LOCAL["loopback"],
+                                                                                         PROBE_SSH_PORT)),
+            ("stub", "the probe unit cannot connect to the resolver stub's address (%s:%d)" % (PROBE_LOCAL["stub"],
+                                                                                             PROBE_SSH_PORT)),
+            ("host", "the probe unit cannot connect to the host's own address on port %d" % PROBE_SSH_PORT)]
     return out
 
 
-def probe_spec(host: Host, argv: list[str], allow: list[str], stdout: Path | None = None) -> Spec:
+def probe_spec(host: Host, argv: list[str], allow: list[str], stdout: Path | None = None,
+               binds: list[tuple[str, str]] | None = None) -> Spec:
     """A unit with the network, the hidden places and the environment of a task's session (`Runner.spawn`): the
-    address list of model_allow, every clone, home and the records hidden, /etc/awb inaccessible."""
+    address list of model_allow, the run's resolv.conf over /etc/resolv.conf (`resolv_bind`), every clone, home and
+    the records hidden, /etc/awb inaccessible."""
     return Spec(PROBE_UNIT, argv, PROBE_SECONDS, "/", "/tmp", hidden=_hidden(host, None), allow=allow,
-                env={"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1"}, stdout=stdout)
+                binds=list(binds or []), stdout=stdout,
+                env={"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1"})
 
 
 def _probe_wait(host: Host, spec: Spec) -> Ended:
@@ -2814,17 +2895,28 @@ def run_probe(host: Host, user: str) -> list[tuple[str, bool, str]]:
     if allow is None:
         return [(k, False, "%s (the model endpoint does not resolve)" % ln) for k, ln in lines]
     with tempfile.TemporaryDirectory(prefix="awb-build-probe-") as tmp:
+        binds = [resolv_bind(host, Path(tmp))]
         out = Path(tmp) / "id.out"
-        e = _probe_wait(host, probe_spec(host, ["/usr/bin/id", "-un"], allow, stdout=out))
+        e = _probe_wait(host, probe_spec(host, ["/usr/bin/id", "-un"], allow, stdout=out, binds=binds))
         who = (_text(out) or "").strip()
-    ran = e.result == "success" and e.code == 0 and who == user
-    res = [(lines[0][0], ran, lines[0][1])]
+        ran = e.result == "success" and e.code == 0 and who == user
+        res = [(lines[0][0], ran, lines[0][1])]
+        res += _probe_checks(host, lines[1:], allow, binds) if ran else [
+            (key, False, line + " (the probe unit did not run)") for key, line in lines[1:]]
+    return res
+
+
+def _probe_checks(host: Host, lines: list[tuple[str, str]], allow: list[str],
+                  binds: list[tuple[str, str]]) -> list[tuple[str, bool, str]]:
+    """The checks after the control, each in a unit of its own: reach the endpoints, then the refusals."""
+    res = []
     reached = False
-    for key, line in lines[1:]:
-        if not ran:
-            res.append((key, False, line + " (the probe unit did not run)"))
+    for key, line in lines:
+        target = probe_target(key)
+        if target is None:
+            res.append((key, False, line + " (no address of the host found)"))
             continue
-        e = _probe_wait(host, probe_spec(host, [PROBE_PYTHON, "-I", "-c", PROBE_PY, PROBE_TARGETS[key]], allow))
+        e = _probe_wait(host, probe_spec(host, [PROBE_PYTHON, "-I", "-c", PROBE_PY, *target], allow, binds=binds))
         why = PROBE_EXIT.get(e.code) if e.result == "exit-code" else None
         if key in PROBE_REACH:
             ok = e.result == "success" and e.code == 0
@@ -2864,7 +2956,7 @@ def read_probe(board: Path | None) -> dict | None:
             except ValueError:
                 continue
             out["time"], out["model"] = cells[1], cells[2]
-        elif cells[0] == "check" and len(cells) == 3 and cells[1] in PROBE_TARGETS.keys() | {"unit"} \
+        elif cells[0] == "check" and len(cells) == 3 and cells[1] in {k for k, _ in probe_lines("login")} \
                 and cells[2] in ("pass", "fail"):
             out["checks"][cells[1]] = cells[2] == "pass"
     return out if out["time"] else None

@@ -115,6 +115,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - `COMMANDS.md` names `awb dataset put --github-only` in the row of `awb dataset put`, as its help and the README do
   (follow-up of pull request 5).
 
+### Security
+
+- A build task's unit no longer reaches any port of the host itself (finding of 2026-10-12). Its allow list named
+  the resolver of `/etc/resolv.conf`, which on this host is systemd-resolved's stub `127.0.0.53`, so the session
+  unit could connect to sshd on `127.0.0.53:22`. The session and probe units now allow the upstream nameservers of
+  `/run/systemd/resolve/resolv.conf` (the same link rules, never a loopback or another address of the host) and
+  the endpoints and see a `resolv.conf` of those servers alone, written into the run folder and bound over
+  `/etc/resolv.conf`. Without an upstream nameserver the queue is held as `no resolver for the task unit`. `awb
+  build probe` adds three checks: the unit cannot connect to `127.0.0.1:22`, `127.0.0.53:22` or the host's own
+  address on port 22. The suite unit keeps its own network namespace with loopback alone.
+
 ## Week 41, 2026-10-05 to 2026-10-11
 
 ### Added
