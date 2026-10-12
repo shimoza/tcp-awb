@@ -1098,3 +1098,26 @@ def test_a_failed_task_unit_writes_one_board_line_only_while_no_runner_waits(wor
     os.symlink(world.base / "elsewhere", h.board)
     assert buildrun.record_failed(h, "awb-task-B-013", "timeout") == "not written"
     assert "B-013" not in (world.base / "elsewhere" / "state.tsv").read_text()
+
+
+# --------------------------------------------------------------------------- B-001 follow-ups 2 and 3
+
+def test_the_session_unit_gets_no_loopback_and_the_header_leaves_the_suite_to_the_runner(world):
+    """B-001 follow-up 2: loopback for the session unit is refused (in the host's namespace 127.0.0.0/8 reaches sshd
+    and the web units, proved live on 2026-10-12; a namespace of its own cuts the model endpoint). The session's allow
+    list holds no loopback range, it has no namespace and the header tells the agent to run only the module tests
+    that need no network with the venv's interpreter while the runner runs the whole suite."""
+    world.host.resolve = lambda: ["127.0.0.53", "192.0.2.10"]
+    run = world.run("good")
+    agent = [s for s in world.units.started if s.name == "awb-task-%s" % run.id][0]
+    assert not agent.netns
+    assert agent.allow == ["127.0.0.53", "192.0.2.10"]
+    assert not {"localhost", "127.0.0.0/8", "127.0.0.1", "::1", "::1/128"} & set(agent.allow)
+    header = " ".join(build.HEADER.split())
+    assert "Run only the tests of the modules you change that need no network" in header
+    assert "`/srv/awb-build/venv/bin/python -I -B -m pytest -q tests/test_<module>.py`" in header
+    assert "This session has no loopback" in header
+    assert "The runner runs the whole suite on your commit" in header
+    assert "The whole suite must pass (" not in header
+    sent = (run.folder / "prompt.txt").read_text(encoding="utf-8")
+    assert "This session has no loopback" in " ".join(sent.split())

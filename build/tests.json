@@ -4486,8 +4486,15 @@
    "name": "build guard: with the old rule (no link may leave the venv) awb hook selftest names the interpreter case",
    "run": ".venv/bin/pytest tests/test_hooks.py::test_the_build_selftest_fails_when_the_venv_interpreter_is_refused",
    "status": "passing"
+  },
+  {
+   "id": "BF1-3",
+   "phase": "B-001 follow-ups",
+   "name": "build runner: the session unit has no namespace and no loopback in its allow list; the header leaves the whole suite to the runner and names the module tests with the venv's interpreter",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_session_unit_gets_no_loopback_and_the_header_leaves_the_suite_to_the_runner",
+   "status": "passing"
   }
  ],
- "total_tests": 641,
+ "total_tests": 642,
  "checked": "2026-10-12"
 }

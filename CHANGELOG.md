@@ -9,6 +9,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 - A comment above `main` in `awb/build.py` names `awb/buildrun.py` as the runner of the queue (B-001).
 
+### Changed
+
+- The prompt header of a build task tells the agent to run only the module tests that need no network, with the
+  venv's interpreter and leaves the whole suite to the runner (B-001). The session's unit keeps no loopback: in the
+  host's network namespace `127.0.0.0/8` reaches sshd and the web units; a namespace of its own would cut the
+  model endpoint.
+
 ### Fixed
 
 - The build user's guard lets the venv's interpreter pass for a Read and a run (B-001). The venv's `python` is a
