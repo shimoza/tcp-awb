@@ -1098,3 +1098,22 @@ does not descend from it. The root path imports neither
   dotted quad over blanks or a table border is no phone. `extract.text.is_calendar`, `unfold_calendar`.
 - The pack: `calibration/redteam/wipe/` holds the nine case modules of the red team (405 cases) and `harness.py`
   (the built engine, nothing patched in); `EXPECTED.md` lists what is left per wipe dimension.
+
+## The price workbook (2026-10-11)
+
+- `awb/xlsxlite.py` (standard library only): `Sheet(name)` with `put(row, col, value, formula=None, style="default")`,
+  `freeze_rows`, `widths`; `build(sheets, title=, created=) -> bytes` (deterministic: fixed archive times), `write(path,
+  sheets, ...)`, `write_bytes(path, data)` (temp file and rename), `read(path_or_file) -> [SheetData(name,
+  rows={row: {col: str|Decimal}})]` (the stored result of a formula; a part with a document type declaration is
+  refused), `column_letter`, `column_number`, `ref`, `decimal_text`, `STYLES`; `XlsxError`. A text is always a shared
+  string, so a cell that starts with `=` stays text. A formula cell carries the formula and the result the caller
+  computed; the workbook asks the spreadsheet program to calculate again on opening.
+- `awb/tcp/pricebook.py`: `parse_spec(data, name) -> Spec`, `load_spec(path)`, `Line` (label, service, api, flavor, os, id,
+  region, quantity, hours, term, assumption, assumption_de, assumption_en), `mode_term(text)`, `SpecError(problems)`;
+  `offered_problems(spec, catalog, today) -> {label: reason}`; `price_line(line, fetch) -> Priced` (raises
+  `LineProblem`), `price_spec(spec, fetch_region, skip=None) -> (priced, {label: problem})`; `build(spec_path, out=,
+  lang=, against=, fetcher=, record=, project=, today=) -> Result` (raises `SpecError`, `LineRefused(problems)` or
+  `PricebookError`); `book_of_spec`, `book_of_workbook`, `load_book`, `compare(old, new) -> Comparison`,
+  `comparison_lines`; `TEXT` (the fixed texts, `en` and `de`), `money(value, lang)`. `awb pricebook build|diff`.
+  The monthly figure is `round(rate * quantity * hours, 2)` through `calc.evaluate`; the workbook is read back
+  and compared with the computed figures before it is written.

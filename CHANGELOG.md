@@ -8,6 +8,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 ### Added
 
 - A comment above `main` in `awb/build.py` names `awb/buildrun.py` as the runner of the queue (B-001).
+- `awb pricebook build SPEC [--out FILE] [--lang en|de] [--against OLD]` builds the price workbook of an estimate from
+  a specification file (line items with service, flavor, region, quantity, hours, pricing mode and an assumption).
+  It refuses a service the service description does not offer, prices every line from the public price API with exact
+  decimals and writes an .xlsx with the standard library only: the lines with their figures as formulas, the
+  assumption of each line in its own column, a block of totals, a sheet Sources (snapshot time, region, service
+  description revision) and, with `--against`, a sheet of changes. English or German. A Markdown summary for a mail
+  (totals, the three biggest lines, assumptions) comes next to it and the totals are recorded with `awb calc`.
+  `awb pricebook diff OLD NEW` lists what changed between two specifications or two workbooks, line by line and in
+  the totals (work profile: prices were the top cost, one estimate was rebuilt 7 times).
 
 ### Changed
 

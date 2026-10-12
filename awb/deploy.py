@@ -127,6 +127,8 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/tcp_facts_mcp.py": "the MCP server of the dataset, copied into every build and run by its recipient",
     "awb/tcp/web/contract.py": "awb api write|check, writes and checks docs/api/openapi.yaml",
     "awb/tcp/ui.py": "awb ui submit|status|watch, run by the owner; a watch runs as his own background process",
+    "awb/tcp/pricebook.py": "awb pricebook build|diff, run in a working session or by the owner",
+    "awb/xlsxlite.py": "the workbook writer and reader of awb pricebook, which is command only",
     "awb/confusables.py": "python -m awb.confusables, run once by a build session to write awb/confusables_latin.py",
 }
 
