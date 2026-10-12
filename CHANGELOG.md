@@ -52,6 +52,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- `awb lab run` reads the EVS disk types (`GET evs /v2/{project_id}/types`, read key) before its first create when a
+  create body names a disk type (`volumetype` or `volume_type`) and stops with one line, making nothing, when the type
+  is not listed, not offered in the recipe's AZ (`RESKEY:availability_zones`) or sold out there
+  (`os-vendor-extended:sold_out_availability_zones`). `awb lab dry-run` shows the check as a step. The recipes
+  `ecs-boot-ssh` and `elb-health` use SAS for the system disk: SATA is sold out in eu-de-01 to eu-de-03 and run 3 of
+  2026-10-12 made three resources before the server create answered Ecs.0044.
 - The prompt header of a build task tells the agent to run only the module tests that need no network, with the
   venv's interpreter and leaves the whole suite to the runner (B-001). The session's unit keeps no loopback: in the
   host's network namespace `127.0.0.0/8` reaches sshd and the web units; a namespace of its own would cut the

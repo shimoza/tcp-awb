@@ -77,7 +77,7 @@
      "call": {"method": "POST", "service": "ecs", "path": "/v1/{project_id}/cloudservers",
               "body": {"server": {"name": "${name}-b", "imageRef": "${image_id}", "flavorRef": "${flavor}",
                                   "vpcid": "${vpc}", "nics": [{"subnet_id": "${subnet}"}],
-                                  "security_groups": [{"id": "${sg}"}], "root_volume": {"volumetype": "SATA"},
+                                  "security_groups": [{"id": "${sg}"}], "root_volume": {"volumetype": "SAS"},
                                   "availability_zone": "${az}", "adminPass": "{{secret:${admin_secret}}}",
                                   "user_data": "${base64:web_script}", "server_tags": "${tags:kv}", "count": 1}}},
      "id_field": "serverIds.0",

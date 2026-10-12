@@ -42,6 +42,12 @@ A recipe whose calls fill a field with `{{secret:NAME}}` needs that secret of th
 run asks the key service for the names of the tenant's secrets (never a value) after the grant read and before its
 first create; a name that is missing stops it there with one line, so it makes nothing.
 
+A recipe whose create bodies name an EVS disk type (`volumetype` or `volume_type`, such as the system disk of a
+server) gets the disk types read with the read key (GET evs /v2/{project_id}/types) after the secrets and before its
+first create. A type the answer does not list, a type whose RESKEY:availability_zones leaves out the recipe's AZ and a
+type that lists the AZ under os-vendor-extended:sold_out_availability_zones stop it there with one line, so it makes
+nothing (run 3 of 2026-10-12 made three resources before the server create answered Ecs.0044 for a sold-out SATA).
+
 Exit codes: 0 every check passed and everything is gone; 1 a check failed and everything is gone; 2 refused
 before the first call, a usage error or a run that stopped (an error, the time budget, a signal) with everything
 gone; 4 a resource is left live (its row in RESOURCES.md says what to do).
@@ -78,6 +84,12 @@ EVERY = 10
 EXIT_OK, EXIT_CHECK, EXIT_STOPPED, EXIT_LEFT = 0, 1, 2, 4
 PROBE = {"method": "GET", "service": "vpc", "path": "/v1/{project_id}/vpcs", "query": {"limit": "1"}}
 """The read call that asks the key service whether this project may reach the tenant (its grant)."""
+DISK_TYPES = {"method": "GET", "service": "evs", "path": "/v2/{project_id}/types"}
+"""The read of the EVS disk types before the first create (the Cinder-shaped list under volume_types)."""
+DISK_KEYS = ("volumetype", "volume_type")
+OFFERED_IN = "RESKEY:availability_zones"
+SOLD_OUT_IN = "os-vendor-extended:sold_out_availability_zones"
+"""Where a disk type in the answer names the AZs that offer it and the AZs where it is sold out (live, KB-KYR6)."""
 
 _NAME_RE = re.compile(r"^[a-z][a-z0-9-]{2,40}$")
 _ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,30}$")
@@ -377,6 +389,66 @@ def secrets_of(r: dict, env: dict[str, str]) -> list[str]:
         calls += [t["call"], t["gone"]["call"]]
     text = json.dumps([expand(c, dict(env, id="<id>"), loose=True) for c in calls if c])
     return sorted(set(_SECRET_REF_RE.findall(text)))
+
+
+def disks_of(r: dict, env: dict[str, str]) -> list[tuple[str, str]]:
+    """(disk type, AZ) of every disk the create bodies of a recipe name under DISK_KEYS, with the values of `env`;
+    the AZ is the availability_zone of the nearest object around it, else the parameter az, else empty."""
+    found: set[tuple[str, str]] = set()
+
+    def walk(obj, az: str) -> None:
+        if isinstance(obj, list):
+            for v in obj:
+                walk(v, az)
+        elif isinstance(obj, dict):
+            here = obj.get("availability_zone")
+            az = here if isinstance(here, str) and here else az
+            for k in DISK_KEYS:
+                if isinstance(obj.get(k), str) and obj[k]:
+                    found.add((obj[k], az))
+            for v in obj.values():
+                walk(v, az)
+    for s in r["steps"]:
+        if s["do"] == "create":
+            walk(expand(s["call"].get("body"), env, loose=True), str(env.get("az") or ""))
+    return sorted(found)
+
+
+def _zones(value) -> set[str]:
+    if isinstance(value, str):
+        return {z.strip() for z in value.split(",") if z.strip()}
+    if isinstance(value, list):
+        return {z.strip() for z in value if isinstance(z, str) and z.strip()}
+    return set()
+
+
+def disk_refusal(answer: dict, disks: list[tuple[str, str]]) -> str | None:
+    """None when every (disk type, AZ) is listed, offered in its AZ and not sold out there in the answer of
+    DISK_TYPES, else the line that stops the run. Entries of one name count together; the fields are read under
+    extra_specs and, failing that, beside it."""
+    data = answer.get("data") if answer.get("ok") else None
+    types = data.get("volume_types") if isinstance(data, dict) else None
+    if answer.get("status") != 200 or not isinstance(types, list):
+        return "the disk types could not be read (%s), so no create was tried" % (
+            "status %s" % answer.get("status") if answer.get("ok") else "no answer from the key service")
+    offered: dict[str, set[str]] = {}
+    sold: dict[str, set[str]] = {}
+    for t in types:
+        if not isinstance(t, dict) or not isinstance(t.get("name"), str):
+            continue
+        spec = t.get("extra_specs") if isinstance(t.get("extra_specs"), dict) else {}
+        offered.setdefault(t["name"], set()).update(_zones(spec.get(OFFERED_IN, t.get(OFFERED_IN))))
+        sold.setdefault(t["name"], set()).update(_zones(spec.get(SOLD_OUT_IN, t.get(SOLD_OUT_IN))))
+    for name, az in disks:
+        shown = name if _CODE_RE.match(name) else "of the recipe"
+        if name not in offered:
+            return "the disk type %s is not in the list of disk types of the tenant, so no create was tried" % shown
+        if az and offered[name] and az not in offered[name]:
+            return "the disk type %s is not offered in %s, so no create was tried" % (shown, az)
+        if (az and az in sold[name]) or (not az and sold[name]):
+            return "the disk type %s is sold out in %s, so no create was tried; set another type in the recipe" % (
+                shown, az or ", ".join(sorted(sold[name])))
+    return None
 
 
 def error_of(answer: dict) -> tuple[str, str]:
@@ -973,6 +1045,16 @@ class Run:
             return "the secret %s is missing for %s" % (missing[0], self.tenant)
         return "the secrets %s are missing for %s" % (", ".join(missing), self.tenant)
 
+    def disk_check(self) -> str | None:
+        """The disk types the create bodies name, read with the read key before the first create: None when each
+        is offered and not sold out in its AZ (or the recipe names none, then no call), else the line that stops
+        the run."""
+        disks = disks_of(self.r, self.env)
+        if not disks:
+            return None
+        answer, rec = self._call("preflight", "disk types", DISK_TYPES, role="read", timed=False)
+        return disk_refusal(answer, disks)
+
     def _on_signal(self, signum, frame):
         if self.in_teardown:
             self.signals_in_teardown += 1
@@ -1225,6 +1307,12 @@ def dry_run_lines(r: dict, params: dict[str, str], project: str = "tcp-xxxx", te
     if needed:
         out.append("0. secrets: the tenant holds %s in the key service (asked by name before the first create)"
                    % ", ".join(needed))
+    disks = disks_of(r, env)
+    if disks:
+        out.append("0. disk types: GET evs /v2/{project_id}/types (read key); stop before the first create unless "
+                   "%s" % "; ".join("%s is listed%s and not sold out%s" % (n, " and offered in %s" % az if az else "",
+                                                                         " there" if az else " in any AZ")
+                                    for n, az in disks))
     confirm = dict(confirm_notes(r))
     creates = []
     for n, s in enumerate(r["steps"], start=1):
@@ -1356,6 +1444,10 @@ def run(name: str, project: str, tenant: str, given: list[str], *, send=None, cl
     missing = job.missing_secret()
     if missing is not None:
         err("awb lab: %s" % missing)
+        return EXIT_STOPPED
+    disk = job.disk_check()
+    if disk is not None:
+        err("awb lab: %s" % disk)
         return EXIT_STOPPED
     out("awb lab: %s on %s for %s: %d step(s), at most %d resources, budget %d minutes"
         % (r["name"], tenant, project, len(r["steps"]), r["guard"]["resources"], r["budget"]["minutes"]))

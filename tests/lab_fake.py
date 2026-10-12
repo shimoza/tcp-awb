@@ -6,7 +6,9 @@ Every path takes the form /v1/{project_id}/<collection>[/<id>[/tags/action]]: a 
 under the singular of its name (widgets: widget) with a fresh id and the status BUILD; a GET of an item answers it
 (ACTIVE after `polls_to_active` reads) or 404 once it is deleted; a GET of the collection lists the items not deleted
 with their id and name (the find by name); a DELETE marks it deleted; a tag call answers 204.
-GET /v1/{project_id}/vpcs is the grant probe. The knobs: refuse (the probe's refusal), fail_create (collection:
+GET /v1/{project_id}/vpcs is the grant probe. GET /v2/{project_id}/types answers the EVS disk types of
+`volume_types` (by default SAS and SSD offered in eu-de-01 to eu-de-03 and SATA sold out in all three, the shape
+read live on 2026-10-12) or `types_status` when that is set. The knobs: refuse (the probe's refusal), fail_create (collection:
 status or "lost" for no answer at all; nothing is made), made_but (collection: status or "lost"; the item is made,
 then the answer is that status or none), list_fail (the next so many GETs of a collection answer 500), fail_delete
 (collections whose DELETE answers 500), never_active, plant (fields put into every item read), on_call (a function
@@ -39,6 +41,13 @@ class FakeKeyService:
         self.on_call = None
         self.refused_body: dict = {"error_msg": "refused"}
         self.secrets: dict[str, list[str]] = {}
+        zones = "eu-de-01,eu-de-02,eu-de-03"
+        self.volume_types: list[dict] = [
+            {"name": n, "id": "%08x-5555-4666-8777-%012x" % (i, 0xd15c), "is_public": True,
+             "extra_specs": dict({"RESKEY:availability_zones": zones},
+                                 **({"os-vendor-extended:sold_out_availability_zones": zones} if n == "SATA" else {}))}
+            for i, n in enumerate(("SAS", "SSD", "SATA"), start=1)]
+        self.types_status = 0
         self._n = itertools.count(1)
 
     def created(self) -> list[str]:
@@ -61,6 +70,10 @@ class FakeKeyService:
         method, path = req["method"], req["path"]
         if method == "GET" and path == "/v1/{project_id}/vpcs":
             return {"ok": True, "status": 200, "data": {"vpcs": []}, "text": ""}
+        if method == "GET" and path == "/v2/{project_id}/types":
+            if self.types_status:
+                return {"ok": True, "status": self.types_status, "data": {"error_msg": "internal"}, "text": ""}
+            return {"ok": True, "status": 200, "data": {"volume_types": self.volume_types}, "text": ""}
         if method == "GET" and path == "/v1/{project_id}/forbidden":
             return {"ok": True, "status": self.forbidden, "data": {"error_msg": "denied"}, "text": ""}
         m = _ITEM.match(path)

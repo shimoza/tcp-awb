@@ -523,6 +523,9 @@ def ecs_cloud(secrets=("ecs-admin",)):
         m, p, b = req["method"], req["path"], req.get("body") or {}
         if p == "/v1/{project_id}/vpcs" and m == "GET":
             return ok(200, {"vpcs": []})
+        if p == "/v2/{project_id}/types" and m == "GET":
+            return ok(200, {"volume_types": [{"name": "SAS", "extra_specs": {
+                "RESKEY:availability_zones": "eu-de-01,eu-de-02,eu-de-03"}}]})
         if p == "/v2/cloudimages":
             return ok(200, {"images": [{"id": "-".join(IMAGE_ID), "name": req["query"]["name"]}]})
         if m == "POST" and p == "/v1/{project_id}/vpcs":
@@ -1001,3 +1004,66 @@ def test_the_secret_check_goes_through_the_real_key_service(project, tmp_path, m
                       clock=clock, sleep=clock.sleep)
         assert job.missing_secret() == "the secret not-there is missing for %s" % TENANT
         assert ADMIN_PW not in repr(vars(job))
+
+
+# --------------------------------------------------------------------------- the disk types before the first create
+
+
+def disk_recipe() -> dict:
+    """The widget recipe with a system disk of the type the parameter disk names, in the AZ of the parameter az."""
+    recipe = copy.deepcopy(RECIPE)
+    recipe["name"] = "disk-check"
+    recipe["params"]["disk"] = {"default": "SAS", "pattern": "^[A-Za-z0-9-]{2,10}$"}
+    recipe["params"]["az"] = {"default": "eu-de-01", "pattern": "^eu-de-0[1-3]$"}
+    recipe["steps"][0]["call"]["body"]["widget"].update(
+        {"availability_zone": "${az}", "root_volume": {"volumetype": "${disk}"}})
+    write_recipe(Path(os.environ[lab.RECIPES_ENV]), recipe)
+    return recipe
+
+
+def test_a_sold_out_disk_type_stops_the_run_before_any_create(project):
+    disk_recipe()
+    fake = FakeKeyService()
+    code, lines, errors = run(fake, recipe="disk-check", params=["disk=SATA"])
+    assert code == lab.EXIT_STOPPED and lines == []
+    assert errors == ["awb lab: the disk type SATA is sold out in eu-de-01, so no create was tried; set another "
+                      "type in the recipe"]
+    assert writes(fake) == [] and fake.created() == [] and rows(project) == []
+    assert [(r["role"], r["service"], r["path"]) for r in fake.calls if r.get("op") == "call"][-1] == \
+        ("read", "evs", "/v2/{project_id}/types")
+
+
+def test_an_offered_disk_type_lets_the_run_go(project):
+    disk_recipe()
+    fake = FakeKeyService()
+    code, lines, errors = run(fake, recipe="disk-check")
+    assert code == lab.EXIT_OK, (lines, errors)
+    paths = [r["path"] for r in fake.calls if r.get("op") == "call"]
+    assert paths.index("/v2/{project_id}/types") < paths.index("/v1/{project_id}/widgets")
+    assert "| preflight | disk types | GET | evs | `/v2/{project_id}/types` | 200 |" in evidence(project)
+
+
+def test_an_unknown_an_unoffered_or_an_unread_disk_type_stops_the_run(project):
+    disk_recipe()
+    fake = FakeKeyService()
+    assert run(fake, recipe="disk-check", params=["disk=GPSSD9"])[2] == [
+        "awb lab: the disk type GPSSD9 is not in the list of disk types of the tenant, so no create was tried"]
+    fake.volume_types[0]["extra_specs"]["RESKEY:availability_zones"] = "eu-de-02"
+    assert run(fake, recipe="disk-check")[2] == [
+        "awb lab: the disk type SAS is not offered in eu-de-01, so no create was tried"]
+    fake.types_status = 500
+    code, lines, errors = run(fake, recipe="disk-check", params=["disk=SSD"])
+    assert code == lab.EXIT_STOPPED
+    assert errors == ["awb lab: the disk types could not be read (status 500), so no create was tried"]
+    assert writes(fake) == [] and fake.created() == [] and rows(project) == []
+
+
+def test_the_disk_types_of_the_recipes_and_the_dry_run_line():
+    for name, want in (("ecs-boot-ssh", [("SAS", "eu-de-01")]), ("elb-health", [("SAS", "eu-de-01")]),
+                       ("obs-policy-deny", [])):
+        r = lab.load(REPO_RECIPES / ("%s.json" % name))
+        params = lab.params_of(r, [])
+        assert lab.disks_of(r, params) == want, name
+        shown = [x for x in lab.dry_run_lines(r, params) if x.startswith("0. disk types:")]
+        assert shown == (["0. disk types: GET evs /v2/{project_id}/types (read key); stop before the first create "
+                          "unless SAS is listed and offered in eu-de-01 and not sold out there"] if want else [])

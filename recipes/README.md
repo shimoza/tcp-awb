@@ -17,6 +17,13 @@ keeps its row as live with one line for the owner and the command exits 4. The e
 `evidence/lab-<recipe>-<date>-<n>.md` of the project. When every check passed, it ends with a ready `awb kb add`
 line with the grade live.
 
+Before the first create the run reads the EVS disk types (`GET evs /v2/{project_id}/types`, read key) when a create
+body names a disk type under `volumetype` or `volume_type`. The AZ is the `availability_zone` of the body around it,
+else the parameter `az`. A type the answer does not list, a type whose `RESKEY:availability_zones` leaves out that AZ
+and a type that lists it under `os-vendor-extended:sold_out_availability_zones` stop the run with one line and nothing
+is made. The dry run shows the check as a step `0. disk types`. Use a type that is on sale: SATA is sold out in
+eu-de-01 to eu-de-03 (KB-KYR6), the recipes here use SAS.
+
 A run takes minutes: run it as a background command of the session, not in the foreground with its two-minute
 limit. A SIGTERM tears down like Ctrl-C; only a hard kill leaves rows as live or creating; `awb cloud sweep` then
 finds the resources by their tags or their lab name.

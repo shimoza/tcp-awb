@@ -4964,6 +4964,34 @@
    "status": "passing"
   },
   {
+   "id": "LAB-37",
+   "phase": "LAB",
+   "name": "lab: a sold-out disk type stops the run before any create, with zero creates",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_sold_out_disk_type_stops_the_run_before_any_create",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-38",
+   "phase": "LAB",
+   "name": "lab: an offered disk type lets the run go, the types read in the evidence before the first create",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_an_offered_disk_type_lets_the_run_go",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-39",
+   "phase": "LAB",
+   "name": "lab: an unknown, an unoffered or an unread disk type stops the run with nothing made",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_an_unknown_an_unoffered_or_an_unread_disk_type_stops_the_run",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-40",
+   "phase": "LAB",
+   "name": "lab: the disk types the three recipes name and the dry-run line that shows the check",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_disk_types_of_the_recipes_and_the_dry_run_line",
+   "status": "passing"
+  },
+  {
    "id": "SW-6",
    "phase": "SW",
    "name": "sweep: the owner's sweep keeps its own handles under XDG_STATE_HOME when the shared file is not his, with one line; neither writable is one line and exit 2",
@@ -5111,6 +5139,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 730,
+ "total_tests": 734,
  "checked": "2026-10-12"
 }
