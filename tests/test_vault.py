@@ -974,6 +974,7 @@ def test_a_reload_keeps_the_state_unlocked_and_the_socket_files(vp, notify, monk
         assert "MAINPID=%d" % answer["pid"] in notify.messages()
 
 
+@pytest.mark.long   # a real daemon takes over from another while a client keeps asking: the overlap needs real time
 def test_checks_and_pings_answer_during_the_hand_over(vp, notify, monkeypatch, tmp_path):
     """Planted: an _op_reload that keeps the daemon lock across the wait for the child makes both time out."""
     standin(monkeypatch, tmp_path, "slow:5")
@@ -1087,6 +1088,7 @@ def test_a_write_between_ok_and_go_is_answered_busy_by_the_parent(vp, notify, mo
         assert vault.admin_call("register_load")["text"] == text
 
 
+@pytest.mark.long   # a real hand-over with writers in flight: the order it proves needs real time
 def test_write_ops_are_busy_during_the_hand_over_and_the_order_is_total(vp, notify, monkeypatch, tmp_path):
     """Planted: a writer that passed the flag check before taking the daemon lock and runs after the copy (the flag
     checked before the lock); a write op that is not busy during the hand-over; a new daemon that refuses
@@ -1143,6 +1145,7 @@ def served(tmp: Path) -> tuple[subprocess.Popen, Path]:
     return proc, log
 
 
+@pytest.mark.long   # a real parent process leaves through its hand-over exit
 def test_the_parent_leaves_through_the_hand_over_exit(vp, tmp_path):
     """Planted: an exit through stop() (the socket files go), a connection of before the switch cut off in its
     request, a SIGTERM to the handed-over daemon that removes the new daemon's files."""
@@ -1200,6 +1203,7 @@ def test_a_reload_from_another_uid_is_refused(vp, daemon, monkeypatch):
     assert not daemon.handing_over.is_set()
 
 
+@pytest.mark.long   # it asserts that the client waits more than 4.5 s for a slow parent
 def test_the_reload_client_outlasts_the_parent(vp, notify, monkeypatch, tmp_path):
     """The clock is scaled: the daemon's deadline and the client's timeout shrink by the same factor. The stand-in
     child answers just before the daemon's deadline: the client must still get the ok. Planted: a client timeout
@@ -1216,6 +1220,7 @@ def test_the_reload_client_outlasts_the_parent(vp, notify, monkeypatch, tmp_path
         assert answer["state"] == "unlocked" and time.monotonic() - started > 4.5
 
 
+@pytest.mark.long   # the two locks are proved by real waits on each other
 def test_a_reload_waits_for_an_intake_and_an_intake_waits_for_a_reload(vp, notify, monkeypatch, tmp_path):
     """Planted: a reload that starts its child while an intake holds the vault; an intake that runs during a
     hand-over."""

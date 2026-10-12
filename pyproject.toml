@@ -26,3 +26,6 @@ addopts = "-q"
 # a hang fails the test after two minutes instead of waiting for hours (2026-10-09); a longer limit is set on the
 # test itself, with the reason
 timeout = 120
+# the few tests that must stay long, each with its reason on the test; `pytest -m "not long"` is the quick run for a
+# working loop, the full run (and every build) still runs them
+markers = ["long: must stay long, the time it takes is part of what it proves"]

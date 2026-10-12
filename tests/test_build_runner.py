@@ -597,6 +597,7 @@ def test_the_unit_helpers_never_run_as_the_owner_or_the_work_user(monkeypatch):
 
 # --------------------------------------------------------------------------- the selftest
 
+@pytest.mark.long   # the self-test runs every planted case in a real runner world and that count is the proof
 def test_the_selftest_refuses_or_classifies_every_planted_case():
     assert buildrun.selftest(python=sys.executable) == []
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import pwd
 import shutil
+import socketserver
 import stat
 import subprocess
 import sys
@@ -105,6 +106,88 @@ def _writable_copytree(src, dst, *args, **kwargs):
 
 
 shutil.copytree = _writable_copytree
+
+_SERVE_FOREVER = socketserver.BaseServer.serve_forever
+
+
+def _quick_serve_forever(self, poll_interval=0.01):
+    """socketserver's default looks at the shutdown flag every half second, so each stand-in server cost its test up
+    to 0.5 s in shutdown() (teardown of a test with six servers took 2.5 s). Only the default changes: a caller
+    that passes an interval gets it and no production default is touched (the daemons run in their own process)."""
+    return _SERVE_FOREVER(self, poll_interval)
+
+
+socketserver.BaseServer.serve_forever = _quick_serve_forever
+
+
+def _no_retry_wait_hook():
+    """`jobs.retry` waits 2, 4 ... seconds between its tries and a stand-in server that is not there (the dead
+    address of this file) was waited out in real time: a test of a refused fetch took 6 s. The waiting goes, the tries
+    stay: the same calls are made in the same order. Not touched: a caller that passes its own `sleep` and a test
+    that replaced `time.sleep` to see the waits (it then gets them as before)."""
+    import time
+
+    from awb import jobs
+
+    real_retry, real_sleep = jobs.retry, time.sleep
+
+    def retry(fn, **kw):
+        if kw.get("sleep") is None and time.sleep is real_sleep:
+            kw["sleep"] = lambda seconds: None
+        return real_retry(fn, **kw)
+
+    retry.__wrapped__ = real_retry
+    jobs.retry = retry
+
+
+_no_retry_wait_hook()
+
+
+def _engine_state() -> tuple:
+    """The identity of every function, class member and constant of the modules the intake self-test runs through.
+    A test that patches any of them (a blind matcher, a broken sanitiser) changes this tuple."""
+    import types
+
+    from awb import intake, matcher, normalize, planted, wipe
+
+    out = []
+    for mod in (intake, matcher, normalize, planted, wipe):
+        for name, value in sorted(vars(mod).items()):
+            if name in ("_RUN_EXEMPT", "selftest"):     # the per-run state of the last wipe; the hook itself
+                continue
+            out.append((mod.__name__, name, id(value)))
+            if isinstance(value, type) and value.__module__ == mod.__name__:
+                out.extend((name, k, id(v)) for k, v in sorted(vars(value).items())
+                           if not isinstance(v, types.MemberDescriptorType) and k not in ("__dict__", "__weakref__"))
+    return tuple(out)
+
+
+def _cached_selftest_hook():
+    """`intake.run` takes no file in before the self-test passed and the self-test takes about a second: it ran
+    again for every intake of every test. Its verdict depends on the engine alone, so the verdict of the untouched
+    engine is kept for the run. Not cached: a call from a test (the tests of the self-test itself run it for
+    real) and any call while the engine is patched, whatever the patch."""
+    import sys
+
+    from awb import intake
+
+    real = intake.selftest
+    pristine = _engine_state()
+    verdict: list[list[str]] = []
+
+    def selftest():
+        caller = sys._getframe(1).f_code.co_filename
+        if caller != intake.__file__ or _engine_state() != pristine:
+            return real()
+        if not verdict:
+            verdict.append(real())
+        return list(verdict[0])
+
+    selftest.__wrapped__ = real
+    intake.selftest = selftest
+
+
+_cached_selftest_hook()
 
 BLOCKLIST = Path(__file__).resolve().parent / "blocklist.txt"
 DEAD_URL = "http://127.0.0.1:9/"

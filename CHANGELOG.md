@@ -51,6 +51,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The test suite runs faster with every test and every check kept. The stand-in servers of the tests shut down at
+  once. The retry waits of the fetch code and the repeated self-test of the intake (for an untouched engine) are not
+  waited out. The tests that must stay long carry the marker `long` with the reason.
 - The prompt header of a build task tells the agent to run only the module tests that need no network, with the
   venv's interpreter and leaves the whole suite to the runner (B-001). The session's unit keeps no loopback: in the
   host's network namespace `127.0.0.0/8` reaches sshd and the web units; a namespace of its own would cut the
