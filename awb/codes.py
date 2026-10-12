@@ -70,6 +70,9 @@ def is_code(s: str) -> bool:
 
 HOLD_LINE = "held: run awb import %s as the owner in your own terminal"
 """The one line of a hold for a project code: what the owner runs, in his own terminal (awb import and awb.tcp.xchg)."""
+PASTE_HOLD_LINE = "held: a pasted mail or transcript goes in through awb import %s --paste in your own terminal"
+"""The one line of a hold for pasted text: a session that is handed a mail, a transcript or a table as text points the
+owner at the paste door of the intake (awb import --paste)."""
 
 
 def is_project_code(s: str) -> bool:

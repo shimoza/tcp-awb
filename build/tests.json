@@ -4717,8 +4717,127 @@
    "name": "lab: a run goes through the real key service with the lab key and the signing stand-in gateway",
    "run": ".venv/bin/pytest tests/test_lab.py::test_a_run_goes_through_the_real_key_service_with_the_lab_key",
    "status": "passing"
+  },
+  {
+   "id": "PI-1",
+   "phase": "PI",
+   "name": "paste import: a secret (a key, a token, a password line) refuses the whole paste with its class and line number, nothing is written, no report and no notice",
+   "run": ".venv/bin/pytest tests/test_paste_import.py -k 'secret_refuses or password_line'",
+   "status": "passing"
+  },
+  {
+   "id": "PI-2",
+   "phase": "PI",
+   "name": "paste import: a pasted mail with a signature and a quoted chain, without the key: the customer form is the code, nothing of the signature or the headers is left, the technical text stays",
+   "run": ".venv/bin/pytest tests/test_paste_import.py::test_the_same_mail_without_the_key_is_wiped_and_nothing_of_the_signature_is_left",
+   "status": "passing"
+  },
+  {
+   "id": "PI-3",
+   "phase": "PI",
+   "name": "paste import: the copy is mail-<date>-<n>.md in the outbox of the customer with mode 640, the public and the private report are written, no original is kept, the session hears of it",
+   "run": ".venv/bin/pytest tests/test_paste_import.py::test_the_copy_and_the_reports_are_where_an_imported_file_goes",
+   "status": "passing"
+  },
+  {
+   "id": "PI-4",
+   "phase": "PI",
+   "name": "paste import: the number of the copy counts up over the outbox and the input folder of the project",
+   "run": ".venv/bin/pytest tests/test_paste_import.py::test_the_number_counts_up_over_the_outbox_and_the_input_folder",
+   "status": "passing"
+  },
+  {
+   "id": "PI-5",
+   "phase": "PI",
+   "name": "paste import: a paste that only holds technical text passes unchanged; a heading or a thanks before text opens no signature block; a delimiter line opens one; no kind is plain text",
+   "run": ".venv/bin/pytest tests/test_paste_import.py -k 'only_holds_technical or opens_no_signature or delimiter_line or without_a_kind'",
+   "status": "passing"
+  },
+  {
+   "id": "PI-6",
+   "phase": "PI",
+   "name": "paste import: a transcript with three speakers: [person 1], [person 2], [person 3] by the first turn, timestamps stay, the name in the speech is the same token, filler lines dropped",
+   "run": ".venv/bin/pytest tests/test_paste_import.py::test_a_transcript_keeps_its_turns_readable_as_numbered_persons",
+   "status": "passing"
+  },
+  {
+   "id": "PI-7",
+   "phase": "PI",
+   "name": "paste import: a transcript: the speaker of a single turn is a person too; a line of speech with a colon and the word joined is no filler",
+   "run": ".venv/bin/pytest tests/test_paste_import.py -k 'single_turn or no_filler'",
+   "status": "passing"
+  },
+  {
+   "id": "PI-8",
+   "phase": "PI",
+   "name": "paste import: a table keeps its rows and columns as CSV and loses the columns of people, mail addresses and phones as a whole",
+   "run": ".venv/bin/pytest tests/test_paste_import.py::test_a_table_keeps_its_columns_and_loses_the_columns_of_people_and_mail_addresses",
+   "status": "passing"
+  },
+  {
+   "id": "PI-9",
+   "phase": "PI",
+   "name": "paste import: a Name column of a technical table stays, one value gets one token, a company cell with more than the name is one token, text without tabs is no table",
+   "run": ".venv/bin/pytest tests/test_paste_import.py -k 'technical_table or company_cell or without_tabs'",
+   "status": "passing"
+  },
+  {
+   "id": "PI-10",
+   "phase": "PI",
+   "name": "paste import: a project without a customer: tokens, the copy and the reports go under the project code, no customer code is issued; a customer without a form is sent to awb import",
+   "run": ".venv/bin/pytest tests/test_paste_import.py -k 'without_a_customer_gets or customer_without_a_form'",
+   "status": "passing"
+  },
+  {
+   "id": "PI-11",
+   "phase": "PI",
+   "name": "paste import: refused in an assistant session and for the work user with the paste hold line, before the paste is read; the project code is checked first",
+   "run": ".venv/bin/pytest tests/test_paste_import.py -k 'refused_in_a_session or hold_line_without_a_code or project_code_is_checked'",
+   "status": "passing"
+  },
+  {
+   "id": "PI-12",
+   "phase": "PI",
+   "name": "paste import: the command reads standard input and checks its arguments; an empty paste and text that is not UTF-8 are refused; the help names the clipboard and the kinds",
+   "run": ".venv/bin/pytest tests/test_paste_import.py -k 'command_reads_standard_input or empty_paste or help_names'",
+   "status": "passing"
+  },
+  {
+   "id": "PI-13",
+   "phase": "PI",
+   "name": "paste import: a paste the final check withholds writes nothing and is a hold; a notice takes the names of pastes and no other name",
+   "run": ".venv/bin/pytest tests/test_paste_import.py -k 'withheld_paste or notice_takes_the_names'",
+   "status": "passing"
+  },
+  {
+   "id": "PI-14",
+   "phase": "PI",
+   "name": "paste import: from a terminal the text is read to Ctrl-D with the echo off and the echo is on again after",
+   "run": ".venv/bin/pytest tests/test_paste_import.py::test_from_a_terminal_the_text_is_read_to_ctrl_d_without_an_echo",
+   "status": "passing"
+  },
+  {
+   "id": "PI-15",
+   "phase": "PI",
+   "name": "paste import: the prompt hook points a blocked paste at awb import CODE --paste and a typed prompt gets no such hint",
+   "run": ".venv/bin/pytest tests/test_paste_import.py::test_the_prompt_hook_points_a_blocked_paste_at_the_door",
+   "status": "passing"
+  },
+  {
+   "id": "PI-16",
+   "phase": "PI",
+   "name": "paste import: the rows of this file are in the test list",
+   "run": ".venv/bin/pytest tests/test_paste_import.py::test_the_rows_of_this_file_are_in_the_test_list",
+   "status": "passing"
+  },
+  {
+   "id": "PI-17",
+   "phase": "PI",
+   "name": "paste import: in an encrypted vault the register is read through the daemon, the private report is sealed and nothing else of the paste lies in the vault",
+   "run": ".venv/bin/pytest tests/test_paste_import.py::test_in_an_encrypted_vault_the_private_report_is_sealed_and_the_copy_is_written",
+   "status": "passing"
   }
  ],
- "total_tests": 674,
+ "total_tests": 691,
  "checked": "2026-10-12"
 }

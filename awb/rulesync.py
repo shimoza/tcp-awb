@@ -219,7 +219,8 @@ INPUT = "new input: %d copies in the outbox of %s, report intake-report.md"
 REPLACED = ("replaced: %d copies in the outbox of %s under the file ids they had, report intake-report.md; move them "
             "into input/ over the earlier ones")
 _NOTICE_RE = re.compile(r"input-[0-9TZ-]+-[0-9a-f]{8}\.json")
-_FILE_ID_RE = re.compile(r"F-[A-Z2-7]{4}")
+_FILE_ID_RE = re.compile(r"F-[A-Z2-7]{4}|(?:mail|transcript|table|paste)-\d{4}-\d{2}-\d{2}-\d+\.(?:md|csv)")
+"""A file id of an imported copy (F-ABCD) or the name of the copy of a paste (mail-2026-10-12-1.md)."""
 
 
 def notices_dir(p: config.Paths) -> Path:
@@ -281,7 +282,7 @@ def input_notices(p: config.Paths, session_id: str | None, root: Path | None) ->
         if not isinstance(cust, str) or not (proj == code or (customer and cust == customer)):
             continue
         waiting = [i for i in ids if isinstance(i, str) and _FILE_ID_RE.fullmatch(i)
-                   and (p.outbox / cust / ("%s.md" % i)).is_file()]
+                   and (p.outbox / cust / (i if "." in i else "%s.md" % i)).is_file()]
         if not waiting:
             continue
         out.append((REPLACED if data.get("replaced") else INPUT) % (len(waiting), cust))

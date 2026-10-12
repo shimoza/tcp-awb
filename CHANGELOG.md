@@ -25,6 +25,20 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   the line to delete it and the command exits 4. `awb lab list` and `awb lab dry-run RECIPE` (no call made). The
   format is in `recipes/README.md`; the first recipes are `ecs-boot-ssh`, `obs-policy-deny` and `elb-health`, their
   unproven API shapes marked "to confirm live".
+- `awb import CODE --paste [--kind mail|transcript|table]`: the same one door for text he copies from a mail client, a
+  meeting tool or a spreadsheet (work profile: 37 of 86 projects had customer data slip into a session, almost always
+  as a pasted mail with a signature, a pasted transcript or an Excel extract). The text comes on standard input and is never
+  echoed (a pipe from the clipboard or pasted into the terminal and ended with Ctrl-D with the echo off). It runs
+  through the wipe-mode intake of the project's customer: the customer forms become its code and every other person,
+  company, place, mail address and phone a token. A secret refuses the whole paste with its class and line number and
+  writes nothing. A mail loses its signature block and its quoted chain headers as a whole (`[signature]`,
+  `[mail header] from [person 2] to [person 1]`). A transcript keeps its turns as `[person 1]`, `[person 2]` by the
+  first turn and its timestamps and drops the filler lines of the meeting tool. A table (tab-separated) keeps its
+  columns as CSV and loses the columns of people and mail addresses as a whole. The copy lands in the outbox as
+  `mail-<date>-<n>.md`, `transcript-<date>-<n>.md`, `table-<date>-<n>.csv` or `paste-<date>-<n>.md` (no kind), the sessions
+  hear of it at their next prompt and the reports are written as for a file. The paste is not kept, so `--redo` does not
+  take it again. Refused for the work user and inside an assistant session with `held: a pasted mail or transcript goes
+  in through awb import tcp-xxxx --paste in your own terminal`.
 
 ### Changed
 
@@ -36,6 +50,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   week, as its own commit with your identity (the old week loses `(in progress)`), so check 8 no longer refuses the
   first task of a Monday. When the commit cannot be written the task is `held: changelog week` and starts again at
   a later poll.
+- The work rules point a session at the paste door (`a pasted mail or transcript goes in through awb import CODE
+  --paste in his own terminal`) and the prompt hook adds that line to the stop of a prompt with a pasted block. The
+  notice of the sessions takes the names of pasted copies (`mail-2026-10-12-1.md`) beside file ids. The first line of
+  `seal/work-claude/CLAUDE.md` is no longer followed by a blank line, so that the rules stay within their 60 lines.
 
 ### Fixed
 

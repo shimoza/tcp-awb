@@ -683,8 +683,18 @@ def hook_prompt(data: dict) -> int:
     if secrets:
         parts.append("the prompt carries a secret (%s). A session never holds a live secret: keep it in the "
                      "vault or the password store and refer to it by name." % _counts(secrets))
+    if kind == "paste":
+        parts.append(_paste_door(data))
     print(" ".join(parts), file=sys.stderr)
     return BLOCK
+
+
+def _paste_door(data: dict) -> str:
+    """The way in for a pasted mail or transcript: the owner's `awb import CODE --paste`, with the code of the
+    project the session works in when the hook can tell it."""
+    root = project_root(data.get("cwd") if isinstance(data.get("cwd"), str) else None)
+    code = root.name if root is not None and re.fullmatch(r"[a-z]{3}-[a-z2-7]{4}", root.name) else "CODE"
+    return "A pasted mail or transcript goes in through `awb import %s --paste` in your own terminal." % code
 
 
 def _written_file(data: dict) -> Path | None:
