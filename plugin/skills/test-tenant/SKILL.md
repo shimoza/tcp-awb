@@ -5,7 +5,7 @@ description: Work on the TCP test tenants - see what runs, ran or was created fo
 
 # Test tenants
 
-The Workbench keeps a daily snapshot of the servers, disks and elastic IPs of every test tenant, and a history of
+The Workbench keeps a daily snapshot of the servers, disks and elastic IPs of every test tenant and a history of
 what appeared, changed and went.
 
 - Every tenant and what runs there now: `awb tenant list`

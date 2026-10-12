@@ -27,7 +27,7 @@ worker.
    the gate again.
 5. Repeat until `awb migrate next` says every phase is done.
 
-`awb migrate status` shows every phase. A phase whose files changed after it was done turns stale, and so does
+`awb migrate status` shows every phase. A phase whose files changed after it was done turns stale and so does
 every phase after it: run them again from there.
 
 ## Rules for every phase

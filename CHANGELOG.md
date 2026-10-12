@@ -44,6 +44,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   could run no test. Only the link of `python`, `python3` or `python3.N` in the venv's `bin` to the base interpreter
   its `pyvenv.cfg` names may leave the venv; a Write into the venv, any other link out of it and the rest of
   `/srv/awb-build` stay refused. `awb hook selftest` plants the link as the host has it.
+- The plugin text follows the writing rules. The skills `azure-to-tcp`, `exchange`, `review`, `tcp-price` and
+  `test-tenant` and the plugin README had a comma before "and" or "or". `tcp-price` pointed to an "earlier
+  version" where it meant an older estimate. `awb write check --mode doc` now finds no blocking tell in any file of
+  `plugin/`.
 
 ## Week 41, 2026-10-05 to 2026-10-11
 
