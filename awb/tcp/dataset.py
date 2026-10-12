@@ -3,18 +3,24 @@ files any assistant reads, built in one command so that a fresh copy appears wit
 
     awb dataset build [--out DIR] [--date D] [--force]    the folder tcp-facts-<date>/ and its zip, under
                                                           <shared>/datasets/ unless --out says otherwise
-    awb dataset put [--date D] [--replace] [--github]     the zip, the how-to PDF and the manifest into the owner's
+    awb dataset put [--date D] [--replace] [--github | --github-only]
+                                                          the zip, the how-to PDF and the manifest into the owner's
                                                           bucket under datasets/tcp-facts/<date>/ (owner side);
                                                           --github also puts the files and README.md into the
                                                           root of the public repository, tags the date and makes
-                                                          a release of it
+                                                          a release of it; --github-only does that without the
+                                                          bucket and asks for no bucket key
 
 What the folder holds: README.md and PROMPT.md (how to use it, the one-line prompt), HOW-TO.pdf (the same for
 people who read PDF), facts.md (every fact on one line, grouped by topic, small enough for one chat), topics/<tag>.md
 (one file per first tag), facts.jsonl (the export of `awb kb export` with its metadata), services.md (what the
 latest service description lists and what it does not offer), prices/<region>.csv (the latest snapshot of each
 region), tcp_facts_mcp.py (a read-only MCP server over these files, copied from the template beside this module) and
-MANIFEST.json (counts, dates, the sha256 of every file). Every text file opens with the same rules for the assistant: answer from
+MANIFEST.json (counts, dates, the sha256 of every file). README.md, PROMPT.md and HOW-TO.pdf carry "What the facts
+cover", counted from the facts: the orderable services with a plain fact per section of the service description, the
+requirement areas (facts that open with "T Cloud Public (TCP)" and a verb), an example and the contract matters the
+dataset never holds. The release notes of a GitHub release say what is new since the previous release tag: facts
+added, amended and retired by id against that tag's facts.jsonl. Every text file opens with the same rules for the assistant: answer from
 these facts only and cite the id, name an old check date, treat prices as a snapshot, warn after the best-before
 date.
 
@@ -184,8 +190,142 @@ def fact_line(r: dict) -> str:
     return "- %s (%s, %s, checked %s)" % (tenant_free(r["statement"]), r["id"], r["grade"], r["checked"])
 
 
+# --------------------------------------------------------------------------- what the facts cover
+
+COVER_HEADING = "What the facts cover"
+AREA_OPENING = "T Cloud Public (TCP) "
+# a requirement area: the platform as subject, a verb in lower case, no negation right after it
+_AREA_RE = re.compile(r"^T Cloud Public \(TCP\) (?!(?:does|do|did|has|have|is|are|was|can|cannot)\s+(?:not|no)\b)"
+                      r"([a-z][a-z-]*\b.*)", re.S)
+# the area ends at the first colon, semicolon, bracket or full stop, or where a service name follows a preposition
+_AREA_END = re.compile(r"[:;(]|\.(?:\s|$)| (?:in|with|through|as|by|via|from|on) (?=[A-Z])")
+CONTRACT_MATTERS = ("certificates and attestations", "SLA values", "support hours and response times", "prices",
+                    "subcontractors")
+
+
+def _forms(services: list[offered.Service]) -> list[tuple[str, offered.Service]]:
+    pairs = [(f, s) for s in services for f in s.forms()]
+    return sorted(pairs, key=lambda fs: -len(fs[0]))              # the longest form first: "VPC Endpoint" before "VPC"
+
+
+def service_named(statement: str, services: list[offered.Service], forms=None) -> offered.Service | None:
+    """The service whose name or short name opens `statement`, followed by an optional bracket and a word in lower
+    case: "Elastic Cloud Server (ECS) provides ...", "FunctionGraph is ...". None when no service opens it."""
+    for form, s in forms or _forms(services):
+        if re.match(r"%s(?:\s*\([^)]*\))?\s+[a-z]" % re.escape(form), statement):
+            return s
+    return None
+
+
+def plain_service_facts(records: list[dict], services: list[offered.Service]) -> dict[str, list[str]]:
+    """Section number of a service -> ids of its plain facts: a stable, positive fact that opens with the
+    service's name and says what the service is and does."""
+    forms = _forms(services)
+    out: dict[str, list[str]] = {}
+    for r in records:
+        if r.get("class") != "stable" or r.get("negative"):
+            continue
+        s = service_named(r["statement"], services, forms)
+        if s is not None:
+            out.setdefault(s.number, []).append(r["id"])
+    return out
+
+
+def area_of(statement: str) -> str:
+    """The requirement area of a statement that opens with "T Cloud Public (TCP)" and a verb, as its first words
+    up to the service that covers it: "offers managed relational databases". Empty for any other statement."""
+    m = _AREA_RE.match(statement)
+    if not m:
+        return ""
+    rest = m.group(1)
+    end = _AREA_END.search(rest)
+    return " ".join((rest[:end.start()] if end else rest).split())
+
+
+def area_facts(records: list[dict]) -> list[tuple[str, str]]:
+    """(area, id) of every stable, positive fact that states a requirement area, sorted by area."""
+    out = []
+    for r in records:
+        if r.get("class") == "stable" and not r.get("negative"):
+            area = area_of(r["statement"])
+            if area:
+                out.append((area, r["id"]))
+    return sorted(out)
+
+
+def _sections(services: list[offered.Service]) -> list[str]:
+    out: list[str] = []
+    for s in services:
+        if s.area not in out:
+            out.append(s.area)
+    return out
+
+
+def coverage_blocks(records: list[dict], services: list[offered.Service], revision: str) -> list[tuple[str, str]]:
+    """The section "What the facts cover", counted from the facts and the services of the build."""
+    plain = plain_service_facts(records, services)
+    have = [s for s in services if s.number in plain]
+    blocks = [("h2", COVER_HEADING),
+              ("p", "%d of the %d services orderable per the service description of %s have at least one plain fact "
+                    "that says what the service is and does: a statement that opens with the name of the service. "
+                    "By section of the service description:" % (len(have), len(services), revision))]
+    for area in _sections(services):
+        members = [s for s in services if s.area == area]
+        blocks.append(("p", "- %s: %d of %d" % (area, len([s for s in members if s.number in plain]), len(members))))
+    missing = [s for s in services if s.number not in plain]
+    if missing and have:
+        blocks.append(("p", "Without such a fact: %s." % ", ".join("%s (%s)" % (s.name, s.number) for s in missing)))
+    areas = area_facts(records)
+    if areas:
+        blocks.append(("p", "%d facts state what the platform covers for a requirement area. Each opens with \"%s\" "
+                            "and names the services that cover it:" % (len(areas), AREA_OPENING.strip())))
+        blocks += [("p", "- %s (%s)" % a) for a in areas]
+    if areas:
+        example, cited = "TCP " + areas[0][0], "(%s) for this one" % areas[0][1]
+    elif have:
+        example = "TCP offers %s" % have[0].name
+        cited = "(%s) for this one" % plain[have[0].number][0]
+    else:
+        example, cited = "<the requirement>", ""
+    blocks += [("p", "Example: to check whether TCP covers a requirement, attach facts.md and ask:"),
+               ("code", "Use the attached TCP Facts. Answer: is this requirement covered: \"%s\"? Cite the id of "
+                        "every fact that backs the answer." % example),
+               ("p", "A good answer quotes the fact and its id%s, so a reader finds it in facts.md. When no fact "
+                     "covers the requirement it says \"no checked fact covers this\"." % (", for example " + cited
+                                                                                       if cited else "")),
+               ("p", "What the dataset does not hold and never will: commitments on %s and %s. These are contract "
+                     "matters: check them in the contract. A fact that touches one of them is background from a "
+                     "public source, not a commitment." % (", ".join(CONTRACT_MATTERS[:-1]), CONTRACT_MATTERS[-1]))]
+    return blocks
+
+
+def whats_new(previous: list[dict], records: list[dict], services: list[offered.Service], since: str) -> str:
+    """The changes since the previous published build: facts added, amended (same id, changed statement or source)
+    and retired, and the requirement areas and service sections the added facts touch."""
+    before = {r["id"]: (r.get("statement"), r.get("source")) for r in previous if r.get("id")}
+    now = {r["id"]: r for r in records}
+    added = [now[i] for i in sorted(set(now) - set(before))]
+    amended = [i for i in sorted(set(now) & set(before)) if (now[i]["statement"], now[i]["source"]) != before[i]]
+    retired = sorted(set(before) - set(now))
+    text = "## What is new since %s\n\n%d facts added, %d amended (same id, changed statement or source), %d retired." \
+           % (since, len(added), len(amended), len(retired))
+    areas = sorted({area_of(r["statement"]) for r in added} - {""})
+    if areas:
+        text += "\n\nRequirement areas of the added facts: %s." % "; ".join(areas)
+    forms = _forms(services)
+    touched = collections.Counter()
+    for r in added:
+        s = service_named(r["statement"], services, forms)
+        if s is not None:
+            touched[s.area] += 1
+    if touched:
+        text += "\n\nService sections of the added facts: %s." % ", ".join(
+            "%s (%d)" % (a, touched[a]) for a in _sections(services) if a in touched)
+    return text
+
+
 def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_services: int, revision: str,
-                   prices: dict) -> list[tuple[str, str]]:
+                   prices: dict, cover: list[tuple[str, str]] = ()) -> list[tuple[str, str]]:
     """The how-to as (style, text) blocks: h1, h2, p, code (code:json, code:bash for the fence). PROMPT.md and
     HOW-TO.pdf are made from it."""
     price_line = ", ".join("%s %s records" % (r, c) for r, c in prices.items()) or "no price list"
@@ -209,6 +349,7 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
         ("code", LONG_PROMPT),
         ("h2", "Examples"),
         *[("code", e) for e in EXAMPLES],
+        *cover,
         *WARNING,
         *MCP_CLIENTS,
         ("h2", "Files"),
@@ -537,7 +678,8 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
         for r in records:
             f.write(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n")
 
-    svc = [service_line(s) for s in catalog.services if not s.ends or s.ends > day]
+    orderable = [s for s in catalog.services if not s.ends or s.ends > day]
+    svc = [service_line(s) for s in orderable]
     gone = ["- %s%s" % (row[0], " (%s)" % ", ".join(row[1:]) if row[1:] else "") for row in catalog.not_offered]
     (root / "services.md").write_text(
         head + "# Services orderable on TCP\n\nFrom the T Cloud Public service description, revision %s. %d "
@@ -573,7 +715,8 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
         ["live price check skipped"]
     named = operator_named(records)
     check_lines.append("operator named in prose: %s" % (", ".join(named) if named else "none"))
-    blocks = _how_to_blocks(day, best_before, len(records), grades, len(svc), revision, counts)
+    cover = coverage_blocks(records, orderable, revision)
+    blocks = _how_to_blocks(day, best_before, len(records), grades, len(svc), revision, counts, cover)
     (root / "PROMPT.md").write_text(blocks_to_markdown(blocks), encoding="utf-8")
     (root / "HOW-TO.pdf").write_bytes(pdf_bytes(blocks, "%s %s: how to use it" % (NAME, day)))
     (root / "README.md").write_text(blocks_to_markdown(
@@ -581,7 +724,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
                                               "name; the manifest carries the build time." % built_at)]
         + blocks[1:3] + [("h2", "Use"), ("p", "Attach facts.md and type:"),
                                                           ("code", ONE_LINER), ("p", "PROMPT.md has the rest.")]
-        + WARNING + MCP_CLIENTS + blocks[-7:]), encoding="utf-8")
+        + cover + WARNING + MCP_CLIENTS + blocks[-7:]), encoding="utf-8")
 
     shutil.copyfile(MCP_TEMPLATE, root / MCP_FILE)
     for path in sorted(root.rglob("*")):
@@ -613,6 +756,8 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
                    "left out: " + ", ".join("%s %d" % kv for kv in left.items() if kv[1])
                    + ("; facts naming a service not offered: %s" % ", ".join("%s (%s)" % (i, ", ".join(n)) for i, n in flagged)
                       if flagged else ""),
+                   "coverage: %d of %d services have a plain fact, %d requirement area facts"
+                   % (len(plain_service_facts(records, orderable)), len(orderable), len(area_facts(records))),
                    *check_lines,
                    "zip %s, %d bytes, built %s, best before %s" % (zpath.name, zpath.stat().st_size, built_at,
                                                                    best_before)]
@@ -723,16 +868,17 @@ def scan_people(files: list[Path], values: list[str], register_path: Path | None
     return problems
 
 
-def release_notes(manifest: dict, sums: dict[str, str] | None = None) -> str:
-    """The counts, then the sha256 of each release asset, one line each. `sums` maps an asset name to its sum; the
-    zip and MANIFEST.json come from the files (the manifest is inside the zip and cannot hold its own sum), every
-    other asset from the manifest."""
+def release_notes(manifest: dict, sums: dict[str, str] | None = None, new: str = "") -> str:
+    """The counts, what is new since the previous release (`new`, from `whats_new`, empty for the first release),
+    then the sha256 of each release asset, one line each. `sums` maps an asset name to its sum; the zip and
+    MANIFEST.json come from the files (the manifest is inside the zip and cannot hold its own sum), every other
+    asset from the manifest."""
     g = manifest.get("grades", {})
     text = ("%s %s: %d facts (live %d, docs %d, contract %d), %d left out because they name a service that is not "
-            "offered. Best before %s.\n\n%s" % (NAME, manifest["date"], manifest["facts"], g.get("live", 0),
-                                                 g.get("docs", 0), g.get("contract", 0),
-                                                 len(manifest.get("facts_left_out", [])), manifest["best_before"],
-                                                 CREDIT))
+            "offered. Best before %s.\n\n%s%s" % (NAME, manifest["date"], manifest["facts"], g.get("live", 0),
+                                                   g.get("docs", 0), g.get("contract", 0),
+                                                   len(manifest.get("facts_left_out", [])), manifest["best_before"],
+                                                   new + "\n\n" if new else "", CREDIT))
     sums = dict(sums or {})
     for name in GITHUB_ASSETS:
         if name in manifest.get("files", {}):
@@ -742,6 +888,27 @@ def release_notes(manifest: dict, sums: dict[str, str] | None = None) -> str:
         text += "\n\nsha256 of the assets, check a download with `sha256sum -c`:\n\n```\n%s```" % "".join(
             "%s  %s\n" % (sums[n], n) for n in names)
     return text
+
+
+def read_facts(path_or_text) -> list[dict]:
+    """The fact rows of a facts.jsonl (a path or its text), without its first line of metadata."""
+    text = path_or_text.read_text(encoding="utf-8") if isinstance(path_or_text, Path) else path_or_text
+    rows = [json.loads(line) for line in text.splitlines() if line.strip()]
+    return [r for r in rows if isinstance(r, dict) and r.get("id")]
+
+
+def previous_release(clone: Path, day: str) -> tuple[str, list[dict]] | None:
+    """The newest release tag before `day` in the clone and the facts of its facts.jsonl; None when there is no
+    earlier release or it holds no facts.jsonl."""
+    tags = [t for t in _run(["git", "tag", "--list"], cwd=clone).stdout.split()
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", t) and t < day]
+    if not tags:
+        return None
+    prev = max(tags)
+    res = _run(["git", "show", "refs/tags/%s:facts.jsonl" % prev], cwd=clone, check=False)
+    if res.returncode != 0:
+        return None
+    return prev, read_facts(res.stdout)
 
 
 def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: Path | None = None) -> list[str]:
@@ -762,6 +929,7 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
     tagged = bool(_run(["git", "tag", "--list", day], cwd=clone).stdout.strip())
     if tagged and not replace:
         raise DatasetError("the repository holds the dataset of %s already; give --replace" % day)
+    prev = previous_release(clone, day)            # read before the files of this build land in the clone
     for name in GITHUB_FILES:
         dst = clone / name
         if dst.is_dir():
@@ -791,8 +959,13 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
     if _sha(folder / "HOW-TO.pdf") != manifest["files"]["HOW-TO.pdf"]["sha256"]:
         raise DatasetError("HOW-TO.pdf differs from its sum in MANIFEST.json; run awb dataset build --force")
     sums = {zpath.name: _sha(zpath), "MANIFEST.json": _sha(folder / "MANIFEST.json")}
+    new = ""
+    if prev is not None:
+        catalog = offered.load()
+        new = whats_new(prev[1], read_facts(folder / "facts.jsonl"),
+                        [s for s in catalog.services if not s.ends or s.ends > day], prev[0])
     _run(["gh", "release", "create", day, str(zpath), *(str(folder / n) for n in GITHUB_ASSETS), "--repo",
-          GITHUB_REPO, "--verify-tag", "--title", "%s %s" % (NAME, day), "--notes", release_notes(manifest, sums)],
+          GITHUB_REPO, "--verify-tag", "--title", "%s %s" % (NAME, day), "--notes", release_notes(manifest, sums, new)],
          cwd=clone)
     return ["github.com/%s commit and tag %s" % (GITHUB_REPO, day),
             "github.com/%s/releases/tag/%s with %s" % (GITHUB_REPO, day, ", ".join([zpath.name, *GITHUB_ASSETS]))]
@@ -818,6 +991,8 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--date", default=None, help="the dataset of that date (default: the newest)")
     u.add_argument("--replace", action="store_true")
     u.add_argument("--github", action="store_true", help="also commit, tag and release it in github.com/%s" % GITHUB_REPO)
+    u.add_argument("--github-only", action="store_true",
+                   help="only commit, tag and release it in github.com/%s, without the bucket" % GITHUB_REPO)
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -836,11 +1011,13 @@ def main(argv: list[str] | None = None) -> int:
             for line in built.lines:
                 print("awb dataset build: " + line)
             return 0
+        if args.github and args.github_only:
+            raise DatasetError("give --github (bucket and GitHub) or --github-only, not both")
         folder = latest(p, args.out, args.date)
         if folder is None:
             raise DatasetError("no built dataset%s; run awb dataset build" % (" of that date" if args.date else ""))
-        keys = put(bucket.client(), folder, replace=args.replace)
-        if args.github:
+        keys = [] if args.github_only else put(bucket.client(), folder, replace=args.replace)
+        if args.github or args.github_only:
             keys += github_put(p, folder, replace=args.replace)
         for key in keys:
             print("awb dataset put: " + key)

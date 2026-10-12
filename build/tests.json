@@ -2241,6 +2241,55 @@
    "status": "passing"
   },
   {
+   "id": "DS-COV1",
+   "phase": "T11",
+   "name": "dataset: the area and the service of a statement are read from its opening words (a negative is no area, the longest service form wins)",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_the_area_and_the_service_of_a_statement_are_read_from_its_opening_words",
+   "status": "passing"
+  },
+  {
+   "id": "DS-COV2",
+   "phase": "T11",
+   "name": "dataset: README.md, PROMPT.md and HOW-TO.pdf carry 'What the facts cover' counted from the facts: services with a plain fact per section, the requirement areas with ids, an example citing an id, the contract matters; no tool, customer or project word",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_the_how_to_says_what_the_facts_cover_counted_from_the_facts",
+   "status": "passing"
+  },
+  {
+   "id": "DS-COV3",
+   "phase": "T11",
+   "name": "dataset: without area facts the section counts the services and lists no area; a negative TCP fact is no area",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_without_area_facts_the_section_counts_the_services_and_lists_no_area",
+   "status": "passing"
+  },
+  {
+   "id": "DS-COV4",
+   "phase": "T11",
+   "name": "dataset: without any plain fact the section says 0 of N and lists nothing missing",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_without_any_plain_fact_the_section_says_none_and_lists_nothing_missing",
+   "status": "passing"
+  },
+  {
+   "id": "DS-NEW1",
+   "phase": "T11",
+   "name": "dataset put --github: the release notes say what is new since the newest earlier release tag: added, amended (statement or source) and retired by id, the areas and service sections of the added facts",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_the_release_notes_say_what_is_new_since_the_previous_release",
+   "status": "passing"
+  },
+  {
+   "id": "DS-NEW2",
+   "phase": "T11",
+   "name": "dataset put --github: the first release (only a later tag) has no 'What is new'",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_the_first_release_has_no_what_is_new",
+   "status": "passing"
+  },
+  {
+   "id": "DS-GH4",
+   "phase": "T11",
+   "name": "dataset put --github-only: publishes to GitHub without the bucket and asks for no key; --github still stops on a missing bucket key; both flags refused",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_put_github_only_publishes_without_the_bucket_and_asks_for_no_key",
+   "status": "passing"
+  },
+  {
    "id": "NC-1",
    "phase": "T4",
    "name": "a project without a customer imports without --customer: a planted person and a planted company come out as tokens and no code, copies and public report under the project code, the session hears of them",
@@ -4719,6 +4768,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 674,
+ "total_tests": 681,
  "checked": "2026-10-12"
 }

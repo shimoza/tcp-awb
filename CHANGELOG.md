@@ -25,6 +25,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   the line to delete it and the command exits 4. `awb lab list` and `awb lab dry-run RECIPE` (no call made). The
   format is in `recipes/README.md`; the first recipes are `ecs-boot-ssh`, `obs-policy-deny` and `elb-health`, their
   unproven API shapes marked "to confirm live".
+- The dataset TCP Facts says what its facts cover: README.md, PROMPT.md and HOW-TO.pdf carry "What the facts cover",
+  counted from the facts at each build (the orderable services with a plain fact per section of the service
+  description, the requirement areas with their fact ids, an example of checking a requirement and citing the id,
+  and the contract matters the dataset never holds).
+- The release notes of a dataset release say what is new since the previous release: facts added, amended and
+  retired against the `facts.jsonl` of the previous release tag, and the requirement areas and service sections the
+  added facts touch.
+- `awb dataset put --github-only` publishes to GitHub without the bucket and asks for no bucket key; `--github`
+  still means bucket and GitHub.
 
 ### Changed
 

@@ -345,6 +345,12 @@ by topic and small enough for one chat, one file per topic under `topics/`, `fac
 list of orderable services, the price list of each region as CSV, a `PROMPT.md` and a `HOW-TO.pdf`. Every text file
 opens with the rules for the assistant that reads it, so a person attaches `facts.md` to ChatGPT, Claude or a local
 model and types `Use the attached TCP Facts. Answer: <question>`. The dataset carries a best-before date of 30 days. Its README, PROMPT.md and HOW-TO.pdf warn against customer data in prompts to a public model.
+Its README, PROMPT.md and HOW-TO.pdf also carry "What the facts cover", counted from the facts at each build: how
+many orderable services per section of the service description have a plain fact that says what the service is and
+does (a statement that opens with the service's name), the requirement areas (facts that open with "T Cloud Public
+(TCP)" and a verb, each with its id), an example of checking a requirement and citing the fact id, and the contract
+matters the dataset never holds (certificates and attestations, SLA values, support hours and response times, prices
+and subcontractors as commitments).
 The files and the PDF metadata say who compiled them: `TCP Facts, github.com/shimoza/tcp-facts`, never a person.
 Its README and PROMPT.md carry the section "MCP clients" with the configurations of the next part, HOW-TO.pdf the same.
 `awb dataset put` sends the zip, the PDF and the manifest into the owner's bucket. With `--github` it also puts the
@@ -353,6 +359,10 @@ files and the build's README.md into the root of the public repository
 stays as the repository has it. It commits them
 as the GitHub account, tags the date and makes a release of it with the zip, the PDF and the manifest. The files are
 scanned for a person and a registered name first, and a hit refuses the put.
+`--github-only` does the GitHub part alone, without the bucket and without asking for its key.
+The release notes say what is new since the previous release: the facts added, amended (same id, changed statement
+or source) and retired, compared by id with the `facts.jsonl` of the previous release tag in the local clone, and the
+requirement areas and service sections the added facts touch. The first release has no such part.
 The release notes list the sha256 of the zip, the PDF and the manifest, one line each. A recipient
 saves the lines as `SHA256SUMS` next to the downloads and runs `sha256sum -c SHA256SUMS`; every file must say `OK`.
 

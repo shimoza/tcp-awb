@@ -454,3 +454,157 @@ def test_github_put_refuses_a_planted_name_and_publishes_nothing(home, facts, tm
     assert not any(a[:2] == ["release", "create"] for a in github.log())
     assert not subprocess.run(["git", "status", "--porcelain"], cwd=github.clone, capture_output=True, text=True,
                               check=True).stdout.strip()
+
+
+# --------------------------------------------------------------------------- what the facts cover, what is new
+
+S_ECS_PLAIN = "Elastic Cloud Server (ECS) provides virtual servers made of vCPUs, memory and disks in eu-de and eu-nl"
+S_OBS_PLAIN = "Object Storage Service (OBS) is an object storage service for files of any kind, reached over HTTPS"
+S_AREA_DB = ("T Cloud Public (TCP) offers managed relational databases: Relational Database Service (RDS) for MySQL "
+             "and PostgreSQL as single or primary/standby instances")
+S_AREA_LOG = ("T Cloud Public (TCP) collects logs centrally in Log Tank Service (LTS): logs of hosts and services are "
+              "kept in log groups")
+
+
+def _orderable(day: str = "2026-10-08") -> list:
+    return [s for s in dataset.offered.load().services if not s.ends or s.ends > day]
+
+
+def test_the_area_and_the_service_of_a_statement_are_read_from_its_opening_words():
+    services = _orderable()
+    assert dataset.area_of(S_AREA_DB) == "offers managed relational databases"
+    assert dataset.area_of(S_AREA_LOG) == "collects logs centrally"
+    assert dataset.area_of("T Cloud Public (TCP) manages users, user groups and federation in Identity and Access "
+                           "Management (IAM).") == "manages users, user groups and federation"
+    assert dataset.area_of("T Cloud Public (TCP) does not offer FreeBSD images") == ""      # a negative is no area
+    assert dataset.area_of("TCP DNS rejects DNSKEY record sets") == ""
+    assert dataset.service_named(S_ECS_PLAIN, services).number == "3.1.1"
+    assert dataset.service_named("VPC Endpoint (VPCEP) provides private connections", services).name == "VPC Endpoint"
+    assert dataset.service_named("FunctionGraph is a managed serverless service", services).name == "FunctionGraph"
+    assert dataset.service_named("Image Management Service (IMS) manages images", services).number == "3.1.4"
+    assert dataset.service_named(S_AREA_DB, services) is None
+
+
+def _section(text: str, heading: str) -> str:
+    start = text.index(heading)
+    return text[start:text.index("\n## ", start + len(heading))]
+
+
+def test_the_how_to_says_what_the_facts_cover_counted_from_the_facts(home, facts, tmp_path):
+    ecs = new(S_ECS_PLAIN, grade="contract", cls="stable", tags=["ecs"], source="service description section 3.1.1")
+    obs = new(S_OBS_PLAIN, grade="contract", cls="stable", tags=["obs", "storage"],
+              source="service description section 3.3.1")
+    db = new(S_AREA_DB, grade="contract", cls="stable", tags=["rds", "database"], source="service description 3.2.1")
+    log = new(S_AREA_LOG, grade="docs", cls="stable", tags=["lts", "logging"], source="docs mirror, log tank service")
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    services = _orderable()
+    readme, prompt = (built.folder / "README.md").read_text(), (built.folder / "PROMPT.md").read_text()
+    pdf = subprocess.run(["pdftotext", str(built.folder / "HOW-TO.pdf"), "-"], capture_output=True, text=True,
+                         check=True).stdout
+    cover = _section(readme, "## What the facts cover")
+    assert cover == _section(prompt, "## What the facts cover")                           # one text, not two
+    assert readme.index("## Use") < readme.index(cover) < readme.index("## Before you use it with a public model")
+    n = len(services)
+    assert "2 of the %d services orderable per the service description of 17.08.2026" % n in cover
+    for area in dict.fromkeys(s.area for s in services):
+        members = [s for s in services if s.area == area]
+        got = {"Computing": 1, "Storage": 1}.get(area, 0)
+        assert "- %s: %d of %d\n" % (area, got, len(members)) in cover, area
+    assert "Without such a fact: Dedicated host (3.1.2)," in cover and "Elastic Cloud Server (3.1.1)" not in cover
+    assert "2 facts state what the platform covers for a requirement area" in cover
+    assert "- collects logs centrally (%s)\n" % log.id in cover
+    assert "- offers managed relational databases (%s)\n" % db.id in cover
+    assert 'is this requirement covered: "TCP collects logs centrally"?' in cover and "(%s) for this one" % log.id in cover
+    assert ("What the dataset does not hold and never will: commitments on certificates and attestations, SLA values, "
+            "support hours and response times, prices and subcontractors. These are contract matters: check them in "
+            "the contract.") in cover
+    assert ecs.id not in cover and obs.id not in cover          # counted, not listed
+    assert not re.search(r"tender|\bawb\b|customer code|CUST-|\btcp-[a-z0-9]{4}\b", cover, re.I)
+    assert "What the facts cover" in pdf and "2 of the %d services orderable" % n in " ".join(pdf.split())
+    assert "coverage: 2 of %d services have a plain fact, 2 requirement area facts" % n in built.lines
+
+
+def test_without_area_facts_the_section_counts_the_services_and_lists_no_area(home, facts, tmp_path):
+    ecs = new(S_ECS_PLAIN, grade="contract", cls="stable", tags=["ecs"], source="service description section 3.1.1")
+    new("T Cloud Public (TCP) does not offer FreeBSD public images in eu-de", grade="live", cls="stable",
+        tags=["ecs"], source="image listing, eu-de")
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    cover = _section((built.folder / "README.md").read_text(), "## What the facts cover")
+    assert "1 of the %d services orderable" % len(_orderable()) in cover and "- Computing: 1 of 5\n" in cover
+    assert "requirement area" not in cover and "FreeBSD" not in cover
+    assert 'is this requirement covered: "TCP offers Elastic Cloud Server"?' in cover and ecs.id in cover
+    assert "never will" in cover
+
+
+def test_without_any_plain_fact_the_section_says_none_and_lists_nothing_missing(home, facts, tmp_path):
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    cover = _section((built.folder / "PROMPT.md").read_text(), "## What the facts cover")
+    assert cover.count("0 of ") == 1 + len(set(s.area for s in _orderable()))
+    assert "Without such a fact" not in cover and "requirement area" not in cover and "<the requirement>" in cover
+
+
+def _plant_release(remote: Path, tmp_path: Path, tag: str, rows: list[dict]) -> None:
+    work = tmp_path / ("plant-" + tag)
+    subprocess.run(["git", "clone", "-q", str(remote), str(work)], check=True)
+    (work / "facts.jsonl").write_text("\n".join(json.dumps(r) for r in [{"dataset": "TCP Facts", "date": tag}] + rows)
+                                      + "\n")
+    for cmd in (["add", "-A"], ["commit", "-q", "-m", "TCP Facts " + tag], ["tag", tag],
+                ["push", "-q", "origin", "HEAD:main", "refs/tags/" + tag]):
+        subprocess.run(["git", *cmd], cwd=work, check=True)
+
+
+def test_the_release_notes_say_what_is_new_since_the_previous_release(home, facts, tmp_path, github):
+    db = new(S_AREA_DB, grade="contract", cls="stable", tags=["rds", "database"], source="service description 3.2.1")
+    ecs = new(S_ECS_PLAIN, grade="contract", cls="stable", tags=["ecs"], source="service description section 3.1.1")
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    rows = {r["id"]: r for r in dataset.read_facts(built.folder / "facts.jsonl")}
+    obs_id = next(i for i, r in rows.items() if r["statement"] == S_OBS)
+    iam_id = next(i for i, r in rows.items() if r["statement"] == S_IAM)
+    same = rows[facts.id]                                                       # unchanged
+    changed = dict(rows[obs_id], source="docs mirror, an older page")           # amended: same id, other source
+    reworded = dict(rows[iam_id], statement="The IAM user quota is 400 per tenant")     # amended: other statement
+    gone = {"id": "KB-GONE", "statement": "A fact that was retired", "source": "docs mirror"}
+    _plant_release(github.remote, tmp_path, "2026-10-01", [same, changed, reworded, gone])
+    _plant_release(github.remote, tmp_path, "2026-10-09", [])                   # later than the build: not the previous
+    dataset.github_put(home, built.folder, clone=github.clone)
+    create = [a for a in github.log() if a[:2] == ["release", "create"]][0]
+    notes = create[create.index("--notes") + 1]
+    assert notes.startswith("TCP Facts 2026-10-08: 5 facts")
+    new_part = notes[notes.index("## What is new since 2026-10-01"):notes.index(dataset.CREDIT)]
+    assert "2 facts added, 2 amended (same id, changed statement or source), 1 retired." in new_part
+    assert "Requirement areas of the added facts: offers managed relational databases." in new_part
+    assert "Service sections of the added facts: Computing (1)." in new_part
+    assert notes.index("## What is new") < notes.index(dataset.CREDIT) < notes.index("sha256 of the assets")
+    assert db.id not in new_part and ecs.id not in new_part                 # counts and areas, no list of ids
+
+
+def test_the_first_release_has_no_what_is_new(home, facts, tmp_path, github):
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    _plant_release(github.remote, tmp_path, "2026-10-09", [])                   # only a later tag
+    dataset.github_put(home, built.folder, clone=github.clone)
+    notes = [a for a in github.log() if a[:2] == ["release", "create"]][0]
+    assert "What is new" not in notes[notes.index("--notes") + 1]
+    added = [{"id": "KB-0001", "statement": "x", "source": "y"}]
+    assert dataset.whats_new([], added, _orderable(), "2026-10-01").startswith(
+        "## What is new since 2026-10-01\n\n1 facts added, 0 amended")
+
+
+def test_put_github_only_publishes_without_the_bucket_and_asks_for_no_key(home, facts, tmp_path, github, capsys,
+                                                                           monkeypatch):
+    dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    monkeypatch.setenv("AWB_BUCKET_KEYS", "")
+    client = dataset.bucket.client
+    monkeypatch.setattr(dataset.bucket, "client", lambda: (_ for _ in ()).throw(AssertionError("bucket asked")))
+    assert cli.main(["dataset", "put", "--out", str(tmp_path / "ds"), "--github-only"]) == 0
+    out = capsys.readouterr().out
+    assert "releases/tag/2026-10-08" in out and "datasets/tcp-facts/" not in out
+    assert any(a[:3] == ["release", "create", "2026-10-08"] for a in github.log())
+    assert "TCP Facts 2026-10-08" in subprocess.run(["git", "log", "-1", "--format=%s", "main"], cwd=github.remote,
+                                                    capture_output=True, text=True, check=True).stdout
+    # --github keeps its meaning: the bucket first, so without a key it stops before GitHub
+    monkeypatch.setattr(dataset.bucket, "client", client)
+    n = len(github.log())
+    assert cli.main(["dataset", "put", "--out", str(tmp_path / "ds"), "--github", "--replace"]) == 1
+    assert "no key setting" in capsys.readouterr().err and len(github.log()) == n
+    assert cli.main(["dataset", "put", "--out", str(tmp_path / "ds"), "--github", "--github-only"]) == 1
+    assert "not both" in capsys.readouterr().err
