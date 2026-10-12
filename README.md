@@ -382,7 +382,9 @@ saves the lines as `SHA256SUMS` next to the downloads and runs `sha256sum -c SHA
 
 Every build carries `tcp_facts_mcp.py`, in the zip and in the root of the public repository. The template is
 `awb/tcp/tcp_facts_mcp.py`. It is a read-only MCP server over the files beside it: one Python file, standard library
-only, Python 3.10 or newer, JSON-RPC 2.0 over stdio. It has four tools:
+only, Python 3.10 or newer, JSON-RPC 2.0 over stdio. It speaks the Model Context Protocol revision 2026-07-28
+(`server/discover`, the version in the `_meta` of each request, no handshake) and the handshake revisions 2025-11-25
+to 2024-11-05. Its tools carry a title and read-only annotations. It has four tools:
 
 - `tcp_facts_search`: the facts ranked by word overlap, filtered by tag or grade, at most 20, each with its id,
   grade, check date, source and expiry
@@ -414,7 +416,9 @@ VS Code (and GitHub Copilot in it), in `.vscode/mcp.json`:
 {"servers": {"tcp-facts": {"type": "stdio", "command": "python3", "args": ["/path/to/tcp-facts/tcp_facts_mcp.py"]}}}
 ```
 
-Add `"--live"` to the arguments for live prices. On Windows the command is `python` or `py`.
+Add `"--live"` to the arguments for live prices. Claude Desktop opens its file under Settings, Developer, Edit Config
+and loads a change only after a full quit and start. Give the path in full. On Windows the command is `python` or `py`.
+In the JSON every backslash of a path is written twice.
 
 A team that builds its own tools can take the facts alone:
 

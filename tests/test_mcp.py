@@ -341,3 +341,137 @@ def test_the_server_finds_its_dataset_beside_it_and_refuses_a_folder_without_fac
     res = subprocess.run([sys.executable, str(SERVER), "--data", str(tmp_path / "empty")], capture_output=True,
                          text=True, timeout=10, stdin=subprocess.DEVNULL)
     assert res.returncode == 2 and "no facts.jsonl" in res.stderr
+
+
+# --------------------------------------------------------------------------- conformance to the MCP revision 2026-07-28
+
+M = "io.modelcontextprotocol/"
+META = {M + "protocolVersion": "2026-07-28", M + "clientCapabilities": {}, M + "clientInfo": {"name": "t", "version": "0"}}
+
+
+def modern(client, method: str, **params) -> dict:
+    return client.request(method, dict(params, _meta=META))
+
+
+def test_the_current_revision_needs_no_handshake_and_server_discover_names_the_server(client):
+    got = modern(client, "server/discover")["result"]
+    assert got["resultType"] == "complete" and got["supportedVersions"][0] == "2026-07-28"
+    assert "2025-11-25" in got["supportedVersions"] and got["capabilities"]["tools"] == {}
+    assert got["_meta"][M + "serverInfo"]["name"] == "tcp-facts" and "best before 2026-11-07" in got["instructions"]
+    assert got["cacheScope"] == "public" and got["ttlMs"] > 0
+    listed = modern(client, "tools/list")["result"]                 # no initialize before it
+    assert listed["resultType"] == "complete" and {t["name"] for t in listed["tools"]} == TOOLS
+    assert listed["ttlMs"] > 0 and listed["cacheScope"] == "public"
+    res = modern(client, "tools/call", name="tcp_calculate", arguments={"expression": "1 + 1"})["result"]
+    assert res["resultType"] == "complete" and res["isError"] is False
+    assert res["_meta"][M + "serverInfo"]["version"] == listed["_meta"][M + "serverInfo"]["version"]
+
+
+def test_a_request_with_an_unknown_version_or_without_capabilities_is_refused_as_the_revision_says(client):
+    bad = {M + "protocolVersion": "1900-01-01", M + "clientCapabilities": {}}
+    err = client.request("tools/list", {"_meta": bad})["error"]
+    assert err["code"] == -32022 and err["message"] == "Unsupported protocol version"
+    assert err["data"]["requested"] == "1900-01-01" and "2026-07-28" in err["data"]["supported"]
+    assert client.request("server/discover", {"_meta": bad})["error"]["code"] == -32022
+    no_caps = {M + "protocolVersion": "2026-07-28"}
+    assert client.request("tools/list", {"_meta": no_caps})["error"]["code"] == -32602
+    assert client.request("tools/list", {"_meta": []})["error"]["code"] == -32602
+    old = {M + "protocolVersion": "2025-11-25"}                    # a version of the handshake era is served as such
+    assert "result" in client.request("tools/list", {"_meta": old})
+
+
+def test_a_bad_argument_is_a_tool_result_with_is_error_from_2025_11_25_and_a_json_rpc_error_before(client):
+    def bad(params):
+        return client.request("tools/call", params)
+
+    cases = [{"name": "tcp_facts_search", "arguments": {}}, {"name": "tcp_facts_search", "arguments": {"query": 5}},
+             {"name": "tcp_calculate", "arguments": {"expression": "1", "places": 99}},
+             {"name": "tcp_facts_search", "arguments": {"query": "x", "path": "/"}}]
+    client.request("initialize", {"protocolVersion": "2025-06-18"})
+    for c in cases:
+        assert bad(c)["error"]["code"] == -32602, c
+    client.request("initialize", {"protocolVersion": "2025-11-25"})
+    for c in cases:
+        res = bad(c)["result"]
+        assert res["isError"] is True and json.loads(res["content"][0]["text"])["error"], c
+    got = modern(client, "tools/call", name="tcp_facts_search", arguments={})["result"]
+    assert got["isError"] is True and "missing argument: query" in got["content"][0]["text"]
+    for params in ({"name": "tcp_nope", "arguments": {}}, {"arguments": {}},
+                   {"name": "tcp_facts_search", "arguments": ["x"]}):     # the request itself is wrong: protocol error
+        assert modern(client, "tools/call", **params)["error"]["code"] == -32602, params
+
+
+def test_tools_carry_a_title_and_read_only_annotations_and_live_opens_only_the_price_tool(built):
+    def listed(*args):
+        c = Client("--data", str(built[0]), *args)
+        try:
+            return {t["name"]: t for t in c.request("tools/list")["result"]["tools"]}
+        finally:
+            c.close()
+
+    for name, t in listed().items():
+        assert t["title"] and t["annotations"]["title"] == t["title"], name
+        assert t["annotations"] == {"title": t["title"], "readOnlyHint": True, "destructiveHint": False,
+                                    "idempotentHint": True, "openWorldHint": False}, name
+    live = listed("--live")
+    assert [n for n, t in live.items() if t["annotations"]["openWorldHint"]] == ["tcp_price_find"]
+
+
+def test_requests_and_messages_that_break_json_rpc_are_invalid_requests(client):
+    bad = [{"jsonrpc": "2.0", "id": None, "method": "ping"}, {"jsonrpc": "2.0", "id": True, "method": "ping"},
+           {"jsonrpc": "2.0", "id": 1.5, "method": "ping"}, {"jsonrpc": "2.0", "id": 4, "method": 7},
+           {"jsonrpc": "2.0", "id": 5}, {"jsonrpc": "2.0"}, [], 7]
+    for msg in bad:
+        client.send(msg)
+        got = client.recv()
+        assert got["error"]["code"] == -32600 and got["id"] in (None, 4, 5), msg
+    client.send({"jsonrpc": "2.0", "id": 6, "result": {}})            # a response of the client: no answer
+    client.send({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}})
+    client.send([{"jsonrpc": "2.0", "method": "notifications/initialized"}])
+    assert client.request("initialize", {})["error"]["code"] == -32602
+    assert client.request("tools/list", {"cursor": "x"})["error"]["code"] == -32602
+    assert client.request("ping")["result"] == {}                    # and nothing came before this answer
+
+
+def test_a_lone_surrogate_in_a_request_does_not_crash_the_server(client):
+    lone = "\\ud800"
+    client.send('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"tcp_calculate",'
+                '"arguments":{"expression":"1 + %s"}}}' % lone)
+    got = client.recv()
+    assert got["id"] == 1 and got["result"]["isError"] is True
+    client.send('{"jsonrpc":"2.0","id":"a%s","method":"ping"}' % lone)
+    assert client.recv()["result"] == {}
+    client.send('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"tcp_service_check",'
+                '"arguments":{"name":"%s"}}}' % lone)
+    assert client.recv()["id"] == 2
+    assert client.request("ping")["result"] == {}
+    assert client.close() == 0
+
+
+def test_a_closed_stdout_ends_the_server_quietly(built):
+    c = Client("--data", str(built[0]))
+    c.proc.stdout.close()
+    try:
+        for _ in range(200):
+            c.send({"jsonrpc": "2.0", "id": 1, "method": "ping"})
+    except BrokenPipeError:
+        pass                                                         # the server was gone before the last write
+    try:
+        c.proc.stdin.close()
+    except BrokenPipeError:
+        pass
+    assert c.proc.wait(timeout=10) == 0 and c.proc.stderr.read() == b""
+    c.proc.stderr.close()
+
+
+def test_stdout_carries_only_protocol_messages_and_the_handshake_negotiates_down(client):
+    client.send("{not json")
+    client.send("\u00e4\u00f6 not json either")
+    client.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    seen = [client.recv(), client.recv()]
+    assert [m["error"]["code"] for m in seen] == [-32700, -32700]
+    asked_new = client.request("initialize", {"protocolVersion": "2026-07-28"})["result"]
+    assert asked_new["protocolVersion"] == "2025-11-25" and "title" in asked_new["serverInfo"]
+    client.send([{"jsonrpc": "2.0", "id": 8, "method": "ping"}, {"jsonrpc": "2.0", "method": "x"}])
+    assert client.recv() == [{"jsonrpc": "2.0", "id": 8, "result": {}}]
+    assert client.close() == 0

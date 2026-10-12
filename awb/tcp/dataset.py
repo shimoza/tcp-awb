@@ -171,9 +171,11 @@ MCP_CLIENTS = [
     ("code:bash", "claude mcp add tcp-facts -- python3 %s" % MCP_PATH),
     ("p", "VS Code (and GitHub Copilot in it), in .vscode/mcp.json:"),
     ("code:json", '{"servers": {"tcp-facts": {"type": "stdio", "command": "python3", "args": ["%s"]}}}' % MCP_PATH),
-    ("p", "Add \"--live\" to the arguments for live prices from the public price API (no credentials). On Windows "
-          "the command is python or py. The rules of \"%s\" apply here too: the client sends your questions to "
-          "its model provider." % WARNING_HEADING),
+    ("p", "Add \"--live\" to the arguments for live prices from the public price API (no credentials). Claude "
+          "Desktop opens its file under Settings, Developer, Edit Config and loads a change only after a full quit "
+          "and start. Give the path in full, never relative to a folder. On Windows the command is python or py. In the JSON "
+          "every backslash of a path is written twice. The rules of \"%s\" apply here too: the client "
+          "sends your questions to its model provider." % WARNING_HEADING),
 ]
 LICENCE_LINE = "The full licence text is in LICENSE at github.com/%s." % GITHUB_REPO
 ONE_LINER = "Use the attached TCP Facts. Answer: <your question>"

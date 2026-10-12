@@ -52,6 +52,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The MCP server of the dataset (`tcp_facts_mcp.py`) follows the Model Context Protocol revision 2026-07-28:
+  `server/discover`, the version and the capabilities in the `_meta` of each request (no handshake; an unknown version
+  answers -32022 with the versions it speaks; the handshake revisions stay), `resultType`, `ttlMs` and `cacheScope`,
+  server info in the `_meta` of each result. From 2025-11-25 a bad argument is a tool result with `isError` (an older
+  session keeps the JSON-RPC error). Tools carry a title and read-only annotations. A null or boolean id and a message
+  with neither method nor result are invalid requests, a lone surrogate no longer stops the server and a closed stdout
+  ends it quietly. The "MCP clients" section of the dataset README says where Claude Desktop keeps its file, that it
+  needs a full restart and how to write a Windows path. Checked on Python 3.10 to 3.13 and with the `mcp` Python SDK
+  2.3.0 as client (tests MCP-14 to MCP-21).
 - `awb lab run` reads the EVS disk types (`GET evs /v2/{project_id}/types`, read key) before its first create when a
   create body names a disk type (`volumetype` or `volume_type`) and stops with one line, making nothing, when the type
   is not listed, not offered in the recipe's AZ (`RESKEY:availability_zones`) or sold out there
