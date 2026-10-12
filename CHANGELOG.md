@@ -85,6 +85,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   groups, shared ELB load balancers, listeners and pools and NAT gateways, reads the tags of the lab name
   `<code>-lab-<YYYYMMDD>-<rand>` and names a resource with a project tag that no RESOURCES.md lists; dedicated ELB
   is not swept yet and the output says so.
+- `awb import CODE --paste FILE` refuses the FILE with its own line on Python 3.12 too (the host's interpreter): the
+  options and the files of `awb import` are parsed intermixed, so a file after an option is no longer an
+  "unrecognized arguments" error of the parser.
 
 ## Week 41, 2026-10-05 to 2026-10-11
 

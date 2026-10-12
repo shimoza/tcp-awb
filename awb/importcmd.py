@@ -337,7 +337,9 @@ def main(argv: list[str] | None = None) -> int:
                          "(speakers as [person 1], timestamps kept, filler dropped) or a table copied from a "
                          "spreadsheet (tab-separated, people and mail columns wiped as a whole); without it plain text")
     try:
-        args = ap.parse_args(argv)
+        # intermixed: a FILE after an option (`CODE --paste FILE`) is a FILE on Python 3.12 too, so the paste can
+        # refuse it with its own line instead of the parser's "unrecognized arguments"
+        args = ap.parse_intermixed_args(argv)
     except SystemExit as exc:
         return 0 if exc.code in (0, None) else EXIT_ERROR
     from awb import projects, vault
