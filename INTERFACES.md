@@ -363,7 +363,10 @@ of `SystemdUnits.argv` names `FAILED_UNIT % name` in `OnFailure=` (not `PROBE_UN
 build failed`, the oneshot's command) with `runner_alive(runs)` and `record_failed(host, name, result) -> "watched" |
 "written" | "not written"` (a `failed` row of `state.tsv`, at most `FAILED_ROWS`); `board_write(board, name,
 data)` and `board_read(board, name)` (the board's folder, no link followed); the probe: `probe_lines(model)`,
-`probe_spec(host, argv, allow)`, `run_probe(host, user) -> [(key, passed, line)]`, `write_probe`, `read_probe`,
+`probe_spec(host, argv, allow, stdout=None, binds=None)`, `run_probe(host, user) -> [(key, passed, line)]` (the
+checks `loopback`, `stub` and `host` refuse port 22 of the host itself, `probe_target(key)`, `host_address()`); the
+task unit's resolver: `resolvers()` (the upstream nameservers of `UPSTREAM_RESOLV`), `on_host(addr)`,
+`model_allow(host)` and `resolv_bind(host, folder) -> (file, "/etc/resolv.conf")`, `write_probe`, `read_probe`,
 `probe_check(board) -> (passed, what, note)` for `awb seal check`, `probe_main()`.
 
 The board's reader of `state.tsv` (SB4) is `awb/tcp/board.py`: `build_state(p) -> dict | None` (every cell matched:

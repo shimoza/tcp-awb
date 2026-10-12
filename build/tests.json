@@ -4469,22 +4469,22 @@
   {
    "id": "SB5-3",
    "phase": "SB5",
-   "name": "seal: awb seal check on a build host runs the selftest and passes only on a full probe record",
-   "run": ".venv/bin/pytest tests/test_seal.py::test_seal_check_runs_the_selftest_and_reads_the_probe_record_on_a_build_host",
+   "name": "seal: awb seal check on a build host runs the selftest and passes only on a full probe record, the three checks of the host itself among them (finding of 2026-10-12)",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_seal_check_on_a_build_host_passes_only_on_a_probe_record_with_the_host_checks",
    "status": "passing"
   },
   {
    "id": "SB5-4",
    "phase": "SB5",
-   "name": "build runner: the probe runs units of the runner's form with a task's own network, the control first; GitHub open, another user and the key mode planted",
-   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_probe_runs_with_a_task_s_own_network_and_writes_the_record_seal_check_reads",
+   "name": "build runner: the probe runs units of the runner's form with a task's own network and resolv.conf, the control first; it cannot connect to 127.0.0.1:22, 127.0.0.53:22 or the host's own address (finding of 2026-10-12); GitHub, loopback, the stub and the host's address open, another user and the key mode planted",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_probe_runs_with_a_task_s_own_network_and_cannot_reach_the_host_itself",
    "status": "passing"
   },
   {
    "id": "SB5-5",
    "phase": "SB5",
-   "name": "build runner: the probe record passes only when every check of its build model passed",
-   "run": ".venv/bin/pytest tests/test_build_runner.py::test_seal_check_reads_only_a_full_probe_record_of_its_build_model",
+   "name": "build runner: the probe record passes only when every check of its build model passed, the checks of the host itself among them",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_seal_check_reads_only_a_full_probe_record_with_the_host_checks",
    "status": "passing"
   },
   {
@@ -4504,8 +4504,8 @@
   {
    "id": "SB5-8",
    "phase": "SB5",
-   "name": "build runner: a refused TCP API host or GitHub counts only after the model endpoint connected in the same run (else not proven); a failed line names no name resolution or no connection",
-   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_refusal_counts_only_after_the_model_endpoint_connected_in_the_same_run",
+   "name": "build runner: a refused TCP API host, GitHub or port of the host itself counts only after the model endpoint connected in the same run (else not proven); a failed line names no name resolution or no connection",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_refusal_of_any_kind_counts_only_after_the_model_endpoint_connected",
    "status": "passing"
   },
   {
@@ -4518,8 +4518,8 @@
   {
    "id": "SB5-10",
    "phase": "SB5",
-   "name": "build runner: a resolv.conf that links to the resolver's stub file gives the nameserver in the allow list; a link out of /etc and /run, a file others may write and a loop are refused",
-   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_resolv_conf_that_links_to_the_stub_file_gives_the_resolver",
+   "name": "build runner: the allow list names the upstream nameservers of /run/systemd/resolve/resolv.conf and the endpoints, never the stub 127.0.0.53 or another address of the host (finding of 2026-10-12); the stub alone, no upstream file, a link out of /etc and /run, a file others may write and a loop give no nameserver",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_task_units_resolve_through_the_upstream_nameservers_and_never_the_stub",
    "status": "passing"
   },
   {
@@ -4534,6 +4534,34 @@
    "phase": "SB5",
    "name": "mirror: sync_sd reads the service description page at the call, so the suite's dead local address is obeyed and the refresh test never leaves the host (B-001)",
    "run": ".venv/bin/pytest tests/test_mirror.py::test_the_service_description_page_is_read_at_the_call_so_the_suite_never_leaves_the_host",
+   "status": "passing"
+  },
+  {
+   "id": "SB5-13",
+   "phase": "SB5",
+   "name": "build runner: the stub alone in /etc/resolv.conf and no upstream file hold the queue as no resolver for the task unit; the probe starts no unit (finding of 2026-10-12)",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_no_upstream_nameserver_holds_the_queue_with_one_line",
+   "status": "passing"
+  },
+  {
+   "id": "SB5-14",
+   "phase": "SB5",
+   "name": "build runner: the session unit allows the upstream nameservers and the endpoints and binds the run folder's resolv.conf (the upstream servers alone, mode 644) over /etc/resolv.conf; the suite unit keeps loopback alone (finding of 2026-10-12)",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_session_unit_binds_a_resolv_conf_of_the_upstream_nameservers",
+   "status": "passing"
+  },
+  {
+   "id": "SB5-15",
+   "phase": "SB5",
+   "name": "build runner: every probe unit allows the upstream nameservers (never 127.0.0.53) and binds a resolv.conf of the upstream servers alone (finding of 2026-10-12)",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_probe_binds_the_upstream_resolv_conf_and_never_allows_the_stub",
+   "status": "passing"
+  },
+  {
+   "id": "SB5-16",
+   "phase": "SB5",
+   "name": "build runner: the probe script takes a port before the host: an open port of loopback is exit 0, a closed one exit 1",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_probe_script_takes_a_port_before_the_host",
    "status": "passing"
   },
   {
@@ -5139,6 +5167,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 734,
+ "total_tests": 738,
  "checked": "2026-10-12"
 }

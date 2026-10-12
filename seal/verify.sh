@@ -408,7 +408,10 @@ net_lines() {
     printf '%s\n' "the probe unit with a task's own properties runs as the build user" \
         "the probe unit reaches the model endpoint ($MODEL_HOST)"
     [ "$1" != login ] || printf '%s\n' "the probe unit reaches the token host of his login ($TOKEN_HOST)"
-    printf '%s\n' "the probe unit cannot reach a TCP API host ($TCP_API_HOST)" "the probe unit cannot reach $GITHUB_HOST"
+    printf '%s\n' "the probe unit cannot reach a TCP API host ($TCP_API_HOST)" "the probe unit cannot reach $GITHUB_HOST" \
+        "the probe unit cannot connect to the host's loopback (127.0.0.1:22)" \
+        "the probe unit cannot connect to the resolver stub's address (127.0.0.53:22)" \
+        "the probe unit cannot connect to the host's own address on port 22"
 }
 
 net_probe() {

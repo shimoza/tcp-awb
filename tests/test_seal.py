@@ -1660,10 +1660,12 @@ def test_the_selftest_refuses_to_report_clean_when_a_planted_case_is_removed(mon
     assert buildrun.selftest(python=sys.executable) == ["%s: the planted case is there twice" % stand_in[0][0]]
 
 
-def test_seal_check_runs_the_selftest_and_reads_the_probe_record_on_a_build_host(tmp_path, monkeypatch, capsys):
-    """SB5: `awb seal check` on a host with a build user runs the runner's selftest and reads the record of the last
-    probe unit (the work user cannot start one). Planted: no record and a record with a failed line each fail the
-    command; a host without a build user prints neither line."""
+def test_seal_check_on_a_build_host_passes_only_on_a_probe_record_with_the_host_checks(tmp_path, monkeypatch, capsys):
+    """Replaces test_seal_check_runs_the_selftest_and_reads_the_probe_record_on_a_build_host (finding of 2026-10-12:
+    a full record of the key mode has seven checks, the three of the host itself among them). `awb seal check` on a
+    host with a build user runs the runner's selftest and reads the record of the last probe unit. Planted: no
+    record, a record without the stub's check and a record with a failed line each fail the command; a host without
+    a build user prints neither line."""
     from awb import buildrun
 
     monkeypatch.setattr(seal, "run_checks", lambda: [])
@@ -1678,15 +1680,18 @@ def test_seal_check_runs_the_selftest_and_reads_the_probe_record_on_a_build_host
     assert "PASS  the build runner refuses its planted cases" in out
     assert "FAIL  the probe unit with a task's own properties passed its checks (no record yet: sudo seal/verify.sh " \
            "runs it)" in out
-    rows = "probe\t2026-10-11T21:00:00\tkey\t4\t0\n" + "".join("check\t%s\tpass\n" % k
-                                                               for k in ("unit", "model", "tcp", "github"))
+    rows = "probe\t2026-10-12T21:00:00\tkey\t7\t0\n" + "".join(
+        "check\t%s\tpass\n" % k for k in ("unit", "model", "tcp", "github", "loopback", "stub", "host"))
     (shared / "build" / "probe.tsv").write_text(rows)
     assert seal.main(["check"]) == 0
-    assert "PASS  the probe unit with a task's own properties passed its 4 checks (sudo seal/verify.sh, 2026-10-11 " \
+    assert "PASS  the probe unit with a task's own properties passed its 7 checks (sudo seal/verify.sh, 2026-10-12 " \
            "21:00)" in capsys.readouterr().out
-    (shared / "build" / "probe.tsv").write_text(rows.replace("tcp\tpass", "tcp\tfail"))
+    (shared / "build" / "probe.tsv").write_text(rows.replace("check\tstub\tpass\n", ""))
     assert seal.main(["check"]) == 1
-    assert "(failed: tcp)" in capsys.readouterr().out
+    assert "(failed: stub)" in capsys.readouterr().out
+    (shared / "build" / "probe.tsv").write_text(rows.replace("host\tpass", "host\tfail"))
+    assert seal.main(["check"]) == 1
+    assert "(failed: host)" in capsys.readouterr().out
     monkeypatch.setattr(config, "build_user", lambda: None)
     assert seal.main(["check"]) == 0
     assert "probe unit" not in capsys.readouterr().out
