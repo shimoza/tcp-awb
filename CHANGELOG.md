@@ -145,6 +145,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   `/etc/resolv.conf`. Without an upstream nameserver the queue is held as `no resolver for the task unit`. `awb
   build probe` adds three checks: the unit cannot connect to `127.0.0.1:22`, `127.0.0.53:22` or the host's own
   address on port 22. The suite unit keeps its own network namespace with loopback alone.
+- The short probe units of `seal/verify.sh` no longer allow the nameserver of `/etc/resolv.conf` (the stub
+  `127.0.0.53`): they run fixed commands and resolve no name (follow-up of pull request 7).
 
 ## Week 41, 2026-10-05 to 2026-10-11
 

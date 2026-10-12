@@ -347,7 +347,7 @@ probe_ran=0
 probe() {
     # probe CMD...: CMD as the build user in a transient unit with the properties of a build task (DESIGN.md section 4):
     # the system read only, no home, a private /tmp, no new privileges, /etc/awb inaccessible, no network but the
-    # resolver and the model endpoint's addresses resolved now
+    # model endpoint's addresses resolved now (no resolver: the stub of /etc/resolv.conf is the host itself)
     systemd-run --quiet --wait --pipe --collect --uid="$BUILD_USER" --gid="$BUILD_USER" --setenv=HOME=/tmp \
         --property=ProtectSystem=strict --property=ProtectHome=yes --property=PrivateTmp=yes \
         --property=NoNewPrivileges=yes --property=InaccessiblePaths=/etc/awb --property=IPAddressDeny=any \
@@ -557,10 +557,9 @@ build_checks() {
     denied "the build user cannot push into main.git" as_build sh -c "$PUSH_SH" verify "$build_root/main.git"
 
     # N2, N4, N5 and N8 inside a unit with the task's properties
+    # no nameserver: these units run fixed commands and resolve no name, and /etc/resolv.conf names the stub
+    # 127.0.0.53, an address of the host itself (finding of 2026-10-12)
     probe_allow=""
-    for ns in $(sed -n 's/^nameserver[[:space:]]\{1,\}\([0-9a-fA-F.:]\{1,\}\).*/\1/p' /etc/resolv.conf); do
-        probe_allow="$probe_allow $ns"
-    done
     for addr in $(getent ahosts "$MODEL_HOST" | cut -d' ' -f1 | sort -u); do
         probe_allow="$probe_allow $addr"
     done
