@@ -3,7 +3,11 @@
 What changed in the Architect Workbench, one entry per week (ISO week, Monday to Sunday), newest first. The form
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and projects appear as codes only.
 
-## Week 41, 2026-10-05 to 2026-10-11 (in progress)
+## Week 42, 2026-10-12 to 2026-10-18 (in progress)
+
+### Added
+
+## Week 41, 2026-10-05 to 2026-10-11
 
 ### Added
 
