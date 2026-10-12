@@ -181,3 +181,36 @@ def test_the_check_says_when_a_newer_service_description_waits(tmp_path, monkeyp
     monkeypatch.setenv("AWB_MIRRORS", str(_mirror(tmp_path / "n", services.load().revision)))
     assert cli.main(["service", "check", "ECS"]) == 0
     assert "note:" not in capsys.readouterr().out
+
+
+# The tag of a service is its short name or its plain name, lower case, spaces and dashes as one dash. These four
+# are the tags that were in use before the rule and are not written like that.
+TAG_OF_SERVICE = {"3.8.5": "dataarts", "3.9.6": "waf", "3.11.5": "consulting", "3.12.6": "esw"}
+
+
+def _tag_forms(service):
+    import re
+
+    return {re.sub(r"[^a-z0-9]+", "-", form.lower()).strip("-") for form in service.forms()}
+
+
+def _without_a_tag(tags):
+    return [s.number for s in services.load().services
+            if not (_tag_forms(s) & set(tags) or TAG_OF_SERVICE.get(s.number) in tags)]
+
+
+def test_every_service_of_the_service_description_has_a_tag():
+    from awb import kb
+
+    tags = kb.known_tags()
+    assert services.load().services, "rules/services.tsv lists no service"
+    assert not _without_a_tag(tags), "add a tag to rules/tags.txt for the services %s" % ", ".join(_without_a_tag(tags))
+    assert set(TAG_OF_SERVICE.values()) <= set(tags)
+
+
+def test_the_tag_check_names_a_service_whose_tag_is_missing():
+    from awb import kb
+
+    tags = kb.known_tags()
+    assert _without_a_tag([t for t in tags if t != "taurusdb"]) == ["3.2.6"]
+    assert _without_a_tag([t for t in tags if t != "esw"]) == ["3.12.6"]

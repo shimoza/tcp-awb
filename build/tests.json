@@ -4717,8 +4717,22 @@
    "name": "lab: a run goes through the real key service with the lab key and the signing stand-in gateway",
    "run": ".venv/bin/pytest tests/test_lab.py::test_a_run_goes_through_the_real_key_service_with_the_lab_key",
    "status": "passing"
+  },
+  {
+   "id": "TAG-1",
+   "phase": "TAGS",
+   "name": "tags: every service of the service description in rules/services.tsv has a tag in rules/tags.txt",
+   "run": ".venv/bin/pytest tests/test_services.py::test_every_service_of_the_service_description_has_a_tag",
+   "status": "passing"
+  },
+  {
+   "id": "TAG-2",
+   "phase": "TAGS",
+   "name": "tags: the check names a service whose tag is missing",
+   "run": ".venv/bin/pytest tests/test_services.py::test_the_tag_check_names_a_service_whose_tag_is_missing",
+   "status": "passing"
   }
  ],
- "total_tests": 674,
+ "total_tests": 676,
  "checked": "2026-10-12"
 }
