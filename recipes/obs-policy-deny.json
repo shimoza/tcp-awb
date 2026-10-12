@@ -1,0 +1,40 @@
+{
+  "name": "obs-policy-deny",
+  "question": "Does an OBS bucket in ${region} whose bucket policy denies ${action} to everyone refuse ${action}, also to the account that owns it?",
+  "about": "A bucket named after the project (the lease rule: <code>-...), a bucket policy that denies one listed action to every principal, then that action with the lab key. The expected answer is HTTP 403. Every step is to confirm live: see the note of the first step.",
+  "params": {
+    "action": {"default": "ListBucket",
+               "choices": {"ListBucket": {"probe_path": "${name}", "resource": "${name}"},
+                           "GetObject": {"probe_path": "${name}/awb-lab-probe.txt", "resource": "${name}/*"}},
+               "help": "the action the policy denies; read actions only, so the probe never creates an object (GetObject asks for an object that is not there: 403 when denied, 404 when not)"},
+    "region": {"default": "eu-de", "pattern": "^eu-(de|nl)$"}
+  },
+  "budget": {"minutes": 5, "teardown_minutes": 5},
+  "guard": {"resources": 1, "lifetime_minutes": 15},
+  "steps": [
+    {"id": "bucket", "do": "create", "says": "a bucket named after the project and the expiry",
+     "call": {"method": "PUT", "service": "obs", "path": "/${name}"},
+     "id_value": "${name}",
+     "resource": {"kind": "obs", "type": "obs bucket", "cost": "none"},
+     "tags": "name",
+     "confirm": "the whole recipe: the call op of the key service signs the way of the API gateway (SDK-HMAC-SHA256) and sends a JSON body to https://obs.REGION.otc.t-systems.com/PATH; OBS signs its own way and takes XML for a bucket's location and tags. Expected first answer: HTTP 403 on this create, then nothing is made. If so, the key service needs an OBS operation for the buckets of a project (named <code>-...), like the lease policy allows, before this recipe can run"},
+    {"id": "policy", "do": "call", "says": "deny the action to every principal",
+     "call": {"method": "PUT", "service": "obs", "path": "/${name}", "query": {"policy": ""},
+              "body": {"Statement": [{"Sid": "awb-lab-deny", "Effect": "Deny", "Principal": {"ID": ["*"]},
+                                      "Action": ["${action}"], "Resource": ["${resource}"]}]}},
+     "confirm": "PUT /BUCKET?policy with the policy as JSON and the OBS form of Principal and Action"},
+    {"id": "try", "do": "call", "says": "the denied action with the lab key",
+     "call": {"method": "GET", "service": "obs", "path": "/${probe_path}"},
+     "confirm": "the probe call of the action and its 403"}
+  ],
+  "checks": [
+    {"id": "refused", "step": "try", "says": "the bucket refuses the denied action", "status": [403]}
+  ],
+  "teardown": {
+    "bucket": {"call": {"method": "DELETE", "service": "obs", "path": "/${name}"},
+               "gone": {"call": {"method": "HEAD", "service": "obs", "path": "/${name}"}, "status": [404]},
+               "confirm": "DELETE /BUCKET of an empty bucket; the policy goes with the bucket"}
+  },
+  "kb": {"scope": "tcp", "tags": ["obs", "security"], "class": "api",
+         "statement": "An OBS bucket policy that denies ${action} to every principal also refuses ${action} to the account that owns the bucket, with HTTP 403, in ${region}."}
+}

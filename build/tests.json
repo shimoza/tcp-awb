@@ -4612,8 +4612,113 @@
    "name": "pricebook pricebook rules: runtime code is the standard library only, the command is wired and documented in COMMANDS.md, README.md and CHANGELOG.md, the rows are in this list",
    "run": ".venv/bin/pytest tests/test_pricebook.py -k 'runtime_code or wired or rows_of_this_file'",
    "status": "passing"
+  },
+  {
+   "id": "LAB-1",
+   "phase": "LAB",
+   "name": "lab: a recipe that passes: grant probe first, every resource tagged and in RESOURCES.md, torn down newest first and proven gone, evidence and a ready kb line",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_recipe_that_passes_tags_every_resource_records_it_and_proves_it_gone",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-2",
+   "phase": "LAB",
+   "name": "lab: a second run of the day gets the next evidence number; awb lab run reaches the module",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_second_run_of_the_day_gets_the_next_number_and_the_cli_reaches_it",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-3",
+   "phase": "LAB",
+   "name": "lab: a failed check still tears down and proves it; no kb line, the negative rule named",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_failed_check_still_tears_down_and_proves_it",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-4",
+   "phase": "LAB",
+   "name": "lab: a create that fails halfway tears down only what was made",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_create_that_fails_halfway_tears_down_only_what_was_made",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-5",
+   "phase": "LAB",
+   "name": "lab: the time budget runs out and the teardown runs; a wait that never arrives fails its check",
+   "run": ".venv/bin/pytest tests/test_lab.py -k 'time_budget or never_reaches'",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-6",
+   "phase": "LAB",
+   "name": "lab: Ctrl-C during the run tears down, a second one does not stop the teardown; SIGTERM during a create waits for its row",
+   "run": ".venv/bin/pytest tests/test_lab.py -k 'ctrl_c or sigterm'",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-7",
+   "phase": "LAB",
+   "name": "lab: a delete that fails leaves the row live with the line for the owner, exit 4; a create without an id is recorded or found by name",
+   "run": ".venv/bin/pytest tests/test_lab.py -k 'delete_that_fails or without_an_id'",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-8",
+   "phase": "LAB",
+   "name": "lab: refused before any call: no owner grant, a query, another project's folder, the key service's refusal of the grant",
+   "run": ".venv/bin/pytest tests/test_lab.py -k 'no_grant or query_is_refused or refusing_the_grant'",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-9",
+   "phase": "LAB",
+   "name": "lab: the cost guard refuses before any call: more creates than the guard, above the ceiling, budget over lifetime, a parameter outside its pattern",
+   "run": ".venv/bin/pytest tests/test_lab.py -k 'cost_guard'",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-10",
+   "phase": "LAB",
+   "name": "lab: a malformed recipe is refused: no teardown, no tags, an unknown value, a check on no step, a gone proof that writes",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_malformed_recipe_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-11",
+   "phase": "LAB",
+   "name": "lab: the evidence holds no key, token or secret planted in an answer; the last guard withholds a line the gate finds",
+   "run": ".venv/bin/pytest tests/test_lab.py -k 'planted_in_an_answer or last_guard'",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-12",
+   "phase": "LAB",
+   "name": "lab: the dry run of each recipe makes no call; the list shows each recipe with its question and guard",
+   "run": ".venv/bin/pytest tests/test_lab.py -k 'dry_run_makes_no_call or list_shows'",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-13",
+   "phase": "LAB",
+   "name": "lab: the three recipes and the example of the format are valid, tag every resource and use known tags",
+   "run": ".venv/bin/pytest tests/test_lab.py -k 'three_recipes_are_valid or example_of_the_format'",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-14",
+   "phase": "LAB",
+   "name": "lab: the ecs-boot-ssh recipe runs end to end against the shapes it expects",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_ecs_recipe_runs_end_to_end_against_its_expected_shapes",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-15",
+   "phase": "LAB",
+   "name": "lab: a run goes through the real key service with the lab key and the signing stand-in gateway",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_run_goes_through_the_real_key_service_with_the_lab_key",
+   "status": "passing"
   }
  ],
- "total_tests": 659,
+ "total_tests": 674,
  "checked": "2026-10-12"
 }

@@ -1,0 +1,119 @@
+# Lab recipes
+
+A recipe is one kind of live check on a test tenant, as a JSON file in this folder. A project session of the kind
+project runs it in one command:
+
+```bash
+awb lab list                                               # the recipes, their question and their cost guard
+awb lab dry-run ecs-boot-ssh --param flavor=s3.large.2     # the calls it would make; no call is made
+awb lab run ecs-boot-ssh --project tcp-q7m4 --tenant test-1 --param flavor=s3.large.2
+```
+
+The run checks the project's grant, creates the resources with the project and expiry tags, writes a row in the
+project's `RESOURCES.md` for each one the moment it exists, runs the checks and always tears down: after the
+checks, on a failed check, on an error, when the time budget runs out and on Ctrl-C. It proves each resource gone
+with a read and sets its row to deleted. A resource it cannot delete keeps its row as live with one line for the
+owner and the command exits 4. The evidence goes to `evidence/lab-<recipe>-<date>-<n>.md` of the project. When
+every check passed, it ends with a ready `awb kb add` line with the grade live.
+
+A run takes minutes: run it as a background command of the session, not in the foreground with its two-minute
+limit. A SIGTERM tears down like Ctrl-C; only a hard kill leaves rows as live; `awb cloud sweep` then finds the
+resources by their tags.
+
+## The format
+
+| key | what it holds |
+|---|---|
+| `name` | the file name without `.json`: lower case letters, digits and dashes |
+| `question` | the question the run answers, with `${param}` values filled in |
+| `about` | optional: what the recipe builds and how it checks, in plain words |
+| `params` | each parameter with its `default`, optional `pattern` (a value outside it is refused by the cost guard), `help` and `choices` (each allowed value with the values it brings) |
+| `vars` | fixed values of the recipe: an address range, a script for user data |
+| `budget` | `minutes` for the run and `teardown_minutes` for the teardown |
+| `guard` | the cost guard: `resources` (the most it may create) and `lifetime_minutes` (the longest a resource may live); budget plus teardown must fit into the lifetime |
+| `steps` | the calls in order, each with an `id` and `do`: `create`, `call` or `wait` |
+| `checks` | what must hold, each naming the step it reads |
+| `teardown` | for every create step: the delete call and the read that proves the resource gone |
+| `kb` | optional: scope, tags, class and the statement for the knowledge base when every check passed |
+
+Every call goes through the key service with the lab key and the project code: `method`, `service`, `path`
+(with `{project_id}` where the API wants it), optional `query` and `body`. A body may fill a password field with
+`{{secret:NAME}}`; the key service puts the secret in and the session never sees it.
+
+Values in a call: `${param}`, `${var}`, the id of an earlier create step as `${step}` (so a create step is named
+with letters, digits and underscores) and a value an earlier step
+saved (`"save": {"name": "field.path"}`). `${base64:var}` is the base64 of a value (user data), `${int:var}` a number.
+Built in: `${project}`, `${tenant}`, `${region}`, `${expiry}` (an ISO date, the start plus the guard's lifetime),
+`${expiry8}` (the same as YYYYMMDD), `${rand}` (four letters) and `${name}` (`<project>-lab-<expiry8>-<rand>`). In a
+teardown `${id}` is the id of the resource.
+
+A `create` step names the field of the answer that holds the new id (`id_field`; `id_value` in its place for a
+resource whose name is its id, a bucket), the `resource` (`kind`, two to five letters, for its handle such as
+`ecs-3`; `type`; `cost`: none, small or medium) and where its tags go:
+
+- `"tags": "body"`: the body carries `"${tags:kv}"` (`[{"key": "awb-project", ...}, {"key": "awb-expiry", ...}]`),
+  `"${tags:list}"` (`["awb-project=tcp-q7m4", ...]`) or `"${tags:dict}"`.
+- `"tags": {a call}`: a tag call right after the create, with `${id}` and one of the tag forms in its body.
+- `"tags": "name"`: for a service that takes no tags at create; the call carries `${name}`, which holds the project
+  code and the expiry.
+
+A create may also have a `find`: a read that finds the id when the answer holds none (an asynchronous create).
+A create that answered without an id and that find cannot place gets a row as live with "id unknown" and the run
+stops.
+
+A `wait` step repeats its call every `every` seconds (default 10) until the field of `until` `equals`, is `in` or
+`contains` a value, for at most `within` seconds; a value of `fail_on` ends it early. A `call` step that does not
+answer 2xx stops the run, unless a check expects its status.
+
+Checks: `"reached": true` (a wait reached its state), `"status": [403]` (an expected refusal), `"field"` with
+`"equals"`, `"contains"` or `"present"`. A step runs, then its checks; the first check that fails stops the run and
+the teardown follows.
+
+A step or a teardown entry may carry `"confirm"`: the note that its API shape is not proven by a live call yet. The
+dry run, the list and the evidence show these notes, so the first live run says which shapes held.
+
+## An example
+
+```json
+{
+  "name": "subnet-active",
+  "question": "Does a subnet of ${cidr} in ${region} become ACTIVE within 90 seconds?",
+  "params": {"region": {"default": "eu-de", "pattern": "^eu-(de|nl)$"},
+             "cidr": {"default": "192.168.10.0/24", "pattern": "^192\\.168\\.[0-9]{1,3}\\.0/24$"}},
+  "budget": {"minutes": 5, "teardown_minutes": 5},
+  "guard": {"resources": 2, "lifetime_minutes": 15},
+  "steps": [
+    {"id": "vpc", "do": "create", "says": "a VPC",
+     "call": {"method": "POST", "service": "vpc", "path": "/v1/{project_id}/vpcs",
+              "body": {"vpc": {"name": "${name}", "cidr": "192.168.0.0/16"}}},
+     "id_field": "vpc.id", "resource": {"kind": "vpc", "type": "vpc", "cost": "none"}, "tags": "name"},
+    {"id": "subnet", "do": "create", "says": "a subnet",
+     "call": {"method": "POST", "service": "vpc", "path": "/v1/{project_id}/subnets",
+              "body": {"subnet": {"name": "${name}", "cidr": "${cidr}", "vpc_id": "${vpc}"}}},
+     "id_field": "subnet.id", "resource": {"kind": "sub", "type": "vpc subnet", "cost": "none"}, "tags": "name"},
+    {"id": "active", "do": "wait", "says": "the subnet is ACTIVE",
+     "call": {"method": "GET", "service": "vpc", "path": "/v1/{project_id}/subnets/${subnet}"},
+     "until": {"field": "subnet.status", "equals": "ACTIVE"}, "fail_on": ["ERROR"], "within": 90, "every": 5}
+  ],
+  "checks": [{"id": "active", "step": "active", "says": "the subnet is ACTIVE within 90 s", "reached": true}],
+  "teardown": {
+    "vpc": {"call": {"method": "DELETE", "service": "vpc", "path": "/v1/{project_id}/vpcs/${id}"},
+            "gone": {"call": {"method": "GET", "service": "vpc", "path": "/v1/{project_id}/vpcs/${id}"}, "status": [404]}},
+    "subnet": {"call": {"method": "DELETE", "service": "vpc", "path": "/v1/{project_id}/vpcs/${vpc}/subnets/${id}"},
+               "gone": {"call": {"method": "GET", "service": "vpc", "path": "/v1/{project_id}/subnets/${id}"}, "status": [404]}}
+  }
+}
+```
+
+## The recipes here
+
+| recipe | question | guard |
+|---|---|---|
+| `ecs-boot-ssh` | does an ECS of a flavor boot an image and answer on SSH port 22 inside its VPC (security group rule, no EIP) | 5 resources, 45 minutes |
+| `obs-policy-deny` | does an OBS bucket whose policy denies a listed action refuse it | 1 resource, 15 minutes |
+| `elb-health` | does a shared ELB listener with one ECS backend pass its health check | 9 resources, 60 minutes |
+
+Their VPC, subnet and shared ELB calls are the ones `awb cloud lease-check` already makes. Every other shape is
+marked "to confirm live" in the recipe, with what to look at. The OBS recipe cannot pass through the call operation
+of the key service as it is: that operation signs the way of the API gateway, OBS signs its own way. Its first run
+is expected to stop at the create with HTTP 403 and nothing made.

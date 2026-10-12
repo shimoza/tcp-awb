@@ -1,0 +1,1152 @@
+"""Lab recipes: a live check on a test tenant as one command (raise, check, write evidence, always tear down).
+
+    awb lab list                                             the recipes, their question and their cost guard
+    awb lab dry-run RECIPE [--param K=V]... [--project CODE] [--tenant ALIAS]
+                                                             the calls a run would make; no call is made
+    awb lab run RECIPE --project CODE --tenant ALIAS [--param K=V]...
+
+A recipe is a JSON file under `recipes/` of the repository (recipes/README.md holds the format). It names the
+question it answers, its parameters with their defaults, the steps as calls through the key service with the lab
+role (create, call, wait), the checks (a field of an answer, a state reached within a time, an expected refusal),
+the teardown of every resource it creates, a time budget and a cost guard (the most resources and the longest
+lifetime it may create). RECIPE is the name of a recipe there or the path of a recipe file.
+
+A run works for one project of the kind project from a session. Before the first write it checks the project's
+row (active, kind project), the owner's grant where this user can read it and then the grant as the key service
+sees it, with one read call. Every resource it creates carries the tags awb-project (the project code) and
+awb-expiry (an ISO date, the end of the guard's lifetime), in the body of its create call, in a tag call right
+after it or, for a service that takes no tags at create, in its name (`<code>-lab-<expiry>-<4 letters>`). Each
+resource gets a row in the project's RESOURCES.md the moment it exists, with a neutral handle (`ecs-3`, awb/tcp/
+sweep.py) and the full id.
+
+The teardown always runs: after the checks, on a failed check, on an error, when the time budget runs out and on
+Ctrl-C or SIGTERM (a second signal during the teardown is noted and does not stop it). It deletes the resources
+newest first and proves each one gone with a read. A row whose resource is proven gone is set to deleted. A
+resource it cannot delete keeps its row as live with one line for the owner; the command then exits 4.
+
+The evidence goes to `evidence/lab-<recipe>-<date>-<n>.md` of the project: the question, the parameters, every
+call (method, service, path, the answer's status and the fields the steps and checks read), the check results,
+the teardown proof, the time and the resource count. Ids appear as handles; a field whose name or value looks like
+a key, a token or a secret is withheld. When every check passed and nothing is left, the evidence and the output
+end with a ready `awb kb add` line with the grade live and the evidence path as its source.
+
+Exit codes: 0 every check passed and everything is gone; 1 a check failed and everything is gone; 2 refused
+before the first call, a usage error or a run that stopped (an error, the time budget, a signal) with everything
+gone; 4 a resource is left live (its row in RESOURCES.md says what to do).
+"""
+from __future__ import annotations
+
+import base64
+import datetime
+import json
+import os
+import re
+import secrets
+import shlex
+import signal
+import string
+import sys
+import threading
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable
+
+RECIPES_DIR = Path(__file__).resolve().parent.parent.parent / "recipes"
+RECIPES_ENV = "AWB_RECIPES"
+MAX_RESOURCES = 12
+"""The most resources any recipe may create, whatever its guard says."""
+MAX_LIFETIME = 120
+"""Minutes: the longest any recipe may keep a resource, whatever its guard says."""
+METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
+DOS = ("create", "call", "wait")
+COSTS = ("none", "small", "medium")
+GONE_WITHIN = 180
+EVERY = 10
+EXIT_OK, EXIT_CHECK, EXIT_STOPPED, EXIT_LEFT = 0, 1, 2, 4
+PROBE = {"method": "GET", "service": "vpc", "path": "/v1/{project_id}/vpcs", "query": {"limit": "1"}}
+"""The read call that asks the key service whether this project may reach the tenant (its grant)."""
+
+_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{2,40}$")
+_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,30}$")
+_VAR_RE = re.compile(r"^[a-z][a-z0-9_]{0,30}$")
+_KIND_RE = re.compile(r"^[a-z]{2,5}$")
+_REF_RE = re.compile(r"\$\{([a-z][a-z0-9_]*(?::[a-z][a-z0-9_]*)?)\}")
+_WHOLE_RE = re.compile(r"^\$\{(tags):(kv|list|dict)\}$")
+_INT_RE = re.compile(r"^\$\{int:([a-z][a-z0-9_]*)\}$")
+_SECRETISH = re.compile(r"(?i)(key|secret|token|passw|credential|auth|private|cert)")
+BUILTINS = ("project", "tenant", "region", "expiry", "expiry8", "rand", "name")
+TOP_KEYS = {"name", "question", "about", "params", "vars", "budget", "guard", "steps", "checks", "teardown", "kb"}
+
+
+class LabError(Exception):
+    """A recipe or a run that is refused. The message names the recipe part, never a value of a key."""
+
+
+class Stop(Exception):
+    """The run stops here (an error or the time budget); the teardown follows."""
+
+
+class CheckFailed(Exception):
+    """A check did not hold; the teardown follows."""
+
+
+class Interrupted(BaseException):
+    """Ctrl-C or SIGTERM during the run; the teardown follows."""
+
+
+# --------------------------------------------------------------------------- recipes
+
+
+def recipes_dir() -> Path:
+    return Path(os.environ.get(RECIPES_ENV) or RECIPES_DIR)
+
+
+def find(name_or_path: str) -> Path:
+    p = Path(name_or_path)
+    if p.suffix == ".json" and p.is_file():
+        return p
+    if not _NAME_RE.match(name_or_path or ""):
+        raise LabError("a recipe is named like ecs-boot-ssh (awb lab list) or given as a .json file")
+    p = recipes_dir() / ("%s.json" % name_or_path)
+    if not p.is_file():
+        raise LabError("no recipe of that name (awb lab list)")
+    return p
+
+
+def load(path: Path) -> dict:
+    try:
+        recipe = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise LabError("the recipe file is not readable JSON") from None
+    validate(recipe)
+    return recipe
+
+
+def _refs(obj) -> set[str]:
+    if isinstance(obj, str):
+        return {m.group(1).split(":", 1)[-1] if m.group(1).startswith(("base64:", "int:")) else m.group(1)
+                for m in _REF_RE.finditer(obj) if not m.group(1).startswith("tags:")}
+    if isinstance(obj, dict):
+        return set().union(*(_refs(v) for v in obj.values())) if obj else set()
+    if isinstance(obj, list):
+        return set().union(*(_refs(v) for v in obj)) if obj else set()
+    return set()
+
+
+def _check_call(call, where: str) -> None:
+    if not isinstance(call, dict) or not set(call) <= {"method", "service", "path", "query", "body"}:
+        raise LabError("%s: a call has method, service, path and maybe query and body" % where)
+    if call.get("method") not in METHODS:
+        raise LabError("%s: the method is one of %s" % (where, ", ".join(METHODS)))
+    if not isinstance(call.get("service"), str) or not re.match(r"^[a-z][a-z0-9-]{1,30}$", call["service"]):
+        raise LabError("%s: a service reads like ecs or vpc" % where)
+    if not isinstance(call.get("path"), str) or not call["path"].startswith("/"):
+        raise LabError("%s: a path starts with a slash" % where)
+    if "query" in call and not (isinstance(call["query"], dict)
+                                and all(isinstance(v, str) for v in call["query"].values())):
+        raise LabError("%s: a query is an object of strings" % where)
+
+
+def validate(r: dict) -> None:
+    """Refuse a recipe that is malformed, refers to a value it does not have, creates a resource without a
+    teardown or without the tags; also one that breaks its own cost guard or the Workbench ceiling."""
+    if not isinstance(r, dict) or not set(r) <= TOP_KEYS:
+        raise LabError("a recipe holds only %s" % ", ".join(sorted(TOP_KEYS)))
+    for k in ("name", "question", "params", "budget", "guard", "steps", "checks", "teardown"):
+        if k not in r:
+            raise LabError("the recipe has no %s" % k)
+    if not isinstance(r["name"], str) or not _NAME_RE.match(r["name"]):
+        raise LabError("a recipe name reads like ecs-boot-ssh")
+    if not isinstance(r["question"], str) or not r["question"].strip():
+        raise LabError("the question is a sentence")
+    params = r["params"]
+    if not isinstance(params, dict):
+        raise LabError("params is an object")
+    for k, p in params.items():
+        if not _VAR_RE.match(k) or (k in BUILTINS and k != "region") or not isinstance(p, dict) \
+                or not isinstance(p.get("default"), str):
+            raise LabError("param %s: a parameter has a plain name and a default string" % k)
+        if not set(p) <= {"default", "pattern", "help", "choices"}:
+            raise LabError("param %s: a parameter has default, pattern, help and choices only" % k)
+        if "pattern" in p:
+            try:
+                re.compile(p["pattern"])
+            except (re.error, TypeError):
+                raise LabError("param %s: the pattern is not a regular expression" % k) from None
+        if "choices" in p and not (isinstance(p["choices"], dict) and p["default"] in p["choices"]
+                                   and all(isinstance(c, dict) for c in p["choices"].values())):
+            raise LabError("param %s: choices map each allowed value to its values; the default is one" % k)
+    known = set(BUILTINS) | set(params)
+    for p in params.values():
+        for c in (p.get("choices") or {}).values():
+            known |= set(c)
+    rvars = r.get("vars") or {}
+    if not isinstance(rvars, dict) or not all(_VAR_RE.match(k) and isinstance(v, str) for k, v in rvars.items()):
+        raise LabError("vars is an object of plain names and strings")
+    known |= set(rvars)
+    budget, guard = r["budget"], r["guard"]
+    if not (isinstance(budget, dict) and isinstance(budget.get("minutes"), int)
+            and isinstance(budget.get("teardown_minutes"), int) and budget["minutes"] > 0
+            and budget["teardown_minutes"] > 0):
+        raise LabError("budget has minutes and teardown_minutes, whole numbers")
+    if not (isinstance(guard, dict) and isinstance(guard.get("resources"), int)
+            and isinstance(guard.get("lifetime_minutes"), int)):
+        raise LabError("guard has resources and lifetime_minutes, whole numbers")
+    steps = r["steps"]
+    if not isinstance(steps, list) or not steps:
+        raise LabError("steps is a list")
+    ids: list[str] = []
+    creates: list[str] = []
+    for n, s in enumerate(steps, start=1):
+        where = "step %d" % n
+        if not isinstance(s, dict) or not isinstance(s.get("id"), str) or not _ID_RE.match(s["id"]):
+            raise LabError("%s: a step has an id like vpc or wait-subnet" % where)
+        sid = s["id"]
+        where = "step %s" % sid
+        if sid in ids:
+            raise LabError("%s: the id is used twice" % where)
+        if s.get("do") not in DOS:
+            raise LabError("%s: do is create, call or wait" % where)
+        allowed = {"id", "do", "says", "call", "save", "confirm"}
+        if s["do"] == "create":
+            allowed |= {"resource", "id_field", "id_value", "find", "tags"}
+        if s["do"] == "wait":
+            allowed |= {"until", "within", "every", "fail_on"}
+        if not set(s) <= allowed:
+            raise LabError("%s: unknown keys for a %s step" % (where, s["do"]))
+        _check_call(s.get("call"), where)
+        if s["do"] == "wait" and s["call"]["method"] not in ("GET", "HEAD", "POST"):
+            raise LabError("%s: a wait reads" % where)
+        missing = _refs(s["call"]) - known
+        if missing:
+            raise LabError("%s: refers to %s, which no earlier step gives" % (where, ", ".join(sorted(missing))))
+        save = s.get("save") or {}
+        if not isinstance(save, dict) or not all(_VAR_RE.match(k) and isinstance(v, str) for k, v in save.items()):
+            raise LabError("%s: save maps a plain name to a field path" % where)
+        if s["do"] == "create":
+            if not _VAR_RE.match(sid):
+                raise LabError("%s: a create step is named like a value (letters, digits, underscores): later "
+                               "steps refer to its id as ${%s}" % (where, sid.replace("-", "_")))
+            res = s.get("resource")
+            if not (isinstance(res, dict) and _KIND_RE.match(str(res.get("kind", "")))
+                    and isinstance(res.get("type"), str) and res.get("cost") in COSTS):
+                raise LabError("%s: resource has kind (2 to 5 letters), type and cost (%s)" % (where, ", ".join(COSTS)))
+            if len([k for k in ("id_field", "id_value") if isinstance(s.get(k), str)]) != 1:
+                raise LabError("%s: id_field names where the answer holds the new id; id_value gives it in its "
+                               "place" % where)
+            find_ = s.get("find")
+            if find_ is not None:
+                if not (isinstance(find_, dict) and isinstance(find_.get("field"), str)
+                        and set(find_) <= {"call", "field", "within"}):
+                    raise LabError("%s: find has a call and a field" % where)
+                _check_call(find_.get("call"), where + " find")
+            tags = s.get("tags")
+            body = json.dumps(s["call"].get("body"))
+            if tags == "body":
+                if "${tags:" not in body:
+                    raise LabError("%s: tags in the body need ${tags:kv}, ${tags:list} or ${tags:dict} there" % where)
+            elif tags == "name":
+                if "${name}" not in json.dumps(s["call"]):
+                    raise LabError("%s: tags in the name need ${name} in the call" % where)
+            elif isinstance(tags, dict):
+                _check_call(tags, where + " tags")
+                if "${tags:" not in json.dumps(tags.get("body")):
+                    raise LabError("%s: the tag call carries ${tags:kv}, ${tags:list} or ${tags:dict}" % where)
+                if _refs(tags) - known - {"id"}:
+                    raise LabError("%s: the tag call refers to a value it does not have" % where)
+            else:
+                raise LabError("%s: every resource carries the project and expiry tags: tags is body, name or a "
+                               "call" % where)
+            creates.append(sid)
+            known.add(sid)
+        if s["do"] == "wait":
+            until = s.get("until")
+            if not (isinstance(until, dict) and isinstance(until.get("field"), str)
+                    and len(set(until) & {"equals", "in", "contains"}) == 1):
+                raise LabError("%s: until has a field and one of equals, in, contains" % where)
+            if not isinstance(s.get("within"), int) or s["within"] <= 0:
+                raise LabError("%s: within is a number of seconds" % where)
+        known |= set(save)
+        ids.append(sid)
+    checks = r["checks"]
+    if not isinstance(checks, list) or not checks:
+        raise LabError("checks is a list with at least one check")
+    cids = set()
+    for c in checks:
+        if not (isinstance(c, dict) and isinstance(c.get("id"), str) and _ID_RE.match(c["id"])
+                and isinstance(c.get("says"), str) and c.get("step") in ids and c["id"] not in cids):
+            raise LabError("a check has its own id, says what it checks and names a step of the recipe")
+        cids.add(c["id"])
+        kinds = [k for k in ("reached", "status", "equals", "contains", "present") if k in c]
+        if len(kinds) != 1:
+            raise LabError("check %s: one of reached, status, equals, contains, present" % c["id"])
+        if kinds[0] in ("equals", "contains", "present") and not isinstance(c.get("field"), str):
+            raise LabError("check %s: a field check names the field" % c["id"])
+        if kinds[0] == "reached" and next(s for s in steps if s["id"] == c["step"])["do"] != "wait":
+            raise LabError("check %s: reached is the check of a wait step" % c["id"])
+        if kinds[0] == "status" and not (isinstance(c["status"], list) and c["status"]
+                                         and all(isinstance(x, int) for x in c["status"])):
+            raise LabError("check %s: status is a list of HTTP statuses" % c["id"])
+    teardown = r["teardown"]
+    if not isinstance(teardown, dict) or set(teardown) != set(creates):
+        raise LabError("teardown has one entry for every create step and no other")
+    for sid, t in teardown.items():
+        where = "teardown %s" % sid
+        if not (isinstance(t, dict) and set(t) <= {"call", "gone", "confirm"} and isinstance(t.get("gone"), dict)):
+            raise LabError("%s: an entry has a call and a gone proof" % where)
+        _check_call(t.get("call"), where)
+        g = t["gone"]
+        if not set(g) <= {"call", "status", "field", "in", "within"}:
+            raise LabError("%s: gone has call, status, field, in and within" % where)
+        _check_call(g.get("call"), where + " gone")
+        if g["call"]["method"] not in ("GET", "HEAD"):
+            raise LabError("%s: the gone proof is a read" % where)
+        if not (isinstance(g.get("status"), list) and g["status"]) and not ("field" in g and "in" in g):
+            raise LabError("%s: gone names the statuses or the field values that prove the resource gone" % where)
+        if (_refs(t["call"]) | _refs(g["call"])) - known - {"id"}:
+            raise LabError("%s: refers to a value it does not have" % where)
+    if len(creates) > guard["resources"]:
+        raise LabError("cost guard: the recipe creates %d resources and its guard allows %d"
+                       % (len(creates), guard["resources"]))
+    if guard["resources"] > MAX_RESOURCES or guard["lifetime_minutes"] > MAX_LIFETIME:
+        raise LabError("cost guard: a recipe may create at most %d resource(s) for at most %d minutes"
+                       % (MAX_RESOURCES, MAX_LIFETIME))
+    if budget["minutes"] + budget["teardown_minutes"] > guard["lifetime_minutes"]:
+        raise LabError("cost guard: the time budget and the teardown (%d minutes) exceed the lifetime of the guard "
+                       "(%d minutes)" % (budget["minutes"] + budget["teardown_minutes"], guard["lifetime_minutes"]))
+    kb = r.get("kb")
+    if kb is not None and not (isinstance(kb, dict) and kb.get("scope") in ("tcp", "hcs")
+                               and isinstance(kb.get("tags"), list) and kb["tags"]
+                               and kb.get("class") in ("availability", "api", "stable")
+                               and isinstance(kb.get("statement"), str)):
+        raise LabError("kb has scope, tags, class and statement")
+
+
+def confirm_notes(r: dict) -> list[tuple[str, str]]:
+    """(where, note) of every step or teardown the recipe marks "to confirm live"."""
+    out = [(s["id"], s["confirm"]) for s in r["steps"] if s.get("confirm")]
+    out += [("teardown " + k, t["confirm"]) for k, t in r["teardown"].items() if t.get("confirm")]
+    return out
+
+
+def params_of(r: dict, given: list[str]) -> dict[str, str]:
+    """The parameters with their defaults, then what --param K=V gives; refused when a value leaves its pattern or
+    its choices (part of the cost guard: a flavor or a size outside the recipe's range)."""
+    out = {k: p["default"] for k, p in r["params"].items()}
+    for item in given:
+        if "=" not in item:
+            raise LabError("a parameter reads K=V")
+        k, v = item.split("=", 1)
+        if k not in r["params"]:
+            raise LabError("the recipe has no parameter %s" % (k if _VAR_RE.match(k) else "of that name"))
+        out[k] = v
+    for k, v in out.items():
+        p = r["params"][k]
+        if "pattern" in p and not re.fullmatch(p["pattern"], v):
+            raise LabError("cost guard: the value of %s is outside what the recipe allows" % k)
+        if "choices" in p and v not in p["choices"]:
+            raise LabError("the value of %s is not one of %s" % (k, ", ".join(sorted(p["choices"]))))
+        if not re.fullmatch(r"[A-Za-z0-9_.:/=+-]{0,200}", v):
+            raise LabError("the value of %s holds characters a call does not take" % k)
+    return out
+
+
+# --------------------------------------------------------------------------- values
+
+
+def dig(obj: Any, path: str) -> Any:
+    """`a.b.0.c` in an answer; None when a part is absent."""
+    for part in path.split(".") if path else []:
+        if isinstance(obj, dict) and part in obj:
+            obj = obj[part]
+        elif isinstance(obj, list) and part.lstrip("-").isdigit() and -len(obj) <= int(part) < len(obj):
+            obj = obj[int(part)]
+        else:
+            return None
+    return obj
+
+
+def tags_of(project: str, expiry: str, form: str):
+    if form == "kv":
+        return [{"key": "awb-project", "value": project}, {"key": "awb-expiry", "value": expiry}]
+    if form == "list":
+        return ["awb-project=%s" % project, "awb-expiry=%s" % expiry]
+    return {"awb-project": project, "awb-expiry": expiry}
+
+
+def expand(obj, env: dict[str, str], *, loose: bool = False, depth: int = 0):
+    """Fill ${var}, ${base64:var}, a whole ${int:var} (a number) and a whole ${tags:FORM} value; a value that
+    holds ${...} itself is filled too.
+    `loose` (the dry run) shows a value no step has given yet as <var>."""
+    if depth > 5:
+        raise Stop("a value refers to itself")
+    if isinstance(obj, dict):
+        return {k: expand(v, env, loose=loose, depth=depth) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [expand(v, env, loose=loose, depth=depth) for v in obj]
+    if not isinstance(obj, str):
+        return obj
+    m = _WHOLE_RE.match(obj)
+    if m:
+        return tags_of(env.get("project", "<project>"), env.get("expiry", "<expiry>"), m.group(2))
+    m = _INT_RE.match(obj)
+    if m:
+        value = expand("${%s}" % m.group(1), env, loose=loose, depth=depth)
+        if value.lstrip("-").isdigit():
+            return int(value)
+        if loose:
+            return value
+        raise Stop("the value of %s is not a whole number" % m.group(1))
+
+    def one(m):
+        ref = m.group(1)
+        var = ref.split(":", 1)[1] if ref.startswith("base64:") else ref
+        if var not in env:
+            if loose:
+                return "<base64 of %s>" % var if var != ref else "<%s>" % var
+            raise Stop("no value for %s" % var)
+        value = expand(str(env[var]), env, loose=loose, depth=depth + 1)
+        return base64.b64encode(value.encode("utf-8")).decode("ascii") if var != ref else value
+    return _REF_RE.sub(one, obj)
+
+
+# --------------------------------------------------------------------------- the run
+
+
+@dataclass
+class Resource:
+    step: str
+    kind: str
+    type: str
+    cost: str
+    id: str                 # empty when the create answered without one and find found none
+    handle: str
+    name: str = ""
+    state: str = "live"
+    proof: str = ""
+    owner_line: str = ""
+
+
+@dataclass
+class CallRecord:
+    n: int
+    phase: str
+    step: str
+    method: str
+    service: str
+    path: str
+    status: str
+    fields: dict = field(default_factory=dict)
+    polls: int = 1
+
+
+def _send_default(req: dict) -> dict:
+    from awb.tcp import keys
+
+    return keys.request(keys.call_socket(), req)
+
+
+class Run:
+    """One run of a recipe. `send(req) -> answer` is the key service (a stand-in in the tests); `clock`, `sleep`
+    and `now` are the time."""
+
+    def __init__(self, recipe: dict, params: dict[str, str], project: str, tenant: str, folder: Path,
+                 handles, *, send: Callable[[dict], dict] | None = None, clock=time.monotonic, sleep=time.sleep,
+                 now: datetime.datetime | None = None, out=print, err=None):
+        self.r = recipe
+        self.params = params
+        self.project = project
+        self.tenant = tenant
+        self.folder = Path(folder)
+        self.handles = handles
+        self.send = send or _send_default
+        self.clock = clock
+        self.sleep = sleep
+        self.started_at = now or datetime.datetime.now(datetime.timezone.utc)
+        self.out = out
+        self.err = err or (lambda line: print(line, file=sys.stderr))
+        self.region = params.get("region") or "eu-de"
+        lifetime = datetime.timedelta(minutes=recipe["guard"]["lifetime_minutes"])
+        expiry = (self.started_at + lifetime).date()
+        rand = "".join(secrets.choice(string.ascii_lowercase) for _ in range(4))
+        self.env: dict[str, str] = {"project": project, "tenant": tenant, "region": self.region,
+                                    "expiry": expiry.isoformat(), "expiry8": expiry.strftime("%Y%m%d"), "rand": rand}
+        self.env["name"] = "%s-lab-%s-%s" % (project, self.env["expiry8"], rand)
+        self.env.update(params)
+        for k, p in recipe["params"].items():
+            self.env.update((p.get("choices") or {}).get(params[k], {}))
+        for k, v in (recipe.get("vars") or {}).items():
+            self.env[k] = v
+        self.calls: list[CallRecord] = []
+        self.checks: list[tuple[dict, str, str]] = []      # (check, got, passed|failed|not run)
+        self.made: list[Resource] = []
+        self.results: dict[str, dict] = {}
+        self.outcome = ""
+        self.reason = ""
+        self.deadline = 0.0
+        self.t0 = 0.0
+        self.t_end = 0.0
+        self.signals_in_teardown = 0
+        self.in_teardown = False
+        self.critical = False
+        self.pending = ""
+
+    # ----------------------------------------------------------------- calls
+
+    def _req(self, call: dict, role: str = "lab") -> dict:
+        c = expand(call, self.env)
+        return {"op": "call", "tenant": self.tenant, "role": role, "method": c["method"], "service": c["service"],
+                "path": c["path"], "region": self.region, "query": c.get("query") or {}, "body": c.get("body"),
+                "project": self.project}
+
+    def _call(self, phase: str, step: str, call: dict, role: str = "lab", record: CallRecord | None = None,
+              timed: bool = True):
+        if timed and phase == "run" and self.deadline and self.clock() > self.deadline:
+            raise Stop("the time budget of %d minutes ran out" % self.r["budget"]["minutes"])
+        req = self._req(call, role)
+        try:
+            answer = self.send(req)
+        except Exception as exc:                         # KeysError and the like: no answer at all
+            answer = {"ok": False, "error": "no answer from the key service (%s)" % type(exc).__name__}
+        if not isinstance(answer, dict):
+            answer = {"ok": False, "error": "the key service gave no readable answer"}
+        status = ("%d" % int(answer.get("status") or 0)) if answer.get("ok") else \
+            "refused: %s" % self._clean("error", str(answer.get("error") or "refused"))
+        if record is None:
+            record = CallRecord(len(self.calls) + 1, phase, step, req["method"], req["service"],
+                                self.handles.mask(req["path"]), status)
+            self.calls.append(record)
+        else:
+            record.polls += 1
+            record.status = status
+        return answer, record
+
+    @staticmethod
+    def status(answer: dict) -> int:
+        return int(answer.get("status") or 0) if answer.get("ok") else 0
+
+    def _clean(self, name: str, value) -> str:
+        """A value for the evidence: withheld when its field name or its text looks like a key, a token or a
+        secret; ids as handles."""
+        from awb import gate
+
+        if _SECRETISH.search(name):
+            return "<withheld>"
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
+        text = re.sub(r"[\r\n\t|]+", " ", text)
+        if len(text) > 120:
+            text = text[:117] + "..."
+        if any(gate.DETECTORS[d](text) for d in ("secret", "token", "private-key")) or "<secret>" in text:
+            return "<withheld>"
+        return self.handles.mask(text)
+
+    def _read(self, record: CallRecord, answer: dict, path: str):
+        path = expand(path, self.env)
+        value = dig(answer.get("data"), path)
+        record.fields[self.handles.mask(path)] = self._clean(path, value)
+        return value
+
+    # ----------------------------------------------------------------- RESOURCES.md
+
+    def _rows_path(self) -> Path:
+        return self.folder / "RESOURCES.md"
+
+    def _row(self, res: Resource, note: str) -> str:
+        return "| %s | %s | %s | %s | %s | %s | %s | %s |\n" % (
+            res.handle, res.id or "unknown", res.type, self.region, res.cost, self.env["expiry"], res.state,
+            note.replace("|", "/"))
+
+    def _write_row(self, res: Resource, note: str) -> None:
+        from awb import projects
+
+        path = self._rows_path()
+        if not path.exists():
+            path.write_text(projects._resources(self.project), encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines(keepends=True)
+        row = self._row(res, note)
+        for i, line in enumerate(lines):
+            cells = [c.strip() for c in line.strip().strip("|").split("|")] if line.strip().startswith("|") else []
+            if cells and cells[0] == res.handle:
+                lines[i] = row
+                break
+        else:
+            if lines and not lines[-1].endswith("\n"):
+                lines[-1] += "\n"
+            lines.append(row)
+        tmp = path.with_name(".RESOURCES.md.tmp")
+        tmp.write_text("".join(lines), encoding="utf-8")
+        os.replace(tmp, path)
+
+    def _label(self) -> str:
+        return "awb lab run %s %s" % (self.r["name"], self.started_at.date().isoformat())
+
+    def _register(self, step: dict, rid: str, name: str = "") -> Resource:
+        res = step["resource"]
+        handle = self.handles.handle(res["kind"], rid or ("name:" + (name or step["id"] + self.env["rand"])))
+        self.handles.save()
+        r = Resource(step["id"], res["kind"], res["type"], res["cost"], rid, handle, name)
+        self.made.append(r)
+        if rid:
+            self._write_row(r, self._label())
+        else:
+            r.owner_line = ("created without an id in its answer: find it by its name %s on %s and delete it, then "
+                            "set this row to deleted" % (name or self.env["name"], self.tenant))
+            self._write_row(r, "%s: %s" % (self._label(), r.owner_line))
+        return r
+
+    # ----------------------------------------------------------------- steps
+
+    def _create(self, step: dict) -> None:
+        if len(self.made) >= self.r["guard"]["resources"]:
+            raise Stop("cost guard: the run would create more than %d resources" % self.r["guard"]["resources"])
+        # a signal between the create call and its row would lose a resource: it waits until the row is written
+        self.critical = True
+        try:
+            answer, rec = self._call("run", step["id"], step["call"])
+            st = self.status(answer)
+            if "id_value" in step:
+                # an id the recipe names itself (a bucket): made when the answer is 2xx, maybe made without one
+                rid = expand(step["id_value"], self.env) if (200 <= st < 300 or st == 0 or st >= 500) else None
+            else:
+                rid = self._read(rec, answer, step["id_field"]) if 200 <= st < 300 else None
+            rid = rid if isinstance(rid, str) and rid else None
+            if rid is None and (200 <= st < 300 or st == 0 or st >= 500) and step.get("find"):
+                rid = self._find(step)
+            if rid is None:
+                if 200 <= st < 300:
+                    self._register(step, "", self.env["name"])
+                    raise Stop("%s answered without an id and the find found none" % step["id"])
+                raise Stop("the create %s answered %s" % (step["id"], rec.status))
+            res = self._register(step, rid)
+        finally:
+            self.critical = False
+        if self.pending:
+            raise Interrupted(self.pending)
+        self.env[step["id"]] = rid
+        self.results[step["id"]] = {"answer": answer, "record": rec}
+        tags = step["tags"]
+        if isinstance(tags, dict):
+            saved, self.env = self.env, dict(self.env, id=rid)
+            try:
+                ta, trec = self._call("run", step["id"] + " tags", tags)
+            finally:
+                self.env = saved
+            if not 200 <= self.status(ta) < 300:
+                raise Stop("the tags of %s (%s) could not be set: %s" % (res.handle, step["id"], trec.status))
+
+    def _find(self, step: dict) -> str | None:
+        f = step["find"]
+        within = f.get("within", 60)
+        end = self.clock() + within
+        rec = None
+        while True:
+            # not timed: a resource may exist already and must get its row before the budget stops the run
+            answer, rec = self._call("run", step["id"] + " find", f["call"], record=rec, timed=False)
+            value = self._read(rec, answer, f["field"]) if 200 <= self.status(answer) < 300 else None
+            if isinstance(value, str) and value:
+                return value
+            if self.clock() + EVERY > end:
+                return None
+            self.sleep(EVERY)
+
+    def _cond(self, until: dict, value) -> bool:
+        if "equals" in until:
+            return value == until["equals"]
+        if "in" in until:
+            return value in until["in"]
+        return isinstance(value, str) and expand(until["contains"], self.env) in value
+
+    def _wait(self, step: dict) -> None:
+        until = step["until"]
+        every = step.get("every", EVERY)
+        own_end = self.clock() + step["within"]
+        end = min(own_end, self.deadline or float("inf"))
+        rec = None
+        reached, answer = False, {}
+        while True:
+            answer, rec = self._call("run", step["id"], step["call"], record=rec)
+            value = dig(answer.get("data"), expand(until["field"], self.env)) if answer.get("ok") else None
+            if self._cond(until, value):
+                reached = True
+                break
+            if value is not None and value in (step.get("fail_on") or []):
+                break
+            if self.clock() + every > end:
+                break
+            self.sleep(every)
+        shown = "contains %s: %s" % (until["contains"], "yes" if reached else "no") if "contains" in until else \
+            self._clean(until["field"], dig(answer.get("data"), expand(until["field"], self.env)))
+        rec.fields[self.handles.mask(expand(until["field"], self.env))] = shown
+        self.results[step["id"]] = {"answer": answer, "record": rec, "reached": reached}
+        if not reached and end < own_end and self.clock() + every > end:
+            raise Stop("the time budget of %d minutes ran out in %s" % (self.r["budget"]["minutes"], step["id"]))
+        if not reached and not any(c.get("step") == step["id"] and "reached" in c for c in self.r["checks"]):
+            raise Stop("%s did not reach its state within %d s" % (step["id"], step["within"]))
+
+    def _plain(self, step: dict) -> None:
+        answer, rec = self._call("run", step["id"], step["call"])
+        self.results[step["id"]] = {"answer": answer, "record": rec}
+        st = self.status(answer)
+        if not 200 <= st < 300 and not any(c.get("step") == step["id"] and "status" in c for c in self.r["checks"]):
+            raise Stop("%s answered %s" % (step["id"], rec.status))
+
+    def _save(self, step: dict) -> None:
+        res = self.results.get(step["id"]) or {}
+        for var, path in (step.get("save") or {}).items():
+            value = self._read(res["record"], res["answer"], path)
+            if value is None or isinstance(value, (dict, list)):
+                raise Stop("%s: the answer holds no %s" % (step["id"], path))
+            self.env[var] = str(value)
+
+    def _check(self, c: dict) -> None:
+        res = self.results.get(c["step"]) or {}
+        answer = res.get("answer") or {}
+        if "reached" in c:
+            got = "reached" if res.get("reached") else "not reached"
+            ok = bool(res.get("reached"))
+        elif "status" in c:
+            got = res["record"].status
+            ok = self.status(answer) in c["status"]
+        else:
+            path = expand(c["field"], self.env)
+            value = dig(answer.get("data"), path) if 200 <= self.status(answer) < 300 else None
+            if "contains" in c:
+                want = expand(c["contains"], self.env)
+                ok = isinstance(value, str) and want in value
+                got = "contains it" if ok else "does not contain it"
+            elif "present" in c:
+                ok = (value not in (None, "", [], {})) == bool(c["present"])
+                got = "present" if value not in (None, "", [], {}) else "absent"
+            else:
+                want = expand(c["equals"], self.env) if isinstance(c["equals"], str) else c["equals"]
+                ok = value == want
+                got = self._clean(path, value)
+            if "contains" not in c:
+                res["record"].fields[self.handles.mask(path)] = self._clean(path, value)
+        self.checks.append((c, got, "passed" if ok else "failed"))
+        if not ok:
+            raise CheckFailed(c["id"])
+
+    def _expected(self, c: dict) -> str:
+        if "reached" in c:
+            return "reached within the wait"
+        if "status" in c:
+            return "HTTP " + " or ".join(str(s) for s in c["status"])
+        if "contains" in c:
+            return "%s contains %s" % (c["field"], self._clean("x", expand(c["contains"], self.env, loose=True)))
+        if "present" in c:
+            return "%s %s" % (c["field"], "present" if c["present"] else "absent")
+        return "%s = %s" % (c["field"], self._clean(c["field"], expand(c["equals"], self.env, loose=True)
+                                                     if isinstance(c["equals"], str) else c["equals"]))
+
+    # ----------------------------------------------------------------- the whole
+
+    def probe(self) -> str | None:
+        """The grant as the key service sees it: one read; None when it lets the project through, else its
+        refusal."""
+        answer, rec = self._call("grant", "grant", PROBE, role="read")
+        if not answer.get("ok"):
+            return str(answer.get("error") or "refused")
+        return None
+
+    def _on_signal(self, signum, frame):
+        if self.in_teardown:
+            self.signals_in_teardown += 1
+            self.err("awb lab: a signal during the teardown is noted; the teardown runs to its end")
+            return
+        if self.critical:
+            self.pending = signal.Signals(signum).name
+            return
+        raise Interrupted(signal.Signals(signum).name)
+
+    def execute(self) -> int:
+        self.t0 = self.clock()
+        self.deadline = self.t0 + self.r["budget"]["minutes"] * 60
+        old = {}
+        if threading.current_thread() is threading.main_thread():
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                old[sig] = signal.signal(sig, self._on_signal)
+        try:
+            try:
+                for step in self.r["steps"]:
+                    {"create": self._create, "wait": self._wait, "call": self._plain}[step["do"]](step)
+                    for c in self.r["checks"]:
+                        if c["step"] == step["id"]:
+                            self._check(c)
+                    self._save(step)
+                self.outcome = "passed"
+            except CheckFailed as exc:
+                self.outcome, self.reason = "check failed", str(exc)
+            except Stop as exc:
+                self.outcome, self.reason = "stopped", str(exc)
+            except (Interrupted, KeyboardInterrupt) as exc:
+                self.outcome, self.reason = "stopped", "interrupted (%s)" % (str(exc) or "SIGINT")
+            except Exception as exc:             # a fault of the runner itself still tears down
+                self.outcome, self.reason = "stopped", "an error in the run (%s)" % type(exc).__name__
+        except (Interrupted, KeyboardInterrupt):
+            # a signal that came while an outcome above was being taken
+            self.outcome, self.reason = self.outcome or "stopped", self.reason or "interrupted"
+        finally:
+            # the teardown runs whatever happened above; a signal from here on is only noted
+            self.in_teardown = True
+            self.outcome = self.outcome or "stopped"
+            try:
+                self.teardown()
+            finally:
+                for sig, handler in old.items():
+                    signal.signal(sig, handler)
+                self.t_end = self.clock()
+        done = {c[0]["id"] for c in self.checks}
+        for c in self.r["checks"]:
+            if c["id"] not in done:
+                self.checks.append((c, "-", "not run"))
+        if any(r.state == "live" for r in self.made):
+            return EXIT_LEFT
+        return {"passed": EXIT_OK, "check failed": EXIT_CHECK}.get(self.outcome, EXIT_STOPPED)
+
+    def teardown(self) -> None:
+        """Delete every resource made, newest first; prove each gone with a read. Never raises."""
+        end = self.clock() + self.r["budget"]["teardown_minutes"] * 60
+        for res in reversed(self.made):
+            try:
+                self._tear(res, end)
+            except BaseException as exc:            # a fault here leaves the row live, the next one still runs
+                res.state, res.proof = "live", "teardown error (%s)" % type(exc).__name__
+            if res.state == "deleted":
+                self._write_row(res, "%s: deleted, %s" % (self._label(), res.proof))
+            else:
+                if not res.owner_line:
+                    t = self.r["teardown"][res.step]
+                    c = expand(t["call"], dict(self.env, id=res.id or "<id>"), loose=True)
+                    res.owner_line = ("LEFT LIVE: delete it with awb cloud call %s %s %s --tenant %s --role lab%s "
+                                      "--project %s, then set this row to deleted"
+                                      % (c["method"], c["service"], c["path"], self.tenant,
+                                         " --body FILE" if c.get("body") is not None else "", self.project))
+                self._write_row(res, "%s: %s (%s)" % (self._label(), res.owner_line, res.proof or "not proven gone"))
+
+    def _tear(self, res: Resource, end: float) -> None:
+        if not res.id:
+            res.state, res.proof = "live", "no id to delete"
+            return
+        t = self.r["teardown"][res.step]
+        g = t["gone"]
+        within = min(g.get("within", GONE_WITHIN), max(end - self.clock(), EVERY))
+        stop_at = self.clock() + within
+        saved = self.env
+        self.env = dict(saved, id=res.id)
+        try:
+            deleted, drec, grec = False, None, None
+            while True:
+                if not deleted:
+                    answer, drec = self._call("teardown", res.handle, t["call"], record=drec)
+                    st = self.status(answer)
+                    deleted = 200 <= st < 300 or st == 404
+                if deleted:
+                    answer, grec = self._call("teardown", res.handle + " gone", g["call"], record=grec)
+                    st = self.status(answer)
+                    gone = answer.get("ok") and (st in (g.get("status") or [])
+                                                 or ("field" in g and 200 <= st < 300
+                                                     and dig(answer.get("data"), g["field"]) in g["in"]))
+                    if gone:
+                        res.state = "deleted"
+                        res.proof = "the read answered %s" % (st if st in (g.get("status") or []) else
+                                                              "%s %s" % (g["field"], dig(answer.get("data"),
+                                                                                         g["field"])))
+                        grec.fields["gone"] = "yes"
+                        return
+                if self.clock() + EVERY > stop_at:
+                    res.state = "live"
+                    res.proof = ("the delete answered %s" % drec.status) if not deleted else \
+                        "still there after %d s (the read answered %s)" % (within, grec.status if grec else "-")
+                    if grec is not None:
+                        grec.fields["gone"] = "no"
+                    return
+                self.sleep(EVERY)
+        finally:
+            self.env = saved
+
+    # ----------------------------------------------------------------- evidence
+
+    def evidence_path(self) -> Path:
+        folder = self.folder / "evidence"
+        folder.mkdir(parents=True, exist_ok=True)
+        stem = "lab-%s-%s-" % (self.r["name"], self.started_at.date().isoformat())
+        taken = [int(p.stem[len(stem):]) for p in folder.glob(stem + "*.md") if p.stem[len(stem):].isdigit()]
+        return folder / ("%s%d.md" % (stem, max(taken + [0]) + 1))
+
+    def kb_line(self, evidence: Path) -> str | None:
+        kb = self.r.get("kb")
+        if not kb or self.outcome != "passed" or any(r.state == "live" for r in self.made):
+            return None
+        statement = expand(kb["statement"], self.env)
+        source = "live lab run of the recipe %s on the test tenant %s, %s" % (
+            self.r["name"], self.tenant, evidence.relative_to(self.folder).as_posix())
+        argv = ["awb", "kb", "add", "--scope", kb["scope"]]
+        for t in kb["tags"]:
+            argv += ["--tag", t]
+        argv += ["--grade", "live", "--class", kb["class"], "--source", source, statement]
+        return " ".join(shlex.quote(a) for a in argv)
+
+    def evidence(self, path: Path) -> str:
+        r = self.r
+        left = [x for x in self.made if x.state == "live"]
+        minutes = (self.t_end - self.t0) / 60.0
+        lines = ["# Lab run %s" % r["name"], "",
+                 "Question: %s" % expand(r["question"], self.env, loose=True), "",
+                 "- result: %s%s" % (self.outcome, (" (%s)" % self.reason) if self.reason else ""),
+                 "- teardown: %s" % ("every resource deleted and proven gone" if not left else
+                                     "%d resource(s) LEFT LIVE: %s" % (len(left), ", ".join(x.handle for x in left))),
+                 "- project %s, tenant %s, region %s" % (self.project, self.tenant, self.region),
+                 "- started %s, took %.1f minutes, %d resource(s) created, %d call(s)"
+                 % (self.started_at.strftime("%Y-%m-%d %H:%M UTC"), minutes, len(self.made),
+                    sum(c.polls for c in self.calls)),
+                 "- cost guard: at most %d resource(s) for at most %d minutes; time budget %d minutes plus %d for the "
+                 "teardown" % (r["guard"]["resources"], r["guard"]["lifetime_minutes"], r["budget"]["minutes"],
+                               r["budget"]["teardown_minutes"]),
+                 "", "## Parameters", "", "| parameter | value |", "|---|---|"]
+        lines += ["| %s | %s |" % (k, self._clean(k, v)) for k, v in sorted(self.params.items())]
+        lines += ["", "## Calls", "",
+                  "Every call went through the key service. A wait or a teardown read shows the number of its polls "
+                  "and its last answer.", "",
+                  "| n | phase | step | method | service | path | status | polls | fields read |",
+                  "|---|---|---|---|---|---|---|---|---|"]
+        for c in self.calls:
+            fields = "; ".join("%s = %s" % (k, v) for k, v in c.fields.items()) or "-"
+            lines.append("| %d | %s | %s | %s | %s | `%s` | %s | %d | %s |" % (
+                c.n, c.phase, c.step, c.method, c.service, c.path, c.status, c.polls, fields))
+        lines += ["", "## Checks", "", "| check | says | expected | got | result |", "|---|---|---|---|---|"]
+        for c, got, result in self.checks:
+            lines.append("| %s | %s | %s | %s | %s |" % (c["id"], c["says"], self._expected(c), got, result))
+        lines += ["", "## Teardown", "", "| handle | type | state | proof |", "|---|---|---|---|"]
+        for x in reversed(self.made):
+            lines.append("| %s | %s | %s | %s |" % (x.handle, x.type, x.state, x.proof or "-"))
+        if not self.made:
+            lines.append("| - | nothing was created | - | - |")
+        notes = confirm_notes(r)
+        if notes:
+            lines += ["", "## To confirm live", "",
+                      "Shapes of the recipe that no earlier live call proved; this run is their first evidence.", ""]
+            ran = {c.step.split(" ")[0] for c in self.calls} | {"teardown " + x.step for x in self.made}
+            for where, note in notes:
+                lines.append("- %s (%s): %s" % (where, "ran" if where in ran else "not reached", note))
+        kb = self.kb_line(path)
+        lines += ["", "## Knowledge base", ""]
+        if kb:
+            lines += ["Every check passed and nothing is left; the fact can go in as live:", "", "```", kb, "```"]
+        elif self.outcome == "check failed":
+            lines.append("A check failed. A negative needs two recorded attempts: run the recipe again and add the "
+                         "fact with two --tried naming both evidence files.")
+        else:
+            lines.append("No fact: the run did not finish its checks or left a resource.")
+        # every id met in this run as its handle, also one read before its handle existed
+        return self._scrub(self.handles.mask("\n".join(lines) + "\n"))
+
+    @staticmethod
+    def _scrub(text: str) -> str:
+        """The last guard: a line in which the gate still finds a secret, a token or a private key is withheld."""
+        from awb import gate
+
+        out = []
+        for line in text.splitlines():
+            if any(gate.DETECTORS[d](line) for d in ("secret", "token", "private-key")):
+                line = "(a line withheld: the gate found a secret class in it)"
+            out.append(line)
+        return "\n".join(out) + "\n"
+
+
+# --------------------------------------------------------------------------- dry run and list
+
+
+def dry_run_lines(r: dict, params: dict[str, str], project: str = "tcp-xxxx", tenant: str = "ALIAS") -> list[str]:
+    env = {"project": project, "tenant": tenant, "region": params.get("region") or "eu-de", "expiry": "<expiry>",
+           "expiry8": "<expiry8>", "rand": "<rand>", "name": "%s-lab-<expiry8>-<rand>" % project}
+    env.update(params)
+    for k, p in r["params"].items():
+        env.update((p.get("choices") or {}).get(params[k], {}))
+    env.update(r.get("vars") or {})
+    out = ["recipe %s: %s" % (r["name"], expand(r["question"], env, loose=True)),
+           "cost guard: at most %d resource(s) for at most %d minutes; budget %d minutes plus %d for the teardown"
+           % (r["guard"]["resources"], r["guard"]["lifetime_minutes"], r["budget"]["minutes"],
+              r["budget"]["teardown_minutes"]),
+           "0. grant: GET vpc /v1/{project_id}/vpcs (read key)"]
+    confirm = dict(confirm_notes(r))
+    creates = []
+    for n, s in enumerate(r["steps"], start=1):
+        c = expand(s["call"], env, loose=True)
+        line = "%d. %s %s: %s %s %s" % (n, s["do"], s["id"], c["method"], c["service"], c["path"])
+        if c.get("query"):
+            line += " ?" + "&".join("%s=%s" % kv for kv in sorted(c["query"].items()))
+        if s["do"] == "wait":
+            u = s["until"]
+            how = next(k for k in ("equals", "in", "contains") if k in u)
+            line += " until %s %s %s within %d s" % (u["field"], how, json.dumps(u[how]), s["within"])
+        out.append(line)
+        if c.get("body") is not None:
+            out.append("   body: %s" % json.dumps(c["body"], sort_keys=True))
+        if s["do"] == "create":
+            creates.append(s["id"])
+            tags = s["tags"]
+            if isinstance(tags, dict):
+                t = expand(tags, dict(env, id="<id>"), loose=True)
+                out.append("   tags: %s %s %s" % (t["method"], t["service"], t["path"]))
+            else:
+                out.append("   tags: in the %s" % tags)
+            out.append("   row in RESOURCES.md: %s (%s, cost %s)" % (s["resource"]["kind"], s["resource"]["type"],
+                                                                      s["resource"]["cost"]))
+        for ch in r["checks"]:
+            if ch["step"] == s["id"]:
+                out.append("   check %s: %s" % (ch["id"], ch["says"]))
+        if s["id"] in confirm:
+            out.append("   to confirm live: %s" % confirm[s["id"]])
+    out.append("teardown, newest first, each proven gone with a read:")
+    for sid in reversed(creates):
+        t = r["teardown"][sid]
+        c = expand(t["call"], dict(env, id="<%s>" % sid), loose=True)
+        g = expand(t["gone"]["call"], dict(env, id="<%s>" % sid), loose=True)
+        out.append("   %s: %s %s %s, then %s %s %s" % (sid, c["method"], c["service"], c["path"], g["method"],
+                                                     g["service"], g["path"]))
+        if t.get("confirm"):
+            out.append("   to confirm live: %s" % t["confirm"])
+    out.append("dry run: no call was made")
+    return out
+
+
+def list_lines() -> list[str]:
+    out = []
+    folder = recipes_dir()
+    for p in sorted(folder.glob("*.json")) if folder.is_dir() else []:
+        try:
+            r = load(p)
+        except LabError as err:
+            out.append("%-22s refused: %s" % (p.stem, err))
+            continue
+        out.append("%-22s %s" % (r["name"], expand(r["question"], {k: v["default"] for k, v in r["params"].items()}
+                                                   | {"region": r["params"].get("region", {}).get("default",
+                                                                                                  "eu-de")},
+                                                   loose=True)))
+        out.append("%-22s guard: at most %d resource(s) for %d minutes; %d step(s) to confirm live"
+                   % ("", r["guard"]["resources"], r["guard"]["lifetime_minutes"], len(confirm_notes(r))))
+    if not out:
+        out.append("no recipe under recipes/")
+    return out
+
+
+# --------------------------------------------------------------------------- preflight and command line
+
+
+def project_folder(code: str) -> Path:
+    """The folder of an active project of the kind project that may reach a tenant; refused otherwise. Where this
+    user can read the owner's grants, the grant must be there too."""
+    from awb import codes, config, grants, projects, review
+
+    if not codes.is_project_code(code or ""):
+        raise LabError("a project code reads like tcp-q7m4")
+    p = config.paths()
+    try:
+        rows = projects.load(p)
+    except Exception:
+        raise LabError("the project register cannot be read") from None
+    row = next((x for x in rows if x.code == code and x.state == "active"), None)
+    if row is None:
+        raise LabError("%s is not an active project" % code)
+    if not projects.tenant_access(row.kind):
+        raise LabError("%s is a query: it has no test tenant; the owner switches it with awb projects kind %s project"
+                       % (code, code))
+    if grants.readable(p) and not grants.granted(p, code):
+        raise LabError("%s has no grant of the owner: he runs awb projects kind %s project in his own terminal"
+                       % (code, code))
+    folder = Path(row.path)
+    if not (folder / "SCOPE.md").is_file():
+        raise LabError("the folder of %s has no SCOPE.md" % code)
+    here = review.find_project()
+    if (here / "SCOPE.md").is_file() and here.resolve() != folder.resolve():
+        raise LabError("this session works in another project's folder; run the recipe from the folder of %s" % code)
+    return folder
+
+
+def run(name: str, project: str, tenant: str, given: list[str], *, send=None, clock=time.monotonic,
+        sleep=time.sleep, now=None, out=print, err=None) -> int:
+    from awb import config
+    from awb.tcp import sweep
+
+    err = err or (lambda line: print(line, file=sys.stderr))
+    try:
+        r = load(find(name))
+        params = params_of(r, given)
+        if not re.match(r"^[a-z][a-z0-9-]{1,30}$", tenant or ""):
+            raise LabError("a tenant alias reads like test-1")
+        folder = project_folder(project)
+        handles = sweep.Handles(sweep.handles_path(config.paths()))
+    except (LabError, sweep.SweepError) as e:
+        err("awb lab: %s" % e)
+        return EXIT_STOPPED
+    job = Run(r, params, project, tenant, folder, handles, send=send or _send_default, clock=clock, sleep=sleep,
+              now=now, out=out, err=err)
+    refusal = job.probe()
+    if refusal is not None:
+        err("awb lab: the grant check through the key service failed: %s" % refusal)
+        return EXIT_STOPPED
+    out("awb lab: %s on %s for %s: %d step(s), at most %d resources, budget %d minutes"
+        % (r["name"], tenant, project, len(r["steps"]), r["guard"]["resources"], r["budget"]["minutes"]))
+    code = job.execute()
+    path = job.evidence_path()
+    path.write_text(job.evidence(path), encoding="utf-8")
+    rel = path.relative_to(folder).as_posix()
+    for c, got, result in job.checks:
+        out("check %s: %s (%s)" % (c["id"], result, c["says"]))
+    out("result: %s%s" % (job.outcome, (" (%s)" % job.reason) if job.reason else ""))
+    left = [x for x in job.made if x.state == "live"]
+    if left:
+        for x in left:
+            err("awb lab: %s (%s) is LEFT LIVE; its row in RESOURCES.md says what to do" % (x.handle, x.type))
+    else:
+        out("teardown: %d resource(s) deleted and proven gone" % len(job.made))
+    out("evidence: %s" % rel)
+    kb = job.kb_line(path)
+    if kb:
+        out("knowledge base (run it when the fact is worth keeping):")
+        out(kb)
+    return code
+
+
+def main(argv: list[str] | None = None) -> int:
+    from awb.cli import SafeParser
+
+    ap = SafeParser(prog="awb lab", description="Lab recipes: a live check on a test tenant in one command.")
+    sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
+    sub.add_parser("list", help="the recipes, their question and their cost guard")
+    d = sub.add_parser("dry-run", help="the calls a run would make; no call is made")
+    d.add_argument("recipe")
+    d.add_argument("--param", action="append", default=[], metavar="K=V")
+    d.add_argument("--project", default="tcp-xxxx")
+    d.add_argument("--tenant", default="ALIAS")
+    rn = sub.add_parser("run", help="raise, check, write the evidence and always tear down")
+    rn.add_argument("recipe")
+    rn.add_argument("--project", required=True)
+    rn.add_argument("--tenant", required=True)
+    rn.add_argument("--param", action="append", default=[], metavar="K=V")
+    try:
+        args = ap.parse_args(argv)
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else EXIT_STOPPED
+    if not args.command:
+        ap.print_usage(sys.stderr)
+        return EXIT_STOPPED
+    if args.command == "list":
+        print("\n".join(list_lines()))
+        return EXIT_OK
+    if args.command == "dry-run":
+        try:
+            r = load(find(args.recipe))
+            print("\n".join(dry_run_lines(r, params_of(r, args.param), args.project, args.tenant)))
+        except LabError as e:
+            print("awb lab: %s" % e, file=sys.stderr)
+            return EXIT_STOPPED
+        return EXIT_OK
+    return run(args.recipe, args.project, args.tenant, args.param)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

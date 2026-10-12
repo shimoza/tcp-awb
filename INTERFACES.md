@@ -1117,3 +1117,25 @@ does not descend from it. The root path imports neither
   `comparison_lines`; `TEXT` (the fixed texts, `en` and `de`), `money(value, lang)`. `awb pricebook build|diff`.
   The monthly figure is `round(rate * quantity * hours, 2)` through `calc.evaluate`; the workbook is read back
   and compared with the computed figures before it is written.
+
+## Lab recipes (`awb lab`, 2026-10-11)
+
+- `awb/tcp/lab.py`: `find(name_or_path) -> Path` (a name under `recipes/` (`AWB_RECIPES` in tests) or a .json file),
+  `load(path) -> dict`, `validate(recipe)` (refuses a malformed recipe, a value no earlier step gives, a create
+  without a teardown or without the tags, a guard the recipe breaks or above `MAX_RESOURCES` 12 and `MAX_LIFETIME`
+  120 minutes), `params_of(recipe, ["K=V"]) -> dict`, `confirm_notes(recipe) -> [(where, note)]`,
+  `expand(obj, env, loose=False)` (`${var}`, `${base64:var}`, `${int:var}`, `${tags:kv|list|dict}`),
+  `dig(answer, "a.b.0")`, `tags_of(project, expiry, form)`, `dry_run_lines(recipe, params, project, tenant)`,
+  `list_lines()`, `project_folder(code) -> Path` (an active row of the kind project, the owner's grant where it
+  can be read, the working folder not another project's), `run(name, project, tenant, params, *, send=None,
+  clock, sleep, now, out, err) -> exit code` (0 passed, 1 a check failed, 2 refused or stopped, 4 a resource left
+  live), `main(argv)`; `LabError`, `Stop`, `CheckFailed`, `Interrupted`.
+- `Run(recipe, params, project, tenant, folder, handles, *, send, clock, sleep, now, out, err)`: `probe()` (the
+  grant through the key service: one read, `None` or the refusal), `execute() -> exit code` (the steps and their
+  checks, then `teardown()` in every case, SIGINT and SIGTERM held during the teardown and during a create until
+  its row is written), `evidence_path()`, `evidence(path) -> str`, `kb_line(path) -> str | None`; `calls`
+  (`CallRecord`), `checks`, `made` (`Resource`: step, kind, type, cost, id, handle, state, proof, owner_line).
+  `send(req) -> answer` takes the request of the call socket of `awb/tcp/keys.py` (op call, role lab, the
+  project code) and answers like it.
+- `recipes/*.json`: the recipes; `recipes/README.md`: the format. `tests/lab_fake.py`: `FakeKeyService` (an
+  invented cloud behind the call socket's answer shape) and `Clock`.

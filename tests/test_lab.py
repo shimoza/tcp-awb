@@ -1,0 +1,644 @@
+"""awb/tcp/lab.py: lab recipes raise resources on a test tenant, check, write evidence and always tear down.
+
+The runs go to the stand-in key service of tests/lab_fake.py (an invented cloud in memory) with a clock that moves
+only when the run sleeps; one run goes through the real key service of awb/tcp/keys.py and the signing stand-in
+gateway of tests/tcp_fake.py. Every id, key and secret here is invented.
+"""
+from __future__ import annotations
+
+import copy
+import json
+import os
+import re
+import signal
+from pathlib import Path
+
+import pytest
+
+from awb import cli, grants, projects
+from awb.tcp import lab
+from tests.lab_fake import Clock, FakeKeyService
+
+PROJECT = "tcp-ab2c"
+TENANT = "test-1"
+REPO_RECIPES = Path(__file__).resolve().parent.parent / "recipes"
+SECRET_LONG = "".join(("Zq8Rk2", "Lm9Vx4", "Tn7Pw3", "Hs6Jd1Fg5"))     # built from pieces: an invented value
+TOKEN = "".join(("gAAAAAB", "plantedtoken", "0123456789"))              # an invented token, in pieces
+IMAGE_ID = ("0b1c2d3e", "aaaa", "4bbb", "8ccc", "0d1e2f3a4b5c")          # an invented image id, in pieces
+
+RECIPE = {
+    "name": "widget-check",
+    "question": "Does a widget of size ${size} reach ACTIVE in ${region} and refuse the forbidden path?",
+    "params": {"size": {"default": "small", "pattern": "^(small|medium)$"},
+               "region": {"default": "eu-de", "pattern": "^eu-(de|nl)$"}},
+    "budget": {"minutes": 10, "teardown_minutes": 5},
+    "guard": {"resources": 2, "lifetime_minutes": 20},
+    "steps": [
+        {"id": "widget", "do": "create", "says": "a widget",
+         "call": {"method": "POST", "service": "vpc", "path": "/v1/{project_id}/widgets",
+                  "body": {"widget": {"name": "${name}", "size": "${size}", "tags": "${tags:list}"}}},
+         "id_field": "widget.id", "resource": {"kind": "wid", "type": "widget", "cost": "none"}, "tags": "body"},
+        {"id": "widget-active", "do": "wait", "says": "the widget is ACTIVE",
+         "call": {"method": "GET", "service": "vpc", "path": "/v1/{project_id}/widgets/${widget}"},
+         "until": {"field": "widget.status", "equals": "ACTIVE"}, "fail_on": ["ERROR"], "within": 120,
+         "every": 10},
+        {"id": "gadget", "do": "create", "says": "a gadget",
+         "call": {"method": "POST", "service": "vpc", "path": "/v1/{project_id}/gadgets",
+                  "body": {"gadget": {"name": "${name}", "widget": "${widget}"}}},
+         "id_field": "gadget.id", "resource": {"kind": "gad", "type": "gadget", "cost": "small"},
+         "tags": {"method": "POST", "service": "vpc", "path": "/v1/{project_id}/gadgets/${id}/tags/action",
+                  "body": {"action": "create", "tags": "${tags:kv}"}},
+         "confirm": "the gadget shape"},
+        {"id": "read", "do": "call", "says": "read the widget",
+         "call": {"method": "GET", "service": "vpc", "path": "/v1/{project_id}/widgets/${widget}"}},
+        {"id": "try", "do": "call", "says": "the forbidden path",
+         "call": {"method": "GET", "service": "vpc", "path": "/v1/{project_id}/forbidden"}},
+    ],
+    "checks": [
+        {"id": "active", "step": "widget-active", "says": "the widget reaches ACTIVE", "reached": True},
+        {"id": "size", "step": "read", "says": "the widget has the size asked for", "field": "widget.size",
+         "equals": "${size}"},
+        {"id": "refused", "step": "try", "says": "the forbidden path is refused", "status": [403]},
+    ],
+    "teardown": {
+        "widget": {"call": {"method": "DELETE", "service": "vpc", "path": "/v1/{project_id}/widgets/${id}"},
+                   "gone": {"call": {"method": "GET", "service": "vpc", "path": "/v1/{project_id}/widgets/${id}"},
+                            "status": [404]}},
+        "gadget": {"call": {"method": "DELETE", "service": "vpc", "path": "/v1/{project_id}/gadgets/${id}"},
+                   "gone": {"call": {"method": "GET", "service": "vpc", "path": "/v1/{project_id}/gadgets/${id}"},
+                            "status": [404], "within": 60}},
+    },
+    "kb": {"scope": "tcp", "tags": ["vpc"], "class": "api",
+           "statement": "A widget of size ${size} reaches ACTIVE in ${region}."},
+}
+
+
+def write_recipe(folder: Path, recipe: dict) -> Path:
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / ("%s.json" % recipe["name"])
+    path.write_text(json.dumps(recipe), encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def project(home, monkeypatch, tmp_path):
+    """An active project of the kind project with the owner's grant and the session working in its folder; also the
+    recipe folder of the test."""
+    folder = home.projects_root / PROJECT
+    (folder / "evidence").mkdir(parents=True)
+    (folder / "SCOPE.md").write_text("# Scope\n\n- code: %s\n" % PROJECT, encoding="utf-8")
+    (folder / "RESOURCES.md").write_text(projects._resources(PROJECT), encoding="utf-8")
+    home.projects_register.parent.mkdir(parents=True, exist_ok=True)
+    projects._save(home, [projects.Project(PROJECT, "project", projects.NO_CUSTOMER, "tcp", str(folder),
+                                           projects.memory_key(str(folder)), "active", "2026-10-11")])
+    grants.grant(home, PROJECT, "project")
+    monkeypatch.chdir(folder)
+    monkeypatch.setenv(lab.RECIPES_ENV, str(tmp_path / "recipes"))
+    write_recipe(tmp_path / "recipes", RECIPE)
+    return folder
+
+
+def run(fake, recipe="widget-check", params=(), clock=None, **kw):
+    clock = clock or Clock()
+    lines: list[str] = []
+    errors: list[str] = []
+    code = lab.run(recipe, PROJECT, TENANT, list(params), send=fake, clock=clock, sleep=clock.sleep,
+                   out=lines.append, err=errors.append, **kw)
+    return code, lines, errors
+
+
+def evidence(folder: Path) -> str:
+    files = sorted((folder / "evidence").glob("lab-*.md"))
+    assert len(files) == 1, files
+    return files[0].read_text(encoding="utf-8")
+
+
+def rows(folder: Path) -> list[dict]:
+    head, out = None, []
+    for line in (folder / "RESOURCES.md").read_text(encoding="utf-8").splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if head is None:
+            head = cells
+        elif not all(set(c) <= set("-: ") for c in cells):
+            out.append(dict(zip(head, cells)))
+    return out
+
+
+def writes(fake) -> list[tuple[str, str]]:
+    return [(r["method"], r["path"]) for r in fake.calls if r["method"] != "GET"]
+
+
+# --------------------------------------------------------------------------- a run that passes
+
+
+def test_a_recipe_that_passes_tags_every_resource_records_it_and_proves_it_gone(project):
+    fake = FakeKeyService(polls_to_active=2)
+    code, lines, errors = run(fake)
+    assert code == lab.EXIT_OK, (lines, errors)
+    assert len(fake.created()) == 2 and fake.live() == []
+    # the grant probe first, with the read key; every other call with the lab key and the project code
+    assert fake.calls[0]["role"] == "read" and fake.calls[0]["path"] == "/v1/{project_id}/vpcs"
+    assert all(r["role"] == "lab" and r["project"] == PROJECT and r["tenant"] == TENANT for r in fake.calls[1:])
+    widget, gadget = fake.items.values()
+    assert widget["body"]["tags"] == ["awb-project=%s" % PROJECT, "awb-expiry=%s" % widget["body"]["tags"][1][11:]]
+    assert re.match(r"^\d{4}-\d{2}-\d{2}$", widget["body"]["tags"][1][11:])
+    assert gadget["tags"] == [{"key": "awb-project", "value": PROJECT},
+                              {"key": "awb-expiry", "value": widget["body"]["tags"][1][11:]}]
+    assert widget["body"]["name"].startswith(PROJECT + "-lab-")
+    # torn down newest first
+    deletes = [p for m, p in writes(fake) if m == "DELETE"]
+    assert deletes[0].startswith("/v1/{project_id}/gadgets/") and deletes[1].startswith("/v1/{project_id}/widgets/")
+    rs = rows(project)
+    assert [r["state"] for r in rs] == ["deleted", "deleted"]
+    assert {r["id"] for r in rs} == set(fake.created())
+    assert [r["handle"].split("-")[0] for r in rs] == ["wid", "gad"]
+    assert projects.live_resources(project) == 0
+    text = evidence(project)
+    assert "Question: Does a widget of size small reach ACTIVE in eu-de" in text
+    assert "- result: passed" in text and "every resource deleted and proven gone" in text
+    assert "| size | the widget has the size asked for | widget.size = small | small | passed |" in text
+    assert "| refused | the forbidden path is refused | HTTP 403 | 403 | passed |" in text
+    assert "2 resource(s) created" in text
+    for rid in fake.created():          # ids appear as handles only
+        assert rid not in text
+    assert "gadget (ran): the gadget shape" in text
+    kb_line = lines[-1]
+    assert kb_line.startswith("awb kb add --scope tcp --tag vpc --grade live --class api --source ")
+    assert "evidence/lab-widget-check-" in kb_line and PROJECT not in kb_line
+    assert kb_line in text
+    assert any(line.startswith("evidence: evidence/lab-widget-check-") and line.endswith("-1.md") for line in lines)
+
+
+def test_a_second_run_of_the_day_gets_the_next_number_and_the_cli_reaches_it(project, monkeypatch, capsys):
+    fake = FakeKeyService()
+    assert run(fake)[0] == 0
+    monkeypatch.setattr(lab, "_send_default", fake)
+    monkeypatch.setattr(lab.time, "sleep", lambda s: None)
+    assert cli.main(["lab", "run", "widget-check", "--project", PROJECT, "--tenant", TENANT]) == 0
+    names = sorted(p.name for p in (project / "evidence").glob("lab-*.md"))
+    assert [n[-5:] for n in names] == ["-1.md", "-2.md"]
+    assert "awb kb add" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- the teardown always runs
+
+
+def test_a_failed_check_still_tears_down_and_proves_it(project):
+    fake = FakeKeyService()
+    code, lines, _ = run(fake, params=["size=medium"])      # the fake answers small whatever was asked
+    assert code == lab.EXIT_CHECK
+    assert fake.live() == [] and len(fake.created()) == 2
+    assert [r["state"] for r in rows(project)] == ["deleted", "deleted"]
+    text = evidence(project)
+    assert "- result: check failed (size)" in text
+    assert "| size | the widget has the size asked for | widget.size = medium | small | failed |" in text
+    assert "| refused | the forbidden path is refused | HTTP 403 | - | not run |" in text
+    assert "A negative needs two recorded attempts" in text
+    assert not any("awb kb add" in line for line in lines)
+
+
+def test_a_create_that_fails_halfway_tears_down_only_what_was_made(project):
+    fake = FakeKeyService()
+    fake.fail_create = {"gadgets": 400}
+    code, lines, _ = run(fake)
+    assert code == lab.EXIT_STOPPED
+    assert len(fake.created()) == 1 and fake.live() == []
+    deletes = [p for m, p in writes(fake) if m == "DELETE"]
+    assert len(deletes) == 1 and deletes[0].startswith("/v1/{project_id}/widgets/")
+    assert [r["state"] for r in rows(project)] == ["deleted"]
+    text = evidence(project)
+    assert "- result: stopped (the create gadget answered 400)" in text
+    assert "| active | the widget reaches ACTIVE | reached within the wait | reached | passed |" in text
+    assert "| size | the widget has the size asked for | widget.size = small | - | not run |" in text
+
+
+def test_the_time_budget_runs_out_and_the_teardown_runs(project):
+    recipe = copy.deepcopy(RECIPE)
+    recipe["budget"]["minutes"] = 1
+    recipe["steps"][1]["within"] = 600
+    write_recipe(Path(os.environ[lab.RECIPES_ENV]), recipe)
+    fake = FakeKeyService()
+    fake.never_active = True
+    code, lines, _ = run(fake)
+    assert code == lab.EXIT_STOPPED
+    assert fake.live() == [] and len(fake.created()) == 1
+    assert [r["state"] for r in rows(project)] == ["deleted"]
+    text = evidence(project)
+    assert "- result: stopped (the time budget of 1 minutes ran out in widget-active)" in text
+    assert "every resource deleted and proven gone" in text
+
+
+def test_a_wait_that_never_reaches_its_state_fails_its_check(project):
+    fake = FakeKeyService()
+    fake.never_active = True
+    code, _, _ = run(fake)
+    assert code == lab.EXIT_CHECK and fake.live() == []
+    text = evidence(project)
+    assert "| active | the widget reaches ACTIVE | reached within the wait | not reached | failed |" in text
+
+
+def test_ctrl_c_during_the_run_tears_down_and_a_second_one_does_not_stop_the_teardown(project):
+    fake = FakeKeyService(polls_to_active=3)
+    sent = {"run": 0, "teardown": 0}
+
+    def on_call(req):
+        if req["method"] == "GET" and "/widgets/" in req["path"] and not sent["run"]:
+            sent["run"] = 1
+            os.kill(os.getpid(), signal.SIGINT)
+        if req["method"] == "DELETE" and not sent["teardown"]:
+            sent["teardown"] = 1
+            os.kill(os.getpid(), signal.SIGINT)
+    fake.on_call = on_call
+    before = signal.getsignal(signal.SIGINT)
+    code, lines, errors = run(fake)
+    assert sent == {"run": 1, "teardown": 1}
+    assert code == lab.EXIT_STOPPED
+    assert fake.live() == [] and len(fake.created()) == 1
+    assert [r["state"] for r in rows(project)] == ["deleted"]
+    assert "- result: stopped (interrupted (SIGINT))" in evidence(project)
+    assert any("the teardown runs to its end" in e for e in errors)
+    assert signal.getsignal(signal.SIGINT) is before          # the handler of before is back
+
+
+def test_sigterm_during_a_create_waits_until_its_row_is_written(project):
+    fake = FakeKeyService()
+
+    def on_call(req):
+        if req["method"] == "POST" and req["path"] == "/v1/{project_id}/widgets":
+            os.kill(os.getpid(), signal.SIGTERM)
+    fake.on_call = on_call
+    code, _, _ = run(fake)
+    assert code == lab.EXIT_STOPPED
+    assert len(fake.created()) == 1 and fake.live() == []
+    assert [r["state"] for r in rows(project)] == ["deleted"]
+    assert "interrupted (SIGTERM)" in evidence(project)
+
+
+def test_a_delete_that_fails_leaves_the_row_live_with_a_line_for_the_owner(project):
+    fake = FakeKeyService()
+    fake.fail_delete = {"gadgets"}
+    code, lines, errors = run(fake)
+    assert code == lab.EXIT_LEFT
+    assert len(fake.live()) == 1 and fake.items[fake.live()[0]]["coll"] == "gadgets"
+    by_kind = {r["handle"].split("-")[0]: r for r in rows(project)}
+    assert by_kind["wid"]["state"] == "deleted"
+    left = by_kind["gad"]
+    assert left["state"] == "live" and left["id"] == fake.live()[0]
+    assert "LEFT LIVE: delete it with awb cloud call DELETE vpc /v1/{project_id}/gadgets/%s --tenant %s --role lab " \
+           "--project %s" % (fake.live()[0], TENANT, PROJECT) in left["note"]
+    assert "the delete answered 500" in left["note"]
+    assert projects.live_resources(project) == 1          # awb close refuses while it is there
+    assert any("LEFT LIVE" in e for e in errors)
+    text = evidence(project)
+    assert "1 resource(s) LEFT LIVE" in text and "No fact" in text
+    assert not any("awb kb add" in line for line in lines)
+
+
+def test_a_create_that_answers_without_an_id_is_recorded_for_the_owner(project):
+    recipe = copy.deepcopy(RECIPE)
+    recipe["steps"][0]["id_field"] = "widget.missing"
+    write_recipe(Path(os.environ[lab.RECIPES_ENV]), recipe)
+    fake = FakeKeyService()
+    code, _, _ = run(fake)
+    assert code == lab.EXIT_LEFT
+    (row,) = rows(project)
+    assert row["state"] == "live" and row["id"] == "unknown"
+    assert "find it by its name %s-lab-" % PROJECT in row["note"]
+
+
+def test_a_create_without_an_id_is_found_by_its_name(project):
+    recipe = copy.deepcopy(RECIPE)
+    recipe["steps"][0]["id_field"] = "widget.missing"
+    recipe["steps"][0]["find"] = {"call": {"method": "GET", "service": "vpc",
+                                           "path": "/v1/{project_id}/widgets/${probe_id}"},
+                                  "field": "widget.id", "within": 30}
+    recipe["vars"] = {"probe_id": "none"}
+    write_recipe(Path(os.environ[lab.RECIPES_ENV]), recipe)
+    fake = FakeKeyService()
+    ids = []
+    real = fake.__call__
+
+    def send(req):
+        if req["path"] == "/v1/{project_id}/widgets/none" and fake.created():
+            req = dict(req, path="/v1/{project_id}/widgets/%s" % fake.created()[0])
+            ids.append(1)
+        return real(req)
+    code, _, _ = run(send)
+    assert ids and code == lab.EXIT_OK and fake.live() == []
+    assert [r["state"] for r in rows(project)] == ["deleted", "deleted"]
+
+
+# --------------------------------------------------------------------------- refusals before the first write
+
+
+def test_no_grant_of_the_owner_is_refused_before_any_call(project, home):
+    fake = FakeKeyService()
+    grants.grant(home, PROJECT, "query")
+    code, _, errors = run(fake)
+    assert code == lab.EXIT_STOPPED and fake.calls == []
+    assert errors == ["awb lab: %s has no grant of the owner: he runs awb projects kind %s project in his own "
+                      "terminal" % (PROJECT, PROJECT)]
+    assert rows(project) == [] and not list((project / "evidence").glob("lab-*"))
+
+
+def test_a_query_is_refused_and_so_is_another_projects_folder(project, home, monkeypatch, tmp_path):
+    fake = FakeKeyService()
+    folder = str(project)
+    projects._save(home, [projects.Project(PROJECT, "query", projects.NO_CUSTOMER, "tcp", folder,
+                                           projects.memory_key(folder), "active", "2026-10-11")])
+    code, _, errors = run(fake)
+    assert code == lab.EXIT_STOPPED and fake.calls == [] and "is a query" in errors[0]
+    projects._save(home, [projects.Project(PROJECT, "project", projects.NO_CUSTOMER, "tcp", folder,
+                                           projects.memory_key(folder), "active", "2026-10-11")])
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "SCOPE.md").write_text("- code: tcp-zz9z\n", encoding="utf-8")
+    monkeypatch.chdir(other)
+    code, _, errors = run(fake)
+    assert code == lab.EXIT_STOPPED and fake.calls == [] and "another project's folder" in errors[0]
+
+
+def test_the_key_service_refusing_the_grant_stops_before_any_write(project):
+    fake = FakeKeyService()
+    fake.refuse = "%s has no grant of the owner: he runs awb projects kind %s project in his own terminal" % (
+        PROJECT, PROJECT)
+    code, _, errors = run(fake)
+    assert code == lab.EXIT_STOPPED
+    assert len(fake.calls) == 1 and fake.calls[0]["role"] == "read" and writes(fake) == []
+    assert "the grant check through the key service failed" in errors[0] and "no grant of the owner" in errors[0]
+    assert rows(project) == []
+
+
+@pytest.mark.parametrize("change, said", [
+    (lambda r: r["guard"].update(resources=1), "cost guard: the recipe creates 2 resources and its guard allows 1"),
+    (lambda r: r["guard"].update(resources=lab.MAX_RESOURCES + 1), "cost guard: a recipe may create at most"),
+    (lambda r: r["guard"].update(lifetime_minutes=lab.MAX_LIFETIME + 1), "cost guard: a recipe may create at most"),
+    (lambda r: r["budget"].update(minutes=30), "cost guard: the time budget and the teardown (35 minutes) exceed"),
+])
+def test_the_cost_guard_refuses_before_any_call(project, change, said):
+    recipe = copy.deepcopy(RECIPE)
+    change(recipe)
+    write_recipe(Path(os.environ[lab.RECIPES_ENV]), recipe)
+    fake = FakeKeyService()
+    code, _, errors = run(fake)
+    assert code == lab.EXIT_STOPPED and fake.calls == []
+    assert errors[0].startswith("awb lab: " + said)
+
+
+def test_a_parameter_outside_its_range_is_refused_by_the_cost_guard(project):
+    fake = FakeKeyService()
+    code, _, errors = run(fake, params=["size=huge"])
+    assert code == lab.EXIT_STOPPED and fake.calls == []
+    assert errors == ["awb lab: cost guard: the value of size is outside what the recipe allows"]
+    code, _, errors = run(fake, params=["colour=red"])
+    assert code == lab.EXIT_STOPPED and fake.calls == [] and "has no parameter colour" in errors[0]
+
+
+@pytest.mark.parametrize("change, said", [
+    (lambda r: r["teardown"].pop("gadget"), "teardown has one entry for every create step"),
+    (lambda r: r["steps"][0].update(tags="none"), "every resource carries the project and expiry tags"),
+    (lambda r: r["steps"][0]["call"]["body"]["widget"].pop("tags"), "tags in the body need"),
+    (lambda r: r["steps"][1]["call"].update(path="/v1/{project_id}/widgets/${later}"), "refers to later"),
+    (lambda r: r["checks"].append({"id": "x", "step": "nowhere", "says": "x", "status": [200]}), "names a step"),
+    (lambda r: r["teardown"]["widget"]["gone"]["call"].update(method="DELETE"), "the gone proof is a read"),
+])
+def test_a_malformed_recipe_is_refused(change, said):
+    recipe = copy.deepcopy(RECIPE)
+    change(recipe)
+    with pytest.raises(lab.LabError, match=re.escape(said)):
+        lab.validate(recipe)
+
+
+# --------------------------------------------------------------------------- evidence and secrets
+
+
+def test_the_evidence_holds_no_key_token_or_secret_planted_in_an_answer(project):
+    planted = {"admin_pass": "Planted4711pw", "credential": {"access": "AKPLANTEDKEY1", "secret": "s3cr3tPl4nt3d"},
+               "note": "s" + "k=" + SECRET_LONG, "security_" + "token": TOKEN}
+    recipe = copy.deepcopy(RECIPE)
+    recipe["steps"][3]["save"] = {"note": "widget.note"}
+    recipe["checks"].append({"id": "note", "step": "read", "says": "the note is there", "field": "widget.note",
+                             "present": True})
+    recipe["checks"].append({"id": "cred", "step": "read", "says": "the credential is there",
+                             "field": "widget.credential", "present": True})
+    write_recipe(Path(os.environ[lab.RECIPES_ENV]), recipe)
+    fake = FakeKeyService()
+    fake.plant = planted
+    code, lines, _ = run(fake)
+    assert code == lab.EXIT_OK
+    text = evidence(project)
+    for value in ("Planted4711pw", "AKPLANTEDKEY1", "s3cr3tPl4nt3d", SECRET_LONG,
+                  TOKEN):
+        assert value not in text
+        assert all(value not in line for line in lines)
+        assert value not in (project / "RESOURCES.md").read_text(encoding="utf-8")
+    assert "widget.credential = <withheld>" in text and "widget.note = <withheld>" in text
+    from awb import gate
+
+    for name in ("secret", "token", "private-key"):
+        assert gate.DETECTORS[name](text) == []
+
+
+def test_the_last_guard_withholds_a_line_the_gate_still_finds():
+    text = lab.Run._scrub("| a | b |\n" + "pass" + "word: " + SECRET_LONG + "\n")
+    assert SECRET_LONG not in text and "a line withheld" in text and "| a | b |" in text
+
+
+# --------------------------------------------------------------------------- list and dry run
+
+
+def test_the_dry_run_makes_no_call(project, monkeypatch, capsys):
+    def no_call(*a, **k):
+        raise AssertionError("a dry run made a call")
+    from awb.tcp import keys
+
+    monkeypatch.setattr(keys, "request", no_call)
+    monkeypatch.setattr(lab, "_send_default", no_call)
+    monkeypatch.delenv(lab.RECIPES_ENV)
+    for name in ("ecs-boot-ssh", "obs-policy-deny", "elb-health"):
+        assert cli.main(["lab", "dry-run", name, "--project", PROJECT, "--tenant", TENANT]) == 0
+        out = capsys.readouterr().out
+        assert out.rstrip().endswith("dry run: no call was made")
+        assert "teardown, newest first" in out and "to confirm live" in out
+    assert rows(project) == [] and not list((project / "evidence").glob("*"))
+
+
+def test_the_list_shows_each_recipe_with_its_question_and_guard(monkeypatch, capsys):
+    monkeypatch.delenv(lab.RECIPES_ENV, raising=False)
+    assert cli.main(["lab", "list"]) == 0
+    out = capsys.readouterr().out
+    for name in ("ecs-boot-ssh", "obs-policy-deny", "elb-health"):
+        assert name in out
+    assert "Does an ECS of flavor s3.medium.1 boot the image" in out
+    assert "guard: at most 5 resource(s) for 45 minutes" in out and "refused" not in out
+
+
+# --------------------------------------------------------------------------- the three recipes
+
+
+def test_the_three_recipes_are_valid_tag_every_resource_and_use_known_tags():
+    tags = {line.strip() for line in (REPO_RECIPES.parent / "rules" / "tags.txt").read_text().splitlines()
+            if line.strip() and not line.startswith("#")}
+    names = sorted(p.stem for p in REPO_RECIPES.glob("*.json"))
+    assert names == ["ecs-boot-ssh", "elb-health", "obs-policy-deny"]
+    for name in names:
+        r = lab.load(REPO_RECIPES / ("%s.json" % name))
+        assert r["name"] == name and set(r["kb"]["tags"]) <= tags
+        assert lab.confirm_notes(r), "a recipe of shapes not proven live says so"
+        for s in r["steps"]:
+            assert s["call"]["service"] != "iam"
+        creates = [s for s in r["steps"] if s["do"] == "create"]
+        assert len(creates) <= r["guard"]["resources"]
+
+
+def test_the_example_of_the_format_is_a_valid_recipe():
+    text = (REPO_RECIPES / "README.md").read_text(encoding="utf-8")
+    block = text.split("## An example", 1)[1].split("```json", 1)[1].split("```", 1)[0]
+    r = json.loads(block)
+    lab.validate(r)
+    assert lab.dry_run_lines(r, lab.params_of(r, []))[-1] == "dry run: no call was made"
+
+
+def ecs_cloud():
+    """A stand-in key service that answers the shapes of ecs-boot-ssh as the recipe expects them."""
+    state = {"n": 0, "live": {}, "made": []}
+
+    def new(kind):
+        state["n"] += 1
+        rid = "%08x-1111-4222-8333-%012x" % (state["n"], 0xfeed00 + state["n"])
+        state["live"][rid] = kind
+        state["made"].append(rid)
+        return rid
+
+    def ok(status, data=None):
+        return {"ok": True, "status": status, "data": data, "text": ""}
+
+    def send(req):
+        m, p, b = req["method"], req["path"], req.get("body") or {}
+        if p == "/v1/{project_id}/vpcs" and m == "GET":
+            return ok(200, {"vpcs": []})
+        if p == "/v2/cloudimages":
+            return ok(200, {"images": [{"id": "-".join(IMAGE_ID), "name": req["query"]["name"]}]})
+        if m == "POST" and p == "/v1/{project_id}/vpcs":
+            return ok(200, {"vpc": {"id": new("vpc")}})
+        if m == "POST" and p.endswith("/tags/action"):
+            return ok(204)
+        if m == "POST" and p == "/v1/{project_id}/subnets":
+            return ok(200, {"subnet": {"id": new("subnet")}})
+        if m == "POST" and p == "/v1/{project_id}/security-groups":
+            return ok(200, {"security_group": {"id": new("sg")}})
+        if m == "POST" and p == "/v1/{project_id}/security-group-rules":
+            return ok(201, {"security_group_rule": {"id": "rule"}})
+        if m == "POST" and p == "/v1/{project_id}/cloudservers":
+            assert b["server"]["adminPass"] == "{{secret:ecs-admin}}"
+            assert {"key": "awb-project", "value": PROJECT} in b["server"]["server_tags"]
+            return ok(200, {"job_id": "job", "serverIds": [new("server")]})
+        if m == "POST" and p == "/v1/{project_id}/cloudservers/delete":
+            for s in b["servers"]:
+                state["live"].pop(s["id"], None)
+            return ok(200, {"job_id": "job"})
+        if m == "POST" and p.endswith("/action"):
+            return ok(200, {"output": "cloud-init done\nAWB-SSH-OPEN\n"})
+        if m == "DELETE":
+            rid = p.rsplit("/", 1)[1]
+            state["live"].pop(rid, None)
+            return ok(204)
+        if m == "GET":
+            rid = p.rsplit("/", 1)[1]
+            kind = state["live"].get(rid)
+            if kind is None:
+                return ok(404, {"error_msg": "not found"})
+            if kind == "subnet":
+                return ok(200, {"subnet": {"id": rid, "status": "ACTIVE"}})
+            if kind == "server":
+                vpc = next(k for k, v in state["live"].items() if v == "vpc")
+                return ok(200, {"server": {"id": rid, "status": "ACTIVE",
+                                           "addresses": {vpc: [{"addr": "192.168.10.23"}]}}})
+            return ok(200, {kind: {"id": rid}})
+        return ok(404, {"error_msg": "no such path"})
+    send.state = state
+    return send
+
+
+def test_the_ecs_recipe_runs_end_to_end_against_its_expected_shapes(project, home, monkeypatch):
+    monkeypatch.delenv(lab.RECIPES_ENV)
+    send = ecs_cloud()
+    code, lines, errors = run(send, recipe="ecs-boot-ssh", params=["flavor=s3.large.2"])
+    assert code == lab.EXIT_OK, (lines, errors)
+    assert send.state["live"] == {} and len(send.state["made"]) == 5
+    assert [r["state"] for r in rows(project)] == ["deleted"] * 5
+    text = evidence(project)
+    assert "| ssh-answers | port 22 of the server under test answers inside the VPC | output contains AWB-SSH-OPEN" \
+           in text
+    assert "output = contains AWB-SSH-: yes" in text
+    assert "--tag ecs --tag ims --tag vpc --grade live --class availability" in lines[-1]
+    assert "An ECS of flavor s3.large.2 boots the public image Standard_Ubuntu_22.04_latest in eu-de" in lines[-1]
+    assert "## To confirm live" in text
+    # the line is ready: the knowledge base takes it as it is
+    import shlex
+
+    argv = shlex.split(lines[-1])
+    assert argv[:3] == ["awb", "kb", "add"]
+    assert cli.main(argv[1:]) == 0
+    entries = list((home.kb / "entries").glob("KB-*.md"))
+    assert len(entries) == 1
+    entry = entries[0].read_text(encoding="utf-8")
+    assert "grade: live" in entry and "evidence/lab-ecs-boot-ssh-" in entry
+
+
+# --------------------------------------------------------------------------- through the real key service
+
+
+def test_a_run_goes_through_the_real_key_service_with_the_lab_key(project, tmp_path, monkeypatch):
+    """The requests a run sends are ones the key service of awb/tcp/keys.py takes: it signs them with the lab key
+    for an active project and the stand-in gateway checks every signature."""
+    from tests.tcp_fake import FakeGateway
+    from tests.test_keys import LAB_AK, LAB_SK, STORE, running_service
+    from awb.tcp import keys, throttle
+
+    monkeypatch.setattr(throttle, "log_call", lambda *a, **k: None)
+    made: dict[str, bool] = {}
+
+    class LabGateway(FakeGateway):
+        def route(self, method, raw_path):
+            path = raw_path.partition("?")[0]
+            base = "/v1/%s/widgets" % self.PROJECT
+            if method == "POST" and path == base:
+                rid = "%08x-2222-4333-8444-%012x" % (len(made) + 7, 0xbead)
+                made[rid] = True
+                return 200, {"widget": {"id": rid}}
+            if path.startswith(base + "/"):
+                rid = path[len(base) + 1:]
+                if method == "DELETE" and made.get(rid):
+                    made[rid] = False
+                    return 204, ""
+                if method == "GET":
+                    return (200, {"widget": {"id": rid, "status": "ACTIVE", "size": "small"}}) if made.get(rid) \
+                        else (404, {"error_msg": "gone"})
+            if method == "GET" and path == "/v1/%s/forbidden" % self.PROJECT:
+                return 403, {"error_msg": "denied"}
+            return super().route(method, raw_path)
+
+    recipe = copy.deepcopy(RECIPE)
+    recipe["steps"] = [s for s in recipe["steps"] if s["id"] != "gadget"]
+    recipe["teardown"].pop("gadget")
+    write_recipe(Path(os.environ[lab.RECIPES_ENV]), recipe)
+    with LabGateway(LAB_AK, LAB_SK) as gw, running_service(gw, tmp_path / "log") as svc:
+        svc._active_project = lambda code: code == PROJECT
+        keys.unlock(svc.admin_path, sorted(STORE), reader=lambda e: STORE[e])
+        monkeypatch.setenv(keys.CALL_SOCKET_ENV, str(svc.call_path))
+        lines: list[str] = []
+        errors: list[str] = []
+        clock = Clock()
+        # the grant probe reads with the read key, which this gateway does not take: the service still answered
+        code = lab.run("widget-check", PROJECT, TENANT, [], clock=clock, sleep=clock.sleep, out=lines.append,
+                       err=errors.append)
+        assert code == lab.EXIT_OK, (lines, errors)
+        assert list(made.values()) == [False]
+        methods = [m for m, _ in gw.calls]
+        assert "POST" in methods and "DELETE" in methods
+    text = evidence(project)
+    assert LAB_SK not in text and LAB_AK not in text
+    assert "| 1 | grant | grant | GET | vpc | `/v1/{project_id}/vpcs` | 401 |" in text

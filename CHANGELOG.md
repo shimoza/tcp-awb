@@ -17,6 +17,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   (totals, the three biggest lines, assumptions) comes next to it and the totals are recorded with `awb calc`.
   `awb pricebook diff OLD NEW` lists what changed between two specifications or two workbooks, line by line and in
   the totals (work profile: prices were the top cost, one estimate was rebuilt 7 times).
+- Lab recipes: a live check on a test tenant as one command (the work profile: 391 live checks in 45 of 86
+  projects). `awb lab run RECIPE --project CODE --tenant ALIAS [--param K=V]...` checks the project's grant, tags
+  and records every resource in RESOURCES.md as it is made, runs the checks and always tears down (also on a failed
+  check, an error, the time budget and Ctrl-C or SIGTERM), proves each resource gone with a read and writes
+  `evidence/lab-<recipe>-<date>-<n>.md` with a ready `awb kb add` line. A resource it cannot delete stays live with
+  the line to delete it and the command exits 4. `awb lab list` and `awb lab dry-run RECIPE` (no call made). The
+  format is in `recipes/README.md`; the first recipes are `ecs-boot-ssh`, `obs-policy-deny` and `elb-health`, their
+  unproven API shapes marked "to confirm live".
 
 ### Changed
 
