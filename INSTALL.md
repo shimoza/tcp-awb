@@ -13,12 +13,12 @@ Two users share one host. You are the owner. You keep the register of customer n
 - A host or VM with Ubuntu 24.04 (Python 3.12). The seal needs systemd, `sudo` and a file system that keeps `chattr +i` (ext4, xfs or btrfs).
 - A user with `sudo` who becomes the owner. Do not use root as the owner: `setup.sh` refuses it.
 - `git`, `gpg`, `python3` with `venv` and the poppler tools (`pdftotext`, `pdfinfo`, `pdfimages`, `pdfdetach`).
-- The tools `setup.sh` calls: `useradd`, `gpasswd`, `runuser`, `mount`, `mountpoint`, `fallocate`, `losetup`, `chattr`, `lsattr`, `mkfs.ext4` and `cmp`. A stock Ubuntu server has them.
+- The tools `setup.sh` calls: `useradd`, `gpasswd`, `runuser`, `mount`, `mountpoint`, `fallocate`, `losetup`, `chattr`, `lsattr`, `mkfs.ext4`, `cmp` and `nft` (the egress filter). A stock Ubuntu server has them.
 - Claude Code for the work user, with your Claude subscription login or an API key. The repository does not install the client for you.
 - Optional: `pass` with a gpg key, for the keys of a TCP tenant. A TCP tenant is only for live checks.
 - Optional: a Cloudflare tunnel and a host name, for the web console.
 - Optional: 30 GB of free disk for the build side (a 20 GB image and a 10 GB floor).
-- Optional: an API key in `/etc/awb/anthropic.key` (mode 400, owner only) for the Ask page.
+- Optional: an API key in `/etc/awb/anthropic.key` for the Ask page, owned by the service user `awb-ask` with mode 400. Only that user reads it.
 
 The `awb` command itself needs no model and no API key. Runtime code is the Python standard library plus the poppler tools.
 
@@ -47,10 +47,10 @@ Run steps 1 to 6 as the owner.
 
    It makes `~/tcp-shared` (with `outbox` and `ledger`) and `~/tcp-vault` (with `inbox`, `log`, `originals`, `reports` and an empty `register.tsv`). It is safe to run again. `setup.sh` moves the shared side to the work user and locks the vault folder to mode 700.
 
-3. Read what the setup would do. This needs no root. `SUDO_USER` must name the owner, as sudo sets it.
+3. Read what the setup would do. This needs no root. `SUDO_USER` must name the owner, as sudo sets it. Without sudo, set it yourself, else the script stops with "SUDO_USER is empty".
 
    ```bash
-   seal/setup.sh --dry-run
+   SUDO_USER=$USER seal/setup.sh --dry-run
    ```
 
    Every command is printed and none runs. A line with `# if present` depends on the host. The section "What the setup plans" below quotes it.
@@ -69,7 +69,7 @@ Run steps 1 to 6 as the owner.
    sudo seal/verify.sh
    ```
 
-   Every line must say PASS. The script exits 1 on any FAIL. `sudo seal/verify.sh --dry-run` lists the checks and runs none.
+   Every line must say PASS. The script exits 1 on any FAIL. The lines of the build side fail until its disk, its pinned client and its login are there (see "The build runner" below). If you do not use the build side, those FAIL lines are expected. `sudo seal/verify.sh --dry-run` lists the checks and runs none.
 
 6. Encrypt the register and unlock the vault daemon.
 
@@ -85,6 +85,8 @@ Run steps 1 to 6 as the owner.
    ```bash
    ssh awb@<host>
    ```
+
+   Without ssh keys of the owner, `sudo -iu awb` opens a shell of the work user from the owner's terminal.
 
    Install Claude Code and log in there as the client's own instructions say. The repository does not do this step. The settings of the work user are already in place and immutable (see the tables below).
 
@@ -111,7 +113,7 @@ Run steps 1 to 6 as the owner.
     awb spawn query --goal "Can a managed database run in two regions?"
     ```
 
-    `awb spawn --help` shows `--customer CODE`, `--tag TAG` and `--from-outbox`. The kinds are `query` and `project`. Customer material enters only through `awb import tcp-xxxx` and `awb intake`, run by the owner in his own terminal.
+    `awb spawn --help` shows `--customer CODE`, `--tag TAG` and `--from-outbox`. The kinds are `query` and `project`. Customer material enters only through `awb import tcp-xxxx` and `awb intake`, run by the owner in his own terminal. From the owner's terminal, `awb projects open tcp-xxxx` starts a session in a project as the work user. It needs `sudo -n` for the work user.
 
 ### A TCP test tenant (optional)
 
@@ -124,7 +126,7 @@ awb keys unlock                         # after every start of the key service
 awb keys status
 ```
 
-`awb tenant setup` makes the read group, the user and the key, the register entry, the key service entry and the first snapshot. A second run changes nothing. By hand the same is `pass insert awb/tenant/test-1/ak` and `sk`, then `awb tenant add test-1 --keys pass:awb/tenant/test-1 --region eu-de`. Run `awb tenant --help` for the other commands. Not run here: there is no TCP tenant in the sandbox.
+`awb tenant setup` makes the read group, the read user and its key in `pass` and the tenant entry (`awb tenant add`). Then it runs `awb keys unlock` and the first snapshot. A second run changes nothing. By hand the same is `pass insert awb/tenant/test-1/ak` and `sk`, then `awb tenant add test-1 --keys pass:awb/tenant/test-1 --region eu-de`. Run `awb tenant --help` for the other commands. Not run here: there is no TCP tenant in the sandbox.
 
 ### The Claude Code plugin (optional)
 
@@ -135,7 +137,7 @@ claude plugin marketplace add shimoza/tcp-awb
 claude plugin install awb@tcp-awb
 ```
 
-Install `awb` first (step 1). Not run here: the sandbox has no Claude Code client.
+Install `awb` first (step 1). The hooks of the plugin call `awb hook ...`, so `awb` must be on the `PATH` of the client, for example `~/tcp-awb/.venv/bin`. Not run here: the sandbox has no Claude Code client.
 
 ### The web console (optional)
 
@@ -164,7 +166,7 @@ awb web status
 `setup.sh` prepares the build side: the user `awb-build`, a 20 GB image mounted at `/srv/awb-build` and a pinned copy of the client in `/opt/claude-build`. The unit `awb-buildd.service` is installed and not enabled. The runner needs more than this repository: the self-build design files under `presentations/` are not in the repository, so the build queue has no written design here. Presentations are not included.
 
 - Disk: the image is made only when the file system keeps 10 GB free after it. With less, `setup.sh` warns and the build side waits. Then `verify.sh` reports FAIL lines for it.
-- Client: the pinned client version (2.1.296 in `setup.sh`) must be in the owner's native install, in `~/.local/share/claude/versions/`. Else the build client waits.
+- Client: the pinned client version (2.1.296 in `setup.sh`) must be in the owner's native install, in `~/.local/share/claude/versions/`, with the sha256 that `setup.sh` pins. Else the build client waits.
 - Login: the build user runs on your subscription login. Make it once with `sudo -u awb-build -H /opt/claude-build/bin/claude login`. With `build_model = key` in `/etc/awb/paths.conf` it uses a copy of `/etc/awb/anthropic.key`.
 - Use: `awb build --help` lists `add`, `list`, `status`, `show`, `answer`, `retry`, `widen`, `stop`, `serve`, `selftest` and `probe`. You start the runner by hand and enable it on your word: `sudo systemctl start awb-buildd.service`.
 
@@ -190,9 +192,11 @@ This is an excerpt of the output of `seal/setup.sh --dry-run` in a sandbox with 
 + write /etc/awb/paths.conf (mode 640, root:awb)
 + systemctl daemon-reload
 + systemctl enable --now awb-ask.service
++ systemctl enable --now awb-egress.service
 + systemctl enable --now awb-keyd.service
 + systemctl enable --now awb-portal.service
 + systemctl enable --now awb-vaultd.service
++ systemctl enable --now awb-egress.timer
 + /usr/local/bin/awb egress load
 + apt-mark hold cloudflared
 + apt-mark hold terraform
@@ -253,7 +257,7 @@ Units in `/etc/systemd/system/`:
 | `awb-buildd.service` | the owner, group awb | installed, not enabled |
 | `awb-task-failed@.service` | the owner, group awb | installed, a template for failed build tasks |
 
-The setup also adds one line to `/etc/fstab` for the build image (`loop,nofail,nodev,nosuid,noatime`) and runs `apt-mark hold cloudflared terraform`.
+The setup also adds one line to `/etc/fstab` for the build image (`loop,nofail,nodev,nosuid,noatime`), one `bind,ro` line per mirror of `--mirrors` and runs `apt-mark hold cloudflared terraform`.
 
 Not run here: the sandbox has no systemd, no second real user and no `sudo`. This list comes from the dry run and from the text of `setup.sh` and `seal/README.md`.
 
@@ -299,7 +303,7 @@ After a library upgrade run `sudo awb deploy --only awb-vaultd.service awb-keyd.
 sudo awb deploy --rollback
 ```
 
-This deploys the release that was live before the current one (the `previous` entry of `/opt/tcp-awb/DEPLOYED`). It is refused with "there is no earlier release to roll back to" when there is none. `--rollback`, `--to` and `--task` exclude each other. A deploy keeps the current release and the previous one. Older releases are removed. For the web side `sudo seal/web/install.sh --rollback` puts the `.before-switch` units back and `sudo awb web publish --rollback index.html.before-switch` restores the page. Not run here.
+This deploys the release that was live before the current one (the `previous` entry of `/opt/tcp-awb/DEPLOYED`). It is refused with "there is no earlier release to roll back to" when there is none. `--rollback`, `--to` and `--task` exclude each other. A deploy keeps the current release, the previous one and every release a running unit still uses. Older releases are removed. A rolled-back release also brings back its own web units when the web side is installed. `sudo awb web publish --rollback` installs the newest backup of the page. `sudo seal/web/install.sh --rollback` is only for a host that switched from an older copy in `/opt/awb-web`, because it restarts the web units on that copy. Not run here.
 
 ## How to remove it
 
@@ -307,13 +311,13 @@ The repository has no uninstall script. The steps below are the reverse of `setu
 
 1. Stop and disable the units: `awb-egress.timer`, `awb-egress.service`, `awb-buildd.service`, `awb-ask.service`, `awb-portal.service`, `awb-keyd.service` and `awb-vaultd.service`. Remove their files from `/etc/systemd/system/`, remove `awb-task-failed@.service` and run `systemctl daemon-reload`.
 2. Remove the egress table: `nft delete table inet awb_egress`.
-3. If you switched the web side, run `sudo seal/web/install.sh --rollback` first.
+3. If you installed the web console, stop and disable the units of `seal/web/` (the `.service`, `.socket` and `.timer` files and the drop-in folders `awb-ask.service.d` and `awb-portal.service.d`) and remove them from `/etc/systemd/system/` with their `.before-switch` and `.off` copies. Remove `cloudflared.service.d/50-awb-fence.conf`, run `nft delete table inet awb_tunnel_fence` and remove `/srv/awb-web`.
 4. Take the immutable flag off the client files with `chattr -i` (the files in `<work-home>/.claude`, `<work-home>/.gitconfig` and for the build side `/srv/awb-build/home-template` with its `.claude` folder) before you delete them.
-5. Unmount `/srv/awb-build`, remove its line from `/etc/fstab` and delete `/var/lib/awb-build.img`.
+5. Unmount `/srv/awb-build`, remove its line from `/etc/fstab` and delete `/var/lib/awb-build.img`. Unmount the mirrors under `/srv/tcp-mirrors` and remove their lines too.
 6. Remove `/opt/tcp-awb`, `/opt/claude-build`, `/usr/local/bin/awb`, `/etc/awb`, `/etc/claude-code/managed-settings.d/awb-workbench.json`, `/etc/needrestart/conf.d/awb.conf` and `/var/lib/awb-egress`.
 7. Run `apt-mark unhold cloudflared terraform` if you want the routine upgrade to touch them again.
 8. Move `<work-home>/tcp-shared`, `tcp-kb` and the projects out of the work home if you want to keep them. Deleting the user deletes its home.
-9. Remove the users: `userdel awb`, `userdel awb-ask`, `userdel awb-build` and the groups left. Take the owner out of the group `awb`.
+9. Remove the users: `userdel awb`, `userdel awb-ask`, `userdel awb-build`. For the web console also remove `awb-console`, `awb-owner` and the user of the tunnel (`cloudflared_user`). Remove the groups left. Take the owner out of the group `awb`.
 10. Restore the mode of the owner's home (it was set to 750). Keep or delete `~/tcp-vault` and `~/.password-store` as you decide. They are yours. The register in the vault cannot be rebuilt.
 
 ## What is optional
@@ -332,6 +336,7 @@ The repository has no uninstall script. The steps below are the reverse of `setu
 - It does not install `cloudflared`, `pass` or `terraform`.
 - It does not carry the main page of the web console.
 - It does not carry the design files of the self-build under `presentations/`.
+- It does not carry the knowledge base of TCP facts. `awb kb` works on an empty one.
 - It does not uninstall itself.
 
 ## Limits
