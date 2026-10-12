@@ -112,6 +112,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   of `awb write translate` and options such as `--lab-user`, `--restart`, `--replace`, `--max-age`,
   `--region`, `--table`, `--hours` and `--scope`. The README layout table names `.claude-plugin/marketplace.json`
   where it is (the plugin folder never held it) and adds `hooks-build/`, `build/` and `CLAUDE.md`.
+- `COMMANDS.md` names `awb dataset put --github-only` in the row of `awb dataset put`, as its help and the README do
+  (follow-up of pull request 5).
 
 ## Week 41, 2026-10-05 to 2026-10-11
 
