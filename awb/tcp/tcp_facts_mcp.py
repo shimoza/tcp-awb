@@ -13,7 +13,9 @@ Tools: tcp_facts_search (the checked facts), tcp_service_check (offered or not, 
 tcp_price_find (the price snapshot, or the live price API with --live) and tcp_calculate (exact arithmetic with
 hours). Every answer carries the dataset date, the best-before date and the rule for the assistant.
 
-The server speaks JSON-RPC 2.0 over stdio as the Model Context Protocol says: one message per line. It reads no
+The server speaks JSON-RPC 2.0 over stdio as the Model Context Protocol says: one message per line. It serves the
+revision 2026-07-28 (server/discover, the version in the _meta of each request) and the revisions of the initialize
+handshake (2025-11-25 to 2024-11-05). It reads no
 file outside the dataset folder and writes no file anywhere. Standard library only, Python 3.10 or newer.
 
 Claude Desktop, in claude_desktop_config.json:
@@ -47,8 +49,11 @@ from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal, DecimalE
 from pathlib import Path
 
 SERVER = "tcp-facts"
-VERSION = "1.0"
-PROTOCOLS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
+VERSION = "1.1"
+MODERN = "2026-07-28"               # no initialize: every request carries its version in _meta, server/discover
+LEGACY = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")     # the initialize handshake
+PROTOCOLS = (MODERN,) + LEGACY
+META = "io.modelcontextprotocol/"
 RULE = "Answer from these facts, cite the id, say when no fact covers it."
 GRADES = ("live", "contract", "docs")
 REGIONS = ("eu-de", "eu-nl")
@@ -58,14 +63,23 @@ PRICE_API = "https://calculator.otc-service.com/en/open-telekom-price-api/"
 PRICE_TIMEOUT = 30.0
 
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
+UNSUPPORTED_VERSION = -32022        # the code of the specification for a protocol version the server does not speak
 REFUSED = -32001                    # a file outside the dataset folder
 
 
 class RpcError(Exception):
-    def __init__(self, code: int, message: str):
+    def __init__(self, code: int, message: str, data=None):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.data = data
+
+
+class ArgError(RpcError):
+    """An argument that does not fit the schema: a tool result with isError from 2025-11-25, else a JSON-RPC error."""
+
+    def __init__(self, message: str):
+        super().__init__(INVALID_PARAMS, message)
 
 
 class ToolError(Exception):
@@ -585,8 +599,10 @@ def calculate(ds: Dataset, expression: str, places: int | None = None) -> dict:
 
 # --------------------------------------------------------------------------- the tools
 
+READ_ONLY = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
 TOOLS = [
-    {"name": "tcp_facts_search",
+    {"name": "tcp_facts_search", "title": "Search TCP facts",
+     "annotations": dict(READ_ONLY, title="Search TCP facts"),
      "description": "Search the checked facts about T Cloud Public (TCP): services, flavors, limits, regions, APIs. "
                     "Returns up to 20 facts with id, statement, grade (live = tested on a tenant, contract = service "
                     "description, docs = vendor documentation), check date, source and expiry, best first. Answer "
@@ -597,14 +613,16 @@ TOOLS = [
          "tag": {"type": "string", "maxLength": 60, "description": "only facts with this tag, such as ecs or iam"},
          "grade": {"type": "string", "enum": list(GRADES), "description": "only facts of this grade"}},
          "required": ["query"], "additionalProperties": False}},
-    {"name": "tcp_service_check",
+    {"name": "tcp_service_check", "title": "Check a TCP service",
+     "annotations": dict(READ_ONLY, title="Check a TCP service"),
      "description": "Is a service offered on TCP? Answers from the list of the service description (with its "
                     "revision): offered, not offered, or unclear with the services that come close.",
      "inputSchema": {"type": "object", "properties": {
          "name": {"type": "string", "maxLength": 200, "description": "the service name or its short name, such as "
                   "Cloud Container Engine or CCE"}},
          "required": ["name"], "additionalProperties": False}},
-    {"name": "tcp_price_find",
+    {"name": "tcp_price_find", "title": "Find a TCP price",
+     "annotations": dict(READ_ONLY, title="Find a TCP price"),
      "description": "TCP prices from the price snapshot of the dataset (with its date), or from the live public "
                     "price API when the server runs with --live and a service is given. Every word of the query "
                     "must appear in the row (id, service, product, flavor or OS). Up to 20 rows, prices per unit in "
@@ -616,7 +634,8 @@ TOOLS = [
          "service": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,40}$", "description": "the short name of "
                      "the price API, such as ecs, evs or rds; needed for a live price"}},
          "required": ["query"], "additionalProperties": False}},
-    {"name": "tcp_calculate",
+    {"name": "tcp_calculate", "title": "Calculate exactly",
+     "annotations": dict(READ_ONLY, title="Calculate exactly"),
      "description": "Exact decimal arithmetic for prices and totals: + - * / ** and sum, min, max, abs, round(x, "
                     "places), ceil, floor, pct(part, whole). Units count in hours: h, d (24 h), week (168 h), month "
                     "(720 h, as the TCP price calculator counts it); EUR, GB, GiB, vCPU and Mbit are labels. "
@@ -631,38 +650,56 @@ TOOLS = [
 _TYPES = {"string": str, "integer": int, "boolean": bool, "object": dict}
 
 
+def tools(ds: Dataset) -> list[dict]:
+    """The tool list; with --live tcp_price_find reaches the open world (the public price API)."""
+    if not ds.live:
+        return TOOLS
+    return [dict(t, annotations=dict(t["annotations"], openWorldHint=True)) if t["name"] == "tcp_price_find" else t
+            for t in TOOLS]
+
+
 def validate(schema: dict, args) -> None:
-    """The arguments against the tool's schema; a mismatch is a JSON-RPC error that names the argument."""
+    """The arguments against the tool's schema; a mismatch raises an ArgError that names the argument."""
     if not isinstance(args, dict):
         raise RpcError(INVALID_PARAMS, "the arguments must be an object")
     props = schema.get("properties", {})
     for name in schema.get("required", []):
         if name not in args:
-            raise RpcError(INVALID_PARAMS, "missing argument: %s" % name)
+            raise ArgError("missing argument: %s" % name)
     for name, value in args.items():
         spec = props.get(name)
         if spec is None:
-            raise RpcError(INVALID_PARAMS, "unknown argument: %s" % name)
+            raise ArgError("unknown argument: %s" % name)
         want = _TYPES[spec["type"]]
         if not isinstance(value, want) or (want is int and isinstance(value, bool)):
-            raise RpcError(INVALID_PARAMS, "argument %s must be a %s" % (name, spec["type"]))
+            raise ArgError("argument %s must be a %s" % (name, spec["type"]))
         if "enum" in spec and value not in spec["enum"]:
-            raise RpcError(INVALID_PARAMS, "argument %s must be one of %s" % (name, ", ".join(spec["enum"])))
+            raise ArgError("argument %s must be one of %s" % (name, ", ".join(spec["enum"])))
         if want is str:
             if len(value) > spec.get("maxLength", 10_000) or "\x00" in value:
-                raise RpcError(INVALID_PARAMS, "argument %s is too long or not text" % name)
+                raise ArgError("argument %s is too long or not text" % name)
             if "pattern" in spec and not re.fullmatch(spec["pattern"], value):
-                raise RpcError(INVALID_PARAMS, "argument %s does not read like %s" % (name, spec["pattern"]))
+                raise ArgError("argument %s does not read like %s" % (name, spec["pattern"]))
         if want is int and not spec.get("minimum", value) <= value <= spec.get("maximum", value):
-            raise RpcError(INVALID_PARAMS, "argument %s is out of range" % name)
+            raise ArgError("argument %s is out of range" % name)
 
 
-def call_tool(ds: Dataset, name, args) -> dict:
-    tool = next((t for t in TOOLS if t["name"] == name), None)
+def _text_result(ds: Dataset, payload: dict, is_error: bool, indent: int | None = None) -> dict:
+    return {"content": [{"type": "text", "text": json.dumps(ds.frame(payload), ensure_ascii=False, indent=indent)}],
+            "isError": is_error}
+
+
+def call_tool(ds: Dataset, name, args, arg_errors_are_results: bool = False) -> dict:
+    tool = next((t for t in tools(ds) if t["name"] == name), None)
     if tool is None:
         raise RpcError(INVALID_PARAMS, "unknown tool: %s" % (name if isinstance(name, str) else "(none)"))
     args = {} if args is None else args
-    validate(tool["inputSchema"], args)
+    try:
+        validate(tool["inputSchema"], args)
+    except ArgError as err:
+        if not arg_errors_are_results:
+            raise
+        return _text_result(ds, {"error": err.message}, True)
     try:
         if name == "tcp_facts_search":
             payload = facts_search(ds, args["query"], args.get("tag"), args.get("grade"))
@@ -673,60 +710,120 @@ def call_tool(ds: Dataset, name, args) -> dict:
         else:
             payload = calculate(ds, args["expression"], args.get("places"))
     except ToolError as err:
-        return {"content": [{"type": "text", "text": json.dumps(ds.frame({"error": str(err)}), ensure_ascii=False)}],
-                "isError": True}
-    return {"content": [{"type": "text", "text": json.dumps(ds.frame(payload), ensure_ascii=False, indent=1)}],
-            "isError": False}
+        return _text_result(ds, {"error": str(err)}, True)
+    return _text_result(ds, payload, False, indent=1)
 
 
 # --------------------------------------------------------------------------- JSON-RPC over stdio
 
 
-def handle(ds: Dataset, msg) -> dict | None:
+class Session:
+    """What an initialize handshake settled; None until then (and always None for a modern request)."""
+
+    def __init__(self):
+        self.version: str | None = None
+
+
+def _era(params: dict, session: Session) -> str | None:
+    """The protocol version of one request: from its _meta (modern), else from the handshake of the session."""
+    meta = params.get("_meta")
+    if meta is not None and not isinstance(meta, dict):
+        raise RpcError(INVALID_PARAMS, "_meta must be an object")
+    if meta is None or META + "protocolVersion" not in meta:
+        return session.version
+    asked = meta[META + "protocolVersion"]
+    if asked not in PROTOCOLS:
+        raise RpcError(UNSUPPORTED_VERSION, "Unsupported protocol version",
+                       {"supported": list(PROTOCOLS), "requested": asked})
+    if asked == MODERN and not isinstance(meta.get(META + "clientCapabilities"), dict):
+        raise RpcError(INVALID_PARAMS, "_meta needs %sclientCapabilities" % META)
+    return asked
+
+
+def _instructions(ds: Dataset) -> str:
+    m = ds.meta()
+    return "TCP Facts of %s, best before %s. %s Use tcp_calculate for every number you compute." % (
+        m.get("date", ""), m.get("best_before", ""), RULE)
+
+
+def handle(ds: Dataset, msg, session: Session | None = None) -> dict | None:
     """The response to one message, or None for a notification or a response."""
+    session = session or Session()
     if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
-        return _error(msg.get("id") if isinstance(msg, dict) else None, INVALID_REQUEST, "not a JSON-RPC 2.0 message")
+        return _error(None, INVALID_REQUEST, "not a JSON-RPC 2.0 message")
+    rid = msg.get("id")
+    valid_id = isinstance(rid, (str, int)) and not isinstance(rid, bool)
     if "method" not in msg:
-        return None                                  # a response of the client: nothing to answer
-    rid, method, params = msg.get("id"), msg.get("method"), msg.get("params")
+        if "result" in msg or "error" in msg:
+            return None                              # a response of the client: nothing to answer
+        return _error(rid if valid_id else None, INVALID_REQUEST, "a message needs a method (or a result or error)")
+    method, params = msg["method"], msg.get("params")
     if "id" not in msg:
         return None                                  # a notification
-    if not isinstance(method, str) or not (rid is None or isinstance(rid, (str, int))) or isinstance(rid, bool):
-        return _error(rid if isinstance(rid, (str, int)) else None, INVALID_REQUEST, "a request needs a method and an id")
+    if not isinstance(method, str) or not valid_id:
+        return _error(rid if valid_id else None, INVALID_REQUEST, "a request needs a method and an id")
     if params is not None and not isinstance(params, dict):
         return _error(rid, INVALID_PARAMS, "params must be an object")
     params = params or {}
     try:
         if method == "initialize":
             asked = params.get("protocolVersion")
-            m = ds.meta()
-            result = {"protocolVersion": asked if asked in PROTOCOLS else PROTOCOLS[0],
+            if not isinstance(asked, str):
+                raise RpcError(INVALID_PARAMS, "initialize needs a protocolVersion")
+            version = asked if asked in LEGACY else LEGACY[0]
+            session.version = version
+            result = {"protocolVersion": version,
                       "capabilities": {"tools": {"listChanged": False}},
-                      "serverInfo": {"name": SERVER, "version": VERSION},
-                      "instructions": "TCP Facts of %s, best before %s. %s Use tcp_calculate for every number you "
-                                      "compute." % (m.get("date", ""), m.get("best_before", ""), RULE)}
-        elif method == "ping":
-            result = {}
-        elif method == "tools/list":
-            result = {"tools": TOOLS}
-        elif method == "tools/call":
-            result = call_tool(ds, params.get("name"), params.get("arguments"))
+                      "serverInfo": {"name": SERVER, "title": "TCP Facts", "version": VERSION},
+                      "instructions": _instructions(ds)}
         else:
-            raise RpcError(METHOD_NOT_FOUND, "method not found: %s" % method)
+            era = _era(params, session)
+            modern = era == MODERN
+            if method == "server/discover":
+                result = {"supportedVersions": list(PROTOCOLS), "capabilities": {"tools": {}},
+                          "instructions": _instructions(ds), "ttlMs": 3_600_000, "cacheScope": "public"}
+            elif method == "ping":
+                result = {}
+            elif method == "tools/list":
+                if params.get("cursor") is not None:
+                    raise RpcError(INVALID_PARAMS, "invalid cursor: the list has one page")
+                result = {"tools": tools(ds)}
+                if modern:
+                    result.update(ttlMs=3_600_000, cacheScope="public")
+            elif method == "tools/call":
+                result = call_tool(ds, params.get("name"), params.get("arguments"),
+                                   arg_errors_are_results=era is not None and era >= "2025-11-25")
+            else:
+                raise RpcError(METHOD_NOT_FOUND, "method not found: %s" % method)
+            if modern:
+                result = dict(result, resultType="complete",
+                              _meta={META + "serverInfo": {"name": SERVER, "title": "TCP Facts", "version": VERSION}})
     except RpcError as err:
-        return _error(rid, err.code, err.message)
+        return _error(rid, err.code, err.message, err.data)
     except Exception as err:                         # never a value of a file in the message
         return _error(rid, INTERNAL_ERROR, "the server failed (%s)" % type(err).__name__)
     return {"jsonrpc": "2.0", "id": rid, "result": result}
 
 
-def _error(rid, code: int, message: str) -> dict:
-    return {"jsonrpc": "2.0", "id": rid, "error": {"code": code, "message": message}}
+def _error(rid, code: int, message: str, data=None) -> dict:
+    err = {"code": code, "message": message}
+    if data is not None:
+        err["data"] = data
+    return {"jsonrpc": "2.0", "id": rid, "error": err}
+
+
+def _encode(out) -> bytes:
+    """One line of JSON; a lone surrogate in a value (valid in JSON text, not in UTF-8) goes out as an escape."""
+    try:
+        return json.dumps(out, ensure_ascii=False).encode("utf-8") + b"\n"
+    except UnicodeEncodeError:
+        return json.dumps(out, ensure_ascii=True).encode("ascii") + b"\n"
 
 
 def serve(ds: Dataset, stdin=None, stdout=None) -> None:
     stdin = stdin or sys.stdin.buffer
     stdout = stdout or sys.stdout.buffer
+    session = Session()
     for raw in stdin:
         line = raw.strip()
         if not line:
@@ -737,14 +834,17 @@ def serve(ds: Dataset, stdin=None, stdout=None) -> None:
             out = _error(None, PARSE_ERROR, "not JSON")
         else:
             if isinstance(msg, list):
-                out = [r for r in (handle(ds, m) for m in msg) if r is not None] if msg else \
+                out = [r for r in (handle(ds, m, session) for m in msg) if r is not None] if msg else \
                     _error(None, INVALID_REQUEST, "an empty batch")
                 out = out or None
             else:
-                out = handle(ds, msg)
+                out = handle(ds, msg, session)
         if out is not None:
-            stdout.write(json.dumps(out, ensure_ascii=False).encode("utf-8") + b"\n")
-            stdout.flush()
+            try:
+                stdout.write(_encode(out))
+                stdout.flush()
+            except (BrokenPipeError, ValueError):    # the client closed its end: end quietly
+                return
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -762,6 +862,10 @@ def main(argv: list[str] | None = None) -> int:
         serve(Dataset(args.data, live=args.live, price_api=args.price_api))
     except KeyboardInterrupt:
         pass
+    try:
+        sys.stdout.flush()
+    except (BrokenPipeError, ValueError):
+        sys.stdout = None                            # no complaint of the interpreter at exit
     return 0
 
 

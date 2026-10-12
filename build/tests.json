@@ -2766,6 +2766,62 @@
    "status": "passing"
   },
   {
+   "id": "MCP-14",
+   "phase": "MCP",
+   "name": "mcp: the current revision needs no handshake: server/discover, _meta on each request, resultType, ttl and server info",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_the_current_revision_needs_no_handshake_and_server_discover_names_the_server",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-15",
+   "phase": "MCP",
+   "name": "mcp: an unknown protocol version answers -32022 with the supported versions, a missing capabilities field or a bad _meta -32602",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_a_request_with_an_unknown_version_or_without_capabilities_is_refused_as_the_revision_says",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-16",
+   "phase": "MCP",
+   "name": "mcp: a bad argument is a tool result with isError from 2025-11-25 and a JSON-RPC error before; an unknown tool or arguments that are no object stay protocol errors",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_a_bad_argument_is_a_tool_result_with_is_error_from_2025_11_25_and_a_json_rpc_error_before",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-17",
+   "phase": "MCP",
+   "name": "mcp: tools carry a title and read-only annotations; --live opens only the price tool to the open world",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_tools_carry_a_title_and_read_only_annotations_and_live_opens_only_the_price_tool",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-18",
+   "phase": "MCP",
+   "name": "mcp: a null, boolean or fractional id, a method that is no string and a message with neither method nor result are invalid requests; a response is ignored; initialize needs a version; a cursor is refused",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_requests_and_messages_that_break_json_rpc_are_invalid_requests",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-19",
+   "phase": "MCP",
+   "name": "mcp: a lone surrogate in an expression, a name or an id does not stop the server",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_a_lone_surrogate_in_a_request_does_not_crash_the_server",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-20",
+   "phase": "MCP",
+   "name": "mcp: a closed stdout ends the server quietly with code 0 and nothing on stderr",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_a_closed_stdout_ends_the_server_quietly",
+   "status": "passing"
+  },
+  {
+   "id": "MCP-21",
+   "phase": "MCP",
+   "name": "mcp: stdout carries only protocol messages (parse errors, batch) and a handshake asking for 2026-07-28 negotiates down to 2025-11-25",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_stdout_carries_only_protocol_messages_and_the_handshake_negotiates_down",
+   "status": "passing"
+  },
+  {
    "id": "RG-1",
    "phase": "RG",
    "name": "grant customer: a row changed after the grant does not change the customer of an owner-inbox take or loosen the send gate of a put; the refusal is one line with the code",
@@ -5167,6 +5223,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 738,
+ "total_tests": 746,
  "checked": "2026-10-12"
 }
