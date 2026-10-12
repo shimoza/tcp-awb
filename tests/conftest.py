@@ -144,14 +144,16 @@ _no_retry_wait_hook()
 
 
 def _engine_state() -> tuple:
-    """The identity of every function, class member and constant of the modules the intake self-test runs through.
-    A test that patches any of them (a blind matcher, a broken sanitiser) changes this tuple."""
+    """The identity of every function, class member and constant of the modules the intake self-test runs through,
+    the engine's own and the ones it calls (patterns, register, codes, the word lists, the confusables). A test that
+    patches any of them (a blind matcher, a broken sanitiser, a blind pattern) changes this tuple."""
     import types
 
-    from awb import intake, matcher, normalize, planted, wipe
+    from awb import codes, confusables_latin, intake, matcher, normalize, patterns, planted, register, wipe
+    from awb import words as word_lists
 
     out = []
-    for mod in (intake, matcher, normalize, planted, wipe):
+    for mod in (intake, matcher, normalize, planted, wipe, patterns, register, codes, word_lists, confusables_latin):
         for name, value in sorted(vars(mod).items()):
             if name in ("_RUN_EXEMPT", "selftest"):     # the per-run state of the last wipe; the hook itself
                 continue
