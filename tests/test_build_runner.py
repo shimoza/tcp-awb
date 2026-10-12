@@ -1121,3 +1121,98 @@ def test_the_session_unit_gets_no_loopback_and_the_header_leaves_the_suite_to_th
     assert "The whole suite must pass (" not in header
     sent = (run.folder / "prompt.txt").read_text(encoding="utf-8")
     assert "This session has no loopback" in " ".join(sent.split())
+
+
+def _monday_after(day: datetime) -> datetime:
+    y, w, _ = day.isocalendar()
+    return datetime.fromisocalendar(y, w, 1) + timedelta(days=7, minutes=5)
+
+
+def test_the_runner_opens_the_week_before_the_first_task_of_a_monday(world):
+    """B-001 follow-up 3, fake clock: the seed's newest CHANGELOG entry is this week; the clock says next Monday. The
+    runner commits the new week's heading with an empty Added on main of main.git as the owner, the old week loses
+    (in progress), the first task of the week goes done with its line under the new week and a second task of the
+    same week adds no second rollover."""
+    monday = _monday_after(datetime.now())
+    world.host.now = lambda: monday
+    start = main_of(world)
+    run = world.run("good")
+    assert run.state == "done", checks_of(run)
+    git_dir = str(world.root / "main.git")
+    roll = world.g("--git-dir", git_dir, "rev-parse", "%s^" % (run.folder / "commit").read_text().strip()).strip()
+    assert world.g("--git-dir", git_dir, "rev-parse", "%s^" % roll).strip() == start
+    y, w, _ = monday.isocalendar()
+    old_week = (monday - timedelta(days=7)).isocalendar()[1]
+    assert world.g("--git-dir", git_dir, "log", "-1", "--format=%an <%ae>|%cn <%ce>|%s", roll).strip() == \
+        "%s <%s>|%s <%s>|CHANGELOG.md opens week %d and closes week %d" % (*world.IDENTITY, *world.IDENTITY, w,
+                                                                           old_week)
+    assert world.g("--git-dir", git_dir, "diff", "--name-only", start, roll).split() == ["CHANGELOG.md"]
+    text = world.g("--git-dir", git_dir, "show", "%s:CHANGELOG.md" % main_of(world))
+    heads = [ln for ln in text.splitlines() if ln.startswith("## ")]
+    assert heads[0] == buildrun._week_heading(monday)
+    assert heads[1] == buildrun._week_heading(monday - timedelta(days=7))[:-len(" (in progress)")]
+    new_block = text.split(heads[0], 1)[1].split(heads[1], 1)[0]
+    # the stand-in agent writes its line two lines under the newest heading, so it lands inside the new week
+    assert "- the value is two" in new_block and "### Added" in new_block and "seed entry" not in new_block
+    assert origin_of(world) == main_of(world)
+    # the second task of the week: no new rollover commit
+    second = world.run("good")
+    assert second.state == "done"
+    tip = (second.folder / "commit").read_text().strip()
+    assert world.g("--git-dir", git_dir, "rev-parse", "%s^" % tip).strip() == (run.folder / "commit").read_text().strip()
+
+
+def test_without_the_rollover_the_first_task_of_a_monday_is_red_changelog(world, monkeypatch):
+    """B-001 follow-up 3, planted: the rollover switched off, the same Monday and the same task are red: changelog
+    (what check 8 did to the first task of week 42) and main does not move."""
+    monkeypatch.setattr(buildrun, "roll_week", lambda host: None)
+    world.host.now = lambda: _monday_after(datetime.now())
+    start = main_of(world)
+    run = world.run("good")
+    assert run.state == "red: changelog"
+    assert main_of(world) == start
+
+
+def test_a_rollover_that_cannot_be_written_holds_the_task_before_a_session(world, monkeypatch):
+    """B-001 follow-up 3: no owner identity in the home template means the week cannot be opened as him; the task is
+    held: changelog week before any session unit starts, main does not move and the hold restarts once it clears."""
+    world.host.now = lambda: _monday_after(datetime.now())
+    gitconfig = world.root / "home-template" / ".gitconfig"
+    saved = gitconfig.read_text(encoding="utf-8")
+    gitconfig.write_text("[core]\n\tbare = false\n", encoding="utf-8")
+    start = main_of(world)
+    tid = world.task("good")
+    r = world.runner()
+    r.poll_once()
+    run = build.latest(tid, world.runs)
+    assert run.state == "held: changelog week"
+    assert "held: changelog week" in buildrun.HELD_RESTART
+    assert main_of(world) == start
+    assert not [s for s in world.units.started if s.name == "awb-task-%s" % tid]
+    gitconfig.write_text(saved, encoding="utf-8")
+    world.drop()
+
+
+@pytest.mark.parametrize("today,newest,want", [
+    (datetime(2026, 10, 12, 0, 5), "## Week 41, 2026-10-05 to 2026-10-11 (in progress)",
+     ("## Week 42, 2026-10-12 to 2026-10-18 (in progress)", "## Week 41, 2026-10-05 to 2026-10-11")),
+    (datetime(2027, 1, 4, 8, 0), "## Week 53, 2026-12-28 to 2027-01-03 (in progress)",
+     ("## Week 1, 2027-01-04 to 2027-01-10 (in progress)", "## Week 53, 2026-12-28 to 2027-01-03")),
+    (datetime(2026, 10, 26), "## Week 41, 2026-10-05 to 2026-10-11",
+     ("## Week 44, 2026-10-26 to 2026-11-01 (in progress)", "## Week 41, 2026-10-05 to 2026-10-11")),
+    (datetime(2026, 10, 18, 23, 59), "## Week 42, 2026-10-12 to 2026-10-18 (in progress)", None),
+    (datetime(2026, 10, 12), "## Week 43, 2026-10-19 to 2026-10-25 (in progress)", None),
+    (datetime(2026, 10, 12), "## Unreleased", None),
+])
+def test_the_week_rollover_of_the_changelog_text(today, newest, want):
+    """B-001 follow-up 3, fake clock: the Monday of a new week, the turn of a year with week 53 and a skipped week
+    open the clock's week and close the newest; the same week, a later week and a heading that is not a week change
+    nothing."""
+    text = "# Changelog\n\nIntro.\n\n%s\n\n### Added\n\n- a line\n\n## Week 1, 2020-01-01 to 2020-01-07\n" % newest
+    got = buildrun.rolled_changelog(text, today)
+    if want is None:
+        assert got is None
+        return
+    new, week, closed = got
+    assert new == text.replace(newest, "%s\n\n### Added\n\n%s" % want)
+    assert week == today.isocalendar()[1] and str(closed) == newest.split()[2].rstrip(",")

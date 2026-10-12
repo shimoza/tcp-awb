@@ -109,7 +109,7 @@ FAULT_SECONDS = 600         # every thread's stack when one test takes ten minut
 FLOOR_BYTES = 5 << 30       # free space on the build root before a session is spent
 RETRY_WAIT = 600            # D-S4: the one retry of an API error before the first tool call, after ten minutes
 PUSH_RETRY = 600            # a held push is tried again after ten minutes
-HELD_RESTART = ("held: prompt", "held: prepare", "held: model endpoint", "held: no main")
+HELD_RESTART = ("held: prompt", "held: prepare", "held: model endpoint", "held: no main", "held: changelog week")
 """Held before a session was spent: the same run starts again at a later poll, once the cause cleared."""
 MAX_COMMITS = 5
 MAX_ROUNDS = 3              # rebase rounds when main moves under a green task
@@ -1354,6 +1354,85 @@ def _changelog_ok(host: Host, ctx: Ctx, today: datetime) -> bool:
     return all(first <= x < second for x in added)
 
 
+def _week_heading(day: datetime) -> str:
+    """The CHANGELOG heading of the ISO week of `day`, as it reads while the week runs."""
+    y, w, _ = day.isocalendar()
+    monday = datetime.fromisocalendar(y, w, 1)
+    sunday = datetime.fromisocalendar(y, w, 7)
+    return "## Week %d, %s to %s (in progress)" % (w, monday.strftime("%Y-%m-%d"), sunday.strftime("%Y-%m-%d"))
+
+
+def rolled_changelog(text: str, today: datetime) -> tuple[str, int, int] | None:
+    """CHANGELOG.md with the week of `today` opened: its heading and an empty `### Added` above the newest entry,
+    which loses `(in progress)`. Returns (text, new week, closed week). None when the newest entry is this week or a
+    later one or its heading is not a week heading (nothing is guessed then)."""
+    lines = text.split("\n")
+    first = next((i for i, ln in enumerate(lines) if ln.startswith("## ")), None)
+    if first is None:
+        return None
+    m = _WEEK_RE.match(lines[first])
+    if not m:
+        return None
+    try:
+        monday = datetime(int(m.group(2)), int(m.group(3)), int(m.group(4)))
+    except ValueError:
+        return None
+    if monday.isocalendar()[:2] >= today.isocalendar()[:2]:
+        return None
+    closed = lines[first].rstrip()
+    if closed.endswith(" (in progress)"):
+        closed = closed[:-len(" (in progress)")]
+    lines[first:first + 1] = [_week_heading(today), "", "### Added", "", closed]
+    return "\n".join(lines), today.isocalendar()[1], int(m.group(1))
+
+
+def roll_week(host: Host) -> str | None:
+    """Before the first task of an ISO week: open the week's CHANGELOG section on main of main.git as its own commit
+    with the owner's identity (as 4a8cad6 did by hand), so check 8 does not refuse the first task of a Monday. Plumbing
+    only (hash-object, mktree, commit-tree, update-ref with the old value): no work tree, no hook. Returns the new
+    commit; None when nothing was due. Raises GitFailed when it was due and could not be written."""
+    main = rev(host, "refs/heads/main")
+    if main is None:
+        return None
+    data = show(host, main, "CHANGELOG.md")
+    if data is None:
+        return None
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    rolled = rolled_changelog(text, host.now())
+    if rolled is None:
+        return None
+    new, week, closed = rolled
+    identity = owner_identity(host)
+    if identity is None:
+        raise GitFailed("no owner identity in the home template")
+    blob = git(host, "hash-object", "-w", "--stdin", stdin=new.encode("utf-8")).stdout.decode("ascii").strip()
+    entries = git(host, "ls-tree", "-z", main).stdout.split(b"\0")
+    out, found = [], False
+    for e in entries:
+        if not e:
+            continue
+        meta, _, name = e.partition(b"\t")
+        if name == b"CHANGELOG.md":
+            mode, kind, _old = meta.split(b" ")
+            if kind != b"blob":
+                raise GitFailed("CHANGELOG.md is not a file")
+            meta, found = b" ".join((mode, kind, blob.encode("ascii"))), True
+        out.append(meta + b"\t" + name)
+    if not found:
+        raise GitFailed("CHANGELOG.md is not at the top of main")
+    tree = git(host, "mktree", "-z", stdin=b"\0".join(out) + b"\0").stdout.decode("ascii").strip()
+    message = "CHANGELOG.md opens week %d and closes week %d\n" % (week, closed)
+    commit = git(host, "-c", "user.name=%s" % identity[0], "-c", "user.email=%s" % identity[1], "commit-tree", tree,
+                 "-p", main, stdin=message.encode("utf-8")).stdout.decode("ascii").strip()
+    if not SHA_RE.fullmatch(commit):
+        raise GitFailed("commit-tree gave no commit")
+    git(host, "update-ref", "-m", "awb build: week %d" % week, "refs/heads/main", commit, main)
+    return commit
+
+
 def _json(data: bytes | None):
     try:
         return json.loads(data.decode("utf-8")) if data is not None else None
@@ -1968,6 +2047,14 @@ class Runner:
         except build.PromptHeld:
             return self.finish(ctx, "held: prompt")
         snapshot_prompt(h, ctx, prompt)
+        try:
+            rolled = roll_week(h)
+        except GitFailed as err:
+            self.log("build %s: the CHANGELOG week could not be opened on main (%s)" % (task.id, err))
+            return self.finish(ctx, "held: changelog week")
+        if rolled:
+            self.log("build: CHANGELOG.md opens the week of %s on main (%s)" % (h.now().strftime("%Y-%m-%d"),
+                                                                                rolled[:7]))
         start = rev(h, "refs/heads/main")
         if start is None:
             return self.finish(ctx, "held: no main")
@@ -3121,13 +3208,6 @@ class World:
     def close(self) -> None:
         for h in list(self.units.handles.values()):
             h.kill("success")
-
-
-def _week_heading(day: datetime) -> str:
-    y, w, _ = day.isocalendar()
-    monday = datetime.fromisocalendar(y, w, 1)
-    sunday = datetime.fromisocalendar(y, w, 7)
-    return "## Week %d, %s to %s (in progress)" % (w, monday.strftime("%Y-%m-%d"), sunday.strftime("%Y-%m-%d"))
 
 
 def _expect(run: build.Run | None, state: str) -> str | None:

@@ -521,7 +521,9 @@ in `main.git` (a rebase first when `main` moved), pushes it to GitHub after the 
 `done`. Otherwise the run is `hung`, `red: <reason>`, `asked`, `stopped: <subtype>`, `stale` or `held: <reason>`,
 and nothing moves. The session's unit has no loopback (in the host's network namespace it would reach sshd and the
 web units), so its prompt tells the agent to run only the module tests that need no network and leaves the whole
-suite to the runner. Each ended run writes `/srv/awb-build/runs/<ID>/<n>/result.md` (fixed fields only), one line on
+suite to the runner. Before the first task of an ISO week the runner opens that week's entry in `CHANGELOG.md` on
+`main` of `main.git` as its own commit with your identity (the old week loses `(in progress)`); pull from
+`main.git` before you add a line of your own. Each ended run writes `/srv/awb-build/runs/<ID>/<n>/result.md` (fixed fields only), one line on
 the board (`state.tsv` in `tcp-shared/build`) and one mail. Only an API error before the first tool call is retried
 by itself, once, ten minutes later. `awb build selftest` runs the runner's planted cases in a throw-away folder and
 fails when one of them is missing; `awb build probe` (as you) starts a unit of the runner's own form with the network

@@ -15,6 +15,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   venv's interpreter and leaves the whole suite to the runner (B-001). The session's unit keeps no loopback: in the
   host's network namespace `127.0.0.0/8` reaches sshd and the web units; a namespace of its own would cut the
   model endpoint.
+- The runner opens the `CHANGELOG.md` entry of a new ISO week on `main` of `main.git` before the first task of that
+  week, as its own commit with your identity (the old week loses `(in progress)`), so check 8 no longer refuses the
+  first task of a Monday. When the commit cannot be written the task is `held: changelog week` and starts again at
+  a later poll.
 
 ### Fixed
 

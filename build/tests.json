@@ -4493,8 +4493,36 @@
    "name": "build runner: the session unit has no namespace and no loopback in its allow list; the header leaves the whole suite to the runner and names the module tests with the venv's interpreter",
    "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_session_unit_gets_no_loopback_and_the_header_leaves_the_suite_to_the_runner",
    "status": "passing"
+  },
+  {
+   "id": "BF1-4",
+   "phase": "B-001 follow-ups",
+   "name": "build runner, fake clock: before the first task of a new ISO week the runner commits the week's CHANGELOG heading on main of main.git as the owner, the task goes done under the new week, a second task adds no second rollover",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_runner_opens_the_week_before_the_first_task_of_a_monday",
+   "status": "passing"
+  },
+  {
+   "id": "BF1-5",
+   "phase": "B-001 follow-ups",
+   "name": "build runner, planted: without the rollover the first task of a Monday is red: changelog and main stays",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_without_the_rollover_the_first_task_of_a_monday_is_red_changelog",
+   "status": "passing"
+  },
+  {
+   "id": "BF1-6",
+   "phase": "B-001 follow-ups",
+   "name": "build runner: a rollover that cannot be written (no owner identity) holds the task as held: changelog week before any session unit",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_rollover_that_cannot_be_written_holds_the_task_before_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "BF1-7",
+   "phase": "B-001 follow-ups",
+   "name": "build runner, fake clock: the CHANGELOG text rolls over on a Monday, at the turn of a year with week 53 and after a skipped week; the same week, a later week and a heading that is not a week change nothing",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_week_rollover_of_the_changelog_text",
+   "status": "passing"
   }
  ],
- "total_tests": 642,
+ "total_tests": 646,
  "checked": "2026-10-12"
 }
