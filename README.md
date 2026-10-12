@@ -1,5 +1,7 @@
 # Architect Workbench
 
+To run the Workbench on your own Linux host, follow [INSTALL.md](INSTALL.md).
+
 **A harness for cloud architecture work on T Cloud Public (TCP).** The Workbench sits around an AI assistant (Claude
 Code). The model reasons and writes. The Workbench decides what the model may use, checks what it hands out and
 keeps the record: checked facts in place of the model's memory, live prices, exact arithmetic, real test tenants and
