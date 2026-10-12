@@ -33,6 +33,7 @@ def _inner(tmp_path: Path, body: str) -> tuple[int, str, float]:
     return proc.returncode, proc.stdout + proc.stderr, time.monotonic() - start
 
 
+@pytest.mark.long   # it waits out the real limit and grace in a child run: the time limit itself is what it proves
 def test_a_teardown_that_blocks_twice_fails_at_the_limit_and_the_run_goes_on(tmp_path):
     """Two stand-in servers whose shutdown blocks: the first wait is cut at the limit, the second one a second
     later, and the next test of the run still runs."""
@@ -59,6 +60,7 @@ def test_after():
     assert took < LIMIT + GRACE, (took, out)
 
 
+@pytest.mark.long   # it waits out the real limit and grace in a child run: the time limit itself is what it proves
 def test_a_test_whose_alarm_was_switched_off_ends_the_run_after_the_grace(tmp_path):
     """No alarm can reach a test that switched it off; the last-resort thread ends the run with the stacks."""
     code, out, took = _inner(tmp_path, """

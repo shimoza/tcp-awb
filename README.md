@@ -193,6 +193,12 @@ test fails after 120 seconds (pytest-timeout) instead of hanging, also when it b
 (`tests/timeouts.py`); a test that never comes back to Python ends the run with the stacks of every thread 30 seconds
 later.
 
+The suite is quick where it can be: the stand-in servers shut down at once; the retry waits of the fetch code are not
+waited out and the self-test of the intake runs once for an untouched engine. A few tests must stay long and carry
+the marker `long` with the reason on the test; `.venv/bin/pytest -m "not long"` leaves them out for a quick look in a
+working loop, the full run and every build run them. Running with pytest-xdist (`-n 2`) is not set up: some tests
+rely on the timing of real daemons and failed under the load of a second worker.
+
 The suite also runs from a read-only copy of the tree anywhere outside the homes, with a venv that has the test
 extras and not the package, as the self-build will run it on a `git archive` export:
 

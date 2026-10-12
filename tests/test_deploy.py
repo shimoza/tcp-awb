@@ -152,6 +152,7 @@ def test_the_unit_list_is_the_template_files(tmp_path):
     assert "awb-new.service" in deploy.templates(deploy.DirTree(copy.parent))
 
 
+@pytest.mark.long   # it reads and copies the whole awb tree: the size is the proof
 def test_every_module_has_a_unit_or_is_listed(tmp_path):
     """Planted: awb/newthing.py imported by nothing fails the test; imported by awb/vault.py it lands under awb-vaultd
     only; a dynamic import whose target is not in DYNAMIC fails the test."""

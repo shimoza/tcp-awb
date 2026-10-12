@@ -128,6 +128,7 @@ def _append_one(started) -> None:
     mod.add("code", "One line while the lock is held", day="2026-09-22")
 
 
+@pytest.mark.long   # real processes append at the same moment: fewer or shorter rounds would stop proving the lock
 def test_two_processes_appending_at_once_give_whole_lines(home):
     ctx = multiprocessing.get_context("spawn")
     barrier = ctx.Barrier(2)

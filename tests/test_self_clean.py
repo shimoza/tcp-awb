@@ -19,6 +19,9 @@ import pytest
 from awb import gate
 from tests import fixtures as fx
 
+# the scan reads every tracked file of the repository with the real gate and that reach is what the module proves
+pytestmark = pytest.mark.long
+
 REPO = Path(__file__).resolve().parent.parent
 NAME_ALLOWED = re.compile(r"tests/(?:fixtures|test_\w+)\.py")
 
