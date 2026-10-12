@@ -851,3 +851,26 @@ def test_an_obs_call_never_reaches_an_exchange_bucket_and_writes_only_to_a_bucke
     a = call(svc, role="lab", method="PUT", service="obs", path="/tcp-zz99-lab-1", project=PROJECT)
     assert not a["ok"] and "only a bucket named after the project (%s-...)" % PROJECT in a["error"]
     assert fake.calls == []                      # refused before anything is signed and sent
+
+
+# --------------------------------------------------------------------------- a whole OBS answer (B-005)
+# The live run of 2026-10-12 got the list of buckets cut after the first one (the text kept 300 characters).
+
+def test_the_list_of_three_buckets_comes_whole_as_data_and_a_long_object_says_it_was_cut(osvc):
+    from tests.obs_fake import CREATED
+
+    svc, fake = osvc
+    names = [PROJECT + "-lab-1", PROJECT + "-lab-2", PROJECT + "-lab-3"]
+    for name in names:
+        fake.buckets[name] = {"policy": None, "objects": {}}
+    fake.buckets[names[1]]["tags"] = {"awb-project": PROJECT}
+    a = call(svc, method="GET", service="obs", path="/")
+    assert a["ok"] and a["status"] == 200 and not a["cut"] and a["size"] > 300
+    assert a["data"] == {"buckets": [{"name": n, "created": CREATED, "location": "eu-de"} for n in names]}
+    a = call(svc, method="GET", service="obs", path="/" + names[1], query={"tagging": ""})
+    assert a["data"] == {"tags": [{"key": "awb-project", "value": PROJECT}]}
+    a = call(svc, method="GET", service="obs", path="/" + names[0], query={"tagging": ""})
+    assert a["status"] == 404 and a["data"]["code"] == "NoSuchTagSet"
+    fake.buckets[names[0]]["objects"]["notes.txt"] = b"plain words " * 100
+    a = call(svc, method="GET", service="obs", path="/%s/notes.txt" % names[0])
+    assert a["status"] == 200 and a["data"] is None and a["cut"] and a["size"] == 1200 and len(a["text"]) == 300

@@ -5340,8 +5340,64 @@
    "name": "lab: a member that stays OFFLINE after web-serves passed fails health-passes, so the evidence points at the health checks",
    "run": ".venv/bin/pytest tests/test_lab.py::test_a_blocked_health_check_fails_health_passes_after_web_serves_passed",
    "status": "passing"
+  },
+  {
+   "id": "B005-1",
+   "phase": "B-005",
+   "name": "cloud: a list of three buckets in XML comes back whole as data (name, creation date, location when given), not cut at 300 characters",
+   "run": ".venv/bin/pytest tests/test_cloud.py::test_a_list_of_three_buckets_comes_back_whole_as_data",
+   "status": "passing"
+  },
+  {
+   "id": "B005-2",
+   "phase": "B-005",
+   "name": "cloud: ListBucketResult gives its keys, prefixes, truncated and next marker, Tagging its tags as key and value; other XML gives no data",
+   "run": ".venv/bin/pytest tests/test_cloud.py::test_the_keys_and_the_tags_of_a_bucket_come_as_data",
+   "status": "passing"
+  },
+  {
+   "id": "B005-3",
+   "phase": "B-005",
+   "name": "cloud: a long answer that is not JSON keeps its first 300 bytes and says it was cut and how long the whole was; a short one and JSON are not cut",
+   "run": ".venv/bin/pytest tests/test_cloud.py::test_a_long_answer_that_is_not_json_says_it_was_cut_and_how_long_the_whole_was",
+   "status": "passing"
+  },
+  {
+   "id": "B005-4",
+   "phase": "B-005",
+   "name": "cloud: the buckets of the region come with the tags of GET /BUCKET?tagging (none on NoSuchTagSet), a bucket gone or of another region is left out, any other answer makes the listing unknown",
+   "run": ".venv/bin/pytest tests/test_cloud.py::test_the_buckets_of_the_region_come_with_their_tags_for_the_sweep",
+   "status": "passing"
+  },
+  {
+   "id": "B005-5",
+   "phase": "B-005",
+   "name": "key service: the list of three buckets comes whole as data through the call op, the tags of a bucket too, a long object says it was cut and its size",
+   "run": ".venv/bin/pytest tests/test_keys.py::test_the_list_of_three_buckets_comes_whole_as_data_and_a_long_object_says_it_was_cut",
+   "status": "passing"
+  },
+  {
+   "id": "B005-6",
+   "phase": "B-005",
+   "name": "sweep: OBS buckets are untagged, expired or not in RESOURCES.md by the rules of the other types, under handles; an unreadable list is unknown",
+   "run": ".venv/bin/pytest tests/test_sweep.py::test_buckets_are_swept_by_the_rules_of_the_other_types",
+   "status": "passing"
+  },
+  {
+   "id": "B005-7",
+   "phase": "B-005",
+   "name": "sweep: the report says the OBS buckets were not swept when they were left out and not when they were swept",
+   "run": ".venv/bin/pytest tests/test_sweep.py::test_the_report_says_when_the_buckets_were_not_swept",
+   "status": "passing"
+  },
+  {
+   "id": "B005-8",
+   "phase": "B-005",
+   "name": "awb cloud sweep lists the buckets with --buckets only, their names never in the output",
+   "run": ".venv/bin/pytest tests/test_sweep.py::test_the_command_line_sweeps_the_buckets_with_the_flag_only",
+   "status": "passing"
   }
  ],
- "total_tests": 763,
+ "total_tests": 771,
  "checked": "2026-10-12"
 }

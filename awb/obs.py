@@ -121,6 +121,54 @@ def xml_error(body: bytes | str | None) -> tuple[str, str]:
     return xml_text(xml_child(root, "Code")).strip(), xml_text(xml_child(root, "Message")).strip()
 
 
+def xml_result(body: bytes | str | None) -> dict | None:
+    """The data of an OBS answer in XML that lists something, None for any other body:
+    ListAllMyBucketsResult gives `buckets` (name, created and location when given), ListBucketResult the `keys` of
+    one page (key, size, etag, modified) with its `prefixes`, `truncated` and `next_marker`, Tagging the `tags` as
+    {key, value}."""
+    if isinstance(body, bytes):
+        body = body.decode("utf-8", "replace")
+    if not body or not body.lstrip().startswith("<"):
+        return None
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError:
+        return None
+    kind = xml_local(root.tag)
+
+    def field_(el: ET.Element, name: str) -> str:
+        return xml_text(xml_child(el, name)).strip()
+
+    if kind == "ListAllMyBucketsResult":
+        found = xml_child(root, "Buckets")
+        buckets = []
+        for el in found if found is not None else ():
+            if xml_local(el.tag) != "Bucket":
+                continue
+            row = {"name": field_(el, "Name"), "created": field_(el, "CreationDate")}
+            if field_(el, "Location"):
+                row["location"] = field_(el, "Location")
+            buckets.append(row)
+        return {"buckets": buckets}
+    if kind == "ListBucketResult":
+        keys, prefixes = [], []
+        for el in root:
+            if xml_local(el.tag) == "Contents":
+                size = field_(el, "Size")
+                keys.append({"key": xml_text(xml_child(el, "Key")), "size": int(size) if size.isdigit() else 0,
+                             "etag": field_(el, "ETag").strip('"'), "modified": field_(el, "LastModified")})
+            elif xml_local(el.tag) == "CommonPrefixes":
+                prefixes.append(xml_text(xml_child(el, "Prefix")))
+        return {"name": field_(root, "Name"), "prefix": xml_text(xml_child(root, "Prefix")), "keys": keys,
+                "prefixes": prefixes, "truncated": field_(root, "IsTruncated").lower() == "true",
+                "next_marker": xml_text(xml_child(root, "NextMarker"))}
+    if kind == "Tagging":
+        found = xml_child(root, "TagSet")
+        return {"tags": [{"key": field_(el, "Key"), "value": field_(el, "Value")}
+                         for el in (found if found is not None else ()) if xml_local(el.tag) == "Tag"]}
+    return None
+
+
 # The private names stay for the web adapters still deployed outside the repository until they are switched.
 _local, _child, _text = xml_local, xml_child, xml_text
 

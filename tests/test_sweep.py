@@ -252,3 +252,69 @@ def test_a_handle_file_that_cannot_be_written_is_a_sweep_error(tmp_path):
                 h.save()
     finally:
         os.chmod(folder, 0o700)
+
+
+# --------------------------------------------------------------------------- OBS buckets (B-005)
+
+BUCKETS = [
+    {"id": "tcp-abcd-misc", "name": "tcp-abcd-misc", "created": "2026-09-01T08:00:00.000Z", "tags": []},
+    {"id": "tcp-abcd-old", "name": "tcp-abcd-old", "created": "2026-09-02T08:00:00.000Z",
+     "tags": [{"key": "awb-project", "value": "tcp-abcd"}, {"key": "awb-expiry", "value": "2026-09-20"}]},
+    {"id": "tcp-abcd-lab-1", "name": "tcp-abcd-lab-1", "created": "2026-09-03T08:00:00.000Z",
+     "tags": [{"key": "awb-project", "value": "tcp-abcd"}, {"key": "awb-expiry", "value": "2026-12-31"}]},
+    {"id": "tcp-abcd-lab-2", "name": "tcp-abcd-lab-2", "created": "2026-09-04T08:00:00.000Z",
+     "tags": [{"key": "awb-project", "value": "tcp-abcd"}, {"key": "awb-expiry", "value": "2026-12-31"}]},
+]
+
+
+def test_buckets_are_swept_by_the_rules_of_the_other_types(tmp_path):
+    answers = {"/": BUCKETS}
+    rep = sweep.sweep(net_listings(answers), TODAY, sweep.Handles(tmp_path / "h.json"),
+                      {"tcp-abcd-old": "tcp-abcd", "tcp-abcd-lab-2": "tcp-abcd"}, sweep.OBS_SOURCES)
+    assert [(i.handle, i.kind, i.reasons) for i in rep.items] == [
+        ("obs-1", "obs", ["untagged"]), ("obs-2", "obs", ["expired"]), ("obs-3", "obs", ["not in RESOURCES.md"])]
+    text = "\n".join(sweep.report_lines(rep))
+    assert "tcp-abcd-misc" not in text and rep.unknown == []
+    answers["/"] = None
+    rep = sweep.sweep(net_listings(answers), TODAY, sweep.Handles(tmp_path / "h.json"), {}, sweep.OBS_SOURCES)
+    assert rep.unknown == ["obs"] and rep.items == []
+
+
+def test_the_report_says_when_the_buckets_were_not_swept(tmp_path):
+    answers = {src[2]: [] for src in sweep.ALL_SOURCES}
+    without = sweep.report_lines(sweep.sweep(net_listings(answers), TODAY, sweep.Handles(tmp_path / "h.json"), {},
+                                             sweep.ALL_SOURCES))
+    assert "sweep: not swept: %s" % sweep.NOT_SWEPT_OBS in without
+    with_ = sweep.report_lines(sweep.sweep(net_listings(answers), TODAY, sweep.Handles(tmp_path / "h.json"), {},
+                                           sweep.ALL_SOURCES + sweep.OBS_SOURCES))
+    assert not any("OBS buckets" in line for line in with_)
+
+
+def test_the_command_line_sweeps_the_buckets_with_the_flag_only(home, tmp_path, monkeypatch, capsys):
+    from awb import cli
+    from awb.tcp import cloud
+    from tests.tcp_fake import FakeGateway
+    from tests.test_obs import fake_pass
+
+    asked = []
+
+    def listing(self, service, path, key, *, query=None, paging="marker", headers=None, **kw):
+        return jobs.Listing.of([])
+
+    def buckets(self):
+        asked.append(self.region)
+        return jobs.Listing.of(BUCKETS)
+    with FakeGateway("AKFAKE", "sk-fake-secret") as gw:
+        fake_pass(tmp_path, monkeypatch, {"cloud/owner/ak": "AKFAKE", "cloud/owner/sk": "sk-fake-secret"})
+        monkeypatch.setenv("AWB_CLOUD_KEYS", "pass:cloud/owner")
+        monkeypatch.setenv("AWB_CLOUD_ENDPOINT", gw.base)
+        monkeypatch.setattr(cloud.Client, "list", listing)
+        monkeypatch.setattr(cloud.Client, "buckets", buckets)
+        assert cli.main(["cloud", "sweep", "--today", "2026-09-25"]) == 0
+        out = capsys.readouterr().out
+        assert asked == [] and "obs-" not in out and "--buckets" in out
+        assert cli.main(["cloud", "sweep", "--today", "2026-09-25", "--buckets"]) == 0
+        out = capsys.readouterr().out
+    assert asked == ["eu-de"]
+    assert "untagged" in out and "expired" in out and "not in RESOURCES.md" in out
+    assert "tcp-abcd-misc" not in out and "tcp-abcd-old" not in out

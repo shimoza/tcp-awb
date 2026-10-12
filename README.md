@@ -257,7 +257,7 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 | a price workbook | `awb pricebook build estimate.txt --lang de` | the workbook (.xlsx) and a summary (.md) for a mail; `awb pricebook diff OLD NEW` compares versions |
 | compute | `awb calc "730 * 0.0418 * 3" --places 2` | the exact result, recorded as `K-N` for the review |
 | the test tenants | `awb cloud tenants`, `awb tenant now test-1` | the tenants by alias and what runs there |
-| call the TCP API | `awb cloud call GET vpc "/v1/{project_id}/vpcs" --tenant test-1` | the answer, signed by the key service; a write needs `--role lab` and runs for the project of the folder |
+| call the TCP API | `awb cloud call GET vpc "/v1/{project_id}/vpcs" --tenant test-1` | the answer, signed by the key service (an OBS list such as `GET obs /` whole as data); a write needs `--role lab` and runs for the project of the folder |
 | a live check in one command | `awb lab run ecs-boot-ssh --project tcp-q7m4 --tenant test-1` | raise, check, evidence in `evidence/`, always torn down and proven gone; `awb lab list` and `awb lab dry-run RECIPE` first |
 | a migration | `awb migrate init --from azure`, then `awb migrate next` | the next phase, its worker and its files |
 | review a text | `awb review init`, `claims`, `l0`, `pass` | the claim list with evidence and a review record |
@@ -316,7 +316,11 @@ The key service signs a call to `obs` the OBS way (`Authorization: OBS AK:SIGNAT
 path is `/BUCKET[/KEY]`, the bucket is reached by its own host and `GET /` lists the buckets. Every other service is
 signed the way of the API gateway (SDK-HMAC-SHA256). An OBS call never reaches the two exchange buckets (they are
 `awb xchg`'s) and an OBS write reaches only a bucket named after the project (`tcp-xxxx-...`). The code and
-message of an OBS error, which comes in XML, are read like those of a JSON error.
+message of an OBS error, which comes in XML, are read like those of a JSON error. An OBS list in XML comes whole as
+data: `GET /` gives the buckets (name, creation date, location when given), `GET /BUCKET` the keys of one page and
+`GET /BUCKET?tagging` the tags. Any other answer that is not JSON is cut to its first 300 bytes; the command says so
+with the size of the whole answer. `awb cloud sweep --buckets` adds the OBS buckets of the region to the sweep
+under the rules of the other types (untagged, expired or not in RESOURCES.md), with one call per bucket for its tags.
 
 A request body may name a secret only as the whole value of a password field, `{"admin_pass": "{{secret:NAME}}"}`.
 The answer comes back with every key and secret of the tenant taken out, also in base64 and JSON form. Every call is

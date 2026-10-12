@@ -1,12 +1,13 @@
 """Package 7, the cloud side: the resource sweep (T-61) and neutral handles for live identifiers (T-97).
 
-    awb cloud sweep [--region R] [--today YYYY-MM-DD]     read-only: GET list calls only
+    awb cloud sweep [--region R] [--today YYYY-MM-DD] [--buckets]     read-only: GET list calls only
 
 T-61. A resource the Workbench creates carries two tags: `awb-project` (the project code, tcp-xxxx) and
 `awb-expiry` (an ISO date). A service that takes no tags carries both in the name the lab gives it
 (`<code>-lab-<YYYYMMDD>-<4 letters>`, awb/tcp/lab.py), which the sweep reads in the place of the tags. The sweep
 lists servers, disks and elastic IPs (SOURCES) and on the command line also VPCs, subnets, security groups, shared
-ELB load balancers, listeners and pools and NAT gateways (NETWORK_SOURCES). It names every one that is untagged (no
+ELB load balancers, listeners and pools and NAT gateways (NETWORK_SOURCES), with `--buckets` also the OBS buckets
+of the region (OBS_SOURCES, their tags from GET /BUCKET?tagging). It names every one that is untagged (no
 project tag), expired (its expiry date has passed), not in RESOURCES.md (it carries a project tag and no project
 lists its id) or idle (a server that is stopped, a disk that is attached to nothing, an address bound to nothing),
 oldest first. A listing that could not be read is reported as unknown and never as empty. A resource whose id a
@@ -58,8 +59,12 @@ NETWORK_SOURCES = (
     ("nat", "nat", "/v2.0/nat_gateways", "nat_gateways", "marker", {}, True),
 )
 ALL_SOURCES = tuple(s + ({}, False) for s in SOURCES) + NETWORK_SOURCES
+# the OBS buckets of the region (`awb cloud sweep --buckets`): the lister answers them with Client.buckets, the
+# bucket's name as its id and the tags of GET /BUCKET?tagging, one call per bucket
+OBS_SOURCES = (("obs", "obs", "/", "buckets", "none", {}, False),)
 NOT_SWEPT = ("dedicated ELB load balancers, listeners and pools (ELB v3): no shape of its API is in the repository "
              "yet, to confirm live",)
+NOT_SWEPT_OBS = "OBS buckets: awb cloud sweep --buckets sweeps them, with one call per bucket for its tags"
 IDLE_STATES = {"ecs": ("SHUTOFF",), "evs": ("available",), "eip": ("DOWN",)}
 _LAB_NAME_RE = re.compile(r"^(?P<code>(?:tcp|hcs)-[a-z2-7]{4})-lab-(?P<y>\d{4})(?P<m>\d{2})(?P<d>\d{2})-[a-z]{4}"
                           r"(?:-[a-z0-9]{1,8})?$")
@@ -325,6 +330,8 @@ def sweep(lister: Callable[..., jobs.Listing], today: datetime.date, handles: Ha
         for r in i.reasons:
             counts[r] = counts.get(r, 0) + 1
     not_swept = list(NOT_SWEPT) if any(src in NETWORK_SOURCES for src in sources) else []
+    if not_swept and not any(src in OBS_SOURCES for src in sources):
+        not_swept.append(NOT_SWEPT_OBS)
     return SweepReport(items, unknown, counts, not_swept)
 
 

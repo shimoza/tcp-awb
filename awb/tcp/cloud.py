@@ -2,7 +2,8 @@
 
     awb cloud projects [--region R]
     awb cloud get SERVICE PATH [--region R] [--query K=V]... [--list KEY] [--paging marker|offset|none]
-    awb cloud sweep [--region R] [--today YYYY-MM-DD]       untagged, expired, unlisted or idle (awb/tcp/sweep.py)
+    awb cloud sweep [--region R] [--today YYYY-MM-DD] [--buckets]
+                                                            untagged, expired, unlisted or idle (awb/tcp/sweep.py)
     awb cloud usage [--month YYYY-MM]                       calls to the TCP API per day and every 429 (awb/tcp/throttle.py)
     awb cloud tenants                                       the tenants of the key service (awb/tcp/keys.py)
     awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role read|lab] [--region R] [--query K=V]... [--body FILE]
@@ -20,6 +21,9 @@ is signed the way of the API gateway (SDK-HMAC-SHA256, awb/sign.py) but obs, whi
 PATH is `/BUCKET[/KEY]`, the bucket reached by its own host, `/` lists the buckets. `AWB_CLOUD_ENDPOINT` (tests)
 sends every service to one base address, a bucket by path. Errors carry a status and a short text with the key
 taken out, never the key; the code and message of an OBS error in XML come as `code` and `message` of the data.
+An OBS list in XML comes whole as data (awb/obs.py `xml_result`): the buckets, the keys of a bucket, the tags of a
+bucket. Any other answer that is not JSON keeps the first CUT bytes as text and says that it was cut and how long the
+whole was (`cut`, `size`).
 """
 from __future__ import annotations
 
@@ -46,6 +50,7 @@ _SERVICE_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
 _REGION_RE = re.compile(r"^[a-z]{2}-[a-z0-9]{2,10}$")
 _BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 _TRANSIENT = (429, 502, 503, 504)
+CUT = 300
 
 
 class CloudError(Exception):
@@ -63,8 +68,10 @@ class _Transient(Exception):
 @dataclass
 class Response:
     status: int
-    data: Any                 # the parsed JSON body, or None
-    text: str                 # at most 300 characters of the body, the key taken out
+    data: Any                 # the parsed JSON body, the data of an OBS list in XML (awb/obs.py) or None
+    text: str                 # at most CUT bytes of the body, the key taken out
+    size: int = 0             # the bytes of the whole body
+    cut: bool = False         # True when there is no data and `text` holds only the start of the body
 
     @property
     def ok(self) -> bool:
@@ -188,20 +195,60 @@ class Client:
             raise last from None
 
     def _response(self, status: int, raw: bytes) -> Response:
-        text = self.clean(raw[:300].decode("utf-8", "replace"))
+        text = self.clean(raw[:CUT].decode("utf-8", "replace"))
         try:
             data = json.loads(raw) if raw else None
         except ValueError:
             data = None
+        if data is None and status < 300:
+            # OBS lists in XML: the buckets, the keys of a bucket or its tags come whole as data, not as cut text
+            found = obs.xml_result(raw)
+            if found is not None:
+                data = json.loads(self.clean(json.dumps(found, ensure_ascii=False)))
         if data is None and status >= 300:
             # OBS answers its errors in XML: their code and message go where a JSON error of the gateway has them
             code, msg = obs.xml_error(raw[:4096])
             if code or msg:
                 data = {"code": self.clean(code), "message": self.clean(msg)}
-        return Response(status, data, text)
+        return Response(status, data, text, len(raw), data is None and len(raw) > CUT)
 
     def get(self, service: str, path: str, query=None, headers: dict[str, str] | None = None) -> Response:
         return self.request("GET", service, path, query=query, headers=headers)
+
+    def buckets(self) -> jobs.Listing:
+        """The buckets of this region as sweep items (GET /, then GET /BUCKET?tagging for each): list, empty or
+        unknown. The id and the name of an item are the bucket's name, its tags come as {key, value}; a bucket
+        without tags (404 NoSuchTagSet) has none, a bucket gone in between (404 NoSuchBucket) is left out, a bucket
+        of another region too. Any other answer makes the listing unknown, never empty."""
+        try:
+            r = self.get("obs", "/")
+        except CloudError as err:
+            return jobs.Listing.unknown(str(err))
+        found = jobs.dig(r.data, "buckets") if r.ok else None
+        if not isinstance(found, list):
+            return jobs.Listing.unknown("HTTP %d" % r.status if not r.ok else "the answer holds no list of buckets")
+        items = []
+        for b in found:
+            name = b.get("name") if isinstance(b, dict) else None
+            if not isinstance(name, str) or b.get("location", self.region) != self.region:
+                continue
+            if not _BUCKET_RE.match(name):
+                return jobs.Listing.unknown("a bucket name that cannot be called")
+            try:
+                t = self.get("obs", "/" + name, {"tagging": ""})
+            except CloudError as err:
+                return jobs.Listing.unknown(str(err))
+            code = jobs.dig(t.data, "code")
+            if t.status == 404 and code == "NoSuchBucket":
+                continue
+            if t.status == 404 and code == "NoSuchTagSet":
+                tags = []
+            elif t.ok and isinstance(jobs.dig(t.data, "tags"), list):
+                tags = t.data["tags"]
+            else:
+                return jobs.Listing.unknown("the tags of a bucket: HTTP %d" % t.status)
+            items.append({"id": name, "name": name, "created": b.get("created") or "", "tags": tags})
+        return jobs.Listing.of(items)
 
     def project_id(self) -> str:
         """The id of the project named like the region (IAM, /v3/projects?name=<region>)."""
@@ -277,6 +324,11 @@ def mask(value: str) -> str:
     return value[:4] + "..." if len(value) > 4 else value
 
 
+def cut_line(size: int) -> str:
+    """The line that says an answer that is not JSON was cut and how long the whole was."""
+    return "awb cloud: the answer is not JSON and was cut to its first %d of %d bytes" % (CUT, size)
+
+
 def _pairs(values: list[str]) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for item in values:
@@ -313,6 +365,7 @@ def main(argv: list[str] | None = None) -> int:
                                      "not in RESOURCES.md or idle (T-61)")
     w.add_argument("--region", default="eu-de")
     w.add_argument("--today", default=None, metavar="YYYY-MM-DD")
+    w.add_argument("--buckets", action="store_true", help="the OBS buckets too, one call per bucket for its tags")
     u = sub.add_parser("usage", help="calls to the TCP API per day and every 429, from the call log")
     u.add_argument("--month", default=None, metavar="YYYY-MM")
     sub.add_parser("tenants", help="the tenants of the key service, their keys and the names of their secrets")
@@ -379,10 +432,12 @@ def main(argv: list[str] | None = None) -> int:
                 print("awb cloud: %s" % where, file=sys.stderr)
 
             def lister(service, path, key, paging, query=None, project_header=False):
+                if service == "obs":
+                    return c.buckets()
                 headers = {"X-Project-Id": c.project_id()} if project_header else None
                 return c.list(service, path, key, query=query, paging=paging, headers=headers)
             rep = _sweep.sweep(lister, today, handles, _sweep.known_ids(config.paths().projects_root),
-                               _sweep.ALL_SOURCES)
+                               _sweep.ALL_SOURCES + (_sweep.OBS_SOURCES if args.buckets else ()))
             try:
                 handles.save()
             except _sweep.SweepError as err:
@@ -414,6 +469,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(r.data, ensure_ascii=False, indent=2, sort_keys=True))
         else:
             print(r.text)
+        if r.cut:
+            print(cut_line(r.size), file=sys.stderr)
         if not r.ok:
             print("awb cloud: HTTP %d" % r.status, file=sys.stderr)
             return 1
@@ -465,6 +522,8 @@ def _through_service(args) -> int:
         print(json.dumps(answer["data"], ensure_ascii=False, indent=2, sort_keys=True))
     elif answer.get("text"):
         print(answer["text"])
+    if answer.get("cut"):
+        print(cut_line(int(answer.get("size") or 0)), file=sys.stderr)
     status = int(answer.get("status") or 0)
     if not 200 <= status < 300:
         print("awb cloud: HTTP %d" % status, file=sys.stderr)

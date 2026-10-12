@@ -815,7 +815,8 @@ class Service:
         client = cloud.Client(keys, region, endpoint=self.endpoint, label=alias, timeout=60.0)
         try:
             r = client.request(method, service, path, query=query or None, body=body)
-            answer = {"ok": True, "status": r.status, "data": r.data, "text": r.text}
+            answer = {"ok": True, "status": r.status, "data": r.data, "text": r.text, "size": r.size,
+                      "cut": r.cut}
         except cloud.CloudError as err:
             answer = {"ok": True, "status": err.status or 0, "data": None, "text": str(err)}
         self._log(uid, alias, role, method, service, region, answer["status"], project)

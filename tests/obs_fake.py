@@ -16,7 +16,9 @@ from xml.sax.saxutils import escape
 from awb import obs
 
 NS = "http://obs.otc.t-systems.com/doc/2016-01-01/"
-SUBRESOURCES = ("policy", "acl", "delete")
+SUBRESOURCES = ("policy", "acl", "delete", "tagging")
+CREATED = "2026-10-01T08:00:00.000Z"
+"""The creation date of every bucket of FakeOBSService."""
 BAD_AUTHORIZATION = "Authorization header is invalid -- one and only one ' ' (space) required"
 """The message of the live 400 InvalidArgument (2026-10-12) for a call signed the way of the API gateway."""
 ACCESS_DENIED = " ".join(("Access", "Denied"))
@@ -202,13 +204,15 @@ class FakeOBS:
 class FakeOBSService:
     """A local stand-in for the OBS service of one region, path style on 127.0.0.1, for the calls the key service
     signs: GET / lists the buckets, PUT /BUCKET makes one, PUT /BUCKET?policy sets its policy (JSON), HEAD and
-    DELETE /BUCKET, GET /BUCKET lists it and GET /BUCKET/KEY reads an object; an action the policy denies answers 403
-    AccessDenied. `keys` maps every access key it takes to its secret. A call signed the way of the API gateway is
+    DELETE /BUCKET, GET /BUCKET lists it, GET /BUCKET?tagging gives its tags (404 NoSuchTagSet without) and
+    GET /BUCKET/KEY reads an object; an action the policy denies answers 403 AccessDenied. Every bucket is in
+    eu-de and was made at CREATED. `keys` maps every access key it takes to its secret. A call signed the way of the API gateway is
     refused with the live answer: 400 InvalidArgument. `calls` keeps (method, path, the scheme of Authorization)."""
 
     def __init__(self, keys: dict[str, str] | None = None):
         self.keys = dict(keys or {"AKFAKE": "sk-fake-secret"})
-        self.buckets: dict[str, dict] = {}            # name -> {"policy": dict or None, "objects": {key: bytes}}
+        # name -> {"policy": dict or None, "objects": {key: bytes}} and "tags": {key: value} when it has tags
+        self.buckets: dict[str, dict] = {}
         self.calls: list[tuple[str, str, str]] = []
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         self.server.socket.settimeout(1.0)
@@ -266,7 +270,8 @@ class FakeOBSService:
                 if not bucket:
                     if method != "GET":
                         return self._answer(405, code="MethodNotAllowed", message="not allowed")
-                    names = "".join("<Bucket><Name>%s</Name></Bucket>" % escape(b) for b in sorted(fake.buckets))
+                    names = "".join("<Bucket><Name>%s</Name><CreationDate>%s</CreationDate><Location>eu-de</Location>"
+                                    "</Bucket>" % (escape(b), CREATED) for b in sorted(fake.buckets))
                     return self._answer(200, ('<?xml version="1.0" encoding="UTF-8"?><ListAllMyBucketsResult '
                                               'xmlns="%s"><Buckets>%s</Buckets></ListAllMyBucketsResult>'
                                               % (NS, names)).encode())
@@ -288,6 +293,14 @@ class FakeOBSService:
                 if method == "DELETE" and not key:
                     del fake.buckets[bucket]
                     return self._answer(204)
+                if method == "GET" and not key and "tagging" in query:
+                    tags = fake.buckets[bucket].get("tags")
+                    if not tags:
+                        return self._answer(404, code="NoSuchTagSet", message="no tags")
+                    body = "".join("<Tag><Key>%s</Key><Value>%s</Value></Tag>" % (escape(k), escape(v))
+                                   for k, v in sorted(tags.items()))
+                    return self._answer(200, ('<?xml version="1.0" encoding="UTF-8"?><Tagging xmlns="%s"><TagSet>%s'
+                                              '</TagSet></Tagging>' % (NS, body)).encode())
                 if method == "GET":
                     action = "GetObject" if key else "ListBucket"
                     if fake.denied(bucket, action):

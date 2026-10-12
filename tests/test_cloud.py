@@ -214,3 +214,123 @@ def test_the_command_line_reads_and_never_writes(gw, tmp_path, monkeypatch, caps
     assert "eu-de" in out and FakeGateway.PROJECT not in out and "3 project(s)" in out
     assert cli.main(["cloud", "post", "vpc", "/v1/x"]) == 2
     assert all(method == "GET" for method, _ in gw.calls)
+
+
+# --------------------------------------------------------------------------- a whole OBS answer (B-005)
+# The live run of 2026-10-12 got the list of buckets cut after the first one: an answer that is not JSON was kept as
+# its first 300 characters only.
+
+def bucket_list_xml(names, locations=None) -> bytes:
+    from tests.obs_fake import CREATED, NS
+
+    locations = locations or {}
+    rows = "".join("<Bucket><Name>%s</Name><CreationDate>%s</CreationDate>%s</Bucket>"
+                   % (n, CREATED, "<Location>%s</Location>" % locations[n] if n in locations else "") for n in names)
+    return ('<?xml version="1.0" encoding="UTF-8"?><ListAllMyBucketsResult xmlns="%s"><Owner><ID>0000aaaa</ID>'
+            '</Owner><Buckets>%s</Buckets></ListAllMyBucketsResult>' % (NS, rows)).encode()
+
+
+def test_a_list_of_three_buckets_comes_back_whole_as_data(wire):
+    from tests.obs_fake import CREATED
+
+    names = ["tcp-ab2c-lab-1", "tcp-ab2c-lab-2", "tcp-ab2c-lab-3"]
+    wire.body = bucket_list_xml(names, {"tcp-ab2c-lab-3": "eu-nl"})
+    assert len(wire.body) > cloud.CUT
+    r = cloud.Client(obs.Keys(AK, SK)).request("GET", "obs", "/")
+    assert r.status == 200 and not r.cut and r.size == len(wire.body)
+    assert r.data == {"buckets": [{"name": names[0], "created": CREATED}, {"name": names[1], "created": CREATED},
+                                  {"name": names[2], "created": CREATED, "location": "eu-nl"}]}
+
+
+def test_the_keys_and_the_tags_of_a_bucket_come_as_data(wire):
+    from tests.obs_fake import NS
+
+    wire.body = ('<ListBucketResult xmlns="%s"><Name>tcp-ab2c-lab-1</Name><Prefix>in/</Prefix>'
+                 '<IsTruncated>true</IsTruncated><NextMarker>in/b.txt</NextMarker>'
+                 '<Contents><Key>in/a.txt</Key><Size>12</Size><ETag>"abc"</ETag>'
+                 '<LastModified>2026-10-03T07:58:12.000Z</LastModified></Contents>'
+                 '<Contents><Key>in/b.txt</Key><Size>0</Size><ETag>"def"</ETag></Contents>'
+                 '<CommonPrefixes><Prefix>in/sub/</Prefix></CommonPrefixes></ListBucketResult>' % NS).encode()
+    r = cloud.Client(obs.Keys(AK, SK)).request("GET", "obs", "/tcp-ab2c-lab-1", query={"prefix": "in/"})
+    assert r.data == {"name": "tcp-ab2c-lab-1", "prefix": "in/", "truncated": True, "next_marker": "in/b.txt",
+                      "prefixes": ["in/sub/"],
+                      "keys": [{"key": "in/a.txt", "size": 12, "etag": "abc", "modified": "2026-10-03T07:58:12.000Z"},
+                               {"key": "in/b.txt", "size": 0, "etag": "def", "modified": ""}]}
+    wire.body = ('<Tagging xmlns="%s"><TagSet><Tag><Key>awb-project</Key><Value>tcp-ab2c</Value></Tag></TagSet>'
+                 '</Tagging>' % NS).encode()
+    r = cloud.Client(obs.Keys(AK, SK)).request("GET", "obs", "/tcp-ab2c-lab-1", query={"tagging": ""})
+    assert r.data == {"tags": [{"key": "awb-project", "value": "tcp-ab2c"}]}
+    assert obs.xml_result(b"<Other/>") is None and obs.xml_result(b"<ListBucketResult") is None
+
+
+def test_a_long_answer_that_is_not_json_says_it_was_cut_and_how_long_the_whole_was(wire):
+    wire.body = b"<html><body>" + b"x" * 4000 + b"</body></html>"
+    r = cloud.Client(obs.Keys(AK, SK)).request("GET", "vpc", "/v1/x")
+    assert r.data is None and r.cut and r.size == len(wire.body) and len(r.text) == cloud.CUT
+    assert cloud.cut_line(r.size) == ("awb cloud: the answer is not JSON and was cut to its first 300 of %d bytes"
+                                      % len(wire.body))
+    wire.body = b"short and plain"
+    r = cloud.Client(obs.Keys(AK, SK)).request("GET", "vpc", "/v1/x")
+    assert not r.cut and r.text == "short and plain" and r.size == 15
+    wire.body = b'{"items": [' + b", ".join(b'"%d"' % i for i in range(200)) + b"]}"
+    r = cloud.Client(obs.Keys(AK, SK)).request("GET", "vpc", "/v1/x")
+    assert not r.cut and len(r.data["items"]) == 200
+
+
+class _Router:
+    """urlopen in place of the network for the bucket sweep: the list of buckets and the tags of each (a dict, None
+    for no tags, "denied" for a 403); a bucket not in `tags` is gone."""
+
+    def __init__(self, names, tags, locations=None):
+        self.list = bucket_list_xml(names, locations)
+        self.tags, self.sent = tags, []
+
+    def __call__(self, req, timeout=None):
+        import io
+        import urllib.error
+        import urllib.parse
+
+        from tests.obs_fake import NS, error_xml
+
+        self.sent.append(req.full_url)
+        host = urllib.parse.urlsplit(req.full_url).netloc
+        bucket = host.split(".obs.")[0] if ".obs." in host else ""
+        if not bucket:
+            status, body = 200, self.list
+        elif bucket not in self.tags:
+            status, body = 404, error_xml("NoSuchBucket", "gone")
+        elif self.tags[bucket] is None:
+            status, body = 404, error_xml("NoSuchTagSet", "no tags")
+        elif self.tags[bucket] == "denied":
+            status, body = 403, error_xml("AccessDenied", "no")
+        else:
+            status, body = 200, ('<Tagging xmlns="%s"><TagSet>%s</TagSet></Tagging>' % (NS, "".join(
+                "<Tag><Key>%s</Key><Value>%s</Value></Tag>" % kv for kv in self.tags[bucket].items()))).encode()
+        if status >= 300:
+            raise urllib.error.HTTPError(req.full_url, status, "refused", {}, io.BytesIO(body))
+
+        class Answer(io.BytesIO):
+            pass
+        Answer.status = status
+        return Answer(body)
+
+
+def test_the_buckets_of_the_region_come_with_their_tags_for_the_sweep(wire, monkeypatch):
+    from tests.obs_fake import CREATED
+
+    tagged = {"awb-project": "tcp-ab2c", "awb-expiry": "2026-12-31"}
+    router = _Router(["tcp-ab2c-lab-1", "tcp-ab2c-lab-2", "tcp-ab2c-gone", "tcp-ab2c-other"],
+                     {"tcp-ab2c-lab-1": tagged, "tcp-ab2c-lab-2": None, "tcp-ab2c-other": tagged},
+                     {"tcp-ab2c-other": "eu-nl"})
+    monkeypatch.setattr(cloud.urllib.request, "urlopen", router)
+    listing = cloud.Client(obs.Keys(AK, SK)).buckets()
+    assert listing.state == jobs.LIST
+    assert list(listing.items) == [
+        {"id": "tcp-ab2c-lab-1", "name": "tcp-ab2c-lab-1", "created": CREATED,
+         "tags": [{"key": "awb-project", "value": "tcp-ab2c"}, {"key": "awb-expiry", "value": "2026-12-31"}]},
+        {"id": "tcp-ab2c-lab-2", "name": "tcp-ab2c-lab-2", "created": CREATED, "tags": []}]
+    assert not any("tcp-ab2c-other" in url for url in router.sent)          # a bucket of another region
+    assert "https://tcp-ab2c-lab-1.obs.eu-de.otc.t-systems.com/?tagging" in router.sent
+    router.tags["tcp-ab2c-lab-2"] = "denied"
+    listing = cloud.Client(obs.Keys(AK, SK)).buckets()
+    assert listing.state == jobs.UNKNOWN and "HTTP 403" in listing.reason        # unknown, never a shorter list

@@ -101,6 +101,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- `awb cloud call` keeps a whole OBS answer (B-005: the live run of 2026-10-12 got the list of buckets cut after the
+  first one at 300 characters). An OBS list in XML comes as data: ListAllMyBucketsResult as `buckets` (name, creation
+  date, location when given), ListBucketResult as `keys` with `prefixes`, `truncated` and `next_marker`, Tagging as
+  `tags`. Any other answer that is not JSON is still cut to its first 300 bytes; the answer says so (`cut`,
+  `size`) and the command prints one line with the size of the whole. `awb cloud sweep --buckets` sweeps the OBS
+  buckets of the region by the rules of the other types (untagged, expired by `awb-expiry`, not in RESOURCES.md), the
+  tags from `GET /BUCKET?tagging`; without the flag the report says the buckets were not swept.
 - The lab recipe `elb-health` tells a dead web server from a blocked health check (B-004: the live run of 2026-10-12
   left the member OFFLINE and could not say why). The backend's user_data writes the web server as a systemd service
   that outlives cloud-init and, after cloud-init, writes `AWB-WEB-UP` or `AWB-WEB-DOWN` to the console when it tries
