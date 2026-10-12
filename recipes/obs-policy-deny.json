@@ -19,7 +19,7 @@
      "find": {"call": {"method": "HEAD", "service": "obs", "path": "/${name}"}, "status": [200], "within": 30},
      "resource": {"kind": "obs", "type": "obs bucket", "cost": "none"},
      "tags": "name",
-     "confirm": "the whole recipe: the call op of the key service signs the way of the API gateway (SDK-HMAC-SHA256) and sends a JSON body to https://obs.REGION.otc.t-systems.com/PATH; OBS signs its own way and takes XML for a bucket's location and tags. Expected first answer: HTTP 403 on this create, then nothing is made. If so, the key service needs an OBS operation for the buckets of a project (named <code>-...), like the lease policy allows, before this recipe can run; the find HEAD /BUCKET (200 when it is there, 404 when not) goes the same way as the create"},
+     "confirm": "the create: the call op of the key service signs obs the OBS way (awb/obs.py, B-003) and sends PUT to https://BUCKET.obs.REGION.otc.t-systems.com/ without a body, so the bucket lands in the default region; a region other than eu-de may need the location in XML. The first live run (2026-10-12, signed the gateway way) stopped here with HTTP 400 InvalidArgument. The find HEAD /BUCKET answers 200 when it is there, 404 when not"},
     {"id": "policy", "do": "call", "says": "deny the action to every principal",
      "call": {"method": "PUT", "service": "obs", "path": "/${name}", "query": {"policy": ""},
               "body": {"Statement": [{"Sid": "awb-lab-deny", "Effect": "Deny", "Principal": {"ID": ["*"]},

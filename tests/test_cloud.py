@@ -106,6 +106,89 @@ def test_names_and_paths_are_checked():
     assert c.url("ecs", "/v1/x", {"a": ["1", "2"]}) == "https://ecs.eu-de.otc.t-systems.com/v1/x?a=1&a=2"
 
 
+# --------------------------------------------------------------------------- OBS is signed its own way (B-003)
+
+
+class _Wire:
+    """urlopen in place of the network: keeps every request and answers `status` with `body`."""
+
+    def __init__(self, status: int = 200, body: bytes = b""):
+        self.status, self.body, self.sent = status, body, []
+
+    def __call__(self, req, timeout=None):
+        import io
+        import urllib.error
+
+        self.sent.append(req)
+        if self.status >= 300:
+            raise urllib.error.HTTPError(req.full_url, self.status, "refused", {}, io.BytesIO(self.body))
+        wire = self
+
+        class Answer(io.BytesIO):
+            status = wire.status
+
+        return Answer(self.body)
+
+
+@pytest.fixture
+def wire(monkeypatch):
+    from awb.tcp import throttle
+
+    w = _Wire()
+    monkeypatch.setattr(cloud.urllib.request, "urlopen", w)
+    monkeypatch.setattr(throttle, "log_call", lambda *a, **k: None)
+    monkeypatch.setattr(throttle, "wait_turn", lambda host: 0.0)
+    return w
+
+
+def test_an_obs_call_goes_to_the_bucket_host_and_a_list_of_buckets_to_the_service_host():
+    c = cloud.Client(obs.Keys(AK, SK))
+    _, key, sub, url = c.obs_call("/tcp-ab2c-lab-1/a b.txt", {"policy": "", "max-keys": "5"})
+    assert (key, sub) == ("a b.txt", "policy")
+    assert url == "https://tcp-ab2c-lab-1.obs.eu-de.otc.t-systems.com/a%20b.txt?policy&max-keys=5"
+    assert c.obs_call("/tcp-ab2c-lab-1")[3] == "https://tcp-ab2c-lab-1.obs.eu-de.otc.t-systems.com/"
+    assert c.obs_call("/")[3] == "https://obs.eu-de.otc.t-systems.com/"
+    on = cloud.Client(obs.Keys(AK, SK), endpoint="http://127.0.0.1:9")          # tests: the bucket by path
+    assert on.obs_call("/tcp-ab2c-lab-1")[3] == "http://127.0.0.1:9/tcp-ab2c-lab-1/"
+    assert on.obs_call("/")[3] == "http://127.0.0.1:9/"
+    with pytest.raises(cloud.CloudError):
+        c.obs_call("/Not_A_Bucket/x")
+
+
+def test_an_obs_call_carries_the_v2_signature_and_another_service_the_gateway_one(wire):
+    import base64
+    import hashlib
+    import hmac
+
+    c = cloud.Client(obs.Keys(AK, SK))
+    r = c.request("PUT", "obs", "/tcp-ab2c-lab-1", query={"policy": ""}, body={"Statement": []})
+    assert r.status == 200
+    req = wire.sent[-1]
+    assert req.full_url == "https://tcp-ab2c-lab-1.obs.eu-de.otc.t-systems.com/?policy"
+    text = "PUT\n\napplication/json\n%s\n/tcp-ab2c-lab-1/?policy" % req.get_header("Date")
+    want = base64.b64encode(hmac.new(SK.encode(), text.encode(), hashlib.sha1).digest()).decode()
+    assert req.get_header("Authorization") == "OBS %s:%s" % (AK, want)
+    c.request("GET", "obs", "/")
+    req = wire.sent[-1]
+    text = "GET\n\n\n%s\n/" % req.get_header("Date")
+    want = base64.b64encode(hmac.new(SK.encode(), text.encode(), hashlib.sha1).digest()).decode()
+    assert req.get_header("Authorization") == "OBS %s:%s" % (AK, want)
+    assert req.get_header("Content-type") is None
+    c.request("GET", "vpc", "/v1/x")
+    assert wire.sent[-1].get_header("Authorization").startswith("SDK-HMAC-SHA256 Access=%s," % AK)
+
+
+def test_an_obs_error_in_xml_gives_its_code_and_message(wire):
+    from tests.obs_fake import BAD_AUTHORIZATION, error_xml
+
+    wire.status, wire.body = 400, error_xml("InvalidArgument", BAD_AUTHORIZATION)
+    r = cloud.Client(obs.Keys(AK, SK)).request("PUT", "obs", "/tcp-ab2c-lab-1")
+    assert r.status == 400 and r.data == {"code": "InvalidArgument", "message": BAD_AUTHORIZATION}
+    assert obs.xml_error(error_xml("AccessDenied", "no")[:70]) == ("AccessDenied", "")     # cut short
+    assert obs.xml_error(b"<ListAllMyBucketsResult/>") == ("", "")
+    assert obs.xml_error(b'{"code": "x"}') == ("", "")
+
+
 def test_the_work_user_and_a_missing_key_setting_are_refused(monkeypatch):
     monkeypatch.delenv("AWB_CLOUD_KEYS", raising=False)
     with pytest.raises(cloud.CloudError, match="AWB_CLOUD_KEYS"):

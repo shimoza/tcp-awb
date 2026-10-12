@@ -453,7 +453,10 @@ def disk_refusal(answer: dict, disks: list[tuple[str, str]]) -> str | None:
 
 def error_of(answer: dict) -> tuple[str, str]:
     """(code, message) of the error in an answer, in the forms of ERROR_FORMS (also inside the one object a
-    wrapper such as badRequest holds); empty strings when it carries none. Raw: the caller cleans both."""
+    wrapper such as badRequest holds) or as the XML of an OBS error (`<Error><Code>` and `<Message>`); empty
+    strings when it carries none. Raw: the caller cleans both."""
+    from awb import obs
+
     data = answer.get("data")
     if data is None and isinstance(answer.get("text"), str) and answer["text"].lstrip().startswith("{"):
         try:
@@ -461,7 +464,7 @@ def error_of(answer: dict) -> tuple[str, str]:
         except ValueError:
             data = None
     if not isinstance(data, dict):
-        return "", ""
+        return obs.xml_error(answer.get("text")) if isinstance(answer.get("text"), str) else ("", "")
     places = [data]
     if len(data) == 1 and isinstance(next(iter(data.values())), dict):
         places.append(next(iter(data.values())))

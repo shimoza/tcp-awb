@@ -916,6 +916,63 @@ def test_an_error_message_the_name_check_cannot_check_is_not_kept(project, monke
     assert "- result: stopped (the create gadget answered 409, error_code <withheld>)" in text
 
 
+# --------------------------------------------------------------------------- run 3 (2026-10-12): OBS (B-003)
+
+
+def test_an_obs_error_in_xml_keeps_its_code_and_message_in_the_evidence_and_the_stop_line(project):
+    """The live run of obs-policy-deny stopped at the bucket create with 400 and no code: OBS answers in XML."""
+    from tests.obs_fake import BAD_AUTHORIZATION, error_xml
+
+    fake = FakeKeyService()
+    fake.fail_create = {"gadgets": 400}
+    fake.refused_body = None
+    fake.refused_text = error_xml("InvalidArgument", BAD_AUTHORIZATION).decode()
+    code, lines, _ = run(fake)
+    assert code == lab.EXIT_STOPPED and fake.live() == []
+    stop = "result: stopped (the create gadget answered 400, error_code InvalidArgument)"
+    assert stop in lines
+    text = evidence(project)
+    assert "- " + stop in text
+    assert "| 400 | 1 | error_code = InvalidArgument; error_msg = %s |" % BAD_AUTHORIZATION in text
+
+
+def test_an_obs_error_cut_short_in_the_text_still_gives_its_code():
+    from tests.obs_fake import error_xml
+
+    text = error_xml("AccessDenied", "x" * 400).decode()[:300]          # the key service keeps 300 characters
+    kept = text.split("<Message>", 1)[1]
+    assert set(kept) == {"x"}
+    assert lab.error_of({"ok": True, "status": 403, "data": None, "text": text}) == ("AccessDenied", kept)
+    assert lab.error_of({"ok": True, "status": 200, "data": None, "text": "<ListAllMyBucketsResult/>"}) == ("", "")
+
+
+def test_the_obs_recipe_runs_through_the_key_service_signed_the_obs_way(project, tmp_path):
+    """obs-policy-deny end to end: the real key service signs every OBS call for a stand-in OBS service that takes
+    the V2 signature only; the grant probe goes to the stand-in key service."""
+    from types import SimpleNamespace
+
+    from tests.obs_fake import ACCESS_DENIED, FakeOBSService
+    from tests.test_keys import AK, LAB_AK, LAB_SK, SK, load, running_service
+
+    write_recipe(tmp_path / "recipes", json.loads((REPO_RECIPES / "obs-policy-deny.json").read_text("utf-8")))
+    others = FakeKeyService()
+    with FakeOBSService({AK: SK, LAB_AK: LAB_SK}) as fake_obs:
+        with running_service(SimpleNamespace(base=fake_obs.endpoint), tmp_path / "log") as svc:
+            load(svc)
+
+            def send(req):
+                return svc._call_socket(req, os.getuid()) if req.get("service") == "obs" else others(req)
+            code, lines, errors = run(send, recipe="obs-policy-deny")
+    assert code == lab.EXIT_OK, (lines, errors)
+    assert fake_obs.buckets == {}
+    assert fake_obs.calls and {scheme for _, _, scheme in fake_obs.calls} == {"OBS"}
+    made = [path for method, path, _ in fake_obs.calls if method == "PUT"]
+    assert made[0].startswith("/%s-lab-" % PROJECT)
+    text = evidence(project)
+    assert "| 403 | 1 | error_code = AccessDenied; error_msg = %s |" % ACCESS_DENIED in text
+    assert [r["state"] for r in rows(project)] == ["deleted"]
+
+
 def test_the_404_that_proves_a_resource_gone_keeps_no_error(project):
     fake = FakeKeyService()
     assert run(fake)[0] == lab.EXIT_OK

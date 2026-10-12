@@ -40,8 +40,9 @@ runs `awb projects kind CODE query` once for a customer project before its first
 
 A project builds and checks on real TCP test tenants. The session never holds a key. The key service runs on
 the owner's side. It keeps the keys, logins and passwords of every test tenant in memory and signs each call a
-session sends. The read key allows reads only. A write needs the lab key and the code of an active project.
-A write to the identity service is always refused. Every answer comes back with every key and secret taken out.
+session sends: a call to OBS the OBS way, every other service the way of the API gateway. The read key allows
+reads only. A write needs the lab key and the code of an active project. A write to the identity service is
+always refused. Every answer comes back with every key and secret taken out.
 
 Every resource a project creates carries the project code as a tag and a row in the project's `RESOURCES.md`. A
 daily snapshot tells what ran on which tenant on which day. `awb close` refuses while something is still running.
@@ -310,6 +311,12 @@ awb keys unlock                  # after every start of the service
 
 By hand the same is `pass insert awb/tenant/test-1/ak` and `sk`, then `awb tenant add test-1 --keys
 pass:awb/tenant/test-1 --region eu-de`.
+
+The key service signs a call to `obs` the OBS way (`Authorization: OBS AK:SIGNATURE`, the code of `awb/obs.py`): the
+path is `/BUCKET[/KEY]`, the bucket is reached by its own host and `GET /` lists the buckets. Every other service is
+signed the way of the API gateway (SDK-HMAC-SHA256). An OBS call never reaches the two exchange buckets (they are
+`awb xchg`'s) and an OBS write reaches only a bucket named after the project (`tcp-xxxx-...`). The code and
+message of an OBS error, which comes in XML, are read like those of a JSON error.
 
 A request body may name a secret only as the whole value of a password field, `{"admin_pass": "{{secret:NAME}}"}`.
 The answer comes back with every key and secret of the tenant taken out, also in base64 and JSON form. Every call is

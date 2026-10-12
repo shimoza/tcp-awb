@@ -101,6 +101,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- The key service signs a call to obs the OBS way (`Authorization: OBS AK:SIGNATURE` of `awb/obs.py`, the bucket
+  by its own host, `GET /` the list of buckets) and every other service the way of the API gateway as before (B-003:
+  the live run of `obs-policy-deny` on 2026-10-12 stopped at the bucket create with 400 InvalidArgument). An OBS call
+  never reaches the two exchange buckets and an OBS write only a bucket named after its project. `awb cloud` and
+  `awb lab` read the code and message of an OBS error in XML, so the evidence and the stop line carry them.
 - A dry run of `seal/setup.sh` or `seal/verify.sh` under the tests no longer reads the host file of the host the
   suite runs on. `AWB_SETUP_CONF=FILE` and `AWB_VERIFY_CONF=FILE` (dry run only, setup.sh also with its test-only
   install root, never as root) name the host file the plan keeps its values from; a FILE that is not there stands

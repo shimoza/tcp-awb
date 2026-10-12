@@ -12,6 +12,8 @@ import base64
 import email.utils
 import hashlib
 import hmac
+import html
+import re
 import shutil
 import subprocess
 import urllib.error
@@ -25,6 +27,14 @@ DOMAIN = "otc.t-systems.com"
 TIMEOUT = 60
 CHUNK = 1 << 20
 PAGE = 1000
+SUBRESOURCES = frozenset((
+    "acl", "append", "attname", "cors", "customdomain", "delete", "deletebucket", "encryption", "inventory",
+    "lifecycle", "location", "logging", "metadata", "modify", "notification", "partNumber", "policy", "position",
+    "quota", "rename", "replication", "response-cache-control", "response-content-disposition",
+    "response-content-encoding", "response-content-language", "response-content-type", "response-expires",
+    "restore", "storageClass", "storagePolicy", "storageinfo", "tagging", "torrent", "truncate", "uploadId",
+    "uploads", "versionId", "versioning", "versions", "website"))
+"""The query keys that belong to the signed resource of the V2 scheme; every other key stays out of it."""
 
 
 class OBSError(Exception):
@@ -91,13 +101,34 @@ def xml_text(el: ET.Element | None) -> str:
     return (el.text or "") if el is not None else ""
 
 
+def xml_error(body: bytes | str | None) -> tuple[str, str]:
+    """(code, message) of an OBS error answer, `<Error><Code>..</Code><Message>..</Message></Error>`; empty strings
+    when the body is no such answer. A body cut short still gives what it holds of both."""
+    if isinstance(body, bytes):
+        body = body.decode("utf-8", "replace")
+    if not body or not body.lstrip().startswith("<"):
+        return "", ""
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError:
+        if not re.search(r"<Error[\s>]", body):
+            return "", ""
+        found = [re.search(r"<%s>([^<]*)" % name, body) for name in ("Code", "Message")]
+        code, msg = (html.unescape(m.group(1)).strip() if m else "" for m in found)
+        return code, msg
+    if xml_local(root.tag) != "Error":
+        return "", ""
+    return xml_text(xml_child(root, "Code")).strip(), xml_text(xml_child(root, "Message")).strip()
+
+
 # The private names stay for the web adapters still deployed outside the repository until they are switched.
 _local, _child, _text = xml_local, xml_child, xml_text
 
 
 class Client:
     """One bucket. `endpoint` (for tests) addresses the bucket by path on another host; without it the bucket is
-    reached as `https://<bucket>.obs.<region>.otc.t-systems.com`."""
+    reached as `https://<bucket>.obs.<region>.otc.t-systems.com`. The bucket "" is the service itself (the list of
+    buckets): `https://obs.<region>.otc.t-systems.com/`, signed with the resource `/`."""
 
     def __init__(self, bucket: str, keys: Keys, region: str = "eu-de", endpoint: str | None = None,
                  timeout: float = TIMEOUT):
@@ -114,6 +145,8 @@ class Client:
 
     def url(self, key: str, query: str) -> str:
         """The address of a key with its query."""
+        if not self.bucket:
+            return "%s/%s" % (self.endpoint or "https://obs.%s.%s" % (self.region, DOMAIN), "?" + query if query else "")
         if self.endpoint:
             base = "%s/%s" % (self.endpoint, self.bucket)
         else:
@@ -125,7 +158,7 @@ class Client:
         date = email.utils.formatdate(usegmt=True)
         headers["Date"] = date
         obs = sorted((k.lower(), v.strip()) for k, v in headers.items() if k.lower().startswith("x-obs-"))
-        resource = "/%s%s%s" % (self.bucket, self._path(key), "?" + sub if sub else "")
+        resource = "/%s%s%s" % (self.bucket, self._path(key) if self.bucket else "", "?" + sub if sub else "")
         text = "\n".join([method, headers.get("Content-MD5", ""), headers.get("Content-Type", ""), date]) + "\n"
         text += "".join("%s:%s\n" % kv for kv in obs) + resource
         mac = hmac.new(self.keys.sk.encode("utf-8"), text.encode("utf-8"), hashlib.sha1).digest()
@@ -149,11 +182,7 @@ class Client:
                 body = exc.read()
             except OSError:
                 pass
-            code = ""
-            try:
-                code = xml_text(xml_child(ET.fromstring(body), "Code")) if body else ""
-            except ET.ParseError:
-                pass
+            code = xml_error(body)[0]
             raise OBSError("HTTP %d%s" % (exc.code, " " + code if code else ""), exc.code, code) from None
         except (urllib.error.URLError, OSError) as exc:
             raise OBSError("the object storage cannot be reached (%s)" % type(exc).__name__) from None

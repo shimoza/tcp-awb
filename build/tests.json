@@ -5242,8 +5242,78 @@
    "name": "tags: the check names a service whose tag is missing",
    "run": ".venv/bin/pytest tests/test_services.py::test_the_tag_check_names_a_service_whose_tag_is_missing",
    "status": "passing"
+  },
+  {
+   "id": "B003-1",
+   "phase": "B-003",
+   "name": "key service: a bucket create, HEAD, the list of buckets (GET /), the policy, the denied read and the delete through the call op are signed the OBS way (V2) and accepted by a stand-in OBS; a 403 in XML comes back as code and message",
+   "run": ".venv/bin/pytest tests/test_keys.py::test_an_obs_create_through_the_key_service_is_signed_the_obs_way",
+   "status": "passing"
+  },
+  {
+   "id": "B003-2",
+   "phase": "B-003",
+   "name": "key service: a call signed the way of the API gateway gets the live answer of OBS (400 InvalidArgument, one and only one space) with its code and message; vpc keeps the gateway signing",
+   "run": ".venv/bin/pytest tests/test_keys.py::test_the_gateway_way_is_refused_by_obs_like_the_live_answer_and_other_services_keep_it",
+   "status": "passing"
+  },
+  {
+   "id": "B003-3",
+   "phase": "B-003",
+   "name": "key service: vpc passes the stand-in gateway's SDK-HMAC-SHA256 check; an OBS call comes to it signed the OBS way and gets its 401",
+   "run": ".venv/bin/pytest tests/test_keys.py::test_other_services_keep_the_gateway_signing",
+   "status": "passing"
+  },
+  {
+   "id": "B003-4",
+   "phase": "B-003",
+   "name": "key service: an OBS call to an exchange bucket and an OBS write to a bucket not named after the project are refused before anything is sent",
+   "run": ".venv/bin/pytest tests/test_keys.py::test_an_obs_call_never_reaches_an_exchange_bucket_and_writes_only_to_a_bucket_of_the_project",
+   "status": "passing"
+  },
+  {
+   "id": "B003-5",
+   "phase": "B-003",
+   "name": "cloud: an OBS call goes to the bucket's own host (by path on a test endpoint), GET / to the service host; sub-resources are split from the query; a bad bucket name is refused",
+   "run": ".venv/bin/pytest tests/test_cloud.py::test_an_obs_call_goes_to_the_bucket_host_and_a_list_of_buckets_to_the_service_host",
+   "status": "passing"
+  },
+  {
+   "id": "B003-6",
+   "phase": "B-003",
+   "name": "cloud: an OBS call carries the V2 signature (resource /BUCKET/?policy, / for the list of buckets), another service the SDK-HMAC-SHA256 one",
+   "run": ".venv/bin/pytest tests/test_cloud.py::test_an_obs_call_carries_the_v2_signature_and_another_service_the_gateway_one",
+   "status": "passing"
+  },
+  {
+   "id": "B003-7",
+   "phase": "B-003",
+   "name": "cloud: an OBS error in XML gives code and message in the data; a body cut short still gives its code; other XML gives nothing",
+   "run": ".venv/bin/pytest tests/test_cloud.py::test_an_obs_error_in_xml_gives_its_code_and_message",
+   "status": "passing"
+  },
+  {
+   "id": "B003-8",
+   "phase": "B-003",
+   "name": "lab: an OBS error in XML puts its code and message into the evidence and its code into the stop line",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_an_obs_error_in_xml_keeps_its_code_and_message_in_the_evidence_and_the_stop_line",
+   "status": "passing"
+  },
+  {
+   "id": "B003-9",
+   "phase": "B-003",
+   "name": "lab: an OBS error cut short at 300 characters still gives its code and what it holds of the message",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_an_obs_error_cut_short_in_the_text_still_gives_its_code",
+   "status": "passing"
+  },
+  {
+   "id": "B003-10",
+   "phase": "B-003",
+   "name": "lab: obs-policy-deny runs end to end through the real key service and a stand-in OBS: bucket made, policy set, the denied read 403 AccessDenied in the evidence, bucket deleted and proved gone",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_obs_recipe_runs_through_the_key_service_signed_the_obs_way",
+   "status": "passing"
   }
  ],
- "total_tests": 749,
+ "total_tests": 759,
  "checked": "2026-10-12"
 }

@@ -13,7 +13,8 @@ status or "lost" for no answer at all; nothing is made), made_but (collection: s
 then the answer is that status or none), list_fail (the next so many GETs of a collection answer 500), fail_delete
 (collections whose DELETE answers 500), never_active, plant (fields put into every item read), on_call (a function
 run before each answer, for a signal), forbidden (a GET of /v1/{project_id}/forbidden answers 403 or this
-status), refused_body (the body of a refused create, by default an error_msg alone) and secrets (tenant alias: the
+status), refused_body (the body of a refused create, by default an error_msg alone), refused_text (its text, for
+an answer that is not JSON such as the XML of an OBS error) and secrets (tenant alias: the
 names of its secrets, which the operation tenants lists as the key service does, never a value). Every id and value
 here is invented.
 """
@@ -39,7 +40,8 @@ class FakeKeyService:
         self.plant: dict = {}
         self.forbidden = 403
         self.on_call = None
-        self.refused_body: dict = {"error_msg": "refused"}
+        self.refused_body: dict | None = {"error_msg": "refused"}
+        self.refused_text = ""
         self.secrets: dict[str, list[str]] = {}
         zones = "eu-de-01,eu-de-02,eu-de-03"
         self.volume_types: list[dict] = [
@@ -85,7 +87,8 @@ class FakeKeyService:
             if coll in self.fail_create:
                 if self.fail_create[coll] == "lost":
                     raise ConnectionResetError("no answer")
-                return {"ok": True, "status": self.fail_create[coll], "data": self.refused_body, "text": ""}
+                return {"ok": True, "status": self.fail_create[coll], "data": self.refused_body,
+                        "text": self.refused_text}
             rid = "%08x-0000-4000-8000-%012x" % (0x1a2b3c4d + next(self._n), 0xabcdef0 + len(self.items))
             body = (req.get("body") or {}).get(one) or {}
             self.items[rid] = {"coll": coll, "deleted": False, "reads": 0, "body": body}

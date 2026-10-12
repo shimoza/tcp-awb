@@ -7,7 +7,10 @@ A reload (`awb keys reload`, what `awb deploy` runs after a code update) keeps t
 `awb keys serve --takeover FD` itself and hands the tenants and settings to it as one line on an anonymous socket
 pair, with a sha256 over both that the new process must give back before it serves (awb/vault.py, hand_over).
 A working session never reads a key: it sends its call to the service, which checks it, fills in what it may,
-signs it, sends it to the TCP API and answers with every secret taken out.
+signs it, sends it to the TCP API and answers with every secret taken out. A call to obs is signed the OBS way
+(awb/obs.py, path `/BUCKET[/KEY]`, `/` lists the buckets), every other service the way of the API gateway
+(SDK-HMAC-SHA256, awb/sign.py). An OBS call never reaches the two exchange buckets (awb xchg has them) and an OBS
+write reaches only a bucket named after the project of the call (<code>-...), as the lease policy allows.
 
 The password store layout, one tenant per alias (the alias of `awb tenant add`):
 
@@ -791,6 +794,14 @@ class Service:
                           % service)
         if not isinstance(path, str) or not _PATH_RE.match(path) or ".." in path or "//" in path:
             raise Refused("a path is plain: /v1/{project_id}/cloudservers")
+        if service == "obs":
+            # OBS is signed its own way and works: the exchange buckets stay with awb xchg, a write stays on the
+            # buckets of the project (<code>-...), the rule of the lease policy
+            bucket = path[1:].partition("/")[0]
+            if bucket in self.exchange_buckets():
+                raise Refused("the exchange buckets are reached through awb xchg only")
+            if method in WRITE_METHODS and not bucket.startswith(project + "-"):
+                raise Refused("an OBS write reaches only a bucket named after the project (%s-...)" % project)
         query = req.get("query") or {}
         if not isinstance(query, dict) or not all(isinstance(k, str) and isinstance(v, (str, list))
                                                   for k, v in query.items()):

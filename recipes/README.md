@@ -53,8 +53,8 @@ run names the secrets a recipe needs.
 
 A call that is refused or fails keeps in the evidence its status, its error code and the first 200 characters of its
 error message, from `error_code` and `error_msg`, `code` and `message` or `error.code` and `error.message` of the
-answer. The message is withheld when it looks like a key, a token or a secret or when the name check finds a name in
-it or cannot run. The line that stops the run names the step and the error code, for example
+answer or from `<Code>` and `<Message>` of an OBS error, which comes in XML. The message is withheld when it looks
+like a key, a token or a secret or when the name check finds a name in it or cannot run. The line that stops the run names the step and the error code, for example
 `result: stopped (the create server answered 400, error_code Ecs.0005)`.
 
 Values in a call: `${param}`, `${var}`, the id of an earlier create step as `${step}` (so a create step is named
@@ -162,6 +162,10 @@ Their VPC, subnet and shared ELB calls are the ones `awb cloud lease-check` alre
 marked "to confirm live" in the recipe, with what to look at. That holds for the finds by name too: the list of VPCs
 is read by `awb cloud sweep` already; the lists of subnets and security groups with the `vpc_id` filter, the ELB
 v2.0 lists with the `name` filter and their keys are to confirm live. A find that answers otherwise than the recipe
-expects cannot tell: the row stays live for the owner, never not created. The OBS recipe cannot pass through the
-call operation of the key service as it is: that operation signs the way of the API gateway, OBS signs its own way.
-Its first run is expected to stop at the create with HTTP 403 and nothing made.
+expects cannot tell: the row stays live for the owner, never not created. The OBS recipe goes through the call
+operation of the key service, which signs a call to obs the OBS way (the code of `awb/obs.py`, the bucket by its
+own host) and every other service the way of the API gateway. Its first live run on 2026-10-12 stopped at the
+create with HTTP 400 InvalidArgument, when the key service still signed OBS the gateway way (B-003). What stays to
+confirm live: the create in the default region without a location body, the policy as JSON with the OBS form of
+Principal and Action and the 403 of the denied action. Its bucket is named after the project, the only kind of
+bucket the key service writes to.

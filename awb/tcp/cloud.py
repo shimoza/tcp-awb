@@ -15,8 +15,11 @@ KEY and answers one of three states (awb/jobs.py): list, empty or unknown. The c
 session checks facts here and changes nothing. The library can send other methods for later jobs.
 
 The key comes from `AWB_CLOUD_KEYS=pass:<entry>`, the entry holding `ak` and `sk` like the key of the bucket. The work
-user never holds a key: `call` and `tenants` go through the key service (T-100), which signs for it. `AWB_CLOUD_ENDPOINT` (tests) sends every
-service to one base address. Errors carry a status and a short text with the key taken out, never the key.
+user never holds a key: `call` and `tenants` go through the key service (T-100), which signs for it. Every service
+is signed the way of the API gateway (SDK-HMAC-SHA256, awb/sign.py) but obs, which is signed the OBS way (awb/obs.py):
+PATH is `/BUCKET[/KEY]`, the bucket reached by its own host, `/` lists the buckets. `AWB_CLOUD_ENDPOINT` (tests)
+sends every service to one base address, a bucket by path. Errors carry a status and a short text with the key
+taken out, never the key; the code and message of an OBS error in XML come as `code` and `message` of the data.
 """
 from __future__ import annotations
 
@@ -41,6 +44,7 @@ ENDPOINT_ENV = "AWB_CLOUD_ENDPOINT"
 PAGINGS = ("marker", "offset", "none")
 _SERVICE_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
 _REGION_RE = re.compile(r"^[a-z]{2}-[a-z0-9]{2,10}$")
+_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 _TRANSIENT = (429, 502, 503, 504)
 
 
@@ -104,13 +108,41 @@ class Client:
         q = urllib.parse.urlencode(query or {}, doseq=True)
         return self.base(service) + path + ("?" + q if q else "")
 
+    def obs_call(self, path: str, query=None) -> tuple[obs.Client, str, str, str]:
+        """(client, key, sub, url) of an OBS call: the first segment of `path` is the bucket (none for `/`, the list
+        of buckets), the rest the object key. The bucket is reached the way awb/obs.py reaches it: by its own host,
+        or by path on `endpoint`. `sub` holds the sub-resources of the query (policy, acl and the like) as the V2
+        signature reads them."""
+        if not path.startswith("/"):
+            raise CloudError("a path starts with a slash")
+        bucket, _, key = path[1:].partition("/")
+        if bucket and not _BUCKET_RE.match(bucket):
+            raise CloudError("a bucket name reads like tcp-ab2c-lab-1")
+        pairs = [(k, v) for k, vs in (query.items() if isinstance(query, dict) else query or [])
+                 for v in (vs if isinstance(vs, list) else [vs])]
+        sub = sorted((k, v) for k, v in pairs if k in obs.SUBRESOURCES)
+        rest = [(k, v) for k, v in pairs if k not in obs.SUBRESOURCES]
+        signed = "&".join(k + ("=" + v if v else "") for k, v in sub)
+        q = "&".join(x for x in ("&".join(urllib.parse.quote(k) + ("=" + urllib.parse.quote(v, safe="") if v else "")
+                                          for k, v in sub),
+                                 urllib.parse.urlencode(rest, quote_via=urllib.parse.quote)) if x)
+        client = obs.Client(bucket, self.keys, self.region, endpoint=self.endpoint, timeout=self.timeout)
+        return client, key, signed, client.url(key, q)
+
     def request(self, method: str, service: str, path: str, *, query=None, body: Any = None,
                 headers: dict[str, str] | None = None) -> Response:
         """One signed call; transient failures (no answer, 429, 502, 503, 504) are tried again within the job's
-        budget. Returns the answer of any status; raises CloudError only when there is no answer at all."""
-        url = self.url(service, self.expand(path) if "{project_id}" in path else path, query)
+        budget. Returns the answer of any status; raises CloudError only when there is no answer at all. A call to
+        obs is signed the OBS way (awb/obs.py, `Authorization: OBS AK:SIGNATURE`), every other service the way of
+        the API gateway (awb/sign.py)."""
+        path = self.expand(path) if "{project_id}" in path else path
+        to_obs = service == "obs"
+        if to_obs:
+            obs_client, key, sub, url = self.obs_call(path, query)
+        else:
+            url = self.url(service, path, query)
         data = json.dumps(body).encode("utf-8") if body is not None else b""
-        hdrs = {"Content-Type": "application/json"}
+        hdrs = {"Content-Type": "application/json"} if body is not None or not to_obs else {}
         hdrs.update(headers or {})
 
         from awb.tcp import throttle
@@ -121,7 +153,11 @@ class Client:
         def once() -> Response:
             tries["n"] += 1
             waited = throttle.wait_turn(host)
-            signed = sign.sign(method, url, hdrs, data, self.keys.ak, self.keys.sk)
+            if to_obs:
+                signed = dict(hdrs)
+                obs_client.sign(method.upper(), key, signed, sub)
+            else:
+                signed = sign.sign(method, url, hdrs, data, self.keys.ak, self.keys.sk)
             req = urllib.request.Request(url, data=data if body is not None else None, method=method.upper())
             for k, v in signed.items():
                 req.add_header(k, v)
@@ -157,6 +193,11 @@ class Client:
             data = json.loads(raw) if raw else None
         except ValueError:
             data = None
+        if data is None and status >= 300:
+            # OBS answers its errors in XML: their code and message go where a JSON error of the gateway has them
+            code, msg = obs.xml_error(raw[:4096])
+            if code or msg:
+                data = {"code": self.clean(code), "message": self.clean(msg)}
         return Response(status, data, text)
 
     def get(self, service: str, path: str, query=None, headers: dict[str, str] | None = None) -> Response:

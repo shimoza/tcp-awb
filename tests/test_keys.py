@@ -776,3 +776,78 @@ def test_an_iam_refusal_of_the_lease_names_its_status_and_code_only(svc, monkeyp
     monkeypatch.setattr(cloud.Client, "request", _Minted(status=403).method())
     a = keys.request(svc.call_path, {"op": "lease", "tenant": "test-1", "minutes": 15})
     assert a == {"ok": False, "error": "the lease failed: IAM answered HTTP 403 IAM.0001"}
+
+
+# --------------------------------------------------------------------------- OBS through the call op (B-003)
+# The live run of obs-policy-deny on 2026-10-12 stopped at the bucket create with 400 InvalidArgument: the call op
+# signed OBS the way of the API gateway.
+
+from tests.obs_fake import ACCESS_DENIED, BAD_AUTHORIZATION, FakeOBSService  # noqa: E402
+
+BUCKET = PROJECT + "-lab-1"
+
+
+@pytest.fixture
+def osvc(tmp_path, monkeypatch):
+    """A key service whose one endpoint is the stand-in OBS service, which takes the read and the lab key."""
+    from types import SimpleNamespace
+
+    with FakeOBSService({AK: SK, LAB_AK: LAB_SK}) as fake:
+        with running_service(SimpleNamespace(base=fake.endpoint), tmp_path / "log") as s:
+            monkeypatch.setenv(keys.CALL_SOCKET_ENV, str(s.call_path))
+            monkeypatch.setenv(keys.ADMIN_SOCKET_ENV, str(s.admin_path))
+            load(s)
+            yield s, fake
+
+
+def test_an_obs_create_through_the_key_service_is_signed_the_obs_way(osvc):
+    svc, fake = osvc
+    a = call(svc, role="lab", method="PUT", service="obs", path="/" + BUCKET, project=PROJECT)
+    assert a["ok"] and a["status"] == 200, a
+    assert BUCKET in fake.buckets and fake.calls[-1] == ("PUT", "/%s/" % BUCKET, "OBS")
+    assert call(svc, method="HEAD", service="obs", path="/" + BUCKET)["status"] == 200
+    a = call(svc, method="GET", service="obs", path="/")                       # the list of buckets
+    assert a["status"] == 200 and "<Name>%s</Name>" % BUCKET in a["text"] and fake.calls[-1][:2] == ("GET", "/")
+    policy = {"Statement": [{"Sid": "awb-lab-deny", "Effect": "Deny", "Principal": {"ID": ["*"]},
+                             "Action": ["ListBucket"], "Resource": [BUCKET]}]}
+    a = call(svc, role="lab", method="PUT", service="obs", path="/" + BUCKET, query={"policy": ""}, body=policy,
+             project=PROJECT)
+    assert a["status"] == 204, a
+    assert fake.buckets[BUCKET]["policy"] == policy
+    a = call(svc, method="GET", service="obs", path="/" + BUCKET)
+    assert a["status"] == 403 and a["data"] == {"code": "AccessDenied", "message": ACCESS_DENIED}
+    a = call(svc, method="GET", service="obs", path="/%s/awb-lab-probe.txt" % BUCKET)
+    assert a["status"] == 404 and a["data"]["code"] == "NoSuchKey"
+    assert call(svc, role="lab", method="DELETE", service="obs", path="/" + BUCKET, project=PROJECT)["status"] == 204
+    assert call(svc, method="HEAD", service="obs", path="/" + BUCKET)["status"] == 404
+    assert {scheme for _, _, scheme in fake.calls} == {"OBS"}
+    for secret in (SK, LAB_SK):
+        assert all(secret not in json.dumps(c) for c in fake.calls)
+
+
+def test_the_gateway_way_is_refused_by_obs_like_the_live_answer_and_other_services_keep_it(osvc):
+    svc, fake = osvc
+    # vpc keeps the gateway signing: sent to the stand-in OBS it gets the answer of the live run
+    a = call(svc, method="GET", service="vpc", path="/v1/vpcs")
+    assert a["ok"] and a["status"] == 400
+    assert a["data"] == {"code": "InvalidArgument", "message": BAD_AUTHORIZATION}
+    assert fake.calls == [("GET", "/v1/vpcs", "SDK-HMAC-SHA256")]
+
+
+def test_other_services_keep_the_gateway_signing(svc, gw):
+    load(svc)
+    a = call(svc, method="GET", service="vpc", path="/v1/{project_id}/vpcs", query={"limit": "3"})
+    assert a["status"] == 200                    # the stand-in gateway checks SDK-HMAC-SHA256 with the tenant key
+    a = call(svc, method="GET", service="obs", path="/")
+    assert a["status"] == 401                    # the gateway takes no OBS signature
+    assert len(gw.calls) == 3
+
+
+def test_an_obs_call_never_reaches_an_exchange_bucket_and_writes_only_to_a_bucket_of_the_project(osvc):
+    svc, fake = osvc
+    for bucket in ("awb", "awb-lab-eu-de"):
+        a = call(svc, role="lab", method="GET", service="obs", path="/%s/inbox/x.pdf" % bucket)
+        assert not a["ok"] and "reached through awb xchg only" in a["error"]
+    a = call(svc, role="lab", method="PUT", service="obs", path="/tcp-zz99-lab-1", project=PROJECT)
+    assert not a["ok"] and "only a bucket named after the project (%s-...)" % PROJECT in a["error"]
+    assert fake.calls == []                      # refused before anything is signed and sent
