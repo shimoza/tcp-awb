@@ -1,7 +1,7 @@
 {
   "name": "elb-health",
   "question": "Does a shared ELB in ${region} with an ${protocol} listener on port ${port} and one ECS backend pass its ${protocol} health check?",
-  "about": "A VPC with a subnet, a security group that lets the port in from the subnet and from the address range of the ELB health checks, one backend server that serves the port with python3 at first boot, a shared load balancer with a listener, a pool, the backend as its member and a health monitor. The check: the member reads ONLINE within 5 minutes.",
+  "about": "A VPC with a subnet, a security group that lets the port in from the subnet and from the address range of the ELB health checks, one backend server that serves the port with python3 as a systemd service its first boot writes, a shared load balancer with a listener, a pool, the backend as its member and a health monitor. After the end of cloud-init the backend tries the port on 127.0.0.1 and writes AWB-WEB-UP or AWB-WEB-DOWN to its console; the run reads the console before it makes the load balancer. The checks: the web server answers locally, then the member reads ONLINE within 5 minutes. So a failed run tells a web server that is down (web-serves fails) from health checks that do not reach it (web-serves passes, health-passes fails).",
   "params": {
     "protocol": {"default": "HTTP", "choices": {"HTTP": {"hm_type": "HTTP"}, "TCP": {"hm_type": "TCP"}}},
     "port": {"default": "80", "pattern": "^(80|8080)$"},
@@ -15,7 +15,7 @@
   },
   "vars": {
     "cidr": "192.168.10.0/24",
-    "web_script": "#!/bin/bash\nmkdir -p /srv/awb && echo awb-lab > /srv/awb/index.html\ncd /srv/awb && nohup python3 -m http.server ${port} >/dev/null 2>&1 &\n"
+    "web_script": "#!/bin/bash\nmkdir -p /srv/awb && echo awb-lab > /srv/awb/index.html\ncat > /etc/systemd/system/awb-web.service <<'EOF'\n[Unit]\nDescription=awb lab web server\nAfter=network-online.target\n[Service]\nWorkingDirectory=/srv/awb\nExecStart=/usr/bin/python3 -m http.server ${port}\nRestart=always\n[Install]\nWantedBy=multi-user.target\nEOF\ncat > /usr/local/bin/awb-web-check <<'EOF'\n#!/bin/bash\ntimeout 600 cloud-init status --wait >/dev/null 2>&1\nfor i in $(seq 1 30); do\n  if timeout 3 bash -c '</dev/tcp/127.0.0.1/${port}'; then echo AWB-WEB-UP | tee /dev/console /dev/ttyS0; exit 0; fi\n  sleep 5\ndone\necho AWB-WEB-DOWN | tee /dev/console /dev/ttyS0\nEOF\nchmod 755 /usr/local/bin/awb-web-check\nsystemctl daemon-reload\nsystemctl enable --now awb-web.service\nsystemd-run --unit=awb-web-check /usr/local/bin/awb-web-check\n"
   },
   "budget": {"minutes": 40, "teardown_minutes": 15},
   "guard": {"resources": 9, "lifetime_minutes": 60},
@@ -72,7 +72,7 @@
               "body": {"security_group_rule": {"security_group_id": "${sg}", "direction": "ingress",
                                                "ethertype": "IPv4", "protocol": "tcp", "port_range_min": "${int:port}",
                                                "port_range_max": "${int:port}", "remote_ip_prefix": "${hc_source}"}}},
-     "confirm": "the source range of the health checks of a shared ELB"},
+     "confirm": "the source range of the health checks of a shared ELB; with web-serves passed, a member that stays OFFLINE points here"},
     {"id": "backend", "do": "create", "says": "the backend server, serving the port at first boot",
      "call": {"method": "POST", "service": "ecs", "path": "/v1/{project_id}/cloudservers",
               "body": {"server": {"name": "${name}-b", "imageRef": "${image_id}", "flavorRef": "${flavor}",
@@ -93,6 +93,11 @@
      "until": {"field": "server.status", "equals": "ACTIVE"}, "fail_on": ["ERROR"], "within": 600, "every": 10,
      "save": {"backend_ip": "server.addresses.${vpc}.0.addr"},
      "confirm": "the address under server.addresses.VPC_ID.0.addr"},
+    {"id": "web", "do": "wait", "says": "the backend writes whether its web server answers on the port locally",
+     "call": {"method": "POST", "service": "ecs", "path": "/v2/{project_id}/servers/${backend}/action",
+              "body": {"os-getConsoleOutput": {}}},
+     "until": {"field": "output", "contains": "AWB-WEB-"}, "within": 600, "every": 15,
+     "confirm": "the console call of ecs-boot-ssh (POST /v2/{project_id}/servers/ID/action with os-getConsoleOutput, the text under output) on the backend; the systemd unit the user_data writes and the check it starts with systemd-run after cloud-init status --wait; no marker at all says the user_data did not run (adminPass set) or cloud-init did not end"},
     {"id": "lb", "do": "create", "says": "a shared load balancer on the subnet",
      "call": {"method": "POST", "service": "elb", "path": "/v2.0/lbaas/loadbalancers",
               "body": {"loadbalancer": {"name": "${name}", "vip_subnet_id": "${neutron_subnet}"}}},
@@ -171,6 +176,7 @@
   "checks": [
     {"id": "image-known", "step": "image", "says": "the image is known in the region", "field": "images.0.id", "present": true},
     {"id": "backend-boots", "step": "boot", "says": "the backend reaches ACTIVE within 10 minutes", "reached": true},
+    {"id": "web-serves", "step": "web", "says": "the web server of the backend answers on the port locally after cloud-init", "field": "output", "contains": "AWB-WEB-UP"},
     {"id": "health-passes", "step": "healthy", "says": "the member reads ONLINE within 5 minutes", "reached": true}
   ],
   "teardown": {

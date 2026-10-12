@@ -158,6 +158,17 @@ dry run, the list and the evidence show these notes, so the first live run says 
 | `obs-policy-deny` | does an OBS bucket whose policy denies a listed action refuse it | 1 resource, 15 minutes |
 | `elb-health` | does a shared ELB listener with one ECS backend pass its health check | 9 resources, 60 minutes |
 
+`elb-health` lets the port in from `100.125.0.0/16` (the parameter `hc_source`), the address range the health checks
+of a shared ELB are said to come from; that range is to confirm live. Its first live run on 2026-10-12 left the member
+OFFLINE and could not tell why, so the backend's user_data writes the web server as a systemd service
+(`awb-web.service`, restarted when it ends) that outlives cloud-init. After `cloud-init status --wait` a check started
+with `systemd-run` tries the port on 127.0.0.1 and writes `AWB-WEB-UP` or `AWB-WEB-DOWN` to the console. The step
+`web` reads the console of the backend with the call of `ecs-boot-ssh` (`POST /v2/{project_id}/servers/ID/action`
+with `os-getConsoleOutput`) before the load balancer is made, and the check `web-serves` wants `AWB-WEB-UP`. A failed
+`web-serves` says the web server is down (no marker at all: the user_data did not run or cloud-init did not end); a
+passed `web-serves` with a failed `health-passes` says the health checks do not reach the port, so the source range
+is the one to look at.
+
 Their VPC, subnet and shared ELB calls are the ones `awb cloud lease-check` already makes. Every other shape is
 marked "to confirm live" in the recipe, with what to look at. That holds for the finds by name too: the list of VPCs
 is read by `awb cloud sweep` already; the lists of subnets and security groups with the `vpc_id` filter, the ELB

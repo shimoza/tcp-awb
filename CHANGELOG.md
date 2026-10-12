@@ -101,6 +101,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- The lab recipe `elb-health` tells a dead web server from a blocked health check (B-004: the live run of 2026-10-12
+  left the member OFFLINE and could not say why). The backend's user_data writes the web server as a systemd service
+  that outlives cloud-init and, after cloud-init, writes `AWB-WEB-UP` or `AWB-WEB-DOWN` to the console when it tries
+  the port on 127.0.0.1. The new step `web` reads the console before the load balancer is made and the check
+  `web-serves` wants `AWB-WEB-UP`; the rule for `100.125.0.0/16` stays, to confirm live.
 - The key service signs a call to obs the OBS way (`Authorization: OBS AK:SIGNATURE` of `awb/obs.py`, the bucket
   by its own host, `GET /` the list of buckets) and every other service the way of the API gateway as before (B-003:
   the live run of `obs-policy-deny` on 2026-10-12 stopped at the bucket create with 400 InvalidArgument). An OBS call

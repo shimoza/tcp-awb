@@ -1124,3 +1124,155 @@ def test_the_disk_types_of_the_recipes_and_the_dry_run_line():
         shown = [x for x in lab.dry_run_lines(r, params) if x.startswith("0. disk types:")]
         assert shown == (["0. disk types: GET evs /v2/{project_id}/types (read key); stop before the first create "
                           "unless SAS is listed and offered in eu-de-01 and not sold out there"] if want else [])
+
+
+# --------------------------------------------------------------------------- elb-health: the web server or the checks
+
+
+def elb_cloud(console="cloud-init done\nAWB-WEB-UP\n", member="ONLINE"):
+    """A stand-in key service that answers the shapes of elb-health as the recipe expects them: the backend's
+    console holds `console` and the member reads `member`."""
+    state = {"n": 0, "live": {}, "made": [], "order": []}
+
+    def new(kind):
+        state["n"] += 1
+        rid = "%08x-1111-4222-8333-%012x" % (state["n"], 0xbeef00 + state["n"])
+        state["live"][rid] = kind
+        state["made"].append(rid)
+        state["order"].append(kind)
+        return rid
+
+    def ok(status, data=None):
+        return {"ok": True, "status": status, "data": data, "text": ""}
+
+    made_by = {"/v1/{project_id}/vpcs": "vpc", "/v1/{project_id}/subnets": "subnet",
+               "/v1/{project_id}/security-groups": "security_group", "/v2.0/lbaas/loadbalancers": "loadbalancer",
+               "/v2.0/lbaas/listeners": "listener", "/v2.0/lbaas/pools": "pool",
+               "/v2.0/lbaas/healthmonitors": "healthmonitor"}
+
+    def send(req):
+        if req.get("op") == "tenants":
+            return {"ok": True, "tenants": {TENANT: {"roles": ["lab", "read"], "secrets": ["ecs-admin"]}}}
+        m, p, b = req["method"], req["path"], req.get("body") or {}
+        if p == "/v1/{project_id}/vpcs" and m == "GET":
+            return ok(200, {"vpcs": []})
+        if p == "/v2/{project_id}/types" and m == "GET":
+            return ok(200, {"volume_types": [{"name": "SAS", "extra_specs": {
+                "RESKEY:availability_zones": "eu-de-01,eu-de-02,eu-de-03"}}]})
+        if p == "/v2/cloudimages":
+            return ok(200, {"images": [{"id": "-".join(IMAGE_ID), "name": req["query"]["name"]}]})
+        if m == "POST" and p in made_by:
+            kind = made_by[p]
+            return ok(201, {kind: {"id": new(kind)}})
+        if m == "POST" and re.fullmatch(r"/v2\.0/lbaas/pools/[^/]+/members", p):
+            return ok(201, {"member": {"id": new("member")}})
+        if m == "POST" and p.endswith("/tags/action"):
+            return ok(204)
+        if m == "POST" and p == "/v1/{project_id}/security-group-rules":
+            state["order"].append("rule %s" % b["security_group_rule"]["remote_ip_prefix"])
+            return ok(201, {"security_group_rule": {"id": "rule"}})
+        if m == "POST" and p == "/v1/{project_id}/cloudservers":
+            state["user_data"] = b["server"]["user_data"]
+            return ok(200, {"job_id": "job", "serverIds": [new("server")]})
+        if m == "POST" and p == "/v1/{project_id}/cloudservers/delete":
+            for s in b["servers"]:
+                state["live"].pop(s["id"], None)
+            return ok(200, {"job_id": "job"})
+        if m == "POST" and p.endswith("/action"):
+            assert p.startswith("/v2/{project_id}/servers/") and b == {"os-getConsoleOutput": {}}
+            assert state["live"].get(p.split("/")[4]) == "server"
+            state["order"].append("console")
+            return ok(200, {"output": console})
+        if m == "DELETE":
+            state["live"].pop(p.rsplit("/", 1)[1], None)
+            return ok(204)
+        if m == "GET":
+            rid = p.rsplit("/", 1)[1]
+            kind = state["live"].get(rid)
+            if kind is None:
+                return ok(404, {"error_msg": "not found"})
+            if kind == "subnet":
+                return ok(200, {"subnet": {"id": rid, "status": "ACTIVE", "neutron_subnet_id": "n-" + rid[:8]}})
+            if kind == "server":
+                vpc = next(k for k, v in state["live"].items() if v == "vpc")
+                return ok(200, {"server": {"id": rid, "status": "ACTIVE",
+                                           "addresses": {vpc: [{"addr": "192.168.10.23"}]}}})
+            if kind == "loadbalancer":
+                return ok(200, {"loadbalancer": {"id": rid, "provisioning_status": "ACTIVE"}})
+            if kind == "member":
+                state["order"].append("member read")
+                return ok(200, {"member": {"id": rid, "operating_status": member}})
+            return ok(200, {kind: {"id": rid}})
+        return ok(404, {"error_msg": "no such path"})
+    send.state = state
+    return send
+
+
+def test_the_elb_recipe_reads_the_backends_console_before_the_load_balancer_and_the_health_wait():
+    r = lab.load(REPO_RECIPES / "elb-health.json")
+    ids = [s["id"] for s in r["steps"]]
+    assert ids.index("boot") < ids.index("web") < ids.index("lb") < ids.index("monitor") < ids.index("healthy")
+    web = r["steps"][ids.index("web")]
+    assert web["do"] == "wait" and web["call"]["method"] == "POST"
+    assert web["call"]["path"] == "/v2/{project_id}/servers/${backend}/action"
+    assert web["call"]["body"] == {"os-getConsoleOutput": {}} and web["until"]["contains"] == "AWB-WEB-"
+    checks = [c["id"] for c in r["checks"]]
+    assert checks.index("backend-boots") < checks.index("web-serves") < checks.index("health-passes")
+    serves = r["checks"][checks.index("web-serves")]
+    assert serves["step"] == "web" and serves["field"] == "output" and serves["contains"] == "AWB-WEB-UP"
+    # the web server is a systemd service; the check runs after cloud-init and writes the marker to the console
+    script = lab.expand("${web_script}", {**lab.params_of(r, []), **r["vars"]})
+    assert "nohup" not in script and "/etc/systemd/system/awb-web.service" in script and "Restart=always" in script
+    assert "systemctl enable --now awb-web.service" in script and "systemd-run --unit=awb-web-check" in script
+    assert "cloud-init status --wait" in script and "</dev/tcp/127.0.0.1/80'" in script
+    assert "echo AWB-WEB-UP | tee /dev/console /dev/ttyS0" in script and "echo AWB-WEB-DOWN" in script
+    # the rule for the health checks stays and stays to confirm live
+    rule = r["steps"][ids.index("sg-checks")]
+    assert rule["call"]["body"]["security_group_rule"]["remote_ip_prefix"] == "${hc_source}"
+    assert r["params"]["hc_source"]["default"] == "100.125.0.0/16" and rule["confirm"]
+    readme = (REPO_RECIPES / "README.md").read_text(encoding="utf-8")
+    assert "100.125.0.0/16" in readme and "AWB-WEB-UP" in readme and "web-serves" in readme
+
+
+def test_the_elb_recipe_runs_end_to_end_with_the_console_read_before_the_load_balancer(project, monkeypatch):
+    monkeypatch.delenv(lab.RECIPES_ENV)
+    send = elb_cloud()
+    code, lines, errors = run(send, recipe="elb-health", params=["port=8080"])
+    assert code == lab.EXIT_OK, (lines, errors)
+    assert send.state["live"] == {} and len(send.state["made"]) == 9
+    order = send.state["order"]
+    assert order.index("server") < order.index("console") < order.index("loadbalancer")
+    assert order.index("healthmonitor") < order.index("member read")
+    assert "rule 100.125.0.0/16" in order
+    import base64
+
+    script = base64.b64decode(send.state["user_data"]).decode("utf-8")
+    assert "ExecStart=/usr/bin/python3 -m http.server 8080" in script and "</dev/tcp/127.0.0.1/8080'" in script
+    text = evidence(project)
+    assert "| web-serves | the web server of the backend answers on the port locally after cloud-init | " \
+           "output contains AWB-WEB-UP" in text
+    assert "| health-passes |" in text and "- result: passed" in text
+
+
+def test_a_dead_web_server_fails_web_serves_before_any_load_balancer(project, monkeypatch):
+    monkeypatch.delenv(lab.RECIPES_ENV)
+    send = elb_cloud(console="cloud-init done\nAWB-WEB-DOWN\n")
+    code, lines, errors = run(send, recipe="elb-health")
+    assert code == lab.EXIT_CHECK
+    assert "loadbalancer" not in send.state["order"] and send.state["live"] == {}
+    text = evidence(project)
+    assert "- result: check failed (web-serves)" in text
+    assert "| health-passes | the member reads ONLINE within 5 minutes | reached within the wait | - | not run |" \
+           in text
+
+
+def test_a_blocked_health_check_fails_health_passes_after_web_serves_passed(project, monkeypatch):
+    monkeypatch.delenv(lab.RECIPES_ENV)
+    send = elb_cloud(member="OFFLINE")
+    code, lines, errors = run(send, recipe="elb-health")
+    assert code == lab.EXIT_CHECK
+    assert send.state["live"] == {} and len(send.state["made"]) == 9
+    text = evidence(project)
+    assert "- result: check failed (health-passes)" in text
+    assert "| web-serves | the web server of the backend answers on the port locally after cloud-init | " \
+           "output contains AWB-WEB-UP | contains it | passed |" in text

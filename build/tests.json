@@ -5312,8 +5312,36 @@
    "name": "lab: obs-policy-deny runs end to end through the real key service and a stand-in OBS: bucket made, policy set, the denied read 403 AccessDenied in the evidence, bucket deleted and proved gone",
    "run": ".venv/bin/pytest tests/test_lab.py::test_the_obs_recipe_runs_through_the_key_service_signed_the_obs_way",
    "status": "passing"
+  },
+  {
+   "id": "B004-1",
+   "phase": "B-004",
+   "name": "lab: elb-health reads the backend's console (step web, check web-serves) after the boot and before the load balancer and the health wait; the web server is a systemd service and the marker comes after cloud-init; the 100.125.0.0/16 rule stays to confirm live",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_elb_recipe_reads_the_backends_console_before_the_load_balancer_and_the_health_wait",
+   "status": "passing"
+  },
+  {
+   "id": "B004-2",
+   "phase": "B-004",
+   "name": "lab: elb-health runs end to end against the stand-in key service: console read before the load balancer, user_data with the port, 9 resources made and proven gone",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_elb_recipe_runs_end_to_end_with_the_console_read_before_the_load_balancer",
+   "status": "passing"
+  },
+  {
+   "id": "B004-3",
+   "phase": "B-004",
+   "name": "lab: AWB-WEB-DOWN on the console fails web-serves before any load balancer is made",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_dead_web_server_fails_web_serves_before_any_load_balancer",
+   "status": "passing"
+  },
+  {
+   "id": "B004-4",
+   "phase": "B-004",
+   "name": "lab: a member that stays OFFLINE after web-serves passed fails health-passes, so the evidence points at the health checks",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_blocked_health_check_fails_health_passes_after_web_serves_passed",
+   "status": "passing"
   }
  ],
- "total_tests": 759,
+ "total_tests": 763,
  "checked": "2026-10-12"
 }
