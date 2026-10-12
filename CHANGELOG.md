@@ -7,6 +7,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- `INSTALL.md`, "Deploy your own Architect Workbench": the steps for an architect who runs the Workbench on his own Ubuntu 24.04 host (what to have, the order with the exact commands, what the setup creates, how to check, update, roll back and remove it, what is optional), linked from the top of `README.md`.
 - A comment above `main` in `awb/build.py` names `awb/buildrun.py` as the runner of the queue (B-001).
 - `awb pricebook build SPEC [--out FILE] [--lang en|de] [--against OLD]` builds the price workbook of an estimate from
   a specification file (line items with service, flavor, region, quantity, hours, pricing mode and an assumption).
