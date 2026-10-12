@@ -47,11 +47,12 @@ What a session learned live on the platform goes into the knowledge base with th
 
 The most frequent live check (raise a few resources, check one thing, tear down) is a lab recipe: `awb lab run
 ecs-boot-ssh --project tcp-q7m4 --tenant test-1` does it in one command. The recipe (a JSON file under `recipes/`)
-names the question, the calls, the checks, the teardown, a time budget and a cost guard. The run tags and records
-every resource, always tears down, also on a failed check, an error, the time budget or Ctrl-C, proves each
-resource gone and writes the evidence with a ready `awb kb add` line. `awb lab list` shows the recipes and `awb lab
-dry-run` the calls a run would make. A resource it cannot delete stays in `RESOURCES.md` as live with the line to
-delete it.
+names the question, the calls, the checks, the teardown, a time budget and a cost guard. The run tags every resource
+and writes its row in `RESOURCES.md` before the create call. When the answer of a create is lost it looks the
+resource up by its name and records it or proves it not created. It always tears down, also on a failed check, an
+error, the time budget or Ctrl-C, proves each resource gone and writes the evidence with a ready `awb kb add` line.
+`awb lab list` shows the recipes and `awb lab dry-run` the calls a run would make. A resource it cannot delete stays
+in `RESOURCES.md` as live with the line to delete it.
 
 ## The exchange: files in and out
 

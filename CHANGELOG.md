@@ -58,6 +58,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   may not open and got a refusal from the system instead of an answer; it now counts as not readable, so the lab
   run goes on with its preflight and the check prints its normal lines. The fallback of `awb spawn` without the name
   check looks at the register the same way.
+- `awb lab run` no longer loses a resource whose create got no answer, a timeout or a 5xx (review of pull request 2).
+  The row in RESOURCES.md goes in before the create call, in the state creating with the name the resource gets.
+  When the answer holds no id, the find of the step looks the resource up by that name: found, the row gets its id
+  and the teardown deletes it and proves it gone; a find that answers without it marks the row not created with
+  that answer as proof (it does not hold `awb close`); a find that cannot tell leaves the row live for the owner.
+  Every create of the three recipes has a find by name now. `awb cloud sweep` also lists VPCs, subnets, security
+  groups, shared ELB load balancers, listeners and pools and NAT gateways, reads the tags of the lab name
+  `<code>-lab-<YYYYMMDD>-<rand>` and names a resource with a project tag that no RESOURCES.md lists; dedicated ELB
+  is not swept yet and the output says so.
 
 ## Week 41, 2026-10-05 to 2026-10-11
 

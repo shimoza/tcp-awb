@@ -758,6 +758,15 @@ def send_check(project, file, for_customer, register_path=None) -> tuple[str, st
   `sweep(lister, today, handles) -> SweepReport(items, unknown, counts)`, `report_lines(rep)`; `awb cloud sweep`.
   Tags `awb-project` and `awb-expiry`; idle is a stopped server, a disk attached to nothing, an address bound to
   nothing. Names are never kept, the handle file holds handle and id only.
+- `awb/tcp/sweep.py` (2026-10-12): `sweep(lister, today, handles, known=None, sources=SOURCES)`; `SOURCES` the
+  servers, disks and elastic IPs, `NETWORK_SOURCES` the VPCs, subnets, security groups, shared ELB load balancers,
+  listeners and pools and NAT gateways as (kind, service, path, key, paging, query, project header),
+  `ALL_SOURCES` both (the command line); a source with a query or the project header calls
+  `lister(service, path, key, paging, query=, project_header=)`. With `known`, a resource with a project tag that
+  no project lists gets the reason `not in RESOURCES.md`. `name_tags(name)` reads the tags of the lab name
+  `<code>-lab-<YYYYMMDD>-<rand>`. `SweepReport.not_swept` names what the sweep cannot list yet (`NOT_SWEPT`:
+  dedicated ELB). `Handles.rebind(handle, rid)` and `Handles.drop(handle)` for a handle given before its id was
+  known. `cloud.Client.list(..., headers=None)` and `get(..., headers=None)` send headers with every page.
 
 ## Candidate rules (his decision: treat them as names)
 
@@ -1134,7 +1143,11 @@ does not descend from it. The root path imports neither
   grant through the key service: one read, `None` or the refusal), `execute() -> exit code` (the steps and their
   checks, then `teardown()` in every case, SIGINT and SIGTERM held during the teardown and during a create until
   its row is written), `evidence_path()`, `evidence(path) -> str`, `kb_line(path) -> str | None`; `calls`
-  (`CallRecord`), `checks`, `made` (`Resource`: step, kind, type, cost, id, handle, state, proof, owner_line).
+  (`CallRecord`), `checks`, `made` (`Resource`: step, kind, type, cost, id, handle, name, state, proof, owner_line,
+  lost). A create step may carry `name` (default `${name}`, it holds `${name}` or `${project}` and the call gives
+  it) and `find` (`call` a read, then `list` and `field` of the item named like the resource, `field` alone, or
+  `status` for an `id_value`; `within` seconds). The row goes in as creating before the call; states creating,
+  live, deleted, not created. `projects.live_resources` counts creating and not a row that is not created.
   `send(req) -> answer` takes the request of the call socket of `awb/tcp/keys.py` (op call, role lab, the
   project code) and answers like it.
 - `recipes/*.json`: the recipes; `recipes/README.md`: the format. `tests/lab_fake.py`: `FakeKeyService` (an

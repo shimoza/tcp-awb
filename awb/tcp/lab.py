@@ -15,14 +15,20 @@ A run works for one project of the kind project from a session. Before the first
 row (active, kind project), the owner's grant where this user can read it and then the grant as the key service
 sees it, with one read call. Every resource it creates carries the tags awb-project (the project code) and
 awb-expiry (an ISO date, the end of the guard's lifetime), in the body of its create call, in a tag call right
-after it or, for a service that takes no tags at create, in its name (`<code>-lab-<expiry>-<4 letters>`). Each
-resource gets a row in the project's RESOURCES.md the moment it exists, with a neutral handle (`ecs-3`, awb/tcp/
-sweep.py) and the full id.
+after it or, for a service that takes no tags at create, in its name (`<code>-lab-<expiry>-<4 letters>`). Before
+each create the run writes a row in the project's RESOURCES.md in the state creating, with a neutral handle
+(`ecs-3`, awb/tcp/sweep.py) and the name it gives the resource (the name carries the project code). When the answer
+holds the id, the row gets it in full and the state live. When the answer is lost (no answer, a timeout or a 5xx)
+or holds no id, the find of the step looks the resource up by that name: found, the row gets its id; a find that
+answers without it proves the row not created; a find that cannot tell keeps the row live with a line for the owner.
+A create the platform refuses with a 4xx made nothing and its row goes again.
 
 The teardown always runs: after the checks, on a failed check, on an error, when the time budget runs out and on
-Ctrl-C or SIGTERM (a second signal during the teardown is noted and does not stop it). It deletes the resources
-newest first and proves each one gone with a read. A row whose resource is proven gone is set to deleted. A
-resource it cannot delete keeps its row as live with one line for the owner; the command then exits 4.
+Ctrl-C or SIGTERM (a second signal during the teardown is noted and does not stop it). It goes through every row the
+run wrote, newest first. A row without an id is looked up by its name once more: found, it is deleted like the
+others; still not there, the row stays not created with both finds as proof. It deletes the resources and proves
+each one gone with a read. A row whose resource is proven gone is set to deleted. A resource it cannot delete or
+cannot place keeps its row as live with one line for the owner; the command then exits 4.
 
 The evidence goes to `evidence/lab-<recipe>-<date>-<n>.md` of the project: the question, the parameters, every
 call (method, service, path, the answer's status and the fields the steps and checks read), the check results,
@@ -210,7 +216,7 @@ def validate(r: dict) -> None:
             raise LabError("%s: do is create, call or wait" % where)
         allowed = {"id", "do", "says", "call", "save", "confirm"}
         if s["do"] == "create":
-            allowed |= {"resource", "id_field", "id_value", "find", "tags"}
+            allowed |= {"resource", "id_field", "id_value", "find", "tags", "name"}
         if s["do"] == "wait":
             allowed |= {"until", "within", "every", "fail_on"}
         if not set(s) <= allowed:
@@ -235,12 +241,32 @@ def validate(r: dict) -> None:
             if len([k for k in ("id_field", "id_value") if isinstance(s.get(k), str)]) != 1:
                 raise LabError("%s: id_field names where the answer holds the new id; id_value gives it in its "
                                "place" % where)
+            rname = s.get("name", "${name}")
+            if not (isinstance(rname, str) and ("${name}" in rname or "${project}" in rname)):
+                raise LabError("%s: the name of the resource carries ${name} or ${project}, so it holds the project "
+                               "code" % where)
+            if rname not in json.dumps(s["call"]) + str(s.get("id_value", "")):
+                raise LabError("%s: the call gives the resource its name %s" % (where, rname))
+            if _refs(rname) - known:
+                raise LabError("%s: the name refers to a value it does not have" % where)
             find_ = s.get("find")
             if find_ is not None:
-                if not (isinstance(find_, dict) and isinstance(find_.get("field"), str)
-                        and set(find_) <= {"call", "field", "within"}):
-                    raise LabError("%s: find has a call and a field" % where)
+                if not (isinstance(find_, dict) and set(find_) <= {"call", "list", "field", "status", "within"}
+                        and (isinstance(find_.get("field"), str)
+                             or (isinstance(find_.get("status"), list) and find_["status"]
+                                 and all(isinstance(x, int) for x in find_["status"]) and "list" not in find_
+                                 and "id_value" in s))):
+                    raise LabError("%s: find has a call and a field (with list, the field of the item named like the "
+                                   "resource) or, for an id_value, the statuses that say it exists" % where)
+                if "list" in find_ and not isinstance(find_["list"], str):
+                    raise LabError("%s: the list of a find is a field path" % where)
+                if "within" in find_ and not (isinstance(find_["within"], int) and find_["within"] >= 0):
+                    raise LabError("%s: within of a find is a number of seconds" % where)
                 _check_call(find_.get("call"), where + " find")
+                if find_["call"]["method"] not in ("GET", "HEAD"):
+                    raise LabError("%s: a find reads" % where)
+                if _refs(find_["call"]) - known:
+                    raise LabError("%s: the find refers to a value it does not have" % where)
             tags = s.get("tags")
             body = json.dumps(s["call"].get("body"))
             if tags == "body":
@@ -420,12 +446,13 @@ class Resource:
     kind: str
     type: str
     cost: str
-    id: str                 # empty when the create answered without one and find found none
+    id: str                 # empty while the create runs and when no answer and no find gave one
     handle: str
     name: str = ""
-    state: str = "live"
+    state: str = "live"     # creating, live, deleted or not created
     proof: str = ""
     owner_line: str = ""
+    lost: str = ""          # what the create answered when its answer was lost (no answer or a 5xx)
 
 
 @dataclass
@@ -508,10 +535,11 @@ class Run:
         try:
             answer = self.send(req)
         except Exception as exc:                         # KeysError and the like: no answer at all
-            answer = {"ok": False, "error": "no answer from the key service (%s)" % type(exc).__name__}
+            answer = {"ok": False, "lost": True, "error": "no answer from the key service (%s)" % type(exc).__name__}
         if not isinstance(answer, dict):
-            answer = {"ok": False, "error": "the key service gave no readable answer"}
+            answer = {"ok": False, "lost": True, "error": "the key service gave no readable answer"}
         status = ("%d" % int(answer.get("status") or 0)) if answer.get("ok") else \
+            self._clean("error", str(answer["error"])) if answer.get("lost") else \
             "refused: %s" % self._clean("error", str(answer.get("error") or "refused"))
         if record is None:
             record = CallRecord(len(self.calls) + 1, phase, step, req["method"], req["service"],
@@ -582,44 +610,72 @@ class Run:
     def _label(self) -> str:
         return "awb lab run %s %s" % (self.r["name"], self.started_at.date().isoformat())
 
-    def _register(self, step: dict, rid: str, name: str = "") -> Resource:
+    def _drop_row(self, res: Resource) -> None:
+        """The row of a create the platform refused (a 4xx: nothing was made) goes again."""
+        path = self._rows_path()
+        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        keep = [x for x in lines if not (x.strip().startswith("|")
+                                         and x.strip().strip("|").split("|")[0].strip() == res.handle)]
+        tmp = path.with_name(".RESOURCES.md.tmp")
+        tmp.write_text("".join(keep), encoding="utf-8")
+        os.replace(tmp, path)
+
+    def _open(self, step: dict, name: str) -> Resource:
+        """The row of a resource about to be created, written before its create call: state creating, the name it
+        gets, no id yet. Its handle stands for a placeholder until the id is known."""
         res = step["resource"]
-        handle = self.handles.handle(res["kind"], rid or ("name:" + (name or step["id"] + self.env["rand"])))
+        handle = self.handles.handle(res["kind"], "pending:%s:%s" % (self.env["rand"], step["id"]), name)
         self.handles.save()
-        r = Resource(step["id"], res["kind"], res["type"], res["cost"], rid, handle, name)
+        r = Resource(step["id"], res["kind"], res["type"], res["cost"], "", handle, name, state="creating")
         self.made.append(r)
-        if rid:
-            self._write_row(r, self._label())
-        else:
-            r.owner_line = ("created without an id in its answer: find it by its name %s on %s and delete it, then "
-                            "set this row to deleted" % (name or self.env["name"], self.tenant))
-            self._write_row(r, "%s: %s" % (self._label(), r.owner_line))
+        self._write_row(r, "%s: creating, named %s" % (self._label(), name))
         return r
+
+    def _place(self, res: Resource, rid: str) -> None:
+        """The id of a resource is known: its handle stands for it and its row says live with the id."""
+        self.handles.rebind(res.handle, rid)
+        self.handles.save()
+        res.id, res.state, res.owner_line = rid, "live", ""
+        self._write_row(res, self._label())
+
+    def _unplaced(self, res: Resource, why: str) -> None:
+        """A resource that may exist and has no id: its row stays live with a line for the owner."""
+        res.state = "live"
+        res.owner_line = ("%s: find it by its name %s on %s and delete it, then set this row to deleted"
+                          % (why, res.name, self.tenant))
+        self._write_row(res, "%s: %s" % (self._label(), res.owner_line))
 
     # ----------------------------------------------------------------- steps
 
     def _create(self, step: dict) -> None:
         if len(self.made) >= self.r["guard"]["resources"]:
             raise Stop("cost guard: the run would create more than %d resources" % self.r["guard"]["resources"])
-        # a signal between the create call and its row would lose a resource: it waits until the row is written
+        # a signal between the row and the end of the create would lose a resource: it waits until the row is right
         self.critical = True
         try:
+            res = self._open(step, expand(step.get("name", "${name}"), self.env))
             answer, rec = self._call("run", step["id"], step["call"])
             st = self.status(answer)
+            # no answer, a timeout of the platform (status 0) or a 5xx: the resource may exist
+            lost = bool(answer.get("lost")) or (bool(answer.get("ok")) and (st == 0 or st >= 500))
+            if not lost and not 200 <= st < 300:
+                # the platform refused (a 3xx or a 4xx) or the key service did and sent nothing: nothing was made,
+                # the row goes again
+                self.made.remove(res)
+                self._drop_row(res)
+                self.handles.drop(res.handle)
+                self.handles.save()
+                raise Stop("the create %s answered %s" % (step["id"], rec.status))
             if "id_value" in step:
-                # an id the recipe names itself (a bucket): made when the answer is 2xx, maybe made without one
-                rid = expand(step["id_value"], self.env) if (200 <= st < 300 or st == 0 or st >= 500) else None
+                # an id the recipe names itself (a bucket): made when the answer is 2xx
+                rid = expand(step["id_value"], self.env) if 200 <= st < 300 else None
             else:
                 rid = self._read(rec, answer, step["id_field"]) if 200 <= st < 300 else None
             rid = rid if isinstance(rid, str) and rid else None
-            if rid is None and (200 <= st < 300 or st == 0 or st >= 500) and step.get("find"):
-                rid = self._find(step)
             if rid is None:
-                if 200 <= st < 300:
-                    self._register(step, "", self.env["name"])
-                    raise Stop("%s answered without an id and the find found none" % step["id"])
-                raise Stop("the create %s answered %s" % (step["id"], rec.status))
-            res = self._register(step, rid)
+                rid = self._settle(step, res, rec.status, lost)
+            else:
+                self._place(res, rid)
         finally:
             self.critical = False
         if self.pending:
@@ -636,19 +692,77 @@ class Run:
             if not 200 <= self.status(ta) < 300:
                 raise Stop("the tags of %s (%s) could not be set: %s" % (res.handle, step["id"], trec.status))
 
-    def _find(self, step: dict) -> str | None:
+    def _settle(self, step: dict, res: Resource, said: str, lost: bool) -> str:
+        """A create whose answer holds no id: the find by name places it, proves it not created or cannot tell.
+        Returns the id; raises Stop when there is none."""
+        if lost:
+            res.lost = said
+        if not step.get("find"):
+            if lost:
+                if "id_value" in step:
+                    # its name is its id: the teardown deletes it if it is there and proves it gone
+                    rid = expand(step["id_value"], self.env)
+                    self._place(res, rid)
+                    return rid
+                self._unplaced(res, "the create got %s and may have made it" % said)
+                raise Stop("the create %s got %s and the step has no find" % (step["id"], said))
+            self._unplaced(res, "created without an id in its answer")
+            raise Stop("%s answered without an id" % step["id"])
+        rid, verdict, proof = self._find(step, res.name, step["find"].get("within", 60))
+        if rid:
+            self._place(res, rid)
+            return rid
+        if verdict == "absent" and lost:
+            res.state, res.proof = "not created", "the create got %s; %s" % (said, proof)
+            self._write_row(res, "%s: not created, %s" % (self._label(), res.proof))
+            raise Stop("the create %s got %s and the find by name proves nothing was made" % (step["id"], said))
+        if lost:
+            self._unplaced(res, "the create got %s and the find could not tell (%s)" % (said, proof))
+            raise Stop("the create %s got %s and the find could not tell" % (step["id"], said))
+        self._unplaced(res, "created without an id in its answer and %s" % proof)
+        raise Stop("%s answered without an id and the find found none" % step["id"])
+
+    def _find(self, step: dict, name: str, within: float, phase: str = "run") -> tuple[str | None, str, str]:
+        """Look a resource up by its name with the find of its step, every EVERY seconds for `within` seconds.
+        Returns (id, verdict, proof): verdict found, absent (the last answer was a list without the name on a page
+        that is not full; for a find of statuses also a 404) or unknown (no answer that proves either)."""
         f = step["find"]
-        within = f.get("within", 60)
         end = self.clock() + within
         rec = None
+        c = expand(f["call"], self.env)
+        what = "the find by name %s (%s %s %s)" % (name, c["method"], c["service"], c["path"])
         while True:
             # not timed: a resource may exist already and must get its row before the budget stops the run
-            answer, rec = self._call("run", step["id"] + " find", f["call"], record=rec, timed=False)
-            value = self._read(rec, answer, f["field"]) if 200 <= self.status(answer) < 300 else None
-            if isinstance(value, str) and value:
-                return value
+            answer, rec = self._call(phase, step["id"] + " find", f["call"], record=rec, timed=False)
+            st = self.status(answer)
+            verdict, value = "unknown", None
+            if 200 <= st < 300:
+                if "status" in f:
+                    verdict = "found" if st in f["status"] else "unknown"
+                    value = expand(step["id_value"], self.env) if verdict == "found" else None
+                elif "list" in f:
+                    items = dig(answer.get("data"), expand(f["list"], self.env))
+                    if isinstance(items, list):
+                        hit = next((x for x in items if isinstance(x, dict) and x.get("name") == name), None)
+                        value = dig(hit, f["field"]) if hit is not None else None
+                        # a full page without it proves nothing: it may be on the next one
+                        limit = str((c.get("query") or {}).get("limit", ""))
+                        full = limit.isdigit() and len(items) >= int(limit)
+                        verdict = "found" if isinstance(value, str) and value else "unknown" if full else "absent"
+                        rec.fields["named like the resource"] = "yes" if hit is not None else "no"
+                else:
+                    # a field alone: an answer without it may be another shape, it proves nothing
+                    value = self._read(rec, answer, f["field"])
+                    verdict = "found" if isinstance(value, str) and value else "unknown"
+            elif st == 404 and "status" in f:
+                # the read of the resource itself (a bucket) says it is not there; a 404 of a list may be its path
+                verdict = "absent"
+            if verdict == "found":
+                return value, verdict, "%s found it" % what
             if self.clock() + EVERY > end:
-                return None
+                if verdict == "absent":
+                    return None, verdict, "%s answered %s without it after %d s" % (what, rec.status, within)
+                return None, verdict, "%s answered %s" % (what, rec.status)
             self.sleep(EVERY)
 
     def _cond(self, until: dict, value) -> bool:
@@ -807,7 +921,8 @@ class Run:
         return {"passed": EXIT_OK, "check failed": EXIT_CHECK}.get(self.outcome, EXIT_STOPPED)
 
     def teardown(self) -> None:
-        """Delete every resource made, newest first; prove each gone with a read. Never raises."""
+        """Go through every row the run wrote, newest first: place a row without an id by its name, delete every
+        resource and prove each gone with a read. Never raises."""
         end = self.clock() + self.r["budget"]["teardown_minutes"] * 60
         for res in reversed(self.made):
             try:
@@ -816,6 +931,8 @@ class Run:
                 res.state, res.proof = "live", "teardown error (%s)" % type(exc).__name__
             if res.state == "deleted":
                 self._write_row(res, "%s: deleted, %s" % (self._label(), res.proof))
+            elif res.state == "not created":
+                self._write_row(res, "%s: not created, %s" % (self._label(), res.proof))
             else:
                 if not res.owner_line:
                     t = self.r["teardown"][res.step]
@@ -826,9 +943,32 @@ class Run:
                                          " --body FILE" if c.get("body") is not None else "", self.project))
                 self._write_row(res, "%s: %s (%s)" % (self._label(), res.owner_line, res.proof or "not proven gone"))
 
+    def _look_again(self, res: Resource, end: float) -> bool:
+        """A row without an id, looked up by its name once more before the teardown gives up on it. True when the
+        find places it: it is deleted like the others."""
+        step = next(s for s in self.r["steps"] if s["id"] == res.step)
+        if not step.get("find"):
+            res.state, res.proof = "live", res.proof or "no id to delete and no find by name"
+            return False
+        # a row proven not created is read once; one that may exist is looked for as long as the find allows
+        within = 0 if res.state == "not created" else min(step["find"].get("within", 60), max(end - self.clock(), 0))
+        rid, verdict, proof = self._find(step, res.name, within, phase="teardown")
+        if rid:
+            res.proof = ""
+            self._place(res, rid)
+            return True
+        if verdict == "absent" and res.state == "not created":
+            res.proof = "%s; at the teardown %s" % (res.proof, proof)
+        elif verdict == "absent" and res.lost:
+            # the create got no answer, the find could not tell then and answers without it now
+            res.state, res.proof = "not created", "the create got %s; at the teardown %s" % (res.lost, proof)
+        else:
+            res.state = "live"
+            res.proof = res.proof or "no id to delete: %s" % proof
+        return False
+
     def _tear(self, res: Resource, end: float) -> None:
-        if not res.id:
-            res.state, res.proof = "live", "no id to delete"
+        if not res.id and not self._look_again(res, end):
             return
         t = self.r["teardown"][res.step]
         g = t["gone"]
@@ -892,6 +1032,7 @@ class Run:
     def evidence(self, path: Path) -> str:
         r = self.r
         left = [x for x in self.made if x.state == "live"]
+        nots = [x for x in self.made if x.state == "not created"]
         minutes = (self.t_end - self.t0) / 60.0
         lines = ["# Lab run %s" % r["name"], "",
                  "Question: %s" % expand(r["question"], self.env, loose=True), "",
@@ -899,9 +1040,10 @@ class Run:
                  "- teardown: %s" % ("every resource deleted and proven gone" if not left else
                                      "%d resource(s) LEFT LIVE: %s" % (len(left), ", ".join(x.handle for x in left))),
                  "- project %s, tenant %s, region %s" % (self.project, self.tenant, self.region),
-                 "- started %s, took %.1f minutes, %d resource(s) created, %d call(s)"
-                 % (self.started_at.strftime("%Y-%m-%d %H:%M UTC"), minutes, len(self.made),
-                    sum(c.polls for c in self.calls)),
+                 "- started %s, took %.1f minutes, %d resource(s) created, %d call(s)%s"
+                 % (self.started_at.strftime("%Y-%m-%d %H:%M UTC"), minutes,
+                    len([x for x in self.made if x.state != "not created"]), sum(c.polls for c in self.calls),
+                    "; %d create(s) proven not made" % len(nots) if nots else ""),
                  "- cost guard: at most %d resource(s) for at most %d minutes; time budget %d minutes plus %d for the "
                  "teardown" % (r["guard"]["resources"], r["guard"]["lifetime_minutes"], r["budget"]["minutes"],
                                r["budget"]["teardown_minutes"]),
@@ -993,8 +1135,16 @@ def dry_run_lines(r: dict, params: dict[str, str], project: str = "tcp-xxxx", te
                 out.append("   tags: %s %s %s" % (t["method"], t["service"], t["path"]))
             else:
                 out.append("   tags: in the %s" % tags)
-            out.append("   row in RESOURCES.md: %s (%s, cost %s)" % (s["resource"]["kind"], s["resource"]["type"],
-                                                                      s["resource"]["cost"]))
+            out.append("   row in RESOURCES.md before the call: %s (%s, cost %s) creating, named %s"
+                       % (s["resource"]["kind"], s["resource"]["type"], s["resource"]["cost"],
+                          expand(s.get("name", "${name}"), env, loose=True)))
+            if s.get("find"):
+                f = expand(s["find"]["call"], env, loose=True)
+                out.append("   find by name when the answer holds no id: %s %s %s%s" % (
+                    f["method"], f["service"], f["path"],
+                    (" ?" + "&".join("%s=%s" % kv for kv in sorted(f["query"].items()))) if f.get("query") else ""))
+            else:
+                out.append("   no find by name: a lost answer leaves the row live for the owner")
         for ch in r["checks"]:
             if ch["step"] == s["id"]:
                 out.append("   check %s: %s" % (ch["id"], ch["says"]))

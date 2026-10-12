@@ -497,7 +497,7 @@ def _schemas() -> dict:
         "goal_redacted": boolean("true when the data check withheld a part of the goal."),
         "open_items": integer("Lines of OPEN.md that start with a dash; null when OPEN.md cannot be read.",
                               nullable=True),
-        "live_resources": integer("Rows of RESOURCES.md whose state is neither deleted nor kept; null when "
+        "live_resources": integer("Rows of RESOURCES.md whose state is not deleted, kept or not created; null when "
                                   "RESOURCES.md cannot be read.", nullable=True),
         "updated": string("The latest change of SCOPE.md, STATE.md, OPEN.md or RESOURCES.md; null when none can "
                           "be read.", nullable=True, format="date-time"),

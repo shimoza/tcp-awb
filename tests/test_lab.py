@@ -642,3 +642,183 @@ def test_a_run_goes_through_the_real_key_service_with_the_lab_key(project, tmp_p
     text = evidence(project)
     assert LAB_SK not in text and LAB_AK not in text
     assert "| 1 | grant | grant | GET | vpc | `/v1/{project_id}/vpcs` | 401 |" in text
+
+
+# --------------------------------------------------------------------------- a create whose answer is lost
+
+
+def finding_recipe() -> dict:
+    """RECIPE with a find by name for both creates: the list of the collection, the item named like the resource."""
+    recipe = copy.deepcopy(RECIPE)
+    for step, coll in ((recipe["steps"][0], "widgets"), (recipe["steps"][2], "gadgets")):
+        step["find"] = {"call": {"method": "GET", "service": "vpc", "path": "/v1/{project_id}/%s" % coll},
+                        "list": coll, "field": "id", "within": 30}
+    write_recipe(Path(os.environ[lab.RECIPES_ENV]), recipe)
+    return recipe
+
+
+def test_a_create_whose_answer_is_lost_is_found_by_name_recorded_torn_down_and_proven_gone(project):
+    finding_recipe()
+    fake = FakeKeyService()
+    fake.made_but = {"widgets": "lost"}
+    seen = []
+
+    def on_call(req):
+        # the row is there before the create call leaves, in the state creating, with the name
+        if req["method"] == "POST" and req["path"] == "/v1/{project_id}/widgets":
+            seen.extend(rows(project))
+    fake.on_call = on_call
+    code, lines, errors = run(fake)
+    assert len(seen) == 1 and seen[0]["state"] == "creating" and seen[0]["id"] == "unknown"
+    assert "creating, named %s-lab-" % PROJECT in seen[0]["note"]
+    assert code == lab.EXIT_OK, (lines, errors)
+    assert len(fake.created()) == 2 and fake.live() == []
+    rs = rows(project)
+    assert [r["state"] for r in rs] == ["deleted", "deleted"]
+    assert {r["id"] for r in rs} == set(fake.created())
+    assert rs[0]["handle"] == seen[0]["handle"]               # the same row, now with the id
+    assert ("GET", "/v1/{project_id}/widgets") in [(r["method"], r["path"]) for r in fake.calls]
+    text = evidence(project)
+    assert "| 2 | run | widget | POST | vpc | `/v1/{project_id}/widgets` | no answer from the key service " \
+           "(ConnectionResetError) |" in text
+    assert "| widget find | GET | vpc | `/v1/{project_id}/widgets` | 200 | 1 | named like the resource = yes |" in text
+    assert "every resource deleted and proven gone" in text
+    for rid in fake.created():
+        assert rid not in text
+
+
+def test_a_create_whose_answer_is_lost_and_that_made_nothing_is_not_created_with_proof(project):
+    finding_recipe()
+    fake = FakeKeyService()
+    fake.fail_create = {"gadgets": "lost"}
+    code, lines, errors = run(fake)
+    assert code == lab.EXIT_STOPPED, (lines, errors)
+    assert len(fake.created()) == 1 and fake.live() == []
+    by_kind = {r["handle"].split("-")[0]: r for r in rows(project)}
+    assert by_kind["wid"]["state"] == "deleted"
+    gad = by_kind["gad"]
+    assert gad["state"] == "not created" and gad["id"] == "unknown"
+    assert "the create got no answer from the key service (ConnectionResetError)" in gad["note"]
+    assert "answered 200 without it after 30 s" in gad["note"]
+    assert "at the teardown the find by name" in gad["note"]          # looked up again before the run ends
+    assert projects.live_resources(project) == 0                      # awb close is not held by it
+    assert [p for m, p in writes(fake) if m == "DELETE"] == ["/v1/{project_id}/widgets/%s" % fake.created()[0]]
+    text = evidence(project)
+    assert "the find by name proves nothing was made" in text
+    assert "1 resource(s) created" in text and "1 create(s) proven not made" in text
+    assert "| %s | gadget | not created |" % gad["handle"] in text
+
+
+def test_a_5xx_then_a_successful_find_records_the_resource_and_tears_it_down(project):
+    finding_recipe()
+    fake = FakeKeyService()
+    fake.made_but = {"gadgets": 503}
+    code, lines, errors = run(fake)
+    assert code == lab.EXIT_OK, (lines, errors)
+    assert len(fake.created()) == 2 and fake.live() == []
+    assert [r["state"] for r in rows(project)] == ["deleted", "deleted"]
+    gadget = [i for i, it in fake.items.items() if it["coll"] == "gadgets"][0]
+    assert fake.items[gadget]["tags"][0] == {"key": "awb-project", "value": PROJECT}   # the tag call followed
+    assert "| 4 | run | gadget | POST | vpc | `/v1/{project_id}/gadgets` | 503 |" in evidence(project)
+
+
+def test_a_lost_answer_the_find_cannot_tell_is_placed_by_the_find_of_the_teardown(project):
+    finding_recipe()
+    fake = FakeKeyService()
+    fake.made_but = {"widgets": 502}
+    fake.list_fail = 4                  # every read of the find within the run answers 500
+    code, lines, errors = run(fake)
+    assert code == lab.EXIT_STOPPED, (lines, errors)
+    assert len(fake.created()) == 1 and fake.live() == []
+    (row,) = rows(project)
+    assert row["state"] == "deleted" and row["id"] == fake.created()[0]
+    assert "the create widget got 502 and the find could not tell" in evidence(project)
+
+
+def test_a_lost_answer_without_a_find_keeps_the_row_live_for_the_owner(project):
+    fake = FakeKeyService()
+    fake.made_but = {"widgets": "lost"}
+    code, _, errors = run(fake)
+    assert code == lab.EXIT_LEFT
+    assert len(fake.live()) == 1                       # made; the run cannot know its id
+    (row,) = rows(project)
+    assert row["state"] == "live" and row["id"] == "unknown"
+    assert "may have made it: find it by its name %s-lab-" % PROJECT in row["note"]
+    assert projects.live_resources(project) == 1
+
+
+def test_a_refused_create_takes_its_row_back(project):
+    finding_recipe()
+    fake = FakeKeyService()
+    fake.fail_create = {"widgets": 409}
+    code, _, _ = run(fake)
+    assert code == lab.EXIT_STOPPED and fake.created() == []
+    assert rows(project) == []
+    assert not [r for r in fake.calls if r["path"] == "/v1/{project_id}/widgets" and r["method"] == "GET"]
+
+
+@pytest.mark.parametrize("change, said", [
+    (lambda r: r["steps"][0].update(name="widget-1"), "the name of the resource carries ${name} or ${project}"),
+    (lambda r: r["steps"][0].update(name="${name}-z"), "the call gives the resource its name ${name}-z"),
+    (lambda r: r["steps"][0].update(find={"call": {"method": "POST", "service": "vpc", "path": "/v1/x"},
+                                          "field": "id"}), "a find reads"),
+    (lambda r: r["steps"][0].update(find={"call": {"method": "GET", "service": "vpc", "path": "/v1/x"},
+                                          "status": [200]}), "find has a call and a field"),
+    (lambda r: r["steps"][0].update(find={"call": {"method": "GET", "service": "vpc", "path": "/v1/${gadget}"},
+                                          "field": "id"}), "the find refers to a value it does not have"),
+])
+def test_a_malformed_name_or_find_is_refused(change, said):
+    recipe = copy.deepcopy(RECIPE)
+    change(recipe)
+    with pytest.raises(lab.LabError, match=re.escape(said)):
+        lab.validate(recipe)
+
+
+def test_every_create_of_the_three_recipes_has_a_name_with_the_code_and_a_find_by_name():
+    for path in sorted(REPO_RECIPES.glob("*.json")):
+        r = lab.load(path)
+        for s in (s for s in r["steps"] if s["do"] == "create"):
+            assert "${name}" in s["name"], (path.name, s["id"])
+            assert s["find"]["call"]["method"] in ("GET", "HEAD"), (path.name, s["id"])
+            assert "list" in s["find"] or "status" in s["find"], (path.name, s["id"])
+        lines = lab.dry_run_lines(r, lab.params_of(r, []))
+        assert not any("no find by name" in line for line in lines)
+        assert sum("before the call" in line for line in lines) == len([s for s in r["steps"] if s["do"] == "create"])
+
+
+def test_the_ecs_recipe_places_a_vpc_whose_create_answer_was_lost(project, monkeypatch):
+    """The find of the VPC as the recipe writes it (the list under vpcs, the item named like the resource) against
+    a cloud that made the VPC and lost the answer."""
+    monkeypatch.delenv(lab.RECIPES_ENV)
+    cloud = ecs_cloud()
+    names: dict[str, str] = {}
+
+    def send(req):
+        if req["method"] == "POST" and req["path"] == "/v1/{project_id}/vpcs":
+            answer = cloud(req)
+            names[answer["data"]["vpc"]["id"]] = req["body"]["vpc"]["name"]
+            raise TimeoutError("no answer")
+        if req["method"] == "GET" and req["path"] == "/v1/{project_id}/vpcs" and names:
+            vpcs = [{"id": i, "name": n} for i, n in names.items() if i in cloud.state["live"]]
+            return {"ok": True, "status": 200, "data": {"vpcs": [{"id": "other", "name": "other"}] + vpcs},
+                    "text": ""}
+        return cloud(req)
+    code, lines, errors = run(send, recipe="ecs-boot-ssh")
+    assert code == lab.EXIT_OK, (lines, errors)
+    assert cloud.state["live"] == {} and len(cloud.state["made"]) == 5
+    assert [r["state"] for r in rows(project)] == ["deleted"] * 5
+
+
+def test_a_full_page_without_the_name_proves_nothing(project):
+    recipe = finding_recipe()
+    recipe["steps"][0]["find"]["call"]["query"] = {"limit": "2"}
+    write_recipe(Path(os.environ[lab.RECIPES_ENV]), recipe)
+    fake = FakeKeyService()
+    fake.items = {"%08x-aaaa-4bbb-8ccc-0d1e2f3a4b5c" % n: {"coll": "widgets", "deleted": False, "reads": 0,
+                                                            "body": {"name": "other-%d" % n}} for n in (1, 2)}
+    fake.fail_create = {"widgets": 504}
+    code, _, _ = run(fake)
+    assert code == lab.EXIT_LEFT                     # it cannot know: the row stays live for the owner
+    (row,) = rows(project)
+    assert row["state"] == "live" and row["id"] == "unknown"
+    assert "the find could not tell" in row["note"]
