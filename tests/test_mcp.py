@@ -475,3 +475,11 @@ def test_stdout_carries_only_protocol_messages_and_the_handshake_negotiates_down
     client.send([{"jsonrpc": "2.0", "id": 8, "method": "ping"}, {"jsonrpc": "2.0", "method": "x"}])
     assert client.recv() == [{"jsonrpc": "2.0", "id": 8, "result": {}}]
     assert client.close() == 0
+
+
+def test_ping_is_gone_in_the_current_revision_and_server_discover_is_complete_in_every_era(client):
+    assert modern(client, "ping")["error"]["code"] == -32601        # removed in 2026-07-28
+    assert client.request("ping")["result"] == {}                     # the handshake revisions keep it
+    for got in (client.request("server/discover")["result"], modern(client, "server/discover")["result"]):
+        assert got["resultType"] == "complete" and got["_meta"][M + "serverInfo"]["name"] == "tcp-facts"
+        assert got["ttlMs"] > 0 and got["cacheScope"] == "public" and got["supportedVersions"][0] == "2026-07-28"

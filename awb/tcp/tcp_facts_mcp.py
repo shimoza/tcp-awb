@@ -779,10 +779,11 @@ def handle(ds: Dataset, msg, session: Session | None = None) -> dict | None:
         else:
             era = _era(params, session)
             modern = era == MODERN
-            if method == "server/discover":
+            if method == "server/discover":                # a DiscoverResult of 2026-07-28 in every era
+                modern = True
                 result = {"supportedVersions": list(PROTOCOLS), "capabilities": {"tools": {}},
                           "instructions": _instructions(ds), "ttlMs": 3_600_000, "cacheScope": "public"}
-            elif method == "ping":
+            elif method == "ping" and era != MODERN:     # 2026-07-28 removed ping; the handshake revisions keep it
                 result = {}
             elif method == "tools/list":
                 if params.get("cursor") is not None:

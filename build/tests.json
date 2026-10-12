@@ -2822,6 +2822,13 @@
    "status": "passing"
   },
   {
+   "id": "MCP-22",
+   "phase": "MCP",
+   "name": "mcp: ping is gone in the revision 2026-07-28 (-32601) and kept for the handshake revisions; server/discover answers a full DiscoverResult (resultType, server info, ttl) in every era",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_ping_is_gone_in_the_current_revision_and_server_discover_is_complete_in_every_era",
+   "status": "passing"
+  },
+  {
    "id": "RG-1",
    "phase": "RG",
    "name": "grant customer: a row changed after the grant does not change the customer of an owner-inbox take or loosen the send gate of a put; the refusal is one line with the code",
@@ -5223,6 +5230,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 746,
+ "total_tests": 747,
  "checked": "2026-10-12"
 }
