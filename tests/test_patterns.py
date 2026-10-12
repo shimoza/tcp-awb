@@ -69,7 +69,7 @@ def test_found(text, cls, value):
     "at 12:30:45 local time",
     "std::vector and a::b in code",
     "files report.md setup.py main.tf awb.cli config.yaml",
-    "DEUTSCHE BAHN and PASSWORD in capitals",
+    "GRVETZ SYSTEMHAUS and PASSWORD in capitals",
     "WAF error codes 010000 and 080263 in a response",
     "the job returned 0123456 as its handle",
     "the service description section 3.1.4.2 lists the host types",
