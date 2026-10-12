@@ -5025,8 +5025,22 @@
    "name": "paste import: in an encrypted vault the register is read through the daemon, the private report is sealed and nothing else of the paste lies in the vault",
    "run": ".venv/bin/pytest tests/test_paste_import.py::test_in_an_encrypted_vault_the_private_report_is_sealed_and_the_copy_is_written",
    "status": "passing"
+  },
+  {
+   "id": "TAG-1",
+   "phase": "TAGS",
+   "name": "tags: every service of the service description in rules/services.tsv has a tag in rules/tags.txt",
+   "run": ".venv/bin/pytest tests/test_services.py::test_every_service_of_the_service_description_has_a_tag",
+   "status": "passing"
+  },
+  {
+   "id": "TAG-2",
+   "phase": "TAGS",
+   "name": "tags: the check names a service whose tag is missing",
+   "run": ".venv/bin/pytest tests/test_services.py::test_the_tag_check_names_a_service_whose_tag_is_missing",
+   "status": "passing"
   }
  ],
- "total_tests": 718,
+ "total_tests": 720,
  "checked": "2026-10-12"
 }

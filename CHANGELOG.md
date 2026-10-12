@@ -63,6 +63,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   --paste in his own terminal`) and the prompt hook adds that line to the stop of a prompt with a pasted block. The
   notice of the sessions takes the names of pasted copies (`mail-2026-10-12-1.md`) beside file ids. The first line of
   `seal/work-claude/CLAUDE.md` is no longer followed by a blank line, so that the rules stay within their 60 lines.
+- The help line of `awb build` describes the command as it is: the task queue (add, list, status, show, answer,
+  retry, widen, stop) and its runner (serve, selftest, probe). It said that the queue comes later.
+- `rules/tags.txt` has a tag for every service of the service description in `rules/services.tsv`: 33 new ones such
+  as `functiongraph`, `taurusdb`, `geminidb`, `ddm`, `oracle-optimized`, `apig`, `ucs`, `ocr`, `anti-ddos`, `dbss`,
+  `financial-dashboard`, `consulting`, `marketplace`, `alert-service`, `das` and `cloud-connect`. `awb kb add`,
+  `awb ledger add` and `awb spawn` take them now. A test fails when a service of the list has no tag.
 
 ### Fixed
 
@@ -97,6 +103,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   so the probe's first-boot script does not wait for DNS; the two servers are created without adminPass and need
   no tenant secret (to confirm live: a create without adminPass and without a key pair); the console is read on
   the `/v2/` path proven live, without a length limit; the time budget is 35 minutes.
+- The plugin text follows the writing rules. The skills `azure-to-tcp`, `exchange`, `review`, `tcp-price` and
+  `test-tenant` and the plugin README had a comma before "and" or "or". `tcp-price` pointed to an "earlier
+  version" where it meant an older estimate. `awb write check --mode doc` now finds no blocking tell in any file of
+  `plugin/`.
+- `COMMANDS.md` and `README.md` match `awb --help` again. COMMANDS.md lists what it missed: the UI queue (`awb ui`),
+  `awb web check`, `awb xchg clean`, `awb report --by questions`, `awb hook pre-tool` and `selftest`, the target `en`
+  of `awb write translate` and options such as `--lab-user`, `--restart`, `--replace`, `--max-age`,
+  `--region`, `--table`, `--hours` and `--scope`. The README layout table names `.claude-plugin/marketplace.json`
+  where it is (the plugin folder never held it) and adds `hooks-build/`, `build/` and `CLAUDE.md`.
 
 ## Week 41, 2026-10-05 to 2026-10-11
 

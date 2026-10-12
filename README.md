@@ -595,14 +595,18 @@ The agent's free text stays out of your sessions: add one line to the `deny` lis
 |---|---|
 | `awb/` | the package and the `awb` command; `awb/tcp/` holds what belongs to TCP |
 | `rules/` | one rule per file with its reason and what enforces it, plus the data files of the checks |
-| `hooks/` | git hooks: `pre-commit`, `commit-msg` and `pre-push` run the gate |
+| `hooks/` | git hooks: `pre-commit`, `commit-msg` and `pre-push` run the gate (`git config core.hooksPath hooks` installs them) |
+| `hooks-build/` | the commit gate of the build clones: every check but the name check, which the runner makes with the register |
 | `seal/` | setup and verification of the two-user seal, the service units, the work user's client settings |
-| `plugin/` | the Claude Code plugin; `.claude-plugin/marketplace.json` makes this repository its marketplace |
+| `plugin/` | the Claude Code plugin: skills, workers and hooks, its manifest in `plugin/.claude-plugin/plugin.json` |
+| `.claude-plugin/` | `marketplace.json` makes this repository the marketplace of the plugin |
 | `workflows/` | the review and refresh workflows for Claude Code |
 | `recipes/` | the lab recipes of `awb lab`, one live check on a test tenant per file; the format in `recipes/README.md` |
 | `calibration/` | the review calibration set, the red-team pack and the records of the red team and the security review |
 | `tests/` | every test, invented names only |
+| `build/` | `tests.json`, every test with its status; the queue of the build runner lies in `build/queue/` and stays out of git |
 | `docs/api/` | the contract of the web API (`awb api check`) |
+| `CLAUDE.md` | the rules for a Claude Code session in this repository |
 | `COMMANDS.md` | every `awb` command by who runs it |
 | `INTERFACES.md` | the interface of every module |
 | `CHANGELOG.md` | what changed, one entry per week |

@@ -15,6 +15,6 @@ A deliverable lives under `deliverables/` of a Workbench project. It leaves only
 3. Run the level-0 checks: `awb review l0 deliverables/FILE` (style, names, budget, claims with evidence) and
    `awb write check deliverables/FILE`.
 4. For tier 3, read the text through each lens (the source platform, the target platform, the partner who sells
-   and supports it, and a fidelity pass for invented facts, contradictions and a misread question). Apply the
+   and supports it and a fidelity pass for invented facts, contradictions and a misread question). Apply the
    findings by rewriting the answer from the original question, never by patching it.
 5. Record the result: `awb review pass deliverables/FILE`. `awb review status` shows every deliverable's state.

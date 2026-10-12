@@ -22,4 +22,4 @@ machine first, see the README at the repository root.
     claude plugin install awb@tcp-awb
 
 On a sealed host the seal already installs the hooks for the work user as managed settings. Do not install the
-plugin there as well, or every hook runs twice.
+plugin there as well: every hook would run twice.

@@ -1,6 +1,6 @@
 ---
 name: exchange
-description: Take a file the owner dropped into an inbox into the project, and put a result of the project back for him to fetch in the OBS console
+description: Take a file the owner dropped into an inbox into the project and put a result of the project back for him to fetch in the OBS console
 ---
 
 # Files in and out
