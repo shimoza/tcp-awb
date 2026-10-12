@@ -2836,6 +2836,13 @@
    "status": "passing"
   },
   {
+   "id": "MCP-23",
+   "phase": "MCP",
+   "name": "mcp: the refusal of a file outside the dataset folder answers -32050, outside -32000 to -32019 and outside every code the specification names",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_the_refusal_code_is_outside_the_reserved_range_and_every_code_the_specification_names",
+   "status": "passing"
+  },
+  {
    "id": "RG-1",
    "phase": "RG",
    "name": "grant customer: a row changed after the grant does not change the customer of an owner-inbox take or loosen the send gate of a put; the refusal is one line with the code",
@@ -5237,6 +5244,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 748,
+ "total_tests": 749,
  "checked": "2026-10-12"
 }

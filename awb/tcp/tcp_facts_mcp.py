@@ -64,7 +64,7 @@ PRICE_TIMEOUT = 30.0
 
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
 UNSUPPORTED_VERSION = -32022        # the code of the specification for a protocol version the server does not speak
-REFUSED = -32001                    # a file outside the dataset folder
+REFUSED = -32050                    # a file outside the dataset folder; 2026-07-28 keeps -32000 to -32019 from new use
 
 
 class RpcError(Exception):

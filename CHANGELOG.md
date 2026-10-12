@@ -52,6 +52,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The MCP server of the dataset (`tcp_facts_mcp.py`) refuses a file outside the dataset folder with the JSON-RPC code
+  -32050 instead of -32001, since the revision 2026-07-28 keeps new implementations off -32000 to -32019. The message
+  stays the same (B-002, test MCP-23).
 - The README, PROMPT.md and HOW-TO.pdf of the dataset TCP Facts say where the facts come from: how many of the
   documentation facts come from the repositories of the GitHub organisation opentelekomcloud-docs (Apache License
   2.0), that facts.jsonl holds the source of the others, that the documentation website is not crawled, that no

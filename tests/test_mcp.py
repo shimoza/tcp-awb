@@ -264,7 +264,7 @@ def test_a_path_outside_the_dataset_is_refused(client, built, tmp_path):
     csv_path.unlink()
     csv_path.symlink_to(outside)
     got = client.request("tools/call", {"name": "tcp_price_find", "arguments": {"query": "planted"}})
-    assert got["error"] == {"code": -32001, "message": "refused: a file outside the dataset folder"}
+    assert got["error"] == {"code": -32050, "message": "refused: a file outside the dataset folder"}
     assert "PLANTED" not in json.dumps(got)
     flag = sys.dont_write_bytecode
     try:
@@ -275,8 +275,23 @@ def test_a_path_outside_the_dataset_is_refused(client, built, tmp_path):
     for rel in ("../outside.csv", str(outside), "prices/../../outside.csv", "prices/eu-de.csv"):
         with pytest.raises(server.RpcError) as err:
             ds.path(rel)
-        assert err.value.code == -32001, rel
+        assert err.value.code == -32050, rel
     assert ds.path("facts.jsonl") == folder.resolve() / "facts.jsonl"
+
+
+def test_the_refusal_code_is_outside_the_reserved_range_and_every_code_the_specification_names():
+    flag = sys.dont_write_bytecode
+    try:
+        from awb.tcp import tcp_facts_mcp as server
+    finally:
+        sys.dont_write_bytecode = flag
+    named = {-32700, -32600, -32601, -32602, -32603,      # JSON-RPC 2.0
+             -32002, -32022, -32042}                        # MCP: resource not found, unsupported version, URL elicitation
+    assert server.REFUSED == -32050
+    assert not -32019 <= server.REFUSED <= -32000
+    assert server.REFUSED not in named
+    assert server.REFUSED not in {server.PARSE_ERROR, server.INVALID_REQUEST, server.METHOD_NOT_FOUND,
+                                  server.INVALID_PARAMS, server.INTERNAL_ERROR, server.UNSUPPORTED_VERSION}
 
 
 def _tree(root: Path) -> dict:
