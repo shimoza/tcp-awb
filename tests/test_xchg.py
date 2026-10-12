@@ -241,7 +241,7 @@ def test_a_project_without_a_customer_is_refused_an_owner_file_by_kind_with_the_
 
 def test_a_project_without_a_customer_takes_from_its_own_folder_in_by_kind(svc, buckets, lab_project, home, capsys):
     """Replaces test_a_project_without_a_customer_takes_from_its_own_folder_in (finding 2 of the review of
-    2026-10-10: a word of a name in in/ meets nothing, the file is named by its kind). 2026-10-09, tcp-s5i3: a
+    2026-10-10: a word of a name in in/ meets nothing, the file is named by its kind). 2026-10-09: a
     project without a customer takes from its own folder in/ of the owner bucket; the planted person and the
     planted company come out as tokens and no code, the copy lands in input/, the file stays in in/ and is taken
     once."""

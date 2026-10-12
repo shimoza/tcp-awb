@@ -140,7 +140,7 @@ def test_customer_new_is_random_when_the_projects_code_is_taken(home, lab, capsy
 
 
 def test_the_forms_prompt_needs_a_terminal_and_an_empty_line_issues_the_code_without_a_form(home, lab, capsys):
-    """Replaces test_the_forms_prompt_needs_a_terminal (2026-10-09, tcp-s5i3): for a project without a customer an
+    """Replaces test_the_forms_prompt_needs_a_terminal (2026-10-09): for a project without a customer an
     empty first line of the forms prompt means "no forms"; the new code is issued without a form (its outbox folder)
     and the import runs."""
     _files(home.inbox, 1)
@@ -157,7 +157,7 @@ def test_the_forms_prompt_needs_a_terminal_and_an_empty_line_issues_the_code_wit
 
 
 def test_a_project_without_a_customer_runs_with_tokens_and_no_code(home, lab, tmp_path, capsys):
-    """Replaces test_a_project_without_a_customer_needs_one (2026-10-09, tcp-s5i3): a project whose customer is none
+    """Replaces test_a_project_without_a_customer_needs_one (2026-10-09): a project whose customer is none
     imports without --customer. A planted brief with a planted person and a planted company comes out with tokens and
     no code; the copies and the public report go to the outbox under the project code; the session hears of them."""
     brief = tmp_path / "brief.txt"
