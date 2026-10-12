@@ -51,6 +51,9 @@ names the question, the calls, the checks, the teardown, a time budget and a cos
 and writes its row in `RESOURCES.md` before the create call. When the answer of a create is lost it looks the
 resource up by its name and records it or proves it not created. It always tears down, also on a failed check, an
 error, the time budget or Ctrl-C, proves each resource gone and writes the evidence with a ready `awb kb add` line.
+A recipe that fills a password from a tenant secret asks the key service for the names of the tenant's secrets
+first and stops before any create when one is missing. A refused call keeps its error code and the start of its
+error message in the evidence.
 `awb lab list` shows the recipes and `awb lab dry-run` the calls a run would make. A resource it cannot delete stays
 in `RESOURCES.md` as live with the line to delete it.
 

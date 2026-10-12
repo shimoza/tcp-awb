@@ -103,6 +103,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   so the probe's first-boot script does not wait for DNS; the two servers are created without adminPass and need
   no tenant secret (to confirm live: a create without adminPass and without a key pair); the console is read on
   the `/v2/` path proven live, without a length limit; the time budget is 35 minutes.
+- `awb lab run` after the second live run of `ecs-boot-ssh` (2026-10-12), whose server create answered 400 with
+  nothing more to read: a refused or failed call keeps its error code and the first 200 characters of its error
+  message in the evidence (from `error_code`/`error_msg`, `code`/`message` or `error.code`/`error.message`), through
+  the secret masking and the name check (withheld when the check finds a name or cannot run), and the stop line names
+  the step and the error code. A recipe that fills a field with `{{secret:NAME}}` asks the key service for the names
+  of the tenant's secrets after the grant read and stops before its first create with one line such as `the secret
+  ecs-admin is missing for test-10491`; the dry run names the secrets it needs. Both servers of `ecs-boot-ssh` carry
+  `adminPass` from the tenant secret again (parameter `admin_secret`, default `ecs-admin`), as `elb-health` does; both
+  recipes note "to confirm live" whether user_data still runs with adminPass set.
 - The plugin text follows the writing rules. The skills `azure-to-tcp`, `exchange`, `review`, `tcp-price` and
   `test-tenant` and the plugin README had a comma before "and" or "or". `tcp-price` pointed to an "earlier
   version" where it meant an older estimate. `awb write check --mode doc` now finds no blocking tell in any file of

@@ -4770,8 +4770,8 @@
   {
    "id": "LAB-14",
    "phase": "LAB",
-   "name": "lab: the ecs-boot-ssh recipe runs end to end against the shapes it expects: no adminPass, DNS servers on the subnet, the console on /v2/",
-   "run": ".venv/bin/pytest tests/test_lab.py::test_the_ecs_recipe_runs_end_to_end_without_a_secret_and_with_dns",
+   "name": "lab: the ecs-boot-ssh recipe runs end to end against the shapes it expects: adminPass as the placeholder of the tenant secret on both servers, DNS servers on the subnet, the console on /v2/",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_ecs_recipe_runs_end_to_end_with_the_secret_placeholder_and_dns",
    "status": "passing"
   },
   {
@@ -4841,7 +4841,7 @@
    "id": "LAB-24",
    "phase": "LAB",
    "name": "lab: the ecs-boot-ssh recipe places a VPC whose create answer was lost with the find as the recipe writes it",
-   "run": ".venv/bin/pytest tests/test_lab.py::test_the_ecs_recipe_places_a_vpc_whose_create_answer_was_lost",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_ecs_recipe_places_a_vpc_whose_create_answer_was_lost_after_its_secret_check",
    "status": "passing"
   },
   {
@@ -4891,6 +4891,76 @@
    "phase": "LAB",
    "name": "lab: an error of the host in the preflight (a PermissionError) is one line and exit 2, no call and no row",
    "run": ".venv/bin/pytest tests/test_lab.py::test_an_error_of_the_host_in_the_preflight_is_one_line_and_exit_2",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-27",
+   "phase": "LAB",
+   "name": "lab: a refused create keeps its error code and message (error_code/error_msg, code/message, error.code/error.message) in the evidence and the stop line names the step and the code",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_refused_create_keeps_its_error_code_and_message_in_the_evidence_and_the_stop_line",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-28",
+   "phase": "LAB",
+   "name": "lab: an error message is cut to 200 characters and withheld when it holds a masked secret, a secret class or a registered name",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_an_error_message_is_cut_to_200_characters_and_never_keeps_a_secret_or_a_name",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-29",
+   "phase": "LAB",
+   "name": "lab: an error message and code the name check cannot check are not kept",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_an_error_message_the_name_check_cannot_check_is_not_kept",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-30",
+   "phase": "LAB",
+   "name": "lab: the 404 that proves a resource gone keeps no error",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_404_that_proves_a_resource_gone_keeps_no_error",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-31",
+   "phase": "LAB",
+   "name": "lab: a missing tenant secret stops the run after the grant read and before its first create, one line, no row, no evidence",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_missing_secret_stops_the_run_before_its_first_create",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-32",
+   "phase": "LAB",
+   "name": "lab: a present secret lets the run go, asked once before the first write; the body carries only the placeholder",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_present_secret_lets_the_run_go_and_the_body_carries_only_its_placeholder",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-33",
+   "phase": "LAB",
+   "name": "lab: a recipe without a secret does not ask for the names",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_recipe_without_a_secret_does_not_ask_for_the_names",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-34",
+   "phase": "LAB",
+   "name": "lab: the ecs recipe on a tenant without its secret makes nothing",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_ecs_recipe_on_a_tenant_without_its_secret_makes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-35",
+   "phase": "LAB",
+   "name": "lab: the secrets the three recipes need and the dry-run line that names them",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_secrets_of_the_recipes_and_the_dry_run_line",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-36",
+   "phase": "LAB",
+   "name": "lab: the secret check goes through the operation tenants of the real key service, names only",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_secret_check_goes_through_the_real_key_service",
    "status": "passing"
   },
   {
@@ -5041,6 +5111,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 720,
+ "total_tests": 730,
  "checked": "2026-10-12"
 }

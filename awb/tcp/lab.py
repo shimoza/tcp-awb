@@ -31,10 +31,16 @@ each one gone with a read. A row whose resource is proven gone is set to deleted
 cannot place keeps its row as live with one line for the owner; the command then exits 4.
 
 The evidence goes to `evidence/lab-<recipe>-<date>-<n>.md` of the project: the question, the parameters, every
-call (method, service, path, the answer's status and the fields the steps and checks read), the check results,
-the teardown proof, the time and the resource count. Ids appear as handles; a field whose name or value looks like
-a key, a token or a secret is withheld. When every check passed and nothing is left, the evidence and the output
-end with a ready `awb kb add` line with the grade live and the evidence path as its source.
+call (method, service, path, the answer's status and the fields the steps and checks read; for a refused or failed
+call also its error code and the first 200 characters of its error message), the check results, the teardown proof,
+the time and the resource count. Ids appear as handles; a field whose name or value looks like a key, a token or a
+secret is withheld, and an error message in which the name check finds a name (or that it cannot check) too. When
+every check passed and nothing is left, the evidence and the output end with a ready `awb kb add` line with the
+grade live and the evidence path as its source.
+
+A recipe whose calls fill a field with `{{secret:NAME}}` needs that secret of the tenant in the key service. The
+run asks the key service for the names of the tenant's secrets (never a value) after the grant read and before its
+first create; a name that is missing stops it there with one line, so it makes nothing.
 
 Exit codes: 0 every check passed and everything is gone; 1 a check failed and everything is gone; 2 refused
 before the first call, a usage error or a run that stopped (an error, the time budget, a signal) with everything
@@ -81,6 +87,11 @@ _REF_RE = re.compile(r"\$\{([a-z][a-z0-9_]*(?::[a-z][a-z0-9_]*)?)\}")
 _WHOLE_RE = re.compile(r"^\$\{(tags):(kv|list|dict)\}$")
 _INT_RE = re.compile(r"^\$\{int:([a-z][a-z0-9_]*)\}$")
 _SECRETISH = re.compile(r"(?i)(key|secret|token|passw|credential|auth|private|cert)")
+_SECRET_REF_RE = re.compile(r"\{\{secret:([a-z0-9][a-z0-9_.-]{0,40})\}\}")
+_CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,39}$")
+ERROR_FORMS = (("error_code", "error_msg"), ("code", "message"), ("error.code", "error.message"))
+"""Where the TCP APIs put the code and the message of an error, in this order."""
+ERROR_CHARS = 200
 BUILTINS = ("project", "tenant", "region", "expiry", "expiry8", "rand", "name")
 TOP_KEYS = {"name", "question", "about", "params", "vars", "budget", "guard", "steps", "checks", "teardown", "kb"}
 
@@ -356,6 +367,42 @@ def confirm_notes(r: dict) -> list[tuple[str, str]]:
     return out
 
 
+def secrets_of(r: dict, env: dict[str, str]) -> list[str]:
+    """The names of the tenant secrets the calls of a recipe fill with {{secret:NAME}}, with the values of `env`."""
+    calls = []
+    for s in r["steps"]:
+        calls += [s["call"], (s.get("find") or {}).get("call")]
+        calls.append(s["tags"] if isinstance(s.get("tags"), dict) else None)
+    for t in r["teardown"].values():
+        calls += [t["call"], t["gone"]["call"]]
+    text = json.dumps([expand(c, dict(env, id="<id>"), loose=True) for c in calls if c])
+    return sorted(set(_SECRET_REF_RE.findall(text)))
+
+
+def error_of(answer: dict) -> tuple[str, str]:
+    """(code, message) of the error in an answer, in the forms of ERROR_FORMS (also inside the one object a
+    wrapper such as badRequest holds); empty strings when it carries none. Raw: the caller cleans both."""
+    data = answer.get("data")
+    if data is None and isinstance(answer.get("text"), str) and answer["text"].lstrip().startswith("{"):
+        try:
+            data = json.loads(answer["text"])
+        except ValueError:
+            data = None
+    if not isinstance(data, dict):
+        return "", ""
+    places = [data]
+    if len(data) == 1 and isinstance(next(iter(data.values())), dict):
+        places.append(next(iter(data.values())))
+    for place in places:
+        for code_at, msg_at in ERROR_FORMS:
+            code, msg = dig(place, code_at), dig(place, msg_at)
+            code = str(code) if isinstance(code, (str, int)) and not isinstance(code, bool) else ""
+            msg = msg if isinstance(msg, str) else ""
+            if code or msg:
+                return code.strip(), msg.strip()
+    return "", ""
+
+
 def params_of(r: dict, given: list[str]) -> dict[str, str]:
     """The parameters with their defaults, then what --param K=V gives; refused when a value leaves its pattern or
     its choices (part of the cost guard: a flavor or a size outside the recipe's range)."""
@@ -466,6 +513,7 @@ class CallRecord:
     status: str
     fields: dict = field(default_factory=dict)
     polls: int = 1
+    error_code: str = ""    # the error code of a refused or failed answer, cleaned; empty when it carries none
 
 
 def _send_default(req: dict) -> dict:
@@ -548,13 +596,49 @@ class Run:
         else:
             record.polls += 1
             record.status = status
+        self._keep_error(record, answer, phase)
         return answer, record
+
+    def _keep_error(self, record: CallRecord, answer: dict, phase: str) -> None:
+        """The error code and the start of the error message of a refused or failed answer, in the fields of its
+        call: cleaned like every field, the message also through the name check. A 404 of the teardown proves a
+        resource gone and keeps nothing; a later answer of a poll replaces what an earlier one kept."""
+        record.fields.pop("error_code", None)
+        record.fields.pop("error_msg", None)
+        record.error_code = ""
+        st = self.status(answer)
+        if not answer.get("ok") or 200 <= st < 300 or (phase == "teardown" and st == 404):
+            return
+        code, msg = error_of(answer)
+        if code:
+            code = self._clean("error_code", code) if _CODE_RE.match(code) else "<withheld>"
+            if code != "<withheld>" and not self._names_clean(code):
+                code = "<withheld>"
+            record.fields["error_code"] = record.error_code = code
+        if msg:
+            msg = self._clean("error_msg", msg[:ERROR_CHARS], limit=ERROR_CHARS)
+            if msg != "<withheld>" and not self._names_clean(msg):
+                msg = "<withheld by the name check>"
+            record.fields["error_msg"] = msg
+
+    def _names_clean(self, text: str) -> bool:
+        """True when the name check finds nothing in `text`; False when it finds a name or cannot run."""
+        from awb import check, config
+
+        try:
+            return not check.check_text(text, config.paths().register)
+        except Exception:                   # CheckUnavailable, RegisterError: unchecked text is not kept
+            return False
+
+    def _said(self, record: CallRecord) -> str:
+        """The status of a call for a stop line, with the error code when the answer carried one."""
+        return "%s, error_code %s" % (record.status, record.error_code) if record.error_code else record.status
 
     @staticmethod
     def status(answer: dict) -> int:
         return int(answer.get("status") or 0) if answer.get("ok") else 0
 
-    def _clean(self, name: str, value) -> str:
+    def _clean(self, name: str, value, limit: int = 120) -> str:
         """A value for the evidence: withheld when its field name or its text looks like a key, a token or a
         secret; ids as handles."""
         from awb import gate
@@ -563,8 +647,8 @@ class Run:
             return "<withheld>"
         text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
         text = re.sub(r"[\r\n\t|]+", " ", text)
-        if len(text) > 120:
-            text = text[:117] + "..."
+        if len(text) > limit:
+            text = text[:limit - 3] + "..."
         if any(gate.DETECTORS[d](text) for d in ("secret", "token", "private-key")) or "<secret>" in text:
             return "<withheld>"
         return self.handles.mask(text)
@@ -665,7 +749,7 @@ class Run:
                 self._drop_row(res)
                 self.handles.drop(res.handle)
                 self.handles.save()
-                raise Stop("the create %s answered %s" % (step["id"], rec.status))
+                raise Stop("the create %s answered %s" % (step["id"], self._said(rec)))
             if "id_value" in step:
                 # an id the recipe names itself (a bucket): made when the answer is 2xx
                 rid = expand(step["id_value"], self.env) if 200 <= st < 300 else None
@@ -690,7 +774,7 @@ class Run:
             finally:
                 self.env = saved
             if not 200 <= self.status(ta) < 300:
-                raise Stop("the tags of %s (%s) could not be set: %s" % (res.handle, step["id"], trec.status))
+                raise Stop("the tags of %s (%s) could not be set: %s" % (res.handle, step["id"], self._said(trec)))
 
     def _settle(self, step: dict, res: Resource, said: str, lost: bool) -> str:
         """A create whose answer holds no id: the find by name places it, proves it not created or cannot tell.
@@ -804,7 +888,7 @@ class Run:
         self.results[step["id"]] = {"answer": answer, "record": rec}
         st = self.status(answer)
         if not 200 <= st < 300 and not any(c.get("step") == step["id"] and "status" in c for c in self.r["checks"]):
-            raise Stop("%s answered %s" % (step["id"], rec.status))
+            raise Stop("%s answered %s" % (step["id"], self._said(rec)))
 
     def _save(self, step: dict) -> None:
         res = self.results.get(step["id"]) or {}
@@ -864,6 +948,30 @@ class Run:
         if not answer.get("ok"):
             return str(answer.get("error") or "refused")
         return None
+
+    def missing_secret(self) -> str | None:
+        """The secrets the recipe fills, asked of the key service by name before the first create: the names of
+        the tenant's secrets come back (op tenants), never a value. None when every one is there, else the line
+        that stops the run."""
+        names = secrets_of(self.r, self.env)
+        if not names:
+            return None
+        try:
+            answer = self.send({"op": "tenants"})
+        except Exception as exc:
+            return "the key service did not list the secrets of %s (%s)" % (self.tenant, type(exc).__name__)
+        if not isinstance(answer, dict) or not answer.get("ok") or not isinstance(answer.get("tenants"), dict):
+            said = answer.get("error") if isinstance(answer, dict) else None
+            return "the key service did not list the secrets of %s (%s)" % (
+                self.tenant, self._clean("error", str(said or "no list")))
+        tenant = answer["tenants"].get(self.tenant)
+        have = tenant.get("secrets") if isinstance(tenant, dict) else None
+        missing = [n for n in names if not isinstance(have, list) or n not in have]
+        if not missing:
+            return None
+        if len(missing) == 1:
+            return "the secret %s is missing for %s" % (missing[0], self.tenant)
+        return "the secrets %s are missing for %s" % (", ".join(missing), self.tenant)
 
     def _on_signal(self, signum, frame):
         if self.in_teardown:
@@ -1113,6 +1221,10 @@ def dry_run_lines(r: dict, params: dict[str, str], project: str = "tcp-xxxx", te
            % (r["guard"]["resources"], r["guard"]["lifetime_minutes"], r["budget"]["minutes"],
               r["budget"]["teardown_minutes"]),
            "0. grant: GET vpc /v1/{project_id}/vpcs (read key)"]
+    needed = secrets_of(r, env)
+    if needed:
+        out.append("0. secrets: the tenant holds %s in the key service (asked by name before the first create)"
+                   % ", ".join(needed))
     confirm = dict(confirm_notes(r))
     creates = []
     for n, s in enumerate(r["steps"], start=1):
@@ -1240,6 +1352,10 @@ def run(name: str, project: str, tenant: str, given: list[str], *, send=None, cl
     refusal = job.probe()
     if refusal is not None:
         err("awb lab: the grant check through the key service failed: %s" % refusal)
+        return EXIT_STOPPED
+    missing = job.missing_secret()
+    if missing is not None:
+        err("awb lab: %s" % missing)
         return EXIT_STOPPED
     out("awb lab: %s on %s for %s: %d step(s), at most %d resources, budget %d minutes"
         % (r["name"], tenant, project, len(r["steps"]), r["guard"]["resources"], r["budget"]["minutes"]))

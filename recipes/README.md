@@ -39,7 +39,16 @@ finds the resources by their tags or their lab name.
 
 Every call goes through the key service with the lab key and the project code: `method`, `service`, `path`
 (with `{project_id}` where the API wants it), optional `query` and `body`. A body may fill a password field with
-`{{secret:NAME}}`; the key service puts the secret in and the session never sees it.
+`{{secret:NAME}}`; the key service puts the secret in and the session never sees it. Before its first create the
+run asks the key service for the names of the tenant's secrets (never a value) and stops with one line such as
+`the secret ecs-admin is missing for test-1` when one the recipe fills is not there, so it makes nothing. The dry
+run names the secrets a recipe needs.
+
+A call that is refused or fails keeps in the evidence its status, its error code and the first 200 characters of its
+error message, from `error_code` and `error_msg`, `code` and `message` or `error.code` and `error.message` of the
+answer. The message is withheld when it looks like a key, a token or a secret or when the name check finds a name in
+it or cannot run. The line that stops the run names the step and the error code, for example
+`result: stopped (the create server answered 400, error_code Ecs.0005)`.
 
 Values in a call: `${param}`, `${var}`, the id of an earlier create step as `${step}` (so a create step is named
 with letters, digits and underscores) and a value an earlier step

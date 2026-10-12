@@ -10,8 +10,10 @@ GET /v1/{project_id}/vpcs is the grant probe. The knobs: refuse (the probe's ref
 status or "lost" for no answer at all; nothing is made), made_but (collection: status or "lost"; the item is made,
 then the answer is that status or none), list_fail (the next so many GETs of a collection answer 500), fail_delete
 (collections whose DELETE answers 500), never_active, plant (fields put into every item read), on_call (a function
-run before each answer, for a signal) and forbidden (a GET of /v1/{project_id}/forbidden answers 403 or this
-status). Every id and value here is invented.
+run before each answer, for a signal), forbidden (a GET of /v1/{project_id}/forbidden answers 403 or this
+status), refused_body (the body of a refused create, by default an error_msg alone) and secrets (tenant alias: the
+names of its secrets, which the operation tenants lists as the key service does, never a value). Every id and value
+here is invented.
 """
 from __future__ import annotations
 
@@ -35,6 +37,8 @@ class FakeKeyService:
         self.plant: dict = {}
         self.forbidden = 403
         self.on_call = None
+        self.refused_body: dict = {"error_msg": "refused"}
+        self.secrets: dict[str, list[str]] = {}
         self._n = itertools.count(1)
 
     def created(self) -> list[str]:
@@ -47,6 +51,9 @@ class FakeKeyService:
         self.calls.append(req)
         if self.on_call is not None:
             self.on_call(req)
+        if req.get("op") == "tenants":
+            return {"ok": True, "tenants": {a: {"roles": ["lab", "read"], "secrets": sorted(names), "regions": []}
+                                            for a, names in self.secrets.items()}}
         if req.get("op") != "call":
             return {"ok": False, "error": "unknown operation"}
         if self.refuse:
@@ -65,7 +72,7 @@ class FakeKeyService:
             if coll in self.fail_create:
                 if self.fail_create[coll] == "lost":
                     raise ConnectionResetError("no answer")
-                return {"ok": True, "status": self.fail_create[coll], "data": {"error_msg": "refused"}, "text": ""}
+                return {"ok": True, "status": self.fail_create[coll], "data": self.refused_body, "text": ""}
             rid = "%08x-0000-4000-8000-%012x" % (0x1a2b3c4d + next(self._n), 0xabcdef0 + len(self.items))
             body = (req.get("body") or {}).get(one) or {}
             self.items[rid] = {"coll": coll, "deleted": False, "reads": 0, "body": body}

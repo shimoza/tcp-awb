@@ -87,7 +87,7 @@
      "name": "${name}-b",
      "resource": {"kind": "ecs", "type": "ecs backend server with its system disk", "cost": "small"},
      "tags": "body",
-     "confirm": "the create body and its answer (serverIds or a job_id only), as in ecs-boot-ssh"},
+     "confirm": "the create body and its answer (serverIds or a job_id only), as in ecs-boot-ssh; whether user_data still runs with adminPass set (the ECS docs call adminPass invalid on a Cloud-Init image when user_data is given)"},
     {"id": "boot", "do": "wait", "says": "the backend boots",
      "call": {"method": "GET", "service": "ecs", "path": "/v1/{project_id}/cloudservers/${backend}"},
      "until": {"field": "server.status", "equals": "ACTIVE"}, "fail_on": ["ERROR"], "within": 600, "every": 10,

@@ -17,6 +17,7 @@ import pytest
 
 from awb import cli, grants, projects
 from awb.tcp import lab
+from tests import fixtures
 from tests.lab_fake import Clock, FakeKeyService
 
 PROJECT = "tcp-ab2c"
@@ -501,9 +502,10 @@ def test_the_example_of_the_format_is_a_valid_recipe():
     assert lab.dry_run_lines(r, lab.params_of(r, []))[-1] == "dry run: no call was made"
 
 
-def ecs_cloud():
-    """A stand-in key service that answers the shapes of ecs-boot-ssh as the recipe expects them."""
-    state = {"n": 0, "live": {}, "made": []}
+def ecs_cloud(secrets=("ecs-admin",)):
+    """A stand-in key service that answers the shapes of ecs-boot-ssh as the recipe expects them; the tenant holds
+    the secrets named (their names only, as the key service lists them)."""
+    state = {"n": 0, "live": {}, "made": [], "server_bodies": []}
 
     def new(kind):
         state["n"] += 1
@@ -516,6 +518,8 @@ def ecs_cloud():
         return {"ok": True, "status": status, "data": data, "text": ""}
 
     def send(req):
+        if req.get("op") == "tenants":
+            return {"ok": True, "tenants": {TENANT: {"roles": ["lab", "read"], "secrets": sorted(secrets)}}}
         m, p, b = req["method"], req["path"], req.get("body") or {}
         if p == "/v1/{project_id}/vpcs" and m == "GET":
             return ok(200, {"vpcs": []})
@@ -535,7 +539,9 @@ def ecs_cloud():
         if m == "POST" and p == "/v1/{project_id}/security-group-rules":
             return ok(201, {"security_group_rule": {"id": "rule"}})
         if m == "POST" and p == "/v1/{project_id}/cloudservers":
-            assert "adminPass" not in b["server"] and "key_name" not in b["server"]   # no tenant secret is needed
+            # a public image needs a login (run 2 of 2026-10-12): the placeholder the key service fills, never a value
+            assert b["server"]["adminPass"] == "{{secret:ecs-admin}}" and "key_name" not in b["server"]
+            state["server_bodies"].append(b["server"])
             assert {"key": "awb-project", "value": PROJECT} in b["server"]["server_tags"]
             return ok(200, {"job_id": "job", "serverIds": [new("server")]})
         if m == "POST" and p == "/v1/{project_id}/cloudservers/delete":
@@ -566,12 +572,16 @@ def ecs_cloud():
     return send
 
 
-def test_the_ecs_recipe_runs_end_to_end_without_a_secret_and_with_dns(project, home, monkeypatch):
+def test_the_ecs_recipe_runs_end_to_end_with_the_secret_placeholder_and_dns(project, home, monkeypatch):
     monkeypatch.delenv(lab.RECIPES_ENV)
     send = ecs_cloud()
     code, lines, errors = run(send, recipe="ecs-boot-ssh", params=["flavor=s3.large.2"])
     assert code == lab.EXIT_OK, (lines, errors)
     assert send.state["live"] == {} and len(send.state["made"]) == 5
+    # both servers carry the placeholder of the secret; the user_data of the probe is still there
+    bodies = send.state["server_bodies"]
+    assert [x["adminPass"] for x in bodies] == ["{{secret:ecs-admin}}"] * 2
+    assert "user_data" not in bodies[0] and bodies[1]["user_data"]
     assert [r["state"] for r in rows(project)] == ["deleted"] * 5
     text = evidence(project)
     assert "| ssh-answers | port 22 of the server under test answers inside the VPC | output contains AWB-SSH-OPEN" \
@@ -790,14 +800,17 @@ def test_every_create_of_the_three_recipes_has_a_name_with_the_code_and_a_find_b
         assert sum("before the call" in line for line in lines) == len([s for s in r["steps"] if s["do"] == "create"])
 
 
-def test_the_ecs_recipe_places_a_vpc_whose_create_answer_was_lost(project, monkeypatch):
+def test_the_ecs_recipe_places_a_vpc_whose_create_answer_was_lost_after_its_secret_check(project, monkeypatch):
     """The find of the VPC as the recipe writes it (the list under vpcs, the item named like the resource) against
-    a cloud that made the VPC and lost the answer."""
+    a cloud that made the VPC and lost the answer. The run asks for the names of the tenant's secrets first, a
+    request without a method."""
     monkeypatch.delenv(lab.RECIPES_ENV)
     cloud = ecs_cloud()
     names: dict[str, str] = {}
 
     def send(req):
+        if req.get("op") != "call":
+            return cloud(req)
         if req["method"] == "POST" and req["path"] == "/v1/{project_id}/vpcs":
             answer = cloud(req)
             names[answer["data"]["vpc"]["id"]] = req["body"]["vpc"]["name"]
@@ -842,3 +855,149 @@ def test_an_error_of_the_host_in_the_preflight_is_one_line_and_exit_2(project, m
     assert code == lab.EXIT_STOPPED and lines == []
     assert errors == ["awb lab: the preflight failed before any call (PermissionError); nothing was created"]
     assert fake.calls == [] and rows(project) == []
+
+
+# --------------------------------------------------------------------------- run 2 (2026-10-12): the 400 and the secret
+
+
+@pytest.mark.parametrize("body", [
+    {"error_code": "Ecs.0005", "error_msg": "Invalid parameter: adminPass or key_name is required."},
+    {"code": "Ecs.0005", "message": "Invalid parameter: adminPass or key_name is required."},
+    {"error": {"code": "Ecs.0005", "message": "Invalid parameter: adminPass or key_name is required."}},
+], ids=["error_code", "code", "error.code"])
+def test_a_refused_create_keeps_its_error_code_and_message_in_the_evidence_and_the_stop_line(project, body):
+    """Run 2 stopped with "the create server answered 400" and nothing else: the cause could not be told."""
+    fake = FakeKeyService()
+    fake.fail_create = {"gadgets": 400}
+    fake.refused_body = body
+    code, lines, errors = run(fake)
+    assert code == lab.EXIT_STOPPED and fake.live() == []
+    stop = "result: stopped (the create gadget answered 400, error_code Ecs.0005)"
+    assert stop in lines
+    text = evidence(project)
+    assert "- " + stop in text
+    assert "| 400 | 1 | error_code = Ecs.0005; error_msg = Invalid parameter: adminPass or key_name is required. |" \
+        in text
+
+
+@pytest.mark.parametrize("message, kept", [
+    ("x" * 500, "x" * lab.ERROR_CHARS),
+    ("the secret <secret> was refused", "<withheld>"),                       # what the key service masked
+    ("quota of %s exceeded" % fixtures.CUSTOMER_FORMS[0], "<withheld by the name check>"),
+    ("s" + "k=" + SECRET_LONG, "<withheld>"),
+], ids=["long", "masked-secret", "name", "secret"])
+def test_an_error_message_is_cut_to_200_characters_and_never_keeps_a_secret_or_a_name(project, message, kept):
+    fake = FakeKeyService()
+    fake.fail_create = {"gadgets": 400}
+    fake.refused_body = {"error_code": "VPC.0101", "error_msg": message}
+    code, lines, _ = run(fake)
+    assert code == lab.EXIT_STOPPED
+    text = evidence(project)
+    assert "error_code = VPC.0101; error_msg = %s |" % kept in text
+    for planted in (fixtures.CUSTOMER_FORMS[1], SECRET_LONG, "x" * (lab.ERROR_CHARS + 1)):
+        assert planted not in text and all(planted not in line for line in lines)
+
+
+def test_an_error_message_the_name_check_cannot_check_is_not_kept(project, monkeypatch):
+    from awb import check
+
+    def unavailable(text, reg):
+        raise check.CheckUnavailable("no vault")
+    monkeypatch.setattr(check, "check_text", unavailable)
+    fake = FakeKeyService()
+    fake.fail_create = {"gadgets": 409}
+    fake.refused_body = {"error_code": "VPC.0102", "error_msg": "busy"}
+    assert run(fake)[0] == lab.EXIT_STOPPED
+    text = evidence(project)
+    assert "error_code = <withheld>; error_msg = <withheld by the name check> |" in text
+    assert "- result: stopped (the create gadget answered 409, error_code <withheld>)" in text
+
+
+def test_the_404_that_proves_a_resource_gone_keeps_no_error(project):
+    fake = FakeKeyService()
+    assert run(fake)[0] == lab.EXIT_OK
+    gone = [line for line in evidence(project).splitlines() if " gone | GET |" in line]
+    assert len(gone) == 2 and all("| 404 |" in line and "error_" not in line for line in gone)
+
+
+def secret_recipe(name="ecs-admin") -> dict:
+    """RECIPE whose gadget fills a password field from the tenant secret named by the parameter admin_secret."""
+    recipe = copy.deepcopy(RECIPE)
+    recipe["params"]["admin_secret"] = {"default": name, "pattern": "^[a-z0-9][a-z0-9_.-]{0,40}$"}
+    recipe["steps"][2]["call"]["body"]["gadget"]["admin_pass"] = "{{secret:${admin_secret}}}"
+    write_recipe(Path(os.environ[lab.RECIPES_ENV]), recipe)
+    return recipe
+
+
+def test_a_missing_secret_stops_the_run_before_its_first_create(project):
+    secret_recipe()
+    fake = FakeKeyService()
+    fake.secrets = {TENANT: ["other"], "test-2": ["ecs-admin"]}
+    code, lines, errors = run(fake)
+    assert code == lab.EXIT_STOPPED and lines == []
+    assert errors == ["awb lab: the secret ecs-admin is missing for %s" % TENANT]
+    assert [(r.get("op"), r.get("method")) for r in fake.calls] == [("call", "GET"), ("tenants", None)]
+    assert fake.created() == []                        # the grant read, then the names; no write
+    assert rows(project) == [] and not list((project / "evidence").glob("lab-*"))
+
+
+def test_a_present_secret_lets_the_run_go_and_the_body_carries_only_its_placeholder(project):
+    secret_recipe()
+    fake = FakeKeyService()
+    fake.secrets = {TENANT: ["ecs-admin"]}
+    code, lines, errors = run(fake)
+    assert code == lab.EXIT_OK, (lines, errors)
+    gadget = next(it for it in fake.items.values() if it["coll"] == "gadgets")
+    assert gadget["body"]["admin_pass"] == "{{secret:ecs-admin}}"
+    assert sum(1 for r in fake.calls if r.get("op") == "tenants") == 1
+    assert [r.get("op") for r in fake.calls].index("tenants") < next(
+        i for i, r in enumerate(fake.calls) if r.get("method") == "POST")
+
+
+def test_a_recipe_without_a_secret_does_not_ask_for_the_names(project):
+    fake = FakeKeyService()
+    assert run(fake)[0] == lab.EXIT_OK
+    assert not any(r.get("op") == "tenants" for r in fake.calls)
+
+
+def test_the_ecs_recipe_on_a_tenant_without_its_secret_makes_nothing(project, monkeypatch):
+    monkeypatch.delenv(lab.RECIPES_ENV)
+    send = ecs_cloud(secrets=())
+    code, lines, errors = run(send, recipe="ecs-boot-ssh")
+    assert code == lab.EXIT_STOPPED and lines == []
+    assert errors == ["awb lab: the secret ecs-admin is missing for %s" % TENANT]
+    assert send.state["made"] == [] and rows(project) == []
+
+
+def test_the_secrets_of_the_recipes_and_the_dry_run_line():
+    for name, want in (("ecs-boot-ssh", ["ecs-admin"]), ("elb-health", ["ecs-admin"]), ("obs-policy-deny", [])):
+        r = lab.load(REPO_RECIPES / ("%s.json" % name))
+        params = lab.params_of(r, [])
+        assert lab.secrets_of(r, params) == want, name
+        shown = [x for x in lab.dry_run_lines(r, params) if x.startswith("0. secrets:")]
+        assert shown == (["0. secrets: the tenant holds ecs-admin in the key service (asked by name before the "
+                          "first create)"] if want else [])
+    r = lab.load(REPO_RECIPES / "ecs-boot-ssh.json")
+    assert lab.secrets_of(r, lab.params_of(r, ["admin_secret=lab-pw"])) == ["lab-pw"]
+
+
+def test_the_secret_check_goes_through_the_real_key_service(project, tmp_path, monkeypatch):
+    """The names come from the operation tenants of awb/tcp/keys.py; the value never reaches the run."""
+    from tests.tcp_fake import FakeGateway
+    from tests.test_keys import ADMIN_PW, LAB_AK, LAB_SK, STORE, running_service
+    from awb.tcp import keys, throttle
+
+    monkeypatch.setattr(throttle, "log_call", lambda *a, **k: None)
+    recipe = secret_recipe()
+    with FakeGateway(LAB_AK, LAB_SK) as gw, running_service(gw, tmp_path / "log") as svc:
+        svc._active_project = lambda code: code == PROJECT
+        keys.unlock(svc.admin_path, sorted(STORE), reader=lambda e: STORE[e])
+        monkeypatch.setenv(keys.CALL_SOCKET_ENV, str(svc.call_path))
+        clock = Clock()
+        job = lab.Run(recipe, lab.params_of(recipe, []), PROJECT, TENANT, project, None, clock=clock,
+                      sleep=clock.sleep)
+        assert job.missing_secret() is None
+        job = lab.Run(recipe, lab.params_of(recipe, ["admin_secret=not-there"]), PROJECT, TENANT, project, None,
+                      clock=clock, sleep=clock.sleep)
+        assert job.missing_secret() == "the secret not-there is missing for %s" % TENANT
+        assert ADMIN_PW not in repr(vars(job))
