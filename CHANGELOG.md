@@ -9,6 +9,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 - A comment above `main` in `awb/build.py` names `awb/buildrun.py` as the runner of the queue (B-001).
 
+### Fixed
+
+- The build user's guard lets the venv's interpreter pass for a Read and a run (B-001). The venv's `python` is a
+  link to the base interpreter in `/usr/bin` and the guard refused it as outside the clone, so an agent in a task
+  could run no test. Only the link of `python`, `python3` or `python3.N` in the venv's `bin` to the base interpreter
+  its `pyvenv.cfg` names may leave the venv; a Write into the venv, any other link out of it and the rest of
+  `/srv/awb-build` stay refused. `awb hook selftest` plants the link as the host has it.
+
 ## Week 41, 2026-10-05 to 2026-10-11
 
 ### Added

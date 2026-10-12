@@ -461,7 +461,8 @@ Workbench itself will run as this user, never as you or as `awb`. It has no pass
 own, so it reaches neither the vault, the sockets, the projects nor `/etc/awb` (root:awb 751, the host file and the
 blocklist 640). Its folder `/srv/awb-build` is a 20 GB loop image (`main.git`, the clones, the runner's records, the
 suite's venv, a root owned home template), its client a pinned root owned copy in `/opt/claude-build`, and its hook
-keeps every tool call inside its own clone. It runs on your subscription login, which you make once as yourself
+keeps every tool call inside its own clone (the venv may be read and its interpreter run, nothing else of
+`/srv/awb-build` passes). It runs on your subscription login, which you make once as yourself
 with `sudo -u awb-build -H /opt/claude-build/bin/claude login`; the runner copies it into each task's home and
 removes it with the home, and the tasks spend your shared quota. `build_model = key` in `/etc/awb/paths.conf` switches
 to a copy of the Workbench's key (`/etc/awb/build-model.key`, yours alone, 400) in one line. The runner's unit `awb-buildd.service` is installed and not

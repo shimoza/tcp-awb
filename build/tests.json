@@ -3594,7 +3594,7 @@
   {
    "id": "SB1-13",
    "phase": "SB1",
-   "name": "build guard: awb hook selftest plants the three refusals of N5 and fails without the place check",
+   "name": "build guard: awb hook selftest plants the refusals of N5 and a link out of the venv, the venv's interpreter link passes; it fails without the place check (five cases, B-001 follow-up 1)",
    "run": ".venv/bin/pytest tests/test_hooks.py::test_the_build_selftest_holds_the_n5_cases_and_fails_without_its_guard",
    "status": "passing"
   },
@@ -4472,8 +4472,22 @@
    "name": "mirror: sync_sd reads the service description page at the call, so the suite's dead local address is obeyed and the refresh test never leaves the host (B-001)",
    "run": ".venv/bin/pytest tests/test_mirror.py::test_the_service_description_page_is_read_at_the_call_so_the_suite_never_leaves_the_host",
    "status": "passing"
+  },
+  {
+   "id": "BF1-1",
+   "phase": "B-001 follow-ups",
+   "name": "build guard: the venv's python, python3 and python3.12 links to the base interpreter of pyvenv.cfg pass for a Read and a run; a Write through them, the base interpreter by its own path, another link out of the venv, a link named python that leads elsewhere, no pyvenv.cfg, the runs and main.git are refused",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_the_build_guard_passes_the_venv_interpreter_link_and_no_other_link_out",
+   "status": "passing"
+  },
+  {
+   "id": "BF1-2",
+   "phase": "B-001 follow-ups",
+   "name": "build guard: with the old rule (no link may leave the venv) awb hook selftest names the interpreter case",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_the_build_selftest_fails_when_the_venv_interpreter_is_refused",
+   "status": "passing"
   }
  ],
- "total_tests": 639,
- "checked": "2026-10-11"
+ "total_tests": 641,
+ "checked": "2026-10-12"
 }

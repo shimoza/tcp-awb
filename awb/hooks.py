@@ -1430,11 +1430,47 @@ def _build_clone(data: dict, wt: Path) -> Path | None:
     return own
 
 
+_VENV_PYTHON_RE = re.compile(r"python(?:3(?:\.[0-9]{1,2})?)?")
+"""The interpreter names of a venv's bin folder (python, python3, python3.12)."""
+
+
+def _venv_base(venv: Path) -> set[Path]:
+    """The real paths of the venv's base interpreter, from its root-owned pyvenv.cfg (`executable`, else `home` with
+    a python3 name). Empty when the file cannot be read: no link out of the venv passes then."""
+    try:
+        text = (venv / "pyvenv.cfg").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return set()
+    conf = {}
+    for line in text.splitlines():
+        key, sep, value = line.partition("=")
+        if sep:
+            conf[key.strip()] = value.strip()
+    out = set()
+    if os.path.isabs(conf.get("executable", "")):
+        out.add(Path(os.path.realpath(conf["executable"])))
+    if os.path.isabs(conf.get("home", "")) and conf.get("version"):
+        major_minor = ".".join(conf["version"].split(".")[:2])
+        for name in ("python3", "python" + major_minor):
+            out.add(Path(os.path.realpath(os.path.join(conf["home"], name))))
+    return out
+
+
+def _venv_interpreter(literal: Path, real: Path, venv: Path) -> bool:
+    """A Read or a run of the venv's own interpreter: the path as written is python, python3 or python3.N in the
+    venv's bin folder and its links end at the base interpreter pyvenv.cfg names. Any other link out of the venv
+    stays refused (B-001: the venv's python is a link to /usr/bin/python3.12)."""
+    return (literal.parent == venv / "bin" and bool(_VENV_PYTHON_RE.fullmatch(literal.name))
+            and real in _venv_base(venv))
+
+
 def build_place_class(path: Path, own: Path, root: Path, write: bool = False, tmp: Path | None = None) -> str | None:
     """The class of a refused place for the build user, or None when it may reach `path`: its own clone, /tmp, the
     device paths and (unless `write`) the suite's venv under `root`. The path as written and through its links must
-    both pass. A place under <root>/wt that is not the own clone, or a folder above the own clone, is another
-    clone's; everything else is outside. `tmp` is BUILD_TMP unless given (the selftest plants its own)."""
+    both pass; the one link that may leave the venv is its interpreter's to the base interpreter (`_venv_interpreter`),
+    for a Read or a run, never a Write. A place under <root>/wt that is not the own clone, or a folder above the own
+    clone, is another clone's; everything else is outside. `tmp` is BUILD_TMP unless given (the selftest plants its
+    own)."""
     literal = Path(os.path.normpath(str(path)))
     if any(_inside(literal, Path(d)) for d in BUILD_DEVICES):
         return None     # /dev/stdin and /dev/fd/N resolve to the session's own pipes and terminal
@@ -1444,6 +1480,8 @@ def build_place_class(path: Path, own: Path, root: Path, write: bool = False, tm
         return NO_CLONE
     wt, venv = root / "wt", root / "venv"
     tmp = Path(os.path.realpath(tmp if tmp is not None else BUILD_TMP))
+    if _inside(literal, venv) and not write and _venv_interpreter(literal, real, venv):
+        return None
     for t in dict.fromkeys((literal, real)):
         if _inside(t, own) or _inside(t, tmp):
             continue
@@ -1555,8 +1593,10 @@ def selftest() -> list[str]:
 
 def build_selftest() -> list[str]:
     """The build user's guard on a throw-away build root (THREAT-MODEL.md of the self-build, N5): a Read of a project
-    path, of the owner's home and of another clone is refused, a Write into the venv is refused, a Read and a shell
-    command in the own clone pass, a call from no clone is refused. The problems found; empty when the guard works."""
+    path, of the owner's home and of another clone is refused, a Write into the venv is refused, a link out of the venv
+    that is not its interpreter's is refused, a Read in the own clone and the venv's interpreter (a link to the base
+    interpreter, as on the host) pass, a call from no clone is refused. The problems found; empty when the guard
+    works."""
     import tempfile
 
     problems: list[str] = []
@@ -1564,17 +1604,26 @@ def build_selftest() -> list[str]:
         base = Path(os.path.realpath(tmp))
         root, owner_home, project = base / "build", base / "owner", base / "work" / "tcp-aaaa"
         own, other = root / "wt" / "B-001-1", root / "wt" / "B-002-1"
-        for d in (own, other, root / "venv" / "bin", owner_home, project):
+        venv, usr = root / "venv", base / "usr" / "bin"
+        for d in (own, other, venv / "bin", owner_home, project, usr):
             d.mkdir(parents=True)
+        (usr / "python3.12").write_bytes(b"")
+        (usr / "python3").symlink_to("python3.12")
+        (venv / "pyvenv.cfg").write_text("home = %s\nversion = 3.12.3\nexecutable = %s\n"
+                                         % (usr, usr / "python3.12"), encoding="utf-8")
+        (venv / "bin" / "python3").symlink_to(usr / "python3")
+        (venv / "bin" / "python").symlink_to("python3")
+        (venv / "bin" / "notes").symlink_to(owner_home / "notes.md")
         saved = os.environ.pop("CLAUDE_PROJECT_DIR", None)
         try:
             cases = [
                 ("Read", {"file_path": str(project / "STATE.md")}, OUTSIDE_BUILD),
                 ("Read", {"file_path": str(owner_home / "notes.md")}, OUTSIDE_BUILD),
                 ("Read", {"file_path": str(other / "CLAUDE.md")}, ANOTHER_CLONE),
-                ("Write", {"file_path": str(root / "venv" / "bin" / "python"), "content": ""}, BUILD_VENV),
+                ("Write", {"file_path": str(venv / "bin" / "python"), "content": ""}, BUILD_VENV),
+                ("Read", {"file_path": str(venv / "bin" / "notes")}, OUTSIDE_BUILD),
                 ("Read", {"file_path": str(own / "CLAUDE.md")}, None),
-                ("Bash", {"command": "%s/bin/python -m pytest -q tests 2>/dev/null" % (root / "venv")}, None),
+                ("Bash", {"command": "%s/bin/python -m pytest -q tests 2>/dev/null" % venv}, None),
             ]
             for n, (tool, tool_input, want) in enumerate(cases, 1):
                 got = build_guard({"tool_name": tool, "cwd": str(own), "tool_input": tool_input}, root, base,

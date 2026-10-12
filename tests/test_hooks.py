@@ -1074,8 +1074,63 @@ def test_the_build_selftest_holds_the_n5_cases_and_fails_without_its_guard(monke
     assert hooks.selftest() == []
     monkeypatch.setattr(hooks, "build_place_class", lambda *a, **k: None)
     problems = hooks.build_selftest()
-    assert len(problems) == 4 and all(p.startswith("build case") for p in problems)
-    assert hooks.selftest()[-4:] == problems
+    assert len(problems) == 5 and all(p.startswith("build case") for p in problems)
+    assert hooks.selftest()[-5:] == problems
+
+
+def test_the_build_selftest_fails_when_the_venv_interpreter_is_refused(monkeypatch):
+    """B-001 follow-up 1: the host's venv python is a link to /usr/bin/python3.12 and the guard refused it as outside
+    the clone. Planted: the old rule (no link may leave the venv); the selftest names the interpreter case."""
+    monkeypatch.setattr(hooks, "_venv_interpreter", lambda *a: False)
+    problems = hooks.build_selftest()
+    assert len(problems) == 1 and "(Bash)" in problems[0] and "outside the build clone" in problems[0]
+
+
+def test_the_build_guard_passes_the_venv_interpreter_link_and_no_other_link_out(build_root, tmp_path):
+    """B-001 follow-up 1: the venv's python, python3 and python3.12 are links to the base interpreter pyvenv.cfg names;
+    a Read and a run of them pass. Planted refusals: a Write through the link, the base interpreter by its own path, a
+    link in the venv's bin to the owner's home, a link named python that leads elsewhere, the same link with no
+    pyvenv.cfg, a Read of the runs and of main.git under the build root."""
+    root = build_root
+    venv, usr = root / "venv", tmp_path / "usr" / "bin"
+    usr.mkdir(parents=True)
+    (usr / "python3.12").write_bytes(b"")
+    (usr / "python3").symlink_to("python3.12")
+    (venv / "pyvenv.cfg").write_text("home = %s\ninclude-system-site-packages = true\nversion = 3.12.3\n"
+                                     "executable = %s\n" % (usr, usr / "python3.12"), encoding="utf-8")
+    (venv / "bin" / "python3").symlink_to(usr / "python3")
+    (venv / "bin" / "python").symlink_to("python3")
+    (venv / "bin" / "python3.12").symlink_to("python3")
+    owner_home = tmp_path / "owner"
+    owner_home.mkdir()
+    (venv / "bin" / "notes").symlink_to(owner_home / "notes.md")
+    (root / "main.git").mkdir()
+    passes = [
+        ("Bash", {"command": "%s/bin/python -I -B -m pytest -q tests/test_x.py" % venv}),
+        ("Bash", {"command": "%s/bin/python3.12 -m pytest -q" % venv}),
+        ("Read", {"file_path": str(venv / "bin" / "python3")}),
+        ("Read", {"file_path": str(venv / "pyvenv.cfg")}),
+    ]
+    for tool, tool_input in passes:
+        assert _build(root, tool, tool_input) is None, (tool, tool_input)
+    refused = [
+        ("Write", {"file_path": str(venv / "bin" / "python"), "content": "x"}, hooks.BUILD_VENV),
+        ("Bash", {"command": "%s -c 1" % (usr / "python3.12")}, hooks.OUTSIDE_BUILD),
+        ("Read", {"file_path": str(venv / "bin" / "notes")}, hooks.OUTSIDE_BUILD),
+        ("Read", {"file_path": str(root / "runs" / "B-001" / "1" / "result.md")}, hooks.OUTSIDE_BUILD),
+        ("Read", {"file_path": str(root / "main.git" / "HEAD")}, hooks.OUTSIDE_BUILD),
+    ]
+    for tool, tool_input, want in refused:
+        assert _build(root, tool, tool_input) == want, (tool, tool_input)
+    # a link named like the interpreter that leads elsewhere is refused
+    (venv / "bin" / "python3").unlink()
+    (venv / "bin" / "python3").symlink_to(owner_home / "notes.md")
+    assert _build(root, "Read", {"file_path": str(venv / "bin" / "python")}) == hooks.OUTSIDE_BUILD
+    # without its pyvenv.cfg no link leaves the venv
+    (venv / "bin" / "python3").unlink()
+    (venv / "bin" / "python3").symlink_to(usr / "python3")
+    (venv / "pyvenv.cfg").unlink()
+    assert _build(root, "Bash", {"command": "%s/bin/python -m pytest" % venv}) == hooks.OUTSIDE_BUILD
 
 
 def _host_file(tmp_path, monkeypatch, text: str | None, mode: int = 0o644) -> Path:
