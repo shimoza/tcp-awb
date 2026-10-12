@@ -36,6 +36,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   week, as its own commit with your identity (the old week loses `(in progress)`), so check 8 no longer refuses the
   first task of a Monday. When the commit cannot be written the task is `held: changelog week` and starts again at
   a later poll.
+- The help line of `awb build` describes the command as it is: the task queue (add, list, status, show, answer,
+  retry, widen, stop) and its runner (serve, selftest, probe). It said that the queue comes later.
 - `rules/tags.txt` has a tag for every service of the service description in `rules/services.tsv`: 33 new ones such
   as `functiongraph`, `taurusdb`, `geminidb`, `ddm`, `oracle-optimized`, `apig`, `ucs`, `ocr`, `anti-ddos`, `dbss`,
   `financial-dashboard`, `consulting`, `marketplace`, `alert-service`, `das` and `cloud-connect`. `awb kb add`,
