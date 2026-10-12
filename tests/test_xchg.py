@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import json
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -957,3 +958,22 @@ def test_rg_the_check_lists_a_grant_without_customer_and_the_rerun_fills_it(svc,
     assert code == 1 and out.strip().endswith(
         "%s: its row in projects.tsv names another customer than the owner's grant" % cust_project.code)
     assert "CUST-ZZ22" not in out
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root opens every folder")
+def test_rg_a_vault_the_caller_cannot_open_makes_the_grants_unreadable_and_the_check_finishes(home, lab_project,
+                                                                                            capsys):
+    """The first live lab run of 2026-10-12: the work user may not open the owner's vault, readable() raised
+    PermissionError and awb projects check and awb lab run died with a traceback."""
+    from awb import grants
+
+    os.chmod(home.vault, 0)
+    try:
+        assert grants.readable(home) is False
+        assert grants.load(home) == {} and grants.granted(home, lab_project.code) is False
+        code, out, err = run(["projects", "check"], capsys)
+    finally:
+        os.chmod(home.vault, 0o700)
+    assert code == 0, err
+    assert "every tcp- folder under %s is a registered project" % home.projects_root in out
+    assert "the owner's grants are not readable here" in out and "Traceback" not in out + err

@@ -60,8 +60,13 @@ def customer(p: config.Paths, code: str) -> str | None:
 
 
 def readable(p: config.Paths) -> bool:
-    """True when this user can read the owner's grants (the owner can, the work user cannot)."""
-    return os.access(path(p), os.R_OK) or (not path(p).exists() and os.access(p.vault, os.R_OK | os.X_OK))
+    """True when this user can read the owner's grants (the owner can, the work user cannot). False when the vault
+    cannot even be looked into: the work user meets a vault folder he may not open (the first live lab run of
+    2026-10-12 died there with a traceback)."""
+    try:
+        return os.access(path(p), os.R_OK) or (not path(p).exists() and os.access(p.vault, os.R_OK | os.X_OK))
+    except OSError:
+        return False
 
 
 def grant(p: config.Paths, code: str, kind: str, when: float | None = None,

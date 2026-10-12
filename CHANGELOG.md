@@ -53,6 +53,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   could run no test. Only the link of `python`, `python3` or `python3.N` in the venv's `bin` to the base interpreter
   its `pyvenv.cfg` names may leave the venv; a Write into the venv, any other link out of it and the rest of
   `/srv/awb-build` stay refused. `awb hook selftest` plants the link as the host has it.
+- The work user's `awb lab run` and `awb projects check` no longer die with a traceback on the owner's vault
+  (the first live lab run, 2026-10-12). The grants check looked for `grants.json` in a vault folder the work user
+  may not open and got a refusal from the system instead of an answer; it now counts as not readable, so the lab
+  run goes on with its preflight and the check prints its normal lines. The fallback of `awb spawn` without the name
+  check looks at the register the same way.
 
 ## Week 41, 2026-10-05 to 2026-10-11
 

@@ -2794,6 +2794,20 @@
    "status": "passing"
   },
   {
+   "id": "RG-5",
+   "phase": "RG",
+   "name": "grant customer: a vault folder the caller cannot open makes the grants unreadable, and awb projects check finishes with its normal output instead of a traceback",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_rg_a_vault_the_caller_cannot_open_makes_the_grants_unreadable_and_the_check_finishes",
+   "status": "passing"
+  },
+  {
+   "id": "RG-6",
+   "phase": "RG",
+   "name": "grant customer: spawn without the name check module refuses in one line, not with a traceback, when the vault folder cannot be opened",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_spawn_without_the_check_module_names_no_traceback_for_a_vault_it_cannot_open",
+   "status": "passing"
+  },
+  {
    "id": "PAR-1",
    "phase": "PAR",
    "name": "two key services started at once by the same fixture get their own sockets and both answer ping",
@@ -4768,6 +4782,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 681,
+ "total_tests": 683,
  "checked": "2026-10-12"
 }

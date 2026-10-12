@@ -855,3 +855,19 @@ def test_spawn_from_the_outbox_commits_through_the_gate_hook(home, register_path
     planted.write_text("sizing for %s\n" % fixtures.CUSTOMER_CODE, encoding="utf-8")
     pr = projects.spawn(home, "engagement", GOAL, fixtures.CUSTOMER_CODE, register_path, from_outbox=True)
     assert (Path(pr.path) / ".git" / "hooks" / "pre-commit").is_file() and not planted.exists()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root opens every folder")
+def test_spawn_without_the_check_module_names_no_traceback_for_a_vault_it_cannot_open(home, register_path,
+                                                                                       monkeypatch):
+    """The fallback of spawn when the name check cannot be imported looks at the register; a vault folder the
+    work user may not open answers with the refusal, not with PermissionError (2026-10-12)."""
+    monkeypatch.delattr(awb, "check", raising=False)
+    monkeypatch.setitem(sys.modules, "awb.check", None)
+    os.chmod(home.vault, 0)
+    try:
+        with pytest.raises(projects.ProjectError, match="the name check is not available, nothing was created"):
+            projects.spawn(home, "engagement", GOAL, fixtures.CUSTOMER_CODE, home.register)
+    finally:
+        os.chmod(home.vault, 0o700)
+    assert projects.load(home) == []

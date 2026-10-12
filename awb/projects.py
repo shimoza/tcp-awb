@@ -540,7 +540,11 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
         from awb import check as _check_mod
         check_text = _check_mod.check_text
     except (ImportError, AttributeError):
-        if not Path(register_path).is_file():
+        try:
+            missing = not Path(register_path).is_file()
+        except OSError:          # the work user may not even look into the owner's vault
+            missing = False
+        if missing:
             raise ProjectError("the register is missing, the name check cannot run, nothing was created") from None
         raise ProjectError("the name check is not available, nothing was created") from None
     # a readable register, an encrypted one through the vault daemon or (the work side of the seal) the check
