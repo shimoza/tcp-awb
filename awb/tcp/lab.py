@@ -1232,6 +1232,9 @@ def run(name: str, project: str, tenant: str, given: list[str], *, send=None, cl
     except (LabError, sweep.SweepError) as e:
         err("awb lab: %s" % e)
         return EXIT_STOPPED
+    except Exception as e:      # an OSError of the host and the like: one line and stopped, never a traceback
+        err("awb lab: the preflight failed before any call (%s); nothing was created" % type(e).__name__)
+        return EXIT_STOPPED
     job = Run(r, params, project, tenant, folder, handles, send=send or _send_default, clock=clock, sleep=sleep,
               now=now, out=out, err=err)
     refusal = job.probe()

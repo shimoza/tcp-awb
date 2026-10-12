@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import stat
 
 import pytest
@@ -194,3 +195,60 @@ def test_the_command_line_sweeps_the_network_types_with_the_project_header(home,
     assert all(h == {"X-Project-Id": FakeGateway.PROJECT} for _, h in asked if h)
     assert "not in RESOURCES.md" in out and "sweep: not swept: dedicated ELB" in out
     assert NAMED not in out
+
+
+# --------------------------------------------------------------------------- the owner's sweep (live run 2026-10-12)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads and writes every file")
+def test_the_owners_sweep_keeps_its_own_handles_when_the_shared_file_is_not_his(home, tmp_path, monkeypatch, capsys):
+    from awb import cli
+    from awb.tcp import cloud
+    from tests.tcp_fake import FakeGateway
+    from tests.test_obs import fake_pass
+
+    shared = sweep.handles_path(home)
+    shared.write_text(json.dumps({"handles": {"ecs-7": "srv-id-0007"}}), encoding="utf-8")
+    os.chmod(shared, 0o000)                          # the work user's file, mode 600: this user cannot open it
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+
+    def listing(self, service, path, key, *, query=None, paging="marker", headers=None, **kw):
+        return jobs.Listing.of(SERVERS if path == "/v1/{project_id}/cloudservers/detail" else [])
+    try:
+        with FakeGateway("AKFAKE", "sk-fake-secret") as gw:
+            fake_pass(tmp_path, monkeypatch, {"cloud/owner/ak": "AKFAKE", "cloud/owner/sk": "sk-fake-secret"})
+            monkeypatch.setenv("AWB_CLOUD_KEYS", "pass:cloud/owner")
+            monkeypatch.setenv("AWB_CLOUD_ENDPOINT", gw.base)
+            monkeypatch.setattr(cloud.Client, "list", listing)
+            assert cli.main(["cloud", "sweep", "--today", "2026-09-25"]) == 0
+            out, err = capsys.readouterr()
+            assert err.strip() == ("awb cloud: the shared handle file is not this user's: the handles of this sweep "
+                                   "are this user's own (XDG_STATE_HOME/awb), their numbers differ from the shared "
+                                   "ones")
+            assert "Traceback" not in out + err and "ecs-1" in out
+            own = tmp_path / "state" / "awb" / "handles.json"
+            assert stat.S_IMODE(own.stat().st_mode) == 0o600
+            assert json.loads(own.read_text(encoding="utf-8"))["handles"]["ecs-1"] == SERVERS[0]["id"]
+            # neither file can be written: one line and exit 2, no traceback
+            os.chmod(own, 0o400)
+            assert cli.main(["cloud", "sweep", "--today", "2026-09-25"]) == 2
+            out, err = capsys.readouterr()
+            assert err.strip() == "awb cloud: neither the shared handle file nor this user's own can be written"
+            assert out == ""
+    finally:
+        os.chmod(shared, 0o600)
+    assert json.loads(shared.read_text(encoding="utf-8")) == {"handles": {"ecs-7": "srv-id-0007"}}
+
+
+def test_a_handle_file_that_cannot_be_written_is_a_sweep_error(tmp_path):
+    folder = tmp_path / "ro"
+    folder.mkdir()
+    h = sweep.Handles(folder / "handles.json")
+    h.handle("ecs", "srv-id-0001")
+    os.chmod(folder, 0o500)
+    try:
+        if os.geteuid() != 0:
+            with pytest.raises(sweep.SweepError, match="cannot be written"):
+                h.save()
+    finally:
+        os.chmod(folder, 0o700)

@@ -88,6 +88,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - `awb import CODE --paste FILE` refuses the FILE with its own line on Python 3.12 too (the host's interpreter): the
   options and the files of `awb import` are parsed intermixed, so a file after an option is no longer an
   "unrecognized arguments" error of the parser.
+- `awb lab run` stops with one line and exit 2 on any error of the host in its preflight (the first live run of
+  2026-10-12 ended in a traceback and exit 1, which reads as a failed check). The owner's `awb cloud sweep` no
+  longer ends in a traceback when the shared handle file is the work user's: his handles go to
+  `~/.local/state/awb/handles.json` and one line says so; a handle file that cannot be written is one line and
+  exit 2.
+- The recipe `ecs-boot-ssh` after the first live run: the subnet carries the tenant's two DNS servers with DHCP on,
+  so the probe's first-boot script does not wait for DNS; the two servers are created without adminPass and need
+  no tenant secret (to confirm live: a create without adminPass and without a key pair); the console is read on
+  the `/v2/` path proven live, without a length limit; the time budget is 35 minutes.
 
 ## Week 41, 2026-10-05 to 2026-10-11
 

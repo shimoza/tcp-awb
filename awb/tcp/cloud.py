@@ -329,14 +329,24 @@ def main(argv: list[str] | None = None) -> int:
                 today = datetime.date.fromisoformat(args.today) if args.today else datetime.date.today()
             except ValueError:
                 raise CloudError("the date reads like 2026-09-25") from None
-            handles = _sweep.Handles(_sweep.handles_path(config.paths()))
+            try:
+                handles, where = _sweep.open_handles(config.paths())
+            except _sweep.SweepError as err:
+                print("awb cloud: %s" % err, file=sys.stderr)
+                return 2
+            if where:
+                print("awb cloud: %s" % where, file=sys.stderr)
 
             def lister(service, path, key, paging, query=None, project_header=False):
                 headers = {"X-Project-Id": c.project_id()} if project_header else None
                 return c.list(service, path, key, query=query, paging=paging, headers=headers)
             rep = _sweep.sweep(lister, today, handles, _sweep.known_ids(config.paths().projects_root),
                                _sweep.ALL_SOURCES)
-            handles.save()
+            try:
+                handles.save()
+            except _sweep.SweepError as err:
+                print("awb cloud: %s" % err, file=sys.stderr)
+                return 2
             for line in _sweep.report_lines(rep):
                 print(handles.mask(line))
             return 2 if rep.unknown else 0

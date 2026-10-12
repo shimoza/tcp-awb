@@ -16,7 +16,10 @@ not swept yet: no shape of its API is in the repository (NOT_SWEPT, the report s
 T-97. The name or the id of a live resource can carry a name (an environment code, an account name, a key pair
 file). What a session reads carries a neutral handle instead: `ecs-1`, `evs-3`, `eip-2`. The handles live in
 `<shared>/handles.json` (mode 600) with the id they stand for; only the tool that makes a call resolves a handle
-(`resolve`) and every text it prints goes through `mask` first. The resource names are never kept.
+(`resolve`) and every text it prints goes through `mask` first. The resource names are never kept. On a sealed
+host that file belongs to the work user; when the owner's `awb cloud sweep` cannot read or write it, his handles go
+to `$XDG_STATE_HOME/awb/handles.json` (default `~/.local/state/awb/`) and the sweep says so in one line
+(`open_handles`).
 """
 from __future__ import annotations
 
@@ -131,17 +134,50 @@ class Handles:
         return text
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name("." + self.path.name + ".tmp")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump({"handles": dict(sorted(self.ids.items()))}, fh, indent=1)
-            fh.write("\n")
-        os.replace(tmp, self.path)
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_name("." + self.path.name + ".tmp")
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump({"handles": dict(sorted(self.ids.items()))}, fh, indent=1)
+                fh.write("\n")
+            os.replace(tmp, self.path)
+        except OSError:
+            raise SweepError("the handle file cannot be written") from None
 
 
 def handles_path(p: config.Paths) -> Path:
     return p.shared / HANDLES_FILE
+
+
+def owner_handles_path() -> Path:
+    """The handle file of a user who may not write the shared one (the owner on a sealed host)."""
+    base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(base) / "awb" / HANDLES_FILE
+
+
+def _writable(path: Path) -> bool:
+    if path.exists():
+        return os.access(path, os.R_OK | os.W_OK) and os.access(path.parent, os.W_OK | os.X_OK)
+    parent = next((x for x in path.parents if x.exists()), None)
+    return parent is not None and os.access(parent, os.W_OK | os.X_OK)
+
+
+def open_handles(p: config.Paths) -> tuple[Handles, str]:
+    """The shared handles when this user may read and write them, else this user's own (`owner_handles_path`).
+    Returns the handles and a line that says where they are when they are not the shared ones ("" otherwise).
+    Raises SweepError when neither can be used."""
+    shared = handles_path(p)
+    if _writable(shared):
+        try:
+            return Handles(shared), ""
+        except SweepError:
+            pass
+    own = owner_handles_path()
+    if not _writable(own):
+        raise SweepError("neither the shared handle file nor this user's own can be written")
+    return Handles(own), ("the shared handle file is not this user's: the handles of this sweep are this user's "
+                          "own (XDG_STATE_HOME/awb), their numbers differ from the shared ones")
 
 
 # --------------------------------------------------------------------------- T-61, the sweep

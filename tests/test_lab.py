@@ -526,13 +526,16 @@ def ecs_cloud():
         if m == "POST" and p.endswith("/tags/action"):
             return ok(204)
         if m == "POST" and p == "/v1/{project_id}/subnets":
+            # the first-boot script of the probe needs DNS servers on the subnet (the live run of 2026-10-12)
+            assert b["subnet"]["dnsList"] == ["100.125.4.25", "100.125.129.199"]
+            assert b["subnet"]["dhcp_enable"] is True
             return ok(200, {"subnet": {"id": new("subnet")}})
         if m == "POST" and p == "/v1/{project_id}/security-groups":
             return ok(200, {"security_group": {"id": new("sg")}})
         if m == "POST" and p == "/v1/{project_id}/security-group-rules":
             return ok(201, {"security_group_rule": {"id": "rule"}})
         if m == "POST" and p == "/v1/{project_id}/cloudservers":
-            assert b["server"]["adminPass"] == "{{secret:ecs-admin}}"
+            assert "adminPass" not in b["server"] and "key_name" not in b["server"]   # no tenant secret is needed
             assert {"key": "awb-project", "value": PROJECT} in b["server"]["server_tags"]
             return ok(200, {"job_id": "job", "serverIds": [new("server")]})
         if m == "POST" and p == "/v1/{project_id}/cloudservers/delete":
@@ -540,6 +543,7 @@ def ecs_cloud():
                 state["live"].pop(s["id"], None)
             return ok(200, {"job_id": "job"})
         if m == "POST" and p.endswith("/action"):
+            assert p.startswith("/v2/{project_id}/servers/") and b == {"os-getConsoleOutput": {}}
             return ok(200, {"output": "cloud-init done\nAWB-SSH-OPEN\n"})
         if m == "DELETE":
             rid = p.rsplit("/", 1)[1]
@@ -562,7 +566,7 @@ def ecs_cloud():
     return send
 
 
-def test_the_ecs_recipe_runs_end_to_end_against_its_expected_shapes(project, home, monkeypatch):
+def test_the_ecs_recipe_runs_end_to_end_without_a_secret_and_with_dns(project, home, monkeypatch):
     monkeypatch.delenv(lab.RECIPES_ENV)
     send = ecs_cloud()
     code, lines, errors = run(send, recipe="ecs-boot-ssh", params=["flavor=s3.large.2"])
@@ -822,3 +826,19 @@ def test_a_full_page_without_the_name_proves_nothing(project):
     (row,) = rows(project)
     assert row["state"] == "live" and row["id"] == "unknown"
     assert "the find could not tell" in row["note"]
+
+
+# --------------------------------------------------------------------------- the first live run (2026-10-12)
+
+
+def test_an_error_of_the_host_in_the_preflight_is_one_line_and_exit_2(project, monkeypatch):
+    """The first live run died in the preflight with a traceback and exit 1, which reads as a failed check."""
+    fake = FakeKeyService()
+
+    def refused(code):
+        raise PermissionError(13, "Permission denied", "/somewhere/grants.json")
+    monkeypatch.setattr(lab, "project_folder", refused)
+    code, lines, errors = run(fake)
+    assert code == lab.EXIT_STOPPED and lines == []
+    assert errors == ["awb lab: the preflight failed before any call (PermissionError); nothing was created"]
+    assert fake.calls == [] and rows(project) == []

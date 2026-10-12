@@ -767,6 +767,9 @@ def send_check(project, file, for_customer, register_path=None) -> tuple[str, st
   `<code>-lab-<YYYYMMDD>-<rand>`. `SweepReport.not_swept` names what the sweep cannot list yet (`NOT_SWEPT`:
   dedicated ELB). `Handles.rebind(handle, rid)` and `Handles.drop(handle)` for a handle given before its id was
   known. `cloud.Client.list(..., headers=None)` and `get(..., headers=None)` send headers with every page.
+  `open_handles(p) -> (Handles, line)`: the shared handles when this user may read and write them, else
+  `owner_handles_path()` (`$XDG_STATE_HOME/awb/handles.json`, default `~/.local/state/awb/`) with the line that
+  says so; SweepError when neither can be used. `Handles.save()` raises SweepError, never OSError.
 
 ## Candidate rules (his decision: treat them as names)
 

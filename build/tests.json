@@ -4770,8 +4770,8 @@
   {
    "id": "LAB-14",
    "phase": "LAB",
-   "name": "lab: the ecs-boot-ssh recipe runs end to end against the shapes it expects",
-   "run": ".venv/bin/pytest tests/test_lab.py::test_the_ecs_recipe_runs_end_to_end_against_its_expected_shapes",
+   "name": "lab: the ecs-boot-ssh recipe runs end to end against the shapes it expects: no adminPass, DNS servers on the subnet, the console on /v2/",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_ecs_recipe_runs_end_to_end_without_a_secret_and_with_dns",
    "status": "passing"
   },
   {
@@ -4884,6 +4884,27 @@
    "phase": "SW",
    "name": "sweep: awb cloud sweep lists every source with the X-Project-Id header on the ELB and NAT v2.0 paths",
    "run": ".venv/bin/pytest tests/test_sweep.py::test_the_command_line_sweeps_the_network_types_with_the_project_header",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-26",
+   "phase": "LAB",
+   "name": "lab: an error of the host in the preflight (a PermissionError) is one line and exit 2, no call and no row",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_an_error_of_the_host_in_the_preflight_is_one_line_and_exit_2",
+   "status": "passing"
+  },
+  {
+   "id": "SW-6",
+   "phase": "SW",
+   "name": "sweep: the owner's sweep keeps its own handles under XDG_STATE_HOME when the shared file is not his, with one line; neither writable is one line and exit 2",
+   "run": ".venv/bin/pytest tests/test_sweep.py::test_the_owners_sweep_keeps_its_own_handles_when_the_shared_file_is_not_his",
+   "status": "passing"
+  },
+  {
+   "id": "SW-7",
+   "phase": "SW",
+   "name": "sweep: a handle file that cannot be written is a SweepError",
+   "run": ".venv/bin/pytest tests/test_sweep.py::test_a_handle_file_that_cannot_be_written_is_a_sweep_error",
    "status": "passing"
   },
   {
@@ -5006,6 +5027,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 715,
+ "total_tests": 718,
  "checked": "2026-10-12"
 }
