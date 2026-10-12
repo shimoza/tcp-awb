@@ -54,6 +54,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   `test-tenant` and the plugin README had a comma before "and" or "or". `tcp-price` pointed to an "earlier
   version" where it meant an older estimate. `awb write check --mode doc` now finds no blocking tell in any file of
   `plugin/`.
+- `COMMANDS.md` and `README.md` match `awb --help` again. COMMANDS.md lists what it missed: the UI queue (`awb ui`),
+  `awb web check`, `awb xchg clean`, `awb report --by questions`, `awb hook pre-tool` and `selftest`, the target `en`
+  of `awb write translate` and options such as `--lab-user`, `--restart`, `--replace`, `--max-age`,
+  `--region`, `--table`, `--hours` and `--scope`. The README layout table names `.claude-plugin/marketplace.json`
+  where it is (the plugin folder never held it) and adds `hooks-build/`, `build/` and `CLAUDE.md`.
 
 ## Week 41, 2026-10-05 to 2026-10-11
 
