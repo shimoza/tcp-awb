@@ -145,6 +145,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- No test can reach the host's real vault any more (finding of 2026-10-12: three invented codes of
+  `tests/fixtures.py` stood, inactive, in the real register). `tests/conftest.py` works out the real vault folder
+  and the admin and check sockets once at the start of a run (from the root host file, the defaults and the
+  environment the run started with, without opening anything there) and an audit hook refuses any open, listing,
+  change, bind or connect that reaches them while a test runs; the test then fails even when the code under test
+  caught the refusal. `tests/test_vault_guard.py` proves the guard can fail.
 - A build task's unit no longer reaches any port of the host itself (finding of 2026-10-12). Its allow list named
   the resolver of `/etc/resolv.conf`, which on this host is systemd-resolved's stub `127.0.0.53`, so the session
   unit could connect to sshd on `127.0.0.53:22`. The session and probe units now allow the upstream nameservers of

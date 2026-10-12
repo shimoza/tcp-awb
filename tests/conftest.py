@@ -210,6 +210,107 @@ not_as_build_user = pytest.mark.skipif(AS_BUILD_USER, reason="the suite runs as 
                                                              "user who runs it for the owner of the host")
 
 
+def _real_vault_places() -> tuple[tuple[str, ...], frozenset[str]]:
+    """The folders and sockets of the host's real vault, worked out once before any test patches a path: the vault
+    folder and the admin and check sockets the root host file names, the defaults ~/tcp-vault and
+    /run/awb/check.sock, and whatever AWB_VAULT, AWB_ADMIN_SOCKET and AWB_CHECK_SOCKET said when the run started.
+    Only names are worked out: nothing inside the vault is opened."""
+    conf: dict[str, str] = {}
+    try:
+        for line in Path(config.HOST_CONF).read_text(encoding="utf-8").splitlines():
+            k, sep, v = line.strip().partition("=")
+            if sep and not k.lstrip().startswith("#"):
+                conf[k.strip()] = v.strip()
+    except (OSError, UnicodeDecodeError):
+        pass
+    folders = {"~/tcp-vault", conf.get("vault"), os.environ.get("AWB_VAULT")}
+    sockets = {"/run/awb/check.sock", conf.get("admin_socket"), conf.get("check_socket"),
+               os.environ.get("AWB_ADMIN_SOCKET"), os.environ.get("AWB_CHECK_SOCKET")}
+    roots: set[str] = set()
+    for f in filter(None, folders):
+        f = os.path.abspath(os.path.expanduser(f))
+        roots |= {f, os.path.realpath(f)}
+        sockets.add(os.path.join(f, "admin.sock"))
+    socks: set[str] = set()
+    for s in filter(None, sockets):
+        s = os.path.abspath(os.path.expanduser(s))
+        socks |= {s, os.path.realpath(s)}
+    return tuple(sorted(roots)), frozenset(socks)
+
+
+_REAL_VAULT_ROOTS, _REAL_VAULT_SOCKETS = _real_vault_places()
+_VAULT_GUARD = {"on": False, "busy": False, "hits": []}
+_GUARDED_EVENTS = {"open": 0, "os.mkdir": 0, "os.rename": 0, "os.remove": 0, "os.rmdir": 0, "os.chmod": 0,
+                   "os.chown": 0, "os.listdir": 0, "os.scandir": 0, "os.symlink": 1, "os.link": 1, "os.truncate": 0,
+                   "os.utime": 0, "shutil.rmtree": 0, "shutil.copytree": 1, "shutil.copyfile": 1, "shutil.move": 1,
+                   "socket.connect": 1, "socket.bind": 1}
+"""Audit events and the position of the path argument in each (os.rename covers os.replace; the destination is
+the one that writes). A test that reaches the host's real vault folder or a real vault socket through any of
+them is refused at the call and fails (2026-10-12: three codes of tests/fixtures.py were found in the real
+register; some test, at some time, wrote there)."""
+
+
+def _vault_hit(path) -> str | None:
+    if isinstance(path, int) or path is None:
+        return None
+    try:
+        path = os.fsdecode(path)
+    except TypeError:
+        return None
+    if not path or path.startswith("\0"):
+        return None
+    try:
+        full = os.path.normpath(path if os.path.isabs(path) else os.path.join(os.getcwd(), path))
+    except OSError:     # a working folder that is gone: a relative path then reaches nothing
+        return None
+    if full in _REAL_VAULT_SOCKETS:
+        return "a socket of the real vault daemon"
+    for root in _REAL_VAULT_ROOTS:
+        if full == root or full.startswith(root + os.sep):
+            return "the real vault folder"
+    return None
+
+
+def _vault_audit(event: str, args: tuple) -> None:
+    pos = _GUARDED_EVENTS.get(event)
+    if pos is None or not _VAULT_GUARD["on"] or _VAULT_GUARD["busy"]:
+        return
+    if event in ("os.rename", "os.symlink", "os.link") and len(args) > 1:
+        candidates = args[:2]
+    else:
+        candidates = args[pos:pos + 1]
+    _VAULT_GUARD["busy"] = True
+    try:
+        for c in candidates:
+            if event.startswith("socket.") and not isinstance(c, (str, bytes)):
+                continue
+            where = _vault_hit(c)
+            if where:
+                _VAULT_GUARD["hits"].append("%s reached %s" % (event, where))
+                raise PermissionError("the tests never reach %s (tests/conftest.py)" % where)
+    finally:
+        _VAULT_GUARD["busy"] = False
+
+
+sys.addaudithook(_vault_audit)
+
+
+@pytest.fixture(autouse=True)
+def no_real_vault():
+    """Every test runs with the guard on: a call that would open, list, change or connect to the host's real vault
+    folder or a real vault socket is refused, and the test fails even when the code under test caught the refusal.
+    The guard covers this process; a child gets the test's AWB_* environment, which points elsewhere."""
+    _VAULT_GUARD["hits"] = []
+    _VAULT_GUARD["on"] = True
+    try:
+        yield
+    finally:
+        _VAULT_GUARD["on"] = False
+    hits = sorted(set(_VAULT_GUARD["hits"]))
+    if hits:
+        pytest.fail("the test reached the host's real vault: %s" % "; ".join(hits), pytrace=False)
+
+
 @pytest.fixture(autouse=True)
 def invented_blocklist(tmp_path_factory, monkeypatch):
     """The invented blocklist of the tests in place of the host's and the owner's, and no host file: a test sees the
