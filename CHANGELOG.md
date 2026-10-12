@@ -44,6 +44,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   could run no test. Only the link of `python`, `python3` or `python3.N` in the venv's `bin` to the base interpreter
   its `pyvenv.cfg` names may leave the venv; a Write into the venv, any other link out of it and the rest of
   `/srv/awb-build` stay refused. `awb hook selftest` plants the link as the host has it.
+- `awb lab run` no longer loses a resource whose create got no answer, a timeout or a 5xx (review of pull request 2).
+  The row in RESOURCES.md goes in before the create call, in the state creating with the name the resource gets.
+  When the answer holds no id, the find of the step looks the resource up by that name: found, the row gets its id
+  and the teardown deletes it and proves it gone; a find that answers without it marks the row not created with
+  that answer as proof (it does not hold `awb close`); a find that cannot tell leaves the row live for the owner.
+  Every create of the three recipes has a find by name now. `awb cloud sweep` also lists VPCs, subnets, security
+  groups, shared ELB load balancers, listeners and pools and NAT gateways, reads the tags of the lab name
+  `<code>-lab-<YYYYMMDD>-<rand>` and names a resource with a project tag that no RESOURCES.md lists; dedicated ELB
+  is not swept yet and the output says so.
 
 ## Week 41, 2026-10-05 to 2026-10-11
 

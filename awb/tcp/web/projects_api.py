@@ -105,7 +105,7 @@ def base_record(record,paths):
     open_source=source['OPEN.md']
     open_count=sum(line.startswith('- ') for line in open_source['text'].splitlines()) if open_source['status']=='available' else None
     resources=source['RESOURCES.md']
-    live=sum(row.get('state','').lower() not in ('deleted','kept') for row in resource_rows(resources['text'])) if resources['status']=='available' else None
+    live=sum(row.get('state','').lower() not in ('deleted','kept','not created') for row in resource_rows(resources['text'])) if resources['status']=='available' else None
     dates=[f['modified'] for f in source.values() if f['modified']]
     result={'code':record.code,'kind':record.kind,'customer':record.customer,'state':record.state,'created':record.created,'goal':goal,'goal_redacted':redacted,'open_items':open_count,'live_resources':live,'updated':max(dates) if dates else None,'status':status_of(source['STATE.md'],root,paths)}
     return result,source,root

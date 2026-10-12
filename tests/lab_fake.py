@@ -4,11 +4,14 @@ cloud kept in memory.
 
 Every path takes the form /v1/{project_id}/<collection>[/<id>[/tags/action]]: a POST to a collection creates an item
 under the singular of its name (widgets: widget) with a fresh id and the status BUILD; a GET of an item answers it
-(ACTIVE after `polls_to_active` reads) or 404 once it is deleted; a DELETE marks it deleted; a tag call answers 204.
+(ACTIVE after `polls_to_active` reads) or 404 once it is deleted; a GET of the collection lists the items not deleted
+with their id and name (the find by name); a DELETE marks it deleted; a tag call answers 204.
 GET /v1/{project_id}/vpcs is the grant probe. The knobs: refuse (the probe's refusal), fail_create (collection:
-status), fail_delete (collections whose DELETE answers 500), never_active, plant (fields put into every item read),
-on_call (a function run before each answer, for a signal) and forbidden (a GET of /v1/{project_id}/forbidden answers
-403 or this status). Every id and value here is invented.
+status or "lost" for no answer at all; nothing is made), made_but (collection: status or "lost"; the item is made,
+then the answer is that status or none), list_fail (the next so many GETs of a collection answer 500), fail_delete
+(collections whose DELETE answers 500), never_active, plant (fields put into every item read), on_call (a function
+run before each answer, for a signal) and forbidden (a GET of /v1/{project_id}/forbidden answers 403 or this
+status). Every id and value here is invented.
 """
 from __future__ import annotations
 
@@ -23,7 +26,9 @@ class FakeKeyService:
         self.items: dict[str, dict] = {}
         self.calls: list[dict] = []
         self.refuse = ""
-        self.fail_create: dict[str, int] = {}
+        self.fail_create: dict[str, int | str] = {}
+        self.made_but: dict[str, int | str] = {}
+        self.list_fail = 0
         self.fail_delete: set[str] = set()
         self.never_active = False
         self.polls_to_active = polls_to_active
@@ -58,11 +63,24 @@ class FakeKeyService:
         one = coll[:-1]
         if rid is None and method == "POST":
             if coll in self.fail_create:
+                if self.fail_create[coll] == "lost":
+                    raise ConnectionResetError("no answer")
                 return {"ok": True, "status": self.fail_create[coll], "data": {"error_msg": "refused"}, "text": ""}
             rid = "%08x-0000-4000-8000-%012x" % (0x1a2b3c4d + next(self._n), 0xabcdef0 + len(self.items))
             body = (req.get("body") or {}).get(one) or {}
             self.items[rid] = {"coll": coll, "deleted": False, "reads": 0, "body": body}
+            if coll in self.made_but:
+                if self.made_but[coll] == "lost":
+                    raise ConnectionResetError("no answer")
+                return {"ok": True, "status": self.made_but[coll], "data": {"error_msg": "internal"}, "text": ""}
             return {"ok": True, "status": 200, "data": {one: {"id": rid, "status": "BUILD"}}, "text": ""}
+        if rid is None and method == "GET":
+            if self.list_fail > 0:
+                self.list_fail -= 1
+                return {"ok": True, "status": 500, "data": {"error_msg": "internal"}, "text": ""}
+            items = [{"id": i, "name": it["body"].get("name")} for i, it in self.items.items()
+                     if it["coll"] == coll and not it["deleted"]]
+            return {"ok": True, "status": 200, "data": {coll: items}, "text": ""}
         item = self.items.get(rid or "")
         if item is None or item["coll"] != coll:
             return {"ok": True, "status": 404, "data": {"error_msg": "not found"}, "text": ""}

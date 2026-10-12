@@ -419,7 +419,7 @@ def _open(code: str) -> str:
 
 
 RESOURCE_COLUMNS = ("handle", "id", "type", "region", "cost class", "expiry", "state", "note")
-RESOURCE_STATES = ("live", "deleted", "kept")
+RESOURCE_STATES = ("live", "deleted", "kept", "creating", "not created")
 
 
 def _resources(code: str) -> str:
@@ -666,7 +666,8 @@ def open_items(folder: Path) -> int:
 
 
 def live_resources(folder: Path) -> int:
-    """Rows of the table in RESOURCES.md whose state is live, or has no state that says otherwise."""
+    """Rows of the table in RESOURCES.md whose state is live or has no state that says otherwise (creating
+    counts: a lab create that never finished may have made its resource)."""
     try:
         text = (Path(folder) / "RESOURCES.md").read_text(encoding="utf-8")
     except OSError:
@@ -686,7 +687,7 @@ def live_resources(folder: Path) -> int:
             state = dict(zip(head, cells)).get("state", "")
         else:                   # a row of another width (a table of before the handle column): its state word
             state = next((c for c in cells if c in RESOURCE_STATES), "")
-        if state not in ("deleted", "kept"):
+        if state not in ("deleted", "kept", "not created"):
             live += 1
     return live
 

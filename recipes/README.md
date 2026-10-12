@@ -10,15 +10,16 @@ awb lab run ecs-boot-ssh --project tcp-q7m4 --tenant test-1 --param flavor=s3.la
 ```
 
 The run checks the project's grant, creates the resources with the project and expiry tags, writes a row in the
-project's `RESOURCES.md` for each one the moment it exists, runs the checks and always tears down: after the
-checks, on a failed check, on an error, when the time budget runs out and on Ctrl-C. It proves each resource gone
-with a read and sets its row to deleted. A resource it cannot delete keeps its row as live with one line for the
-owner and the command exits 4. The evidence goes to `evidence/lab-<recipe>-<date>-<n>.md` of the project. When
-every check passed, it ends with a ready `awb kb add` line with the grade live.
+project's `RESOURCES.md` for each one before its create call (state creating, with the name the resource gets), runs
+the checks and always tears down: after the checks, on a failed check, on an error, when the time budget runs out
+and on Ctrl-C. It proves each resource gone with a read and sets its row to deleted. A resource it cannot delete
+keeps its row as live with one line for the owner and the command exits 4. The evidence goes to
+`evidence/lab-<recipe>-<date>-<n>.md` of the project. When every check passed, it ends with a ready `awb kb add`
+line with the grade live.
 
 A run takes minutes: run it as a background command of the session, not in the foreground with its two-minute
-limit. A SIGTERM tears down like Ctrl-C; only a hard kill leaves rows as live; `awb cloud sweep` then finds the
-resources by their tags.
+limit. A SIGTERM tears down like Ctrl-C; only a hard kill leaves rows as live or creating; `awb cloud sweep` then
+finds the resources by their tags or their lab name.
 
 ## The format
 
@@ -57,9 +58,32 @@ resource whose name is its id, a bucket), the `resource` (`kind`, two to five le
 - `"tags": "name"`: for a service that takes no tags at create; the call carries `${name}`, which holds the project
   code and the expiry.
 
-A create may also have a `find`: a read that finds the id when the answer holds none (an asynchronous create).
-A create that answered without an id and that find cannot place gets a row as live with "id unknown" and the run
-stops.
+A create step also names the resource: `name` is the name its call gives it (default `${name}`; it holds `${name}`
+or `${project}`, so the name carries the project code; the call must carry it). Every create of the recipes
+here has a `find`: a read that looks the resource up by that name when the answer holds no id. Its forms:
+
+- `"find": {"call": {a GET of the list}, "list": "vpcs", "field": "id", "within": 60}`: the item of the list under
+  `list` whose `name` is the name of the resource; its `field` is the id. Matching the name in the answer also covers a
+  list that takes no name filter.
+- `"find": {"call": {...}, "field": "servers.0.id"}`: a field of the whole answer.
+- `"find": {"call": {"method": "HEAD", ...}, "status": [200]}`: for an `id_value`, the statuses that say it exists.
+
+The find reads every 10 seconds for `within` seconds (default 60). Only two answers prove the resource absent: a
+list without its name (on a page that is not full, when the query names a `limit`) and a 404 of the read of a find
+of statuses. Any other answer cannot tell, so a wrong shape never marks a row not created.
+
+The row of a create goes like this:
+
+| the create answers | the row |
+|---|---|
+| 2xx with the id | live with the id |
+| 2xx without an id | the find places it (live with the id); else live with "id unknown" and a line for the owner; the run stops |
+| no answer, a timeout or a 5xx | the find places it (live with the id); a find that proves it absent sets the row to not created with that answer as proof; a find that cannot tell (or no find) leaves it live with the name for the owner; the run stops unless it was placed |
+| 3xx or 4xx; the key service refused | nothing was made: the row goes again and the run stops |
+
+The teardown looks every row without an id up by its name once more: found, it is deleted and proven gone like the
+others; a row proven not created stays so with both answers as proof. A row that is not created does not hold `awb
+close`; a row still creating (a run that was killed) does.
 
 A `wait` step repeats its call every `every` seconds (default 10) until the field of `until` `equals`, is `in` or
 `contains` a value, for at most `within` seconds; a value of `fail_on` ends it early. A `call` step that does not
@@ -86,11 +110,16 @@ dry run, the list and the evidence show these notes, so the first live run says 
     {"id": "vpc", "do": "create", "says": "a VPC",
      "call": {"method": "POST", "service": "vpc", "path": "/v1/{project_id}/vpcs",
               "body": {"vpc": {"name": "${name}", "cidr": "192.168.0.0/16"}}},
-     "id_field": "vpc.id", "resource": {"kind": "vpc", "type": "vpc", "cost": "none"}, "tags": "name"},
+     "id_field": "vpc.id", "name": "${name}",
+     "find": {"call": {"method": "GET", "service": "vpc", "path": "/v1/{project_id}/vpcs"}, "list": "vpcs", "field": "id"},
+     "resource": {"kind": "vpc", "type": "vpc", "cost": "none"}, "tags": "name"},
     {"id": "subnet", "do": "create", "says": "a subnet",
      "call": {"method": "POST", "service": "vpc", "path": "/v1/{project_id}/subnets",
               "body": {"subnet": {"name": "${name}", "cidr": "${cidr}", "vpc_id": "${vpc}"}}},
-     "id_field": "subnet.id", "resource": {"kind": "sub", "type": "vpc subnet", "cost": "none"}, "tags": "name"},
+     "id_field": "subnet.id", "name": "${name}",
+     "find": {"call": {"method": "GET", "service": "vpc", "path": "/v1/{project_id}/subnets", "query": {"vpc_id": "${vpc}"}},
+              "list": "subnets", "field": "id"},
+     "resource": {"kind": "sub", "type": "vpc subnet", "cost": "none"}, "tags": "name"},
     {"id": "active", "do": "wait", "says": "the subnet is ACTIVE",
      "call": {"method": "GET", "service": "vpc", "path": "/v1/{project_id}/subnets/${subnet}"},
      "until": {"field": "subnet.status", "equals": "ACTIVE"}, "fail_on": ["ERROR"], "within": 90, "every": 5}
@@ -114,6 +143,9 @@ dry run, the list and the evidence show these notes, so the first live run says 
 | `elb-health` | does a shared ELB listener with one ECS backend pass its health check | 9 resources, 60 minutes |
 
 Their VPC, subnet and shared ELB calls are the ones `awb cloud lease-check` already makes. Every other shape is
-marked "to confirm live" in the recipe, with what to look at. The OBS recipe cannot pass through the call operation
-of the key service as it is: that operation signs the way of the API gateway, OBS signs its own way. Its first run
-is expected to stop at the create with HTTP 403 and nothing made.
+marked "to confirm live" in the recipe, with what to look at. That holds for the finds by name too: the list of VPCs
+is read by `awb cloud sweep` already; the lists of subnets and security groups with the `vpc_id` filter, the ELB
+v2.0 lists with the `name` filter and their keys are to confirm live. A find that answers otherwise than the recipe
+expects cannot tell: the row stays live for the owner, never not created. The OBS recipe cannot pass through the
+call operation of the key service as it is: that operation signs the way of the API gateway, OBS signs its own way.
+Its first run is expected to stop at the create with HTTP 403 and nothing made.

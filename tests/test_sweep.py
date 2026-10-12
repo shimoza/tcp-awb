@@ -93,3 +93,104 @@ def test_the_sweep_marks_a_resource_listed_in_resources_as_known(tmp_path):
     line = [x for x in sweep.report_lines(rep) if x.startswith("ecs-4")][0]
     assert "tcp-abcd" in line
     assert sweep.known_ids(tmp_path / "missing") == {}
+
+
+# --------------------------------------------------------------------------- the network resources
+
+
+NET_KINDS = ("vpc", "sub", "sg", "elb", "lsn", "pool", "nat")
+
+
+def net_listings(answers: dict, asked: list | None = None):
+    """A stand-in lister for ALL_SOURCES: the answer of each path (None: unreadable), every call kept in `asked`."""
+    def lister(service, path, key, paging, query=None, project_header=False):
+        if asked is not None:
+            asked.append((service, path, key, project_header))
+        items = answers.get(path, [])
+        return jobs.Listing.unknown("HTTP 503") if items is None else jobs.Listing.of(items)
+    return lister
+
+
+def three_of(kind: str) -> list[dict]:
+    """One untagged, one expired (tagged or named like a lab resource) and one tagged that no project lists."""
+    expired = ({"tags": ["awb-project=tcp-abcd", "awb-expiry=2026-09-20"]} if kind in ("vpc", "elb") else
+               {"name": "tcp-abcd-lab-20260920-wxyz"})
+    return [
+        {"id": "%s-id-0001" % kind, "name": NAMED, "status": "ACTIVE", "created_at": "2026-09-01T00:00:00"},
+        dict({"id": "%s-id-0002" % kind, "status": "ACTIVE", "created_at": "2026-09-02T00:00:00"}, **expired),
+        {"id": "%s-id-0003" % kind, "name": "tcp-abcd-lab-20261231-qrst", "status": "ACTIVE",
+         "created_at": "2026-09-03T00:00:00"},
+    ]
+
+
+def test_the_sweep_lists_each_network_type_as_untagged_expired_or_not_in_resources(tmp_path):
+    answers = {src[2]: three_of(src[0]) for src in sweep.NETWORK_SOURCES}
+    answers.update({"/v1/{project_id}/cloudservers/detail": [], "/v2/{project_id}/cloudvolumes/detail": [],
+                    "/v1/{project_id}/publicips": []})
+    asked: list = []
+    rep = sweep.sweep(net_listings(answers, asked), TODAY, sweep.Handles(tmp_path / "h.json"), {},
+                      sweep.ALL_SOURCES)
+    got = {(i.kind, i.handle.split("-")[1]): i.reasons for i in rep.items}
+    for kind in NET_KINDS:
+        assert got[(kind, "1")] == ["untagged"], kind
+        assert got[(kind, "2")] == ["not in RESOURCES.md", "expired"], kind
+        assert got[(kind, "3")] == ["not in RESOURCES.md"], kind
+    assert rep.unknown == []
+    assert {i.project for i in rep.items if i.handle.endswith("-3")} == {"tcp-abcd"}
+    assert {i.expiry for i in rep.items if i.handle.endswith("-3")} == {"2026-12-31"}
+    # ELB and NAT v2.0 carry no project in their path: their listing asks for the project header
+    assert {s for s, _, _, header in asked if header} == {"elb", "nat"}
+    assert ("vpc", "/v1/{project_id}/security-groups", "security_groups", False) in asked
+    text = "\n".join(sweep.report_lines(rep))
+    assert NAMED not in text and "sg-id-0001" not in text
+    assert "sweep: not swept: dedicated ELB" in text and "to confirm live" in text
+
+
+def test_a_network_resource_a_project_lists_is_known_and_not_named(tmp_path):
+    answers = {src[2]: three_of(src[0]) for src in sweep.NETWORK_SOURCES}
+    known = {"%s-id-0003" % kind: "tcp-abcd" for kind in NET_KINDS}
+    rep = sweep.sweep(net_listings(answers), TODAY, sweep.Handles(tmp_path / "h.json"), known, sweep.ALL_SOURCES)
+    assert not [i for i in rep.items if i.handle.endswith("-3")]          # tagged, listed, not expired
+    assert all(i.reasons == ["untagged"] for i in rep.items if i.handle.endswith("-1"))
+
+
+def test_an_unreadable_network_listing_is_unknown_and_never_empty(tmp_path):
+    answers = {src[2]: three_of(src[0]) for src in sweep.NETWORK_SOURCES}
+    answers["/v2.0/lbaas/listeners"] = None
+    answers["/v2.0/nat_gateways"] = None
+    rep = sweep.sweep(net_listings(answers), TODAY, sweep.Handles(tmp_path / "h.json"), {}, sweep.ALL_SOURCES)
+    assert rep.unknown == ["lsn", "nat"]
+    assert "sweep: could not read lsn, nat: the listing is unknown, not empty" in sweep.report_lines(rep)
+
+
+def test_the_name_of_a_lab_resource_gives_its_tags():
+    assert sweep.name_tags("tcp-abcd-lab-20261012-wxyz-a") == {"awb-project": "tcp-abcd",
+                                                               "awb-expiry": "2026-10-12"}
+    assert sweep.name_tags("tcp-abcd-lab-20261012-wxyz") != {}
+    assert sweep.name_tags(NAMED) == {} and sweep.name_tags("tcp-abcd-web") == {}
+
+
+def test_the_command_line_sweeps_the_network_types_with_the_project_header(home, tmp_path, monkeypatch, capsys):
+    from awb import cli
+    from awb.tcp import cloud
+    from tests.tcp_fake import FakeGateway
+    from tests.test_obs import fake_pass
+
+    asked = []
+
+    def listing(self, service, path, key, *, query=None, paging="marker", headers=None, **kw):
+        asked.append((path, headers))
+        return jobs.Listing.of(three_of(next(s[0] for s in sweep.ALL_SOURCES if s[2] == path)))
+    with FakeGateway("AKFAKE", "sk-fake-secret") as gw:
+        fake_pass(tmp_path, monkeypatch, {"cloud/owner/ak": "AKFAKE", "cloud/owner/sk": "sk-fake-secret"})
+        monkeypatch.setenv("AWB_CLOUD_KEYS", "pass:cloud/owner")
+        monkeypatch.setenv("AWB_CLOUD_ENDPOINT", gw.base)
+        monkeypatch.setattr(cloud.Client, "list", listing)
+        assert cli.main(["cloud", "sweep", "--today", "2026-09-25"]) == 0
+    out = capsys.readouterr().out
+    assert [p for p, _ in asked] == [s[2] for s in sweep.ALL_SOURCES]
+    assert {p for p, h in asked if h} == {"/v2.0/lbaas/loadbalancers", "/v2.0/lbaas/listeners", "/v2.0/lbaas/pools",
+                                          "/v2.0/nat_gateways"}
+    assert all(h == {"X-Project-Id": FakeGateway.PROJECT} for _, h in asked if h)
+    assert "not in RESOURCES.md" in out and "sweep: not swept: dedicated ELB" in out
+    assert NAMED not in out

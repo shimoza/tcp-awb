@@ -421,7 +421,7 @@
    "status": "passing"
   },
   {
-   "id": "C1",
+   "id": "C-1",
    "phase": "C",
    "name": "awb calc (R-005): exact decimal arithmetic with lets, places and half-up rounding; anything but plain arithmetic refused without echoing it; a locked record with ids K-1, K-2 in the project; a result found in a sentence as written, with thousands separators, a decimal comma or rounded; the review refuses a computed number without calc:K-N and a calculation whose result is not in the sentence",
    "run": ".venv/bin/pytest tests/test_calc.py",
@@ -449,7 +449,7 @@
    "status": "passing"
   },
   {
-   "id": "E1",
+   "id": "E-1",
    "phase": "E",
    "name": "awb kb export: the dataset carries live, contract and docs facts, never retired ones, expired ones only on request and marked, said only on request; every entry name checked again and withheld when it carries a name registered later; an existing file is not overwritten without --force",
    "run": ".venv/bin/pytest tests/test_kb.py",
@@ -1786,7 +1786,7 @@
    "status": "passing"
   },
   {
-   "id": "T11-1",
+   "id": "T11-13",
    "phase": "T11",
    "name": "dataset: the folder and the zip with every file opening with the rules and the best-before date, facts.md by topic, topics/, facts.jsonl, services.md, prices/<region>.csv from the latest snapshot, MANIFEST.json with sha256; a tenant alias rewritten, the rewrite proven on a plant, a folder with an alias left removed; refused without facts and over an existing folder; HOW-TO.pdf readable by pdftotext over several pages; put sends zip, PDF and manifest and marks LATEST, refuses a second time without --replace; the refresh builds the dataset after a clean run and not after an error",
    "run": ".venv/bin/pytest tests/test_dataset.py",
@@ -2199,7 +2199,7 @@
    "status": "passing"
   },
   {
-   "id": "T11-2",
+   "id": "T11-14",
    "phase": "T11",
    "name": "dataset: the files, the manifest field compiled_by and the PDF /Author credit the dataset and the account, never a person; a planted AWB_DATASET_AUTHOR and dataset_author reach no file of the build or the zip",
    "run": ".venv/bin/pytest tests/test_dataset.py::test_no_setting_puts_a_person_into_the_dataset",
@@ -4717,8 +4717,113 @@
    "name": "lab: a run goes through the real key service with the lab key and the signing stand-in gateway",
    "run": ".venv/bin/pytest tests/test_lab.py::test_a_run_goes_through_the_real_key_service_with_the_lab_key",
    "status": "passing"
+  },
+  {
+   "id": "LAB-16",
+   "phase": "LAB",
+   "name": "lab: a create whose answer is lost has its row as creating before the call, is found by its name, recorded, torn down and proven gone",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_create_whose_answer_is_lost_is_found_by_name_recorded_torn_down_and_proven_gone",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-17",
+   "phase": "LAB",
+   "name": "lab: a create whose answer is lost and that made nothing is not created with the proof of the find, again at the teardown; awb close is not held by it",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_create_whose_answer_is_lost_and_that_made_nothing_is_not_created_with_proof",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-18",
+   "phase": "LAB",
+   "name": "lab: a 5xx then a successful find records the resource, sets its tags and tears it down",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_5xx_then_a_successful_find_records_the_resource_and_tears_it_down",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-19",
+   "phase": "LAB",
+   "name": "lab: a lost answer the find of the run cannot tell is placed by the find of the teardown and deleted",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_lost_answer_the_find_cannot_tell_is_placed_by_the_find_of_the_teardown",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-20",
+   "phase": "LAB",
+   "name": "lab: a lost answer on a step without a find keeps the row live with the name for the owner and exits 4",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_lost_answer_without_a_find_keeps_the_row_live_for_the_owner",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-21",
+   "phase": "LAB",
+   "name": "lab: a create the platform refuses takes its row back",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_refused_create_takes_its_row_back",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-22",
+   "phase": "LAB",
+   "name": "lab: a name without the project code, a name the call does not give, a find that writes, a find without a field and a find that refers to a later value are refused",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_malformed_name_or_find_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-23",
+   "phase": "LAB",
+   "name": "lab: every create of the three recipes has a name with the code and a find by name; the dry run shows the row before the call",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_every_create_of_the_three_recipes_has_a_name_with_the_code_and_a_find_by_name",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-24",
+   "phase": "LAB",
+   "name": "lab: the ecs-boot-ssh recipe places a VPC whose create answer was lost with the find as the recipe writes it",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_ecs_recipe_places_a_vpc_whose_create_answer_was_lost",
+   "status": "passing"
+  },
+  {
+   "id": "LAB-25",
+   "phase": "LAB",
+   "name": "lab: a find by name whose page is full without the name proves nothing; the row stays live for the owner",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_full_page_without_the_name_proves_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "SW-1",
+   "phase": "SW",
+   "name": "sweep: each network type (VPC, subnet, security group, shared ELB, listener, pool, NAT gateway) is named untagged, expired (by tag or by the lab name) or not in RESOURCES.md; ELB and NAT ask with the project header; dedicated ELB is reported as not swept",
+   "run": ".venv/bin/pytest tests/test_sweep.py::test_the_sweep_lists_each_network_type_as_untagged_expired_or_not_in_resources",
+   "status": "passing"
+  },
+  {
+   "id": "SW-2",
+   "phase": "SW",
+   "name": "sweep: a network resource a project lists in RESOURCES.md is known and not named",
+   "run": ".venv/bin/pytest tests/test_sweep.py::test_a_network_resource_a_project_lists_is_known_and_not_named",
+   "status": "passing"
+  },
+  {
+   "id": "SW-3",
+   "phase": "SW",
+   "name": "sweep: an unreadable network listing is unknown and never empty",
+   "run": ".venv/bin/pytest tests/test_sweep.py::test_an_unreadable_network_listing_is_unknown_and_never_empty",
+   "status": "passing"
+  },
+  {
+   "id": "SW-4",
+   "phase": "SW",
+   "name": "sweep: the name of a lab resource gives its project and expiry tags",
+   "run": ".venv/bin/pytest tests/test_sweep.py::test_the_name_of_a_lab_resource_gives_its_tags",
+   "status": "passing"
+  },
+  {
+   "id": "SW-5",
+   "phase": "SW",
+   "name": "sweep: awb cloud sweep lists every source with the X-Project-Id header on the ELB and NAT v2.0 paths",
+   "run": ".venv/bin/pytest tests/test_sweep.py::test_the_command_line_sweeps_the_network_types_with_the_project_header",
+   "status": "passing"
   }
  ],
- "total_tests": 674,
+ "total_tests": 689,
  "checked": "2026-10-12"
 }

@@ -4013,7 +4013,7 @@ components:
           type:
             - integer
             - "null"
-          description: "Rows of RESOURCES.md whose state is neither deleted nor kept; null when RESOURCES.md cannot be read."
+          description: "Rows of RESOURCES.md whose state is not deleted, kept or not created; null when RESOURCES.md cannot be read."
         updated:
           type:
             - string
@@ -4156,7 +4156,7 @@ components:
           type:
             - integer
             - "null"
-          description: "Rows of RESOURCES.md whose state is neither deleted nor kept; null when RESOURCES.md cannot be read."
+          description: "Rows of RESOURCES.md whose state is not deleted, kept or not created; null when RESOURCES.md cannot be read."
         updated:
           type:
             - string
@@ -4250,7 +4250,7 @@ components:
           type:
             - integer
             - "null"
-          description: "Rows of RESOURCES.md whose state is neither deleted nor kept; null when RESOURCES.md cannot be read."
+          description: "Rows of RESOURCES.md whose state is not deleted, kept or not created; null when RESOURCES.md cannot be read."
         updated:
           type:
             - string

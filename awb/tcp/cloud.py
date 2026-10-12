@@ -2,7 +2,7 @@
 
     awb cloud projects [--region R]
     awb cloud get SERVICE PATH [--region R] [--query K=V]... [--list KEY] [--paging marker|offset|none]
-    awb cloud sweep [--region R] [--today YYYY-MM-DD]       untagged, expired or idle resources (awb/tcp/sweep.py)
+    awb cloud sweep [--region R] [--today YYYY-MM-DD]       untagged, expired, unlisted or idle (awb/tcp/sweep.py)
     awb cloud usage [--month YYYY-MM]                       calls to the TCP API per day and every 429 (awb/tcp/throttle.py)
     awb cloud tenants                                       the tenants of the key service (awb/tcp/keys.py)
     awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role read|lab] [--region R] [--query K=V]... [--body FILE]
@@ -159,8 +159,8 @@ class Client:
             data = None
         return Response(status, data, text)
 
-    def get(self, service: str, path: str, query=None) -> Response:
-        return self.request("GET", service, path, query=query)
+    def get(self, service: str, path: str, query=None, headers: dict[str, str] | None = None) -> Response:
+        return self.request("GET", service, path, query=query, headers=headers)
 
     def project_id(self) -> str:
         """The id of the project named like the region (IAM, /v3/projects?name=<region>)."""
@@ -179,9 +179,11 @@ class Client:
         return path.replace("{project_id}", self.project_id())
 
     def list(self, service: str, path: str, key: str, *, query: dict | None = None, paging: str = "marker",
-             limit: int = 100, marker_field: str = "id", max_pages: int = 200) -> jobs.Listing:
+             limit: int = 100, marker_field: str = "id", max_pages: int = 200,
+             headers: dict[str, str] | None = None) -> jobs.Listing:
         """Every item under `key`, page by page: list, empty or unknown. A page that is not an answer with a list
-        under `key` makes the whole listing unknown, never empty."""
+        under `key` makes the whole listing unknown, never empty. `headers` go with every page (X-Project-Id for a
+        path without the project, as ELB and NAT v2.0)."""
         if paging not in PAGINGS:
             raise CloudError("paging is marker, offset or none")
         items: list = []
@@ -197,7 +199,7 @@ class Client:
             q["limit"] = str(limit)
         for _ in range(max_pages):
             try:
-                r = self.get(service, path, q)
+                r = self.get(service, path, q, headers)
             except CloudError as err:
                 return jobs.Listing.unknown(str(err))
             if not r.ok:
@@ -266,7 +268,8 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--list", dest="list_key", default=None, metavar="KEY")
     g.add_argument("--paging", default="marker", choices=PAGINGS)
     g.add_argument("--limit", type=int, default=100)
-    w = sub.add_parser("sweep", help="servers, disks and addresses that are untagged, expired or idle (T-61)")
+    w = sub.add_parser("sweep", help="servers, disks, addresses and network resources that are untagged, expired, "
+                                     "not in RESOURCES.md or idle (T-61)")
     w.add_argument("--region", default="eu-de")
     w.add_argument("--today", default=None, metavar="YYYY-MM-DD")
     u = sub.add_parser("usage", help="calls to the TCP API per day and every 429, from the call log")
@@ -327,8 +330,12 @@ def main(argv: list[str] | None = None) -> int:
             except ValueError:
                 raise CloudError("the date reads like 2026-09-25") from None
             handles = _sweep.Handles(_sweep.handles_path(config.paths()))
-            rep = _sweep.sweep(lambda service, path, key, paging: c.list(service, path, key, paging=paging),
-                               today, handles, _sweep.known_ids(config.paths().projects_root))
+
+            def lister(service, path, key, paging, query=None, project_header=False):
+                headers = {"X-Project-Id": c.project_id()} if project_header else None
+                return c.list(service, path, key, query=query, paging=paging, headers=headers)
+            rep = _sweep.sweep(lister, today, handles, _sweep.known_ids(config.paths().projects_root),
+                               _sweep.ALL_SOURCES)
             handles.save()
             for line in _sweep.report_lines(rep):
                 print(handles.mask(line))
