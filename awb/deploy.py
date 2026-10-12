@@ -120,6 +120,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/seal.py": "awb seal check, run by the work user against the host",
     "awb/paste.py": "awb paste, run in a working session with a terminal output on standard input",
     "awb/importcmd.py": "awb import, run by the owner in his own terminal",
+    "awb/pastein.py": "awb import --paste, run by the owner in his own terminal",
     "awb/tcp/inbox.py": "awb inbox take, run in a working session",
     "awb/tcp/migrate.py": "awb migrate, run in a working session",
     "awb/tcp/lab.py": "awb lab list|dry-run|run, run in a working session",

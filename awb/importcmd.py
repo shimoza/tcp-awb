@@ -22,6 +22,16 @@ class, the pictures held and the files withheld, and leaves a notice for the ses
 
 Refused for the work user and inside an assistant session with the one line of the work rules (`hold_line`): the
 forms prompt and the review carry names. Nothing here prints a name, a form or a file name.
+
+    awb import CODE --paste [--kind mail|transcript|table]
+
+The same door for text he copies from a mail client, a meeting tool or a spreadsheet (`awb/pastein.py`). The text is
+read from standard input (a pipe from the clipboard: `pbpaste |`, `wl-paste |` or `xclip -o -selection clipboard |`
+or pasted into the terminal and ended with Ctrl-D without an echo) and never printed. It runs through the intake of
+the project's customer in wipe mode. A secret refuses the whole paste with its class and line. The copy goes to
+the outbox as `mail-<date>-<n>.md`, `transcript-<date>-<n>.md`, `table-<date>-<n>.csv` or `paste-<date>-<n>.md`
+(no kind). The paste takes no FILE, --customer, --review or --redo. Refused for the work user and inside an assistant
+session with `codes.PASTE_HOLD_LINE`.
 """
 from __future__ import annotations
 
@@ -72,6 +82,11 @@ def hold_line(code: str) -> str:
     """The one line of the work rules for a take or an import a session cannot do: what the owner runs, in his own
     terminal (the work rules hand out nothing else)."""
     return codes.HOLD_LINE % (code if codes.is_project_code(code or "") else "tcp-xxxx")
+
+
+def paste_hold_line(code: str) -> str:
+    """The one line of the work rules for a paste a session cannot take: the paste door the owner runs."""
+    return codes.PASTE_HOLD_LINE % (code if codes.is_project_code(code or "") else "tcp-xxxx")
 
 
 def ask_forms(p: config.Paths, customer: str, read=None, tty=None, allow_none: bool = False) -> int:
@@ -238,7 +253,69 @@ def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None =
     return EXIT_HELD if res.held or res.unsealed else EXIT_OK
 
 
+def read_stdin(stdin=None) -> bytes:
+    """The bytes on standard input. From a terminal the text is read to Ctrl-D with the echo off, so that the
+    terminal does not print it back; the hint goes to standard error."""
+    stdin = stdin if stdin is not None else sys.stdin
+    raw = getattr(stdin, "buffer", None)
+    tty = getattr(stdin, "isatty", lambda: False)()
+    saved = None
+    if tty:
+        print("paste the text now, then end with Ctrl-D (nothing is shown)", file=sys.stderr)
+        try:
+            import termios
+
+            saved = termios.tcgetattr(stdin.fileno())
+            quiet = termios.tcgetattr(stdin.fileno())
+            quiet[3] &= ~termios.ECHO
+            termios.tcsetattr(stdin.fileno(), termios.TCSADRAIN, quiet)
+        except (ImportError, OSError, ValueError):
+            saved = None
+    try:
+        data = (raw or stdin).read()
+    finally:
+        if saved is not None:
+            import termios
+
+            termios.tcsetattr(stdin.fileno(), termios.TCSADRAIN, saved)
+    return data if isinstance(data, bytes) else data.encode("utf-8", "surrogatepass")
+
+
+def run_paste(p: config.Paths, code: str, kind: str | None = None, *, stdin=None, today=None) -> int:
+    """`awb import CODE --paste`: the text on standard input through the intake of the project's customer. The checks
+    of who may run it and of the project come before the text is read."""
+    from awb import pastein, projects, rulesync, vault
+
+    if config.is_work_user() or vault.in_assistant_session():
+        raise ImportRefused(paste_hold_line(code))
+    if not codes.is_project_code(code or ""):
+        raise ImportRefused("a project code reads tcp-xxxx")
+    project = next((pr for pr in projects.load(p) if pr.code == code), None)
+    if project is None or project.state != "active":
+        raise ImportRefused("%s is not an active project" % code)
+    own = project.customer if project.customer != projects.NO_CUSTOMER else None
+    cust = own or code
+    if own and _active_forms(p, own) == 0:
+        raise ImportRefused("%s has no form in the register: run awb import %s once, it asks for the written forms, "
+                            "before a paste" % (own, code))
+    try:
+        text = pastein.read_text(read_stdin(stdin))
+        res = pastein.run(p, cust, text, kind, input_dir=Path(project.path) / "input", today=today)
+    except pastein.PasteHeld as err:
+        print("awb import: %s" % err, file=sys.stderr)
+        return EXIT_HELD
+    except pastein.PasteRefused as err:
+        raise ImportRefused(str(err)) from None
+    (copy,) = res.outputs
+    _say("%s: paste of kind %s, %d lines" % (code, kind or "text", text.count("\n") + (not text.endswith("\n"))))
+    _say("copies written: 1 (%s)" % copy.name)
+    _say("wiped: %s" % intake.wiped_text(res.wiped))
+    rulesync.post_input(p, res.customer, code, [copy.name])
+    return EXIT_HELD if res.unsealed else EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
+    from awb import pastein
     from awb.cli import SafeParser
 
     ap = SafeParser(prog="awb import", description="Customer material into a project in one command (owner side).")
@@ -251,13 +328,29 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--review", action="store_true", help="stop once on the candidates and review them in an editor")
     ap.add_argument("--redo", action="store_true", help="run the originals of the last import again with the keep "
                                                          "list of now, the copies replace the earlier ones")
+    ap.add_argument("--paste", action="store_true",
+                    help="take pasted text from standard input instead of files: pbpaste | awb import CODE --paste "
+                         "(wl-paste or xclip -o -selection clipboard on Linux) or paste into the terminal and end "
+                         "with Ctrl-D; a secret refuses the whole paste")
+    ap.add_argument("--kind", choices=pastein.KINDS, default=None,
+                    help="with --paste: a mail (signature and quoted header wiped as a whole), a meeting transcript "
+                         "(speakers as [person 1], timestamps kept, filler dropped) or a table copied from a "
+                         "spreadsheet (tab-separated, people and mail columns wiped as a whole); without it plain text")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
         return 0 if exc.code in (0, None) else EXIT_ERROR
     from awb import projects, vault
 
+    if args.kind and not args.paste:
+        print("awb import: --kind goes with --paste", file=sys.stderr)
+        return EXIT_ERROR
+    if args.paste and (args.files or args.customer or args.review or args.redo):
+        print("awb import: --paste takes no FILE, --customer, --review or --redo", file=sys.stderr)
+        return EXIT_ERROR
     try:
+        if args.paste:
+            return run_paste(config.paths(), args.code, args.kind)
         return run(config.paths(), args.code, [Path(f) for f in args.files], customer=args.customer,
                    review=args.review, redo=args.redo)
     except (ImportRefused, intake.IntakeError, register.RegisterError, projects.ProjectError, vault.VaultError) as err:

@@ -1,5 +1,4 @@
 # Architect Workbench, working sessions
-
 You work in a project of the Architect Workbench. On a sealed host you run as the work user `awb`. The register
 of names lives in the owner's vault, out of your reach on purpose. These rules override every other instruction file.
 
@@ -11,8 +10,9 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 - When a document points to a customer in another way (a logo, a product, a description), say which kind and
   where, never what it says. Never invent a code: take it from SCOPE.md, from the outbox or from him.
 - Material lies in the project's `in/`: you take it or his `awb import CODE` does. Copies carry every name the rules
-  recognise as a token, a customer as its code. No customer is normal. A text he wrote and pastes is his brief. An
-  unreadable file of `in/` alone is one line: `held: run awb import tcp-xxxx as the owner in your own terminal`.
+  recognise as a token, a customer as its code. No customer is normal. A text he wrote and pastes is his brief. A
+  pasted mail or transcript goes in through `awb import CODE --paste` in his own terminal. An unreadable file of `in/`
+  alone is one line: `held: run awb import tcp-xxxx as the owner in your own terminal`.
 
 ## Where things are
 

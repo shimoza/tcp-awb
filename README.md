@@ -440,6 +440,13 @@ customer data out of the model as far as it can:
   and the limits are written down. It is tested with 1,188 invented cases of structured data and written forms and
   405 cases of unregistered names in mails, transcripts, decks, code, tables, German and Russian text
   (`calibration/redteam/`).
+- `awb import CODE --paste [--kind mail|transcript|table]` is the same door for text you copy from a mail client, a meeting tool
+  or a spreadsheet (work profile: a pasted mail with a signature, a pasted transcript or an Excel extract was the usual
+  slip). The text comes on standard input (`pbpaste | awb import tcp-xxxx --paste`) and is never printed. A secret refuses the
+  whole paste with its class and line. A mail loses its signature and its quoted chain headers as a whole, a transcript keeps
+  its turns as `[person 1]`, `[person 2]` and its timestamps, a table keeps its columns and loses the columns of people and
+  mail addresses. The copy lands in the outbox as `mail-<date>-<n>.md`, `transcript-<date>-<n>.md` or `table-<date>-<n>.csv`. A
+  text you wrote yourself is still your brief and goes into the chat.
 - The register of names lives in a vault on the owner's side. The sealed setup runs every session as a separate
   system user that cannot read it.
 - Five hooks check every prompt, every written file and the start and end of every session, so that a registered
@@ -503,6 +510,7 @@ enabled yet; `sudo seal/verify.sh` proves the rest. `seal/README.md`, section "T
 | after a library upgrade | `sudo awb deploy --only awb-vaultd.service awb-keyd.service` |
 | a new project, close or delete | as `awb`: projects belong to the work user |
 | a customer's material | as the owner: `awb import tcp-xxxx` (it asks for the customer's names on the first import; a project without a customer needs no names); the session hears of the copies at its next prompt |
+| a mail, a transcript or a table you copied | as the owner: `awb import tcp-xxxx --paste --kind mail` (or `transcript`, `table`) with the text on standard input, in your own terminal; the session hears of the copy at its next prompt |
 
 ## The build queue
 

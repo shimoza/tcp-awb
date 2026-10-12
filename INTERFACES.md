@@ -1096,6 +1096,18 @@ does not descend from it. The root path imports neither
   [--review] [--redo]`, refused for the work user and inside an assistant session.
 - `bucket.fetch(p, c, code, again=False) -> {"new", "known", "outside", "intake", "files"}`: the download of `pull`
   without the intake.
+- `awb/pastein.py` (`awb import CODE --paste`, 2026-10-12): `read_text(data) -> str` (UTF-8, `\n`, not empty, at most
+  `MAX_BYTES`), `secret_findings(text) -> [(class, line)]` (the gate's classes `secret`, `private-key` and `token`),
+  `run(p, customer, text, kind=None, *, input_dir=None, today=None) -> IntakeResult` (kind `mail`, `transcript`, `table`
+  or none; one copy in `<outbox>/<customer>/`, named `NAMES[kind]`, `<word>-<date>-<n><suffix>`, the number free in the
+  outbox and in `input_dir`; the public and the private report as for a file, no original, no `intake_counts`),
+  `collapse_mail(text) -> (text, Counter)`, `tokenize_speakers(engine, text)`, `drop_filler(text)`, `column_classes(header)`,
+  `parse_table(text)`, `sanitize_table(engine, rows)`; `PasteRefused` (a secret with class and line, an empty or oversize
+  paste, a text that is no table), `PasteHeld` (the final check withheld the paste, nothing written), `NAME_RE`.
+  `importcmd.run_paste(p, code, kind=None, *, stdin=None, today=None) -> exit code` (checks first, then reads the text:
+  `read_stdin(stdin)` to Ctrl-D without an echo on a terminal), `importcmd.paste_hold_line(code)`, `codes.PASTE_HOLD_LINE`.
+  Refused for the work user and inside an assistant session with that line. `rulesync.post_input` takes the names of
+  pastes (`mail-2026-10-12-1.md`) beside file ids.
 - `rulesync.post_input(p, customer, project, file_ids, replaced=False) -> Path` (`<shared>/notices/input-*.json`,
   codes and file ids only), `rulesync.input_notices(p, session_id, root) -> list[str]` (`INPUT`, `REPLACED`), told once
   per session while a copy of the notice still waits in the outbox; `rulesync.notice` joins them to the rules notice.
