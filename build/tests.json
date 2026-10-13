@@ -5452,8 +5452,71 @@
    "name": "build runner: the export runs no filter of the owner's git configuration and keeps the blobs the gate read",
    "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_export_runs_no_filter_and_keeps_the_blobs_the_gate_read",
    "status": "passing"
+  },
+  {
+   "id": "ASKAPI-1",
+   "phase": "ask-api",
+   "name": "ask api: the answer carries the named facts, the prices used and the questions left of the shared counter",
+   "run": ".venv/bin/pytest tests/test_web_chat_service.py::test_the_ask_api_answers_with_the_facts_it_names_and_the_prices_it_used",
+   "status": "passing"
+  },
+  {
+   "id": "ASKAPI-2",
+   "phase": "ask-api",
+   "name": "ask api: a registered name is refused with reason name before the model is called",
+   "run": ".venv/bin/pytest tests/test_web_chat_service.py::test_the_ask_api_stops_a_registered_name_before_anything_is_sent",
+   "status": "passing"
+  },
+  {
+   "id": "ASKAPI-3",
+   "phase": "ask-api",
+   "name": "ask api: a spent budget is refused with reason budget before the model is called",
+   "run": ".venv/bin/pytest tests/test_web_chat_service.py::test_the_ask_api_stops_when_the_daily_budget_is_spent",
+   "status": "passing"
+  },
+  {
+   "id": "ASKAPI-4",
+   "phase": "ask-api",
+   "name": "ask api: a failed model call answers reason error",
+   "run": ".venv/bin/pytest tests/test_web_chat_service.py::test_the_ask_api_says_error_when_the_model_call_fails_and_never_resends",
+   "status": "passing"
+  },
+  {
+   "id": "ASKAPI-5",
+   "phase": "ask-api",
+   "name": "ask api: bad questions cost nothing, a repeated request id returns the first answer",
+   "run": ".venv/bin/pytest tests/test_web_chat_service.py::test_the_ask_api_refuses_a_bad_question_and_returns_the_first_answer_for_a_repeated_request_id",
+   "status": "passing"
+  },
+  {
+   "id": "ASKAPI-6",
+   "phase": "ask-api",
+   "name": "ask api: the service routes check origin, content type and body",
+   "run": ".venv/bin/pytest tests/test_web_chat_service.py::test_the_ask_routes_of_the_service_follow_the_post_rules",
+   "status": "passing"
+  },
+  {
+   "id": "ASKAPI-7",
+   "phase": "ask-api",
+   "name": "ask api: the gateway applies the session and POST rules and forwards to the ask backend",
+   "run": ".venv/bin/pytest tests/test_web_gateway.py::LoginTests::test_ask_api_follows_the_post_rules_and_reaches_the_ask_backend",
+   "status": "passing"
+  },
+  {
+   "id": "ASKAPI-8",
+   "phase": "ask-api",
+   "name": "ask api: the owner host asks no backend for the ask routes",
+   "run": ".venv/bin/pytest tests/test_web_owner_api.py::test_the_ask_api_is_a_reader_route_of_the_main_host_only",
+   "status": "passing"
+  },
+  {
+   "id": "ASKAPI-9",
+   "phase": "ask-api",
+   "name": "ask api: the contract follows the limits, the tools and the price terms of the Ask page",
+   "run": ".venv/bin/pytest tests/test_web_contract.py::test_the_ask_api_follows_the_ask_page",
+   "status": "passing"
   }
  ],
- "total_tests": 779,
+ "total_tests": 788,
  "checked": "2026-10-12"
 }

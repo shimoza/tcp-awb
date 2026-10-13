@@ -1041,7 +1041,7 @@ class Gateway(BaseHTTPRequestHandler):
             return
         if self.command == 'POST':
             # Cookie sessions require the exact HTTPS origin for submitted questions.
-            is_chat = bool(re.fullmatch(r'/api/projects/tcp-[a-z0-9]{4}/chat', path))
+            is_chat = bool(re.fullmatch(r'/api/projects/tcp-[a-z0-9]{4}/chat', path)) or path == '/api/ask'
             if path != '/ask' and not is_chat:
                 self.reply(405, b'Method not allowed.\n')
                 return
@@ -1064,6 +1064,9 @@ class Gateway(BaseHTTPRequestHandler):
                 return
             self.reply(200, content, {'Content-Security-Policy': document_csp(content)})
             return
+        if path == '/api/ask' and self.command != 'POST':
+            self.reply(405, b'Method not allowed.\n')
+            return
         backend = self.backend(path, reader_pages=True)
         if backend is None:
             self.reply(404, b'Not found.\n')
@@ -1081,7 +1084,7 @@ class Gateway(BaseHTTPRequestHandler):
             if path == '/api/projects' and self.command == 'POST':
                 return ('unix', s.project_socket)
             return ('tcp', s.projects_port)
-        if reader_pages and re.fullmatch(r'/api/projects/tcp-[a-z0-9]{4}/chat', path):
+        if reader_pages and (path in ('/api/ask', '/api/ask/budget') or re.fullmatch(r'/api/projects/tcp-[a-z0-9]{4}/chat', path)):
             return ('tcp', s.ask_port)
         if re.fullmatch(r'/api/projects/tcp-[a-z2-7]{4}/materials(?:/(?:sources|imports|upload|M-[A-Z]{24}))?', path):
             return ('unix', s.materials_socket)

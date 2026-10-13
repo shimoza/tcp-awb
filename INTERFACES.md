@@ -1170,3 +1170,26 @@ does not descend from it. The root path imports neither
   project code) and answers like it.
 - `recipes/*.json`: the recipes; `recipes/README.md`: the format. `tests/lab_fake.py`: `FakeKeyService` (an
   invented cloud behind the call socket's answer shape) and `Clock`.
+
+## The Ask API (2026-10-13)
+
+Two routes of the main host for the console, served by `awb/tcp/web/chat_service.py` (the service behind the Ask page
+and the project chat) and passed on by the gateway as reader routes: a session and for the POST the site's own Origin,
+Sec-Fetch-Site same-origin or none, one Content-Length of at most 16384 bytes and `application/json`. The owner host
+answers 404 Not found. for both, as it does for the Ask page and the chat. The contract is in `docs/api/openapi.yaml`.
+
+- `POST /api/ask` with `{"question": "...", "request_id": "<32 hex>"}` (`request_id` may be left out). It returns when
+  the answer is ready. 200: `{"request_id", "answer", "facts", "prices", "tools", "questions_left"}`. `facts` are the
+  ids the answer names (`KB-XXXX`) among those a lookup returned. `prices` are the records the live price API handed to
+  the model for this answer, each with its `source` line (at most 50); the answer text says which it quotes.
+- A refusal is `{"error": "<one sentence>", "reason": "name|budget|busy|error", "questions_left": n|null}`: 422 and
+  `name` (a registered name or protected value, nothing sent), 429 and `budget` (the daily budget is used up), 429 and
+  `busy` (another answer is being prepared), 400 for a question that is empty, too long or not a string, 409 for a
+  `request_id` of another question, 503 and `error` for a check, the usage record or the model call that failed (a
+  model that declined is 422 and `error`).
+- `GET /api/ask/budget` returns `Budget`: `questions_left`, `tokens_left`, `daily_questions`, `daily_tokens`, `resets`.
+- `chat_service.Conversations.ask_json(question, request_id=None) -> (status, body)` is the one entry. It runs
+  `submit("general", ...)`, so the name stop (`screen`), the single flight, the budget counter (`ask.spend`,
+  `ask.budget_left`, `ask.USAGE_FILE`) and the model call (`self.sender`, `ask.post` by default, `tool_runner` for the
+  tools) are those of the Ask page. `citations(name, output)` reads the fact ids and price records out of a tool output;
+  they are kept in the table `cites` (by request id) beside `turns`, which keeps its columns.

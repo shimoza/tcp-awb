@@ -92,6 +92,11 @@ deliverables, shows the board and what runs on the test tenants and creates a ne
 folder. On the owner host it puts files into a project's folder `in/`; the session takes them with "take the files
 from in". Each project has a chat that reads its sanitised inputs. The Ask page answers
 a general question in plain words only from the knowledge base, the live price API and the tenant snapshots.
+The console reaches the same Ask through a JSON API on the main host: `POST /api/ask` with `{"question": "..."}`
+answers the text, the fact ids it names, the prices it used and the questions left today; `GET /api/ask/budget`
+returns the questions left. It shares the daily budget and the name check with the Ask page. A refusal says why:
+`name` (a registered name: write the code), `budget` (used up until 00:00 UTC), `busy` or `error`. The contract is
+`docs/api/openapi.yaml`.
 
 ## Deploy
 
