@@ -106,6 +106,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- `seal/verify.sh` names the runner's key copy once (`BUILD_MODEL_KEY`, as `setup.sh` does) and its login
+  check reads that name. The test of the check gives it a file of its own: it failed on a host with
+  `build_model = key`, because it looked at the host's real `/etc/awb/build-model.key`. It now also proves that a
+  stray key copy fails the login mode.
 - `awb cloud call` keeps a whole OBS answer (B-005: the live run of 2026-10-12 got the list of buckets cut after the
   first one at 300 characters). An OBS list in XML comes as data: ListAllMyBucketsResult as `buckets` (name, creation
   date, location when given), ListBucketResult as `keys` with `prefixes`, `truncated` and `next_marker`, Tagging as

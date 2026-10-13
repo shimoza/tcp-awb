@@ -29,6 +29,7 @@ WORK_USER=awb
 WORK_GROUP=awb
 OPT=/opt/tcp-awb
 CONF_FILE=/etc/awb/paths.conf
+BUILD_MODEL_KEY=/etc/awb/build-model.key     # the owner's copy for the runner (build_model = key), as in setup.sh
 MANAGED_FILE=/etc/claude-code/managed-settings.d/awb-workbench.json
 CLIENT_FILES="settings.json CLAUDE.md skills/drafting/SKILL.md"
 seal_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
@@ -452,7 +453,7 @@ build_model_check() {
     case "$model" in
         login)
             grep -q '"apiKeyHelper"' "$t/.claude/settings.json" 2>/dev/null && out=1
-            [ ! -e /etc/awb/build-model.key ] || out=1
+            [ ! -e "$BUILD_MODEL_KEY" ] || out=1
             if [ -f "$login" ] && [ ! -L "$login" ] && [ "$(stat -c %U -- "$login")" = "$BUILD_USER" ]; then
                 report "$out" "the build side runs on his login (build_model = login): a login is there"
             else

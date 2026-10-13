@@ -1462,9 +1462,11 @@ def test_setup_plans_his_login_by_default_the_key_only_with_build_model_key_and_
     assert 'build_model=$(build_model_mode)\n' in text
 
 
-def _model_check(tmp_path: Path, conf: str, login: str | None, helper: bool, key: bool = False) -> str:
+def _model_check(tmp_path: Path, conf: str, login: str | None, helper: bool, key: bool = False,
+                 stray: bool = False) -> str:
     """build_model_check of verify.sh, taken from the script as it is, run for real against a throw-away host file,
-    build root and template: the build user is this user, report prints PASS or FAIL as verify does."""
+    build root and template: the build user is this user, report prints PASS or FAIL as verify does. The runner's key
+    copy (BUILD_MODEL_KEY) is a file of the test too, there only with `stray`: the host's own copy is never looked at."""
     text = VERIFY.read_text(encoding="utf-8")
     fn = re.search(r"(?ms)^build_model_check\(\) \{.*?^\}\n", text).group(0)
     root, t = tmp_path / "root", tmp_path / "template"
@@ -1480,6 +1482,11 @@ def _model_check(tmp_path: Path, conf: str, login: str | None, helper: bool, key
         cred.write_text(login)
     conf_file = tmp_path / "paths.conf"
     conf_file.write_text(conf)
+    stray_file = tmp_path / "build-model.key"
+    if stray_file.exists():
+        stray_file.unlink()
+    if stray:
+        stray_file.write_text("k\n")
     keyfile = tmp_path / "copy.key"
     if key:
         if keyfile.exists():
@@ -1491,8 +1498,8 @@ def _model_check(tmp_path: Path, conf: str, login: str | None, helper: bool, key
               "allowed() { local w=\"$1\"; shift; if \"$@\" >/dev/null 2>&1; then report 0 \"$w\"; "
               "else report 1 \"$w\"; fi; }\n"
               "conf_value() { sed -n \"s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p\" %s | tail -n 1; }\n"
-              "BUILD_USER=%s\nBUILD_CLIENT=/opt/claude-build\nbuild_root=%s\nowner=%s\n%s"
-              "build_model_check %s\n" % (conf_file, USER, root, USER, fn, t))
+              "BUILD_USER=%s\nBUILD_CLIENT=/opt/claude-build\nBUILD_MODEL_KEY=%s\nbuild_root=%s\nowner=%s\n%s"
+              "build_model_check %s\n" % (conf_file, USER, stray_file, root, USER, fn, t))
     res = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30)
     assert res.returncode == 0, res.stderr
     return res.stdout
@@ -1510,6 +1517,9 @@ def test_verify_names_the_build_model_and_the_login_by_its_presence_only(tmp_pat
     out = _model_check(tmp_path, "build_model = login\n", '{"claudeAiOauth": {"accessToken": "%s"}}' % secret,
                        helper=False)
     assert out == "PASS  the build side runs on his login (build_model = login): a login is there\n"
+    out = _model_check(tmp_path, "build_model = login\n", '{"claudeAiOauth": {"accessToken": "%s"}}' % secret,
+                       helper=False, stray=True)
+    assert out == "FAIL  the build side runs on his login (build_model = login): a login is there\n"
     out = _model_check(tmp_path, "", '{"claudeAiOauth": {"accessToken": "%s"}}' % secret, helper=True)
     assert out.startswith("FAIL  the build side runs on his login") and secret not in out
     conf = "build_model = key\nbuild_model_key = %s\nbuild_model_key_source = %s\n" % (
