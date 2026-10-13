@@ -250,6 +250,11 @@ them is refused at the call and fails (2026-10-12: three codes of tests/fixtures
 register; some test, at some time, wrote there)."""
 
 
+_HOST_SERVICE_PREFIX = "/run/awb-"
+"""The sockets and folders of the host's services under /run (the key service /run/awb-keys/cloud.sock among them):
+no test opens or connects to one (T3)."""
+
+
 def _vault_hit(path) -> str | None:
     if isinstance(path, int) or path is None:
         return None
@@ -265,6 +270,8 @@ def _vault_hit(path) -> str | None:
         return None
     if full in _REAL_VAULT_SOCKETS:
         return "a socket of the real vault daemon"
+    if full.startswith(_HOST_SERVICE_PREFIX):
+        return "a socket of a service of the host"
     for root in _REAL_VAULT_ROOTS:
         if full == root or full.startswith(root + os.sep):
             return "the real vault folder"
@@ -327,6 +334,9 @@ def invented_blocklist(tmp_path_factory, monkeypatch):
     (stub / "pass").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
     (stub / "pass").chmod(0o755)
     monkeypatch.setenv("PATH", str(stub) + os.pathsep + os.environ.get("PATH", ""))
+    # a home of the test: with `config.is_work_user` patched the code takes ~/tcp-shared and ~/tcp-kb (T3)
+    (none / "home").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("HOME", str(none / "home"))
     monkeypatch.setattr(gate, "BLOCKLIST_FILES", (none / "blocklist.txt", none / "home-blocklist.txt"))
     monkeypatch.setenv("AWB_BLOCKLIST", str(BLOCKLIST))
     # no test writes to the real shared side or the real throttle stamps: a test that builds no Workbench of its

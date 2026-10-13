@@ -59,3 +59,28 @@ def test_inner():
              "AWB_ASK_KEY_FILE": "/nowhere/key"}
     done = _inner_run(tmp_path, body, shell)
     assert done.returncode == 0, done.stdout + done.stderr
+
+
+def test_a_patched_work_user_gets_a_home_of_the_test(monkeypatch):
+    """T3: with `config.is_work_user` patched the paths come from the home of the test, never the real one."""
+    from awb import config
+
+    monkeypatch.setattr(config, "is_work_user", lambda: True)
+    shared = str(config.paths().shared)
+    assert shared.startswith(os.environ["HOME"]) and "no-host" in shared
+    assert str(config.paths().kb).startswith(os.environ["HOME"])
+
+
+def test_the_guard_refuses_the_sockets_of_the_host_services():
+    """T3: the key service socket and the other /run/awb-* sockets are refused like the vault."""
+    import socket
+
+    for name in ("/run/awb-keys/cloud.sock", "/run/awb-owner.sock"):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            with pytest.raises(PermissionError):
+                sock.connect(name)
+        finally:
+            sock.close()
+    assert len(conftest._VAULT_GUARD["hits"]) == 2
+    conftest._VAULT_GUARD["hits"] = []

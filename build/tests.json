@@ -5557,8 +5557,22 @@
    "name": "tests: AWB_ variables of the owner's shell are deleted and pass exits 1 (T2)",
    "run": ".venv/bin/pytest tests/test_vault_guard.py",
    "status": "passing"
+  },
+  {
+   "id": "TI-2",
+   "phase": "TI",
+   "name": "tests: a patched is_work_user takes the home of the test (T3)",
+   "run": ".venv/bin/pytest tests/test_vault_guard.py",
+   "status": "passing"
+  },
+  {
+   "id": "TI-3",
+   "phase": "TI",
+   "name": "tests: the guard refuses the /run/awb-* sockets of the host services (T3)",
+   "run": ".venv/bin/pytest tests/test_vault_guard.py",
+   "status": "passing"
   }
  ],
- "total_tests": 794,
+ "total_tests": 796,
  "checked": "2026-10-13"
 }
