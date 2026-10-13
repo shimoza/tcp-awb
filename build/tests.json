@@ -5396,8 +5396,22 @@
    "name": "awb cloud sweep lists the buckets with --buckets only, their names never in the output",
    "run": ".venv/bin/pytest tests/test_sweep.py::test_the_command_line_sweeps_the_buckets_with_the_flag_only",
    "status": "passing"
+  },
+  {
+   "id": "MCPB-1",
+   "phase": "MCPB",
+   "name": "dataset: the build packs tcp-facts-<date>.mcpb with the manifest fields the MCP Bundle specification requires",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_the_build_packs_an_mcp_bundle_with_the_manifest_the_specification_requires",
+   "status": "passing"
+  },
+  {
+   "id": "MCPB-2",
+   "phase": "MCPB",
+   "name": "dataset: awb dataset put --github uploads the .mcpb as a release asset and refuses a build without one",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_github_put_uploads_the_bundle_as_a_release_asset_after_the_other_assets",
+   "status": "passing"
   }
  ],
- "total_tests": 771,
+ "total_tests": 773,
  "checked": "2026-10-12"
 }
