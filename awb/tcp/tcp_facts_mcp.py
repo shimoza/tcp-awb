@@ -61,6 +61,7 @@ MAX_HITS = 20
 MAX_FILE = 64 * 1024 * 1024
 PRICE_API = "https://calculator.otc-service.com/en/open-telekom-price-api/"
 PRICE_TIMEOUT = 30.0
+MAX_PRICE_ANSWER = 32 * 1024 * 1024    # --live reads no more of the price API than this
 
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
 UNSUPPORTED_VERSION = -32022        # the code of the specification for a protocol version the server does not speak
@@ -399,7 +400,10 @@ def _live(ds: Dataset, service: str, region: str, terms: list[str]) -> dict | No
     fetched = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     try:
         with urllib.request.urlopen(url, timeout=PRICE_TIMEOUT) as r:
-            body = json.loads(r.read().decode("utf-8"))
+            data = r.read(MAX_PRICE_ANSWER + 1)
+        if len(data) > MAX_PRICE_ANSWER:
+            return None
+        body = json.loads(data.decode("utf-8"))
     except (urllib.error.URLError, OSError, ValueError):
         return None
     resp = body.get("response") if isinstance(body, dict) else None
