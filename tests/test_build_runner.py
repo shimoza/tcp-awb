@@ -15,6 +15,7 @@ import signal
 import subprocess
 import sys
 import time
+import types
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -1360,3 +1361,18 @@ def test_the_week_rollover_of_the_changelog_text(today, newest, want):
     new, week, closed = got
     assert new == text.replace(newest, "%s\n\n### Added\n\n%s" % want)
     assert week == today.isocalendar()[1] and str(closed) == newest.split()[2].rstrip(",")
+
+
+def test_a_folder_in_wt_with_a_name_the_runner_never_makes_never_reaches_a_unit_property(tmp_path):
+    """Review of 2026-10-13: the names of wt/ went unquoted into InaccessiblePaths=, which systemd splits on blanks and
+    quotes: a folder `A"` and a folder `Z"` made of every clone between them one path that does not exist (the
+    leading - lets systemd skip it), so the clones of other tasks were no longer hidden."""
+    host = buildrun.Host(tmp_path, tmp_path / "runs", tmp_path / "queue", units=None)
+    (tmp_path / "runs").mkdir()
+    for name in ("A\"", "B-011-1", "B-011-1.out", "B-012-1", "x y", "Z\"", "B-1-1", "B-011-1\\"):
+        (host.wt / name).mkdir(parents=True)
+    ctx = types.SimpleNamespace(tid="B-012", n=1)
+    hidden = buildrun._hidden(host, ctx)
+    wt = [p for p in hidden if p.startswith(str(host.wt))]
+    assert sorted(wt) == [str(host.wt / "B-011-1"), str(host.wt / "B-011-1.out")]
+    assert not any(c in p for p in hidden for c in " \"'\\")

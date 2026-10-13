@@ -5424,8 +5424,15 @@
    "name": "cloud: an answer is read up to its bound of 16 MiB and marked cut, a refusal too",
    "run": ".venv/bin/pytest tests/test_cloud.py::test_an_answer_is_read_up_to_its_bound_and_marked_cut",
    "status": "passing"
+  },
+  {
+   "id": "REV13-5",
+   "phase": "REV-2026-10-13",
+   "name": "build runner: a folder in wt/ with a name the runner never makes never reaches a unit property",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_folder_in_wt_with_a_name_the_runner_never_makes_never_reaches_a_unit_property",
+   "status": "passing"
   }
  ],
- "total_tests": 775,
+ "total_tests": 776,
  "checked": "2026-10-12"
 }

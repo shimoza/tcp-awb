@@ -1672,6 +1672,9 @@ def check_own(host: Host, ctx: Ctx) -> None:
 
 # --------------------------------------------------------------------------- the unit helpers of the owner side
 
+_WT_NAME_RE = re.compile(r"B-[0-9]{3,4}-[0-9]{1,6}(?:\.out)?")      # a clone of wt/ and its export
+
+
 def _hidden(host: Host, ctx: Ctx | None, clone: bool = True) -> list[str]:
     """What a task's unit may not see: the records, every other clone and every other task home (and, for the
     suite, its own clone: the suite sees the export alone)."""
@@ -1681,7 +1684,8 @@ def _hidden(host: Host, ctx: Ctx | None, clone: bool = True) -> list[str]:
         mine.add("%s-%d" % (ctx.tid, ctx.n))
     with contextlib.suppress(OSError):
         for name in sorted(os.listdir(host.wt)):
-            if name not in mine:
+            # only the names the runner makes: another name could split or join the unquoted path list of the unit
+            if name not in mine and _WT_NAME_RE.fullmatch(name):
                 out.append(str(host.wt / name))
     # home/ is the build user's 700, closed to the owner: the homes of the runs that are not done, from the records
     for tid in build.ids_with_runs(host.runs):
