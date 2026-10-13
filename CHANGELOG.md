@@ -7,6 +7,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- Ask API for the console: `POST /api/ask` answers a question with the text, the fact ids it names, the prices it used and the questions left; `GET /api/ask/budget` returns the questions left. A refusal says why (`name`, `budget`, `busy`, `error`). It runs on the engine, the budget counter and the name check of the Ask page and follows the POST rules of the gateway; the owner host answers 404. In `docs/api/openapi.yaml`.
 - `INSTALL.md`, "Deploy your own Architect Workbench": the steps for an architect who runs the Workbench on his own Ubuntu 24.04 host (what to have, the order with the exact commands, what the setup creates, how to check, update, roll back and remove it, what is optional), linked from the top of `README.md`.
 - A comment above `main` in `awb/build.py` names `awb/buildrun.py` as the runner of the queue (B-001).
 - `awb pricebook build SPEC [--out FILE] [--lang en|de] [--against OLD]` builds the price workbook of an estimate from

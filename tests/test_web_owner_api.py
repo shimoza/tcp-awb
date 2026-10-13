@@ -710,3 +710,13 @@ def test_the_ui_runs_come_from_a_temporary_queue_and_a_registered_form_in_a_summ
                 {"summary": "a\nb", "withheld": None}, {"summary": None, "withheld": "homepath"}):
         with pytest.raises(status_shape.StatusError):
             status_shape.validate(status_doc(ui_runs=[dict(status_doc()["ui_runs"][0], **bad)]))
+
+
+def test_the_ask_api_is_a_reader_route_of_the_main_host_only(site):
+    """POST /api/ask and GET /api/ask/budget stay on the main host like the Ask page and the chat: the owner host
+    asks no backend for them."""
+    token = site.owner_session()
+    calls = len(site.tcp.calls)
+    assert site.request("/api/ask/budget", host=OWNER, headers=owner_headers(site, token))[0] == 404
+    assert site.request("/api/ask", "POST", host=OWNER, headers=owner_headers(site, token, post=True), body="{}")[0] in (404, 405)
+    assert len(site.tcp.calls) == calls

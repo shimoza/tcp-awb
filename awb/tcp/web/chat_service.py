@@ -35,6 +35,14 @@ For platform facts and prices continue to use the checked tools. Never invent or
 quote. Answer in the language of the user's question. Keep the answer focused on the selected project.
 '''
 
+NAME_FOUND = 'The text contains a name, address or protected value. Use project and customer codes.'
+BUSY = 'Another answer is being prepared. Try again when it finishes.'
+BUDGET_SPENT = 'The daily Ask budget is used up. It resets at 00:00 UTC.'
+SHORT_BUDGET = 'Not enough daily token budget remains for this answer.'
+DECLINED = 'The model declined this question.'
+CITED_PRICES = 50
+"""Price records kept for one answer of the Ask API."""
+
 PASSAGE = 1000
 """The size of one passage of an input, in characters: blank lines split first, a long paragraph in pieces."""
 FIND_LIMIT = 6000
@@ -134,6 +142,19 @@ def input_find(inputs, query):
     return '\n\n'.join(out)
 
 
+def citations(name, output):
+    """(fact ids, price records) a tool output hands to the model; nothing for an output that is not the tool's JSON."""
+    try:
+        data = json.loads(output)
+    except ValueError:
+        return [], []
+    if name == 'kb_find' and isinstance(data, list):
+        return [e['id'] for e in data if isinstance(e, dict) and isinstance(e.get('id'), str)], []
+    if name == 'price_find' and isinstance(data, dict) and isinstance(data.get('records'), list):
+        return [], [{'source': str(data.get('source', '')), **r} for r in data['records'] if isinstance(r, dict)]
+    return [], []
+
+
 class ChatError(Exception):
     def __init__(self, message, status=503):
         super().__init__(message)
@@ -182,7 +203,7 @@ def screen(text, paths, numeric_price=False):
     # These detectors are local pattern checks. They never load the name register.
     secret = any(gate.DETECTORS[k](text) for k in ('secret', 'private-key', 'token', 'homepath'))
     if hits or secret:
-        raise ChatError('The text contains a name, address or protected value. Use project and customer codes.', 422)
+        raise ChatError(NAME_FOUND, 422)
     return text
 
 
@@ -240,6 +261,7 @@ class Conversations:
                 created TEXT NOT NULL, completed TEXT, tokens INTEGER NOT NULL DEFAULT 0,
                 tools TEXT NOT NULL DEFAULT '[]', context_time TEXT)''')
             con.execute('CREATE INDEX IF NOT EXISTS turns_project ON turns(project, created)')
+            con.execute('CREATE TABLE IF NOT EXISTS cites (id TEXT PRIMARY KEY, facts TEXT NOT NULL, prices TEXT NOT NULL)')
             columns = {r['name'] for r in con.execute('PRAGMA table_info(turns)')}
             for col in ('material_ids', 'material_sources'):
                 if col not in columns:
@@ -311,7 +333,7 @@ class Conversations:
             previous = self.row(request_id)
             if previous and previous['project'] == code and previous['question'] == normalize.normalize(question.strip()).text and json.loads(previous['material_ids']) == material_ids:
                 return previous
-            raise ChatError('Another answer is being prepared. Try again when it finishes.', 429)
+            raise ChatError(BUSY, 429)
         try:
             project = self.reader(code) if code != 'general' else None
             question = screen(question.strip(), self.paths)
@@ -362,7 +384,7 @@ class Conversations:
                 messages.extend([{'role': 'user', 'content': turn['question']}, {'role': 'assistant', 'content': turn['answer']}])
             messages.append({'role': 'user', 'content': question})
             if self.budget()['questions_left'] < 1 or self.budget()['tokens_left'] < 4096:
-                raise ChatError('The daily Ask budget is used up. It resets at 00:00 UTC.', 429)
+                raise ChatError(BUDGET_SPENT, 429)
             # Reserve the question before returning 202 or starting a model request.
             ask.spend(0, questions=1)
             with self.connect() as con:
@@ -382,6 +404,7 @@ class Conversations:
     def run(self, request_id, context, messages, inputs=None):
         tokens = 0
         used = []
+        facts, prices = set(), []
         tools = ask.TOOLS + [INPUT_TOOL] if inputs else ask.TOOLS
         try:
             sender = self.sender or ask.post
@@ -398,7 +421,7 @@ class Conversations:
                 day = dt.date.today().isoformat()
                 self.budget()
                 if reserve > ask.budget_left(day)[1]:
-                    raise ChatError('Not enough daily token budget remains for this answer.', 429)
+                    raise ChatError(SHORT_BUDGET, 429)
                 ask.spend(reserve, today=day)
                 response = sender(body, key)
                 usage = response.get('usage', {})
@@ -409,7 +432,7 @@ class Conversations:
                 tokens += actual
                 content = response.get('content', [])
                 if response.get('stop_reason') == 'refusal':
-                    raise ChatError('The model declined this question.', 422)
+                    raise ChatError(DECLINED, 422)
                 if response.get('stop_reason') != 'tool_use':
                     answer = '\n\n'.join(b.get('text', '') for b in content if b.get('type') == 'text').strip()
                     if not answer:
@@ -420,6 +443,8 @@ class Conversations:
                         answer += '\n\n' + note
                     with self.connect() as con:
                         con.execute("UPDATE turns SET answer=?,status='complete',completed=?,tokens=?,tools=? WHERE id=?", (answer, now(), tokens, json.dumps(sorted(set(used))), request_id))
+                        # the facts the answer names and the prices the tools handed over, for the Ask API
+                        con.execute('INSERT OR REPLACE INTO cites VALUES(?,?,?)', (request_id, json.dumps(sorted(f for f in facts if f in answer)), json.dumps(prices[:CITED_PRICES])))
                     return
                 # Model-generated tool arguments and intermediate text are checked before reuse.
                 screen(json.dumps(content, ensure_ascii=False), self.paths)
@@ -447,6 +472,9 @@ class Conversations:
                             raise
                         output = '{"error":"Source text was withheld by the data check."}'
                     used.append(name)
+                    found, priced = citations(name, output)
+                    facts.update(found)
+                    prices.extend(priced)
                     results.append({'type': 'tool_result', 'tool_use_id': block['id'], 'content': output})
                 if not results:
                     raise ChatError('The model returned no usable tool request.')
@@ -458,6 +486,37 @@ class Conversations:
             self.fail(request_id, 'The answer could not be completed. It will not be resent automatically.', tokens, used)
         finally:
             self.busy.release()
+
+    def left(self):
+        try:
+            return self.budget()['questions_left']
+        except ChatError:
+            return None
+
+    def refused(self, message, status):
+        """(status, body) of a refusal of the Ask API: the sentence, why in one word and the questions left."""
+        reason = ('name' if status == 422 and message == NAME_FOUND else
+                  'budget' if message in (BUDGET_SPENT, SHORT_BUDGET) else
+                  'busy' if message == BUSY else 'error')
+        return status, {'error': message, 'reason': reason, 'questions_left': self.left()}
+
+    def ask_json(self, question, request_id=None):
+        """(status, body) of POST /api/ask: a general question through `submit`, so the name stop, the one answer at a
+        time, the budget counter and the model call are those of the Ask page."""
+        try:
+            turn = self.submit('general', question, uuid.uuid4().hex if request_id is None else request_id, background=False)
+        except ChatError as e:
+            return self.refused(str(e), e.status)
+        if turn['status'] == 'complete':
+            with self.connect() as con:
+                cited = con.execute('SELECT facts, prices FROM cites WHERE id=?', (turn['id'],)).fetchone()
+            return 200, {'request_id': turn['id'], 'answer': turn['answer'], 'facts': json.loads(cited['facts']) if cited else [],
+                         'prices': json.loads(cited['prices']) if cited else [], 'tools': json.loads(turn['tools']),
+                         'questions_left': self.left()}
+        if turn['status'] == 'failed':
+            error = turn['error']
+            return self.refused(error, 429 if error in (BUDGET_SPENT, SHORT_BUDGET) else 422 if error == DECLINED else 503)
+        return self.refused(BUSY, 429)    # the same request_id is still being answered
 
     def fail(self, request_id, error, tokens, used):
         with self.connect() as con:
@@ -476,7 +535,14 @@ class Handler(ask.Handler):
             self.wfile.write(raw)
 
     def do_GET(self):
-        route = CHAT_ROUTE.fullmatch(urlsplit(self.path).path)
+        path = urlsplit(self.path).path
+        if path == '/api/ask/budget':
+            try:
+                self.reply(200, self.server.chat.budget())
+            except ChatError as e:
+                self.reply(e.status, {'error': str(e)})
+            return
+        route = CHAT_ROUTE.fullmatch(path)
         if not route:
             return super().do_GET()
         try:
@@ -489,7 +555,8 @@ class Handler(ask.Handler):
     def do_POST(self):
         path = urlsplit(self.path).path
         route = CHAT_ROUTE.fullmatch(path)
-        if not route and path != '/ask':
+        api = path == '/api/ask'
+        if not route and not api and path != '/ask':
             self.reply(404, {'error': 'No such endpoint.'})
             return
         try:
@@ -501,12 +568,17 @@ class Handler(ask.Handler):
             length = int(sizes[0])
             if not 0 < length <= 16384:
                 raise ChatError('The request is too large.', 413)
-            expected = 'application/json' if route else 'application/x-www-form-urlencoded'
+            expected = 'application/json' if route or api else 'application/x-www-form-urlencoded'
             if self.headers.get('Content-Type', '').split(';')[0] != expected:
                 raise ChatError('Unsupported request format.', 415)
             self.connection.settimeout(15)
             raw = self.rfile.read(length).decode('utf-8')
-            if route:
+            if api:
+                data = json.loads(raw)
+                if not isinstance(data, dict):
+                    raise ChatError('A JSON object is required.', 400)
+                self.reply(*self.server.chat.ask_json(data.get('question'), data.get('request_id')))
+            elif route:
                 data = json.loads(raw)
                 if not isinstance(data, dict):
                     raise ChatError('A JSON object is required.', 400)

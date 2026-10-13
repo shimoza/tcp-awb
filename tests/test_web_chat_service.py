@@ -419,3 +419,111 @@ def test_the_chat_says_when_the_project_service_answers_locked(status, body, sai
         assert (str(err.value), err.value.status) == said
     finally:
         server.shutdown()
+
+
+# ------------------------------------------------------------------------------------------- the Ask API
+
+
+def _tool_then_text(text):
+    """A model stand-in: one round of kb_find and price_find, then the answer text."""
+    rounds = []
+
+    def sender(body, key):
+        rounds.append(body)
+        usage = {"input_tokens": 100, "output_tokens": 10}
+        if len(rounds) == 1:
+            return {"stop_reason": "tool_use", "usage": usage, "content": [
+                {"type": "tool_use", "id": "t1", "name": "kb_find", "input": {"query": "cold storage"}},
+                {"type": "tool_use", "id": "t2", "name": "price_find", "input": {"service": "obs"}}]}
+        return {"stop_reason": "end_turn", "usage": usage, "content": [{"type": "text", "text": text}]}
+    sender.rounds = rounds
+    return sender
+
+
+FAKE_KB = json.dumps([{"id": "KB-AAAA", "fact": "The cold class exists.", "grade": "docs"},
+                      {"id": "KB-BBBB", "fact": "Another fact.", "grade": "docs"}])
+FAKE_PRICE = json.dumps({"source": "price API, fetched 2026-10-04 09:31 UTC", "count": 1, "records": [
+    {"flavor": None, "name": "cold storage", "os": None, "unit": "GB/month", "currency": "EUR",
+     "prices": {"PAYG": "0.0117", "R12": None, "R24": None, "R36": None, "RU12": None, "RU24": None,
+                "RU36": None}}]})
+
+
+def test_the_ask_api_answers_with_the_facts_it_names_and_the_prices_it_used(engine):
+    engine.engine.sender = _tool_then_text("The cold class fits (KB-AAAA), 0.0117 EUR per GB and month.")
+    engine.engine.tool_runner = lambda paths, name, args: FAKE_KB if name == "kb_find" else FAKE_PRICE
+    before = ask.budget_left()[0]
+    status, body = engine.engine.ask_json("Which class fits rare reads?")
+    assert status == 200
+    assert body["facts"] == ["KB-AAAA"]                      # KB-BBBB was returned and not named
+    assert body["prices"][0]["source"].startswith("price API, fetched") and body["prices"][0]["prices"]["PAYG"] == "0.0117"
+    assert body["tools"] == ["kb_find", "price_find"]
+    assert body["questions_left"] == before - 1 == ask.budget_left()[0]   # the counter of the Ask page
+    assert contract.validate(contract.build(), body, contract.ref("AskAnswer")) == []
+
+
+def test_the_ask_api_stops_a_registered_name_before_anything_is_sent(engine):
+    engine.calls.clear()
+    with patch.object(vault, "check_remote", return_value=[{"cls": "name", "start": 0, "length": 2}]):
+        status, body = engine.engine.ask_json("A question")
+    assert (status, body["reason"], body["error"]) == (422, "name", chat.NAME_FOUND)
+    assert engine.calls == [] and body["questions_left"] == ask.DAILY_QUESTIONS
+    assert contract.validate(contract.build(), body, contract.ref("Error")) == []
+
+
+def test_the_ask_api_stops_when_the_daily_budget_is_spent(engine):
+    ask.spend(0, questions=ask.DAILY_QUESTIONS)
+    engine.calls.clear()
+    status, body = engine.engine.ask_json("A question")
+    assert (status, body["reason"], body["error"], body["questions_left"]) == (429, "budget", chat.BUDGET_SPENT, 0)
+    assert engine.calls == []
+
+
+def test_the_ask_api_says_error_when_the_model_call_fails_and_never_resends(engine):
+    def broken(body, key):
+        raise ask.AskError("the API could not be reached (URLError)")
+    engine.engine.sender = broken
+    status, body = engine.engine.ask_json("A question")
+    assert (status, body["reason"]) == (503, "error") and body["questions_left"] == ask.DAILY_QUESTIONS - 1
+    assert contract.validate(contract.build(), body, contract.ref("Error")) == []
+
+
+def test_the_ask_api_refuses_a_bad_question_and_returns_the_first_answer_for_a_repeated_request_id(engine):
+    assert engine.engine.ask_json("   ")[0] == 400
+    assert engine.engine.ask_json("x" * (ask.MAX_QUESTION + 1))[0] == 400
+    assert engine.engine.ask_json(None)[0] == 400
+    assert engine.engine.ask_json("A question", "not-an-id")[0] == 400
+    assert ask.budget_left()[0] == ask.DAILY_QUESTIONS
+    first = engine.engine.ask_json("What is next?", "c" * 32)
+    again = engine.engine.ask_json("What is next?", "c" * 32)
+    assert first[0] == 200 and again[1]["answer"] == first[1]["answer"] and len(engine.calls) == 1
+    assert engine.engine.ask_json("Another?", "c" * 32)[0] == 409
+
+
+def test_the_ask_routes_of_the_service_follow_the_post_rules(engine):
+    server = ThreadingHTTPServer(("127.0.0.1", 0), chat.Handler)
+    server.chat = engine.engine
+    server.origin = "https://" + DOMAIN
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def call(method, path, body=None, origin="https://" + DOMAIN, ctype="application/json"):
+        c = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        c.request(method, path, body=body, headers={"Origin": origin, "Content-Type": ctype})
+        r = c.getresponse()
+        out = (r.status, json.loads(r.read()))
+        c.close()
+        return out
+    try:
+        status, body = call("GET", "/api/ask/budget")
+        assert status == 200 and contract.validate(contract.build(), body, contract.ref("Budget")) == []
+        q = json.dumps({"question": "What is next?"})
+        assert call("POST", "/api/ask", q)[0] == 200
+        assert call("POST", "/api/ask", q, origin="https://evil.invalid") == (403, {"error": "Submit questions from the AWB site."})
+        assert call("POST", "/api/ask", "q=x", ctype="application/x-www-form-urlencoded")[0] == 415
+        assert call("POST", "/api/ask", "[1]")[0] == 400
+        assert call("POST", "/api/ask", "{")[0] == 400
+        ask.spend(0, questions=ask.DAILY_QUESTIONS)
+        assert call("POST", "/api/ask", q)[1]["reason"] == "budget"
+        assert call("GET", "/api/ask/budget")[1]["questions_left"] == 0
+    finally:
+        server.shutdown()
+        server.server_close()

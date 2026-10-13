@@ -76,6 +76,8 @@ tags:
     description: The test tenants, read only.
   - name: materials
     description: Inputs from the buckets, copied into a project.
+  - name: ask
+    description: One general question, answered from checked sources only.
   - name: chat
     description: Questions about a project, answered from checked sources only.
   - name: owner
@@ -3168,6 +3170,298 @@ paths:
                   value:
                     error: The local response exceeds the size limit.
       x-awb-state: deployed
+  /api/ask:
+    post:
+      operationId: askApi
+      tags:
+        - ask
+      summary: "Ask one general question; the answer comes in this response."
+      description: "The same engine as the Ask page and the project chat: the question is checked for names before anything leaves, one answer at a time for the whole site, 40 questions and 300,000 tokens a day (the counter of the Ask page), reset at 00:00 UTC. The call returns when the answer is ready, which can take a minute. A refusal carries reason and questions_left. Main host only: the owner host answers 404 Not found."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/AskRequest"
+            examples:
+              question:
+                value:
+                  question: Which storage class fits data that is read once a year?
+              with-a-request-id:
+                value:
+                  question: Which storage class fits data that is read once a year?
+                  request_id: ffffffffffffffffffffffffffffffff
+      responses:
+        "200":
+          description: "The answer, the facts it names, the prices the tools returned and the questions left. This request_id was sent before: the first answer again."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AskAnswer"
+              examples:
+                answered:
+                  value:
+                    request_id: ffffffffffffffffffffffffffffffff
+                    answer: "The cold class fits (KB-Q7M4). A GB costs 0.0117 EUR per month (price API, fetched 2026-10-04 09:31 UTC)."
+                    facts:
+                      - KB-Q7M4
+                    prices:
+                      - source: "price API, fetched 2026-10-04 09:31 UTC"
+                        flavor: null
+                        name: cold storage
+                        os: null
+                        unit: GB/month
+                        currency: EUR
+                        prices:
+                          PAYG: "0.0117"
+                          R12: null
+                          R24: null
+                          R36: null
+                          RU12: null
+                          RU24: null
+                          RU36: null
+                    tools:
+                      - kb_find
+                      - price_find
+                    questions_left: 30
+        "400":
+          description: The question or the request_id cannot be used. The gateway refused the request.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                write-a-question-of-1:
+                  value:
+                    error: Write a question of 1 to 1000 characters.
+                a-valid-request-id-is:
+                  value:
+                    error: A valid request ID is required.
+                a-json-object-is-required:
+                  value:
+                    error: A JSON object is required.
+                the-request-could-not-be:
+                  value:
+                    error: The request could not be read.
+            text/html:
+              schema:
+                type: string
+              examples:
+                a-single-content-length-is:
+                  value: |
+                    A single content length is required.
+                incomplete-request:
+                  value: |
+                    Incomplete request.
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "403":
+          description: The gateway refused a request from another site.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-ask-on-the-awb:
+                  value: |
+                    Open Ask on the AWB site to submit a question.
+                cross-site-requests-are-not:
+                  value: |
+                    Cross-site requests are not allowed.
+        "405":
+          description: Another method than POST.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                method-not-allowed:
+                  value: |
+                    Method not allowed.
+        "408":
+          description: The body did not arrive in time.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-timed-out:
+                  value: |
+                    Request timed out.
+        "409":
+          description: The request_id belongs to another question.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                this-request-id-belongs-to:
+                  value:
+                    error: This request ID belongs to another question.
+        "413":
+          description: The body is larger than 16384 bytes.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-is-too-large:
+                  value: |
+                    Request is too large.
+        "415":
+          description: The body has the wrong content type.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                use-the-ask-form:
+                  value: |
+                    Use the Ask form.
+        "422":
+          description: The question holds a name or a protected value (reason name) or the model declined it (reason error). Nothing was sent in the first case.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-text-contains-a-name:
+                  value:
+                    error: The text contains a name, address or protected value. Use project and customer codes.
+                    reason: name
+                    questions_left: 30
+        "429":
+          description: The daily budget is used up (reason budget) or another answer is being prepared (reason busy).
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-daily-ask-budget-is:
+                  value:
+                    error: "The daily Ask budget is used up. It resets at 00:00 UTC."
+                    reason: budget
+                    questions_left: 0
+                not-enough-daily-token-budget:
+                  value:
+                    error: Not enough daily token budget remains for this answer.
+                    reason: budget
+                    questions_left: 1
+                another-answer-is-being-prepared:
+                  value:
+                    error: Another answer is being prepared. Try again when it finishes.
+                    reason: busy
+                    questions_left: 30
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: A check or the usage record is unavailable or the answer failed (reason error). Nothing was sent when the check failed.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-data-check-is-locked:
+                  value:
+                    error: The data check is locked. Nothing was sent.
+                    reason: error
+                    questions_left: 30
+                the-data-check-is-unavailable:
+                  value:
+                    error: The data check is unavailable. Nothing was sent.
+                    reason: error
+                    questions_left: 30
+                the-usage-record-is-unavailable:
+                  value:
+                    error: The usage record is unavailable. No new questions can be sent.
+                    reason: error
+                    questions_left: null
+                the-answer-could-not-be:
+                  value:
+                    error: The answer could not be completed. It will not be resent automatically.
+                    reason: error
+                    questions_left: 29
+                the-api-key-is-not:
+                  value:
+                    error: the API key is not readable here
+                    reason: error
+                    questions_left: 29
+      x-awb-state: deployed
+  /api/ask/budget:
+    get:
+      operationId: askBudget
+      tags:
+        - ask
+      summary: The questions left today.
+      description: Read this to show the questions left before the first question is sent. Main host only.
+      responses:
+        "200":
+          description: The budget of the Ask page and the chat, one counter.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Budget"
+              examples:
+                budget:
+                  value:
+                    questions_left: 31
+                    tokens_left: 254880
+                    daily_questions: 40
+                    daily_tokens: 300000
+                    resets: "00:00 UTC"
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The usage record is unavailable.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-usage-record-is-unavailable:
+                  value:
+                    error: The usage record is unavailable. No new questions can be sent.
+      x-awb-state: deployed
   /api/owner/state:
     get:
       operationId: getOwnerState
@@ -3907,6 +4201,19 @@ components:
           description: Existing customers with the same name.
           items:
             "$ref": "#/components/schemas/CustomerCode"
+        reason:
+          type: string
+          description: "Only POST /api/ask: why no answer came. name: the question holds a registered name or a protected value. budget: the daily budget is used up. busy: another answer is being prepared. error: anything else."
+          enum:
+            - name
+            - budget
+            - busy
+            - error
+        questions_left:
+          type:
+            - integer
+            - "null"
+          description: "Only POST /api/ask: the questions left today; null when the usage record cannot be read."
       required:
         - error
     ProjectCode:
@@ -5451,3 +5758,131 @@ components:
       required:
         - turn
         - budget
+    AskRequest:
+      type: object
+      description: "request_id is optional: the same one with the same question returns the first answer instead of asking again."
+      properties:
+        question:
+          type: string
+          description: "1 to 1000 characters after trimming, checked for names before it leaves."
+          minLength: 1
+          maxLength: 1000
+        request_id:
+          "$ref": "#/components/schemas/RequestId"
+      required:
+        - question
+      additionalProperties: false
+    AskPrice:
+      type: object
+      properties:
+        source:
+          type: string
+          description: Where and when the price API was read, to show beside the price.
+        flavor:
+          type:
+            - string
+            - "null"
+        name:
+          type:
+            - string
+            - "null"
+        os:
+          type:
+            - string
+            - "null"
+        unit:
+          type:
+            - string
+            - "null"
+        currency:
+          type:
+            - string
+            - "null"
+        prices:
+          type: object
+          description: "The price by term as a decimal text; PAYG is pay as you go, R and RU the reserved terms in months. null where the API has none."
+          properties:
+            PAYG:
+              type:
+                - string
+                - "null"
+            R12:
+              type:
+                - string
+                - "null"
+            R24:
+              type:
+                - string
+                - "null"
+            R36:
+              type:
+                - string
+                - "null"
+            RU12:
+              type:
+                - string
+                - "null"
+            RU24:
+              type:
+                - string
+                - "null"
+            RU36:
+              type:
+                - string
+                - "null"
+          required:
+            - PAYG
+            - R12
+            - R24
+            - R36
+            - RU12
+            - RU24
+            - RU36
+      required:
+        - source
+        - flavor
+        - name
+        - os
+        - unit
+        - currency
+        - prices
+    AskAnswer:
+      type: object
+      properties:
+        request_id:
+          "$ref": "#/components/schemas/RequestId"
+        answer:
+          type: string
+          description: Plain text, no Markdown.
+        facts:
+          type: array
+          description: The fact ids the answer names and a lookup returned.
+          items:
+            type: string
+            pattern: "^KB-[A-Z0-9]+$"
+        prices:
+          type: array
+          description: The price records the live price API handed to the model for this answer, at most 50. The answer text says which of them it quotes.
+          items:
+            "$ref": "#/components/schemas/AskPrice"
+        tools:
+          type: array
+          description: The sources the answer used.
+          items:
+            type: string
+            enum:
+              - kb_find
+              - price_find
+              - tenant_now
+        questions_left:
+          type:
+            - integer
+            - "null"
+          description: "Questions left today; null when the usage record cannot be read."
+      required:
+        - request_id
+        - answer
+        - facts
+        - prices
+        - tools
+        - questions_left

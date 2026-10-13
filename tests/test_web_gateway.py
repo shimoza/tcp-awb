@@ -166,6 +166,36 @@ class LoginTests(unittest.TestCase):
         self.assertNotIn("Authorization", forwarded)
         self.assertEqual(self.request(path, "DELETE", headers)[0], 405)
 
+    def test_ask_api_follows_the_post_rules_and_reaches_the_ask_backend(self):
+        before = len(Backend.calls)
+        for port in [0, 1]:
+            self.assertEqual(self.request("/api/ask", "POST", body="{}", port=port)[0], 401)
+            self.assertEqual(self.request("/api/ask/budget", port=port)[0], 401)
+        headers = self.session_headers()
+        headers["Content-Type"] = "application/json"
+        body = '{"question": "What is next?"}'
+        self.assertEqual(self.request("/api/ask", "POST", headers, body)[0], 403)          # no Origin
+        headers["Origin"] = "https://evil.invalid"
+        self.assertEqual(self.request("/api/ask", "POST", headers, body)[0], 403)
+        headers["Origin"] = "https://" + DOMAIN
+        headers["Sec-Fetch-Site"] = "cross-site"
+        self.assertEqual(self.request("/api/ask", "POST", headers, body)[0], 403)
+        headers["Sec-Fetch-Site"] = "same-origin"
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        self.assertEqual(self.request("/api/ask", "POST", headers, body)[0], 415)
+        headers["Content-Type"] = "application/json"
+        self.assertEqual(self.request("/api/ask", "POST", headers, "x" * 20000)[0], 413)
+        self.assertEqual(self.request("/api/ask", "GET", headers)[0], 405)
+        self.assertEqual(self.request("/api/ask/budget", "POST", headers, "{}")[0], 405)
+        self.assertEqual(len(Backend.calls), before)
+        self.assertEqual(self.request("/api/ask", "POST", headers, body)[0], 200)
+        method, route, forwarded, sent = Backend.calls[-1]
+        self.assertEqual((method, route, sent), ("POST", "/api/ask", body.encode()))
+        self.assertEqual(forwarded["Content-Type"], "application/json")
+        self.assertNotIn("Cookie", forwarded)
+        self.assertEqual(self.request("/api/ask/budget", headers=self.session_headers())[0], 200)
+        self.assertEqual(Backend.calls[-1][:2], ("GET", "/api/ask/budget"))
+
     def test_login_secure_cookie_session_and_safe_redirect(self):
         h, data = self.form(next="https://evil.invalid")
         status, out, _ = self.request("/login", "POST", h, urlencode(data))

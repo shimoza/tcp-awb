@@ -512,6 +512,11 @@ def _schemas() -> dict:
                                 "request_id."),
             "code": string("The code the stuck submission reserved."),
             "matches": array(ref("CustomerCode"), "Existing customers with the same name."),
+            "reason": string("Only POST /api/ask: why no answer came. name: the question holds a registered name or a "
+                             "protected value. budget: the daily budget is used up. busy: another answer is being "
+                             "prepared. error: anything else.", enum=["name", "budget", "busy", "error"]),
+            "questions_left": integer("Only POST /api/ask: the questions left today; null when the usage record "
+                                      "cannot be read.", nullable=True),
         }, required=["error"], description="A refusal of a backend."),
         "ProjectCode": string("A project code.", pattern=PROJECT_CODE),
         "CustomerCode": string("A customer code.", pattern=CUSTOMER_CODE),
@@ -872,6 +877,31 @@ def _schemas() -> dict:
                                   maxItems=5),
         }, required=["question", "request_id"], closed=True),
         "ChatAccepted": obj({"turn": ref("ChatTurn"), "budget": ref("Budget")}),
+        "AskRequest": obj({
+            "question": string("1 to 1000 characters after trimming, checked for names before it leaves.",
+                               minLength=1, maxLength=1000),
+            "request_id": ref("RequestId"),
+        }, required=["question"], closed=True,
+            description="request_id is optional: the same one with the same question returns the first answer "
+                        "instead of asking again."),
+        "AskPrice": obj({
+            "source": string("Where and when the price API was read, to show beside the price."),
+            "flavor": string(nullable=True), "name": string(nullable=True), "os": string(nullable=True),
+            "unit": string(nullable=True), "currency": string(nullable=True),
+            "prices": obj({t: string(nullable=True) for t in PRICE_TERMS},
+                          description="The price by term as a decimal text; PAYG is pay as you go, R and RU the "
+                                      "reserved terms in months. null where the API has none."),
+        }),
+        "AskAnswer": obj({
+            "request_id": ref("RequestId"),
+            "answer": string("Plain text, no Markdown."),
+            "facts": array(string(pattern=r"^KB-[A-Z0-9]+$"), "The fact ids the answer names and a lookup returned."),
+            "prices": array(ref("AskPrice"), "The price records the live price API handed to the model for this "
+                            "answer, at most 50. The answer text says which of them it quotes."),
+            "tools": array(string(enum=["kb_find", "price_find", "tenant_now"]), "The sources the answer used."),
+            "questions_left": integer("Questions left today; null when the usage record cannot be read.",
+                                      nullable=True),
+        }),
     }
 
 
@@ -1274,6 +1304,66 @@ def _material_paths() -> dict:
     }
 
 
+PRICE_TERMS = ("PAYG", "R12", "R24", "R36", "RU12", "RU24", "RU36")
+ASK_ANSWER = {"request_id": REQ, "answer": "The cold class fits (KB-Q7M4). A GB costs 0.0117 EUR per month "
+              "(price API, fetched 2026-10-04 09:31 UTC).", "facts": ["KB-Q7M4"],
+              "prices": [{"source": "price API, fetched 2026-10-04 09:31 UTC", "flavor": None, "name": "cold storage",
+                          "os": None, "unit": "GB/month", "currency": "EUR", "prices": {"PAYG": "0.0117", "R12": None,
+                                                                                      "R24": None, "R36": None,
+                                                                                      "RU12": None, "RU24": None,
+                                                                                      "RU36": None}}],
+              "tools": ["kb_find", "price_find"], "questions_left": 30}
+
+
+def _ask_api_paths() -> dict:
+    return {
+        "/api/ask": {"post": operation(
+            "askApi", "ask", "Ask one general question; the answer comes in this response.", {
+                "200": answer("The answer, the facts it names, the prices the tools returned and the questions "
+                              "left. This request_id was sent before: the first answer again.",
+                              ref("AskAnswer"), {"answered": ASK_ANSWER}),
+                "400": refusal("The question or the request_id cannot be used.",
+                               "Write a question of 1 to 1000 characters.", "A valid request ID is required.",
+                               "A JSON object is required.", "The request could not be read."),
+                "409": refusal("The request_id belongs to another question.",
+                               "This request ID belongs to another question."),
+                "422": refusal("The question holds a name or a protected value (reason name) or the model "
+                               "declined it (reason error). Nothing was sent in the first case.",
+                               {"error": NAME_FOUND, "reason": "name", "questions_left": 30}),
+                "429": refusal("The daily budget is used up (reason budget) or another answer is being prepared "
+                               "(reason busy).",
+                               {"error": BUDGET_SPENT, "reason": "budget", "questions_left": 0},
+                               {"error": "Not enough daily token budget remains for this answer.",
+                                "reason": "budget", "questions_left": 1},
+                               {"error": BUSY, "reason": "busy", "questions_left": 30}),
+                "503": refusal("A check or the usage record is unavailable or the answer failed (reason error). "
+                               "Nothing was sent when the check failed.",
+                               {"error": CHECK_LOCKED, "reason": "error", "questions_left": 30},
+                               {"error": CHECK_DOWN, "reason": "error", "questions_left": 30},
+                               {"error": USAGE_DOWN, "reason": "error", "questions_left": None},
+                               {"error": "The answer could not be completed. It will not be resent automatically.",
+                                "reason": "error", "questions_left": 29},
+                               {"error": "the API key is not readable here", "reason": "error",
+                                "questions_left": 29}),
+                "405": gateway("Another method than POST.", "Method not allowed."),
+            }, description="The same engine as the Ask page and the project chat: the question is checked for names "
+                           "before anything leaves, one answer at a time for the whole site, 40 questions and 300,000 "
+                           "tokens a day (the counter of the Ask page), reset at 00:00 UTC. The call returns when the "
+                           "answer is ready, which can take a minute. A refusal carries reason and questions_left. "
+                           "Main host only: the owner host answers 404 Not found.",
+            parameters=None, body=json_body("AskRequest", {
+                "question": {"question": "Which storage class fits data that is read once a year?"},
+                "with-a-request-id": {"question": "Which storage class fits data that is read once a year?",
+                                      "request_id": REQ}}), post=True)},
+        "/api/ask/budget": {"get": operation(
+            "askBudget", "ask", "The questions left today.", {
+                "200": answer("The budget of the Ask page and the chat, one counter.", ref("Budget"),
+                              {"budget": dict(BUDGET)}),
+                "503": refusal("The usage record is unavailable.", USAGE_DOWN),
+            }, description="Read this to show the questions left before the first question is sent. Main host only.")},
+    }
+
+
 def _chat_paths() -> dict:
     return {
         "/api/projects/{code}/chat": {
@@ -1455,7 +1545,7 @@ def build() -> dict:
     """The whole document."""
     paths: dict = {}
     for part in (_session_paths, _page_paths, _project_paths, _customer_paths, _tenant_paths, _material_paths,
-                 _chat_paths, _owner_paths):
+                 _chat_paths, _ask_api_paths, _owner_paths):
         paths.update(part())
     _owner_only(paths)
     # the owner view of the tenants refuses exactly as the reader view: one answer, kept as one object
@@ -1473,6 +1563,7 @@ def build() -> dict:
             {"name": "customers", "description": "The customer register. Owner only: it carries names."},
             {"name": "tenants", "description": "The test tenants, read only."},
             {"name": "materials", "description": "Inputs from the buckets, copied into a project."},
+            {"name": "ask", "description": "One general question, answered from checked sources only."},
             {"name": "chat", "description": "Questions about a project, answered from checked sources only."},
             {"name": "owner", "description": "The owner level on its own host: states and counts, never a name."},
         ],

@@ -302,3 +302,15 @@ def _without(doc, text):
             return [walk(v) for v in node if not (isinstance(v, str) and text in v)]
         return node
     return walk(copy.deepcopy(doc))
+
+
+def test_the_ask_api_follows_the_ask_page(doc):
+    from awb.tcp import price
+    schemas = doc["components"]["schemas"]
+    assert schemas["AskRequest"]["properties"]["question"]["maxLength"] == ask.MAX_QUESTION
+    assert list(schemas["AskPrice"]["properties"]["prices"]["properties"]) == list(price.FIELDS)
+    assert set(schemas["AskAnswer"]["properties"]["tools"]["items"]["enum"]) == {t["name"] for t in ask.TOOLS}
+    assert _first_example(doc, "/api/ask/budget", "get", "200")["daily_questions"] == ask.DAILY_QUESTIONS
+    refused = _body(doc, "/api/ask", "post", "429")["examples"]
+    assert {e["value"]["reason"] for e in refused.values()} == {"budget", "busy"}
+    assert "/api/ask" not in {p for p, item in doc["paths"].items() if "owner" in str(item.get("post", {}).get("security", ""))}
