@@ -27,6 +27,7 @@ DOMAIN = "otc.t-systems.com"
 TIMEOUT = 60
 CHUNK = 1 << 20
 PAGE = 1000
+MAX_PAGES = 100000  # a listing of more pages than this is an error, not a loop
 SUBRESOURCES = frozenset((
     "acl", "append", "attname", "cors", "customdomain", "delete", "deletebucket", "encryption", "inventory",
     "lifecycle", "location", "logging", "metadata", "modify", "notification", "partNumber", "policy", "position",
@@ -256,7 +257,8 @@ class Client:
         prefixes: list[str] = []
         modified: dict[str, str] = {}
         marker = ""
-        while True:
+        seen = {""}
+        for _ in range(MAX_PAGES):
             params = [("max-keys", str(page))]
             if prefix:
                 params.append(("prefix", prefix))
@@ -288,6 +290,11 @@ class Client:
             marker = xml_text(xml_child(root, "NextMarker")) or last
             if not marker:
                 break
+            if marker in seen:
+                raise OBSError("the listing repeats its marker")
+            seen.add(marker)
+        else:
+            raise OBSError("the listing runs past %d pages" % MAX_PAGES)
         return Listing(objects, prefixes, modified)
 
     def head(self, key: str) -> dict | None:

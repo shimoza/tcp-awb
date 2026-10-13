@@ -61,6 +61,8 @@ MAX_HITS = 20
 MAX_FILE = 64 * 1024 * 1024
 PRICE_API = "https://calculator.otc-service.com/en/open-telekom-price-api/"
 PRICE_TIMEOUT = 30.0
+MAX_PRICE_ANSWER = 32 * 1024 * 1024    # --live reads no more of the price API than this
+MAX_LINE = 8 * 1024 * 1024             # a longer line from the client is a parse error
 
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
 UNSUPPORTED_VERSION = -32022        # the code of the specification for a protocol version the server does not speak
@@ -399,7 +401,10 @@ def _live(ds: Dataset, service: str, region: str, terms: list[str]) -> dict | No
     fetched = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     try:
         with urllib.request.urlopen(url, timeout=PRICE_TIMEOUT) as r:
-            body = json.loads(r.read().decode("utf-8"))
+            data = r.read(MAX_PRICE_ANSWER + 1)
+        if len(data) > MAX_PRICE_ANSWER:
+            return None
+        body = json.loads(data.decode("utf-8"))
     except (urllib.error.URLError, OSError, ValueError):
         return None
     resp = body.get("response") if isinstance(body, dict) else None
@@ -821,25 +826,45 @@ def _encode(out) -> bytes:
         return json.dumps(out, ensure_ascii=True).encode("ascii") + b"\n"
 
 
+def _read_line(stdin) -> tuple[bytes, bool] | None:
+    """The next line and whether it was too long, None at the end of the input. A line over MAX_LINE bytes is skipped
+    to its end and none of it is kept, so no more than MAX_LINE + 1 bytes are ever held."""
+    raw = stdin.readline(MAX_LINE + 1)
+    if not raw:
+        return None
+    if len(raw) <= MAX_LINE or raw.endswith(b"\n"):
+        return raw, False
+    while True:
+        more = stdin.readline(MAX_LINE)
+        if not more or more.endswith(b"\n"):
+            return b"", True
+
+
 def serve(ds: Dataset, stdin=None, stdout=None) -> None:
     stdin = stdin or sys.stdin.buffer
     stdout = stdout or sys.stdout.buffer
     session = Session()
-    for raw in stdin:
-        line = raw.strip()
-        if not line:
+    while True:
+        got = _read_line(stdin)
+        if got is None:
+            break
+        line, too_long = got[0].strip(), got[1]
+        if not line and not too_long:
             continue
-        try:
-            msg = json.loads(line.decode("utf-8"))
-        except (ValueError, UnicodeDecodeError, RecursionError):    # nested deeper than the parser goes: not JSON
-            out = _error(None, PARSE_ERROR, "not JSON")
+        if too_long:
+            out = _error(None, PARSE_ERROR, "a line longer than %d bytes" % MAX_LINE)
         else:
-            if isinstance(msg, list):
-                out = [r for r in (handle(ds, m, session) for m in msg) if r is not None] if msg else \
-                    _error(None, INVALID_REQUEST, "an empty batch")
-                out = out or None
+            try:
+                msg = json.loads(line.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError, RecursionError):    # nested deeper than the parser goes: not JSON
+                out = _error(None, PARSE_ERROR, "not JSON")
             else:
-                out = handle(ds, msg, session)
+                if isinstance(msg, list):
+                    out = [r for r in (handle(ds, m, session) for m in msg) if r is not None] if msg else \
+                        _error(None, INVALID_REQUEST, "an empty batch")
+                    out = out or None
+                else:
+                    out = handle(ds, msg, session)
         if out is not None:
             try:
                 stdout.write(_encode(out))

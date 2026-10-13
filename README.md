@@ -424,7 +424,7 @@ to 2024-11-05. Its tools carry a title and read-only annotations. It has four to
 
 Every answer carries the dataset date, the best-before date and the rule "answer from these facts, cite the id, say
 when no fact covers it". The server reads no file outside its dataset folder (`--data`, default the folder the file
-lies in), opens no connection without `--live` and writes nothing.
+lies in), opens no connection without `--live`, writes nothing and reads no input line longer than 8 MiB (it answers a parse error and goes on). With `--live` it reads at most 32 MiB of the price API answer and uses the snapshot when the answer is longer.
 
 **Claude Desktop, one click.** Every build also writes `tcp-facts-<date>.mcpb` beside the zip: an MCP Bundle (a zip
 with a `manifest.json`, the server file and the data files of that build, written for manifest version 0.3). `awb
@@ -539,7 +539,7 @@ It also loads the egress filter of the work user: an nftables table that counts 
 a host outside `seal/egress/ALLOW.md` (the model API, the client's login, update and telemetry hosts and the TCP
 price API), by class. It ships counting and refuses nothing. After a day of counts with nothing unexpected,
 `sudo awb egress enforce` makes it refuse; `awb egress status` and `awb deploy status` show the mode and the counts,
-`sudo awb egress count` goes back. The test tenants stay reachable through the key service, which runs as you.
+`sudo awb egress count` goes back. The test tenants stay reachable through the key service, which runs as you. When the table is missing within the same boot (a restart of nftables removes it) the next load puts it back, restarts the count window and the status says so.
 Things you want no commit to carry (names of other workspaces, a naming scheme) go into a local blocklist, one regular expression per
 line: `/etc/awb/blocklist.txt` or `~/.config/awb/blocklist.txt`. It never enters the repository.
 

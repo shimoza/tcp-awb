@@ -600,3 +600,35 @@ def test_a_deploy_maps_the_egress_files_to_no_restart():
     assert eff.units == {} and eff.unmapped == [] and eff.every == []
     from awb import cli
     assert cli.DELEGATED["egress"][0] == "egress"
+
+
+def test_a_table_missing_within_the_same_boot_restarts_the_count_and_the_status_says_so(world):
+    host, nft, clock, _ = world
+    host.boot_id = lambda: "boot-one"
+    _run_for(host, nft, clock, 30)
+    first = json.loads((host.state_dir / "status.json").read_text())["count_since"]
+    nft.loaded = None                                   # systemctl restart nftables: flush ruleset
+    clock.t += 300
+    assert egress.load(host)["action"] == "loaded"
+    st = json.loads((host.state_dir / "status.json").read_text())
+    assert st["boot_id"] == "boot-one" and st["table_lost_at"] == st["loaded_at"]
+    assert st["count_since"] == st["loaded_at"] != first
+    assert st["window"]["covered"] is False and "counting since" in st["window"]["why"]
+    assert any("table was missing" in line for line in egress.status_lines(host))
+    clock.t += 300
+    egress.load(host)                                   # a refresh keeps the note
+    assert egress.status(host)["table_lost_at"] == st["table_lost_at"]
+
+
+def test_a_table_missing_after_a_reboot_is_a_plain_load(world):
+    host, nft, clock, _ = world
+    host.boot_id = lambda: "boot-one"
+    _run_for(host, nft, clock, 30)
+    first = json.loads((host.state_dir / "status.json").read_text())["count_since"]
+    nft.loaded = None
+    host.boot_id = lambda: "boot-two"
+    clock.t += 300
+    egress.load(host)
+    st = json.loads((host.state_dir / "status.json").read_text())
+    assert st["boot_id"] == "boot-two" and "table_lost_at" not in st and st["count_since"] == first
+    assert not any("table was missing" in line for line in egress.status_lines(host))

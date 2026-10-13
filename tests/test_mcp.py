@@ -511,3 +511,47 @@ def test_a_deeply_nested_message_is_a_parse_error_and_the_server_goes_on(client)
     assert got["error"]["code"] == -32700
     assert client.request("tools/list")["result"]["tools"]
     assert client.close() == 0
+
+
+def test_a_line_over_the_bound_is_a_parse_error_and_the_server_goes_on(client):
+    """Review of 2026-10-13 (M2): the server held a whole line of any length."""
+    pad = "x" * (9 * 1024 * 1024)
+    client.send('{"jsonrpc":"2.0","id":7,"method":"tools/list","params":{"pad":"%s"}}' % pad)
+    got = client.recv()
+    assert got["id"] is None and got["error"]["code"] == -32700
+    assert client.request("tools/list")["result"]["tools"]
+    assert client.close() == 0
+
+
+class HugePriceAPI(BaseHTTPRequestHandler):
+    def do_GET(self):
+        head = b'{"response":{"code":"Success","result":{"ecs":[]},"pad":"'
+        tail = b'"}}'
+        size = 33 * 1024 * 1024
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(head) + size + len(tail)))
+        self.end_headers()
+        try:
+            self.wfile.write(head)
+            for _ in range(size // 65536):
+                self.wfile.write(b"x" * 65536)
+            self.wfile.write(tail)
+        except OSError:
+            pass
+
+    def log_message(self, *args):
+        pass
+
+
+def test_live_reads_the_price_answer_up_to_a_bound(built):
+    srv = HTTPServer(("127.0.0.1", 0), HugePriceAPI)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    c = Client("--data", str(built[0]), "--live", "--price-api", "http://127.0.0.1:%d/api/" % srv.server_port)
+    try:
+        got = c.answer("tcp_price_find", query="s3.large.2", service="ecs")
+        assert "snapshot" in got["source"] and got["rows"][0]["payg"] == "0.051000"
+    finally:
+        c.close()
+        srv.shutdown()
+        srv.server_close()

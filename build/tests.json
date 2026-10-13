@@ -5641,8 +5641,36 @@
    "name": "tests: connect and name lookup outside loopback are refused while a test runs (T1)",
    "run": ".venv/bin/pytest tests/test_vault_guard.py",
    "status": "passing"
+  },
+  {
+   "id": "REV13-9",
+   "phase": "REV-2026-10-13",
+   "name": "obs: a listing that repeats its marker or runs past the page bound stops with an error",
+   "run": ".venv/bin/pytest tests/test_obs.py::test_a_listing_that_repeats_its_marker_stops_with_an_error tests/test_obs.py::test_a_listing_past_the_page_bound_stops_with_an_error",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-10",
+   "phase": "REV-2026-10-13",
+   "name": "mcp server: --live reads the price API answer up to a bound",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_live_reads_the_price_answer_up_to_a_bound",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-11",
+   "phase": "REV-2026-10-13",
+   "name": "mcp server: a line over the bound is a parse error and the server goes on",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_a_line_over_the_bound_is_a_parse_error_and_the_server_goes_on",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-12",
+   "phase": "REV-2026-10-13",
+   "name": "egress: a table missing within the same boot restarts the count and the status says so",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_a_table_missing_within_the_same_boot_restarts_the_count_and_the_status_says_so tests/test_egress.py::test_a_table_missing_after_a_reboot_is_a_plain_load",
+   "status": "passing"
   }
  ],
- "total_tests": 806,
+ "total_tests": 810,
  "checked": "2026-10-13"
 }
