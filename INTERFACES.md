@@ -366,7 +366,8 @@ data)` and `board_read(board, name)` (the board's folder, no link followed); the
 `probe_spec(host, argv, allow, stdout=None, binds=None)`, `run_probe(host, user) -> [(key, passed, line)]` (the
 checks `loopback`, `stub` and `host` refuse port 22 of the host itself, `probe_target(key)`, `host_address()`); the
 task unit's resolver: `resolvers()` (the upstream nameservers of `UPSTREAM_RESOLV`), `on_host(addr)`,
-`model_allow(host)` and `resolv_bind(host, folder) -> (file, "/etc/resolv.conf")`, `write_probe`, `read_probe`,
+`addresses(name)`, `model_allow(host) -> (allow, {name: addresses})` (no nameserver in `allow`, B4) and
+`name_binds(folder, names) -> [(hosts, "/etc/hosts"), (resolv.conf, "/etc/resolv.conf")]`, `write_probe`, `read_probe`,
 `probe_check(board) -> (passed, what, note)` for `awb seal check`, `probe_main()`.
 
 The board's reader of `state.tsv` (SB4) is `awb/tcp/board.py`: `build_state(p) -> dict | None` (every cell matched:

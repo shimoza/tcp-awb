@@ -194,6 +194,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- A build task's session unit no longer reaches a nameserver (review of 2026-10-13, finding B4). `IPAddressAllow=`
+  takes no port, so the upstream nameservers in its allow list were open on every port and protocol: a channel
+  through DNS for the login, the key or the clone and, where the resolver is the metadata address, the metadata API.
+  The runner still resolves the model endpoint and the token host when the task starts, allows those addresses alone
+  and binds a hosts file of loopback and those names over `/etc/hosts` and a `resolv.conf` without a nameserver over
+  `/etc/resolv.conf`. `awb build probe` binds the same, its hosts file also names the TCP API host and GitHub; the
+  probe units of `seal/verify.sh` bind a hosts file of loopback and a `resolv.conf` without a nameserver.
 - The build runner sizes every blob a task's commits add or change and every commit with `git cat-file
   --batch-check` before it reads any of them; one above 16 MB is `red: blob too big` or `red: message too big` at
   check 4 and the push refuses such a range. `awb-buildd.service` has `MemoryMax=2G`. Before, a blob of many GB of

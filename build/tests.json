@@ -4553,8 +4553,8 @@
   {
    "id": "SB5-4",
    "phase": "SB5",
-   "name": "build runner: the probe runs units of the runner's form with a task's own network and resolv.conf, the control first; it cannot connect to 127.0.0.1:22, 127.0.0.53:22 or the host's own address (finding of 2026-10-12); GitHub, loopback, the stub and the host's address open, another user and the key mode planted",
-   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_probe_runs_with_a_task_s_own_network_and_cannot_reach_the_host_itself",
+   "name": "build runner: the probe runs units of the runner's form with a task's own network, hosts file and resolv.conf (B4), the control first; it cannot connect to 127.0.0.1:22, 127.0.0.53:22 or the host's own address (finding of 2026-10-12); GitHub, loopback, the stub and the host's address open, another user and the key mode planted",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_probe_runs_with_a_task_s_own_network_and_names_and_cannot_reach_the_host_itself",
    "status": "passing"
   },
   {
@@ -4595,8 +4595,8 @@
   {
    "id": "SB5-10",
    "phase": "SB5",
-   "name": "build runner: the allow list names the upstream nameservers of /run/systemd/resolve/resolv.conf and the endpoints, never the stub 127.0.0.53 or another address of the host (finding of 2026-10-12); the stub alone, no upstream file, a link out of /etc and /run, a file others may write and a loop give no nameserver",
-   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_task_units_resolve_through_the_upstream_nameservers_and_never_the_stub",
+   "name": "build runner: the allow list names the endpoints' addresses alone, never a nameserver (review of 2026-10-13, B4), each endpoint with its addresses for the hosts file; the stub alone, no upstream file, a link out of /etc and /run, a file others may write and a loop give no upstream nameserver and hold the task",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_allow_list_names_the_endpoints_alone_and_never_a_nameserver",
    "status": "passing"
   },
   {
@@ -4623,15 +4623,15 @@
   {
    "id": "SB5-14",
    "phase": "SB5",
-   "name": "build runner: the session unit allows the upstream nameservers and the endpoints and binds the run folder's resolv.conf (the upstream servers alone, mode 644) over /etc/resolv.conf; the suite unit keeps loopback alone (finding of 2026-10-12)",
-   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_session_unit_binds_a_resolv_conf_of_the_upstream_nameservers",
+   "name": "build runner: the session unit allows the endpoints alone, no nameserver, and binds the run folder's hosts file (loopback and the endpoints) over /etc/hosts and a resolv.conf without a nameserver over /etc/resolv.conf, mode 644; the suite unit keeps loopback alone (review of 2026-10-13, B4)",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_session_unit_binds_a_hosts_file_and_a_resolv_conf_without_a_nameserver",
    "status": "passing"
   },
   {
    "id": "SB5-15",
    "phase": "SB5",
-   "name": "build runner: every probe unit allows the upstream nameservers (never 127.0.0.53) and binds a resolv.conf of the upstream servers alone (finding of 2026-10-12)",
-   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_probe_binds_the_upstream_resolv_conf_and_never_allows_the_stub",
+   "name": "build runner: every probe unit allows the endpoints alone (no nameserver, never 127.0.0.53) and binds a resolv.conf without a nameserver and a hosts file of the endpoints and of the hosts it must not reach; a host that does not resolve is left out (review of 2026-10-13, B4)",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_probe_binds_a_hosts_file_and_never_allows_a_nameserver",
    "status": "passing"
   },
   {
@@ -5683,8 +5683,15 @@
    "name": "build runner: the runner unit has a memory limit that fits the fetch of a full bundle",
    "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_runner_unit_has_a_memory_limit_that_fits_the_fetch_of_a_full_bundle",
    "status": "passing"
+  },
+  {
+   "id": "REV13-15",
+   "phase": "REV-2026-10-13",
+   "name": "seal: the probe units of verify.sh bind a hosts file of loopback over /etc/hosts and a resolv.conf without a nameserver over /etc/resolv.conf and allow no nameserver (B4)",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_probe_units_of_verify_bind_a_hosts_file_and_a_resolv_conf_without_a_nameserver",
+   "status": "passing"
   }
  ],
- "total_tests": 812,
+ "total_tests": 813,
  "checked": "2026-10-13"
 }

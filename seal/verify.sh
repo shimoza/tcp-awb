@@ -354,16 +354,20 @@ PUSH_SH='d=$(mktemp -d) && git -C "$d" init -q && git -C "$d" -c user.name=probe
 as_build() { runuser -u "$BUILD_USER" -- env HOME="$build_root/home" "$@"; }
 
 probe_allow=""
+probe_names=""
 probe_ran=0
 
 probe() {
     # probe CMD...: CMD as the build user in a transient unit with the properties of a build task (DESIGN.md section 4):
     # the system read only, no home, a private /tmp, no new privileges, /etc/awb inaccessible, no network but the
-    # model endpoint's addresses resolved now (no resolver: the stub of /etc/resolv.conf is the host itself)
+    # model endpoint's addresses resolved now (no resolver: the stub of /etc/resolv.conf is the host itself), a hosts
+    # file of loopback over /etc/hosts and a resolv.conf without a nameserver over /etc/resolv.conf (B4)
     systemd-run --quiet --wait --pipe --collect --uid="$BUILD_USER" --gid="$BUILD_USER" --setenv=HOME=/tmp \
         --property=ProtectSystem=strict --property=ProtectHome=yes --property=PrivateTmp=yes \
         --property=NoNewPrivileges=yes --property=InaccessiblePaths=/etc/awb --property=IPAddressDeny=any \
-        --property="IPAddressAllow=$probe_allow" --property=RuntimeMaxSec=60 -- "$@" </dev/null
+        --property="IPAddressAllow=$probe_allow" --property="BindReadOnlyPaths=$probe_names/hosts:/etc/hosts" \
+        --property="BindReadOnlyPaths=$probe_names/resolv.conf:/etc/resolv.conf" --property=RuntimeMaxSec=60 \
+        -- "$@" </dev/null
 }
 
 probe_denied() {
@@ -570,7 +574,14 @@ build_checks() {
 
     # N2, N4, N5 and N8 inside a unit with the task's properties
     # no nameserver: these units run fixed commands and resolve no name, and /etc/resolv.conf names the stub
-    # 127.0.0.53, an address of the host itself (finding of 2026-10-12)
+    # 127.0.0.53, an address of the host itself (finding of 2026-10-12); like a task's session they see a hosts file
+    # and a resolv.conf without a nameserver (B4)
+    probe_names=$(mktemp -d)
+    trap 'rm -rf -- "$probe_names"' EXIT
+    chmod 755 "$probe_names"
+    printf '127.0.0.1\tlocalhost\n::1\tlocalhost\n' >"$probe_names/hosts"
+    printf '# no nameserver: the unit resolves no name (B4)\n' >"$probe_names/resolv.conf"
+    chmod 644 "$probe_names/hosts" "$probe_names/resolv.conf"
     probe_allow=""
     for addr in $(getent ahosts "$MODEL_HOST" | cut -d' ' -f1 | sort -u); do
         probe_allow="$probe_allow $addr"

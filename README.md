@@ -619,10 +619,12 @@ by itself, once, ten minutes later. `awb build selftest` runs the runner's plant
 fails when one of them is missing; `awb build probe` (as you) starts a unit of the runner's own form with the network
 of a task: the model endpoint and, with your login, `platform.claude.com` connect, a TCP API host, GitHub and port 22
 of `127.0.0.1`, of `127.0.0.53` and of the host's own address do not (a refusal counts only after the model endpoint
-connected in the same run). A task unit never reaches a port of the host itself: it resolves through the upstream
-nameservers of `/run/systemd/resolve/resolv.conf` (a system link followed), never through the stub `127.0.0.53`.
-It sees a `resolv.conf` of those servers alone, written into its run folder and bound over `/etc/resolv.conf`.
-Without an upstream nameserver the queue is held as `no resolver for the task unit`.
+connected in the same run). A task unit never reaches a port of the host itself and no nameserver: the runner
+resolves the model endpoint (and the token host) when the task starts, allows those addresses alone and binds a
+hosts file of loopback and those names over `/etc/hosts` and a `resolv.conf` without a nameserver over
+`/etc/resolv.conf`, both written into the run folder. The probe's hosts file also names the TCP API host and
+GitHub, so their refusal is the address filter. Without an upstream nameserver in
+`/run/systemd/resolve/resolv.conf` the queue is still held as `no resolver for the task unit`.
 `sudo seal/verify.sh` runs both; `awb seal check` runs the selftest and reads the record of the last probe. Every
 task unit names the oneshot `awb-task-failed@.service` in `OnFailure=`: a task unit that fails while no runner
 waits on it (the runner stopped or crashed) adds `no runner watched: B-012 failed 14:02 (timeout)` to the board line

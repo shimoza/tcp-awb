@@ -1406,6 +1406,34 @@ def test_verify_lists_the_build_checks_and_reads_the_pin_of_setup(fakebin):
         assert "--property=%s" % prop in verify or '--property="%s"' % prop in verify, prop
 
 
+def test_the_probe_units_of_verify_bind_a_hosts_file_and_a_resolv_conf_without_a_nameserver(tmp_path):
+    """Review of 2026-10-13, finding B4: the short probe units of verify.sh see what a task's session sees, a hosts
+    file of loopback over /etc/hosts and a resolv.conf without a nameserver over /etc/resolv.conf, and allow no
+    nameserver. The shell's own probe() and the lines that write the two files run against a systemd-run on PATH
+    that prints each bind with the bound file."""
+    text = VERIFY.read_text(encoding="utf-8")
+    func = re.search(r"(?ms)^probe\(\) \{\n.*?^\}\n", text)
+    names = re.search(r"(?ms)^    probe_names=\$\(mktemp -d\)\n.*?^    chmod 644 [^\n]*\n", text)
+    assert func and names
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    (fake / "systemd-run").write_text(
+        "#!/bin/bash\nfor a; do case \"$a\" in --property=BindReadOnlyPaths=*) b=\"${a#*=}\"; b=\"${b#*=}\"; "
+        "echo \"bind ${b#*:}\"; cat \"${b%%:*}\" ;; --property=IPAddressAllow=*) echo \"allow ${a#*Allow=}\" ;; "
+        "esac; done\n")
+    (fake / "systemd-run").chmod(0o755)
+    script = "set -euo pipefail\nBUILD_USER=nobody\nprobe_allow=192.0.2.10\n%s%sprobe id -un\n" % (
+        names.group(0).replace("    ", ""), func.group(0))
+    env = {"PATH": "%s:/usr/bin:/bin" % fake, "TMPDIR": str(tmp_path)}
+    res = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, timeout=60)
+    assert res.returncode == 0, res.stderr
+    out = res.stdout
+    assert "allow 192.0.2.10\n" in out
+    assert "bind /etc/hosts\n127.0.0.1\tlocalhost\n::1\tlocalhost\n" in out
+    assert "bind /etc/resolv.conf\n" in out
+    assert not re.search(r"(?m)^\s*nameserver", out)
+
+
 def test_setup_plans_his_login_by_default_the_key_only_with_build_model_key_and_verify_names_the_mode(fakebin,
                                                                                                     monkeypatch):
     """D-S7 changed (replaces the SB3 test that pinned the key as the default): the dry run of a first seal and of an

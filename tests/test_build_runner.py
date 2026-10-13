@@ -1004,19 +1004,22 @@ def upstream_world(tmp_path, monkeypatch, upstream="nameserver 192.0.2.53\nnames
     return link, stub, up
 
 
-def test_the_task_units_resolve_through_the_upstream_nameservers_and_never_the_stub(world, tmp_path, monkeypatch):
-    """Replaces test_a_resolv_conf_that_links_to_the_stub_file_gives_the_resolver (finding of 2026-10-12: the stub
-    127.0.0.53 in the allow list let a task unit connect to sshd on 127.0.0.53:22). The allow list names the upstream
-    nameservers of /run/systemd/resolve/resolv.conf and the endpoints, never the stub or another address of the host.
-    Planted: the stub alone, no upstream file, a link out of /etc and /run, a file others may write, a loop."""
+def test_the_allow_list_names_the_endpoints_alone_and_never_a_nameserver(world, tmp_path, monkeypatch):
+    """Replaces test_the_task_units_resolve_through_the_upstream_nameservers_and_never_the_stub (review of 2026-10-13,
+    finding B4: IPAddressAllow= takes no port, so an upstream nameserver in the list was open on every port). The
+    allow list names the endpoints' addresses alone, each endpoint with its own addresses for the hosts file; the
+    queue is still held without an upstream nameserver. Planted: the stub alone, no upstream file, a link out of /etc
+    and /run, a file others may write, a loop."""
     import dataclasses
 
     link, stub, up = upstream_world(tmp_path, monkeypatch)
     host = dataclasses.replace(world.host, resolve=None, model="login")
     assert buildrun.resolvers() == ["192.0.2.53", "198.51.100.53"]
-    assert buildrun.model_allow(host) == ["192.0.2.53", "198.51.100.53", "192.0.2.10", "192.0.2.11"]
-    assert buildrun.model_allow(dataclasses.replace(host, model="key")) == ["192.0.2.53", "198.51.100.53",
-                                                                            "192.0.2.10"]
+    assert buildrun.model_allow(host) == (["192.0.2.10", "192.0.2.11"], {"api.anthropic.com": ["192.0.2.10"],
+                                                                         "platform.claude.com": ["192.0.2.11"]})
+    assert buildrun.model_allow(dataclasses.replace(host, model="key")) == (["192.0.2.10"],
+                                                                            {"api.anthropic.com": ["192.0.2.10"]})
+    assert buildrun.model_allow(dataclasses.replace(host, resolve=lambda: ["192.0.2.30"])) == (["192.0.2.30"], {})
     # the stub alone, a loopback or a scoped address in the upstream file: no nameserver
     up.write_text("nameserver 127.0.0.53\nnameserver ::1\nnameserver fe80::1%eth0\nnameserver 0.0.0.0\n")
     assert buildrun.resolvers() == [] and buildrun.model_allow(host) is None
@@ -1071,30 +1074,35 @@ def test_no_upstream_nameserver_holds_the_queue_with_one_line(world, tmp_path, m
     assert not r.poll_once() and r.held_queue == "no resolver for the task unit" and not world.units.started
 
 
-def test_the_session_unit_binds_a_resolv_conf_of_the_upstream_nameservers(world, tmp_path, monkeypatch):
-    """Finding of 2026-10-12: the session unit allows the upstream nameservers and the endpoints and binds a
-    resolv.conf the runner wrote into the run folder (the upstream servers alone) over /etc/resolv.conf, so glibc in
-    the unit never asks 127.0.0.53; its systemd-run form carries the bind and the allow list. The suite unit keeps its
-    own namespace with loopback alone and no bind of resolv.conf."""
+def test_the_session_unit_binds_a_hosts_file_and_a_resolv_conf_without_a_nameserver(world, tmp_path, monkeypatch):
+    """Replaces test_the_session_unit_binds_a_resolv_conf_of_the_upstream_nameservers (review of 2026-10-13, finding
+    B4: the upstream nameservers in the allow list were open on every port and protocol, a channel through DNS and on
+    some clouds the metadata API). The session unit allows the endpoints' addresses alone, no nameserver; it binds a
+    hosts file of loopback and the endpoints the runner resolved over /etc/hosts and a resolv.conf without a
+    nameserver over /etc/resolv.conf, both in the run folder, mode 644. The suite unit keeps loopback alone."""
     upstream_world(tmp_path, monkeypatch)
     world.host.resolve = None
     run = world.run("good")
     agent = [s for s in world.units.started if s.name == "awb-task-%s" % run.id][0]
-    allow = ["192.0.2.53", "198.51.100.53", "192.0.2.10"] + (["192.0.2.11"] if world.host.model == "login" else [])
+    login = world.host.model == "login"
+    allow = ["192.0.2.10"] + (["192.0.2.11"] if login else [])
     assert agent.allow == allow
-    assert not [a for a in agent.allow if a.startswith("127.") or a == "::1"]
-    src = [s for s, d in agent.binds if d == "/etc/resolv.conf"]
-    assert src == [str(run.folder / "resolv.conf")]
-    path = run.folder / "resolv.conf"
-    assert path.read_text() == "nameserver 192.0.2.53\nnameserver 198.51.100.53\n"
-    assert path.stat().st_mode & 0o777 == 0o644
+    assert not {"192.0.2.53", "198.51.100.53", "127.0.0.53"} & set(agent.allow)
+    hosts, resolv = run.folder / "hosts", run.folder / "resolv.conf"
+    assert [(s, d) for s, d in agent.binds if d in ("/etc/hosts", "/etc/resolv.conf")] == [
+        (str(hosts), "/etc/hosts"), (str(resolv), "/etc/resolv.conf")]
+    assert hosts.read_text() == "127.0.0.1\tlocalhost\n::1\tlocalhost\n192.0.2.10\tapi.anthropic.com\n" + (
+        "192.0.2.11\tplatform.claude.com\n" if login else "")
+    assert not re.search(r"(?m)^\s*nameserver", resolv.read_text())
+    assert hosts.stat().st_mode & 0o777 == 0o644 and resolv.stat().st_mode & 0o777 == 0o644
     argv = buildrun.SystemdUnits("awb-build").argv(agent)
-    assert "--property=BindReadOnlyPaths=%s:/etc/resolv.conf" % path in argv
+    assert "--property=BindReadOnlyPaths=%s:/etc/hosts" % hosts in argv
+    assert "--property=BindReadOnlyPaths=%s:/etc/resolv.conf" % resolv in argv
     allowed = "--property=IPAddressAllow=%s" % " ".join(allow)
     assert allowed in argv and argv.index("--property=IPAddressDeny=any") < argv.index(allowed)
     for s in world.units.started:
         if s.name.endswith("-suite"):
-            assert s.allow == ["localhost"] and s.netns and not [d for _, d in s.binds if d == "/etc/resolv.conf"]
+            assert s.allow == ["localhost"] and s.netns and not [d for _, d in s.binds if d.startswith("/etc/")]
 
 
 HOST_LINES = ["the probe unit cannot connect to the host's loopback (127.0.0.1:22)",
@@ -1102,13 +1110,14 @@ HOST_LINES = ["the probe unit cannot connect to the host's loopback (127.0.0.1:2
               "the probe unit cannot connect to the host's own address on port 22"]
 
 
-def test_the_probe_runs_with_a_task_s_own_network_and_cannot_reach_the_host_itself(world, tmp_path, monkeypatch):
-    """Replaces test_the_probe_runs_with_a_task_s_own_network_and_writes_the_record_seal_check_reads (finding of
-    2026-10-12: the probe adds three checks, port 22 of 127.0.0.1, of the stub 127.0.0.53 and of the host's own
-    address, each refused). Each probe is a unit of the runner's one form with the address list of a task's session,
-    the session's hidden places, environment and the bind of the run's resolv.conf; the control shows the build user
-    first. Planted: GitHub, the loopback, the stub and the host's address reachable each fail their line; another
-    user in the control fails every line; the key mode has no token line."""
+def test_the_probe_runs_with_a_task_s_own_network_and_names_and_cannot_reach_the_host_itself(world, tmp_path,
+                                                                                             monkeypatch):
+    """Replaces test_the_probe_runs_with_a_task_s_own_network_and_cannot_reach_the_host_itself (review of 2026-10-13,
+    finding B4: the probe binds the hosts file and the resolv.conf of a task's session). Each probe is a unit of the
+    runner's one form with the address list of a task's session, the session's hidden places, environment and the
+    binds over /etc/hosts and /etc/resolv.conf; the control shows the build user first. Planted: GitHub, the
+    loopback, the stub and the host's address reachable each fail their line; another user in the control fails
+    every line; the key mode has no token line."""
     import getpass
 
     monkeypatch.setattr(buildrun, "host_address", lambda: "192.0.2.20")
@@ -1123,7 +1132,7 @@ def test_the_probe_runs_with_a_task_s_own_network_and_cannot_reach_the_host_itse
     assert len(specs) == 8 and {s.name for s in specs} == {"awb-task-probe"}
     assert all(s.allow == ALLOW and s.hidden == buildrun._hidden(host, None) for s in specs)
     assert all(s.env == {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1"} for s in specs)
-    assert all([d for _, d in s.binds] == ["/etc/resolv.conf"] for s in specs)
+    assert all([d for _, d in s.binds] == ["/etc/hosts", "/etc/resolv.conf"] for s in specs)
     assert [s.argv[4:] for s in specs[1:]] == [["api.anthropic.com"], ["platform.claude.com"],
                                                ["iam.eu-de.otc.t-systems.com"], ["github.com"], ["22", "127.0.0.1"],
                                                ["22", "127.0.0.53"], ["22", "192.0.2.20"]]
@@ -1159,29 +1168,54 @@ def test_the_probe_runs_with_a_task_s_own_network_and_cannot_reach_the_host_itse
     assert not any(ok for _, ok, _ in none)
 
 
-def test_the_probe_binds_the_upstream_resolv_conf_and_never_allows_the_stub(world, tmp_path, monkeypatch):
-    """Finding of 2026-10-12: with the real address list (no stand-in) every probe unit allows the upstream
-    nameservers and the endpoints (never 127.0.0.53) and binds a resolv.conf of the upstream servers alone."""
+def test_the_probe_binds_a_hosts_file_and_never_allows_a_nameserver(world, tmp_path, monkeypatch):
+    """Replaces test_the_probe_binds_the_upstream_resolv_conf_and_never_allows_the_stub (review of 2026-10-13,
+    finding B4). With the real address list (no stand-in) every probe unit allows the endpoints alone (no upstream
+    nameserver, never 127.0.0.53) and binds a resolv.conf without a nameserver and a hosts file of the endpoints and
+    of the hosts it must not reach, so their refusal is the address filter. Planted: a host that does not resolve is
+    left out of the hosts file."""
     import dataclasses
     import getpass
+    import socket
 
     upstream_world(tmp_path, monkeypatch)
+    fake = {"api.anthropic.com": "192.0.2.10", "platform.claude.com": "192.0.2.11",
+            "iam.eu-de.otc.t-systems.com": "198.51.100.40", "github.com": "198.51.100.41"}
+
+    def lookup(name, *a, **k):
+        if name not in fake:
+            raise socket.gaierror("no such name")
+        return [(2, 1, 6, "", (fake[name], 443))]
+
+    monkeypatch.setattr(buildrun.socket, "getaddrinfo", lookup)
     monkeypatch.setattr(buildrun, "host_address", lambda: "192.0.2.20")
-    seen = []
-    host = dataclasses.replace(probe_host(world, tmp_path), resolve=None)
-    start = host.units.start
 
-    def keep(spec):
-        seen.append(Path(spec.binds[0][0]).read_text())
-        return start(spec)
+    def watched():
+        seen = []
+        host = dataclasses.replace(probe_host(world, tmp_path), resolve=None)
+        start = host.units.start
 
-    host.units.start = keep
+        def keep(spec):
+            seen.append([(d, Path(s).read_text()) for s, d in spec.binds])
+            return start(spec)
+
+        host.units.start = keep
+        return host, seen
+
+    host, seen = watched()
     res = buildrun.run_probe(host, getpass.getuser())
     assert all(ok for _, ok, _ in res)
     specs = host.units.started
-    assert all(s.allow == ["192.0.2.53", "198.51.100.53", "192.0.2.10", "192.0.2.11"] for s in specs)
-    assert all(s.binds[0][1] == "/etc/resolv.conf" for s in specs)
-    assert seen == ["nameserver 192.0.2.53\nnameserver 198.51.100.53\n"] * len(specs)
+    assert all(s.allow == ["192.0.2.10", "192.0.2.11"] for s in specs)
+    hosts = ("127.0.0.1\tlocalhost\n::1\tlocalhost\n192.0.2.10\tapi.anthropic.com\n198.51.100.41\tgithub.com\n"
+             "198.51.100.40\tiam.eu-de.otc.t-systems.com\n192.0.2.11\tplatform.claude.com\n")
+    assert seen == [[("/etc/hosts", hosts), ("/etc/resolv.conf", buildrun.UNIT_NO_RESOLVER)]] * len(specs)
+    assert not re.search(r"(?m)^\s*nameserver", buildrun.UNIT_NO_RESOLVER)
+    # GitHub does not resolve for the runner: the hosts file has no line of it
+    del fake["github.com"]
+    host, seen = watched()
+    buildrun.run_probe(host, getpass.getuser())
+    assert seen and all("github.com" not in binds[0][1] and "iam.eu-de" in binds[0][1] for binds in seen)
 
 
 def test_a_refusal_of_any_kind_counts_only_after_the_model_endpoint_connected(world, tmp_path, monkeypatch):

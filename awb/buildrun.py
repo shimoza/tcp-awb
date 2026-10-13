@@ -85,14 +85,19 @@ RESOLV = Path("/etc/resolv.conf")
 read for a task unit since the finding of 2026-10-12; see UPSTREAM_RESOLV."""
 RESOLV_AT = "/etc/resolv.conf"
 """Where glibc reads its nameservers; a task's session and probe unit see the runner's own file bound over it."""
+HOSTS_AT = "/etc/hosts"
+"""Where glibc reads host names; a task's session and probe unit see the runner's own file bound over it (B4)."""
 UPSTREAM_RESOLV = Path("/run/systemd/resolve/resolv.conf")
-"""The upstream nameservers systemd-resolved writes beside its stub file. A task unit resolves through them alone,
-since the stub 127.0.0.53 is the host itself: with it in the allow list a unit reached sshd on 127.0.0.53:22
-(finding of 2026-10-12)."""
+"""The upstream nameservers systemd-resolved writes beside its stub file. Without one the queue is held (finding of
+2026-10-12). A task unit no longer reaches them (B4): IPAddressAllow= takes no port, so a resolver in the list was
+open on every port and protocol and a channel through DNS."""
 RESOLV_PLACES = ("/etc", "/run")
 """Where the upstream file and every link on its way may lie."""
 UNIT_RESOLV = "resolv.conf"
-"""The file the runner writes into the run folder (the upstream nameservers alone) and binds over RESOLV_AT."""
+"""The file the runner writes into the run folder (UNIT_NO_RESOLVER, no nameserver) and binds over RESOLV_AT (B4)."""
+UNIT_NO_RESOLVER = "# no nameserver: the unit's names come from /etc/hosts alone (B4)\noptions attempts:1 timeout:1\n"
+UNIT_HOSTS = "hosts"
+"""The file the runner writes into the run folder (loopback and the names it resolved) and binds over HOSTS_AT."""
 RESOLV_HOPS = 8
 NO_RESOLVER = "no resolver for the task unit"
 KEY_IN_HOME = ".config/awb-build/model.key"
@@ -1898,36 +1903,52 @@ def resolvers() -> list[str]:
     return out
 
 
-def model_allow(host: Host) -> list[str] | None:
-    """The upstream nameservers and the model endpoint's addresses, resolved now (D-S9); None when no upstream
-    nameserver is found (a unit with IPAddressDeny=any could resolve no name) or the endpoint does not resolve or
-    resolves to the host itself."""
-    if host.resolve is not None:
-        return host.resolve()
-    allow = resolvers()
-    if not allow:
+def addresses(name: str) -> list[str] | None:
+    """The addresses of `name` (port 443), resolved now by the runner; None when it does not resolve or resolves to
+    the host itself."""
+    try:
+        found = {a[4][0] for a in socket.getaddrinfo(name, 443, proto=socket.IPPROTO_TCP)}
+    except OSError:
         return None
-    addrs: set[str] = set()
+    if not found or any(on_host(a) for a in found):
+        return None
+    return sorted(found)
+
+
+def model_allow(host: Host) -> tuple[list[str], dict[str, list[str]]] | None:
+    """(allow, names) of a task unit from one resolution now (D-S9): the model endpoint and, with build_model = login,
+    the token host, each with its addresses (`names`, for the unit's hosts file), and those addresses alone as the
+    allow list, never a nameserver (B4). None when no upstream nameserver is found (the hold stays as before B4) or a
+    name does not resolve or resolves to the host itself. A stand-in (`Host.resolve`) gives the allow list and no
+    name."""
+    if host.resolve is not None:
+        allow = host.resolve()
+        return None if allow is None else (allow, {})
+    if not resolvers():
+        return None
+    names: dict[str, list[str]] = {}
     for name in (MODEL_HOST, TOKEN_HOST) if host.model == "login" else (MODEL_HOST,):
-        try:
-            found = {a[4][0] for a in socket.getaddrinfo(name, 443, proto=socket.IPPROTO_TCP)}
-        except OSError:
+        found = addresses(name)
+        if found is None:
             return None
-        if not found or any(on_host(a) for a in found):
-            return None
-        addrs |= found
-    return allow + sorted(addrs)
+        names[name] = found
+    return sorted({a for found in names.values() for a in found}), names
 
 
-def resolv_bind(host: Host, folder: Path) -> tuple[str, str]:
-    """The resolv.conf of a task's session or probe unit: the upstream nameservers alone, written into `folder` (the
-    run folder) and bound read-only over /etc/resolv.conf, so glibc in the unit never asks the stub. A stand-in
-    address list (`Host.resolve`) names no nameserver."""
-    path = Path(folder) / UNIT_RESOLV
-    servers = resolvers() if host.resolve is None else []
-    _write(path, "".join("nameserver %s\n" % a for a in servers) or "# no nameserver\n", 0o644)
-    os.chmod(path, 0o644)   # the build user reads it inside the unit, whatever the runner's umask
-    return str(path), RESOLV_AT
+def name_binds(folder: Path, names: dict[str, list[str]]) -> list[tuple[str, str]]:
+    """The names of a task's session or probe unit (B4): a hosts file of loopback and `names` (each name with the
+    addresses the runner resolved) bound read-only over /etc/hosts and a resolv.conf without a nameserver bound over
+    /etc/resolv.conf, both written into `folder` (the run folder). The unit sends no DNS query that could leave: its
+    allow list names no resolver and a name outside the file does not resolve."""
+    hosts = "127.0.0.1\tlocalhost\n::1\tlocalhost\n" + "".join(
+        "%s\t%s\n" % (a, name) for name in sorted(names) for a in names[name])
+    out = []
+    for file, text, at in ((UNIT_HOSTS, hosts, HOSTS_AT), (UNIT_RESOLV, UNIT_NO_RESOLVER, RESOLV_AT)):
+        path = Path(folder) / file
+        _write(path, text, 0o644)
+        os.chmod(path, 0o644)   # the build user reads it inside the unit, whatever the runner's umask
+        out.append((str(path), at))
+    return out
 
 
 def client_argv(host: Host, task: build.Task, session: str | None) -> list[str]:
@@ -2186,8 +2207,8 @@ class Runner:
             return self.finish(ctx, "held: no main")
         ctx.start = start
         _write(ctx.folder / "start", start + "\n")
-        allow = model_allow(h)
-        if allow is None:
+        found = model_allow(h)
+        if found is None:
             return self.finish(ctx, "held: model endpoint")
         bundle = ctx.folder / "main.bundle"
         git(h, "bundle", "create", "--quiet", str(bundle), "refs/heads/main")
@@ -2207,7 +2228,7 @@ class Runner:
         if e.code != 0 or got != start:
             clean(h, ctx, "all")
             return self.finish(ctx, "held: prepare")
-        return self.spawn(ctx, allow, None)
+        return self.spawn(ctx, found, None)
 
     def resume(self, task: build.Task, run: build.Run) -> None:
         """An answered task: the same session, the same clock and budget again, his answer on its stdin."""
@@ -2231,8 +2252,8 @@ class Runner:
             clean(h, ctx, "home")
             return self.finish(ctx, "stopped: session_gone")
         _write(ctx.folder / "prompt.answer.txt", answer)
-        allow = model_allow(h)
-        if allow is None:
+        found = model_allow(h)
+        if found is None:
             # the answer waits for the next poll: the state goes back, the queue line says why
             build.write_state(ctx.folder, "answered", h.now())
             self.held_queue = "model endpoint"
@@ -2250,11 +2271,13 @@ class Runner:
         if e.code != 0:
             clean(h, ctx, "home")
             return self.finish(ctx, "stopped: session_gone")
-        return self.spawn(ctx, allow, session)
+        return self.spawn(ctx, found, session)
 
-    def spawn(self, ctx: Ctx, allow: list[str], session: str | None):
-        """The session's unit: started, its deadline recorded. Returns (ctx, handle, deadline)."""
+    def spawn(self, ctx: Ctx, found: tuple[list[str], dict[str, list[str]]], session: str | None):
+        """The session's unit with the allow list and the hosts file of `found` (model_allow): started, its deadline
+        recorded. Returns (ctx, handle, deadline)."""
         h = self.host
+        allow, names = found
         clock = ctx.task.clock * h.minute
         deadline = h.wall() + clock
         _write(ctx.folder / "deadline", "%d\n" % math.ceil(deadline))
@@ -2267,8 +2290,7 @@ class Runner:
                     rw=[str(clone), str(home)], hidden=_hidden(h, ctx),
                     binds=[(str(t / ".claude" / "settings.json"), str(home / ".claude" / "settings.json")),
                            (str(t / ".claude" / "CLAUDE.md"), str(home / ".claude" / "CLAUDE.md")),
-                           (str(t / ".gitconfig"), str(home / ".gitconfig")),
-                           resolv_bind(h, ctx.folder)],
+                           (str(t / ".gitconfig"), str(home / ".gitconfig"))] + name_binds(ctx.folder, names),
                     allow=allow, env={"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1"},
                     stdin=ctx.folder / ("prompt.answer.txt" if session else "prompt.txt"),
                     stdout=ctx.folder / "result.json", stderr=ctx.folder / "agent.err")
@@ -2948,8 +2970,8 @@ def probe_lines(model: str) -> list[tuple[str, str]]:
 def probe_spec(host: Host, argv: list[str], allow: list[str], stdout: Path | None = None,
                binds: list[tuple[str, str]] | None = None) -> Spec:
     """A unit with the network, the hidden places and the environment of a task's session (`Runner.spawn`): the
-    address list of model_allow, the run's resolv.conf over /etc/resolv.conf (`resolv_bind`), every clone, home and
-    the records hidden, /etc/awb inaccessible."""
+    address list of model_allow, a hosts file and a resolv.conf without a nameserver over /etc/hosts and
+    /etc/resolv.conf (`name_binds`), every clone, home and the records hidden, /etc/awb inaccessible."""
     return Spec(PROBE_UNIT, argv, PROBE_SECONDS, "/", "/tmp", hidden=_hidden(host, None), allow=allow,
                 binds=list(binds or []), stdout=stdout,
                 env={"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1"})
@@ -2973,11 +2995,18 @@ def run_probe(host: Host, user: str) -> list[tuple[str, bool, str]]:
     lines = probe_lines(host.model)
     if host.resolve is None and not resolvers():
         return [(k, False, "%s (%s)" % (ln, NO_RESOLVER)) for k, ln in lines]
-    allow = model_allow(host)
-    if allow is None:
+    found = model_allow(host)
+    if found is None:
         return [(k, False, "%s (the model endpoint does not resolve)" % ln) for k, ln in lines]
+    allow, names = found
+    # the hosts the unit must not reach stand in its hosts file too, never in its allow list: a refusal is then the
+    # unit's address filter and not a name that does not resolve
+    for name in (TCP_API_HOST, GITHUB_HOST) if host.resolve is None else ():
+        far = addresses(name)
+        if far is not None:
+            names = {**names, name: far}
     with tempfile.TemporaryDirectory(prefix="awb-build-probe-") as tmp:
-        binds = [resolv_bind(host, Path(tmp))]
+        binds = name_binds(Path(tmp), names)
         out = Path(tmp) / "id.out"
         e = _probe_wait(host, probe_spec(host, ["/usr/bin/id", "-un"], allow, stdout=out, binds=binds))
         who = (_text(out) or "").strip()
