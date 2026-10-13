@@ -183,6 +183,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   the mirrors, the web units and their users are named (follow-up of pull request 6).
 - An OBS listing that repeats its marker or runs past 100000 pages stops with an error instead of looping forever (review of 2026-10-13, X3).
 - `tcp_facts_mcp.py --live` reads at most 32 MiB of the price API answer and falls back to the snapshot when it is longer (review of 2026-10-13, M3).
+- `tcp_facts_mcp.py` reads a line from the client with a bound of 8 MiB: a longer line is answered with a parse error and skipped to its end, and the server goes on (review of 2026-10-13, M2).
 
 ### Security
 

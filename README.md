@@ -417,7 +417,7 @@ to 2024-11-05. Its tools carry a title and read-only annotations. It has four to
 
 Every answer carries the dataset date, the best-before date and the rule "answer from these facts, cite the id, say
 when no fact covers it". The server reads no file outside its dataset folder (`--data`, default the folder the file
-lies in), opens no connection without `--live` and writes nothing. With `--live` it reads at most 32 MiB of the price API answer and uses the snapshot when the answer is longer.
+lies in), opens no connection without `--live`, writes nothing and reads no input line longer than 8 MiB (it answers a parse error and goes on). With `--live` it reads at most 32 MiB of the price API answer and uses the snapshot when the answer is longer.
 
 **Claude Desktop, one click.** Every build also writes `tcp-facts-<date>.mcpb` beside the zip: an MCP Bundle (a zip
 with a `manifest.json`, the server file and the data files of that build, written for manifest version 0.3). `awb

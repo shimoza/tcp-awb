@@ -513,6 +513,16 @@ def test_a_deeply_nested_message_is_a_parse_error_and_the_server_goes_on(client)
     assert client.close() == 0
 
 
+def test_a_line_over_the_bound_is_a_parse_error_and_the_server_goes_on(client):
+    """Review of 2026-10-13 (M2): the server held a whole line of any length."""
+    pad = "x" * (9 * 1024 * 1024)
+    client.send('{"jsonrpc":"2.0","id":7,"method":"tools/list","params":{"pad":"%s"}}' % pad)
+    got = client.recv()
+    assert got["id"] is None and got["error"]["code"] == -32700
+    assert client.request("tools/list")["result"]["tools"]
+    assert client.close() == 0
+
+
 class HugePriceAPI(BaseHTTPRequestHandler):
     def do_GET(self):
         head = b'{"response":{"code":"Success","result":{"ecs":[]},"pad":"'

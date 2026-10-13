@@ -5564,8 +5564,15 @@
    "name": "mcp server: --live reads the price API answer up to a bound",
    "run": ".venv/bin/pytest tests/test_mcp.py::test_live_reads_the_price_answer_up_to_a_bound",
    "status": "passing"
+  },
+  {
+   "id": "REV13-9",
+   "phase": "REV-2026-10-13",
+   "name": "mcp server: a line over the bound is a parse error and the server goes on",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_a_line_over_the_bound_is_a_parse_error_and_the_server_goes_on",
+   "status": "passing"
   }
  ],
- "total_tests": 795,
+ "total_tests": 796,
  "checked": "2026-10-12"
 }
