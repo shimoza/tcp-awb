@@ -363,7 +363,7 @@ command and again at the end of every refresh:
 awb dataset build
 ```
 
-That writes `~/tcp-shared/datasets/tcp-facts-<date>/` and its zip: `facts.md` with every fact on one line, grouped
+That writes `~/tcp-shared/datasets/tcp-facts-<date>/`, its zip and `tcp-facts-<date>.mcpb` (the one-click extension for Claude Desktop): `facts.md` with every fact on one line, grouped
 by topic and small enough for one chat, one file per topic under `topics/`, `facts.jsonl` with the metadata, the
 list of orderable services, the price list of each region as CSV, a `PROMPT.md` and a `HOW-TO.pdf`. Every text file
 opens with the rules for the assistant that reads it, so a person attaches `facts.md` to ChatGPT, Claude or a local
@@ -384,7 +384,7 @@ Its README and PROMPT.md carry the section "MCP clients" with the configurations
 files and the build's README.md into the root of the public repository
 [shimoza/tcp-facts](https://github.com/shimoza/tcp-facts), so the root README is never written by hand; LICENSE
 stays as the repository has it. It commits them
-as the GitHub account, tags the date and makes a release of it with the zip, the PDF and the manifest. The files are
+as the GitHub account, tags the date and makes a release of it with the zip, the PDF, the manifest and the `.mcpb`. The files are
 scanned for a person and a registered name first, and a hit refuses the put.
 `--github-only` does the GitHub part alone, without the bucket and without asking for its key.
 The release notes say what is new since the previous release: the facts added, amended (same id, changed statement
@@ -395,7 +395,7 @@ saves the lines as `SHA256SUMS` next to the downloads and runs `sha256sum -c SHA
 
 ### The dataset as an MCP server
 
-Every build carries `tcp_facts_mcp.py`, in the zip and in the root of the public repository. The template is
+Every build carries `tcp_facts_mcp.py`, in the zip, in the `.mcpb` and in the root of the public repository. The template is
 `awb/tcp/tcp_facts_mcp.py`. It is a read-only MCP server over the files beside it: one Python file, standard library
 only, Python 3.10 or newer, JSON-RPC 2.0 over stdio. It speaks the Model Context Protocol revision 2026-07-28
 (`server/discover`, the version in the `_meta` of each request, no handshake) and the handshake revisions 2025-11-25
@@ -410,8 +410,17 @@ to 2024-11-05. Its tools carry a title and read-only annotations. It has four to
 
 Every answer carries the dataset date, the best-before date and the rule "answer from these facts, cite the id, say
 when no fact covers it". The server reads no file outside its dataset folder (`--data`, default the folder the file
-lies in), opens no connection without `--live` and writes nothing. Unpack the zip, then add the server to the client.
-Replace `/path/to/tcp-facts` with the unpacked folder.
+lies in), opens no connection without `--live` and writes nothing.
+
+**Claude Desktop, one click.** Every build also writes `tcp-facts-<date>.mcpb` beside the zip: an MCP Bundle (a zip
+with a `manifest.json`, the server file and the data files of that build, written for manifest version 0.3). `awb
+dataset put --github` uploads it as a release asset next to the zip. Download it from the latest release and open it
+(double click, or drag it into Settings, Extensions). Claude Desktop shows the extension with its four tools; press
+Install. It needs Python 3.10 or newer on the machine. A new build is a new file: install it over the old one. The
+bundle can be checked with `npx @anthropic-ai/mcpb validate manifest.json` inside the unpacked file.
+
+**By hand, in any client.** Unpack the zip, then add the server to the client. Replace `/path/to/tcp-facts` with the
+unpacked folder.
 
 Claude Desktop, in `claude_desktop_config.json`:
 

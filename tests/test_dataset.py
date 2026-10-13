@@ -631,3 +631,41 @@ def test_put_github_only_publishes_without_the_bucket_and_asks_for_no_key(home, 
     assert "no key setting" in capsys.readouterr().err and len(github.log()) == n
     assert cli.main(["dataset", "put", "--out", str(tmp_path / "ds"), "--github", "--github-only"]) == 1
     assert "not both" in capsys.readouterr().err
+
+
+def test_the_build_packs_an_mcp_bundle_with_the_manifest_the_specification_requires(home, facts, tmp_path):
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    bundle = built.folder.parent / "tcp-facts-2026-10-08.mcpb"
+    assert bundle.is_file() and any("tcp-facts-2026-10-08.mcpb" in l for l in built.lines)
+    with zipfile.ZipFile(bundle) as z:
+        assert z.testzip() is None
+        names = set(z.namelist())
+        m = json.loads(z.read("manifest.json"))
+        assert {"manifest.json", "tcp_facts_mcp.py", "facts.jsonl", "facts.md", "services.md", "prices/eu-de.csv"} <= names
+        assert "MANIFEST.json" not in names and "HOW-TO.pdf" not in names     # no clash with manifest.json
+        assert z.read("tcp_facts_mcp.py") == (built.folder / "tcp_facts_mcp.py").read_bytes()
+        assert z.read("facts.jsonl") == (built.folder / "facts.jsonl").read_bytes()
+    for key in ("manifest_version", "name", "version", "description", "author", "server"):     # the required fields
+        assert key in m, key
+    assert m["manifest_version"] == "0.3" and m["name"] == "tcp-facts" and m["version"] == "2026.10.8"
+    assert re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", m["version"])
+    assert m["author"]["name"]
+    server = m["server"]
+    assert server["type"] == "python" and server["entry_point"] == "tcp_facts_mcp.py"
+    assert server["mcp_config"]["command"] == "python3"
+    assert server["mcp_config"]["args"] == ["${__dirname}/tcp_facts_mcp.py"]
+    assert server["mcp_config"]["platform_overrides"]["win32"]["command"] == "python"
+    assert [t["name"] for t in m["tools"]] == ["tcp_facts_search", "tcp_service_check", "tcp_price_find", "tcp_calculate"]
+    assert m["compatibility"]["runtimes"]["python"] == ">=3.10"
+
+
+def test_github_put_uploads_the_bundle_as_a_release_asset_after_the_other_assets(home, facts, tmp_path, github):
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    lines = dataset.github_put(home, built.folder, clone=github.clone)
+    create = [a for a in github.log() if a[:2] == ["release", "create"]][0]
+    assert [Path(a).name for a in create[3:7]] == ["tcp-facts-2026-10-08.zip", "HOW-TO.pdf", "MANIFEST.json",
+                                                   "tcp-facts-2026-10-08.mcpb"]
+    assert lines[-1].endswith("MANIFEST.json, tcp-facts-2026-10-08.mcpb")
+    built.folder.parent.joinpath("tcp-facts-2026-10-08.mcpb").unlink()
+    with pytest.raises(dataset.DatasetError, match="has no tcp-facts-2026-10-08.mcpb"):
+        dataset.github_put(home, built.folder, replace=True, clone=github.clone)

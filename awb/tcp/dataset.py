@@ -101,6 +101,14 @@ MCP_FILE = "tcp_facts_mcp.py"
 MCP_TEMPLATE = Path(__file__).with_name(MCP_FILE)   # the MCP server every build carries, standard library only
 
 
+MCPB_SPEC = "0.3"                                    # manifest_version of the MCP Bundle specification
+MCPB_TOOLS = (("tcp_facts_search", "The checked facts ranked by word overlap, filtered by tag or grade"),
+              ("tcp_service_check", "Offered or not, from the service description"),
+              ("tcp_price_find", "Price rows of eu-de or eu-nl from the snapshot"),
+              ("tcp_calculate", "Exact decimal arithmetic with hours as the unit"))
+MCPB_SKIP = ("MANIFEST.json", "HOW-TO.pdf")          # MANIFEST.json would clash with manifest.json on a case-blind disk
+
+
 class DatasetError(Exception):
     """A dataset step cannot be done. The message carries counts and dates, never a value of a file."""
 
@@ -167,10 +175,14 @@ MCP_CLIENTS = [
           "grade), tcp_service_check (offered or not, from services.md), tcp_price_find (price rows of eu-de or "
           "eu-nl from the snapshot) and tcp_calculate (exact arithmetic in hours, a month is 720 h). It reads no "
           "file outside its folder, opens no connection without --live and writes nothing." % MCP_FILE),
-    ("p", "Unpack the zip of the latest release or clone github.com/%s, then add the server to your client. "
-          "Replace /path/to/tcp-facts with that folder, the one that holds facts.jsonl and %s." % (GITHUB_REPO,
-                                                                                                 MCP_FILE)),
-    ("p", "Claude Desktop, in claude_desktop_config.json:"),
+    ("p", "Claude Desktop, one click: download tcp-facts-<date>.mcpb from the latest release at github.com/%s and "
+          "open it (double click, or drag it into Settings, Extensions). Claude Desktop shows the extension and its "
+          "four tools; press Install. The file carries the server and the data of that build. It needs Python 3.10 "
+          "or newer on the machine." % GITHUB_REPO),
+    ("p", "Any other client: unpack the zip of the latest release or clone github.com/%s, then add the server by "
+          "hand. Replace /path/to/tcp-facts with that folder, the one that holds facts.jsonl and %s."
+          % (GITHUB_REPO, MCP_FILE)),
+    ("p", "Claude Desktop by hand, in claude_desktop_config.json:"),
     ("code:json", '{"mcpServers": {"tcp-facts": {"command": "python3", "args": ["%s"]}}}' % MCP_PATH),
     ("p", "Claude Code:"),
     ("code:bash", "claude mcp add tcp-facts -- python3 %s" % MCP_PATH),
@@ -774,6 +786,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
         for x in sorted(root.rglob("*")):
             if x.is_file():
                 z.write(x, "%s/%s" % (root.name, x.relative_to(root)))
+    pack_mcpb(root, day, best_before, len(records))
     built = Built(root, zpath, day, len(records), grades, len(tags), len(svc), counts, left)
     built.lines = ["%s: %d facts (%s), %d topics, %d services of revision %s, prices %s"
                    % (root.name, len(records), ", ".join("%s %d" % kv for kv in sorted(grades.items())), len(tags),
@@ -785,8 +798,41 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
                    % (len(plain_service_facts(records, orderable)), len(orderable), len(area_facts(records))),
                    *check_lines,
                    "zip %s, %d bytes, built %s, best before %s" % (zpath.name, zpath.stat().st_size, built_at,
-                                                                   best_before)]
+                                                                   best_before),
+                   "extension %s.mcpb, one click in Claude Desktop" % root.name]
     return built
+
+
+def mcpb_manifest(day: str, best_before: str, facts: int) -> dict:
+    """manifest.json of the MCP Bundle: the server file at the root and the data files beside it, so the server
+    finds its dataset folder where it lies."""
+    version = ".".join(str(int(x)) for x in day.split("-"))          # semver allows no leading zero
+    entry = {"command": "python3", "args": ["${__dirname}/" + MCP_FILE]}
+    return {"manifest_version": MCPB_SPEC, "name": SLUG, "display_name": NAME, "version": version,
+            "description": "%d checked facts about T Cloud Public as a read-only MCP server. Best before %s."
+                           % (facts, best_before),
+            "long_description": "Four read-only tools over the dataset %s of %s: facts, offered or not, prices and "
+                                "exact arithmetic. No network without a live price request, nothing written."
+                                % (NAME, day),
+            "author": {"name": NAME}, "repository": {"type": "git", "url": "https://github.com/%s.git" % GITHUB_REPO},
+            "homepage": "https://github.com/%s" % GITHUB_REPO, "license": LICENCE,
+            "server": {"type": "python", "entry_point": MCP_FILE,
+                       "mcp_config": {**entry, "platform_overrides": {"win32": {"command": "python",
+                                                                                 "args": entry["args"]}}}},
+            "tools": [{"name": n, "description": d} for n, d in MCPB_TOOLS],
+            "keywords": ["t-cloud-public", "facts", "prices"],
+            "compatibility": {"platforms": ["darwin", "win32", "linux"], "runtimes": {"python": ">=3.10"}}}
+
+
+def pack_mcpb(root: Path, day: str, best_before: str, facts: int) -> Path:
+    """tcp-facts-<date>.mcpb beside the folder: a zip with manifest.json, the server and the data files."""
+    path = root.parent / (root.name + ".mcpb")
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("manifest.json", json.dumps(mcpb_manifest(day, best_before, facts), indent=2) + "\n")
+        for x in sorted(root.rglob("*")):
+            if x.is_file() and x.name not in MCPB_SKIP:
+                z.write(x, x.relative_to(root).as_posix())
+    return path
 
 
 def latest(p: config.Paths, out: Path | None = None, day: str | None = None) -> Path | None:
@@ -983,17 +1029,20 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
     manifest = json.loads((folder / "MANIFEST.json").read_text(encoding="utf-8"))
     if _sha(folder / "HOW-TO.pdf") != manifest["files"]["HOW-TO.pdf"]["sha256"]:
         raise DatasetError("HOW-TO.pdf differs from its sum in MANIFEST.json; run awb dataset build --force")
+    mpath = folder.parent / (folder.name + ".mcpb")
+    if not mpath.is_file():
+        raise DatasetError("the folder of %s has no %s; run awb dataset build --force" % (day, mpath.name))
     sums = {zpath.name: _sha(zpath), "MANIFEST.json": _sha(folder / "MANIFEST.json")}
     new = ""
     if prev is not None:
         catalog = offered.load()
         new = whats_new(prev[1], read_facts(folder / "facts.jsonl"),
                         [s for s in catalog.services if not s.ends or s.ends > day], prev[0])
-    _run(["gh", "release", "create", day, str(zpath), *(str(folder / n) for n in GITHUB_ASSETS), "--repo",
+    _run(["gh", "release", "create", day, str(zpath), *(str(folder / n) for n in GITHUB_ASSETS), str(mpath), "--repo",
           GITHUB_REPO, "--verify-tag", "--title", "%s %s" % (NAME, day), "--notes", release_notes(manifest, sums, new)],
          cwd=clone)
     return ["github.com/%s commit and tag %s" % (GITHUB_REPO, day),
-            "github.com/%s/releases/tag/%s with %s" % (GITHUB_REPO, day, ", ".join([zpath.name, *GITHUB_ASSETS]))]
+            "github.com/%s/releases/tag/%s with %s" % (GITHUB_REPO, day, ", ".join([zpath.name, *GITHUB_ASSETS, mpath.name]))]
 
 
 # --------------------------------------------------------------------------- the command
