@@ -35,9 +35,32 @@ from awb.tcp import portal
 
 API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
-MODEL = os.environ.get("AWB_ASK_MODEL") or "claude-haiku-4-5-20251001"
-"""The cheapest model the API lists: the answers come from the tools, the model only reads and phrases them."""
-MAX_TOKENS = 1000
+MODEL = os.environ.get("AWB_ASK_MODEL") or "claude-opus-5-5"
+"""On this model thinking is always on. The answers come from the tools, the model only reads and phrases them."""
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+
+def _effort() -> str:
+    value = os.environ.get("AWB_ASK_EFFORT") or "medium"
+    if value not in EFFORTS:
+        raise AskError("AWB_ASK_EFFORT must be one of %s" % ", ".join(EFFORTS))
+    return value
+
+
+def _max_tokens() -> int:
+    raw = os.environ.get("AWB_ASK_MAX_TOKENS") or "16000"
+    if not raw.isdigit() or int(raw) < 1000:
+        raise AskError("AWB_ASK_MAX_TOKENS must be a whole number of 1000 or more")
+    return int(raw)
+
+
+def check_settings() -> None:
+    """Refuse a bad AWB_ASK_EFFORT or AWB_ASK_MAX_TOKENS when the service starts."""
+    _effort()
+    _max_tokens()
+
+
+MAX_TOKENS = 16000          # thinking counts against it; AWB_ASK_MAX_TOKENS overrides, read at each question
 MAX_ROUNDS = 4
 MAX_QUESTION = 1000
 KEY_FILE = Path(os.environ.get("AWB_ASK_KEY_FILE") or "/etc/awb/anthropic.key")
@@ -204,6 +227,7 @@ def ask(question: str, p: config.Paths | None = None, key: str | None = None, se
         raise AskError("an empty question")
     if len(question) > MAX_QUESTION:
         raise AskError("the question is longer than %d characters" % MAX_QUESTION)
+    check_settings()
     screen(question, p)
     left_q, left_t = budget_left()
     if left_q <= 0 or left_t <= 0:
@@ -217,14 +241,17 @@ def ask(question: str, p: config.Paths | None = None, key: str | None = None, se
     system = SYSTEM + "\n\n" + services.prompt_lines()
     try:
         for _ in range(MAX_ROUNDS):
-            resp = sender({"model": MODEL, "max_tokens": MAX_TOKENS, "system": system, "tools": TOOLS,
-                           "messages": messages}, key)
+            resp = sender({"model": MODEL, "max_tokens": _max_tokens(), "output_config": {"effort": _effort()},
+                           "system": system, "tools": TOOLS, "messages": messages}, key)
             usage = resp.get("usage") or {}
             tokens += int(usage.get("input_tokens", 0)) + int(usage.get("output_tokens", 0))
             content = resp.get("content") or []
             stop = resp.get("stop_reason")
             if stop == "refusal":
                 raise AskError("the model declined this question")
+            if stop == "max_tokens":
+                raise AskError("the answer did not fit in the token limit (thinking counts against it): "
+                               "ask a narrower question or raise AWB_ASK_MAX_TOKENS")
             if stop != "tool_use":
                 text = "\n\n".join(b.get("text", "") for b in content if b.get("type") == "text").strip()
                 note = services.note_for(text)          # a service the service description does not offer
@@ -322,6 +349,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def make_server(port: int = DEFAULT_PORT, paths: config.Paths | None = None, sender=None) -> ThreadingHTTPServer:
+    check_settings()
     handler = type("AskHandler", (Handler,), {"paths": paths, "sender": staticmethod(sender) if sender else None})
     return ThreadingHTTPServer((HOST, port), handler)
 
@@ -329,6 +357,11 @@ def make_server(port: int = DEFAULT_PORT, paths: config.Paths | None = None, sen
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["serve"]:
+        try:
+            check_settings()
+        except AskError as err:
+            print("awb ask: %s" % err, file=sys.stderr)
+            return 2
         port = DEFAULT_PORT
         if len(argv) == 3 and argv[1] == "--port" and argv[2].isdigit():
             port = int(argv[2])

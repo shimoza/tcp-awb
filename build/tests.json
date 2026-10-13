@@ -5564,8 +5564,36 @@
    "name": "run.py without ANTHROPIC_API_KEY does nothing and says so",
    "run": ".venv/bin/pytest tests/test_eval_tcp_facts.py",
    "status": "passing"
+  },
+  {
+   "id": "ASKEFF-1",
+   "phase": "ask-effort",
+   "name": "ask: the request carries output_config.effort and the model",
+   "run": ".venv/bin/pytest tests/test_ask.py::test_the_request_carries_the_effort_and_the_model",
+   "status": "passing"
+  },
+  {
+   "id": "ASKEFF-2",
+   "phase": "ask-effort",
+   "name": "ask: a bad AWB_ASK_EFFORT is refused at start",
+   "run": ".venv/bin/pytest tests/test_ask.py::test_a_bad_effort_is_refused_at_start",
+   "status": "passing"
+  },
+  {
+   "id": "ASKEFF-3",
+   "phase": "ask-effort",
+   "name": "ask: a max_tokens stop gives an AskError, not a cut answer",
+   "run": ".venv/bin/pytest tests/test_ask.py::test_a_max_tokens_stop_is_an_error_not_a_cut_answer",
+   "status": "passing"
+  },
+  {
+   "id": "ASKEFF-4",
+   "phase": "ask-effort",
+   "name": "ask: thinking blocks stay in the history and never in the answer",
+   "run": ".venv/bin/pytest tests/test_ask.py::test_thinking_blocks_are_kept_in_the_history_and_never_in_the_answer",
+   "status": "passing"
   }
  ],
- "total_tests": 795,
+ "total_tests": 799,
  "checked": "2026-10-12"
 }
