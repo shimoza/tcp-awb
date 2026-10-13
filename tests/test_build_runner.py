@@ -166,14 +166,30 @@ def test_a_widened_path_reruns_the_checks_on_the_kept_branch_without_a_session(w
 
 # --------------------------------------------------------------------------- hung, stopped, the retry
 
+def _gone_within(pid, seconds):
+    """True once the process is gone or only a zombie. SIGKILL ends it at once but a dead orphan stays a zombie
+    until its new parent reaps it (a container's pid 1 may take seconds), and os.kill(pid, 0) still succeeds on a
+    zombie. A zombie runs nothing, so it is not a child left."""
+    end = time.monotonic() + seconds
+    while True:
+        try:
+            state = (Path("/proc/%d/stat" % pid).read_text().rsplit(")", 1)[1].split()[0])
+        except (OSError, IndexError):
+            return True
+        if state in ("Z", "X"):
+            return True
+        if time.monotonic() > end:
+            return False
+        time.sleep(0.02)
+
+
 def test_a_session_that_never_returns_under_a_2_s_clock_is_hung_within_5_s_and_no_child_is_left(world):
     world.host.minute = 0.2
     t0 = time.monotonic()
     run = world.run("hang")
     assert run.state == "hung" and time.monotonic() - t0 < 5
     pid = int((world.base / ("mark-%s" % run.id)).read_text())
-    with pytest.raises(ProcessLookupError):
-        os.kill(pid, 0)
+    assert _gone_within(pid, 2)
     assert build.line(run).startswith("build %s hung after 10 min" % run.id)
 
 
