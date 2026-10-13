@@ -190,6 +190,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - An OBS listing that repeats its marker or runs past 100000 pages stops with an error instead of looping forever (review of 2026-10-13, X3).
 - `tcp_facts_mcp.py --live` reads at most 32 MiB of the price API answer and falls back to the snapshot when it is longer (review of 2026-10-13, M3).
 - `tcp_facts_mcp.py` reads a line from the client with a bound of 8 MiB: a longer line is answered with a parse error and skipped to its end, and the server goes on (review of 2026-10-13, M2).
+- The egress filter accepts an established or related packet of the work user only with the conntrack mark the allow rules set (`0xa0b001`); every other one passes uncounted in count and is refused in enforce. A connection opened outside the list while the filter counted no longer survives `sudo awb egress enforce` and a listener of the work user no longer answers an inbound connection in enforce. The switch also deletes the conntrack entries of the work user's connections outside the list (mark `0xa0b002`) when `conntrack` is installed and says so when it is not. `seal/verify.sh` checks the two lines in the loaded chain (review of 2026-10-13, E1 and E2).
 - `awb egress load` keeps the boot id in `status.json`. A table missing within the same boot (`systemctl restart nftables` flushes the ruleset) restarts `count_since` and `awb egress status` and `awb deploy status` say so (review of 2026-10-13, E3).
 
 ### Security

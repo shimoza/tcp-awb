@@ -10,10 +10,13 @@
 The table `inet awb_egress` (seal/egress/work-egress.nft) sends every packet of the work user's uid (work_user of
 /etc/awb/paths.conf) through a chain of its own; every other uid passes the base chain untouched: the key service,
 the vault daemon and the owner run as the owner, the Ask page and the project chat as awb-ask. In that chain
-loopback (the resolver, the local services) and established connections pass, a new connection on tcp 443 to an
-address of the allow list (the host names of seal/egress/ALLOW.md, resolved by root) passes, and every other new
-connection is counted in the named counter of its class (CLASSES) and then accepted in the mode count or refused in
-the mode enforce.
+loopback (the resolver, the local services) passes, a new connection on tcp 443 to an address of the allow list (the
+host names of seal/egress/ALLOW.md, resolved by root) passes with the conntrack mark MARK_ALLOWED and every other
+new connection is counted in the named counter of its class (CLASSES), marked MARK_OTHER and then accepted in the
+mode count or refused in the mode enforce. An established connection passes only with MARK_ALLOWED; without it, it
+passes uncounted in the mode count and is refused in the mode enforce: a connection opened outside the list in the
+mode count and an inbound connection to a listener of the work user never pass in enforce. The switch to enforce
+also deletes the conntrack entries marked MARK_OTHER when conntrack is installed (forget).
 
 The mode is the line `egress = count|enforce` of /etc/awb/paths.conf, read from that root file alone and never from
 AWB_CONF; without the line it is count. Another word or a second line is no mode: load refuses and the loaded table
@@ -74,6 +77,11 @@ SOURCE = Path(__file__).resolve().parents[1] / "seal" / "egress"
 TEMPLATE = "work-egress.nft"
 ALLOW_FILE = "ALLOW.md"
 NFT = "/usr/sbin/nft"
+CONNTRACK = "/usr/sbin/conntrack"
+MARK_ALLOWED = 0xa0b001
+"""The conntrack mark of a connection the allow rules accepted: its established packets pass in both modes."""
+MARK_OTHER = 0xa0b002
+"""The conntrack mark of a connection of the work user that went through the chain refused."""
 WINDOW = 24 * 3600
 MAX_GAP = 30 * 60
 STALE = 15 * 60
@@ -113,6 +121,7 @@ class Host:
     environ: dict = field(default_factory=lambda: dict(os.environ))
     boot_id: Callable = lambda: _boot_id()    # the id of this boot (the tests set one)
     chown_root: bool = True             # a root write gives the file to root:root (the tests run as a user)
+    conntrack: Callable | None = None   # None: _conntrack, the real conntrack as root
 
     @property
     def conf_path(self) -> Path:
@@ -373,6 +382,36 @@ def _first_line(text: str) -> str:
     return re.sub(r"[^\x20-\x7e]", " ", line)[:200]
 
 
+def _conntrack(args: list[str]) -> subprocess.CompletedProcess | None:
+    """conntrack ARGS; None when it is not installed or this process is not root (a test that fakes the euid)."""
+    if os.geteuid() != 0 or not os.access(CONNTRACK, os.X_OK):
+        return None
+    return subprocess.run([CONNTRACK] + args, capture_output=True, text=True, timeout=60)
+
+
+def forget(host: Host) -> str:
+    """Delete the conntrack entries marked MARK_OTHER (the work user's connections outside the list that passed in
+    the mode count), for IPv4 and IPv6. Never raises: without conntrack the entries stay until they time out and the
+    chain refuses their packets anyway, since they lack MARK_ALLOWED. Returns a note for the owner."""
+    run = host.conntrack or _conntrack
+    deleted = 0
+    for family in ("ipv4", "ipv6"):
+        try:
+            r = run(["-D", "-f", family, "-m", "0x%x" % MARK_OTHER])
+        except (OSError, subprocess.SubprocessError):
+            r = subprocess.CompletedProcess([], 2, "", "conntrack did not run")
+        if r is None:
+            return ("conntrack is not available: the connections opened outside the list stay in conntrack until "
+                    "they time out and the filter refuses their packets")
+        # conntrack prints "N flow entries have been deleted" and exits 1 when none matched
+        m = re.search(r"(\d+) flow entr", (r.stderr or "") + (r.stdout or ""))
+        if m is None:
+            return ("conntrack failed (%s): the connections opened outside the list stay in conntrack until they "
+                    "time out and the filter refuses their packets" % _first_line(r.stderr))
+        deleted += int(m.group(1))
+    return "conntrack: %d connections of the work user outside the list deleted" % deleted
+
+
 # --------------------------------------------------------------------------- the state
 
 
@@ -618,7 +657,8 @@ def enforce(host: Host, accepted: set[str]) -> str:
         raise
     taken = {k: v for k, v in w["counts"].items() if k in accepted}
     note = ("; accepted: %s" % ", ".join("%s %d" % kv for kv in sorted(taken.items()))) if taken else ""
-    return "egress: enforce, every new connection of the work user outside the list is refused%s" % note
+    return ("egress: enforce, every connection of the work user outside the list is refused%s\negress: %s"
+            % (note, forget(host)))
 
 
 def count(host: Host) -> str:

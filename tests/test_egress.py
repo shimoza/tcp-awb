@@ -214,21 +214,30 @@ def _nft_check(text: str, tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("mode", egress.MODES)
-def test_the_rendered_rules_count_or_refuse_by_mode_for_ipv4_and_ipv6(mode, tmp_path):
+def test_the_rendered_rules_mark_what_they_allow_and_pass_established_only_with_the_mark(mode, tmp_path):
+    """Replaces the test that pinned `ct state established,related accept` (E1 and E2 of docs/review-2026-10-13.md):
+    the allow rules mark what they accept, an established or related packet is accepted with that mark alone and
+    every other one goes to the chain refused uncounted, which marks it and accepts in count or refuses in enforce."""
     text = _rendered(mode)
     lines = [x.strip() for x in text.splitlines() if x.strip() and not x.strip().startswith("#")]
     assert lines[:3] == ["table inet awb_egress", "delete table inet awb_egress", "table inet awb_egress {"]
     assert not re.search(r"@[A-Z_]+@", text)
     refused = _chain(text, "refused")
+    assert refused[0] == "ct mark set 0xa0b002"
     if mode == "count":
-        assert refused == ["accept"]
+        assert refused[1:] == ["accept"]
         assert "reject" not in text
     else:
-        assert refused == ["meta l4proto tcp reject with tcp reset", "reject with icmpx admin-prohibited"]
+        assert refused[1:] == ["meta l4proto tcp reject with tcp reset", "reject with icmpx admin-prohibited"]
     work = _chain(text, "work")
-    assert work[:4] == ['oifname "lo" accept', "ct state established,related accept",
-                        'ip daddr @allow4 tcp dport 443 counter name "c_allowed" accept',
-                        'ip6 daddr @allow6 tcp dport 443 counter name "c_allowed" accept']
+    assert work[:5] == ['oifname "lo" accept',
+                        "ct state established,related ct mark 0xa0b001 accept",
+                        "ct state established,related goto refused",
+                        'ip daddr @allow4 tcp dport 443 counter name "c_allowed" ct mark set 0xa0b001 accept',
+                        'ip6 daddr @allow6 tcp dport 443 counter name "c_allowed" ct mark set 0xa0b001 accept']
+    assert "ct state established,related accept" not in text
+    assert sum(1 for r in work if "ct state" in r) == 2 and "counter" not in work[1] + work[2]
+    assert egress.MARK_ALLOWED == 0xa0b001 and egress.MARK_OTHER == 0xa0b002
     for name in egress.CLASSES:
         assert "    counter c_%s { }" % name in text, name
         assert any('counter name "c_%s" goto refused' % name in r for r in work), name
@@ -239,6 +248,83 @@ def test_the_rendered_rules_count_or_refuse_by_mode_for_ipv4_and_ipv6(mode, tmp_
     assert "add element inet awb_egress allow4 { " in text and "add element inet awb_egress allow6 { " in text
     assert "add element inet awb_egress tcp_api4 { " in text
     _nft_check(_rendered(mode, ME), tmp_path)
+
+
+def _verdict(text: str, state: str, mark: int, allowed: bool, oif: str = "eth0") -> tuple[str, int, list[str]]:
+    """The way of one packet of the work user through the rendered chains work and refused, first match wins: the
+    verdict (accept or reject), the conntrack mark after it and the counters it bumped. Reads the rules it walks:
+    loopback, the two lines on the state, the allow rules and, for a new packet outside the list, the last class."""
+    counted: list[str] = []
+
+    def refused(m: int) -> tuple[str, int, list[str]]:
+        rules = _chain(text, "refused")
+        for r in rules:
+            if r.startswith("ct mark set "):
+                m = int(r.split()[-1], 16)
+            elif r == "accept" or "reject" in r:
+                return ("accept" if r == "accept" else "reject"), m, counted
+        raise AssertionError("the chain refused ends without a verdict")
+
+    for r in _chain(text, "work"):
+        if r.startswith("oifname "):
+            if oif == "lo":
+                return "accept", mark, counted
+            continue
+        if r.startswith("ct state established,related"):
+            if state not in ("established", "related"):
+                continue
+            want = re.search(r"ct mark (0x[0-9a-f]+)", r)
+            if want and int(want.group(1), 16) != mark:
+                continue
+            if r.endswith("goto refused"):
+                return refused(mark)
+            assert r.endswith(" accept"), r
+            return "accept", mark, counted
+        if "c_allowed" in r:
+            assert state == "new", "an established packet reached the rules of a new connection"
+            if allowed:
+                counted.append("allowed")
+                m = re.search(r"ct mark set (0x[0-9a-f]+)", r)
+                return "accept", int(m.group(1), 16) if m else mark, counted
+            continue
+        if r.startswith('counter name "c_other"'):
+            assert state == "new", "an established packet reached the rules of a new connection"
+            counted.append("other")
+            return refused(mark)
+    raise AssertionError("the chain work ends without a verdict")
+
+
+@pytest.mark.parametrize("mode", egress.MODES)
+def test_a_connection_opened_outside_the_list_in_count_does_not_survive_enforce(mode):
+    """E1: a connection the work user opened outside the list in the mode count is marked by the chain refused; its
+    later packets pass uncounted in count and are refused in enforce. One the allow rules accepted keeps passing."""
+    count_text = _rendered("count")
+    verdict, mark, counted = _verdict(count_text, "new", 0, allowed=False)
+    assert (verdict, mark, counted) == ("accept", egress.MARK_OTHER, ["other"])
+    text = _rendered(mode)
+    verdict, after, counted = _verdict(text, "established", mark, allowed=False)
+    assert verdict == ("accept" if mode == "count" else "reject") and counted == []
+    # opened before the table was loaded (no mark at all): the same
+    assert _verdict(text, "established", 0, allowed=False)[0] == ("accept" if mode == "count" else "reject")
+    verdict, mark, counted = _verdict(count_text, "new", 0, allowed=True)
+    assert (verdict, mark, counted) == ("accept", egress.MARK_ALLOWED, ["allowed"])
+    for state in ("established", "related"):
+        assert _verdict(text, state, mark, allowed=True) == ("accept", egress.MARK_ALLOWED, [])
+    assert _verdict(text, "established", 0, allowed=False, oif="lo")[0] == "accept"
+
+
+@pytest.mark.parametrize("mode", egress.MODES)
+def test_an_inbound_connection_to_a_listener_of_the_work_user_never_answers_in_enforce(mode):
+    """E2: the chain hooks the output alone. An inbound connection is never marked: the SYN-ACK and every answer of
+    the listener are established packets without the mark, refused in enforce and uncounted in count; a new packet
+    of the work user is the only kind the rules of the classes see."""
+    text = _rendered(mode)
+    assert _chain(text, "output")[0].startswith("type filter hook output ")
+    assert text.count("hook ") == 1 and "hook input" not in text
+    for state in ("established", "related"):
+        verdict, mark, counted = _verdict(text, state, 0, allowed=True)
+        assert verdict == ("accept" if mode == "count" else "reject") and counted == []
+        assert mark == egress.MARK_OTHER
 
 
 def test_only_the_work_users_uid_enters_the_chain_so_the_key_service_passes_untouched():
@@ -632,3 +718,104 @@ def test_a_table_missing_after_a_reboot_is_a_plain_load(world):
     st = json.loads((host.state_dir / "status.json").read_text())
     assert st["boot_id"] == "boot-two" and "table_lost_at" not in st and st["count_since"] == first
     assert not any("table was missing" in line for line in egress.status_lines(host))
+
+
+# --------------------------------------------------------------------------- the conntrack entries on enforce (E1)
+
+
+class FakeConntrack:
+    """conntrack ARGS, never run: the answer of conntrack-tools or None for a host without conntrack."""
+
+    def __init__(self, deleted: dict[str, int] | None = None, missing: bool = False, fail: bool = False):
+        self.deleted = deleted or {}
+        self.missing = missing
+        self.fail = fail
+        self.calls: list[list[str]] = []
+
+    def __call__(self, args):
+        self.calls.append(list(args))
+        if self.missing:
+            return None
+        if self.fail:
+            return subprocess.CompletedProcess(args, 1, "", "conntrack v1.4.8 (conntrack-tools): Operation failed\n")
+        n = self.deleted.get(args[args.index("-f") + 1], 0)
+        return subprocess.CompletedProcess(args, 0 if n else 1, "",
+                                           "conntrack v1.4.8 (conntrack-tools): %d flow entries have been deleted.\n"
+                                           % n)
+
+
+def _quiet_day(host, nft, clock) -> None:
+    egress.load(host)
+    _run_for(host, nft, clock, 24.5)
+
+
+def test_enforce_deletes_the_conntrack_entries_of_the_work_users_connections_outside_the_list(world):
+    host, nft, clock, _ = world
+    ct = FakeConntrack({"ipv4": 3, "ipv6": 1})
+    host.conntrack = ct
+    _quiet_day(host, nft, clock)
+    out = egress.enforce(host, set())
+    assert ct.calls == [["-D", "-f", "ipv4", "-m", "0xa0b002"], ["-D", "-f", "ipv6", "-m", "0xa0b002"]]
+    assert "conntrack: 4 connections of the work user outside the list deleted" in out
+    assert egress.mode(host) == "enforce" and "reject with tcp reset" in nft.loaded
+    # already enforce: a load, no deletion again
+    assert "already" in egress.enforce(host, set()) and len(ct.calls) == 2
+
+
+def test_enforce_without_conntrack_still_switches_and_says_the_filter_refuses_the_old_connections(world):
+    host, nft, clock, _ = world
+    host.conntrack = FakeConntrack(missing=True)
+    _quiet_day(host, nft, clock)
+    out = egress.enforce(host, set())
+    assert egress.mode(host) == "enforce"
+    assert "conntrack is not available" in out and "the filter refuses their packets" in out
+    egress.count(host)
+    host.conntrack = FakeConntrack(fail=True)
+    _run_for(host, nft, clock, 24.5)
+    out = egress.enforce(host, set())
+    assert egress.mode(host) == "enforce" and "conntrack failed (" in out and "Operation failed" in out
+    host.conntrack = FakeConntrack()
+    egress.count(host)
+    _run_for(host, nft, clock, 24.5)
+    assert "conntrack: 0 connections" in egress.enforce(host, set())
+
+
+def test_a_refused_or_failed_enforce_deletes_no_conntrack_entry(world):
+    host, nft, clock, _ = world
+    ct = FakeConntrack({"ipv4": 2})
+    host.conntrack = ct
+    egress.load(host)
+    _run_for(host, nft, clock, 1)
+    _run_for(host, nft, clock, 23.5, web=1)
+    with pytest.raises(egress.Refused, match="web 1"):
+        egress.enforce(host, set())
+    _run_for(host, nft, clock, 24.5)
+    nft.fail_on = "reject with tcp reset"
+    with pytest.raises(egress.EgressError):
+        egress.enforce(host, set())
+    assert ct.calls == [] and egress.mode(host) == "count"
+
+
+def test_the_real_conntrack_runs_only_as_root():
+    if os.geteuid() == 0:
+        pytest.skip("as root this would delete entries of the host")
+    assert egress._conntrack(["-D", "-f", "ipv4", "-m", "0xa0b002"]) is None
+
+
+def test_verify_checks_that_an_established_connection_passes_only_with_the_mark(fakebin):
+    res = run_script(VERIFY, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    no_marks(fakebin)
+    checks = [line[6:] for line in res.stdout.splitlines() if line.startswith("CHECK ")]
+    assert any("the egress chain lets an established connection pass only with the mark of the allow rules" in c
+               for c in checks)
+    script = VERIFY.read_text(encoding="utf-8")
+    assert "nft list chain inet \"$EGRESS_TABLE\" work" in script
+    pattern = re.search(r"grep -Eqx '(ct state established,related ct mark [^']+)'", script)
+    assert pattern
+    work = _chain(_rendered("enforce"), "work")
+    # nft lists the mark with eight hex digits; the template writes it short
+    assert re.fullmatch(pattern.group(1), work[1].replace("0xa0b001", "0x00a0b001"))
+    assert re.fullmatch(pattern.group(1), work[1])
+    assert "ct state established,related goto refused" in script
+    assert work[2] == "ct state established,related goto refused"

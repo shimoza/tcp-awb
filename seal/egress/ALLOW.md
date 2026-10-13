@@ -23,7 +23,12 @@ Allowed without a row, because they never leave the host:
   local service. The tunnel's fence keeps its own user off loopback; the work user keeps it.
 - Unix sockets, which nftables does not see: the name check (`/run/awb/check.sock`), the key service
   (`/run/awb-keys/cloud.sock`), the console sockets of the web side.
-- established connections, so an answer of an allowed connection comes back.
+- the established packets of a connection the allow rules accepted (they carry the conntrack mark `0xa0b001`), so an
+  allowed connection goes on. An established packet without the mark (a connection opened outside the list while
+  the filter counted or an answer of a listener of the work user to an inbound connection) passes uncounted in the
+  mode count and is refused in the mode enforce. `sudo awb egress enforce` deletes the conntrack entries of the work
+  user's connections outside the list (mark `0xa0b002`) when `conntrack` is installed; without it their packets are
+  refused all the same until the entries time out.
 
 ## Watched: counted in a class of their own, never allowed
 
@@ -106,6 +111,10 @@ First match wins, in this order. `awb egress status` shows the counts of the las
   any text, and every Anthropic host that shares the address of `api.anthropic.com` passes with it. The filter bounds
   the ways out to a short list; it does not close them.
 - DNS through the host's resolver stays open: a session can encode data in names it looks up.
+- The filter sees the output alone. A packet from outside still reaches a listener of the work user (and, with SYN
+  cookies under a flood, a handshake can complete since the SYN-ACK then carries no socket); in enforce nothing the
+  listener sends back leaves the host. An input rule cannot tell the work user's listener from another before the
+  socket lookup, so there is none.
 - The sets hold addresses, not names. A listed host that moves to an address it never gave before is counted as
   `web` until the next refresh (5 minutes); addresses seen in the last 7 days stay in the set.
 - A boot loads the table before the logins and the units of the work user; when that load fails the work user is not

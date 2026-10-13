@@ -4,10 +4,17 @@
 # in place and the counters keep counting.
 # 1. Only packets of the work user's uid enter the chain work. Every other uid passes the base chain untouched: the
 #    key service, the vault daemon and the owner (the owner's uid), the Ask page and the project chat (awb-ask).
-# 2. In the chain work: loopback (the resolver 127.0.0.53, the local services) and established connections pass; a
-#    new connection on tcp 443 to an address of the allow list passes and is counted as allowed.
+# 2. In the chain work: loopback (the resolver 127.0.0.53, the local services) passes. A new connection on tcp 443
+#    to an address of the allow list passes, is counted as allowed and gets the conntrack mark 0xa0b001; an
+#    established or related packet passes only with that mark. Every other established or related packet goes to
+#    the chain refused uncounted: it passes in the mode count and is refused in the mode enforce. So a connection
+#    opened in the mode count outside the list does not survive the switch to enforce (E1 of
+#    docs/review-2026-10-13.md) and the answers of a listener of the work user to an inbound connection (its
+#    SYN-ACK first) are refused in enforce, since an inbound connection never carries the mark (E2).
 # 3. Every other new connection is counted in the named counter of its class, first match wins, and goes to the
-#    chain refused: accept in the mode count, a reset or an ICMP refusal in the mode enforce.
+#    chain refused. The chain refused marks the connection 0xa0b002 (the work user's, outside the list: what `awb
+#    egress enforce` deletes from conntrack), then accepts in the mode count or refuses in the mode enforce with a
+#    reset or an ICMP refusal.
 table inet awb_egress
 delete table inet awb_egress
 table inet awb_egress {
@@ -40,9 +47,10 @@ table inet awb_egress {
 
     chain work {
         oifname "lo" accept
-        ct state established,related accept
-        ip daddr @allow4 tcp dport 443 counter name "c_allowed" accept
-        ip6 daddr @allow6 tcp dport 443 counter name "c_allowed" accept
+        ct state established,related ct mark 0xa0b001 accept
+        ct state established,related goto refused
+        ip daddr @allow4 tcp dport 443 counter name "c_allowed" ct mark set 0xa0b001 accept
+        ip6 daddr @allow6 tcp dport 443 counter name "c_allowed" ct mark set 0xa0b001 accept
         ip daddr 192.0.2.0/24 counter name "c_probe" goto refused
         ip6 daddr 2001:db8::/32 counter name "c_probe" goto refused
         ip daddr 169.254.0.0/16 counter name "c_metadata" goto refused
@@ -64,6 +72,7 @@ table inet awb_egress {
     }
 
     chain refused {
+        ct mark set 0xa0b002
 @VERDICT@
     }
 }

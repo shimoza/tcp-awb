@@ -3412,8 +3412,8 @@
   {
    "id": "EG-6",
    "phase": "EG",
-   "name": "egress filter: the rendered rules count or refuse by mode for ipv4 and ipv6",
-   "run": ".venv/bin/pytest tests/test_egress.py::test_the_rendered_rules_count_or_refuse_by_mode_for_ipv4_and_ipv6",
+   "name": "egress filter: the rendered rules mark what they allow and pass an established packet only with the mark, count or refuse by mode for ipv4 and ipv6 (replaces the test that pinned ct state established,related accept, E1)",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_rendered_rules_mark_what_they_allow_and_pass_established_only_with_the_mark",
    "status": "passing"
   },
   {
@@ -5690,8 +5690,57 @@
    "name": "seal: the probe units of verify.sh bind a hosts file of loopback over /etc/hosts and a resolv.conf without a nameserver over /etc/resolv.conf and allow no nameserver (B4)",
    "run": ".venv/bin/pytest tests/test_seal.py::test_the_probe_units_of_verify_bind_a_hosts_file_and_a_resolv_conf_without_a_nameserver",
    "status": "passing"
+  },
+  {
+   "id": "REV13-16",
+   "phase": "REV-2026-10-13",
+   "name": "egress: a connection opened outside the list in count passes uncounted and does not survive enforce; an allowed one keeps passing (E1)",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_a_connection_opened_outside_the_list_in_count_does_not_survive_enforce",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-17",
+   "phase": "REV-2026-10-13",
+   "name": "egress: an inbound connection to a listener of the work user never answers in enforce, the chain hooks the output alone (E2)",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_an_inbound_connection_to_a_listener_of_the_work_user_never_answers_in_enforce",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-18",
+   "phase": "REV-2026-10-13",
+   "name": "egress: enforce deletes the conntrack entries of the work user's connections outside the list, ipv4 and ipv6 (E1)",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_enforce_deletes_the_conntrack_entries_of_the_work_users_connections_outside_the_list",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-19",
+   "phase": "REV-2026-10-13",
+   "name": "egress: enforce without conntrack or with a failing conntrack still switches and says the filter refuses the old connections (E1)",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_enforce_without_conntrack_still_switches_and_says_the_filter_refuses_the_old_connections",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-20",
+   "phase": "REV-2026-10-13",
+   "name": "egress: a refused or failed enforce deletes no conntrack entry",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_a_refused_or_failed_enforce_deletes_no_conntrack_entry",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-21",
+   "phase": "REV-2026-10-13",
+   "name": "egress: the real conntrack runs only as root",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_real_conntrack_runs_only_as_root",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-22",
+   "phase": "REV-2026-10-13",
+   "name": "egress: verify.sh checks that an established connection passes only with the mark of the allow rules (E1, E2)",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_verify_checks_that_an_established_connection_passes_only_with_the_mark",
+   "status": "passing"
   }
  ],
- "total_tests": 813,
+ "total_tests": 820,
  "checked": "2026-10-13"
 }

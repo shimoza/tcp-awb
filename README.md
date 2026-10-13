@@ -539,7 +539,7 @@ It also loads the egress filter of the work user: an nftables table that counts 
 a host outside `seal/egress/ALLOW.md` (the model API, the client's login, update and telemetry hosts and the TCP
 price API), by class. It ships counting and refuses nothing. After a day of counts with nothing unexpected,
 `sudo awb egress enforce` makes it refuse; `awb egress status` and `awb deploy status` show the mode and the counts,
-`sudo awb egress count` goes back. The test tenants stay reachable through the key service, which runs as you. When the table is missing within the same boot (a restart of nftables removes it) the next load puts it back, restarts the count window and the status says so.
+`sudo awb egress count` goes back. An established connection passes only when the list allowed it: in enforce a connection opened outside the list while the filter counted is refused at its next packet. So is every answer of a listener of `awb` to a connection from outside. The switch also deletes those connections from conntrack when the `conntrack` tool is installed; without it they are refused all the same. The test tenants stay reachable through the key service, which runs as you. When the table is missing within the same boot (a restart of nftables removes it) the next load puts it back, restarts the count window and the status says so.
 Things you want no commit to carry (names of other workspaces, a naming scheme) go into a local blocklist, one regular expression per
 line: `/etc/awb/blocklist.txt` or `~/.config/awb/blocklist.txt`. It never enters the repository.
 

@@ -80,13 +80,23 @@ lacks): it passes only when every network check of the build model passed.
 ## The egress filter
 
 An nftables table, `inet awb_egress`, for the work user's uid alone (D-M16 of `presentations/modes/DESIGN.md`, here
-on the sealed host). Loopback (the resolver, the local services) and established connections pass. A new connection
-on tcp 443 to an address of the allow list passes: the host names of `egress/ALLOW.md`, resolved by root every 5
-minutes, IPv4 and IPv6. Every other new connection is counted in a named counter of its class (`probe`, `metadata`,
-`dns`, `ntp`, `tcp_api`, `github`, `ssh`, `mail`, `web`, `other_tcp`, `other_udp`, `icmp`, `other`) and then:
+on the sealed host). Loopback (the resolver, the local services) passes. A new connection on tcp 443 to an address
+of the allow list passes and gets the conntrack mark `0xa0b001`: the host names of `egress/ALLOW.md`, resolved by root
+every 5 minutes, IPv4 and IPv6. An established or related packet passes only with that mark. Every other new
+connection is counted in a named counter of its class (`probe`, `metadata`, `dns`, `ntp`, `tcp_api`, `github`, `ssh`,
+`mail`, `web`, `other_tcp`, `other_udp`, `icmp`, `other`), marked `0xa0b002` and then:
 
 - in the mode `count`, accepted. The filter ships in this mode and changes nothing for a session.
 - in the mode `enforce`, refused (a reset for tcp, an ICMP refusal for the rest).
+
+An established packet without the mark `0xa0b001` goes the same way uncounted: it passes in count and is refused in
+enforce. So a connection opened outside the list while the filter counted does not survive the switch (E1 of
+`docs/review-2026-10-13.md`) and a listener of the work user never answers an inbound connection in enforce, since
+an inbound connection is never marked (E2; its SYN-ACK is the first answer refused). `sudo awb egress enforce` also
+deletes the conntrack entries marked `0xa0b002` with `conntrack -D`, IPv4 and IPv6, when `conntrack` is installed;
+without it the entries stay until they time out and their packets are refused all the same. `verify.sh` reads from
+the loaded chain that an established packet passes only with the mark; it does not try a live connection across the
+switch, which needs a peer outside loopback and a change of the host's mode.
 
 The mode is the line `egress = count|enforce` of `/etc/awb/paths.conf`, read from that root file alone, count when it
 is missing; the setup writes count and keeps the line it finds. `sudo awb egress enforce` switches, and is refused

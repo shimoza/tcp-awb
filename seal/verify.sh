@@ -9,8 +9,11 @@
 # groups of the owner or of the host admins. The check socket answers ping, the work user can write tcp-shared and
 # the owner can write the outbox. The client files of the work user are those of the repository and immutable, the
 # managed drop-in carries the hooks. The egress table of the work user is loaded in the mode of the host file, takes
-# the work user's uid alone, counts a planted connection of the work user to 192.0.2.1 (and refuses it in the mode
-# enforce) and leaves one of the owner's uid, which the key service runs under, uncounted; its timer is active.
+# the work user's uid alone, lets an established connection pass only with the mark of the allow rules, counts a
+# planted connection of the work user to 192.0.2.1 (and refuses it in the mode enforce) and leaves one of the owner's
+# uid, which the key service runs under, uncounted; its timer is active. That an established connection opened before
+# enforce does not survive the switch is read from the loaded rules, not tried: the try needs a peer outside loopback
+# (loopback passes first and the planted address never answers) and a switch of the host's mode.
 # The build side of the self-build (presentations/self-build, SB1): the build user, its image and folders with their
 # owners and modes, the home template, the pinned client, the build hooks and the runner's unit; then N1 to N5 as the
 # build user (the vault, the host file, the blocklist, four sockets, sudo, two homes, a push into main.git each fail)
@@ -274,6 +277,7 @@ egress_checks() {
         printf 'CHECK %s\n' "the egress table of the work user is loaded" \
             "the egress filter runs in the mode of the host file (count or enforce)" \
             "only the work user's uid enters the egress chain (the key service's uid passes untouched)" \
+            "the egress chain lets an established connection pass only with the mark of the allow rules (one opened before enforce does not survive it)" \
             "the key service runs under a uid other than the work user's" \
             "a planted connection of the work user outside the list is counted (and refused in the mode enforce)" \
             "a planted connection of the owner's uid passes the filter uncounted" \
@@ -299,6 +303,18 @@ egress_checks() {
         out=1
     fi
     report "$out" "only the work user's uid enters the egress chain (the key service's uid passes untouched)"
+    # E1 and E2 of docs/review-2026-10-13.md: the first two lines after loopback accept an established packet with the
+    # mark and send every other one to the chain refused; no other line accepts an established one
+    rules=$(nft list chain inet "$EGRESS_TABLE" work 2>/dev/null | grep -Ev '^[[:space:]]*(table|chain|\}|$)' |
+        sed 's/^[[:space:]]*//' || true)
+    if printf '%s\n' "$rules" | sed -n 2p | grep -Eqx 'ct state established,related ct mark 0x0*a0b001 accept' &&
+        [ "$(printf '%s\n' "$rules" | sed -n 3p)" = "ct state established,related goto refused" ] &&
+        [ "$(printf '%s\n' "$rules" | grep -c 'ct state')" -eq 2 ]; then
+        out=0
+    else
+        out=1
+    fi
+    report "$out" "the egress chain lets an established connection pass only with the mark of the allow rules (one opened before enforce does not survive it)"
     pid=$(systemctl show -p MainPID --value awb-keyd.service 2>/dev/null || echo 0)
     key_uid=""
     [ "${pid:-0}" = 0 ] || key_uid=$(stat -c %u "/proc/$pid" 2>/dev/null || true)

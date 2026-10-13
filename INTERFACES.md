@@ -475,7 +475,7 @@ Integration (change these existing modules, keep every existing test green):
   it runs `buildrun.selftest()` and `buildrun.probe_check()` of `tcp-shared/build/probe.tsv` (SB5).
 - `awb/egress.py` with `seal/egress/work-egress.nft` and `seal/egress/ALLOW.md`: the egress filter of the work user
   (an nftables table by uid; `awb egress status|load|enforce|count`). `seal/verify.sh` checks it is loaded in the
-  mode of the host file, takes the work user's uid alone, counts a planted connection of the work user and leaves one
+  mode of the host file, takes the work user's uid alone, accepts an established packet only with the mark of the allow rules, counts a planted connection of the work user and leaves one
   of the owner's uid uncounted. Tests: `bash -n` on every script, `setup.sh --dry-run` output contains each required step and no command
   touches the owner's vault or password store except to set their modes.
 
