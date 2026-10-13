@@ -5431,8 +5431,15 @@
    "name": "build runner: a folder in wt/ with a name the runner never makes never reaches a unit property",
    "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_folder_in_wt_with_a_name_the_runner_never_makes_never_reaches_a_unit_property",
    "status": "passing"
+  },
+  {
+   "id": "REV13-6",
+   "phase": "REV-2026-10-13",
+   "name": "build runner: the export runs no filter of the owner's git configuration and keeps the blobs the gate read",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_export_runs_no_filter_and_keeps_the_blobs_the_gate_read",
+   "status": "passing"
   }
  ],
- "total_tests": 776,
+ "total_tests": 777,
  "checked": "2026-10-12"
 }

@@ -1006,7 +1006,9 @@ def is_ancestor(host: Host, a: str, b: str) -> bool:
 
 def ensure_main(host: Host) -> None:
     """main.git is a bare repository of this uid with main; its info/attributes switch the in-tree export
-    attributes off (a task cannot drop a file from the export); with the push on, origin is the public repository."""
+    attributes off (a task cannot drop a file from the export) and every attribute that changes a file on its way out
+    (a filter of the owner's git configuration, ident, eol, an encoding): the export holds the blobs the gate read.
+    With the push on, origin is the public repository."""
     st = os.lstat(host.main_git)
     if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid():
         raise GitFailed("main.git is not a folder of this user")
@@ -1014,7 +1016,7 @@ def ensure_main(host: Host) -> None:
         raise GitFailed("main.git is not bare")
     info = host.main_git / "info"
     info.mkdir(exist_ok=True)
-    want = b"* -export-ignore -export-subst\n"
+    want = b"* -export-ignore -export-subst -filter -ident -text -eol -working-tree-encoding\n"
     if _read(info / "attributes") != want:
         _write(info / "attributes", want, 0o644)
     if host.push:

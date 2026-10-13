@@ -208,6 +208,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - A build task's unit hides only the folders of `wt/` whose names the runner makes (`B-NNN-N`, `B-NNN-N.out`). A
   folder named with a quote or a blank, made by a task, could split or join the unquoted path list of
   `InaccessiblePaths=` and so unhide the clones of other tasks (review of 2026-10-13, finding B2).
+- The export of a build task runs no filter and changes no file: `info/attributes` of `main.git` also switches
+  `filter`, `ident`, `text`, `eol` and `working-tree-encoding` off. A `.gitattributes` of a task could turn on a
+  filter of the owner's git configuration, run as the owner, and make the export differ from the blobs the gate read
+  (review of 2026-10-13, finding B6).
 
 ## Week 41, 2026-10-05 to 2026-10-11
 
