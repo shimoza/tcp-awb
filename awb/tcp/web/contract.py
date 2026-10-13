@@ -148,6 +148,7 @@ TURN_FAILURES = [
     "The model requested an unsupported tool.",
     "The model returned no usable tool request.",
     "The answer reached its tool limit. Ask a narrower question.",
+    "The answer did not fit in the token limit. Ask a narrower question.",
     "The answer could not be completed. It will not be resent automatically.",
     "The service restarted before completion. This request will not be resent automatically.",
     CHECK_LOCKED,
