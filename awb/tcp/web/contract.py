@@ -1370,7 +1370,7 @@ def _chat_paths() -> dict:
             "get": operation("getChat", "chat", "The conversation of a project, the budget and the model.", {
                 "200": answer("The last 100 turns.", ref("ChatHistory"), {"one-turn": {
                     "project": "tcp-k2wd", "turns": [TURN], "older_turns": 0, "budget": dict(BUDGET),
-                    "model": "claude-haiku-4-5-20251001"}}),
+                    "model": "claude-opus-5-5"}}),
                 "404": refusal("No such project.", "No such project.", PROJECT_GONE),
                 "503": refusal("The project, a check or the usage record is unavailable.", PROJECT_GONE,
                                CONTEXT_FAILED, SNAPSHOT_TOO_LARGE, CHECK_LOCKED, CHECK_DOWN, USAGE_DOWN,

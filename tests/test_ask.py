@@ -50,7 +50,7 @@ def test_the_answer_comes_from_the_tools_and_names_the_entry(facts):
     assert res["answer"].startswith("Three node flavors (KB-") and res["tools"] == ["kb_find"]
     assert res["tokens"] == 470
     first = api.bodies[0]
-    assert first["model"] == ask.MODEL == "claude-haiku-4-5-20251001" and first["max_tokens"] == 1000
+    assert first["model"] == ask.MODEL == "claude-opus-5-5" and first["max_tokens"] == 16000
     assert {t["name"] for t in first["tools"]} == {"kb_find", "price_find", "tenant_now"}
     assert api.bodies[1]["messages"][1]["role"] == "assistant"
     assert ask.budget_left() == (ask.DAILY_QUESTIONS - 1, ask.DAILY_TOKENS - 470)
@@ -126,3 +126,50 @@ def test_the_page_takes_a_question_from_its_own_origin_only(facts):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def _reply(stop, content):
+    return lambda body, key: {"stop_reason": stop, "usage": {"input_tokens": 10, "output_tokens": 5}, "content": content}
+
+
+def test_the_request_carries_the_effort_and_the_model(facts, monkeypatch):
+    api = Api()
+    ask.ask("Which node flavors does the cluster service offer?", facts, key="k", sender=api)
+    assert api.bodies[0]["output_config"] == {"effort": "medium"} and api.bodies[0]["model"] == "claude-opus-5-5"
+    monkeypatch.setenv("AWB_ASK_EFFORT", "high")
+    api = Api()
+    ask.ask("Which node flavors does the cluster service offer?", facts, key="k", sender=api)
+    assert all(b["output_config"] == {"effort": "high"} for b in api.bodies)
+
+
+def test_a_bad_effort_is_refused_at_start(facts, monkeypatch):
+    monkeypatch.setenv("AWB_ASK_EFFORT", "ultra")
+    with pytest.raises(ask.AskError, match="AWB_ASK_EFFORT"):
+        ask.make_server(0)
+    with pytest.raises(ask.AskError, match="AWB_ASK_EFFORT"):
+        ask.ask("A question?", facts, key="k", sender=_reply("end_turn", []))
+    assert ask.main(["serve"]) == 2
+
+
+def test_a_max_tokens_stop_is_an_error_not_a_cut_answer(facts):
+    cut = _reply("max_tokens", [{"type": "thinking", "thinking": "x", "signature": "s"},
+                                {"type": "text", "text": "Three node fla"}])
+    with pytest.raises(ask.AskError, match="token limit"):
+        ask.ask("Which node flavors does the cluster service offer?", facts, key="k", sender=cut)
+
+
+def test_thinking_blocks_are_kept_in_the_history_and_never_in_the_answer(facts):
+    thinking = {"type": "thinking", "thinking": "SECRET-REASONING", "signature": "sig1"}
+    bodies = []
+
+    def api(body, key):
+        bodies.append(body)
+        if len(bodies) == 1:
+            return {"stop_reason": "tool_use", "usage": {}, "content": [thinking, {
+                "type": "tool_use", "id": "toolu_1", "name": "kb_find", "input": {"query": "node flavors"}}]}
+        return {"stop_reason": "end_turn", "usage": {}, "content": [
+            {"type": "thinking", "thinking": "MORE-REASONING", "signature": "sig2"}, {"type": "text", "text": "Done."}]}
+
+    res = ask.ask("Which node flavors does the cluster service offer?", facts, key="k", sender=api)
+    assert res["answer"] == "Done." and "REASONING" not in res["answer"]
+    assert bodies[1]["messages"][1]["content"][0] == thinking
