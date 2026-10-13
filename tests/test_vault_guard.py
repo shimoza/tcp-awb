@@ -84,3 +84,33 @@ def test_the_guard_refuses_the_sockets_of_the_host_services():
             sock.close()
     assert len(conftest._VAULT_GUARD["hits"]) == 2
     conftest._VAULT_GUARD["hits"] = []
+
+
+def test_the_guard_refuses_the_network_and_lets_loopback_pass():
+    """T1: a connect to a tuple address and a name lookup outside this machine are refused and recorded; loopback
+    reaches the socket layer (nothing listens on the port, so the connect is refused by the system, not the guard)."""
+    import socket
+
+    assert conftest._network_hit("socket.connect", (None, ("2001:db8::1", 9, 0, 0)))    # a four-part address
+    assert not conftest._network_hit("socket.connect", (None, ("::1", 9, 0, 0)))
+    for address in (("192.0.2.1", 9), ("198.51.100.7", 443)):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            with pytest.raises(PermissionError):
+                sock.connect(address)
+        finally:
+            sock.close()
+    with pytest.raises(PermissionError):
+        socket.getaddrinfo("api.example.invalid", 443)
+    with pytest.raises(PermissionError):
+        socket.gethostbyname("api.example.invalid")
+    assert len(conftest._VAULT_GUARD["hits"]) == 4
+    conftest._VAULT_GUARD["hits"] = []
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        with pytest.raises(ConnectionRefusedError):
+            sock.connect(("127.0.0.1", 9))
+    finally:
+        sock.close()
+    assert socket.getaddrinfo("localhost", 9) and socket.getaddrinfo(None, 9)
+    assert conftest._VAULT_GUARD["hits"] == []

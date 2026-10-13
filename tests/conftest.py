@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import os
 import pwd
 import shutil
@@ -249,7 +250,8 @@ the one that writes). A test that reaches the host's real vault folder or a real
 them is refused at the call and fails (2026-10-12: three codes of tests/fixtures.py were found in the real
 register; some test, at some time, wrote there)."""
 
-
+_NETWORK_EVENTS = ("socket.connect", "socket.getaddrinfo", "socket.gethostbyname")
+"""The events that leave this machine when the host is not loopback: a test that reaches one is refused (T1)."""
 _HOST_SERVICE_PREFIX = "/run/awb-"
 """The sockets and folders of the host's services under /run (the key service /run/awb-keys/cloud.sock among them):
 no test opens or connects to one (T3)."""
@@ -278,8 +280,44 @@ def _vault_hit(path) -> str | None:
     return None
 
 
+def _not_loopback(host) -> bool:
+    """True when `host` (a name or an address) is not this machine: anything but an IP literal in the loopback or
+    the unspecified range, `localhost` and no host at all."""
+    if host is None:
+        return False
+    try:
+        host = os.fsdecode(host)
+    except TypeError:
+        return False
+    host = host.split("%", 1)[0]
+    if host in ("", "localhost", "localhost.localdomain"):
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return not (ip.is_loopback or ip.is_unspecified)
+
+
+def _network_hit(event: str, args: tuple) -> str | None:
+    """The host a connect or a name lookup of a test reaches outside this machine, or None (T1)."""
+    if event == "socket.connect":
+        address = args[1] if len(args) > 1 else None
+        host = address[0] if isinstance(address, tuple) and address else None
+    elif event in ("socket.getaddrinfo", "socket.gethostbyname"):
+        host = args[0] if args else None
+    else:
+        return None
+    return "the network (%s)" % os.fsdecode(host) if _not_loopback(host) else None
+
+
 def _vault_audit(event: str, args: tuple) -> None:
     pos = _GUARDED_EVENTS.get(event)
+    if event in _NETWORK_EVENTS and _VAULT_GUARD["on"] and not _VAULT_GUARD["busy"]:
+        where = _network_hit(event, args)
+        if where:
+            _VAULT_GUARD["hits"].append("%s reached %s" % (event, where))
+            raise PermissionError("the tests never reach %s (tests/conftest.py)" % where)
     if pos is None or not _VAULT_GUARD["on"] or _VAULT_GUARD["busy"]:
         return
     if event in ("os.rename", "os.symlink", "os.link") and len(args) > 1:

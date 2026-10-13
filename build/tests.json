@@ -5571,8 +5571,15 @@
    "name": "tests: the guard refuses the /run/awb-* sockets of the host services (T3)",
    "run": ".venv/bin/pytest tests/test_vault_guard.py",
    "status": "passing"
+  },
+  {
+   "id": "TI-4",
+   "phase": "TI",
+   "name": "tests: connect and name lookup outside loopback are refused while a test runs (T1)",
+   "run": ".venv/bin/pytest tests/test_vault_guard.py",
+   "status": "passing"
   }
  ],
- "total_tests": 796,
+ "total_tests": 797,
  "checked": "2026-10-13"
 }
