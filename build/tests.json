@@ -5396,8 +5396,15 @@
    "name": "awb cloud sweep lists the buckets with --buckets only, their names never in the output",
    "run": ".venv/bin/pytest tests/test_sweep.py::test_the_command_line_sweeps_the_buckets_with_the_flag_only",
    "status": "passing"
+  },
+  {
+   "id": "REV13-1",
+   "phase": "REV-2026-10-13",
+   "name": "MCP server: a message nested deeper than the JSON parser goes is a parse error and the server goes on",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_a_deeply_nested_message_is_a_parse_error_and_the_server_goes_on",
+   "status": "passing"
   }
  ],
- "total_tests": 771,
+ "total_tests": 772,
  "checked": "2026-10-12"
 }

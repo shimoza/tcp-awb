@@ -831,7 +831,7 @@ def serve(ds: Dataset, stdin=None, stdout=None) -> None:
             continue
         try:
             msg = json.loads(line.decode("utf-8"))
-        except (ValueError, UnicodeDecodeError):
+        except (ValueError, UnicodeDecodeError, RecursionError):    # nested deeper than the parser goes: not JSON
             out = _error(None, PARSE_ERROR, "not JSON")
         else:
             if isinstance(msg, list):

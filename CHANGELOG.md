@@ -197,6 +197,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   address on port 22. The suite unit keeps its own network namespace with loopback alone.
 - The short probe units of `seal/verify.sh` no longer allow the nameserver of `/etc/resolv.conf` (the stub
   `127.0.0.53`): they run fixed commands and resolve no name (follow-up of pull request 7).
+- The MCP server of TCP Facts answers a message nested deeper than the JSON parser goes with a parse error and
+  goes on; before, such a line ended the server (review of 2026-10-13, finding M1).
 
 ## Week 41, 2026-10-05 to 2026-10-11
 
