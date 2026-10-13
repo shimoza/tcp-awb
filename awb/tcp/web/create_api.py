@@ -330,7 +330,20 @@ class Handler(BaseHTTPRequestHandler):
         super().setup()
         self.connection.settimeout(20)
 
+    def drain(self):
+        # answer after the declared body is read (bounded), so the client is not writing into a closed socket
+        if self.command != 'POST' or getattr(self, 'drained', False):
+            return
+        self.drained = True
+        try:
+            n = int(self.headers.get('Content-Length', '0'))
+            if 0 < n <= 2 * 1024 * 1024:
+                self.rfile.read(n)
+        except (ValueError, OSError):
+            pass
+
     def reply(self, status, result):
+        self.drain()
         body = json.dumps(result, ensure_ascii=False).encode()
         self.send_response(status)
         for k, v in {'Content-Type': 'application/json; charset=utf-8', 'Content-Length': str(len(body)),
@@ -357,6 +370,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not 0 < n <= 2 * 1024 * 1024:
                     raise Problem(413, 'Working copy is too large.')
                 raw = self.rfile.read(n)
+                self.drained = True
                 if len(raw) != n: raise Problem(400, 'Incomplete working copy.')
                 return self.reply(200, self.server.store.publish_material(publish[1], json.loads(raw)))
             # F11: the web user alone; the work user's call of the customer socket is gone
@@ -387,6 +401,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not 0 < length <= 16384:
                     raise ValueError()
                 raw = self.rfile.read(length)
+                self.drained = True
                 if len(raw) != length:
                     raise ValueError()
                 data = json.loads(raw)
