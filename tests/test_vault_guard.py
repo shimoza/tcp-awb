@@ -61,14 +61,37 @@ def test_inner():
     assert done.returncode == 0, done.stdout + done.stderr
 
 
-def test_a_patched_work_user_gets_a_home_of_the_test(monkeypatch):
-    """T3: with `config.is_work_user` patched the paths come from the home of the test, never the real one."""
-    from awb import config
+def test_a_patched_work_user_that_touches_the_real_shared_side_or_kb_fails(tmp_path):
+    """T3 (T3H-a): HOME stays the real one and a patched `config.is_work_user` makes `config.paths()` take the real
+    ~/tcp-shared and ~/tcp-kb. A test that then writes or lists there fails, even when the code under test catches
+    the refusal; the guard refuses the call before anything is written."""
+    body = """
+import os
 
+from awb import config
+
+
+def test_inner(monkeypatch):
     monkeypatch.setattr(config, "is_work_user", lambda: True)
-    shared = str(config.paths().shared)
-    assert shared.startswith(os.environ["HOME"]) and "no-host" in shared
-    assert str(config.paths().kb).startswith(os.environ["HOME"])
+    p = config.paths()
+    assert str(p.shared) == os.path.realpath(os.path.expanduser("~/tcp-shared"))
+    assert str(p.kb) == os.path.realpath(os.path.expanduser("~/tcp-kb"))
+    try:
+        open(p.shared / "never-written.txt", "w")
+    except OSError:
+        pass
+    try:
+        os.listdir(p.kb)
+    except OSError:
+        pass
+"""
+    done = _inner_run(tmp_path, body, {})
+    out = done.stdout + done.stderr
+    assert done.returncode == 1, out
+    assert "the test reached a guarded place of the host" in out, out
+    assert "open reached the real shared side or knowledge base" in out, out
+    assert "os.listdir reached the real shared side or knowledge base" in out, out
+    assert not os.path.exists(os.path.join(os.path.expanduser("~/tcp-shared"), "never-written.txt"))
 
 
 def test_the_guard_refuses_the_sockets_of_the_host_services():

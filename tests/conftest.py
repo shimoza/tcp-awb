@@ -239,7 +239,31 @@ def _real_vault_places() -> tuple[tuple[str, ...], frozenset[str]]:
     return tuple(sorted(roots)), frozenset(socks)
 
 
+def _real_data_places() -> tuple[str, ...]:
+    """The real shared side and knowledge base of the host, worked out once before any test patches a path: the
+    defaults ~/tcp-shared and ~/tcp-kb that `config.paths()` takes for a patched `is_work_user` (it then leaves the
+    environment out and the host file of the tests is empty), the folders the root host file names and whatever
+    AWB_SHARED and AWB_KB said when the run started. HOME stays the real one, since the repository and its .venv
+    live under it and the code writes "$HOME/..." for them (T3H-a); these folders are refused instead (T3)."""
+    conf: dict[str, str] = {}
+    try:
+        for line in Path(config.HOST_CONF).read_text(encoding="utf-8").splitlines():
+            k, sep, v = line.strip().partition("=")
+            if sep and not k.lstrip().startswith("#"):
+                conf[k.strip()] = v.strip()
+    except (OSError, UnicodeDecodeError):
+        pass
+    folders = {"~/tcp-shared", "~/tcp-kb", conf.get("shared"), conf.get("kb"), os.environ.get("AWB_SHARED"),
+               os.environ.get("AWB_KB")}
+    roots: set[str] = set()
+    for f in filter(None, folders):
+        f = os.path.abspath(os.path.expanduser(f))
+        roots |= {f, os.path.realpath(f)}
+    return tuple(sorted(roots))
+
+
 _REAL_VAULT_ROOTS, _REAL_VAULT_SOCKETS = _real_vault_places()
+_REAL_DATA_ROOTS = _real_data_places()
 _VAULT_GUARD = {"on": False, "busy": False, "hits": []}
 _GUARDED_EVENTS = {"open": 0, "os.mkdir": 0, "os.rename": 0, "os.remove": 0, "os.rmdir": 0, "os.chmod": 0,
                    "os.chown": 0, "os.listdir": 0, "os.scandir": 0, "os.symlink": 1, "os.link": 1, "os.truncate": 0,
@@ -277,6 +301,9 @@ def _vault_hit(path) -> str | None:
     for root in _REAL_VAULT_ROOTS:
         if full == root or full.startswith(root + os.sep):
             return "the real vault folder"
+    for root in _REAL_DATA_ROOTS:
+        if full == root or full.startswith(root + os.sep):
+            return "the real shared side or knowledge base"
     return None
 
 
@@ -353,7 +380,7 @@ def no_real_vault():
         _VAULT_GUARD["on"] = False
     hits = sorted(set(_VAULT_GUARD["hits"]))
     if hits:
-        pytest.fail("the test reached the host's real vault: %s" % "; ".join(hits), pytrace=False)
+        pytest.fail("the test reached a guarded place of the host: %s" % "; ".join(hits), pytrace=False)
 
 
 @pytest.fixture(autouse=True)
@@ -372,9 +399,6 @@ def invented_blocklist(tmp_path_factory, monkeypatch):
     (stub / "pass").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
     (stub / "pass").chmod(0o755)
     monkeypatch.setenv("PATH", str(stub) + os.pathsep + os.environ.get("PATH", ""))
-    # a home of the test: with `config.is_work_user` patched the code takes ~/tcp-shared and ~/tcp-kb (T3)
-    (none / "home").mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("HOME", str(none / "home"))
     monkeypatch.setattr(gate, "BLOCKLIST_FILES", (none / "blocklist.txt", none / "home-blocklist.txt"))
     monkeypatch.setenv("AWB_BLOCKLIST", str(BLOCKLIST))
     # no test writes to the real shared side or the real throttle stamps: a test that builds no Workbench of its

@@ -5624,7 +5624,7 @@
   {
    "id": "TI-2",
    "phase": "TI",
-   "name": "tests: a patched is_work_user takes the home of the test (T3)",
+   "name": "tests: a patched is_work_user that touches the real ~/tcp-shared or ~/tcp-kb fails, even when the code catches it (T3, T3H-a)",
    "run": ".venv/bin/pytest tests/test_vault_guard.py",
    "status": "passing"
   },
