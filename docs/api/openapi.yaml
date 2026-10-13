@@ -2804,7 +2804,7 @@ paths:
                       daily_questions: 40
                       daily_tokens: 300000
                       resets: "00:00 UTC"
-                    model: claude-haiku-4-5-20251001
+                    model: claude-opus-5-5
         "401":
           description: No valid session. Sign in first.
           content:
