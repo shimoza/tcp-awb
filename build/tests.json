@@ -5550,8 +5550,15 @@
    "name": "run.py without ANTHROPIC_API_KEY does nothing and says so",
    "run": ".venv/bin/pytest tests/test_eval_tcp_facts.py",
    "status": "passing"
+  },
+  {
+   "id": "TI-1",
+   "phase": "TI",
+   "name": "tests: AWB_ variables of the owner's shell are deleted and pass exits 1 (T2)",
+   "run": ".venv/bin/pytest tests/test_vault_guard.py",
+   "status": "passing"
   }
  ],
- "total_tests": 793,
- "checked": "2026-10-12"
+ "total_tests": 794,
+ "checked": "2026-10-13"
 }

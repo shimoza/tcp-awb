@@ -318,6 +318,15 @@ def invented_blocklist(tmp_path_factory, monkeypatch):
     from awb import gate, hooks
 
     none = tmp_path_factory.getbasetemp() / "no-host"
+    # nothing of the owner's shell: every AWB_ variable goes first, then the invented ones below are set (T2). A
+    # `pass` that exits 1 comes first on PATH, so no test reaches the real password store or the real OBS.
+    for name in [k for k in os.environ if k.startswith("AWB_")]:
+        monkeypatch.delenv(name)
+    stub = none / "bin"
+    stub.mkdir(parents=True, exist_ok=True)
+    (stub / "pass").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    (stub / "pass").chmod(0o755)
+    monkeypatch.setenv("PATH", str(stub) + os.pathsep + os.environ.get("PATH", ""))
     monkeypatch.setattr(gate, "BLOCKLIST_FILES", (none / "blocklist.txt", none / "home-blocklist.txt"))
     monkeypatch.setenv("AWB_BLOCKLIST", str(BLOCKLIST))
     # no test writes to the real shared side or the real throttle stamps: a test that builds no Workbench of its
