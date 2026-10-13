@@ -175,7 +175,8 @@ def ask_model(system: str, user: str, sender, key) -> str:
         raise TranslateError("the daily budget of the Ask path is used up; it resets at midnight")
     tokens = 0
     try:
-        resp = sender({"model": ask.MODEL, "max_tokens": MAX_TOKENS, "system": system,
+        resp = sender({"model": ask.MODEL, "max_tokens": MAX_TOKENS, "output_config": {"effort": ask._effort()},
+                       "system": system,
                        "messages": [{"role": "user", "content": user}]}, key)
         usage = resp.get("usage") or {}
         tokens = int(usage.get("input_tokens", 0)) + int(usage.get("output_tokens", 0))

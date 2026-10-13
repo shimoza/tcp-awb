@@ -159,6 +159,33 @@ class Tests(unittest.TestCase):
         self.assertEqual(json.loads(result["tools"]), ["kb_find"])
         self.assertEqual(self.calls[1]["messages"][-1]["content"][0]["content"], "[]")
 
+    def test_the_request_carries_the_effort_and_the_token_cap(self):
+        self.assertEqual(self.submit()["status"], "complete")
+        self.assertEqual(self.calls[0]["output_config"], {"effort": "medium"})
+        self.assertEqual(self.calls[0]["max_tokens"], 16000)
+        with patch.dict("os.environ", {"AWB_ASK_EFFORT": "high", "AWB_ASK_MAX_TOKENS": "8000"}):
+            self.assertEqual(self.submit(rid="b" * 32)["status"], "complete")
+        self.assertEqual(self.calls[1]["output_config"], {"effort": "high"})
+        self.assertEqual(self.calls[1]["max_tokens"], 8000)
+
+    def test_a_max_tokens_stop_fails_the_turn_and_shows_no_cut_answer(self):
+        self.engine.sender = lambda body, key: {"stop_reason": "max_tokens", "usage": {"input_tokens": 50, "output_tokens": 16000},
+                                                "content": [{"type": "thinking", "thinking": "x", "signature": "s"},
+                                                            {"type": "text", "text": "The test is st"}]}
+        result = self.submit()
+        self.assertEqual(result["status"], "failed")
+        self.assertNotIn("The test is st", json.dumps(result))
+        self.assertIn(chat.CUT_ANSWER, json.dumps(result))
+
+    def test_a_bad_effort_stops_the_service_at_start(self):
+        with patch.dict("os.environ", {"AWB_ASK_EFFORT": "ultra"}), \
+                patch.object(sys, "argv", ["chat_service", "--port", "0", "--domain", DOMAIN]), \
+                patch.object(chat, "ThreadingHTTPServer") as server:
+            with self.assertRaises(SystemExit) as stop:
+                chat.main()
+        self.assertEqual(stop.exception.code, 2)
+        server.assert_not_called()
+
     def test_cross_project_duplicate_id_is_rejected(self):
         self.submit()
         with self.assertRaises(chat.ChatError):

@@ -8,6 +8,7 @@ import json
 import math
 import os
 import re
+import sys
 import sqlite3
 import threading
 import urllib.error
@@ -40,6 +41,7 @@ BUSY = 'Another answer is being prepared. Try again when it finishes.'
 BUDGET_SPENT = 'The daily Ask budget is used up. It resets at 00:00 UTC.'
 SHORT_BUDGET = 'Not enough daily token budget remains for this answer.'
 DECLINED = 'The model declined this question.'
+CUT_ANSWER = 'The answer did not fit in the token limit. Ask a narrower question.'
 CITED_PRICES = 50
 """Price records kept for one answer of the Ask API."""
 
@@ -415,9 +417,11 @@ class Conversations:
                     system += INPUTS_NOTE
                 system += '\n\nPROJECT SNAPSHOT (source data):\n' + json.dumps(context, ensure_ascii=False)
             for _ in range(ask.MAX_ROUNDS):
-                body = {'model': ask.MODEL, 'max_tokens': ask.MAX_TOKENS, 'system': system, 'tools': tools, 'messages': messages}
+                cap = ask._max_tokens()
+                body = {'model': ask.MODEL, 'max_tokens': cap, 'output_config': {'effort': ask._effort()},
+                        'system': system, 'tools': tools, 'messages': messages}
                 # Bytes provide a conservative input token allowance plus protocol overhead.
-                reserve = len(json.dumps(body, ensure_ascii=False).encode()) + ask.MAX_TOKENS + 4096
+                reserve = len(json.dumps(body, ensure_ascii=False).encode()) + cap + 4096
                 day = dt.date.today().isoformat()
                 self.budget()
                 if reserve > ask.budget_left(day)[1]:
@@ -433,6 +437,8 @@ class Conversations:
                 content = response.get('content', [])
                 if response.get('stop_reason') == 'refusal':
                     raise ChatError(DECLINED, 422)
+                if response.get('stop_reason') == 'max_tokens':       # thinking counts against the cap
+                    raise ChatError(CUT_ANSWER)
                 if response.get('stop_reason') != 'tool_use':
                     answer = '\n\n'.join(b.get('text', '') for b in content if b.get('type') == 'text').strip()
                     if not answer:
@@ -609,6 +615,11 @@ def main():
     parser.add_argument('--domain', required=True, help='the host name of the site, without scheme')
     parser.add_argument('--db', default='/var/lib/awb-ask/project-chat.sqlite3')
     args = parser.parse_args()
+    try:
+        ask.check_settings()            # a bad AWB_ASK_EFFORT or AWB_ASK_MAX_TOKENS stops the start
+    except ask.AskError as err:
+        print('chat_service: %s' % err, file=sys.stderr)
+        raise SystemExit(2)
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     server.chat = Conversations(args.db)
     server.origin = 'https://' + args.domain.lower()

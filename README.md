@@ -94,7 +94,8 @@ from in". Each project has a chat that reads its sanitised inputs. The Ask page 
 a general question in plain words only from the knowledge base, the live price API and the tenant snapshots.
 Ask runs on `claude-opus-5-5` (`AWB_ASK_MODEL` changes it). Thinking is always on there, so `AWB_ASK_EFFORT` sets
 how much the model thinks (`low`, `medium`, `high`, `xhigh` or `max`, default `medium`) and `AWB_ASK_MAX_TOKENS`
-(default 16000) caps one reply; a reply that hits the cap is an error, never a cut answer. A question costs roughly
+(default 16000) caps one reply; a reply that hits the cap is an error, never a cut answer. The project chat and
+the Ask API use the same settings. A question costs roughly
 5,000 to 12,000 tokens at medium (an estimate, not a measurement) because the thinking and the tool rounds are
 counted. The daily budget of 40 questions and 300,000 tokens is counted the same way, so about 25 to 60 questions
 fit in the tokens and the token budget now ends the day before the question count does when questions are hard.
