@@ -5669,8 +5669,22 @@
    "name": "egress: a table missing within the same boot restarts the count and the status says so",
    "run": ".venv/bin/pytest tests/test_egress.py::test_a_table_missing_within_the_same_boot_restarts_the_count_and_the_status_says_so tests/test_egress.py::test_a_table_missing_after_a_reboot_is_a_plain_load",
    "status": "passing"
+  },
+  {
+   "id": "REV13-13",
+   "phase": "REV-2026-10-13",
+   "name": "build runner: a blob or message above the bound is red before any read and main stays",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_blob_or_message_above_the_bound_is_red_before_any_read_and_main_stays",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-14",
+   "phase": "REV-2026-10-13",
+   "name": "build runner: the runner unit has a memory limit that fits the fetch of a full bundle",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_runner_unit_has_a_memory_limit_that_fits_the_fetch_of_a_full_bundle",
+   "status": "passing"
   }
  ],
- "total_tests": 810,
+ "total_tests": 812,
  "checked": "2026-10-13"
 }

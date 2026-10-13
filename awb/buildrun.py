@@ -124,6 +124,8 @@ HELD_RESTART = ("held: prompt", "held: prepare", "held: model endpoint", "held: 
 MAX_COMMITS = 5
 MAX_ROUNDS = 3              # rebase rounds when main moves under a green task
 BUNDLE_MAX = 512 << 20
+BLOB_MAX = 16 << 20
+"""The largest changed blob and commit object the runner reads (B3); `git cat-file --batch-check` sizes them first."""
 SMALL_MAX = 1 << 20
 LOG_MAX = 16 << 20
 RESULT_MAX = 4 << 20
@@ -1223,8 +1225,33 @@ def check_commits(host: Host, ctx: Ctx, heads: dict[str, str] | None, status: by
         raise _fail(ctx, 4, "red: merge commit")
     if status is None or status.strip(b"\0\n "):
         raise _fail(ctx, 4, "red: dirty tree")
+    big = oversized(host, commits)
+    if big == "message":
+        raise _fail(ctx, 4, "red: message too big")
+    if big:
+        raise _fail(ctx, 4, "red: blob too big")
     ctx.commits = commits
     _ok(ctx, 4, "%d commit(s)" % len(commits))
+
+
+def oversized(host: Host, commits: list[str]) -> str | None:
+    """`message` when a commit object of `commits` is above BLOB_MAX, `blob` when a blob one of them adds or changes
+    is; None otherwise. Sizes come from `git cat-file --batch-check`, which reads no content: this runs before any
+    read of a message or a blob, so a blob of many GB that compresses to a small bundle is never buffered."""
+    from awb import gate
+
+    objects = dict.fromkeys(commits)
+    for commit in commits:
+        raw = git(host, "diff-tree", "--root", "-r", "-m", "--no-commit-id", "--raw", "-z", "--no-abbrev",
+                  "--no-renames", "--diff-filter=AMT", commit).stdout
+        objects.update(dict.fromkeys(blob for _, mode, blob in gate._raw_entries(raw) if mode != "160000"))
+    out = git(host, "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)",
+              stdin=("\n".join(objects) + "\n").encode()).stdout.decode("ascii", "replace")
+    for line in out.split("\n"):
+        f = line.split()
+        if len(f) == 3 and f[2].isdigit() and int(f[2]) > BLOB_MAX:
+            return "message" if f[1] == "commit" else "blob"
+    return None
 
 
 def commit_fields(host: Host, commits: list[str]) -> dict[str, list[str]]:
@@ -2555,6 +2582,8 @@ def push_main(host: Host, register: Path | None) -> str:
     commits = git(host, "rev-list", "--reverse", "%s..%s" % (remote, main)).stdout.decode("ascii").split()
     if not commits:
         return "pushed"
+    if oversized(host, commits):
+        return "refused"
     try:
         found = scan_commits(host, commits, _matcher(register), owner_identity(host))
     except reg.RegisterError:
@@ -3116,6 +3145,12 @@ if sc == "ask":
     out("I need to know which file. Should I change awb/x.py?")
 if sc == "blocked":
     out("BLOCKED: the task names no file")
+if sc == "bigblob":
+    open("awb/big.bin", "wb").write(bytes((16 << 20) + 1))
+    value(["awb/big.bin"]); done()
+if sc == "bigmessage":
+    open(".git/big-msg", "w").write("the value is two\n\n" + "x" * (16 << 20) + "\n")
+    value(); git("commit", "-q", "-F", ".git/big-msg"); out("DONE: the value is two")
 if sc == "identity":
     value()
     git("-c", "user.name=someone else", "-c", "user.email=else@localhost", "commit", "-q", "-m", "the value")

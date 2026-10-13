@@ -236,9 +236,10 @@ GATE_CLASSES = ("name", "secret", "private-key", "token", "homepath", "blocklist
                 "attribution")                          # awb.gate.CLASSES
 BUILD_REASONS = {
     "hung": ("suite",),
-    "red": ("no commit", "second branch", "not on main", "too many commits", "merge commit", "dirty tree", "identity",
-            "outside paths", "link or submodule", "changelog", "tests.json", "rules list lost lines", "suite",
-            "tests lost", "check") + tuple("gate %s" % c for c in GATE_CLASSES),
+    "red": ("no commit", "second branch", "not on main", "too many commits", "merge commit", "dirty tree",
+            "blob too big", "message too big", "identity", "outside paths", "link or submodule", "changelog",
+            "tests.json", "rules list lost lines", "suite", "tests lost",
+            "check") + tuple("gate %s" % c for c in GATE_CLASSES),
     "stopped": ("by_owner", "no_result", "session_gone", "error", "error_max_turns", "error_during_execution",
                 "error_max_budget_usd"),
     "held": ("checks pending", "push refused", "push pending", "prompt", "prepare", "model endpoint", "no main",

@@ -194,6 +194,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- The build runner sizes every blob a task's commits add or change and every commit with `git cat-file
+  --batch-check` before it reads any of them; one above 16 MB is `red: blob too big` or `red: message too big` at
+  check 4 and the push refuses such a range. `awb-buildd.service` has `MemoryMax=2G`. Before, a blob of many GB of
+  zeros fit in a small bundle and the owner's runner read it whole, so the OOM killer could take the vault daemon or
+  the key service (review of 2026-10-13, finding B3).
 - No test can reach the network any more (finding T1 of `docs/review-2026-10-13.md`). The audit hook of `tests/conftest.py` refuses a socket connect (tuple addresses too) and a `getaddrinfo` or `gethostbyname` to any host that is not loopback while a test runs. The test fails even when the code under test caught the refusal. No test of the suite needed a fake: none reached a host outside this machine.
 - The tests no longer reach the real home or the key socket when a test patches `config.is_work_user` (finding T3 of `docs/review-2026-10-13.md`). `HOME` is a folder of the test and the guard of `tests/conftest.py` refuses every path under `/run/awb-` (the key service socket among them).
 - The tests keep the real `HOME` again (owner decision T3H-a on finding T3 of `docs/review-2026-10-13.md`). The repository and its `.venv` live under the real home, so with a moved `HOME` the spawned projects carried absolute home paths and the gate refused them (four tests failed on this host). Instead the guard of `tests/conftest.py` refuses the real `~/tcp-shared` and `~/tcp-kb`, the shared and kb folders of the root host file and the `AWB_SHARED` and `AWB_KB` of the start of the run. A test that patches `config.is_work_user` and reaches one of them fails, even when the code caught the refusal.

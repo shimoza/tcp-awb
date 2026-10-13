@@ -6,6 +6,11 @@
 # A deploy never restarts it while an awb-task-* unit is active: it leaves restart-wanted in <build_root>/runs and
 # the runner exits between two tasks with a non-zero code, which Restart=on-failure turns into a start with the new
 # code. `awb build stop` exits 0 and the runner stays down.
+# MemoryMax=2G (review B3): the runner reads no changed blob or commit above 16 MB (git cat-file --batch-check first),
+# so a normal run peaks well under 1G: the fetch of a bundle of BUNDLE_MAX (512 MB) with fsck in git and the gate
+# over blobs of up to 16 MB in Python; git archive streams the export to a file. The sessions and the suite run in
+# units of their own and do not count here. 2G is four times the largest bundle and keeps a runaway read in this unit, where the OOM killer ends
+# the runner and not the vault daemon or the key service.
 [Unit]
 Description=Architect Workbench build runner
 After=local-fs.target network-online.target awb-vaultd.service awb-keyd.service
@@ -20,6 +25,7 @@ ExecStart=/usr/local/bin/awb build serve
 Restart=on-failure
 RestartSec=30
 LimitCORE=0
+MemoryMax=2G
 
 [Install]
 WantedBy=multi-user.target

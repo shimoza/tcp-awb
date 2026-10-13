@@ -137,6 +137,46 @@ def test_each_planted_fault_is_its_named_red_and_main_stays(world, scenario, pat
     assert "FAIL" in checks_of(run)
 
 
+@pytest.mark.parametrize("scenario, state", [
+    ("bigblob", "red: blob too big"),
+    ("bigmessage", "red: message too big"),
+])
+def test_a_blob_or_message_above_the_bound_is_red_before_any_read_and_main_stays(world, scenario, state):
+    """B3 of docs/review-2026-10-13.md: every changed blob and every commit is sized with `git cat-file
+    --batch-check` before any read, and one above BLOB_MAX (16 MB) is red at check 4. Planted: a blob of 16 MB and
+    one byte of zeros (a few KB in the bundle) and a message of the same size; neither is ever read whole."""
+    calls = []
+    real = world.host.git_run
+
+    def record(cmd, **kw):
+        calls.append(list(cmd))
+        return real(cmd, **kw)
+
+    world.host.git_run = record
+    start = main_of(world)
+    run = world.run(scenario)
+    assert run.state == state
+    assert main_of(world) == start and origin_of(world) == start
+    assert build.line(run) == "build %s %s; branch task/%s kept" % (run.id, state, run.id)
+    assert "FAIL" in checks_of(run)
+    assert any("--batch-check" in " ".join(cmd) for cmd in calls)
+    for cmd in calls:                                          # main's own files only, no message
+        if "cat-file" in cmd and "blob" in cmd:
+            assert cmd[-1].startswith(start + ":"), cmd[-3:]
+        assert not any("%B" in a for a in cmd), cmd[-3:]
+
+
+def test_the_runner_unit_has_a_memory_limit_that_fits_the_fetch_of_a_full_bundle():
+    """B3: seal/awb-buildd.service caps the runner's memory, so a read that grows cannot reach the vault daemon or
+    the key service, with room for the fetch of a bundle of BUNDLE_MAX and the gate over blobs of BLOB_MAX."""
+    unit = (Path(buildrun.__file__).parents[1] / "seal" / "awb-buildd.service").read_text(encoding="utf-8")
+    values = re.findall(r"^MemoryMax=(\d+)([MG])$", unit, re.M)
+    assert len(values) == 1
+    size = int(values[0][0]) << (20 if values[0][1] == "M" else 30)
+    assert buildrun.BLOB_MAX == 16 << 20
+    assert 4 * buildrun.BUNDLE_MAX <= size < 6 << 30
+
+
 def test_a_replaced_test_named_in_tests_replaced_passes_check_ten(world):
     run = world.run("deleted", replaced="tests/test_x.py::test_three")
     assert run.state == "done"

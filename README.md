@@ -604,7 +604,7 @@ task as `awb-build` in units of a fixed form: a fresh home from the root templat
 the branch as a bundle. The hand-over and the rebase units write only the task's clone and out folder, see no
 other clone, home or login, have no network and refuse a clone whose git configuration could run a command of the
 session (`.git/commondir`, `config.worktree`, `info/attributes`, a key outside a fixed list). The runner judges
-the bundle in `main.git`, never the clone: the unit ended by itself, the client ended well, the last line is `DONE:`, one to five commits as you on `task/<ID>` and nothing else, the gate with the
+the bundle in `main.git`, never the clone: the unit ended by itself, the client ended well, the last line is `DONE:`, one to five commits as you on `task/<ID>` and nothing else, no changed blob and no commit above 16 MB (sized with `git cat-file --batch-check` before any read), the gate with the
 register, the paths, the CHANGELOG and `build/tests.json`, then the whole suite, every test that passed before
 still passing and the block's `check` on a `git archive` export, as `awb-build` on loopback only. Green moves `main`
 in `main.git` (a rebase first when `main` moved), pushes it to GitHub after the gate over the whole range and ends
@@ -626,7 +626,7 @@ Without an upstream nameserver the queue is held as `no resolver for the task un
 `sudo seal/verify.sh` runs both; `awb seal check` runs the selftest and reads the record of the last probe. Every
 task unit names the oneshot `awb-task-failed@.service` in `OnFailure=`: a task unit that fails while no runner
 waits on it (the runner stopped or crashed) adds `no runner watched: B-012 failed 14:02 (timeout)` to the board line
-until the runner starts again and reports the task itself. The unit is installed and not enabled: start it with
+until the runner starts again and reports the task itself. The unit has `MemoryMax=2G`, so a read that grows ends the runner and not the vault daemon or the key service. It is installed and not enabled: start it with
 `sudo systemctl start awb-buildd.service`, stop it with `awb build stop`.
 
 What the build side does not prove (the accepted limits of `presentations/self-build/THREAT-MODEL.md`, section 6):
