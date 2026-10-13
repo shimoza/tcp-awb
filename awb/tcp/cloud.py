@@ -51,6 +51,7 @@ _REGION_RE = re.compile(r"^[a-z]{2}-[a-z0-9]{2,10}$")
 _BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 _TRANSIENT = (429, 502, 503, 504)
 CUT = 300
+MAX_READ = 16 * 1024 * 1024     # an answer is read up to this bound, the rest is left unread and the answer is cut
 
 
 class CloudError(Exception):
@@ -70,7 +71,7 @@ class Response:
     status: int
     data: Any                 # the parsed JSON body, the data of an OBS list in XML (awb/obs.py) or None
     text: str                 # at most CUT bytes of the body, the key taken out
-    size: int = 0             # the bytes of the whole body
+    size: int = 0             # the bytes of the whole body (MAX_READ + 1 for one larger than the bound)
     cut: bool = False         # True when there is no data and `text` holds only the start of the body
 
     @property
@@ -171,10 +172,10 @@ class Client:
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     throttle.log_call(self.label, service, self.region, method.upper(), resp.status, waited)
-                    return self._response(resp.status, resp.read())
+                    return self._response(resp.status, resp.read(MAX_READ + 1))
             except urllib.error.HTTPError as exc:
                 throttle.log_call(self.label, service, self.region, method.upper(), exc.code, waited)
-                r = self._response(exc.code, exc.read())
+                r = self._response(exc.code, exc.read(MAX_READ + 1))
                 if exc.code in _TRANSIENT:
                     # the gateway may name its own wait: take it before the next try, within the job's budget
                     hint = throttle.retry_after(exc.headers.get("Retry-After") if exc.headers else None)
@@ -196,6 +197,8 @@ class Client:
 
     def _response(self, status: int, raw: bytes) -> Response:
         text = self.clean(raw[:CUT].decode("utf-8", "replace"))
+        if len(raw) > MAX_READ:
+            return Response(status, None, text, len(raw), True)
         try:
             data = json.loads(raw) if raw else None
         except ValueError:
@@ -326,6 +329,8 @@ def mask(value: str) -> str:
 
 def cut_line(size: int) -> str:
     """The line that says an answer that is not JSON was cut and how long the whole was."""
+    if size > MAX_READ:
+        return "awb cloud: the answer was cut to its first %d of more than %d bytes" % (CUT, MAX_READ)
     return "awb cloud: the answer is not JSON and was cut to its first %d of %d bytes" % (CUT, size)
 
 

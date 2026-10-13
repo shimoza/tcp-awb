@@ -202,6 +202,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - An OBS answer that declares a DOCTYPE or an entity is never parsed: `awb cloud call` and the key service take
   it as plain text, an OBS listing refuses it. An object body read through the key service could carry one and grow
   in the owner's daemon (review of 2026-10-13, finding X1).
+- `awb cloud call` and the key service read an answer up to 16 MiB and leave the rest unread; the answer is cut
+  and the command says it was larger. Before, a GET of a large object of a project bucket was read whole into the
+  owner's key service (review of 2026-10-13, finding X2).
 
 ## Week 41, 2026-10-05 to 2026-10-11
 

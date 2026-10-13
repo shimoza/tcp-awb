@@ -5417,8 +5417,15 @@
    "name": "OBS: a listing that declares a DOCTYPE is refused",
    "run": ".venv/bin/pytest tests/test_obs.py::test_a_listing_with_a_doctype_is_refused",
    "status": "passing"
+  },
+  {
+   "id": "REV13-4",
+   "phase": "REV-2026-10-13",
+   "name": "cloud: an answer is read up to its bound of 16 MiB and marked cut, a refusal too",
+   "run": ".venv/bin/pytest tests/test_cloud.py::test_an_answer_is_read_up_to_its_bound_and_marked_cut",
+   "status": "passing"
   }
  ],
- "total_tests": 774,
+ "total_tests": 775,
  "checked": "2026-10-12"
 }
