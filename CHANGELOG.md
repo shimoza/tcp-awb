@@ -181,6 +181,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   lines of `verify.sh` fail until it is set up, the Ask key belongs to `awb-ask`, `nft` is needed, the plugin needs
   `awb` on the `PATH`, `awb projects open` starts a session, the web rollback and the removal fit a new host and
   the mirrors, the web units and their users are named (follow-up of pull request 6).
+- An OBS listing that repeats its marker or runs past 100000 pages stops with an error instead of looping forever (review of 2026-10-13, X3).
 
 ### Security
 

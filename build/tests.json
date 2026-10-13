@@ -5550,8 +5550,15 @@
    "name": "run.py without ANTHROPIC_API_KEY does nothing and says so",
    "run": ".venv/bin/pytest tests/test_eval_tcp_facts.py",
    "status": "passing"
+  },
+  {
+   "id": "REV13-7",
+   "phase": "REV-2026-10-13",
+   "name": "obs: a listing that repeats its marker or runs past the page bound stops with an error",
+   "run": ".venv/bin/pytest tests/test_obs.py::test_a_listing_that_repeats_its_marker_stops_with_an_error tests/test_obs.py::test_a_listing_past_the_page_bound_stops_with_an_error",
+   "status": "passing"
   }
  ],
- "total_tests": 793,
+ "total_tests": 794,
  "checked": "2026-10-12"
 }

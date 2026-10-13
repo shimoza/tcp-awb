@@ -129,3 +129,37 @@ def test_a_listing_with_a_doctype_is_refused(monkeypatch):
     monkeypatch.setattr(client, "_send", lambda *a, **k: (200, {}, body))
     with pytest.raises(obs.OBSError):
         client.list()
+
+
+def _page(key: str) -> bytes:
+    return ("<ListBucketResult><Contents><Key>%s</Key><Size>1</Size></Contents>"
+            "<IsTruncated>true</IsTruncated></ListBucketResult>" % key).encode()
+
+
+def _counting(monkeypatch, client, answer):
+    calls = []
+
+    def send(*a, **k):
+        calls.append(1)
+        if len(calls) > 50:
+            raise AssertionError("the listing keeps asking")
+        return 200, {}, answer(len(calls))
+
+    monkeypatch.setattr(client, "_send", send)
+    return calls
+
+
+def test_a_listing_that_repeats_its_marker_stops_with_an_error(monkeypatch):
+    client = obs.Client("tcp-q7m4-lab", obs.Keys("ak", "sk"), "eu-de")
+    _counting(monkeypatch, client, lambda n: _page("same"))
+    with pytest.raises(obs.OBSError, match="marker"):
+        client.list()
+
+
+def test_a_listing_past_the_page_bound_stops_with_an_error(monkeypatch):
+    client = obs.Client("tcp-q7m4-lab", obs.Keys("ak", "sk"), "eu-de")
+    monkeypatch.setattr(obs, "MAX_PAGES", 5)
+    calls = _counting(monkeypatch, client, lambda n: _page("key-%03d" % n))
+    with pytest.raises(obs.OBSError, match="pages"):
+        client.list()
+    assert len(calls) == 5
