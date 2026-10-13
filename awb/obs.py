@@ -101,12 +101,19 @@ def xml_text(el: ET.Element | None) -> str:
     return (el.text or "") if el is not None else ""
 
 
+def _doctype(body: bytes | str) -> bool:
+    """True when `body` declares a DOCTYPE or an entity. No OBS answer does, and an object body read through the
+    same call may: such a body is never parsed, so entities never grow a few bytes into a large tree."""
+    text = (body.encode("utf-8", "replace") if isinstance(body, str) else body).upper()
+    return b"<!DOCTYPE" in text or b"<!ENTITY" in text
+
+
 def xml_error(body: bytes | str | None) -> tuple[str, str]:
     """(code, message) of an OBS error answer, `<Error><Code>..</Code><Message>..</Message></Error>`; empty strings
     when the body is no such answer. A body cut short still gives what it holds of both."""
     if isinstance(body, bytes):
         body = body.decode("utf-8", "replace")
-    if not body or not body.lstrip().startswith("<"):
+    if not body or not body.lstrip().startswith("<") or _doctype(body):
         return "", ""
     try:
         root = ET.fromstring(body)
@@ -128,7 +135,7 @@ def xml_result(body: bytes | str | None) -> dict | None:
     {key, value}."""
     if isinstance(body, bytes):
         body = body.decode("utf-8", "replace")
-    if not body or not body.lstrip().startswith("<"):
+    if not body or not body.lstrip().startswith("<") or _doctype(body):
         return None
     try:
         root = ET.fromstring(body)
@@ -258,6 +265,8 @@ class Client:
             if marker:
                 params.append(("marker", marker))
             _, _, body = self._send("GET", "", query=urllib.parse.urlencode(params, quote_via=urllib.parse.quote))
+            if _doctype(body):
+                raise OBSError("the listing carries a DOCTYPE")
             try:
                 root = ET.fromstring(body)
             except ET.ParseError:

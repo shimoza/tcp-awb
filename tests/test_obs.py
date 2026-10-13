@@ -105,3 +105,27 @@ def test_keys_come_from_the_password_store(tmp_path, monkeypatch):
     with pytest.raises(obs.OBSError) as ei:
         obs.keys_from_reference("pass:cloud/other")
     assert "sk-from-store" not in str(ei.value)
+
+
+def test_an_obs_answer_with_a_doctype_is_never_parsed():
+    """Review of 2026-10-13: an object body read through `awb cloud call` is parsed as an OBS answer in the key
+    service; a DOCTYPE with entities made a few bytes into a large tree there. No OBS answer carries a DOCTYPE."""
+    laugh = ('<?xml version="1.0"?><!DOCTYPE r [<!ENTITY a "%s">]>' % ("x" * 1000)
+             + "<ListAllMyBucketsResult><Buckets><Bucket><Name>%s</Name></Bucket></Buckets></ListAllMyBucketsResult>"
+             % ("&a;" * 100))
+    assert obs.xml_result(laugh) is None
+    assert obs.xml_result(laugh.encode()) is None
+    bad = '<!DOCTYPE r [<!ENTITY a "%s">]><Error><Code>&a;</Code><Message>m</Message></Error>' % ("x" * 1000)
+    assert obs.xml_error(bad) == ("", "")
+    plain = "<ListAllMyBucketsResult><Buckets><Bucket><Name>tcp-q7m4-lab</Name></Bucket></Buckets></ListAllMyBucketsResult>"
+    assert obs.xml_result(plain)["buckets"][0]["name"] == "tcp-q7m4-lab"
+    assert obs.xml_error("<Error><Code>NoSuchKey</Code><Message>gone</Message></Error>") == ("NoSuchKey", "gone")
+
+
+def test_a_listing_with_a_doctype_is_refused(monkeypatch):
+    body = (b'<!DOCTYPE r [<!ENTITY a "aaaa">]><ListBucketResult><Contents><Key>&a;</Key><Size>1</Size></Contents>'
+            b"<IsTruncated>false</IsTruncated></ListBucketResult>")
+    client = obs.Client("tcp-q7m4-lab", obs.Keys("ak", "sk"), "eu-de")
+    monkeypatch.setattr(client, "_send", lambda *a, **k: (200, {}, body))
+    with pytest.raises(obs.OBSError):
+        client.list()

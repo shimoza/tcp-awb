@@ -199,6 +199,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   `127.0.0.53`): they run fixed commands and resolve no name (follow-up of pull request 7).
 - The MCP server of TCP Facts answers a message nested deeper than the JSON parser goes with a parse error and
   goes on; before, such a line ended the server (review of 2026-10-13, finding M1).
+- An OBS answer that declares a DOCTYPE or an entity is never parsed: `awb cloud call` and the key service take
+  it as plain text, an OBS listing refuses it. An object body read through the key service could carry one and grow
+  in the owner's daemon (review of 2026-10-13, finding X1).
 
 ## Week 41, 2026-10-05 to 2026-10-11
 
