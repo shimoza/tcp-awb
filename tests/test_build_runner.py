@@ -1426,3 +1426,142 @@ def test_the_export_runs_no_filter_and_keeps_the_blobs_the_gate_read(tmp_path, m
     with tarfile.open(tar) as t:
         assert t.extractfile("awb/a.txt").read() == b"$Id$\none\n"
     assert not mark.exists()
+
+
+def test_the_handover_and_rebase_units_write_their_clone_alone_and_have_no_network(tmp_path):
+    """Review of 2026-10-13, B1: every helper unit had wt/ and home/ writable and a network, so a command a session
+    planted in its clone's git configuration ran in the handover or the rebase with every other clone and home in
+    reach. Only the prepare and the clean unit keep wt/ and home/."""
+    started = []
+
+    class Units:
+        def start(self, spec):
+            started.append(spec)
+            return types.SimpleNamespace(poll=lambda: buildrun.Ended("success", 0))
+
+    host = buildrun.Host(tmp_path, tmp_path / "runs", tmp_path / "queue", units=Units())
+    (tmp_path / "runs").mkdir()
+    other, mine = ("B-011", 1), ("B-012", 1)
+    for c in (other, mine):
+        host.clone(*c).mkdir(parents=True)
+        host.out(*c).mkdir()
+    folder = tmp_path / "run"
+    folder.mkdir()
+    ctx = types.SimpleNamespace(tid="B-012", n=1, folder=folder)
+    for action, extra in (("handover", []), ("rebase", ["0" * 40])):
+        buildrun.unit_run(host, ctx, "hand", [action, str(tmp_path), "B-012", "1", *extra])
+        spec = started[-1]
+        assert spec.rw == [str(host.clone(*mine)), str(host.out(*mine))], action
+        assert spec.netns, action
+        assert spec.hidden == buildrun._hidden(host, ctx), action
+        assert set(buildrun._login_paths(host)) <= set(spec.hidden), action
+        assert {str(host.clone(*other)), str(host.out(*other)), str(host.runs)} <= set(spec.hidden), action
+        assert not {str(host.clone(*mine)), str(host.out(*mine))} & set(spec.hidden), action
+    for action, kind in (("prepare", "prep"), ("rekey", "prep"), ("clean", "hand")):
+        buildrun.unit_run(host, ctx, kind, [action, str(tmp_path), "B-012", "1", "x"])
+        spec = started[-1]
+        assert spec.rw == [str(host.wt), str(host.homes)] and not spec.netns, action
+        assert spec.hidden == [str(host.runs)], action
+
+
+def _plain_git(*args, cwd=None):
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(cwd), "GIT_CONFIG_NOSYSTEM": "1",
+           "GIT_CONFIG_GLOBAL": os.devnull, "LANG": "C.UTF-8"}
+    r = subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args], cwd=cwd, env=env,
+                       capture_output=True, check=True)
+    return r.stdout.decode().strip()
+
+
+def _helper_root(base: Path) -> tuple[Path, Path, Path, str]:
+    """A build root with the clone of task B-012 run 1 as the prepare unit leaves it and a commit of the task on its
+    branch, and base/main.bundle: a main that moved one commit past the clone's start."""
+    root = base / "root"
+    (root / "home-template").mkdir(parents=True)
+    (root / "home-template" / ".gitconfig").write_text("[user]\n\tname = t\n\temail = t@example.invalid\n")
+    seed = base / "seed"
+    seed.mkdir()
+    _plain_git("init", "-q", "-b", "main", cwd=seed)
+    (seed / "a.txt").write_text("one\n")
+    _plain_git("add", "a.txt", cwd=seed)
+    _plain_git("commit", "-q", "-m", "seed", cwd=seed)
+    start = _plain_git("rev-parse", "HEAD", cwd=seed)
+    _, clone, out, _ = buildrun._helper_places(str(root), "B-012", "1")
+    _plain_git("clone", "-q", str(seed), str(clone), cwd=base)
+    _plain_git("remote", "remove", "origin", cwd=clone)
+    _plain_git("checkout", "-q", "-b", "task/B-012", cwd=clone)
+    _plain_git("config", "core.hooksPath", str(base / "no-hooks"), cwd=clone)
+    _plain_git("config", "core.fsmonitor", "false", cwd=clone)
+    (clone / "b.txt").write_text("two\n")
+    _plain_git("add", "b.txt", cwd=clone)
+    _plain_git("commit", "-q", "-m", "task", cwd=clone)
+    out.mkdir()
+    (seed / "c.txt").write_text("three\n")
+    _plain_git("add", "c.txt", cwd=seed)
+    _plain_git("commit", "-q", "-m", "moved", cwd=seed)
+    _plain_git("bundle", "create", "-q", str(base / "main.bundle"), "main", cwd=seed)
+    return root, clone, out, start
+
+
+def test_a_helper_unit_refuses_a_clone_whose_git_would_run_a_command_of_the_session(tmp_path):
+    """Review of 2026-10-13, B1: the handover and the rebase ran git with the clone's own .git/config, overriding
+    only fsmonitor and the hooks: a filter with an in-tree .gitattributes, gpg.program with commit.gpgSign, an
+    include, info/attributes, commondir or config.worktree of the session's choice ran or steered git in the unit.
+    Such a clone is refused (exit 4) before git runs in it; a clone as the prepare unit leaves it is handed over and
+    rebased."""
+    mark = tmp_path / "mark"
+    script = tmp_path / "plant.sh"
+    script.write_text("#!/bin/sh\ntouch %s\ncat\n" % mark)
+    script.chmod(0o755)
+
+    def filter_in_tree(clone):
+        (clone / ".gitattributes").write_text("* filter=x\n")
+        _plain_git("config", "filter.x.clean", str(script), cwd=clone)
+        (clone / "a.txt").write_text("changed\n")
+
+    def filter_by_include(clone):
+        (clone / ".gitattributes").write_text("* filter=x\n")
+        (clone / ".git" / "more").write_text("[filter \"x\"]\n\tclean = %s\n" % script)
+        _plain_git("config", "include.path", "more", cwd=clone)
+        (clone / "a.txt").write_text("changed\n")
+
+    def info_attributes(clone):
+        (clone / ".git" / "info").mkdir(exist_ok=True)
+        (clone / ".git" / "info" / "attributes").write_text("* -diff\n")
+
+    def commondir(clone):
+        (clone / ".git" / "commondir").write_text(".\n")
+
+    def config_worktree(clone):
+        (clone / ".git" / "config.worktree").write_text("[core]\n\tbare = false\n")
+
+    def gitfile(clone):
+        moved = clone.parent / "elsewhere.git"
+        (clone / ".git").rename(moved)
+        (clone / ".git").write_text("gitdir: %s\n" % moved)
+
+    def gpg(clone):
+        _plain_git("config", "commit.gpgSign", "true", cwd=clone)
+        _plain_git("config", "gpg.program", str(script), cwd=clone)
+
+    for i, plant in enumerate([filter_in_tree, filter_by_include, info_attributes, commondir, config_worktree, gitfile,
+                               gpg]):
+        for action in ("handover", "rebase"):
+            base = tmp_path / ("%d-%s" % (i, action))
+            root, clone, out, start = _helper_root(base)
+            plant(clone)
+            if action == "handover":
+                rc = buildrun.unit_handover(str(root), "B-012", "1")
+            else:
+                with open(base / "main.bundle", "rb") as fin:
+                    rc = buildrun.unit_rebase(str(root), "B-012", "1", start, fin)
+            assert rc == 4, (plant.__name__, action, rc)
+            assert not mark.exists(), (plant.__name__, action)
+            assert not (out / "task.bundle").exists(), (plant.__name__, action)
+    # a clone as the prepare unit leaves it: handed over, and rebased onto the moved main
+    base = tmp_path / "clean"
+    root, clone, out, start = _helper_root(base)
+    assert buildrun.unit_handover(str(root), "B-012", "1") == 0
+    assert (out / "task.bundle").is_file() and (out / "status.txt").read_bytes() == b""
+    with open(base / "main.bundle", "rb") as fin:
+        assert buildrun.unit_rebase(str(root), "B-012", "1", start, fin) == 0
+    assert _plain_git("log", "--format=%s", "task/B-012", cwd=clone).splitlines() == ["task", "moved", "seed"]

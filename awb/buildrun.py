@@ -660,9 +660,44 @@ def _helper_env(root: Path, home: str) -> dict[str, str]:
             "GIT_TERMINAL_PROMPT": "0"}
 
 
+# the fixed configuration of git in a helper unit: every key of a clone's .git/config that runs a command is either
+# overridden here or refused by _clone_ok (review of 2026-10-13, B1)
+_HGIT_FIXED = (("core.fsmonitor", "false"), ("core.hooksPath", "/dev/null"), ("core.attributesFile", "/dev/null"),
+               ("commit.gpgSign", "false"), ("tag.gpgSign", "false"))
+# what a clone's .git/config may hold besides the keys of _HGIT_FIXED: what the clone, the remote removal and the
+# branch of the prepare unit leave and keys that run nothing
+_CLONE_KEY_RE = re.compile(r"core\.(?:repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|"
+                           r"precomposeunicode|symlinks)|user\.(?:name|email)|branch\.[^\n]+\.(?:remote|merge)")
+
+
 def _hgit(env: dict, *args: str, timeout: float = 300, stdin=None) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", *args], env=env,
-                          capture_output=True, timeout=timeout, check=False, stdin=stdin)
+    fixed = [a for k, v in _HGIT_FIXED for a in ("-c", "%s=%s" % (k, v))]
+    return subprocess.run(["git", *fixed, *args], env=env, capture_output=True, timeout=timeout, check=False,
+                          stdin=stdin)
+
+
+def _clone_ok(env: dict, clone: Path) -> bool:
+    """Before git runs in a task's clone: .git is a folder of its own (no gitfile, no link), holds no commondir,
+    config.worktree or info/attributes, and its config holds only the keys of _CLONE_KEY_RE and _HGIT_FIXED, read
+    without includes. A filter, a diff or merge driver, gpg.program, an include or an extension of the session's
+    choice never runs in a helper unit."""
+    git_dir = clone / ".git"
+    if git_dir.is_symlink() or not git_dir.is_dir():
+        return False
+    if any(os.path.lexists(git_dir / rel) for rel in ("commondir", "config.worktree", "info/attributes")):
+        return False
+    cfg = git_dir / "config"
+    if cfg.is_symlink() or not cfg.is_file():
+        return False
+    r = _hgit(env, "config", "--file", str(cfg), "--no-includes", "--null", "--list")
+    if r.returncode:
+        return False
+    fixed = {k.lower() for k, _ in _HGIT_FIXED}
+    for item in r.stdout.split(b"\0"):
+        key = item.split(b"\n", 1)[0].decode("utf-8", "replace")
+        if key and not (_CLONE_KEY_RE.fullmatch(key) or key.lower() in fixed):
+            return False
+    return True
 
 
 def _helper_places(root: str, tid: str, n: str) -> tuple[Path, Path, Path, Path]:
@@ -828,11 +863,13 @@ def unit_prepare(root: str, tid: str, n: str, hooks: str, fin, resume: str | Non
 
 def unit_handover(root: str, tid: str, n: str) -> int:
     """task.bundle (every branch and tag of the clone) and status.txt (`git status --porcelain`, untracked files
-    too) into the out folder, with the clone's fsmonitor and hooks off."""
+    too) into the out folder, with the fixed configuration of _hgit; exit 4 refuses a clone _clone_ok refuses."""
     r, clone, out, home = _helper_places(root, tid, n)
     env = _helper_env(r, str(home) if home.is_dir() else "/tmp")
     if not clone.is_dir() or clone.is_symlink():
         return 2
+    if not _clone_ok(env, clone):
+        return 4
     for name in ("task.bundle", "status.txt"):
         with contextlib.suppress(FileNotFoundError):
             os.unlink(out / name)
@@ -846,11 +883,13 @@ def unit_handover(root: str, tid: str, n: str) -> int:
 
 def unit_rebase(root: str, tid: str, n: str, old: str, fin) -> int:
     """The branch onto a fresh main: stdin a bundle of main; exit 3 on a conflict (the rebase is aborted), then the
-    hand-over again."""
+    hand-over again; exit 4 refuses a clone _clone_ok refuses."""
     r, clone, out, home = _helper_places(root, tid, n)
     if not SHA_RE.fullmatch(old) or not clone.is_dir():
         return 2
     env = _helper_env(r, "/tmp")
+    if not _clone_ok(env, clone):
+        return 4
     bundle = out / "main.bundle"
     with open(bundle, "wb") as fh:
         shutil.copyfileobj(fin, fh)
@@ -1722,12 +1761,20 @@ def _login_paths(host: Host) -> list[str]:
 
 def unit_run(host: Host, ctx: Ctx, kind: str, args: list[str], stdin: Path | None = None,
              seconds: float = HAND_SECONDS, rw: list[str] | None = None) -> Ended:
+    """A helper unit. The prepare and the clean unit make and remove the clone, the out folder and the home and copy
+    the login: they keep wt/ and home/. The handover and the rebase unit run git in the task's clone: they write its
+    clone and out folder alone, see no other clone or home and no login and have no network (review of 2026-10-13,
+    B1)."""
     name = "awb-task-%s-%s" % (ctx.tid, kind)
     home = host.home(ctx.tid, ctx.n)
-    hidden = [str(host.runs)] + ([] if args[0] in ("prepare", "rekey", "clean") else _login_paths(host))
+    if args[0] in ("prepare", "rekey", "clean"):
+        hidden, netns = [str(host.runs)], False
+        rw = rw if rw is not None else [str(host.wt), str(host.homes)]
+    else:
+        hidden, netns = _hidden(host, ctx), True
+        rw = rw if rw is not None else [str(host.clone(ctx.tid, ctx.n)), str(host.out(ctx.tid, ctx.n))]
     spec = Spec(name, [host.awb, "build", "unit", *args], seconds, "/tmp", str(home) if kind == "prep" else "/tmp",
-                rw=rw if rw is not None else [str(host.wt), str(host.homes)], hidden=hidden, stdin=stdin,
-                stderr=ctx.folder / ("%s.err" % args[0]))
+                rw=rw, hidden=hidden, netns=netns, stdin=stdin, stderr=ctx.folder / ("%s.err" % args[0]))
     return wait(host, host.units.start(spec), ctx, None)
 
 

@@ -5454,6 +5454,20 @@
    "status": "passing"
   },
   {
+   "id": "REV13-7",
+   "phase": "REV-2026-10-13",
+   "name": "build runner: the handover and rebase units write their clone and out folder alone and have no network",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_handover_and_rebase_units_write_their_clone_alone_and_have_no_network",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-8",
+   "phase": "REV-2026-10-13",
+   "name": "build runner: a helper unit refuses a clone whose git would run a command of the session",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_helper_unit_refuses_a_clone_whose_git_would_run_a_command_of_the_session",
+   "status": "passing"
+  },
+  {
    "id": "ASKAPI-1",
    "phase": "ask-api",
    "name": "ask api: the answer carries the named facts, the prices used and the questions left of the shared counter",
@@ -5552,6 +5566,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 793,
+ "total_tests": 795,
  "checked": "2026-10-12"
 }

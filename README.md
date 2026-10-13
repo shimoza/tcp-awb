@@ -594,8 +594,10 @@ The runner (`awb build serve`, the unit `awb-buildd.service`) takes the next tas
 `paths` meet no path of a task that is not done, one at a time. It runs as you, never as a model. It starts each
 task as `awb-build` in units of a fixed form: a fresh home from the root template with your login, a clone of
 `main` from a bundle, the headless session with the block's model, effort, budget and clock, then the hand-over of
-the branch as a bundle. It judges the bundle in `main.git`, never the clone: the unit ended by itself, the client
-ended well, the last line is `DONE:`, one to five commits as you on `task/<ID>` and nothing else, the gate with the
+the branch as a bundle. The hand-over and the rebase units write only the task's clone and out folder, see no
+other clone, home or login, have no network and refuse a clone whose git configuration could run a command of the
+session (`.git/commondir`, `config.worktree`, `info/attributes`, a key outside a fixed list). The runner judges
+the bundle in `main.git`, never the clone: the unit ended by itself, the client ended well, the last line is `DONE:`, one to five commits as you on `task/<ID>` and nothing else, the gate with the
 register, the paths, the CHANGELOG and `build/tests.json`, then the whole suite, every test that passed before
 still passing and the block's `check` on a `git archive` export, as `awb-build` on loopback only. Green moves `main`
 in `main.git` (a rebase first when `main` moved), pushes it to GitHub after the gate over the whole range and ends

@@ -215,6 +215,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   `filter`, `ident`, `text`, `eol` and `working-tree-encoding` off. A `.gitattributes` of a task could turn on a
   filter of the owner's git configuration (run as the owner) and make the export differ from the blobs the gate read
   (review of 2026-10-13, finding B6).
+- The handover and the rebase unit of a build task write only the task's clone and out folder, see no other clone
+  or home, no login and no record and run in a network namespace of their own; only the prepare and the clean unit
+  keep `wt/` and `home/`. Before git runs there, a clone whose `.git` is not a folder or holds `commondir`,
+  `config.worktree` or `info/attributes`, or whose `.git/config` holds a key outside a short fixed list (a filter, a
+  driver, `gpg.program`, an include), is refused with exit 4, and git runs with fixed overrides (fsmonitor, hooks,
+  attributes file, signing off). A session could plant a command in its clone's git configuration that ran in the
+  unit with every clone and home in reach (review of 2026-10-13, finding B1).
 
 ## Week 41, 2026-10-05 to 2026-10-11
 
