@@ -1006,7 +1006,9 @@ def is_ancestor(host: Host, a: str, b: str) -> bool:
 
 def ensure_main(host: Host) -> None:
     """main.git is a bare repository of this uid with main; its info/attributes switch the in-tree export
-    attributes off (a task cannot drop a file from the export); with the push on, origin is the public repository."""
+    attributes off (a task cannot drop a file from the export) and every attribute that changes a file on its way out
+    (a filter of the owner's git configuration, ident, eol, an encoding): the export holds the blobs the gate read.
+    With the push on, origin is the public repository."""
     st = os.lstat(host.main_git)
     if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid():
         raise GitFailed("main.git is not a folder of this user")
@@ -1014,7 +1016,7 @@ def ensure_main(host: Host) -> None:
         raise GitFailed("main.git is not bare")
     info = host.main_git / "info"
     info.mkdir(exist_ok=True)
-    want = b"* -export-ignore -export-subst\n"
+    want = b"* -export-ignore -export-subst -filter -ident -text -eol -working-tree-encoding\n"
     if _read(info / "attributes") != want:
         _write(info / "attributes", want, 0o644)
     if host.push:
@@ -1672,6 +1674,9 @@ def check_own(host: Host, ctx: Ctx) -> None:
 
 # --------------------------------------------------------------------------- the unit helpers of the owner side
 
+_WT_NAME_RE = re.compile(r"B-[0-9]{3,4}-[0-9]{1,6}(?:\.out)?")      # a clone of wt/ and its export
+
+
 def _hidden(host: Host, ctx: Ctx | None, clone: bool = True) -> list[str]:
     """What a task's unit may not see: the records, every other clone and every other task home (and, for the
     suite, its own clone: the suite sees the export alone)."""
@@ -1681,7 +1686,8 @@ def _hidden(host: Host, ctx: Ctx | None, clone: bool = True) -> list[str]:
         mine.add("%s-%d" % (ctx.tid, ctx.n))
     with contextlib.suppress(OSError):
         for name in sorted(os.listdir(host.wt)):
-            if name not in mine:
+            # only the names the runner makes: another name could split or join the unquoted path list of the unit
+            if name not in mine and _WT_NAME_RE.fullmatch(name):
                 out.append(str(host.wt / name))
     # home/ is the build user's 700, closed to the owner: the homes of the runs that are not done, from the records
     for tid in build.ids_with_runs(host.runs):

@@ -198,6 +198,21 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   address on port 22. The suite unit keeps its own network namespace with loopback alone.
 - The short probe units of `seal/verify.sh` no longer allow the nameserver of `/etc/resolv.conf` (the stub
   `127.0.0.53`): they run fixed commands and resolve no name (follow-up of pull request 7).
+- The MCP server of TCP Facts answers a message nested deeper than the JSON parser goes with a parse error and
+  goes on; before, such a line ended the server (review of 2026-10-13, finding M1).
+- An OBS answer that declares a DOCTYPE or an entity is never parsed: `awb cloud call` and the key service take
+  it as plain text, an OBS listing refuses it. An object body read through the key service could carry one and grow
+  in the owner's daemon (review of 2026-10-13, finding X1).
+- `awb cloud call` and the key service read an answer up to 16 MiB and leave the rest unread; the answer is cut
+  and the command says it was larger. Before, a GET of a large object of a project bucket was read whole into the
+  owner's key service (review of 2026-10-13, finding X2).
+- A build task's unit hides only the folders of `wt/` whose names the runner makes (`B-NNN-N`, `B-NNN-N.out`). A
+  folder named with a quote or a blank, made by a task, could split or join the unquoted path list of
+  `InaccessiblePaths=` and so unhide the clones of other tasks (review of 2026-10-13, finding B2).
+- The export of a build task runs no filter and changes no file: `info/attributes` of `main.git` also switches
+  `filter`, `ident`, `text`, `eol` and `working-tree-encoding` off. A `.gitattributes` of a task could turn on a
+  filter of the owner's git configuration (run as the owner) and make the export differ from the blobs the gate read
+  (review of 2026-10-13, finding B6).
 
 ## Week 41, 2026-10-05 to 2026-10-11
 

@@ -318,8 +318,8 @@ signed the way of the API gateway (SDK-HMAC-SHA256). An OBS call never reaches t
 `awb xchg`'s) and an OBS write reaches only a bucket named after the project (`tcp-xxxx-...`). The code and
 message of an OBS error, which comes in XML, are read like those of a JSON error. An OBS list in XML comes whole as
 data: `GET /` gives the buckets (name, creation date, location when given), `GET /BUCKET` the keys of one page and
-`GET /BUCKET?tagging` the tags. Any other answer that is not JSON is cut to its first 300 bytes; the command says so
-with the size of the whole answer. `awb cloud sweep --buckets` adds the OBS buckets of the region to the sweep
+`GET /BUCKET?tagging` the tags. An answer that declares a DOCTYPE or an entity is never parsed. Any other answer that is not JSON is cut to its first 300 bytes; the command says so
+with the size of the whole answer. An answer is read up to 16 MiB, a larger one is cut the same way. `awb cloud sweep --buckets` adds the OBS buckets of the region to the sweep
 under the rules of the other types (untagged, expired or not in RESOURCES.md), with one call per bucket for its tags.
 
 A request body may name a secret only as the whole value of a password field, `{"admin_pass": "{{secret:NAME}}"}`.

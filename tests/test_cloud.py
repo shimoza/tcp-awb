@@ -334,3 +334,51 @@ def test_the_buckets_of_the_region_come_with_their_tags_for_the_sweep(wire, monk
     router.tags["tcp-ab2c-lab-2"] = "denied"
     listing = cloud.Client(obs.Keys(AK, SK)).buckets()
     assert listing.state == jobs.UNKNOWN and "HTTP 403" in listing.reason        # unknown, never a shorter list
+
+
+class _Endless:
+    """An answer without end: a read of all of it is a failure, a bounded read gets what it asks for."""
+
+    status = 200
+
+    def __init__(self):
+        self.asked = 0
+
+    def read(self, n=-1):
+        assert n is not None and n >= 0, "the whole answer was read"
+        self.asked += n
+        return b"<" + b"x" * (n - 1) if n else b""
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_an_answer_is_read_up_to_its_bound_and_marked_cut(monkeypatch):
+    """Review of 2026-10-13: the key service read a whole answer into memory, so a GET of a large object of a
+    project bucket (awb cloud call GET obs /BUCKET/KEY) could take the owner's daemon down."""
+    import io
+    import urllib.error
+
+    from awb.tcp import throttle
+
+    monkeypatch.setattr(throttle, "log_call", lambda *a, **k: None)
+    monkeypatch.setattr(throttle, "wait_turn", lambda host: 0.0)
+    answer = _Endless()
+    monkeypatch.setattr(cloud.urllib.request, "urlopen", lambda req, timeout=None: answer)
+    r = cloud.Client(obs.Keys(AK, SK)).request("GET", "obs", "/tcp-ab2c-lab-1/big.bin")
+    assert r.status == 200 and r.data is None and r.cut and r.size > cloud.MAX_READ
+    assert answer.asked <= cloud.MAX_READ + 1 and len(r.text) <= cloud.CUT
+    assert "more than %d bytes" % cloud.MAX_READ in cloud.cut_line(r.size)
+
+    def refused(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 403, "refused", {}, _Endless())
+
+    monkeypatch.setattr(cloud.urllib.request, "urlopen", refused)
+    r = cloud.Client(obs.Keys(AK, SK)).request("GET", "obs", "/tcp-ab2c-lab-1/big.bin")
+    assert r.status == 403 and r.data is None and r.cut

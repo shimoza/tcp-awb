@@ -5410,8 +5410,50 @@
    "name": "dataset: awb dataset put --github uploads the .mcpb as a release asset and refuses a build without one",
    "run": ".venv/bin/pytest tests/test_dataset.py::test_github_put_uploads_the_bundle_as_a_release_asset_after_the_other_assets",
    "status": "passing"
+  },
+  {
+   "id": "REV13-1",
+   "phase": "REV-2026-10-13",
+   "name": "MCP server: a message nested deeper than the JSON parser goes is a parse error and the server goes on",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_a_deeply_nested_message_is_a_parse_error_and_the_server_goes_on",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-2",
+   "phase": "REV-2026-10-13",
+   "name": "OBS: an answer that declares a DOCTYPE or an entity is never parsed as a list or an error",
+   "run": ".venv/bin/pytest tests/test_obs.py::test_an_obs_answer_with_a_doctype_is_never_parsed",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-3",
+   "phase": "REV-2026-10-13",
+   "name": "OBS: a listing that declares a DOCTYPE is refused",
+   "run": ".venv/bin/pytest tests/test_obs.py::test_a_listing_with_a_doctype_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-4",
+   "phase": "REV-2026-10-13",
+   "name": "cloud: an answer is read up to its bound of 16 MiB and marked cut, a refusal too",
+   "run": ".venv/bin/pytest tests/test_cloud.py::test_an_answer_is_read_up_to_its_bound_and_marked_cut",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-5",
+   "phase": "REV-2026-10-13",
+   "name": "build runner: a folder in wt/ with a name the runner never makes never reaches a unit property",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_folder_in_wt_with_a_name_the_runner_never_makes_never_reaches_a_unit_property",
+   "status": "passing"
+  },
+  {
+   "id": "REV13-6",
+   "phase": "REV-2026-10-13",
+   "name": "build runner: the export runs no filter of the owner's git configuration and keeps the blobs the gate read",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_export_runs_no_filter_and_keeps_the_blobs_the_gate_read",
+   "status": "passing"
   }
  ],
- "total_tests": 773,
+ "total_tests": 779,
  "checked": "2026-10-12"
 }

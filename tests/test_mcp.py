@@ -498,3 +498,16 @@ def test_ping_is_gone_in_the_current_revision_and_server_discover_is_complete_in
     for got in (client.request("server/discover")["result"], modern(client, "server/discover")["result"]):
         assert got["resultType"] == "complete" and got["_meta"][M + "serverInfo"]["name"] == "tcp-facts"
         assert got["ttlMs"] > 0 and got["cacheScope"] == "public" and got["supportedVersions"][0] == "2026-07-28"
+
+
+def test_a_deeply_nested_message_is_a_parse_error_and_the_server_goes_on(client):
+    """Review of 2026-10-13: JSON nested deeper than the parser's recursion ended the server with a traceback."""
+    client.send("[" * 200_000 + "]" * 200_000)
+    got = client.recv()
+    assert got["id"] is None and got["error"]["code"] == -32700
+    client.send('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"tcp_calculate","arguments":'
+                + '{"expression":' * 50_000 + '"1"' + "}" * 50_000 + "}}")
+    got = client.recv()
+    assert got["error"]["code"] == -32700
+    assert client.request("tools/list")["result"]["tools"]
+    assert client.close() == 0

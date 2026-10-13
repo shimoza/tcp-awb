@@ -15,6 +15,7 @@ import signal
 import subprocess
 import sys
 import time
+import types
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -1376,3 +1377,52 @@ def test_the_week_rollover_of_the_changelog_text(today, newest, want):
     new, week, closed = got
     assert new == text.replace(newest, "%s\n\n### Added\n\n%s" % want)
     assert week == today.isocalendar()[1] and str(closed) == newest.split()[2].rstrip(",")
+
+
+def test_a_folder_in_wt_with_a_name_the_runner_never_makes_never_reaches_a_unit_property(tmp_path):
+    """Review of 2026-10-13: the names of wt/ went unquoted into InaccessiblePaths=, which systemd splits on blanks and
+    quotes: a folder `A"` and a folder `Z"` made of every clone between them one path that does not exist (the
+    leading - lets systemd skip it), so the clones of other tasks were no longer hidden."""
+    host = buildrun.Host(tmp_path, tmp_path / "runs", tmp_path / "queue", units=None)
+    (tmp_path / "runs").mkdir()
+    for name in ("A\"", "B-011-1", "B-011-1.out", "B-012-1", "x y", "Z\"", "B-1-1", "B-011-1\\"):
+        (host.wt / name).mkdir(parents=True)
+    ctx = types.SimpleNamespace(tid="B-012", n=1)
+    hidden = buildrun._hidden(host, ctx)
+    wt = [p for p in hidden if p.startswith(str(host.wt))]
+    assert sorted(wt) == [str(host.wt / "B-011-1"), str(host.wt / "B-011-1.out")]
+    assert not any(c in p for p in hidden for c in " \"'\\")
+
+
+def test_the_export_runs_no_filter_and_keeps_the_blobs_the_gate_read(tmp_path, monkeypatch):
+    """Review of 2026-10-13: a task's .gitattributes turned a filter of the owner's own git configuration on for
+    the export (a command of the owner's run as the owner) and ident or eol made the export differ from the blobs
+    the gate had read."""
+    import tarfile
+
+    home = tmp_path / "owner"
+    home.mkdir()
+    mark = tmp_path / "MARK"
+    (home / ".gitconfig").write_text('[filter "evil"]\n\tsmudge = "touch %s; cat"\n' % mark, encoding="utf-8")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("GIT_CONFIG_GLOBAL", raising=False)
+    root = tmp_path / "b"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(root / "main.git")], check=True)
+    seed = tmp_path / "seed"
+    g = ["git", "-C", str(seed), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    subprocess.run(["git", "init", "-q", "-b", "main", str(seed)], check=True)
+    (seed / "awb").mkdir()
+    (seed / "awb" / ".gitattributes").write_text("* filter=evil ident eol=crlf\n", encoding="utf-8")
+    (seed / "awb" / "a.txt").write_bytes(b"$Id$\none\n")
+    subprocess.run(g + ["add", "-A"], check=True)
+    subprocess.run(g + ["commit", "-q", "-m", "seed"], check=True)
+    subprocess.run(g + ["push", "-q", str(root / "main.git"), "main:main"], check=True)
+    host = buildrun.Host(root, tmp_path / "runs", tmp_path / "queue", units=None, push=False)
+    buildrun.ensure_main(host)
+    folder = tmp_path / "run"
+    folder.mkdir()
+    tar = buildrun.export(host, types.SimpleNamespace(folder=folder), "main", "x.tar")
+    with tarfile.open(tar) as t:
+        assert t.extractfile("awb/a.txt").read() == b"$Id$\none\n"
+    assert not mark.exists()
