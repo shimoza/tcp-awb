@@ -7,6 +7,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- `eval/tcp-facts/`: an evaluation set for the dataset TCP Facts. `questions.jsonl` holds 50 questions of the release 2026-10-12 (availability, limits, API behaviour, service scope, snapshot-bound prices and negatives with their evidence), each with the expected answer, the supporting fact ids and a grading rule. `score.py ANSWERS.jsonl` grades a file of answers and prints the score per category. `run.py --facts FILE` asks a model each question with and without `facts.md` when `ANTHROPIC_API_KEY` is set and does nothing otherwise. The README of the directory says how to run it.
 - `INSTALL.md`, "Deploy your own Architect Workbench": the steps for an architect who runs the Workbench on his own Ubuntu 24.04 host (what to have, the order with the exact commands, what the setup creates, how to check, update, roll back and remove it, what is optional), linked from the top of `README.md`.
 - A comment above `main` in `awb/build.py` names `awb/buildrun.py` as the runner of the queue (B-001).
 - `awb pricebook build SPEC [--out FILE] [--lang en|de] [--against OLD]` builds the price workbook of an estimate from

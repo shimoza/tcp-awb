@@ -5396,8 +5396,43 @@
    "name": "awb cloud sweep lists the buckets with --buckets only, their names never in the output",
    "run": ".venv/bin/pytest tests/test_sweep.py::test_the_command_line_sweeps_the_buckets_with_the_flag_only",
    "status": "passing"
+  },
+  {
+   "id": "EV-1",
+   "phase": "EV",
+   "name": "the eval set has 50 questions in six categories with fields, support and rules",
+   "run": ".venv/bin/pytest tests/test_eval_tcp_facts.py",
+   "status": "passing"
+  },
+  {
+   "id": "EV-2",
+   "phase": "EV",
+   "name": "the eval set marks price questions snapshot-bound with the date and gives negatives their evidence",
+   "run": ".venv/bin/pytest tests/test_eval_tcp_facts.py",
+   "status": "passing"
+  },
+  {
+   "id": "EV-3",
+   "phase": "EV",
+   "name": "score.py grades yes or no, number, list and citation answers by their rules",
+   "run": ".venv/bin/pytest tests/test_eval_tcp_facts.py",
+   "status": "passing"
+  },
+  {
+   "id": "EV-4",
+   "phase": "EV",
+   "name": "score.py counts the score per category, abstentions apart and the cited share",
+   "run": ".venv/bin/pytest tests/test_eval_tcp_facts.py",
+   "status": "passing"
+  },
+  {
+   "id": "EV-5",
+   "phase": "EV",
+   "name": "run.py without ANTHROPIC_API_KEY does nothing and says so",
+   "run": ".venv/bin/pytest tests/test_eval_tcp_facts.py",
+   "status": "passing"
   }
  ],
- "total_tests": 771,
+ "total_tests": 776,
  "checked": "2026-10-12"
 }
