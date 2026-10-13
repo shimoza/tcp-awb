@@ -111,6 +111,7 @@ class Host:
     resolve: Callable | None = None     # None: _resolve
     geteuid: Callable = os.geteuid
     environ: dict = field(default_factory=lambda: dict(os.environ))
+    boot_id: Callable = lambda: _boot_id()    # the id of this boot (the tests set one)
     chown_root: bool = True             # a root write gives the file to root:root (the tests run as a user)
 
     @property
@@ -127,6 +128,10 @@ class Host:
 
 
 # --------------------------------------------------------------------------- the mode
+
+
+def _boot_id() -> str:
+    return (_read(Path("/proc/sys/kernel/random/boot_id")) or "").strip()
 
 
 def _read(path: Path) -> str | None:
@@ -531,6 +536,11 @@ def load(host: Host, *, force_reload: bool = False) -> dict:
     _atomic_write(host.state_dir / "addresses.json", json.dumps(cache, indent=1, sort_keys=True) + "\n", host)
     elements = set_elements(entries, cache)
     current = table_state(host)
+    boot = host.boot_id()
+    if st.get("boot_id") != boot:
+        st.pop("table_lost_at", None)
+    # a table missing within the boot of the last load was removed (systemctl restart nftables flushes the ruleset)
+    lost = current is None and bool(boot) and bool(st.get("loaded_at")) and st.get("boot_id") == boot
     if current is not None and not force_reload and st.get("rules_sha256") == digest \
             and current.get("verdict") == mode_word:
         r = _nft(host, ["-f", "-"], refresh_text(elements))
@@ -549,7 +559,9 @@ def load(host: Host, *, force_reload: bool = False) -> dict:
         st["last"] = {}
         st["loaded_at"] = _now_text(now)
         st["rules_sha256"] = digest
-        if mode_word == "count" and (st.get("mode") != "count" or not st.get("count_since")):
+        if lost:
+            st["table_lost_at"] = _now_text(now)
+        if mode_word == "count" and (st.get("mode") != "count" or not st.get("count_since") or lost):
             st["count_since"] = _now_text(now)
         if mode_word == "enforce":
             st["count_since"] = None
@@ -558,6 +570,7 @@ def load(host: Host, *, force_reload: bool = False) -> dict:
     after = table_state(host)
     if after is not None:
         record(host, st, after["counters"], mode_word, now)
+    st["boot_id"] = boot
     st["refreshed_at"] = _now_text(now)
     st["hosts"] = {"listed": len({e.dest for e in entries if _network(e.dest) is None}), "unanswered": missing}
     st["window"] = window(read_history(host), now, _parse_time(st.get("count_since")))
@@ -630,6 +643,7 @@ def status(host: Host | None = None) -> dict:
     return {"host_mode": host_mode, "host_why": why, "line": has_line(host), "loaded": bool(st.get("loaded_at")),
             "mode": st.get("mode") if st.get("mode") in MODES else None, "loaded_at": st.get("loaded_at"),
             "refreshed_at": st.get("refreshed_at"),
+            "table_lost_at": st.get("table_lost_at") if isinstance(st.get("table_lost_at"), str) else None,
             "stale": refreshed is None or host.now() - refreshed > STALE,
             "window": st.get("window") if isinstance(st.get("window"), dict) else None,
             "hosts": st.get("hosts") if isinstance(st.get("hosts"), dict) else None}
@@ -648,6 +662,9 @@ def status_lines(host: Host | None = None) -> list[str]:
     if s["mode"] != s["host_mode"]:
         lines.append("egress: the host file says %s, the table runs %s: sudo awb egress load" % (s["host_mode"],
                                                                                                 s["mode"]))
+    if s["table_lost_at"]:
+        lines.append("egress: the table was missing at %s within this boot (nftables restarted?) and was loaded "
+                     "again; counting restarted" % s["table_lost_at"])
     w = s["window"] or {}
     counts = w.get("counts") if isinstance(w.get("counts"), dict) else {}
     counted = ", ".join("%s %d" % (k, v) for k, v in sorted(counts.items()) if isinstance(v, int) and v)

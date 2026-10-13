@@ -5571,8 +5571,15 @@
    "name": "mcp server: a line over the bound is a parse error and the server goes on",
    "run": ".venv/bin/pytest tests/test_mcp.py::test_a_line_over_the_bound_is_a_parse_error_and_the_server_goes_on",
    "status": "passing"
+  },
+  {
+   "id": "REV13-10",
+   "phase": "REV-2026-10-13",
+   "name": "egress: a table missing within the same boot restarts the count and the status says so",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_a_table_missing_within_the_same_boot_restarts_the_count_and_the_status_says_so tests/test_egress.py::test_a_table_missing_after_a_reboot_is_a_plain_load",
+   "status": "passing"
   }
  ],
- "total_tests": 796,
+ "total_tests": 797,
  "checked": "2026-10-12"
 }

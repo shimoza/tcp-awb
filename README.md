@@ -532,7 +532,7 @@ It also loads the egress filter of the work user: an nftables table that counts 
 a host outside `seal/egress/ALLOW.md` (the model API, the client's login, update and telemetry hosts and the TCP
 price API), by class. It ships counting and refuses nothing. After a day of counts with nothing unexpected,
 `sudo awb egress enforce` makes it refuse; `awb egress status` and `awb deploy status` show the mode and the counts,
-`sudo awb egress count` goes back. The test tenants stay reachable through the key service, which runs as you.
+`sudo awb egress count` goes back. The test tenants stay reachable through the key service, which runs as you. When the table is missing within the same boot (a restart of nftables removes it) the next load puts it back, restarts the count window and the status says so.
 Things you want no commit to carry (names of other workspaces, a naming scheme) go into a local blocklist, one regular expression per
 line: `/etc/awb/blocklist.txt` or `~/.config/awb/blocklist.txt`. It never enters the repository.
 
