@@ -114,6 +114,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- The customer and project sockets (`awb.tcp.web.create_api`) read the declared request body (up to 2 MiB) before they answer a refusal, so a client that is still writing no longer meets a closed socket and a `BrokenPipeError`.
+
 - `seal/verify.sh` names the runner's key copy once (`BUILD_MODEL_KEY`, as `setup.sh` does) and its login
   check reads that name. The test of the check gives it a file of its own: it failed on a host with
   `build_model = key`, because it looked at the host's real `/etc/awb/build-model.key`. It now also proves that a
