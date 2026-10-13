@@ -5613,8 +5613,36 @@
    "name": "chat: a bad AWB_ASK_EFFORT stops the service at start",
    "run": ".venv/bin/pytest tests/test_web_chat_service.py::Tests::test_a_bad_effort_stops_the_service_at_start",
    "status": "passing"
+  },
+  {
+   "id": "TI-1",
+   "phase": "TI",
+   "name": "tests: AWB_ variables of the owner's shell are deleted and pass exits 1 (T2)",
+   "run": ".venv/bin/pytest tests/test_vault_guard.py",
+   "status": "passing"
+  },
+  {
+   "id": "TI-2",
+   "phase": "TI",
+   "name": "tests: a patched is_work_user takes the home of the test (T3)",
+   "run": ".venv/bin/pytest tests/test_vault_guard.py",
+   "status": "passing"
+  },
+  {
+   "id": "TI-3",
+   "phase": "TI",
+   "name": "tests: the guard refuses the /run/awb-* sockets of the host services (T3)",
+   "run": ".venv/bin/pytest tests/test_vault_guard.py",
+   "status": "passing"
+  },
+  {
+   "id": "TI-4",
+   "phase": "TI",
+   "name": "tests: connect and name lookup outside loopback are refused while a test runs (T1)",
+   "run": ".venv/bin/pytest tests/test_vault_guard.py",
+   "status": "passing"
   }
  ],
- "total_tests": 802,
- "checked": "2026-10-12"
+ "total_tests": 806,
+ "checked": "2026-10-13"
 }

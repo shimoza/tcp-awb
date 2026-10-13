@@ -186,6 +186,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- No test can reach the network any more (finding T1 of `docs/review-2026-10-13.md`). The audit hook of `tests/conftest.py` refuses a socket connect (tuple addresses too) and a `getaddrinfo` or `gethostbyname` to any host that is not loopback while a test runs. The test fails even when the code under test caught the refusal. No test of the suite needed a fake: none reached a host outside this machine.
+- The tests no longer reach the real home or the key socket when a test patches `config.is_work_user` (finding T3 of `docs/review-2026-10-13.md`). `HOME` is a folder of the test and the guard of `tests/conftest.py` refuses every path under `/run/awb-` (the key service socket among them).
+- The tests no longer see the `AWB_*` variables of the owner's shell (finding T2 of `docs/review-2026-10-13.md`). The autouse fixture of `tests/conftest.py` deletes every one of them first and then sets the invented ones. It also puts a `pass` that exits 1 first on `PATH`. With `AWB_BUCKET_KEYS=pass:ENTRY` exported, a test could run `pass show` on the real store and reach the real OBS.
 - No test can reach the host's real vault any more (finding of 2026-10-12: three invented codes of
   `tests/fixtures.py` stood, inactive, in the real register). `tests/conftest.py` works out the real vault folder
   and the admin and check sockets once at the start of a run (from the root host file, the defaults and the

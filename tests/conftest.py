@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import os
 import pwd
 import shutil
@@ -249,6 +250,12 @@ the one that writes). A test that reaches the host's real vault folder or a real
 them is refused at the call and fails (2026-10-12: three codes of tests/fixtures.py were found in the real
 register; some test, at some time, wrote there)."""
 
+_NETWORK_EVENTS = ("socket.connect", "socket.getaddrinfo", "socket.gethostbyname")
+"""The events that leave this machine when the host is not loopback: a test that reaches one is refused (T1)."""
+_HOST_SERVICE_PREFIX = "/run/awb-"
+"""The sockets and folders of the host's services under /run (the key service /run/awb-keys/cloud.sock among them):
+no test opens or connects to one (T3)."""
+
 
 def _vault_hit(path) -> str | None:
     if isinstance(path, int) or path is None:
@@ -265,14 +272,52 @@ def _vault_hit(path) -> str | None:
         return None
     if full in _REAL_VAULT_SOCKETS:
         return "a socket of the real vault daemon"
+    if full.startswith(_HOST_SERVICE_PREFIX):
+        return "a socket of a service of the host"
     for root in _REAL_VAULT_ROOTS:
         if full == root or full.startswith(root + os.sep):
             return "the real vault folder"
     return None
 
 
+def _not_loopback(host) -> bool:
+    """True when `host` (a name or an address) is not this machine: anything but an IP literal in the loopback or
+    the unspecified range, `localhost` and no host at all."""
+    if host is None:
+        return False
+    try:
+        host = os.fsdecode(host)
+    except TypeError:
+        return False
+    host = host.split("%", 1)[0]
+    if host in ("", "localhost", "localhost.localdomain"):
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return not (ip.is_loopback or ip.is_unspecified)
+
+
+def _network_hit(event: str, args: tuple) -> str | None:
+    """The host a connect or a name lookup of a test reaches outside this machine, or None (T1)."""
+    if event == "socket.connect":
+        address = args[1] if len(args) > 1 else None
+        host = address[0] if isinstance(address, tuple) and address else None
+    elif event in ("socket.getaddrinfo", "socket.gethostbyname"):
+        host = args[0] if args else None
+    else:
+        return None
+    return "the network (%s)" % os.fsdecode(host) if _not_loopback(host) else None
+
+
 def _vault_audit(event: str, args: tuple) -> None:
     pos = _GUARDED_EVENTS.get(event)
+    if event in _NETWORK_EVENTS and _VAULT_GUARD["on"] and not _VAULT_GUARD["busy"]:
+        where = _network_hit(event, args)
+        if where:
+            _VAULT_GUARD["hits"].append("%s reached %s" % (event, where))
+            raise PermissionError("the tests never reach %s (tests/conftest.py)" % where)
     if pos is None or not _VAULT_GUARD["on"] or _VAULT_GUARD["busy"]:
         return
     if event in ("os.rename", "os.symlink", "os.link") and len(args) > 1:
@@ -318,6 +363,18 @@ def invented_blocklist(tmp_path_factory, monkeypatch):
     from awb import gate, hooks
 
     none = tmp_path_factory.getbasetemp() / "no-host"
+    # nothing of the owner's shell: every AWB_ variable goes first, then the invented ones below are set (T2). A
+    # `pass` that exits 1 comes first on PATH, so no test reaches the real password store or the real OBS.
+    for name in [k for k in os.environ if k.startswith("AWB_")]:
+        monkeypatch.delenv(name)
+    stub = none / "bin"
+    stub.mkdir(parents=True, exist_ok=True)
+    (stub / "pass").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    (stub / "pass").chmod(0o755)
+    monkeypatch.setenv("PATH", str(stub) + os.pathsep + os.environ.get("PATH", ""))
+    # a home of the test: with `config.is_work_user` patched the code takes ~/tcp-shared and ~/tcp-kb (T3)
+    (none / "home").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("HOME", str(none / "home"))
     monkeypatch.setattr(gate, "BLOCKLIST_FILES", (none / "blocklist.txt", none / "home-blocklist.txt"))
     monkeypatch.setenv("AWB_BLOCKLIST", str(BLOCKLIST))
     # no test writes to the real shared side or the real throttle stamps: a test that builds no Workbench of its
