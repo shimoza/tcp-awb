@@ -210,7 +210,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   `InaccessiblePaths=` and so unhide the clones of other tasks (review of 2026-10-13, finding B2).
 - The export of a build task runs no filter and changes no file: `info/attributes` of `main.git` also switches
   `filter`, `ident`, `text`, `eol` and `working-tree-encoding` off. A `.gitattributes` of a task could turn on a
-  filter of the owner's git configuration, run as the owner, and make the export differ from the blobs the gate read
+  filter of the owner's git configuration (run as the owner) and make the export differ from the blobs the gate read
   (review of 2026-10-13, finding B6).
 
 ## Week 41, 2026-10-05 to 2026-10-11
