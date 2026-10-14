@@ -29,6 +29,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   `recipes/`, a read tier sends `GET` or `HEAD` calls only and a block whose `needs` is not `none` takes the tier
   decision or none.
 
+- `awb start project|query --goal "..." [--customer CUST-XXXX|new] [--tag TAG]...` starts a piece of work in one owner command (P1 of the journey report F3): it issues the customer code for `new`, asks the written forms at the prompt as `awb import` does, runs `awb spawn` as the work user through `sudo -n`, writes the grant of `awb projects kind`, imports the new files of the project's `in/` folder and ends with `open: awb projects open tcp-xxxx`. Four commands in two windows become one. `awb projects open` and `awb start` share the `sudo -n` check.
+
 - `awb fetch tcp-xxxx [--again] [--into DIR]` on the owner side lists what a project put with `awb xchg put` since his last fetch, downloads it through the key service (the op `obs` list and get of `awb xchg list`, no new call) into `~/awb-fetch/tcp-xxxx/` of mode 700, puts the names back into every text with the code of `awb reveal` and prints the folder (P12 of the journey report F3). It replaces a console visit and an `awb reveal` per file.
 
 - `awb projects open` without a code lists the active projects numbered, each with its `Next:` line and the owner items of its OPEN.md, after the name check (P4 of the journey report F3). He types the number and the session opens as `awb projects open CODE` opens it; without a terminal the list is printed only.

@@ -262,6 +262,7 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 | task | command | what you get |
 |---|---|---|
 | start work | `awb spawn query --goal "..."` or `awb spawn project --goal "..."` | a folder with its scope, rules, hooks and git. A query works with the knowledge base, the docs and live prices; a project also reaches the test tenants. `--customer CUST-XXXX` on either |
+| start work in one owner command | `awb start project --goal "..." --customer CUST-XXXX` (or `new`, or no customer; `query` the same) | in your own terminal: a new customer's code is issued and its written forms are asked at the prompt as `awb import` asks (never an argument, so never in the shell history), `awb spawn` runs as the work user through `sudo -n`, your grant (`awb projects kind`) is written, what lies in the project's `in/` folder is imported; it ends with `open: awb projects open tcp-xxxx` |
 | switch | `awb projects kind tcp-xxxx project` | a query that needs a live test becomes a project (or back) |
 | see the projects | `awb projects list` | every project with its goal and the session that holds it |
 | finish a project | `awb close tcp-xxxx`, then `awb projects delete tcp-xxxx` | close waits for open items and live resources; delete removes the folder and keeps the code |
