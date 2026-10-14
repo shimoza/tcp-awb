@@ -7,6 +7,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- `awb build widen ID --tests-replaced ID...` adds test ids to the `tests_replaced` of a red task and the checks
+  that run again read them. The ids go into the run's own `task.md`, the snapshot the runner's checks read (an edit
+  of `QUEUE.md` never reached them); each widen adds a line to `widen.log` of the run folder. Paths are now
+  optional when `--tests-replaced` is given.
 - `awb build check REF` checks a branch from outside, a cloud pull request fetched into the working copy, as the
   build user and never in the owner's shell (F2 threat model, gap G1). The runner fetches the commit into the
   quarantine of `main.git` and runs its own checks on it: the commits after the merge base with `main` (at most

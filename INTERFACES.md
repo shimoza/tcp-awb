@@ -331,13 +331,15 @@ Since SB2 `awb/build.py` holds the queue and the records; `serve`, `selftest` an
 all but `ALWAYS_ALLOWED`). The prompt: `HEADER`, `compose(task, prompt) -> str`, `read_prompt(task, qdir=None,
 register=None, names=True) -> str` (raises `PromptHeld`, the state `held: prompt`), `scan(label, text, register) ->
 list[str]`. The records: `runs_dir() -> Path` (`AWB_BUILD_RUNS`, else `<build_root>/runs`), `RUN_FILES`,
-`COMMAND_FILES` (`answer.txt`, `widen.txt`, `stop-wanted`, `reported`), `STOP_FILE`, `STATES`, `OPEN_STATES`,
+`COMMAND_FILES` (`answer.txt`, `widen.txt`, `widen.log`, `stop-wanted`, `reported`), `STOP_FILE`, `STATES`, `OPEN_STATES`,
 `STATE_RE`, `Run(id, n, folder, state, since)`, `read_state(folder)`, `write_state(folder, state, now=None)` (one
 line `<state>\t<time>`, written atomically), `runs_of(id)`, `latest(id)`, `new_run(id, runs=None, state="queued")`,
 `task_lock(id)` (flock of `runs/<ID>/.lock`, which the runner takes too). The lines: `line(run)` (the one-line forms of
 DESIGN.md section 6), `list_lines()`, `board_line()`, `deploy_tail()` (SB4: live, main, not deployed through `buildrun.deployed_info`), `ended_lines()` (marks each run `reported` with the state it
 printed). The commands: `add(path, qdir=None, runs=None, register=None) -> Task` (raises `Refused`),
-`cmd_show`, `cmd_answer`, `cmd_retry`, `cmd_widen`, `cmd_stop`, `main(argv)`.
+`cmd_show`, `cmd_answer`, `cmd_retry`, `cmd_widen(tid, paths, runs=None, tests_replaced=None)` (A5: the ids go into
+the `tests_replaced` of the run's `task.md`, the snapshot `Runner._ctx` reads; a line per widen in `widen.log`),
+`cmd_stop`, `main(argv)`.
 
 `awb/buildrun.py` (SB3), the runner. `Host` (every place and stand-in: `root`, `runs`, `queue`, `units`, `board`,
 `deployed`, `model_key`, `model` (`login` or `key`, from `build_model`), `register`, `build_uid`, `git_run`, `wall`, `now`, `sleep`, `minute`, `poll`, `tick`,

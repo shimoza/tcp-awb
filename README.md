@@ -592,6 +592,7 @@ awb build show B-012         # the agent's last message, in your own terminal on
 awb build answer B-012 "take 10 MB"
 awb build retry B-012        # a new run from main
 awb build widen B-012 awb/tcp/keys.py
+awb build widen B-012 --tests-replaced SB1-20   # into the run's task.md, which the checks read
 awb build stop               # the runner ends after the current task
 awb build check pr-12        # a branch from outside: the gate and the suite as awb-build, nothing merged
 ```

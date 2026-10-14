@@ -1921,3 +1921,31 @@ def test_an_always_allowed_file_meets_no_reserved_folder(world):
     r.poll_once()
     assert build.latest("B-311", world.runs).state == "asked"
     assert r.pick(build.read_queue(world.queue)[0])[0].id == "B-312"
+
+
+# --------------------------------------------------------------------------- A5: widen --tests-replaced
+
+def test_a_test_id_widened_into_tests_replaced_reaches_the_rejudge_without_a_session(world):
+    run = world.run("deleted")
+    assert run.state == "red: tests lost"
+    # an edit of the queue never reaches the checks: they read the run's own task.md
+    world.task("deleted", tid=run.id, replaced="tests/test_x.py::test_three")
+    assert build.cmd_widen(run.id, ["awb/"], world.runs) == 0
+    assert world.runner().poll_once()
+    assert build.latest(run.id, world.runs).state == "red: tests lost"
+    sessions = len([s for s in world.units.started if s.name == "awb-task-%s" % run.id])
+    assert build.cmd_widen(run.id, [], world.runs, tests_replaced=["tests/test_x.py::test_three"]) == 0
+    assert world.runner().poll_once()
+    after = build.latest(run.id, world.runs)
+    assert (after.n, after.state) == (run.n, "done")
+    assert len([s for s in world.units.started if s.name == "awb-task-%s" % run.id]) == sessions
+    assert "tests_replaced: tests/test_x.py::test_three" in (run.folder / "task.md").read_text()
+    assert len((run.folder / "widen.log").read_text().splitlines()) == 2
+
+
+def test_an_id_of_tests_json_widened_into_tests_replaced_lets_its_entry_change(world):
+    run = world.run("testsjson")
+    assert run.state == "red: tests.json"
+    assert build.cmd_widen(run.id, [], world.runs, tests_replaced=["S1"]) == 0
+    assert world.runner().poll_once()
+    assert build.latest(run.id, world.runs).state == "done"

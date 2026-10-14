@@ -5900,8 +5900,36 @@
    "name": "build runner: an always allowed file meets no reserved folder",
    "run": ".venv/bin/pytest tests/test_build_runner.py::test_an_always_allowed_file_meets_no_reserved_folder",
    "status": "passing"
+  },
+  {
+   "id": "RF-11",
+   "phase": "RF-A5",
+   "name": "build widen: --tests-replaced writes the ids into the run's task.md and logs the change in widen.log",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_widen_tests_replaced_writes_the_ids_into_the_run_snapshot_and_logs_the_change",
+   "status": "passing"
+  },
+  {
+   "id": "RF-12",
+   "phase": "RF-A5",
+   "name": "build widen: --tests-replaced refuses a bad id, a missing snapshot and an empty widen",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_widen_tests_replaced_refuses_a_bad_id_a_missing_snapshot_and_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "RF-13",
+   "phase": "RF-A5",
+   "name": "build runner: a test id widened into tests_replaced reaches the rejudge, a queue edit does not",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_test_id_widened_into_tests_replaced_reaches_the_rejudge_without_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "RF-14",
+   "phase": "RF-A5",
+   "name": "build runner: an id of tests.json widened into tests_replaced lets its entry change",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_an_id_of_tests_json_widened_into_tests_replaced_lets_its_entry_change",
+   "status": "passing"
   }
  ],
- "total_tests": 843,
+ "total_tests": 847,
  "checked": "2026-10-14"
 }
