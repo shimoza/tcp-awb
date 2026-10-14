@@ -6663,8 +6663,22 @@
    "name": "kb recheck-run: the inventory reads every source the key service can send",
    "run": ".venv/bin/pytest tests/test_recheck.py::test_the_inventory_reads_every_source_the_key_service_can_send",
    "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F6-1",
+   "phase": "FK6",
+   "name": "board: the recheck line carries the counts of the newest run of each tier",
+   "run": ".venv/bin/pytest tests/test_board.py::test_the_recheck_line_carries_the_counts_of_the_newest_run_of_each_tier",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F6-2",
+   "phase": "FK6",
+   "name": "board: a cell outside the vocabulary of the recheck line is dropped",
+   "run": ".venv/bin/pytest tests/test_board.py::test_a_cell_outside_the_vocabulary_of_the_recheck_line_is_dropped",
+   "status": "passing"
   }
  ],
- "total_tests": 952,
+ "total_tests": 954,
  "checked": "2026-10-14"
 }

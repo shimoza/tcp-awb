@@ -7,6 +7,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- The board carries the recheck line (fact-check design F6): from `<shared>/recheck/state.tsv`, the newest run of each
+  tier of `awb kb recheck-run` with its counts, the inventory of a write run and the entries for the owner
+  (`recheck: read 2026-10-18 12 confirmed, 1 refuted, 3 undecided; write 2026-11-02 4 confirmed, inventory equal; 9
+  for the owner`). A line whose date, tier or counts do not match is skipped, an exit or inventory cell outside the
+  vocabulary is dropped.
+
 - `awb kb recheck-run [--tier read|write] [--id KB-XXXX]... [--project CODE] [--tenant ALIAS] [--dry-run]` (fact-check
   design F4, `awb/tcp/recheck.py`): the expired entries with a check block of the tier, checked one at a time in the
   service project through the key service. A read tier sends its `GET` calls and reads confirms, refutes and control

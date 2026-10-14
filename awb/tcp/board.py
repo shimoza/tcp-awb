@@ -17,6 +17,9 @@ matched against a fixed form or vocabulary before it reaches the line; anything 
 A task unit that failed while no runner watched (the oneshot awb-task-failed@.service, SB5) adds "; no runner
 watched: B-012 failed 14:02 (timeout)" until the runner writes the file again. A task that waited on the owner long
 enough for a mail of awb build nudge (A6) adds "; nudged: B-013 asked 23:30" until its state moves.
+The recheck line comes from <shared>/recheck/state.tsv, one line per run of awb kb recheck-run (awb/tcp/recheck.py):
+"recheck: read 2026-10-18 12 confirmed, 1 refuted, 3 undecided; write 2026-11-02 4 confirmed, inventory equal; 9 for
+the owner", the newest run of each tier, counts and fixed words only; a cell outside its form or vocabulary is dropped.
 While the vault is locked both commands open with "locked since <time>" (T3); the project texts wait for the
 unlock, because the data check cannot run.
 """
@@ -84,8 +87,9 @@ def markdown(board: dict) -> str:
            "line yet." % (s["projects"], s["current"], s["lagging"], s["without_status"]), ""]
     if board.get("wipe"):
         out += [board["wipe"], ""]
-    if board.get("build"):
-        out += [board["build"], ""]
+    for k in ("build", "recheck"):
+        if board.get(k):
+            out += [board[k], ""]
     out += ["| Project | Customer | Status | Next | Status as of | Open | Live |", "|---|---|---|---|---|---|---|"]
 
     def cell(text) -> str:
@@ -172,7 +176,7 @@ def page(board: dict) -> str:
             "<th>Live</th></tr></thead><tbody>%s</tbody></table></div>%s</body></html>\n" % (
                 e(when(board["generated_at"])), STYLE, e(when(board["generated_at"])), s["projects"], s["current"],
                 s["lagging"], s["without_status"],
-                "".join('<p class="lead">%s</p>' % e(board[k]) for k in ("wipe", "build") if board.get(k)), rows,
+                "".join('<p class="lead">%s</p>' % e(board[k]) for k in ("wipe", "build", "recheck") if board.get(k)), rows,
                 "".join(sections)))
 
 
@@ -385,6 +389,67 @@ def build_line(p) -> str:
     return line
 
 
+# --------------------------------------------------------------------------- the recheck line (fact-check F6)
+
+RECHECK_TSV_MAX = 64 << 10
+RECHECK_TIERS = ("read", "write")                         # awb.tcp.recheck.TIERS
+RECHECK_INVENTORY = ("equal", "differs", "unknown")       # awb.tcp.recheck: the inventory cell; none shows nothing
+RECHECK_EXITS = ("0", "2", "4")                           # awb.tcp.recheck: EXIT_OK, EXIT_STOPPED, EXIT_LEFT
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_COUNT = re.compile(r"[0-9]{1,5}")
+
+
+def recheck_tsv(p) -> Path:
+    return p.shared / "recheck" / "state.tsv"
+
+
+def recheck_runs(p) -> list[dict] | None:
+    """The lines of <shared>/recheck/state.tsv (date, tier, confirmed, refuted, undecided, for the owner, exit,
+    inventory) as dicts, oldest first; None without a readable file. A line whose date, tier or counts do not match
+    is skipped; an exit or an inventory cell outside the vocabulary is dropped."""
+    text = _read_small(recheck_tsv(p), RECHECK_TSV_MAX)
+    if text is None:
+        return None
+    out = []
+    for row in text.splitlines():
+        cells = row.split("\t")
+        if len(cells) != 8:
+            continue
+        day, tier, conf, ref, und, owner, code, inv = cells
+        if not _DATE.fullmatch(day) or tier not in RECHECK_TIERS or not all(
+                _COUNT.fullmatch(c) for c in (conf, ref, und, owner)):
+            continue
+        out.append({"date": day, "tier": tier, "confirmed": int(conf), "refuted": int(ref), "undecided": int(und),
+                    "owner": int(owner), "exit": code if code in RECHECK_EXITS else "",
+                    "inventory": inv if inv in RECHECK_INVENTORY else ""})
+    return out
+
+
+def recheck_line(p) -> str:
+    """The board's recheck line: the newest run of each tier with its counts, the inventory of a write run and the
+    entries for the owner of the newest run: "recheck: read 2026-10-18 12 confirmed, 1 refuted, 3 undecided; write
+    2026-11-02 4 confirmed, inventory equal; 9 for the owner". Counts and fixed words only."""
+    runs = recheck_runs(p)
+    if not runs:
+        return "recheck: no run yet"
+    newest = {r["tier"]: r for r in sorted(runs, key=lambda r: r["date"])}
+    parts = []
+    for tier in RECHECK_TIERS:
+        r = newest.get(tier)
+        if r is None:
+            continue
+        counts = ["%d %s" % (r[v], v) for v in ("confirmed", "refuted", "undecided") if r[v]]
+        text = "%s %s %s" % (tier, r["date"], ", ".join(counts) or "nothing checked")
+        if tier == "write" and r["inventory"]:
+            text += ", inventory %s" % r["inventory"]
+        if r["exit"] and r["exit"] != "0":
+            text += ", exit %s" % r["exit"]
+        parts.append(text)
+    last = max(newest.values(), key=lambda r: r["date"])
+    parts.append("%d for the owner" % last["owner"])
+    return "recheck: " + "; ".join(parts)
+
+
 def locked(p) -> str | None:
     """"locked since <time>" while the vault daemon says it is locked, else None (also without a daemon)."""
     from awb import vault
@@ -424,6 +489,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     board["wipe"] = wipe_line(p)
     board["build"] = build_line(p)
+    board["recheck"] = recheck_line(p)
     if args.command == "show":
         from awb import hooks
 
