@@ -6418,8 +6418,50 @@
    "name": "hold class: held (unreadable) on the terminal, the mail keeps its reason (replaces the plain-line test of an unreadable take)",
    "run": ".venv/bin/pytest tests/test_xchg.py::test_p2_a_granted_take_of_a_file_that_cannot_be_read_is_held_with_its_class_word",
    "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P4-1",
+   "phase": "Z2",
+   "name": "projects open: the active projects numbered with Next: and owner items",
+   "run": ".venv/bin/pytest tests/test_projects_pick.py::test_the_list_numbers_the_active_projects_with_next_and_owner_items",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P4-2",
+   "phase": "Z2",
+   "name": "projects open: he types the number and it opens",
+   "run": ".venv/bin/pytest tests/test_projects_pick.py::test_he_types_the_number_and_it_opens",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P4-3",
+   "phase": "Z2",
+   "name": "projects open: an empty answer or a wrong number opens nothing",
+   "run": ".venv/bin/pytest tests/test_projects_pick.py::test_an_empty_answer_or_a_wrong_number_opens_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P4-4",
+   "phase": "Z2",
+   "name": "projects open: without a terminal the list is printed and nothing opens",
+   "run": ".venv/bin/pytest tests/test_projects_pick.py::test_without_a_terminal_the_list_is_printed_and_nothing_opens",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P4-5",
+   "phase": "Z2",
+   "name": "projects open: a Next: line with a registered name is withheld",
+   "run": ".venv/bin/pytest tests/test_projects_pick.py::test_a_next_line_with_a_registered_name_is_withheld",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P4-6",
+   "phase": "Z2",
+   "name": "projects open: no active project says so",
+   "run": ".venv/bin/pytest tests/test_projects_pick.py::test_no_active_project_says_so",
+   "status": "passing"
   }
  ],
- "total_tests": 917,
+ "total_tests": 923,
  "checked": "2026-10-14"
 }

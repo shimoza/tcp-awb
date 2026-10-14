@@ -14,7 +14,7 @@
     awb gate --install [--kb] [--force] [--repo PATH]
     awb spawn KIND --goal TEXT [--customer CODE] [--tag T]... [--from-outbox]
     awb close CODE [--force]
-    awb projects list|check|sync
+    awb projects list|check|sync|open [CODE]
 
 Commands that live in their own module (DELEGATED below; `awb NAME --help` shows the options of each):
 
@@ -442,6 +442,8 @@ def _cmd_projects_sync(args, p: config.Paths) -> int:
 def _cmd_projects_open(args, p: config.Paths) -> int:
     from awb import projects
 
+    if args.code is None:
+        return projects.pick_session(p)
     return projects.open_session(p, args.code)
 
 
@@ -559,8 +561,10 @@ def _build() -> argparse.ArgumentParser:
     s = psub.add_parser("delete", help="remove the folder of closed projects; the code stays registered as deleted")
     s.add_argument("codes", nargs="+", metavar="CODE")
     s.set_defaults(func=_cmd_projects_delete)
-    s = psub.add_parser("open", help="start a session in a project as the work user in this terminal (owner side)")
-    s.add_argument("code")
+    s = psub.add_parser("open", help="start a session in a project as the work user in this terminal (owner side); "
+                                     "without a code the active projects numbered with their Next: line and owner "
+                                     "items, the number you type opens one")
+    s.add_argument("code", nargs="?", default=None)
     s.set_defaults(func=_cmd_projects_open)
     s = psub.add_parser("check", help="find tcp- folders that no project registered")
     s.set_defaults(func=_cmd_projects_check)
