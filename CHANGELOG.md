@@ -7,6 +7,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- The check block of a knowledge base entry (fact-check design F1): a line `--- check` after the statement, then
+  `tier` (read, write, decision, none), `event`, `calls`, `confirms`, `refutes`, `control` and `needs`, written
+  in that order. An entry without it parses as before. `awb kb how ID -` writes or replaces the block from standard
+  input through the text checks of `add` (English, no name, no code, no price, no secret); `awb kb show` prints
+  it and `awb kb verify` checks it. A block without `control` is refused, a write tier names a recipe of
+  `recipes/`, a read tier sends `GET` or `HEAD` calls only and a block whose `needs` is not `none` takes the tier
+  decision or none.
 - `awb build nudge` reaches the owner when a build task waits on him (automation review A6): on 2026-10-13 a task
   asked at 23:15 and waited 5.5 hours while the steering session slept. For every task whose newest run is `asked`,
   `red: <reason>` or `held: <reason>` for 15 minutes with no answer, widen or retry since, it sends one mail through

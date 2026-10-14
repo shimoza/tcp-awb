@@ -6201,8 +6201,50 @@
    "name": "build nudge: setup installs the root owned timer and its hardened oneshot, verify proves the timer is enabled",
    "run": ".venv/bin/pytest tests/test_seal.py::test_setup_installs_the_nudge_timer_as_root_and_verify_proves_it_is_enabled",
    "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F1-1",
+   "phase": "FK1",
+   "name": "kb check block: an entry without a block parses and renders as before",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_an_entry_without_a_check_block_parses_and_renders_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F1-2",
+   "phase": "FK1",
+   "name": "kb check block: a block round-trips in its fixed order, a statement may not carry the line --- check",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_a_check_block_round_trips_in_its_fixed_order",
+   "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F1-3",
+   "phase": "FK1",
+   "name": "kb check block: a malformed block is named by id and line only",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_a_malformed_check_block_is_named_by_id_and_line_only",
+   "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F1-4",
+   "phase": "FK1",
+   "name": "kb how: writes and replaces the block from stdin, show prints it, amend keeps it",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_how_writes_and_replaces_the_block_and_show_prints_it",
+   "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F1-5",
+   "phase": "FK1",
+   "name": "kb how: refuses a block without control, with a name, a price, a secret, no recipe, needs on a write tier; writes nothing",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_how_refuses_a_block_that_cannot_stand_and_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F1-6",
+   "phase": "FK1",
+   "name": "kb verify: refuses a hand written block without a recipe or a control",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_verify_refuses_a_hand_written_block_without_a_recipe_or_a_control",
+   "status": "passing"
   }
  ],
- "total_tests": 886,
+ "total_tests": 892,
  "checked": "2026-10-14"
 }

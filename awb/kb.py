@@ -29,6 +29,13 @@ offered" and "no longer"), an unknown tag, and a statement whose word overlap wi
 above 0.6 (unless `--force-new`). A code counts also when it is written with a look-alike dash or fullwidth
 characters. The statement, the source and every tried text are checked.
 
+An entry may end with a check block: a line `--- check`, then `key: value` lines in this order (design F4 of
+2026-10-14): tier (read | write | decision | none), event (an ISO date, optional), calls (read: `GET service
+path`, `;`-separated; write: `recipe NAME k=v ...`), confirms, refutes, control, needs (none or what the host
+cannot give). The statement ends at that line; an entry without it parses as before. A block without control is
+refused, a write tier names a recipe of recipes/, a block whose needs is not none takes the tier decision or none.
+`how` writes or replaces the block from standard input through the text checks of `add`; `show` prints it.
+
 `recheck` records a fresh check of an entry whose statement still holds: grade, source and check date become
 those of the new check, and a negative needs two tried texts of the new check. `amend` corrects the statement of
 an entry and keeps its id: the new statement goes through every check of
@@ -51,6 +58,7 @@ A name check that cannot run stops every command with exit 2: the knowledge base
     awb kb retire --why TEXT ID
     awb kb find [--scope S] WORDS...
     awb kb show ID
+    awb kb how ID -                          the check block from standard input
     awb kb scope [--scope S] TAG
     awb kb expired
     awb kb index
@@ -91,6 +99,12 @@ REQUIRED = ("id", "scope", "tags", "grade", "checked", "class", "expires", "sour
 entry written before they existed still parses. Listed by name, not by position in KEYS: a new key must be
 decided to be required, never become required by being appended."""
 SEPARATOR = "---"
+# the check block: what a run sends to prove the statement again, after the statement (design F4, section 1)
+CHECK_SEPARATOR = "--- check"
+CHECK_KEYS = ("tier", "event", "calls", "confirms", "refutes", "control", "needs")
+TIERS = ("read", "write", "decision", "none")
+_READ_CALL_RE = re.compile(r"(?:GET|HEAD) [a-z0-9][a-z0-9-]* /\S*")
+_RECIPE_CALL_RE = re.compile(r"recipe ([a-z0-9][a-z0-9-]{0,63})((?: [a-z_][a-z0-9_]*=\S+)*)")
 ENTRIES = "entries"
 INDEX = "INDEX.md"
 TAGS_FILE = patterns.RULES_DIR / "tags.txt"
@@ -190,6 +204,7 @@ class Entry:
     statement: str
     retired: str = ""      # the ISO date it was withdrawn, empty while the entry stands
     why: str = ""          # why it was withdrawn
+    check: tuple[tuple[str, str], ...] = ()   # the check block as (key, value) in the order of CHECK_KEYS
     path: Path | None = None
 
     @property
@@ -199,6 +214,11 @@ class Entry:
     @property
     def is_retired(self) -> bool:
         return bool(self.retired)
+
+    @property
+    def block(self) -> dict[str, str]:
+        """The check block as a dict, empty when the entry has none."""
+        return dict(self.check)
 
     def is_expired(self, today: date | None = None) -> bool:
         return date.fromisoformat(self.expires) < (today or date.today())
@@ -438,7 +458,11 @@ def render(e: Entry) -> str:
         lines.append("tried: %s" % "; ".join(e.tried))
     if e.retired:
         lines += ["retired: %s" % e.retired, "why: %s" % e.why]
-    return "\n".join(lines) + "\n" + SEPARATOR + "\n" + e.statement + "\n"
+    text = "\n".join(lines) + "\n" + SEPARATOR + "\n" + e.statement + "\n"
+    if e.check:
+        block = e.block
+        text += CHECK_SEPARATOR + "\n" + "".join("%s: %s\n" % (k, block[k]) for k in CHECK_KEYS if k in block)
+    return text
 
 
 def _valid_date(value: str) -> bool:
@@ -502,12 +526,96 @@ def parse(text: str, name: str = "entry", path: Path | None = None) -> Entry:
     if not fields["source"]:
         raise bad("source", "is empty")
     tried = tuple(t.strip() for t in fields.get("tried", "").split(";") if t.strip())
-    statement = "\n".join(lines[sep + 1:]).strip()
+    body = lines[sep + 1:]
+    # the statement ends at the line --- check; an entry without it parses as before
+    end = body.index(CHECK_SEPARATOR) if CHECK_SEPARATOR in body else len(body)
+    statement = "\n".join(body[:end]).strip()
     if not statement:
         raise KBError("%s: the statement is empty" % name)
+    check = ()
+    if end < len(body):
+        check = parse_block(body[end + 1:], name, first=sep + end + 3)
     return Entry(id=fields["id"], scope=fields["scope"], tags=tags, grade=fields["grade"], checked=fields["checked"],
                  cls=fields["class"], expires=fields["expires"], source=fields["source"], tried=tried,
-                 statement=statement, retired=fields.get("retired", ""), why=fields.get("why", ""), path=path)
+                 statement=statement, retired=fields.get("retired", ""), why=fields.get("why", ""), check=check,
+                 path=path)
+
+
+def parse_block(lines: Sequence[str], name: str = "entry", first: int = 1) -> tuple[tuple[str, str], ...]:
+    """The check block from its `key: value` lines, in the order of CHECK_KEYS. Strict about the form (a known key,
+    once, a known tier): KBError with the entry id and a line number (`first` is the number of the first line),
+    never the content. Blank lines are skipped. What the fields say is judged by `block_problems`."""
+    fields: dict[str, str] = {}
+    for i, line in enumerate(lines, start=first):
+        if not line.strip():
+            continue
+        key, colon, value = line.partition(":")
+        key = key.strip()
+        if not colon or key not in CHECK_KEYS:
+            raise KBError("%s line %d: not a check line with a known key (%s)" % (name, i, ", ".join(CHECK_KEYS)))
+        if key in fields:
+            raise KBError("%s line %d: the check key %s appears twice" % (name, i, key))
+        value = value.strip()
+        if not value:
+            raise KBError("%s line %d: the check key %s is empty" % (name, i, key))
+        if key == "tier" and value not in TIERS:
+            raise KBError("%s line %d: tier must be one of: %s" % (name, i, ", ".join(TIERS)))
+        fields[key] = value
+    if not fields:
+        raise KBError("%s: the check block is empty" % name)
+    return tuple((k, fields[k]) for k in CHECK_KEYS if k in fields)
+
+
+RECIPES_DIR = Path(__file__).resolve().parent.parent / "recipes"
+RECIPES_ENV = "AWB_RECIPES"
+"""Where a write tier's recipe must exist: the folder `awb lab` reads (awb/tcp/lab.py, the same variable). The core
+never imports the platform package, so the place is named here again."""
+
+
+def _recipe_exists(recipe: str) -> bool:
+    return (Path(os.environ.get(RECIPES_ENV) or RECIPES_DIR) / ("%s.json" % recipe)).is_file()
+
+
+def block_problems(check: Sequence[tuple[str, str]]) -> list[str]:
+    """Why a check block cannot stand, as messages that name fields and never their values: the tier and the
+    control are required; a read tier sends GET or HEAD calls; a write tier names a recipe of recipes/; a read or
+    write tier says what confirms and what refutes; `needs` other than none means the tier decision or none."""
+    b = dict(check)
+    out: list[str] = ["check %s is longer than %d characters" % (k, MAX_LINE) for k, v in check if len(v) > MAX_LINE]
+    tier = b.get("tier")
+    if tier is None:
+        out.append("the check block has no tier (%s)" % ", ".join(TIERS))
+    elif tier not in TIERS:
+        out.append("tier must be one of: %s" % ", ".join(TIERS))
+    if "control" not in b:
+        out.append("the check block has no control: a check that cannot tell a confirm from a refute proves nothing")
+    if "needs" not in b:
+        out.append("the check block has no needs (none or what the host cannot give)")
+    if "event" in b and not _valid_date(b["event"]):
+        out.append("event is not an ISO date (YYYY-MM-DD)")
+    needs = b.get("needs", "none")
+    if needs != "none" and tier in ("read", "write"):
+        out.append("a block whose needs is not none takes the tier decision or none, not %s" % tier)
+    if tier == "decision" and needs == "none":
+        out.append("a decision tier names what it needs")
+    calls = b.get("calls")
+    if tier in ("read", "write"):
+        for key in ("calls", "confirms", "refutes"):
+            if key not in b:
+                out.append("a %s tier needs %s" % (tier, key))
+    if tier == "none" and calls is not None:
+        out.append("a none tier sends nothing and carries no calls")
+    if calls is not None and tier == "read":
+        parts = [c.strip() for c in calls.split(";")]
+        if not all(_READ_CALL_RE.fullmatch(c) for c in parts):
+            out.append("a read tier sends calls of the form GET service path, separated by ;")
+    elif calls is not None and tier in ("write", "decision"):
+        m = _RECIPE_CALL_RE.fullmatch(calls)
+        if not m:
+            out.append("a %s tier names a recipe: calls is recipe NAME k=v ..." % tier)
+        elif not _recipe_exists(m.group(1)):
+            out.append("the recipe of calls is not a recipe of recipes/")
+    return out
 
 
 def load(where=None) -> list[Entry]:
@@ -683,8 +791,8 @@ def _clean_statement(statement) -> str:
         raise KBError("the statement is longer than %d characters" % MAX_STATEMENT)
     if any(unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") and c not in "\n\t" for c in statement):
         raise KBError("the statement carries control or invisible characters")
-    if any(line.strip() == SEPARATOR for line in statement.split("\n")):
-        raise KBError("the statement must not carry a line ---")
+    if any(line.strip() in (SEPARATOR, CHECK_SEPARATOR) for line in statement.split("\n")):
+        raise KBError("the statement must not carry a line --- or --- check")
     return statement
 
 
@@ -925,6 +1033,53 @@ def retire(kb_id: str, why: str, *, where=None, register_path: Path | None = Non
         return _save(folder, entries, _replace(old, retired=today.isoformat(), why=why), today)
 
 
+# --------------------------------------------------------------------------- the check block
+
+
+def _block_text_problems(check: Sequence[tuple[str, str]], register_path: Path) -> list[str]:
+    """The text checks of `add` over the values of a check block; the calls and the event are not prose, so they
+    skip the language check."""
+    out: list[str] = []
+    for key, value in check:
+        if key == "tier":
+            continue
+        out += text_problems("check %s" % key, value, register_path, language=key not in ("calls", "event"))
+    return out
+
+
+def how(kb_id: str, text: str, *, where=None, register_path: Path | None = None,
+        today: date | None = None) -> Entry:
+    """Write or replace the check block of an entry from its `key: value` lines. The block goes through
+    `block_problems` and the text checks of `add` (English, no name, no code, no price, no secret); header and
+    statement stay as they are, `checked` does not move: a block says how to check, it is not a check. Raises
+    Refused or KBError. Nothing is written unless every check passed."""
+    today = today or date.today()
+    folder = root(where)
+    get(kb_id, folder)
+    if not isinstance(text, str):
+        raise KBError("the check block must be text")
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    if lines and lines[0].strip() == CHECK_SEPARATOR:
+        lines = lines[1:]
+    for i, line in enumerate(lines, start=1):
+        if any(unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") and c != "\t" for c in line):
+            raise KBError("check line %d carries control or invisible characters" % i)
+    check = parse_block(lines, "the check block")
+    reg = register_of(register_path)
+    _require_register(reg)
+    problems = block_problems(check) + _block_text_problems(check, reg)
+    with _locked(folder):
+        entries = load(folder)
+        old = _pick(entries, kb_id)
+        reasons: list[str] = []
+        if old.is_retired:
+            reasons.append("%s is retired (retired %s); a retired entry is not checked again" % (kb_id, old.retired))
+        reasons += problems
+        if reasons:
+            raise Refused(reasons)
+        return _save(folder, entries, _replace(old, check=check), today)
+
+
 # --------------------------------------------------------------------------- reading
 
 
@@ -956,6 +1111,9 @@ def verify_text(text: str, name: str, register_path: Path) -> list[str]:
     out += _negative_problems(e.statement, e.tried, "tried texts")
     if e.why:
         out += text_problems("the reason why", e.why, register_path)
+    if e.check:
+        out += block_problems(e.check)
+        out += _block_text_problems(e.check, register_path)
     return out
 
 
@@ -1213,7 +1371,7 @@ def export(where=None, *, scope: str | None = "tcp", grades: Sequence[str] = EXP
 
 
 def _entry_text(e: Entry) -> str:
-    return "\n".join([e.statement, e.source, e.why, *e.tried])
+    return "\n".join([e.statement, e.source, e.why, *e.tried, *(v for _, v in e.check)])
 
 
 def _withheld_line(n: int) -> str:
@@ -1361,6 +1519,19 @@ def _cmd_recheck(args, today: date) -> int:
     return 0
 
 
+def _cmd_how(args, today: date) -> int:
+    if args.block != "-":
+        print("awb kb how: give - and the block on standard input", file=sys.stderr)
+        return 2
+    reg = register_of()
+    try:
+        entry = how(args.id, sys.stdin.read(), today=today)
+    except Refused as ref:
+        return _refused("how", ref, reg, today)
+    print("%s: the check block is written (tier %s)" % (entry.id, entry.block["tier"]))
+    return 0
+
+
 def _cmd_bench(args, today: date) -> int:
     questions = load_bench(args.file)
     r = bench(questions, top=args.top)
@@ -1499,6 +1670,11 @@ def _parser():
     s.add_argument("id")
     s.add_argument("statement", nargs="+", help="the new statement, or - to read it from standard input")
     s.set_defaults(func=_cmd_amend)
+
+    s = sub.add_parser("how", help="write or replace the check block of an entry from standard input")
+    s.add_argument("id")
+    s.add_argument("block", help="- to read the block (key: value lines) from standard input")
+    s.set_defaults(func=_cmd_how)
 
     s = sub.add_parser("bench", help="how well find answers questions whose answering entries are known")
     s.add_argument("--top", type=int, default=5)
