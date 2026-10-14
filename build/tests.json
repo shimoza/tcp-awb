@@ -5872,8 +5872,36 @@
    "name": "build check: a branch that conflicts with the main of now is red before any code runs",
    "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_check_of_a_branch_that_conflicts_with_the_main_of_now_is_red_before_any_code_runs",
    "status": "passing"
+  },
+  {
+   "id": "RF-7",
+   "phase": "RF-A3",
+   "name": "build add: a task that lists an always allowed file is added with a warning, never refused",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_add_warns_but_does_not_refuse_a_task_that_lists_an_always_allowed_file",
+   "status": "passing"
+  },
+  {
+   "id": "RF-8",
+   "phase": "RF-A3",
+   "name": "build list: a task never waits on an always allowed file",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_list_never_says_a_task_waits_on_an_always_allowed_file",
+   "status": "passing"
+  },
+  {
+   "id": "RF-9",
+   "phase": "RF-A3",
+   "name": "build runner: a task waiting on a question keeps no task waiting for an always allowed file",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_task_waiting_on_a_question_keeps_no_task_waiting_for_an_always_allowed_file",
+   "status": "passing"
+  },
+  {
+   "id": "RF-10",
+   "phase": "RF-A3",
+   "name": "build runner: an always allowed file meets no reserved folder",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_an_always_allowed_file_meets_no_reserved_folder",
+   "status": "passing"
   }
  ],
- "total_tests": 839,
+ "total_tests": 843,
  "checked": "2026-10-14"
 }

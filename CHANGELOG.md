@@ -68,6 +68,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - The block "Customer data" of `README.md` and the warning of the dataset TCP Facts (its README, PROMPT.md and
   HOW-TO.pdf) say: give the model technical tasks only and keep them simple, since a detailed description of a
   customer's project can identify the customer without a name and that can break data protection law.
+- The always allowed files of the build queue (`README.md`, `CHANGELOG.md`, `COMMANDS.md`, `INTERFACES.md`,
+  `build/tests.json`) never reserve a path in the runner's pick or in `awb build list`, so a task that waits on a
+  question no longer blocks the next task that lists them. `awb build add` warns (and still adds) when a block lists
+  one.
 - The build runner rebases a task's branch onto the `main` of now before the checks run, not only after they are
   green: after a session, after `awb build widen` and after `awb build retry`. `awb build check` puts a branch from
   outside onto the `main` of now the same way (`git merge-tree` in `main.git`). A stale baseline then never causes a

@@ -327,7 +327,8 @@ Since SB2 `awb/build.py` holds the queue and the records; `serve`, `selftest` an
 `parse(text, qdir=None) -> (list[Task], list[Note])`, `read_queue(qdir=None)`, `Task` (frozen: `id`, `title`, `line`,
 `model`, `effort`, `depends`, `paths`, `tests_replaced`, `check`, `budget`, `clock`, `prompt`; `prompt_name`,
 `block()`), `Note(id, line, kind, reason)` with `kind` "refused" or "incomplete" and `text()`, `ID_RE`, `KEYS`,
-`DEFAULTS`, `ALWAYS_ALLOWED`. The prompt: `HEADER`, `compose(task, prompt) -> str`, `read_prompt(task, qdir=None,
+`DEFAULTS`, `ALWAYS_ALLOWED`, `reserving(paths)` (the paths that reserve a path in the pick and in `list_lines`:
+all but `ALWAYS_ALLOWED`). The prompt: `HEADER`, `compose(task, prompt) -> str`, `read_prompt(task, qdir=None,
 register=None, names=True) -> str` (raises `PromptHeld`, the state `held: prompt`), `scan(label, text, register) ->
 list[str]`. The records: `runs_dir() -> Path` (`AWB_BUILD_RUNS`, else `<build_root>/runs`), `RUN_FILES`,
 `COMMAND_FILES` (`answer.txt`, `widen.txt`, `stop-wanted`, `reported`), `STOP_FILE`, `STATES`, `OPEN_STATES`,

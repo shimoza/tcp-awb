@@ -76,7 +76,8 @@ BUDGET_RANGE = (1, 100)
 CLOCK_RANGE = (10, 480)
 """Minutes of one session; the default 90 is D-S6."""
 ALWAYS_ALLOWED = ("CHANGELOG.md", "README.md", "COMMANDS.md", "INTERFACES.md", "build/tests.json")
-"""Paths every task may change beside its own `paths`, under the rules of DESIGN.md section 2 (checked in SB3)."""
+"""Paths every task may change beside its own `paths`, under the rules of DESIGN.md section 2 (checked in SB3). They
+never reserve a path (A3): a task that lists one waits on no other task for it and keeps no other task waiting."""
 QUEUE_MAX = 1 << 20
 PROMPT_MAX = 64 << 10
 ANSWER_MAX = 8 << 10
@@ -681,6 +682,11 @@ def _since(t: datetime | None) -> str:
     return t.strftime("%Y-%m-%d %H:%M") if t else "?"
 
 
+def reserving(paths: tuple[str, ...]) -> tuple[str, ...]:
+    """The paths of a task that reserve a path in the pick: all but the always allowed ones (A3)."""
+    return tuple(p for p in paths if p not in ALWAYS_ALLOWED)
+
+
 def _waits(task: Task, run: Run | None, done: set[str], states: dict[str, str], reserved: dict[str, str],
            held: str | None) -> str:
     if run is None:
@@ -689,7 +695,7 @@ def _waits(task: Task, run: Run | None, done: set[str], states: dict[str, str], 
         open_deps = [d for d in task.depends if d not in done]
         if open_deps:
             return "depends " + ", ".join("%s (%s)" % (d, states.get(d, "not run")) for d in open_deps)
-        clash = sorted({reserved[p] for p in task.paths if p in reserved and reserved[p] != task.id})
+        clash = sorted({reserved[p] for p in reserving(task.paths) if p in reserved and reserved[p] != task.id})
         if clash:
             return "paths reserved by " + ", ".join(clash)
         return "the runner"
@@ -719,7 +725,7 @@ def list_lines(qdir: Path | None = None, runs: Path | None = None) -> list[str]:
     for t in tasks:
         r = last[t.id]
         if r is not None and r.word != "done":
-            for p in t.paths:
+            for p in reserving(t.paths):
                 reserved.setdefault(p, t.id)
     out: list[str] = []
     for t in tasks:
@@ -1081,6 +1087,11 @@ def cmd_add(path: str, qdir: Path | None = None, runs: Path | None = None, regis
     except OSError as err:
         return _err("the queue could not be written (%s)" % (err.strerror or "error").lower())
     _out("%s added to the queue (build/queue/%s, %s)" % (task.id, QUEUE_FILE, task.prompt))
+    shared = [p for p in task.paths if p in ALWAYS_ALLOWED]
+    if shared:
+        print("awb build: warning: %s lists %s; every task may change %s, so %s reserve%s no path" % (
+            task.id, " ".join(shared), "it" if len(shared) == 1 else "them", "it" if len(shared) == 1 else "they",
+            "s" if len(shared) == 1 else ""), file=sys.stderr)
     return 0
 
 

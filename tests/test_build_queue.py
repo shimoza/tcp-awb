@@ -547,3 +547,30 @@ def test_status_carries_live_main_and_the_count_not_deployed(places, tmp_path, m
     journal.unlink()
     assert cli.main(["build", "status"]) == 0
     assert capsys.readouterr().out.strip().endswith("; live unknown, main %s, 2 not deployed" % commits[1][:7])
+
+
+# --------------------------------------------------------------------------- A3: the always allowed files reserve nothing
+
+def test_add_warns_but_does_not_refuse_a_task_that_lists_an_always_allowed_file(places, tmp_path, register_path,
+                                                                                 capsys):
+    q, r = places
+    f = add_file(tmp_path, with_line("paths", "awb/tcp/xchg.py README.md build/tests.json"))
+    assert build.cmd_add(str(f), register=register_path) == 0
+    out = capsys.readouterr()
+    assert out.out == "B-012 added to the queue (build/queue/QUEUE.md, build/queue/B-012.md)\n"
+    assert out.err == ("awb build: warning: B-012 lists README.md build/tests.json; every task may change them, so "
+                       "they reserve no path\n")
+    (t,), _ = build.read_queue(q)
+    assert t.paths == ("awb/tcp/xchg.py", "README.md", "build/tests.json")
+    second = add_file(tmp_path, BLOCK.replace("B-012", "B-013"))
+    assert build.cmd_add(str(second), register=register_path) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_list_never_says_a_task_waits_on_an_always_allowed_file(places):
+    q, r = places
+    b12 = with_line("paths", "awb/tcp/xchg.py CHANGELOG.md README.md")
+    b13 = with_line("paths", "docs/x.md CHANGELOG.md README.md").replace("B-012", "B-013")
+    queue(q, b12 + b13, prompts=("B-012.md", "B-013.md"))
+    build.new_run("B-012", r, "asked")
+    assert build.list_lines(q, r)[1] == "B-013  new  since -  waits on the runner"

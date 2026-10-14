@@ -1887,3 +1887,37 @@ def test_a_check_of_a_branch_that_conflicts_with_the_main_of_now_is_red_before_a
     assert rc == 1 and run.state == "red: rebase conflict"
     assert out.splitlines()[0] == "build check C-001 red: rebase conflict; nothing merged; runs/C-001/1/"
     assert not suite_specs(world)
+
+
+# --------------------------------------------------------------------------- A3: the always allowed files reserve nothing
+
+def test_a_task_waiting_on_a_question_keeps_no_task_waiting_for_an_always_allowed_file(world):
+    queue = ""
+    for tid, paths in (("B-301", "awb/ README.md CHANGELOG.md build/tests.json"),
+                       ("B-302", "tests/ README.md CHANGELOG.md build/tests.json"),
+                       ("B-303", "awb/x.py")):
+        (world.queue / ("%s.md" % tid)).write_text("SCENARIO: ask\n")
+        queue += ("## %s: t\ndepends: none\npaths: %s\ntests_replaced: none\ncheck: none\nprompt: build/queue/%s.md\n"
+                  "end: %s\n" % (tid, paths, tid, tid))
+    (world.queue / "QUEUE.md").write_text(queue)
+    r = world.runner()
+    r.poll_once()
+    assert build.latest("B-301", world.runs).state == "asked"
+    # B-301 asked: README.md, CHANGELOG.md and build/tests.json stay free, awb/ stays reserved
+    assert r.pick(build.read_queue(world.queue)[0])[0].id == "B-302"
+    r.poll_once()
+    assert build.latest("B-302", world.runs).state == "asked"
+    assert r.pick(build.read_queue(world.queue)[0]) is None
+
+
+def test_an_always_allowed_file_meets_no_reserved_folder(world):
+    queue = ""
+    for tid, paths in (("B-311", "build/"), ("B-312", "awb/ build/tests.json")):
+        (world.queue / ("%s.md" % tid)).write_text("SCENARIO: ask\n")
+        queue += ("## %s: t\ndepends: none\npaths: %s\ntests_replaced: none\ncheck: none\nprompt: build/queue/%s.md\n"
+                  "end: %s\n" % (tid, paths, tid, tid))
+    (world.queue / "QUEUE.md").write_text(queue)
+    r = world.runner()
+    r.poll_once()
+    assert build.latest("B-311", world.runs).state == "asked"
+    assert r.pick(build.read_queue(world.queue)[0])[0].id == "B-312"

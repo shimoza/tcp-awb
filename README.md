@@ -602,7 +602,9 @@ it may drop or replace, `check` test node ids under `tests/` with `-k` or `-m`. 
 one line of `awb build list` that names the key, never the value.
 
 The runner (`awb build serve`, the unit `awb-buildd.service`) takes the next task whose `depends` are done and whose
-`paths` meet no path of a task that is not done, one at a time. It runs as you, never as a model. It starts each
+`paths` meet no path of a task that is not done, one at a time. The files every task may change (`README.md`,
+`CHANGELOG.md`, `COMMANDS.md`, `INTERFACES.md`, `build/tests.json`) reserve nothing: a task that waits on your
+answer never blocks the next one for them; `awb build add` warns when a block lists one. It runs as you, never as a model. It starts each
 task as `awb-build` in units of a fixed form: a fresh home from the root template with your login, a clone of
 `main` from a bundle, the headless session with the block's model, effort, budget and clock, then the hand-over of
 the branch as a bundle. The hand-over and the rebase units write only the task's clone and out folder, see no

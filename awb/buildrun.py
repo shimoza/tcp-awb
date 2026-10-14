@@ -2254,7 +2254,9 @@ class Runner:
 
     def pick(self, tasks: list[build.Task]) -> tuple[build.Task, build.Run | None] | None:
         """The first task with no run (or a queued or answered run) whose depends are done and whose paths meet no
-        path a task that is not done keeps reserved. Serial: the caller runs it to its end."""
+        path a task that is not done keeps reserved. The always allowed files reserve nothing on either side (A3), so a
+        task that waits on a question and lists README.md keeps no other task waiting. Serial: the caller runs it to
+        its end."""
         h = self.host
         last = {t.id: build.latest(t.id, h.runs) for t in tasks}
         done = {tid for tid, r in last.items() if r is not None and r.state == "done"}
@@ -2267,7 +2269,7 @@ class Runner:
         for t in tasks:
             r = last[t.id]
             if r is not None and r.state != "done":
-                reserved += [(p, t.id) for p in t.paths]
+                reserved += [(p, t.id) for p in build.reserving(t.paths)]
         for t in tasks:
             r = last[t.id]
             if r is not None and r.state not in ("queued", "answered") + HELD_RESTART:
@@ -2281,7 +2283,7 @@ class Runner:
                     continue
             if any(d not in done for d in t.depends):
                 continue
-            if any(_meet(p, q) for p in t.paths for q, owner in reserved if owner != t.id):
+            if any(_meet(p, q) for p in build.reserving(t.paths) for q, owner in reserved if owner != t.id):
                 continue
             return t, r
         return None
