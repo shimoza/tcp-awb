@@ -403,6 +403,8 @@ files and the build's README.md into the root of the public repository
 stays as the repository has it. It commits them
 as the GitHub account, tags the date and makes a release of it with the zip, the PDF, the manifest and the `.mcpb`. The files are
 scanned for a person and a registered name first, and a hit refuses the put.
+Every git call on the clone (`~/tcp-shared/datasets/tcp-facts.git`, owned by the work user) names that path in
+`-c safe.directory=`, so your put passes git's ownership check without a global git setting.
 `--github-only` does the GitHub part alone, without the bucket and without asking for its key.
 The release notes say what is new since the previous release: the facts added, amended (same id, changed statement
 or source) and retired, compared by id with the `facts.jsonl` of the previous release tag in the local clone, and the
@@ -588,6 +590,7 @@ Make the take check the size of a file before the get. ...
 ```
 
 ```bash
+awb build draft E1 --out task.md   # an add file from finding E1 of docs/review-2026-10-13.md, never queued
 awb build add task.md        # checked (the grammar, the gate with the register), then written atomically
 awb build list               # id, state, since when, waits on what
 awb build status --ended     # each run that ended since the last call, once
@@ -605,6 +608,13 @@ awb pr take 12               # fetch, rebase onto main, the check, merge --no-ff
 (minutes, 10 to 480; 90) may be left out. `paths` are the files the task may change, `tests_replaced` the test ids
 it may drop or replace, `check` test node ids under `tests/` with `-k` or `-m`. A block with a fault is refused in
 one line of `awb build list` that names the key, never the value.
+
+`awb build draft FINDING` writes the add file of a finding for you: the row of a findings table (default
+`docs/review-2026-10-13.md`, `--from` another file such as `docs/strategy/F2-threat-model-2026-10-13.md`) and the
+section of its id give the title, `paths` (the place column, the module's test file, the document that marks it
+fixed), `check` and a prompt with the finding, the defaults and the rules of a fix. Above `tests_replaced: none` it
+lists as comment lines the rows of `build/tests.json` that run a touched test file: name the ones the fix replaces,
+then `awb build add` the file, which skips the comment lines. The draft never goes into the queue by itself.
 
 The runner (`awb build serve`, the unit `awb-buildd.service`) takes the next task whose `depends` are done and whose
 `paths` meet no path of a task that is not done, one at a time. The files every task may change (`README.md`,

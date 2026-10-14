@@ -669,3 +669,36 @@ def test_github_put_uploads_the_bundle_as_a_release_asset_after_the_other_assets
     built.folder.parent.joinpath("tcp-facts-2026-10-08.mcpb").unlink()
     with pytest.raises(dataset.DatasetError, match="has no tcp-facts-2026-10-08.mcpb"):
         dataset.github_put(home, built.folder, replace=True, clone=github.clone)
+
+
+def test_every_git_call_on_the_clone_names_only_the_clone_as_a_safe_directory(home, facts, tmp_path, github,
+                                                                              monkeypatch):
+    """The owner runs the put on a clone the work user owns: git refuses it as dubious ownership unless each call
+    names the clone in safe.directory. Only that path, never `*` and no global setting."""
+    calls = []
+    real = dataset._run
+
+    def spy(args, cwd=None, check=True):
+        calls.append((list(args), cwd))
+        return real(args, cwd=cwd, check=check)
+
+    monkeypatch.setattr(dataset, "_run", spy)
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    dataset.github_put(home, built.folder, clone=github.clone)
+    dataset.github_put(home, built.folder, replace=True, clone=github.clone)       # the pull of an existing clone
+    on_clone = [a for a, cwd in calls if a[0] == "git" and cwd == github.clone]
+    assert {a[3] for a in on_clone} >= {"pull", "config", "tag", "add", "diff", "commit", "push"}
+    for args in on_clone:
+        assert args[1:3] == ["-c", "safe.directory=%s" % github.clone.resolve()], args
+    assert not any("safe.directory=*" in a for args, _ in calls for a in args)
+    gitconf = Path(__import__("os").environ["GIT_CONFIG_GLOBAL"]).read_text()
+    assert "safe" not in gitconf
+
+
+def test_a_failed_git_call_on_the_clone_names_the_command_and_not_the_path(tmp_path):
+    clone = tmp_path / "clone.git"
+    clone.mkdir()
+    with pytest.raises(dataset.DatasetError) as err:
+        dataset._run(dataset._git(clone, "tag", "--list"), cwd=clone)
+    assert str(err.value).startswith("git tag --list failed (exit")
+    assert str(tmp_path) not in str(err.value)
