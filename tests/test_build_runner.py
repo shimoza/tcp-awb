@@ -1949,3 +1949,141 @@ def test_an_id_of_tests_json_widened_into_tests_replaced_lets_its_entry_change(w
     assert build.cmd_widen(run.id, [], world.runs, tests_replaced=["S1"]) == 0
     assert world.runner().poll_once()
     assert build.latest(run.id, world.runs).state == "done"
+
+
+# --------------------------------------------------------------------------- A7: the one rerun of the failed nodes
+
+FLAKY_TEST = '''import os
+
+
+def test_flaky():
+    first = not os.path.exists("flaky.mark")
+    open("flaky.mark", "w").close()
+    assert not first
+'''
+
+BROKEN_TEST = '''def test_broken():
+    assert 1 + 1 == 3
+'''
+
+
+def his_test(w, path: str, text: str) -> str:
+    """A test file of his pushed into main.git before a task starts."""
+    w.g("pull", "-q", "--rebase", str(w.root / "main.git"), "main", cwd=w.seed)
+    (w.seed / path).write_text(text, encoding="utf-8")
+    w.g("add", path, cwd=w.seed)
+    w.g("commit", "-q", "-m", "his own test", cwd=w.seed)
+    w.g("push", "-q", str(w.root / "main.git"), "main:main", cwd=w.seed)
+    return w.g("rev-parse", "HEAD", cwd=w.seed).strip()
+
+
+def test_a_node_that_fails_then_passes_on_the_rerun_passes_with_a_flaky_line_and_twice_tells_the_owner(world):
+    his_test(world, "tests/test_flaky.py", FLAKY_TEST)
+    first = world.run("good")
+    assert first.state == "done"
+    log = checks_of(first)
+    assert "flaky: tests/test_flaky.py::test_flaky" in log.splitlines()
+    assert re.search(r"^9 ok .*; 1 passed on the one rerun$", log, re.M)
+    assert "flaky: tests/test_flaky.py::test_flaky" in (first.folder / "result.md").read_text(encoding="utf-8")
+    assert (first.folder / "flaky.txt").read_text() == "tests/test_flaky.py::test_flaky\n"
+    assert "the rerun of the failed nodes" in (first.folder / "suite.log").read_text(encoding="utf-8")
+    assert not (world.queue / buildrun.FLAKY_FILE).exists()
+    second = world.run("good")
+    assert second.state == "done" and "flaky: tests/test_flaky.py::test_flaky" in checks_of(second)
+    lines = (world.queue / buildrun.FLAKY_FILE).read_text(encoding="utf-8").splitlines()
+    told = [ln for ln in lines if ln.startswith("- ")]
+    assert len(told) == 1
+    assert ("tests/test_flaky.py::test_flaky is flaky a second time in 7 days (%s run 1, %s run 1)"
+            % (first.id, second.id)) in told[0]
+    assert world.run("good").state == "done"                  # the third time adds no second line
+    lines = (world.queue / buildrun.FLAKY_FILE).read_text(encoding="utf-8").splitlines()
+    assert len([ln for ln in lines if ln.startswith("- ")]) == 1
+
+
+def test_a_node_that_fails_on_the_rerun_too_is_red_suite(world):
+    his_test(world, "tests/test_broken.py", BROKEN_TEST)
+    run = world.run("good")
+    assert run.state == "red: suite"
+    assert "flaky" not in checks_of(run) and not (run.folder / "flaky.txt").exists()
+
+
+def test_the_rerun_never_rescues_the_hollow_test_check(world):
+    his_test(world, "tests/test_flaky.py", FLAKY_TEST)
+    run = world.run("deleted")
+    assert run.state == "red: tests lost"
+    log = checks_of(run)
+    assert "flaky: tests/test_flaky.py::test_flaky" in log and "10 FAIL  no test was hollowed" in log
+
+
+def test_a_check_of_a_branch_passes_a_flaky_node_with_its_line(world, capsys):
+    outside_branch(world, files={"awb/x.py": "VALUE = 2\n", "tests/test_flaky.py": FLAKY_TEST})
+    rc, out, run = check(world, "pr-1", capsys)
+    assert rc == 0 and run.state == "passed"
+    assert "flaky: tests/test_flaky.py::test_flaky" in checks_of(run).splitlines()
+    assert "  flaky: tests/test_flaky.py::test_flaky" in out.splitlines()
+
+
+def _tree_tar(base: Path, files: dict) -> Path:
+    import tarfile
+
+    tree = base / "tree"
+    for rel, text in files.items():
+        (tree / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tree / rel).write_text(text, encoding="utf-8")
+    tar = base / "tree.tar"
+    with tarfile.open(tar, "w") as t:
+        for rel in files:
+            t.add(tree / rel, arcname=rel)
+    return tar
+
+
+def test_the_unit_reruns_the_failed_nodes_of_the_whole_suite_alone_never_the_baseline_or_a_broad_failure(tmp_path):
+    root = tmp_path / "root"
+    (root / "wt").mkdir(parents=True)
+    out = root / "wt" / "B-012-1.out"
+    tar = _tree_tar(tmp_path, {"tests/test_flaky.py": FLAKY_TEST, "tests/test_ok.py": "def test_ok():\n    pass\n"})
+    for mode in ("base", "check"):
+        with open(tar, "rb") as fin:
+            assert buildrun.unit_suite(str(root), "B-012", "1", mode, sys.executable, [], fin) == 1
+        assert not (out / "rerun.xml").exists() and not (out / "rerun.log").exists()
+    with open(tar, "rb") as fin:
+        assert buildrun.unit_suite(str(root), "B-012", "1", "suite", sys.executable, [], fin) == 1
+    assert buildrun.outcomes((out / "suite.xml").read_bytes())["tests/test_flaky.py::test_flaky"] == "failed"
+    assert buildrun.outcomes((out / "rerun.xml").read_bytes()) == {"tests/test_flaky.py::test_flaky": "passed"}
+    # more failed nodes than RERUN_MAX are a broad failure: no rerun; an old rerun file is gone
+    many = "".join("def test_%d():\n    assert False\n\n\n" % i for i in range(buildrun.RERUN_MAX + 1))
+    tar = _tree_tar(tmp_path / "many", {"tests/test_many.py": many})
+    with open(tar, "rb") as fin:
+        assert buildrun.unit_suite(str(root), "B-012", "1", "suite", sys.executable, [], fin) == 1
+    assert not (out / "rerun.xml").exists()
+    assert buildrun.failed_nodes({"-p": "failed"}) == [] and buildrun.failed_nodes({"a::b": "error"}) == ["a::b"]
+
+
+def test_a_node_flaky_twice_in_seven_days_is_told_once_and_a_week_later_counts_again(world):
+    clock = [time.time()]
+    world.host.wall = lambda: clock[0]
+    node = "tests/test_x.py::test_two[2026-10-14]"
+
+    def flaky_in(tid, nodes=(node,)):
+        run = build.new_run(tid, world.runs, state="running")
+        ctx = buildrun.Ctx(buildrun.check_task("C-001"), run)
+        buildrun.note_flaky(world.host, ctx, list(nodes))
+        return ctx
+
+    ctx = flaky_in("B-401", (node, "tests/test_x.py::test_two[a b]"))
+    assert ctx.lines == ["flaky: %s (node withheld)" % node]
+    assert not (world.queue / buildrun.FLAKY_FILE).exists()
+    buildrun.note_flaky(world.host, ctx, [node])              # a second round of the same run counts once
+    assert not (world.queue / buildrun.FLAKY_FILE).exists()
+    clock[0] += 3 * 86400
+    flaky_in("B-402")
+    told = (world.queue / buildrun.FLAKY_FILE).read_text(encoding="utf-8")
+    assert told.count("\n- ") == 1 and "(B-401 run 1, B-402 run 1)" in told
+    clock[0] += 8 * 86400
+    flaky_in("B-403")
+    assert (world.queue / buildrun.FLAKY_FILE).read_text(encoding="utf-8") == told
+    clock[0] += 86400
+    flaky_in("B-404")
+    assert (world.queue / buildrun.FLAKY_FILE).read_text(encoding="utf-8").count("\n- ") == 2
+    rows = (world.runs / buildrun.FLAKY_LOG).read_text().splitlines()
+    assert node not in "".join(r.split("\t")[3] for r in rows) and len(rows) == 5

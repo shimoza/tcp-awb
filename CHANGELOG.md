@@ -7,6 +7,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- When the whole suite of a build task or of `awb build check` has failures, the failed nodes alone run once more
+  in the same suite unit. When they pass, the check passes with a line `flaky: NODE...` in `checks.log` and
+  `result.md`; a node flaky a second time in seven days adds a line to `build/queue/FLAKY.md`, which the steering
+  session reads. The baseline and the hollow-test check never rerun.
 - `awb build widen ID --tests-replaced ID...` adds test ids to the `tests_replaced` of a red task and the checks
   that run again read them. The ids go into the run's own `task.md`, the snapshot the runner's checks read (an edit
   of `QUEUE.md` never reached them); each widen adds a line to `widen.log` of the run folder. Paths are now

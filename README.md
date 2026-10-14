@@ -616,7 +616,10 @@ the `main` of now before the checks (after `widen` and the checks of a held run 
 hollow-test check never judge it against an old baseline; a rebase that conflicts is `red: rebase conflict`. The
 checks: the unit ended by itself, the client ended well, the last line is `DONE:`, one to five commits as you on `task/<ID>` and nothing else, no changed blob and no commit above 16 MB (sized with `git cat-file --batch-check` before any read), the gate with the
 register, the paths, the CHANGELOG and `build/tests.json`, then the whole suite, every test that passed before
-still passing and the block's `check` on a `git archive` export, as `awb-build` on loopback only. Green moves `main`
+still passing and the block's `check` on a `git archive` export, as `awb-build` on loopback only. When the whole
+suite has failures, the failed nodes alone run once more in the same suite unit; when they pass the check passes
+with a line `flaky: NODE...` in `checks.log` and `result.md`; a node flaky a second time in seven days adds a line
+to `build/queue/FLAKY.md` for you. The baseline, the block's `check` and the hollow-test check never rerun. Green moves `main`
 in `main.git` (a rebase first when `main` moved), pushes it to GitHub after the gate over the whole range and ends
 `done`. Otherwise the run is `hung`, `red: <reason>`, `asked`, `stopped: <subtype>`, `stale` or `held: <reason>`,
 and nothing moves. The session's unit has no loopback (in the host's network namespace it would reach sshd and the

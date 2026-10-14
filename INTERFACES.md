@@ -357,7 +357,10 @@ and `clean` take `login` as a last argument in the login mode, `prepare` and `re
 `handin(key, bundle)`, `unit_allowed()`, `LOGIN_IN_HOME`, `LOGIN_COMMAND`, `LOGIN_HELD`. The owner's git, in `main.git` only: `git(host, *args)`, `rev`, `is_ancestor`,
 `ensure_main`, `owner_identity`. The checks, each raising `Stop(state)` with its line in `ctx.lines`: `check_unit`,
 `check_client`, `check_answer`, `check_commits`, `check_identity`, `check_gate`, `check_paths`, `check_books`,
-`check_suite`, `check_hollow`, `check_own`; `parse_result`, `outcomes(xml)`, `scan_commits`, `push_main(host,
+`check_suite` (A7: when the first run of the whole suite has failures, the unit reran `failed_nodes(results)` (at
+most `RERUN_MAX`) into `rerun.xml`; all passed is green with `note_flaky(host, ctx, nodes)`: the line `flaky: NODE...`,
+`flaky.txt`, a row in `runs/FLAKY_LOG`, a line in `build/queue/FLAKY_FILE` the second time in `FLAKY_DAYS` days),
+`check_hollow`, `check_own`; `parse_result`, `outcomes(xml)`, `scan_commits`, `push_main(host,
 register) -> "pushed" | "pending" | "refused"`. `Runner(host)` with `serve()`, `reconcile()`, `poll_once()`,
 `pick(tasks)`, `start(task, run)` (returns the started session for `run_session`), `resume`, `judge`,
 `judge_and_merge` (`onto_main(ctx)` first: when `main` moved since `ctx.start`, check 4 on the branch as the session

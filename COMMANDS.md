@@ -102,10 +102,19 @@ deploy from a copy that is behind would take back the build runner's work. The d
 ## The build queue (owner side, presentations/self-build)
 
 A build task is a block in `build/queue/QUEUE.md` of your working copy (untracked) and a prompt file beside it.
-The runner (`awb build serve`, step SB3) reads the queue and never writes it; its records are
+The runner (`awb build serve`, step SB3) reads the queue and never writes it but `build/queue/FLAKY.md`; its records are
 `/srv/awb-build/runs/<ID>/<n>/`, owner 700: `task.md` and `prompt.txt` (the snapshot at the start), `result.json`,
 `session`, `deadline`, `ended`, `task.bundle`, `status.txt`, `checks.log` (one line per check), `suite.log`,
-`result.md` (fixed fields), `message.txt` (the agent's text, for `awb build show` alone), `commit`, `mail`, `state`.
+`result.md` (fixed fields), `message.txt` (the agent's text, for `awb build show` alone), `commit`, `mail`, `state`,
+`flaky.txt` (the nodes that passed on the rerun), `widen.log`.
+
+When the whole suite of a task or of `awb build check` has failures, the failed nodes alone run once more in the same
+suite unit on the same tree (at most 20 nodes; more is a broad failure and gets no rerun). When they all pass, check 9
+passes with a line `flaky: NODE...` in `checks.log` and `result.md`; a node that fails again is `red: suite`. The
+baseline and the task's own check never rerun; the hollow-test check is never rerun either: a test that is gone or
+skipped stays `red: tests lost`. `runs/.flaky.tsv` keeps a row per flaky node; a node flaky a second time in seven
+days adds a line to `build/queue/FLAKY.md`, which the steering session reads. A node id the gate or the plain form
+of a test id refuses is written as `(node withheld)`.
 
 | command | what it does |
 |---|---|

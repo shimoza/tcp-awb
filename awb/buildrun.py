@@ -27,7 +27,8 @@ The checks (DESIGN.md section 5), in order, the first failure sets the state:
     6  the commits pass the gate            red: gate <class>; a name check that cannot run is held: checks pending
     7  the commits stay inside the task     red: outside paths, red: link or submodule
     8  the bookkeeping is there             red: changelog, red: tests.json, red: rules list lost lines
-    9  the whole suite on a fresh export    red: suite, hung: suite
+    9  the whole suite on a fresh export    red: suite, hung: suite (A7: the failed nodes run once more in the same
+                                            suite unit; when they pass, a line `flaky: NODE...`)
     10 no test was hollowed                 red: tests lost
     11 the task's own check                 red: check
 
@@ -132,6 +133,12 @@ HELD_RESTART = ("held: prompt", "held: prepare", "held: model endpoint", "held: 
 """Held before a session was spent: the same run starts again at a later poll, once the cause cleared."""
 MAX_COMMITS = 5
 MAX_ROUNDS = 3              # rebase rounds when main moves under a green task
+RERUN_MAX = 20              # A7: more failed nodes than this get no rerun, a broad failure is no flake
+FLAKY_DAYS = 7              # A7: a node flaky a second time in this many days gets a line in build/queue
+FLAKY_LOG = ".flaky.tsv"    # runs/.flaky.tsv: time, id, run, a hash of the node, the node as shown
+FLAKY_FILE = "FLAKY.md"     # build/queue/FLAKY.md: the lines for the owner, which the steering session reads
+_NODE_SHOWN_RE = re.compile(r"tests/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+\.py(?:::[A-Za-z0-9_]+){1,2}"
+                            r"(?:\[[A-Za-z0-9_.,:=+-]{1,60}\])?")
 BUNDLE_MAX = 512 << 20
 BLOB_MAX = 16 << 20
 """The largest changed blob and commit object the runner reads (B3); `git cat-file --batch-check` sizes them first."""
@@ -920,15 +927,29 @@ def unit_rebase(root: str, tid: str, n: str, old: str, fin) -> int:
     return unit_handover(root, tid, n)
 
 
+def failed_nodes(results: dict[str, str] | None) -> list[str]:
+    """The nodes of a suite that failed or broke, for the one rerun of A7: none when there are more than RERUN_MAX
+    (a broad failure is no flake) or when a node id could be read as an option."""
+    nodes = sorted(i for i, o in (results or {}).items() if o in ("failed", "error"))
+    if len(nodes) > RERUN_MAX or any(not i or i.startswith("-") or "\n" in i or "\0" in i for i in nodes):
+        return []
+    return nodes
+
+
 def unit_suite(root: str, tid: str, n: str, mode: str, python: str, tokens: list[str], fin,
                seconds: float | None = None) -> int:
     """The suite, the baseline or the task's own check on the export given as a tar on stdin, extracted into a fresh
     folder of this unit's private /tmp: the suite's interpreter with -I -B and the cache provider off, a fault handler
-    after ten minutes, the outcome per test in out/<mode>.xml and the output in out/<mode>.log."""
+    after ten minutes, the outcome per test in out/<mode>.xml and the output in out/<mode>.log. A7: when the whole
+    suite (mode `suite`, never the baseline or the task's own check) has failures, the failed nodes alone run once
+    more in this unit on the same tree, into out/rerun.xml and out/rerun.log; the exit code stays the first run's."""
     r, clone, out, home = _helper_places(root, tid, n)
     if mode not in ("base", "suite", "check"):
         return 2
     out.mkdir(exist_ok=True)
+    for name in ("rerun.xml", "rerun.log"):
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(out / name)
     tmp = Path(tempfile.mkdtemp(prefix="awb-suite-"))
     try:
         tree = tmp / "tree"
@@ -937,19 +958,32 @@ def unit_suite(root: str, tid: str, n: str, mode: str, python: str, tokens: list
             tar.extractall(tree, filter="data")
         (tmp / "home").mkdir()
         xml = tmp / "junit.xml"
-        cmd = [python, "-I", "-B", "-m", "pytest", "-p", "no:cacheprovider", "-q", "-o",
-               "faulthandler_timeout=%d" % FAULT_SECONDS, "-o", "junit_family=xunit1", "--junitxml", str(xml),
-               *tokens]
         env = {"HOME": str(tmp / "home"), "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C.UTF-8",
                "PYTHONDONTWRITEBYTECODE": "1", "TMPDIR": str(tmp)}
-        with open(out / ("%s.log" % mode), "wb") as log:
-            try:
-                rc = subprocess.run(cmd, cwd=tree, env=env, stdin=subprocess.DEVNULL, stdout=log,
-                                    stderr=subprocess.STDOUT, timeout=seconds, check=False).returncode
-            except subprocess.TimeoutExpired:
-                rc = 124
+        t0 = time.monotonic()
+
+        def pytest(name: str, junit: Path, args: list[str], limit: float | None) -> int:
+            cmd = [python, "-I", "-B", "-m", "pytest", "-p", "no:cacheprovider", "-q", "-o",
+                   "faulthandler_timeout=%d" % FAULT_SECONDS, "-o", "junit_family=xunit1", "--junitxml", str(junit),
+                   *args]
+            with open(out / ("%s.log" % name), "wb") as log:
+                try:
+                    return subprocess.run(cmd, cwd=tree, env=env, stdin=subprocess.DEVNULL, stdout=log,
+                                          stderr=subprocess.STDOUT, timeout=limit, check=False).returncode
+                except subprocess.TimeoutExpired:
+                    return 124
+
+        rc = pytest(mode, xml, list(tokens), seconds)
         if xml.is_file():
             shutil.copyfile(xml, out / ("%s.xml" % mode))
+        if mode == "suite" and rc not in (0, 124) and xml.is_file():
+            nodes = failed_nodes(outcomes(xml.read_bytes()))
+            left = None if seconds is None else seconds - (time.monotonic() - t0)
+            if nodes and (left is None or left > 1):
+                again = tmp / "rerun.xml"
+                pytest("rerun", again, nodes, left)
+                if again.is_file():
+                    shutil.copyfile(again, out / "rerun.xml")
         return rc
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -1713,17 +1747,87 @@ def check_suite(host: Host, ctx: Ctx) -> dict[str, str]:
     ctx.suite = counts(got)
     if ended.result == "timeout":
         raise _fail(ctx, 9, "hung: suite")
-    if ended.code != 0 or got is None:
+    flaky: list[str] = []
+    if ended.code != 0 and got is not None:
+        nodes = failed_nodes(got)
+        again = outcomes(_take(out / "rerun.xml", host.uid(), LOG_MAX)) if nodes else None
+        if again is not None and all(again.get(i) == "passed" for i in nodes):
+            flaky = nodes
+            got = dict(got, **{i: "passed" for i in nodes})
+            ctx.suite = counts(got)
+            rerun_log = _take(out / "rerun.log", host.uid(), LOG_MAX) or b""
+            _write(ctx.folder / "suite.log", log + b"\n--- the rerun of the failed nodes (A7)\n" + rerun_log)
+    if (ended.code != 0 and not flaky) or got is None:
         try:
             matcher = _matcher(host.register)
         except Exception:
             matcher = None
         ctx.tail = _tail(log.decode("utf-8", "replace"), matcher)
         raise _fail(ctx, 9, "red: suite")
-    _ok(ctx, 9, "%(passed)d passed, %(failed)d failed, %(skipped)d skipped" % ctx.suite)
+    _ok(ctx, 9, "%(passed)d passed, %(failed)d failed, %(skipped)d skipped" % ctx.suite +
+        ("; %d passed on the one rerun" % len(flaky) if flaky else ""))
+    if flaky:
+        note_flaky(host, ctx, flaky)
     build._mkdir(host.runs / ".baseline")
     _write(host.runs / ".baseline" / ("%s.json" % ctx.tip), json.dumps(got, sort_keys=True))
     return got
+
+
+def _node_shown(node: str, matcher) -> str:
+    """A node id of the build user's junit file as the owner's records and build/queue may carry it: test file,
+    class and function names and a short parameter id, after the gate's classes with the register; else withheld."""
+    from awb import gate
+
+    if matcher is None or len(node) > 200 or not _NODE_SHOWN_RE.fullmatch(node):
+        return "(node withheld)"
+    try:
+        return "(node withheld)" if gate._scan_text("node", node, matcher) else node
+    except Exception:
+        return "(node withheld)"
+
+
+def note_flaky(host: Host, ctx: Ctx, nodes: list[str]) -> None:
+    """A7: the nodes that failed and passed on the one rerun. A line `flaky: NODE...` in checks.log (and so in
+    result.md), the nodes in flaky.txt of the run folder, a row each in runs/.flaky.tsv; a node flaky for the second
+    time in FLAKY_DAYS days adds a line to build/queue/FLAKY.md for the owner."""
+    import hashlib
+
+    try:
+        matcher = _matcher(host.register)
+    except Exception:
+        matcher = None
+    shown = [_node_shown(i, matcher) for i in nodes]
+    ctx.lines.append("flaky: %s" % " ".join(shown))
+    _write(ctx.folder / "flaky.txt", "\n".join(shown) + "\n")
+    now = int(host.wall())
+    path = host.runs / FLAKY_LOG
+    rows = [r.split("\t") for r in (_text(path, LOG_MAX) or "").split("\n") if r.count("\t") == 4]
+    rows = [r for r in rows if r[0].isdigit() and now - int(r[0]) < 366 * 86400]
+    told = []
+    me = (ctx.tid, str(ctx.n))
+    for node, word in zip(nodes, shown):
+        sha = hashlib.sha256(node.encode("utf-8", "replace")).hexdigest()[:16]
+        if any(r[3] == sha and (r[1], r[2]) == me for r in rows):
+            continue                    # a second round of the same run (main moved) counts once
+        seen = sorted({(r[1], r[2]) for r in rows if r[3] == sha and now - int(r[0]) < FLAKY_DAYS * 86400})
+        rows.append([str(now), ctx.tid, str(ctx.n), sha, word])
+        if len(seen) == 1:
+            told.append("- %s %s is flaky a second time in %d days (%s run %s, %s run %d): it failed and passed on the "
+                        "rerun; fix the test or file a task" % (host.now().strftime("%Y-%m-%d"), word, FLAKY_DAYS,
+                                                               seen[0][0], seen[0][1], ctx.tid, ctx.n))
+    _write(path, "".join("\t".join(r) + "\n" for r in rows))
+    if told:
+        try:
+            build._make_queue_dir(host.queue)
+            with build._queue_lock(host.queue):
+                try:
+                    old = build._read_regular(host.queue / FLAKY_FILE, build.QUEUE_MAX)
+                except FileNotFoundError:
+                    old = b"# flaky tests: written by awb build serve, one line per node flaky twice in %d days\n\n" \
+                          % FLAKY_DAYS
+                build._write_atomic(host.queue / FLAKY_FILE, old + "".join(t + "\n" for t in told).encode("utf-8"))
+        except (OSError, build.Refused) as err:
+            ctx.lines.append("- build/queue/%s could not be written (%s)" % (FLAKY_FILE, type(err).__name__))
 
 
 def _covered(node: str, nodes: set[str]) -> bool:
