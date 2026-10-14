@@ -528,7 +528,8 @@ def test_the_how_to_says_what_the_facts_cover_counted_from_the_facts(home, facts
     assert cover == _section(prompt, "## What the facts cover")                           # one text, not two
     assert readme.index("## Use") < readme.index(cover) < readme.index("## Before you use it with a public model")
     n = len(services)
-    assert "2 of the %d services orderable per the service description of 17.08.2026" % n in cover
+    label = dataset.offered.revision_label(dataset.offered.load())     # the revision rules/services.tsv names
+    assert "2 of the %d services orderable per the service description of %s" % (n, label) in cover
     for area in dict.fromkeys(s.area for s in services):
         members = [s for s in services if s.area == area]
         got = {"Computing": 1, "Storage": 1}.get(area, 0)

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from awb import cli, jobs, kb, projects
-from awb.tcp import price, refresh
+from awb.tcp import price, refresh, services
 from tests import fixtures as fx
 from tests.tcp_fake import FakePriceAPI
 
@@ -78,18 +78,22 @@ def test_defaults_find_stale_pointers(home, mirrors, tmp_path):
     kb.retire(gone.id, "replaced by a wider fact")
     contract = entry("Section 6.2 of the service description lists the ECS flavors", grade="contract",
                      source="service description, revision 01.06.2026", tags=["ecs"])
-    history = entry("Announced dates move: CSMS was 01.07.2026 in rev. 01.06.2026 and 01.04.2027 in rev. 17.08.2026",
-                    grade="contract", source="service description", tags=["kms"])
+    current = services.load().revision
+    history = entry("Announced dates move: CSMS was 01.07.2026 in rev. 01.06.2026 and 01.04.2027 in rev. %s"
+                    % ".".join(reversed(current.split("-"))), grade="contract", source="service description",
+                    tags=["kms"])
     code_root = tmp_path / "code"
     (code_root / "awb").mkdir(parents=True)
     (code_root / "seal" / "work-claude").mkdir(parents=True)
     (code_root / "awb" / "x.py").write_text("# see %s and %s and KB-ZZZZ\n" % (kept.id, gone.id))
     (code_root / "seal" / "work-claude" / "CLAUDE.md").write_text("Use `awb price` and `awb teleport`.\n")
     (code_root / "COMMANDS.md").write_text("| `awb kb find` | x |\n| `awb kb show KB-XXXX` | the placeholder |\n")
-    sd = mirrors / "service-description" / "2026-08-17"
+    # the mirror holds the revision rules/services.tsv names, so a new revision of the repository's list does not
+    # count as one more overdue line here
+    sd = mirrors / "service-description" / current
     sd.mkdir(parents=True)
-    (sd / "service-description.txt").write_text("Last revised: 17.08.2026\n")
-    (mirrors / "service-description" / "CURRENT").write_text("2026-08-17\n")
+    (sd / "service-description.txt").write_text("Last revised: %s\n" % ".".join(reversed(current.split("-"))))
+    (mirrors / "service-description" / "CURRENT").write_text(current + "\n")
     part = refresh.part_defaults(home, mirrors, code_root=code_root)
     text = "\n".join(part.lines)
     assert "CLAUDE.md names commands that do not exist: teleport" in text

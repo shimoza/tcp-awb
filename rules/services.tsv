@@ -1,4 +1,4 @@
-# The services of the T Cloud Public service description, revision 2026-08-17 (awb service update).
+# The services of the T Cloud Public service description, revision 2026-10-09 (awb service update).
 # number	name	area	status	other names	no longer from	no longer what
 3.1.1	Elastic Cloud Server	Computing	offered	ECS		
 3.1.2	Dedicated host	Computing	offered	DeH | DH		
@@ -73,9 +73,9 @@
 3.11.6	Cloud Create (former Cloud Topology Designer)	Optional services	optional	Cloud Create | Cloud Topology Designer		
 3.11.7	Managed Services	Optional services	optional			
 3.11.8	Marketplace	Optional services	optional			
-3.12.2	Image Management	Preview and beta versions	preview	IM		
-3.12.3	Cloud Container Instance	Preview and beta versions	preview	CCI		
-3.12.4	Alert Service	Preview and beta versions	preview			
-3.12.5	Data Admin Service	Preview and beta versions	preview	DAS		
-3.12.6	Enterprise Switch	Preview and beta versions	preview	ES		
-3.12.7	Cloud Connect	Preview and beta versions	preview			
+3.12.2	Cloud Container Instance	Preview and beta versions	preview	CCI		
+3.12.3	Alert Service	Preview and beta versions	preview			
+3.12.4	Data Admin Service	Preview and beta versions	preview	DAS		
+3.12.5	Enterprise Switch	Preview and beta versions	preview	ES		
+3.12.6	Cloud Connect	Preview and beta versions	preview			
+3.12.7	Savings plans	Preview and beta versions	preview	SP		

@@ -226,7 +226,7 @@ Enabling DNSSEC
 Xeon Gold
 FLAT, GRAPH
 Foundation Services
-# --- the services of the T Cloud Public service description and the ones not offered (awb service update), revision 2026-08-17
+# --- the services of the T Cloud Public service description and the ones not offered (awb service update), revision 2026-10-09
 Alert Service
 Anti-DDoS
 API Gateway
@@ -237,6 +237,7 @@ Application Performance Management
 Application Service Mesh
 Auto Scaling
 Bare Metal Server
+Bucket Service
 CCE Turbo
 Cloud Backup and Recovery
 Cloud Connect
@@ -252,6 +253,7 @@ Cloud Firewall
 Cloud Search Service
 Cloud Secret Management Service
 Cloud Server Backup Service
+Cloud Service Engine
 Cloud Topology Designer
 Cloud Trace Service
 Config
@@ -292,23 +294,27 @@ FunctionGraph
 GeminiDB
 Host Security Service
 Identity and Access Management
-Image Management
 Image Management Service
 Kafka
 Key Management Service
 Log Tank Service
+Mail IP Service
 Managed Services
 MapReduce Service
 Marketplace
+Mobile Storage Solution
 ModelArts
 NAT Gateway
 Object Storage Service
 OpenStack projects
 Optical Character Recognition
 Oracle-optimized
+Private Line Access Service
+Private Link Access Service
 Relational Database Service
 Resource Formation Service
 Resource Management Service
+Savings plans
 Scalable File Service
 Secure Mail Gateway
 SFS Turbo

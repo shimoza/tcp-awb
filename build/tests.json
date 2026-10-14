@@ -519,6 +519,13 @@
    "status": "passing"
   },
   {
+   "id": "W6-1",
+   "phase": "W",
+   "name": "offered services: a page footer between a no-longer mark and its heading keeps the end date, and a product in brackets such as GeminiDB (DynamoDB) is no short name of the service",
+   "run": ".venv/bin/pytest tests/test_services.py::test_a_page_footer_between_mark_and_heading_and_a_compatible_product_change_nothing",
+   "status": "passing"
+  },
+  {
    "id": "W7",
    "phase": "W",
    "name": "the owner describes a file instead of naming it: his words (the exact name, the same letters, kind words in English, German or Russian, a word for the newest, words inside the name, | between alternatives) are matched inside the key service against both inboxes, subfolders included; one match is taken, none or several list both inboxes with id, kind, size and time and never a name of the owner inbox, not even in the answer of the key service; --id takes the one he means, --all every file; no owner name in the log",
@@ -6161,6 +6168,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 880,
+ "total_tests": 881,
  "checked": "2026-10-14"
 }

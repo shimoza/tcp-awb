@@ -48,6 +48,10 @@ EXTRA = {"3.6.1": ["CES"], "3.4.2": ["EIP"], "3.4.7": ["NAT"], "3.5.2": ["APIG",
          "3.5.4": ["AOM"], "3.5.5": ["APM"], "3.9.9": ["CSMS"], "3.4.4": ["DNS"], "3.4.5": ["DC"],
          "3.9.3": ["WAF Classic", "WAF"], "3.9.4": ["WAF Cloud", "WAF"], "3.9.5": ["WAF Dedicated", "WAF"]}
 _WITHDRAWN_RE = re.compile(r"No longer (available|bookable) from (\d{2})\.(\d{2})\.(\d{4}):\s*(3\.\d+\.\d+)\s")
+# The page footer of the PDF can fall between a "No longer ... from" mark and the heading it belongs to (3.3.3 in the
+# revision of 09.10.2026), so it is taken out before the marks are read.
+_FOOTER_RE = re.compile(r"^.*Service Specifications & Additional Terms and Conditions.*Page \d+ / \d+[ \t]*\n"
+                        r"|^[ \t]*Last revised: \d{2}\.\d{2}\.\d{4}[ \t]*\n", re.M)
 
 
 
@@ -75,7 +79,7 @@ def parse(text: str) -> list[Service]:
             continue
         status = "optional" if area == "11" else "preview" if area == "12" else "offered"
         services.append(Service(number, title, areas.get(area, ""), status, _aliases(title, text) + EXTRA.get(number, [])))
-    flat = _clean(text)
+    flat = _clean(_FOOTER_RE.sub("", text))
     for m in _WITHDRAWN_RE.finditer(flat):
         for s in services:
             if s.number == m.group(5) and not s.ends:
@@ -110,7 +114,9 @@ def _aliases(title: str, text: str) -> list[str]:
     flat = _clean(text)
     for name in [title, base] + names:
         for m in re.finditer(re.escape(name) + r"\s*\(([A-Z][A-Za-z0-9]{1,9})\)", flat):
-            if sum(c.isupper() for c in m.group(1)) >= 2:      # a short name, never a word such as (Dedicated)
+            # a short name, never a word such as (Dedicated) or a product a flavour is compatible with, such as
+            # "GeminiDB (DynamoDB)" in the revision of 09.10.2026
+            if sum(c.isupper() for c in m.group(1)) >= 2 and not re.search(r"[a-z]{3}", m.group(1)):
                 names.append(m.group(1))
     return [n for n in dict.fromkeys(names) if n and n != title]
 

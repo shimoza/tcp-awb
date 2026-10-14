@@ -54,6 +54,24 @@ def test_chapter_three_gives_the_services_their_chapter_and_their_end(catalog):
     assert (by["3.9.3"].ends, by["3.9.3"].end_kind) == ("2026-06-01", "bookable")
 
 
+def test_a_page_footer_between_mark_and_heading_and_a_compatible_product_change_nothing():
+    """In the revision of 09.10.2026 the page footer fell between the mark of 3.3.3 and its heading, and the text
+    wrote "GeminiDB (DynamoDB)" for a flavour; the mark still holds and the product is no other name of the service."""
+    text = SD.replace("3.3.4   Cloud Server Backup Service                                     20",
+                      "3.3.4   Cloud Server Backup Service                                     20\n"
+                      "     3.2   Databases                                                         15\n"
+                      "     3.2.7   GeminiDB                                                        16")
+    text = text.replace("No longer available from 01.01.2026: 3.3.4",
+                        "No longer available from 01.01.2026:\n\n   Service Specifications & Additional Terms and "
+                        "Conditions T Cloud Public" + " " * 23 + "Page 20 / 115\n   Last revised: 09.10.2026\n"
+                        " 3.3.4")
+    text += "GeminiDB is Cassandra and DynamoDB compatible.\nGeminiDB (DynamoDB)   vCPU   RAM\n"
+    by = {s.number: s for s in services.parse(text)}
+    assert (by["3.3.4"].ends, by["3.3.4"].end_kind) == ("2026-01-01", "available")
+    assert "DynamoDB" not in by["3.2.7"].aliases
+    assert "ECS" in by["3.1.1"].aliases
+
+
 def test_the_check_takes_the_names_people_write(catalog):
     for name in ("Elastic Cloud Server", "ECS", "elastic cloud servers", "Elastic Load Balancing", "ELB", "DeH"):
         assert services.check(name, catalog, TODAY).offered, name
@@ -185,7 +203,7 @@ def test_the_check_says_when_a_newer_service_description_waits(tmp_path, monkeyp
 
 # The tag of a service is its short name or its plain name, lower case, spaces and dashes as one dash. These four
 # are the tags that were in use before the rule and are not written like that.
-TAG_OF_SERVICE = {"3.8.5": "dataarts", "3.9.6": "waf", "3.11.5": "consulting", "3.12.6": "esw"}
+TAG_OF_SERVICE = {"3.8.5": "dataarts", "3.9.6": "waf", "3.11.5": "consulting", "3.12.5": "esw"}
 
 
 def _tag_forms(service):
@@ -213,4 +231,4 @@ def test_the_tag_check_names_a_service_whose_tag_is_missing():
 
     tags = kb.known_tags()
     assert _without_a_tag([t for t in tags if t != "taurusdb"]) == ["3.2.6"]
-    assert _without_a_tag([t for t in tags if t != "esw"]) == ["3.12.6"]
+    assert _without_a_tag([t for t in tags if t != "esw"]) == ["3.12.5"]

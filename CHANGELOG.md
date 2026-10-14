@@ -88,6 +88,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- `rules/services.tsv` follows the service description of 09.10.2026 (`awb service update`): Savings plans is new
+  as a preview at 3.12.7, Image Management (3.12.2) is gone and the other previews moved up one number (Cloud
+  Container Instance 3.12.2 to Cloud Connect 3.12.6). 79 services as before. `rules/tags.txt` has the tag
+  `savings-plans`; `rules/stop-words.txt` follows the list.
 - The block "Customer data" of `README.md` and the warning of the dataset TCP Facts (its README, PROMPT.md and
   HOW-TO.pdf) say: give the model technical tasks only and keep them simple, since a detailed description of a
   customer's project can identify the customer without a name and that can break data protection law.
@@ -149,6 +153,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- `awb service update` reads a "No longer available from" mark again when the page footer of the PDF falls between
+  the mark and the heading it belongs to: in the revision of 09.10.2026 Volume Backup Service lost its end date that
+  way. A word in brackets with a run of three small letters, such as "GeminiDB (DynamoDB)", is no longer taken as a
+  short name of the service.
 - `awb dataset put --github` run by the owner no longer stops on git's "detected dubious ownership" for the clone
   `tcp-facts.git`, which the work user owns: every git call on the clone carries `-c safe.directory=<the clone>`,
   that path only and never `*`, so no global git setting is needed. A failed call names the git command, not the path.
