@@ -7,6 +7,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- `awb kb recheck-run [--tier read|write] [--id KB-XXXX]... [--project CODE] [--tenant ALIAS] [--dry-run]` (fact-check
+  design F4, `awb/tcp/recheck.py`): the expired entries with a check block of the tier, checked one at a time in the
+  service project through the key service. A read tier sends its `GET` calls and reads confirms, refutes and control
+  as tests `[N:]PATH is|is not|has|lacks VALUE`; a write tier runs its recipe as a lab run capped at 30 minutes, with
+  the inventory of the sweep before and after. Confirmed is `kb recheck`, an event gets a line with the state of the
+  day through `kb amend`, refuted and undecided stay expired (D2). Evidence in `evidence/recheck-<date>-<n>/`, one
+  line per run in `<shared>/recheck/state.tsv`. Exit 4 for a resource left live or an inventory that differs.
+
 - Named sources and id-set digests of the sweep (fact-check design F3): `sweep.NAMED_SOURCES` lists WAF policies,
   SMN topics and subscriptions and RDS instances (no tags the sweep reads) and finds the Workbench's own
   by the project code in their name (a subscription by the name of its topic). `sweep.inventory` gives per type the
