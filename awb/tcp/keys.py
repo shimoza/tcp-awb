@@ -29,7 +29,11 @@ tenant add) and loaded, the role has a key and allows the method, the region is 
 an active project (tcp-xxxx) of the project register, the path and service are plain, a write never reaches an
 identity service such as iam. A body may carry a secret
 only as a whole value `{{secret:NAME}}` in a password field (admin_pass, password, user_password and the like):
-nowhere else, so that no secret is put into a field the session can read back. The answer carries the status and
+nowhere else, so that no secret is put into a field the session can read back. A password field may also carry
+`{{random:password}}` for a resource that needs a password nobody logs in with later (fact-check design D3): the
+service draws a throw-away value at call time that meets the platform's password rules (16 characters, upper and
+lower case, a digit and one of !@%^-_=+), sends it, takes it out of the answer like a secret and forgets it; it is
+never returned, never logged. The answer carries the status and
 the parsed body with every key and secret of the tenant replaced by <secret>, also in base64 and JSON-escaped
 form. Every call is logged to `<vault>/log/cloud-YYYY-MM.tsv` with time, peer uid, tenant, role, method, service,
 region, status and project; never a path, a body or a value.
@@ -45,7 +49,9 @@ import hashlib
 import json
 import os
 import re
+import secrets as _secrets
 import socket
+import string
 import subprocess
 import sys
 import tempfile
@@ -87,6 +93,9 @@ _REF_RE = re.compile(r"^\{\{secret:([a-z0-9][a-z0-9_.-]{0,40})\}\}$")
 _SECRET_FIELD_RE = re.compile(r"(?i)^(?:admin_?pass(?:word)?|password|passwd|user_?password|root_?password"
                               r"|db_?password|login_?password)$")
 MASK = "<secret>"
+RANDOM_PASSWORD = "{{random:password}}"
+_RANDOM_SPECIAL = "!@%^-_=+"
+"""The special characters a drawn password takes: those both the ECS and the RDS password rules allow."""
 LEAVE_WAIT = 70.0
 """Seconds a handed-over service waits for its calls in flight (a cloud call takes at most 60) before it exits."""
 ADMIN_OPS = ("load", "lock", "notify", "ping", "reload", "status")
@@ -184,12 +193,33 @@ def _variants(value: str) -> list[str]:
     return sorted((v for v in out if len(v) >= 4), key=len, reverse=True)
 
 
-def fill(obj, secrets: dict[str, str], key: str | None = None):
-    """The body with every `{{secret:NAME}}` replaced, allowed only as the whole value of a password field."""
+def random_password(length: int = 16) -> str:
+    """A throw-away password: upper and lower case letters, digits and one special character at least, drawn with
+    the secrets module."""
+    alphabet = string.ascii_letters + string.digits + _RANDOM_SPECIAL
+    while True:
+        value = "".join(_secrets.choice(alphabet) for _ in range(length))
+        if (any(c.islower() for c in value) and any(c.isupper() for c in value) and any(c.isdigit() for c in value)
+                and any(c in _RANDOM_SPECIAL for c in value) and value[0].isalnum()):
+            return value
+
+
+def fill(obj, secrets: dict[str, str], key: str | None = None, drawn: list[str] | None = None):
+    """The body with every `{{secret:NAME}}` replaced, allowed only as the whole value of a password field. A
+    `{{random:password}}` there gets a drawn throw-away value, appended to `drawn` so the answer can be masked."""
     if isinstance(obj, dict):
-        return {k: fill(v, secrets, str(k)) for k, v in obj.items()}
+        return {k: fill(v, secrets, str(k), drawn) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [fill(v, secrets, key) for v in obj]
+        return [fill(v, secrets, key, drawn) for v in obj]
+    if isinstance(obj, str) and "{{random" in obj:
+        if obj != RANDOM_PASSWORD:
+            raise Refused("a random value must be the whole value: {{random:password}}")
+        if key is None or not _SECRET_FIELD_RE.match(key):
+            raise Refused("a random password may only fill a password field (admin_pass, password ...)")
+        value = random_password()
+        if drawn is not None:
+            drawn.append(value)
+        return value
     if isinstance(obj, str) and "{{secret" in obj:
         m = _REF_RE.match(obj)
         if not m:
@@ -807,10 +837,11 @@ class Service:
                                                   for k, v in query.items()):
             raise Refused("a query is an object of strings")
         body = req.get("body")
+        drawn: list[str] = []
         if body is not None:
             if not isinstance(body, (dict, list)) or len(json.dumps(body)) > MAX_BODY:
                 raise Refused("a body is a JSON object of at most %d bytes" % MAX_BODY)
-            body = fill(body, tenant.get("secrets", {}))
+            body = fill(body, tenant.get("secrets", {}), drawn=drawn)
         keys = obs.Keys(pair["ak"], pair["sk"])
         client = cloud.Client(keys, region, endpoint=self.endpoint, label=alias, timeout=60.0)
         try:
@@ -820,7 +851,7 @@ class Service:
         except cloud.CloudError as err:
             answer = {"ok": True, "status": err.status or 0, "data": None, "text": str(err)}
         self._log(uid, alias, role, method, service, region, answer["status"], project)
-        return self._mask(answer, tenant)
+        return self._mask(answer, tenant, drawn)
 
     def exchange_buckets(self) -> list[str]:
         """The lab bucket and the owner bucket of keys.conf (or their defaults): a leased key never reaches them."""
@@ -929,10 +960,10 @@ class Service:
         return {"ok": True, "tenant": alias, "region": region, "minutes": minutes, "ak": cred["access"],
                 "sk": cred["secret"], "token": cred["securitytoken"], "expires_at": cred.get("expires_at")}
 
-    def _mask(self, answer: dict, tenant: dict) -> dict:
+    def _mask(self, answer: dict, tenant: dict, drawn: list[str] = ()) -> dict:
         text = json.dumps(answer, ensure_ascii=False)
         values = [v for pair in tenant.get("roles", {}).values() for v in pair.values()]
-        values += list(tenant.get("secrets", {}).values())
+        values += list(tenant.get("secrets", {}).values()) + list(drawn)
         for value in values:
             for form in _variants(value):
                 text = text.replace(form, MASK)

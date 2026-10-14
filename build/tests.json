@@ -6292,8 +6292,71 @@
    "name": "kb verify: refuses a hand written block without a recipe or a control",
    "run": ".venv/bin/pytest tests/test_kb.py::test_verify_refuses_a_hand_written_block_without_a_recipe_or_a_control",
    "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F2-1",
+   "phase": "FK2",
+   "name": "lab deny list: the GPU families, sizes above 2xlarge, physical and database sizes are denied, the allowed flavors are not",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_deny_list_names_the_families_sizes_and_physical_flavors_of_the_design",
+   "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F2-2",
+   "phase": "FK2",
+   "name": "lab deny list: a recipe with a denied flavor as a default, a var or a body field is refused by line number",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_recipe_that_carries_a_denied_flavor_even_as_a_default_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F2-3",
+   "phase": "FK2",
+   "name": "lab deny list: a p family or 4xlarge parameter is refused by line number before any call, never the value",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_denied_flavor_as_a_parameter_is_refused_by_line_number_before_any_call",
+   "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F2-4",
+   "phase": "FK2",
+   "name": "lab deny list: a list that cannot be read or holds a broken pattern refuses every recipe",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_deny_list_that_cannot_be_read_refuses_every_recipe",
+   "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F2-5",
+   "phase": "FK2",
+   "name": "lab cap: a recheck run cuts the lifetime to 30 minutes and the budget with it",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_recheck_cap_cuts_the_lifetime_to_30_minutes_and_the_budget_with_it",
+   "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F2-6",
+   "phase": "FK2",
+   "name": "lab random password: drawn by the key service, never in the answer, the evidence, the output or a log",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_random_password_is_drawn_by_the_key_service_and_never_in_the_answer_the_evidence_or_a_log",
+   "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F2-7",
+   "phase": "FK2",
+   "name": "keys random password: drawn, sent, masked in the answer plainly and in base64, not in the log, new per call",
+   "run": ".venv/bin/pytest tests/test_keys.py::test_a_random_password_is_drawn_sent_and_taken_out_of_the_answer_and_the_log",
+   "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F2-8",
+   "phase": "FK2",
+   "name": "keys random password: only the whole value of a password field",
+   "run": ".venv/bin/pytest tests/test_keys.py::test_a_random_password_fills_a_password_field_and_nothing_else",
+   "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F2-9",
+   "phase": "FK2",
+   "name": "keys random password: 16 characters that meet the ECS and RDS rules",
+   "run": ".venv/bin/pytest tests/test_keys.py::test_a_drawn_password_meets_the_rules_of_ecs_and_rds",
+   "status": "passing"
   }
  ],
- "total_tests": 899,
+ "total_tests": 908,
  "checked": "2026-10-14"
 }

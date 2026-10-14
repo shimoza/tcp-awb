@@ -49,7 +49,24 @@ Every call goes through the key service with the lab key and the project code: `
 `{{secret:NAME}}`; the key service puts the secret in and the session never sees it. Before its first create the
 run asks the key service for the names of the tenant's secrets (never a value) and stops with one line such as
 `the secret ecs-admin is missing for test-1` when one the recipe fills is not there, so it makes nothing. The dry
-run names the secrets a recipe needs.
+run names the secrets a recipe needs. A password nobody logs in with later (the admin password of a database the
+run creates and deletes) takes `{{random:password}}` instead, also only as the whole value of a password field: the
+key service draws a throw-away value at call time (16 characters, upper and lower case, a digit and one of
+`!@%^-_=+`), sends it, takes it out of the answer like a secret and forgets it. It is never printed, never in the
+evidence and never in a log.
+
+## The flavor deny list
+
+`recipes/DENY.txt` holds one regular expression per line, matched against the whole value: the GPU and AI families
+`p`, `pi`, `g`, `ai` and `kp`, every size above `2xlarge`, physical and bare-metal flavors and also RDS, DDS, DCS, CSS and
+MRS sizes from `large.8` (fact-check design, default D4). A recipe whose parameter defaults, choices, vars or a flavor
+field of a call body (`flavorRef`, `flavor`, `spec_code` and the like) match a line is refused when it is loaded, and
+so is a run whose `--param` matches one, before any call. The refusal names the line number and never the value:
+`cost guard: the value of flavor matches line 8 of recipes/DENY.txt (a denied flavor)`. The list is always the one of
+the repository, also when `AWB_RECIPES` points elsewhere; a list that cannot be read refuses every recipe.
+
+A recheck run (the fact-check service) caps every recipe at 30 minutes: the guard's `lifetime_minutes` or 30
+(whichever is less) and the time budget shrinks so that budget plus teardown still fit. The `awb-expiry` tag follows.
 
 A call that is refused or fails keeps in the evidence its status, its error code and the first 200 characters of its
 error message, from `error_code` and `error_msg`, `code` and `message` or `error.code` and `error.message` of the
