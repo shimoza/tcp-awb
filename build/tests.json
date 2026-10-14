@@ -6355,8 +6355,29 @@
    "name": "keys random password: 16 characters that meet the ECS and RDS rules",
    "run": ".venv/bin/pytest tests/test_keys.py::test_a_drawn_password_meets_the_rules_of_ecs_and_rds",
    "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F3-1",
+   "phase": "FK3",
+   "name": "sweep named sources: WAF, SMN and RDS resources of the code in their name are found, a name without a code is not reported",
+   "run": ".venv/bin/pytest tests/test_sweep.py::test_a_named_source_finds_the_resources_of_the_code_in_their_name",
+   "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F3-2",
+   "phase": "FK3",
+   "name": "sweep named sources: an unreadable listing is unknown in the sweep and the inventory",
+   "run": ".venv/bin/pytest tests/test_sweep.py::test_an_unreadable_named_listing_is_unknown_in_the_sweep_and_the_inventory",
+   "status": "passing"
+  },
+  {
+   "id": "fk-check-block-F3-3",
+   "phase": "FK3",
+   "name": "sweep inventory: equal id sets give equal digests, one id more does not, the difference in counts only",
+   "run": ".venv/bin/pytest tests/test_sweep.py::test_equal_id_sets_give_equal_digests_and_one_id_more_does_not",
+   "status": "passing"
   }
  ],
- "total_tests": 908,
+ "total_tests": 911,
  "checked": "2026-10-14"
 }

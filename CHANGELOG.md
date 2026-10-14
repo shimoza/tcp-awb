@@ -7,6 +7,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- Named sources and id-set digests of the sweep (fact-check design F3): `sweep.NAMED_SOURCES` lists WAF policies,
+  SMN topics and subscriptions and RDS instances (no tags the sweep reads) and finds the Workbench's own
+  by the project code in their name (a subscription by the name of its topic). `sweep.inventory` gives per type the
+  count and the sha256 digest of the sorted id set (unknown when a listing cannot be read) and `inventory_diff`
+  names what differs in counts only (`rds +1/-0`), never an id. `awb cloud sweep` itself is unchanged.
+
 - Recipe guards of the fact check (design F2): the flavor deny list `recipes/DENY.txt` (the GPU families p, pi, g,
   ai and kp, sizes above 2xlarge, physical and bare-metal flavors, database sizes from large.8) refuses a recipe
   that carries a denied flavor as a default, a choice, a var or a flavor field of a body and a run whose `--param`
