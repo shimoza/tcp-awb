@@ -5830,8 +5830,50 @@
    "name": "board: the checks of a branch reach the build line and free text does not",
    "run": ".venv/bin/pytest tests/test_board.py::test_the_checks_of_a_branch_reach_the_line_and_free_text_does_not",
    "status": "passing"
+  },
+  {
+   "id": "RF-1",
+   "phase": "RF-A2",
+   "name": "build runner: a retry whose main moved during the session is rebased before the first check, a stale baseline gives no red",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_retry_whose_main_moved_during_the_session_is_rebased_before_the_first_check",
+   "status": "passing"
+  },
+  {
+   "id": "RF-2",
+   "phase": "RF-A2",
+   "name": "build runner: a widened task whose main moved is rebased before the checks run again",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_widened_task_whose_main_moved_is_rebased_before_the_checks_run_again",
+   "status": "passing"
+  },
+  {
+   "id": "RF-3",
+   "phase": "RF-A2",
+   "name": "build runner: a rebase that conflicts before the checks is red: rebase conflict and main stays",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_rebase_that_conflicts_before_the_checks_is_red_with_its_reason_and_main_stays",
+   "status": "passing"
+  },
+  {
+   "id": "RF-4",
+   "phase": "RF-A2",
+   "name": "build runner: a dirty tree is named before a rebase could call it a conflict",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_dirty_tree_is_named_before_a_rebase_could_call_it_a_conflict",
+   "status": "passing"
+  },
+  {
+   "id": "RF-5",
+   "phase": "RF-A2",
+   "name": "build check: a branch whose main moved runs on the main of now",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_check_of_a_branch_whose_main_moved_runs_on_the_main_of_now",
+   "status": "passing"
+  },
+  {
+   "id": "RF-6",
+   "phase": "RF-A2",
+   "name": "build check: a branch that conflicts with the main of now is red before any code runs",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_check_of_a_branch_that_conflicts_with_the_main_of_now_is_red_before_any_code_runs",
+   "status": "passing"
   }
  ],
- "total_tests": 833,
+ "total_tests": 839,
  "checked": "2026-10-14"
 }

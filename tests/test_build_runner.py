@@ -1774,3 +1774,116 @@ def test_awb_build_check_reaches_the_runner_and_the_unit_helper_takes_a_check_id
     assert buildrun.unit_main(["outdir", str(root), "C-001", "1"]) == 3
     assert buildrun.unit_main(["outdir", str(root), "B-001", "1"]) == 2
     assert buildrun.UNIT_RE.fullmatch("awb-task-C-001-suite")
+
+
+# --------------------------------------------------------------------------- A2: onto the main of now before the checks
+
+def _yesterday_baseline(w, start: str) -> None:
+    """The cached baseline of a start commit as an earlier day left it: a parametrized test whose id held that day's
+    date passed then; the suite of today names the same test with today's date."""
+    cache = w.runs / ".baseline"
+    cache.mkdir(parents=True, exist_ok=True)
+    nodes = {"tests/test_x.py::test_%s" % n: "passed" for n in ("one", "two", "three")}
+    nodes["tests/test_x.py::test_day[2026-10-13]"] = "passed"
+    (cache / ("%s.json" % start)).write_text(json.dumps(nodes), encoding="utf-8")
+
+
+def test_a_retry_whose_main_moved_during_the_session_is_rebased_before_the_first_check(world, monkeypatch):
+    """A stale baseline never causes a false red: the start commit's cached baseline names a node today's suite does
+    not have; the checks judge the branch on the main of now, never on that start commit."""
+    first = world.run("outside")
+    assert first.state == "red: outside paths"
+    world.task("good", tid=first.id)
+    assert build.cmd_retry(first.id, world.queue, world.runs) == 0
+    real_jm, real_judge = buildrun.Runner.judge_and_merge, buildrun.Runner.judge
+    moved, starts = [], []
+
+    def judge_and_merge(self, ctx):
+        _yesterday_baseline(world, ctx.start)
+        moved.append(move_main(world, "README.md", "# tiny\n\nhis line\n"))
+        return real_jm(self, ctx)
+
+    def judge(self, ctx):
+        starts.append(ctx.start)
+        return real_judge(self, ctx)
+
+    monkeypatch.setattr(buildrun.Runner, "judge_and_merge", judge_and_merge)
+    monkeypatch.setattr(buildrun.Runner, "judge", judge)
+    assert world.runner().poll_once()
+    run = build.latest(first.id, world.runs)
+    assert (run.n, run.state) == (2, "done")
+    assert starts == moved                                     # one round, on the main of now
+    assert "- main moved: the branch was rebased onto %s before the checks" % moved[0][:7] in checks_of(run)
+    log = world.g("--git-dir", str(world.root / "main.git"), "log", "--format=%s", "main")
+    assert "his own change" in log and "the value is two" in log
+
+
+def test_a_widened_task_whose_main_moved_is_rebased_before_the_checks_run_again(world):
+    run = world.run("outside")
+    assert run.state == "red: outside paths"
+    moved = move_main(world, "README.md", "# tiny\n\nhis line\n")
+    _yesterday_baseline(world, (run.folder / "start").read_text().strip())
+    assert build.cmd_widen(run.id, ["pyproject.toml"], world.runs) == 0
+    assert world.runner().poll_once()
+    after = build.latest(run.id, world.runs)
+    assert (after.n, after.state) == (run.n, "done")
+    assert (run.folder / "start").read_text().strip() == moved
+    assert "rebased onto %s before the checks" % moved[:7] in checks_of(after)
+
+
+def test_a_rebase_that_conflicts_before_the_checks_is_red_with_its_reason_and_main_stays(world, monkeypatch):
+    real = buildrun.Runner.judge_and_merge
+    moved = []
+
+    def judge_and_merge(self, ctx):
+        moved.append(move_main(world, "awb/x.py", "VALUE = 9\n"))
+        return real(self, ctx)
+
+    monkeypatch.setattr(buildrun.Runner, "judge_and_merge", judge_and_merge)
+    run = world.run("good")
+    assert run.state == "red: rebase conflict"
+    assert main_of(world) == moved[0]
+    assert build.line(run) == "build %s red: rebase conflict; branch task/%s kept" % (run.id, run.id)
+    log = checks_of(run)
+    assert "4 ok" in log and "does not rebase onto it without a conflict" in log
+    assert not [s for s in world.units.started if s.name.endswith("-suite")]
+    assert world.host.clone(run.id, run.n).is_dir()
+
+
+def test_a_dirty_tree_is_named_before_a_rebase_could_call_it_a_conflict(world, monkeypatch):
+    real = buildrun.Runner.judge_and_merge
+
+    def judge_and_merge(self, ctx):
+        move_main(world, "README.md", "# tiny\n\nhis line\n")
+        return real(self, ctx)
+
+    monkeypatch.setattr(buildrun.Runner, "judge_and_merge", judge_and_merge)
+    assert world.run("dirty").state == "red: dirty tree"
+
+
+def test_a_check_of_a_branch_whose_main_moved_runs_on_the_main_of_now(world, capsys):
+    tip = outside_branch(world)
+    base = main_of(world)
+    _yesterday_baseline(world, base)
+    moved = move_main(world, "README.md", "# tiny\n\nhis line\n")
+    rc, out, run = check(world, "pr-1", capsys)
+    assert rc == 0 and run.state == "passed"
+    assert main_of(world) == moved
+    onto = (run.folder / "onto").read_text().strip()
+    assert (run.folder / "start").read_text().strip() == moved and (run.folder / "head").read_text().strip() == tip
+    g = ["--git-dir", str(world.root / "main.git")]
+    assert world.g(*g, "rev-parse", onto + "^").strip() == moved
+    assert world.g(*g, "show", onto + ":awb/x.py") == "VALUE = 2\n"
+    assert world.g(*g, "show", onto + ":README.md") == "# tiny\n\nhis line\n"
+    assert world.g(*g, "rev-parse", "refs/quarantine/C-001/1/onto").strip() == onto
+    assert "rebased onto %s before the checks" % moved[:7] in checks_of(run)
+    assert [s.argv[7] for s in suite_specs(world)] == ["suite", "base"]
+
+
+def test_a_check_of_a_branch_that_conflicts_with_the_main_of_now_is_red_before_any_code_runs(world, capsys):
+    outside_branch(world)
+    move_main(world, "awb/x.py", "VALUE = 9\n")
+    rc, out, run = check(world, "pr-1", capsys)
+    assert rc == 1 and run.state == "red: rebase conflict"
+    assert out.splitlines()[0] == "build check C-001 red: rebase conflict; nothing merged; runs/C-001/1/"
+    assert not suite_specs(world)

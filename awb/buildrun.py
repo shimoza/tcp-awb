@@ -31,6 +31,10 @@ The checks (DESIGN.md section 5), in order, the first failure sets the state:
     10 no test was hollowed                 red: tests lost
     11 the task's own check                 red: check
 
+Before check 4 runs on the branch to judge (A2): when `main` moved since the start, check 4 runs on the branch as
+the session left it, then the build unit rebases it onto a fresh bundle of main (a conflict is `red: rebase
+conflict`) and the checks judge it against the main of now.
+
 Green: when `main` moved since the start the build unit rebases the branch onto a fresh bundle of main (a conflict
 is `stale`) and the checks run again; then `update-ref` of main with the expected old value after `merge-base
 --is-ancestor`, the state `green` before the push, the push (D-S2) after the gate over the whole range, `done`.
@@ -1912,6 +1916,36 @@ def check_branch_commits(host: Host, ctx: Ctx) -> None:
     _ok(ctx, 4, "%d commit(s) after %s" % (len(commits), base[:7]))
 
 
+def check_onto_main(host: Host, ctx: Ctx) -> None:
+    """A2 for a branch from outside: when main moved past its merge base, the branch's changes go onto the main of
+    now before the suite runs, so check 9 and 10 judge it against today's baseline. main.git has no working tree:
+    `git merge-tree --write-tree` puts the changes from the merge base to the branch onto main (data only, no hook,
+    no filter) and one commit of that tree on top of main is what the suite exports. A conflict is `red: rebase
+    conflict`. The gate still reads the branch's own commits."""
+    main = rev(host, "refs/heads/main")
+    if main is None or main == ctx.start:
+        return
+    r = git(host, "merge-tree", "--write-tree", "--no-messages", "--merge-base=%s" % ctx.start, main, ctx.tip,
+            check=False)
+    tree = r.stdout.decode("ascii", "replace").split("\n", 1)[0].strip()
+    if r.returncode == 1:
+        ctx.lines.append("- main moved to %s: the branch does not rebase onto it without a conflict" % main[:7])
+        raise Stop("red: rebase conflict")
+    if r.returncode or not SHA_RE.fullmatch(tree):
+        ctx.lines.append("- main moved to %s: the branch could not be put onto it" % main[:7])
+        raise Stop("held: rebase")
+    c = git(host, "-c", "user.name=awb build", "-c", "user.email=awb-build@localhost", "commit-tree", tree, "-p",
+            main, "-m", "awb build check %s: the branch onto main" % ctx.tid)
+    onto = c.stdout.decode("ascii", "replace").strip()
+    if not SHA_RE.fullmatch(onto):
+        raise Stop("held: rebase")
+    git(host, "update-ref", quarantine(ctx) + "/onto", onto)
+    ctx.start, ctx.tip = main, onto
+    _write(ctx.folder / "start", main + "\n")
+    _write(ctx.folder / "onto", onto + "\n")
+    ctx.lines.append("- main moved: the branch was rebased onto %s before the checks" % main[:7])
+
+
 def check_outdir(host: Host, ctx: Ctx) -> bool:
     """The out folder of the check's suite unit, made by a unit of the build user (a check has no prepare unit)."""
     e = unit_run(host, ctx, "hand", ["outdir", str(host.root), ctx.tid, str(ctx.n)], rw=[str(host.wt)])
@@ -2476,6 +2510,9 @@ class Runner:
 
     def judge_and_merge(self, ctx: Ctx) -> None:
         h = self.host
+        state = self.onto_main(ctx)
+        if state is not None:
+            return self.finish(ctx, state)
         for _round in range(MAX_ROUNDS):
             state = self.judge(ctx)
             if state != "green":
@@ -2492,12 +2529,41 @@ class Runner:
                 cur = rev(h, "refs/heads/main")
             if cur is None:
                 return self.finish(ctx, "held: no main")
-            if not self.rebase(ctx, cur):
+            if self.rebase(ctx, cur) != "rebased":
                 return self.finish(ctx, "stale")
         return self.finish(ctx, "stale")
 
-    def rebase(self, ctx: Ctx, main: str) -> bool:
-        """main moved: the build unit rebases the branch onto a fresh bundle of main, hands it over again."""
+    def onto_main(self, ctx: Ctx) -> str | None:
+        """A2: before the checks the branch moves onto the main of now, so check 9 and 10 judge it against today's
+        baseline and never against the start commit of the session. Check 4 runs first on the branch as the session
+        left it (a dirty tree or a merge commit is named as such, never as a conflict). A conflict is `red: rebase
+        conflict`. Returns the state that ends the round, None to go on with the checks."""
+        h = self.host
+        cur = rev(h, "refs/heads/main")
+        if cur is None:
+            return "held: no main"
+        if cur == ctx.start:
+            return None
+        self.phase(ctx, "checks")
+        ctx.lines = [x for x in ctx.lines if x.split(" ", 1)[0] in ("1", "2", "3", "-")]
+        try:
+            check_commits(h, ctx, fetch_bundle(h, ctx), _read(ctx.folder / "status.txt"))
+        except Stop as s:
+            self._checks_log(ctx)
+            return s.state
+        word = self.rebase(ctx, cur, "before the checks")
+        if word == "rebased":
+            return None
+        if word == "conflict":
+            ctx.lines.append("- main moved to %s: the branch does not rebase onto it without a conflict" % cur[:7])
+            self._checks_log(ctx)
+            return "red: rebase conflict"
+        self._checks_log(ctx)
+        return "stale"
+
+    def rebase(self, ctx: Ctx, main: str, when: str = "and the checks run again") -> str:
+        """main moved: the build unit rebases the branch onto a fresh bundle of main, hands it over again. Returns
+        `rebased`, `conflict` (the unit's exit 3, the rebase aborted) or `failed`."""
         h = self.host
         self.phase(ctx, "rebase")
         bundle = ctx.folder / "main.bundle"
@@ -2508,17 +2574,17 @@ class Runner:
             with contextlib.suppress(FileNotFoundError):
                 os.unlink(bundle)
         if e.code != 0:
-            return False
+            return "conflict" if e.code == 3 else "failed"
         out = h.out(ctx.tid, ctx.n)
         status = _take(out / "status.txt", h.uid(), SMALL_MAX)
         if status is not None:
             _write(ctx.folder / "status.txt", status)
         if _take(out / "task.bundle", h.uid(), BUNDLE_MAX, dest=ctx.folder / "task.bundle") is None:
-            return False
+            return "failed"
         ctx.start = main
         _write(ctx.folder / "start", main + "\n")
-        ctx.lines.append("- main moved: the branch was rebased onto %s and the checks run again" % main[:7])
-        return True
+        ctx.lines.append("- main moved: the branch was rebased onto %s %s" % (main[:7], when))
+        return "rebased"
 
     def rejudge(self, ctx: Ctx, widened: bool = False) -> None:
         """`held: checks pending` after the vault opened (or `widened`): the checks again on the kept branch."""
@@ -2571,6 +2637,7 @@ class Runner:
         ctx.lines = []
         try:
             check_branch_commits(h, ctx)
+            check_onto_main(h, ctx)
             check_gate(h, ctx, owner_identity(h))
             ctx.entries = [(p, o, n) for p, o, n, _ in diff_entries(h, ctx.start, ctx.tip) if _plain_path(p)]
             if not check_outdir(h, ctx):
