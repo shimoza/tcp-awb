@@ -1,0 +1,11 @@
+# The timer of awb-kb-commit.service: 01:40 every night, the time of the crontab line it replaces (F2 G3).
+# Installed and enabled by seal/setup.sh.
+[Unit]
+Description=Architect Workbench nightly commit of the knowledge base, 01:40
+
+[Timer]
+OnCalendar=*-*-* 01:40:00
+Unit=awb-kb-commit.service
+
+[Install]
+WantedBy=timers.target

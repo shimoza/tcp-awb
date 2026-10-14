@@ -1,0 +1,36 @@
+# The nightly update of the work user's Claude Code client (F2 G3), rendered by seal/setup.sh with the work home.
+# It ran from the work user's crontab; now root owns the unit and its timer and cron.deny names the work user, so a
+# session of the work user cannot add a job of its own. It still runs as the work user and writes the client under
+# .local of the work home. The shell of the work user opens the log, never systemd as root: the work user owns that
+# folder and a link planted there must not turn into a write as root.
+[Unit]
+Description=Architect Workbench nightly update of the work user's client
+Wants=network-online.target
+After=network-online.target awb-egress.service
+
+[Service]
+Type=oneshot
+User=awb
+Group=awb
+WorkingDirectory=@WORK_HOME@
+ExecStart=/bin/sh -c 'mkdir -p @WORK_HOME@/.local/state && exec @WORK_HOME@/.local/bin/claude update >>@WORK_HOME@/.local/state/claude-update.log 2>&1'
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@WORK_HOME@
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=
+LimitCORE=0
+TimeoutStartSec=15min

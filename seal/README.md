@@ -160,7 +160,22 @@ that `awb egress status`, `awb seal check` and `awb deploy status` read; never t
    leaves the vault daemon and the key service running.
 7a. Loads the egress filter (`awb egress load`, section "The egress filter") in the mode of the host file and
    enables `awb-egress.timer`.
-8. Copies the owner's `~/.ssh/authorized_keys` to the work user.
+8. Copies the owner's `~/.ssh/authorized_keys` to `/etc/ssh/authorized_keys/awb` (root, 644) and writes the sshd
+   drop-in `/etc/ssh/sshd_config.d/awb-work-user.conf`, which points the work user alone at that file
+   (`AuthorizedKeysFile /etc/ssh/authorized_keys/%u` in a match block for the user `awb`). `sshd -t` checks the
+   configuration before the reload; when it refuses, the drop-in is removed again and the setup stops. The old copy
+   `<work-home>/.ssh/authorized_keys` goes. The owner's own ssh stays as it is. A hijacked session of the work user
+   can no longer add a key of its own (F2 G3).
+8a. Turns the work user's crontab into root owned timers (F2 G3): `seal/work-jobs/` holds two oneshot services that
+   run as the work user with the usual hardening (no new privileges, a read-only system, write access to the work
+   home alone) and their timers, `awb-work-update.timer` at 01:35 (`claude update` of the work user's client into
+   `<work-home>/.local/state/claude-update.log`) and `awb-kb-commit.timer` at 01:40 (the commit of the knowledge
+   base, no network). The kb commit runs `/usr/local/libexec/awb/nightly-kb-commit` (root) when the repository
+   carries `seal/work-jobs/nightly-kb-commit`; it does not today, so the setup says so and the timer runs
+   `<work-home>/.local/bin/nightly-kb-commit` where the crontab ran it. Then `/etc/cron.deny` names `awb` (other
+   lines stay) and the crontab of the work user goes; a line in it other than the two jobs is named first.
+   `verify.sh` proves the root owned key file, the file `sshd -T -C user=awb` names, no key file in the work home,
+   `cron.deny`, a refused `crontab -l` as the work user, no crontab and both timers enabled.
 9. Installs `work-claude/settings.json` and `work-claude/CLAUDE.md` into the `.claude` folder of the work home,
    owned by root, readable for the work user and immutable (`chattr +i`): the folder is the work user's own
    (the client keeps its login and history there), so without the flag it could rename them and put its own
@@ -254,7 +269,7 @@ units whose code changed. `awb deploy --dry-run` prints the plan and every step 
 5. Runs `releases/<commit>/seal/setup.sh --update` from the release, never from the working tree. The update mode
    names its steps one by one: the code (the `.pth` line, the wrapper, the flip), the host file, the units, the
    needrestart rule, the package holds, the client files, the managed drop-in and the build side. It never touches the
-   work user, the homes, the moves or the ssh keys, so the shared tree is not chowned again. `--units-only` installs the unit templates and reloads
+   work user, the homes, the moves, the ssh keys or the nightly jobs of the work user, so the shared tree is not chowned again. `--units-only` installs the unit templates and reloads
    systemd, nothing else.
 6. Restarts the vault daemon, then the key service, then the Ask page and the portal, then the web units through
    `releases/<commit>/seal/web/install.sh --only UNIT...` (when the web side was switched). Each must be active

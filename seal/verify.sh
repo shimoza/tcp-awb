@@ -8,7 +8,10 @@
 # password store, .claude, .ssh, home or any folder in the owner's home, sudo -n true. The work user is in none of the
 # groups of the owner or of the host admins. The check socket answers ping, the work user can write tcp-shared and
 # the owner can write the outbox. The client files of the work user are those of the repository and immutable, the
-# managed drop-in carries the hooks. The egress table of the work user is loaded in the mode of the host file, takes
+# managed drop-in carries the hooks. The work user cannot persist past a session (F2 G3): its ssh key file is root
+# owned in /etc/ssh/authorized_keys and out of its reach, sshd -T names that file for it, its home holds none,
+# cron.deny names it, crontab -l is refused and it has no crontab, the timers of its two nightly jobs are enabled and
+# run as the work user. The egress table of the work user is loaded in the mode of the host file, takes
 # the work user's uid alone, lets an established connection pass only with the mark of the allow rules, counts a
 # planted connection of the work user to 192.0.2.1 (and refuses it in the mode enforce) and leaves one of the owner's
 # uid, which the key service runs under, uncounted; its timer is active. That an established connection opened before
@@ -35,6 +38,9 @@ CONF_FILE=/etc/awb/paths.conf
 BUILD_MODEL_KEY=/etc/awb/build-model.key     # the owner's copy for the runner (build_model = key), as in setup.sh
 MANAGED_FILE=/etc/claude-code/managed-settings.d/awb-workbench.json
 CLIENT_FILES="settings.json CLAUDE.md skills/drafting/SKILL.md"
+SSH_KEYS_DIR=/etc/ssh/authorized_keys     # as in setup.sh
+CRON_DENY=/etc/cron.deny
+WORK_JOBS="awb-work-update awb-kb-commit"   # as in setup.sh
 seal_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 FORBIDDEN_GROUPS=(ubuntu docker adm sudo lxd)
 
@@ -249,6 +255,34 @@ for h in pre-commit commit-msg pre-push; do
 done
 allowed "the owner is in the group $WORK_GROUP" sh -c 'id -nG "$1" | tr " " "\n" | grep -qx "$2"' verify \
     "$owner" "$WORK_GROUP"
+
+# --------------------------------------------------------------------------- the persistence of the work user (F2 G3)
+
+# sshd -T prints the keywords in lower case; the check reads the line of the work user's keys
+SSHD_KEYS_LINE='authorizedkeysfile /etc/ssh/authorized_keys/%u'
+sshd_keys_line() {
+    sshd -T -C "user=$WORK_USER,host=localhost,addr=127.0.0.1" 2>/dev/null | grep -i '^authorizedkeysfile ' |
+        tr '[:upper:]' '[:lower:]'
+}
+work_keys="$SSH_KEYS_DIR/$WORK_USER"
+keys_line=""
+[ "$dry_run" -eq 1 ] || keys_line=$(sshd_keys_line || true)
+allowed "the work user's ssh key file $work_keys is owned by root" \
+    sh -c '[ "$(stat -c %u -- "$1")" = 0 ] && [ "$(stat -c %u -- "$(dirname -- "$1")")" = 0 ]' verify "$work_keys"
+denied "the work user cannot write its ssh key file" as_work test -w "$work_keys"
+denied "the work user cannot write the folder of its ssh key file" as_work test -w "$SSH_KEYS_DIR"
+allowed "sshd reads the work user's keys from $SSH_KEYS_DIR alone (sshd -T -C user=$WORK_USER)" \
+    sh -c '[ "$1" = "$2" ] || [ "$1" = "$3" ]' verify "$keys_line" "$SSHD_KEYS_LINE" "authorizedkeysfile $work_keys"
+denied "the work home holds no .ssh/authorized_keys" test -e "$work_home/.ssh/authorized_keys"
+allowed "$CRON_DENY names the work user" grep -qx -- "$WORK_USER" "$CRON_DENY"
+allowed "crontab -l as the work user is refused" \
+    sh -c 'runuser -u "$1" -- crontab -l 2>&1 | grep -qi "not allowed"' verify "$WORK_USER"
+denied "the work user has no crontab" crontab -u "$WORK_USER" -l
+for t in $WORK_JOBS; do
+    allowed "the timer $t.timer is enabled" systemctl is-enabled --quiet "$t.timer"
+    allowed "$t.service runs as the work user" \
+        sh -c '[ "$(systemctl show -p User --value "$1")" = "$2" ]' verify "$t.service" "$WORK_USER"
+done
 
 # --------------------------------------------------------------------------- the egress filter (seal/egress)
 

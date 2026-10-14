@@ -195,6 +195,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- The work user can no longer persist past a session through its ssh keys or its crontab (F2 threat model, gap G3).
+  `seal/setup.sh` copies the owner's keys to `/etc/ssh/authorized_keys/awb` (root, 644), writes the sshd drop-in
+  `/etc/ssh/sshd_config.d/awb-work-user.conf` that points the work user alone at that file, checks it with `sshd -t`
+  before the reload (a refused drop-in is removed again) and removes `<work-home>/.ssh/authorized_keys`. The two
+  nightly jobs of the crontab (`claude update` at 01:35 into `.local/state/claude-update.log`, the commit of the
+  knowledge base at 01:40) become the root owned timers `awb-work-update.timer` and `awb-kb-commit.timer` with hardened
+  oneshot services that run as the work user (`seal/work-jobs/`); `/etc/cron.deny` names `awb` and its crontab goes.
+  The kb commit script is not in the repository, so it still runs from `<work-home>/.local/bin/` and the setup says
+  so. `seal/verify.sh` proves the key file, the file `sshd -T -C user=awb` names, `cron.deny`, a refused
+  `crontab -l` as the work user and both timers. First seal only: a deploy does not touch them, so a sealed host
+  gets them from one more `sudo seal/setup.sh`.
 - A build task's session unit no longer reaches a nameserver (review of 2026-10-13, finding B4). `IPAddressAllow=`
   takes no port, so the upstream nameservers in its allow list were open on every port and protocol: a channel
   through DNS for the login, the key or the clone and, where the resolver is the metadata address, the metadata API.

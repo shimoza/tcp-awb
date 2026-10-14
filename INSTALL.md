@@ -80,7 +80,7 @@ Run steps 1 to 6 as the owner.
 
    After a reboot the vault is locked. Run `awb vault unlock` then. While it is locked every prompt of a work session is refused with the time of the lock.
 
-7. Give the work user a Claude Code client. Log in as the work user with the ssh keys of the owner, which `setup.sh` copied.
+7. Give the work user a Claude Code client. Log in as the work user with the ssh keys of the owner, which `setup.sh` copied to `/etc/ssh/authorized_keys/awb`, a root owned file the work user cannot change (a later key for the work user goes there with sudo, never into its home).
 
    ```bash
    ssh awb@<host>
@@ -88,7 +88,7 @@ Run steps 1 to 6 as the owner.
 
    Without ssh keys of the owner, `sudo -iu awb` opens a shell of the work user from the owner's terminal.
 
-   Install Claude Code and log in there as the client's own instructions say. The repository does not do this step. The settings of the work user are already in place and immutable (see the tables below).
+   Install Claude Code and log in there as the client's own instructions say. The repository does not do this step. The settings of the work user are already in place and immutable (see the tables below). Use the native install (`~/.local/bin/claude`): the root owned timer `awb-work-update.timer` runs `claude update` as the work user every night at 01:35. The work user has no crontab (`/etc/cron.deny` names it).
 
 8. Check the seal from the work user's side.
 
@@ -230,7 +230,10 @@ Folders and files:
 | `<work-home>/tcp-<code>` | `awb:awb` | one folder per project |
 | `<work-home>/.claude/settings.json`, `CLAUDE.md`, `skills/drafting/SKILL.md` | root, group awb, 644, immutable | the client settings and instructions of the work user |
 | `<work-home>/.gitconfig` | root, group awb, 644, immutable | the git identity of the work user |
-| `<work-home>/.ssh/authorized_keys` | `awb:awb`, 600 | a copy of the owner's keys (if present) |
+| `/etc/ssh/authorized_keys/awb` | root, 644 | a copy of the owner's keys (if present), the only key file sshd reads for the work user |
+| `/etc/ssh/sshd_config.d/awb-work-user.conf` | root, 644 | points sshd at that file for the work user alone; the owner's ssh is unchanged |
+| `/etc/cron.deny` | root, 644 | names `awb`: the work user has no crontab |
+| `/etc/systemd/system/awb-work-update.*`, `awb-kb-commit.*` | root, 644 | the nightly jobs of the work user as timers that run as `awb`: `claude update` at 01:35, the commit of the knowledge base at 01:40 |
 | `/opt/tcp-awb/releases/<commit>` | root, no group or other write | one folder per commit from `git archive HEAD` |
 | `/opt/tcp-awb/src` | root, symlink | the live release |
 | `/opt/tcp-awb/venv` | root | the virtual environment with the system site packages |

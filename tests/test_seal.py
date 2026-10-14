@@ -110,10 +110,13 @@ def test_scripts_read_homes_from_getent_and_carry_none(fakebin):
         assert OWNER_HOME not in text
 
 
-def test_setup_dry_run_prints_every_step_and_closes_the_host_file_to_other_users(fakebin):
-    """Replaces test_setup_dry_run_prints_every_step (SB1 of the self-build): the host file is written 640 root:awb
-    in /etc/awb root:awb 751 (it pinned 644 root:root), and the one pip install of the seal is the one into the
-    suite's venv on the build image (it pinned none). Everything else is the same."""
+def test_setup_dry_run_prints_every_step_and_keeps_the_work_users_keys_out_of_its_reach(fakebin):
+    """Replaces test_setup_dry_run_prints_every_step_and_closes_the_host_file_to_other_users (F2 G3: the owner's
+    keys go to the root owned key file of the work user in the ssh folder of the host, 644 root:root; it pinned a copy
+    in the work home owned by the work user, 600), which replaced test_setup_dry_run_prints_every_step (SB1 of the
+    self-build: the host file is written 640 root:awb in /etc/awb root:awb 751, it pinned 644 root:root; the one
+    pip install of the seal is the one into the suite's venv on the build image, it pinned none). Everything else
+    is the same."""
     res = run_script(SETUP, ["--dry-run"], fakebin)
     assert res.returncode == 0, res.stderr
     no_marks(fakebin)
@@ -158,8 +161,9 @@ def test_setup_dry_run_prints_every_step_and_closes_the_host_file_to_other_users
     assert "    | Group=awb" in out.splitlines()
     assert has(r"^\+ systemctl enable --now awb-vaultd\.service$")
     # the keys and the client files of the work user
-    assert has(r"^\+ install -o awb -g awb -m 600 %s/\.ssh/authorized_keys \S+/\.ssh/authorized_keys"
+    assert has(r"^\+ install -o root -g root -m 644 %s/\.ssh/authorized_keys /etc/ssh/authorized_keys/awb  # if present$"
                % re.escape(OWNER_HOME))
+    assert not has(r"install -o awb .*authorized_keys")
     for name in ("settings.json", "CLAUDE.md"):
         assert has(r"^\+ install -o root -g awb -m 644 %s \S+/\.claude/%s$"
                    % (re.escape(str(SEAL / "work-claude" / name)), re.escape(name)))
@@ -947,6 +951,224 @@ def test_the_work_gitconfig_names_the_workbench():
     text = (SEAL / "work-gitconfig").read_text(encoding="utf-8")
     from awb import projects
     assert text == "[user]\n\tname = %s\n\temail = %s\n" % (projects._GIT_NAME, projects._GIT_EMAIL)
+
+
+# --------------------------------------------------------------------------- F2 G3: the persistence of the work user
+
+WORK_JOBS = SEAL / "work-jobs"
+
+
+def setup_value(name: str) -> str:
+    """The value of a constant at the top of setup.sh, quotes taken off."""
+    m = re.search(r'(?m)^%s=("[^"]*"|\S+)' % name, SETUP.read_text(encoding="utf-8"))
+    assert m, name
+    return m.group(1).strip('"')
+
+
+def dropin_lines(out: str, path: str) -> list[str]:
+    """The lines a dry run writes into PATH, as they land in the file."""
+    lines = out.splitlines()
+    i = lines.index("+ write %s (mode 644, root:root)" % path)
+    body = []
+    for line in lines[i + 1:]:
+        if not line.startswith("    | "):
+            break
+        body.append(line[6:])
+    return body
+
+
+def test_setup_dry_run_puts_the_work_users_keys_in_a_root_file_and_checks_sshd_before_the_reload(fakebin):
+    """F2 G3. The keys of the work user go to /etc/ssh/authorized_keys/awb (root, 644), a drop-in of sshd points the
+    work user alone at that file and closes its block, sshd -t runs before the reload and the old copy in the work
+    home goes after it. The owner's ssh is not touched and a deploy leaves all of it alone."""
+    match_kw, keys_kw = setup_value("SSHD_MATCH"), setup_value("SSHD_KEYS_FILE")
+    assert (match_kw.lower(), keys_kw.lower()) == ("match user", "authorizedkeysfile")
+    res = run_script(SETUP, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    no_marks(fakebin)
+    cmds = commands(res.stdout)
+    dropin = "/etc/ssh/sshd_config.d/awb-work-user.conf"
+    body = [line for line in dropin_lines(res.stdout, dropin) if not line.startswith("#")]
+    assert body == ["%s awb" % match_kw, "    %s /etc/ssh/authorized_keys/%%u" % keys_kw, "Match all"]
+
+    def at(line: str) -> int:
+        return cmds.index(line)
+
+    first = at("+ install -d -o root -g root -m 755 /etc/ssh/authorized_keys")
+    copy = at("+ install -o root -g root -m 644 %s/.ssh/authorized_keys /etc/ssh/authorized_keys/awb  # if present"
+              % OWNER_HOME)
+    write = at("+ write %s (mode 644, root:root)" % dropin)
+    check = at("+ sshd -t")
+    reload = at("+ systemctl try-reload-or-restart ssh.service")
+    old = next(i for i, c in enumerate(cmds) if re.match(r"^\+ rm -f -- \S+/\.ssh/authorized_keys$", c))
+    assert first < copy < write < check < reload < old
+    ssh_lines = [c for c in cmds if "ssh" in c and "awb-build" not in c]
+    assert not [c for c in ssh_lines if OWNER_HOME + "/.ssh" in c and c != cmds[copy]]
+    assert not [c for c in ssh_lines if re.search(r"(chown|chmod|install -o awb).*\.ssh", c)]
+    update = run_script(SETUP, ["--dry-run", "--update"], fakebin)
+    assert update.returncode == 0, update.stderr
+    assert not [c for c in commands(update.stdout) if "ssh" in c and "awb-build" not in c]
+
+
+def test_setup_dry_run_turns_the_crontab_of_the_work_user_into_root_timers_and_denies_it_cron(fakebin):
+    """F2 G3. Two units and two timers rendered from seal/work-jobs into the unit folder of root, enabled, then
+    cron.deny names the work user (appended, so other lines stay) and its crontab goes. The repository carries no kb
+    commit script, so the plan says so and the timer runs the script where the crontab ran it."""
+    res = run_script(SETUP, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    no_marks(fakebin)
+    out = res.stdout
+    cmds = commands(out)
+    units = ["awb-work-update.service", "awb-work-update.timer", "awb-kb-commit.service", "awb-kb-commit.timer"]
+    writes = [cmds.index("+ write /etc/systemd/system/%s (mode 644, root:root)" % u) for u in units]
+    enables = [cmds.index("+ systemctl enable --now %s" % t) for t in units if t.endswith(".timer")]
+    deny = cmds.index("+ append to /etc/cron.deny: awb")
+    gone = cmds.index("+ crontab -u awb -r  # if present")
+    assert max(writes) < min(enables) and max(enables) < deny < gone
+    assert "+ chown root:root /etc/cron.deny" in cmds and "+ chmod 644 /etc/cron.deny" in cmds
+    update = dropin_lines(out, "/etc/systemd/system/awb-work-update.service")
+    kb = dropin_lines(out, "/etc/systemd/system/awb-kb-commit.service")
+    assert not [line for line in update + kb if "@" in line]
+    assert re.search(r"(?m)^ExecStart=/bin/sh -c 'mkdir -p (\S+)/\.local/state && exec \1/\.local/bin/claude update "
+                     r">>\1/\.local/state/claude-update\.log 2>&1'$", "\n".join(update))
+    assert not (WORK_JOBS / "nightly-kb-commit").exists()
+    assert "the repository has no seal/work-jobs/nightly-kb-commit" in out
+    assert re.search(r"(?m)^ExecStart=\S+/\.local/bin/nightly-kb-commit$", "\n".join(kb))
+    for name, at in (("awb-work-update", "01:35:00"), ("awb-kb-commit", "01:40:00")):
+        timer = dropin_lines(out, "/etc/systemd/system/%s.timer" % name)
+        assert "OnCalendar=*-*-* %s" % at in timer and "Unit=%s.service" % name in timer
+    plan = run_script(SETUP, ["--dry-run", "--update"], fakebin)
+    assert plan.returncode == 0, plan.stderr
+    assert not [c for c in commands(plan.stdout) if "cron" in c or "work-update" in c or "kb-commit" in c]
+
+
+@pytest.mark.parametrize("name, families", [("awb-work-update", ["AF_UNIX AF_INET AF_INET6 AF_NETLINK"]),
+                                            ("awb-kb-commit", ["AF_UNIX"])])
+def test_the_nightly_jobs_run_as_the_work_user_in_a_hardened_oneshot(name, families):
+    """F2 G3. Planted: a template without one of the hardening lines, with another user or with a log that systemd
+    would open as root (StandardOutput=append:) fails."""
+    keys = _service_keys(WORK_JOBS / ("%s.service" % name))
+    assert keys["Type"] == ["oneshot"]
+    assert keys["User"] == ["awb"] and keys["Group"] == ["awb"]
+    for key in ("NoNewPrivileges", "PrivateTmp", "PrivateDevices", "ProtectKernelTunables", "ProtectKernelModules",
+                "ProtectControlGroups", "RestrictSUIDSGID", "LockPersonality", "RestrictNamespaces"):
+        assert keys[key] == ["yes"], key
+    assert keys["ProtectSystem"] == ["strict"] and keys["ProtectHome"] == ["read-only"]
+    assert keys["ReadWritePaths"] == ["@WORK_HOME@"]
+    assert keys["CapabilityBoundingSet"] == [""]
+    assert keys["RestrictAddressFamilies"] == families
+    assert "StandardOutput" not in keys and "StandardError" not in keys
+    timer = (WORK_JOBS / ("%s.timer" % name)).read_text(encoding="utf-8")
+    assert "WantedBy=timers.target" in timer and "Persistent" not in timer
+
+
+def _persist_snippet(tmp: Path) -> str:
+    lines = SETUP.read_text(encoding="utf-8").splitlines(keepends=True)
+    start = next(i for i, x in enumerate(lines) if x.startswith("# ----") and "printing and the guard" in x)
+    end = next(i for i, x in enumerate(lines) if x.startswith("# ----") and x.rstrip().endswith("the steps"))
+    ss = next(i for i, x in enumerate(lines) if x.startswith("step_ssh() {"))
+    se = next(i for i, x in enumerate(lines) if x.startswith("clear_target() {"))
+    consts = "".join(x for x in lines if re.match(r"^(SSHD_MATCH|SSHD_KEYS_FILE|WORK_JOBS|KB_COMMIT_OLD)=", x))
+    return ("set -euo pipefail\ndie() { echo \"setup: $*\" >&2; exit 1; }\ndry_run=0\nreal=0\ntest_root=1\n"
+            "WORK_USER=awb\nWORK_GROUP=awb\n%sSSH_KEYS_DIR=%s/keys\nSSHD_DROPIN=%s/sshd.d/awb-work-user.conf\n"
+            "CRON_DENY=%s/cron.deny\nUNITS_DIR=%s/units\nKB_COMMIT=%s/libexec/nightly-kb-commit\n"
+            "owner_home=%s/owner\nwork_home=%s/work\nseal_dir=%s\nprotected=(%s/vault)\n%s\n%s\n"
+            % (consts, tmp, tmp, tmp, tmp, tmp, tmp, tmp, SEAL, tmp, "".join(lines[start:end]),
+               "".join(lines[ss:se])))
+
+
+def _persist_run(tmp: Path, step: str, sshd_ok: bool = True, crontab: str | None = None):
+    fake = tmp / "fake"
+    fake.mkdir(exist_ok=True)
+    log = tmp / "calls.log"
+    scripts = {
+        "sshd": 'echo "sshd $*" >> "%s"; exit %d' % (log, 0 if sshd_ok else 1),
+        "systemctl": 'echo "systemctl $*" >> "%s"' % log,
+        "chown": "exit 0",
+        "crontab": ('echo "crontab $*" >> "%s"; case "$*" in *-l*) [ -f "%s" ] && cat "%s" && exit 0; '
+                    'echo "no crontab for awb" >&2; exit 1 ;; *-r*) rm -f "%s" ;; esac' % ((log,) + (tmp / "tab",) * 3)),
+        "install": ('d=0; while [ $# -gt 0 ]; do case "$1" in -d) d=1; shift ;; -o|-g|-m) shift 2 ;; *) break ;; esac; '
+                    'done; if [ "$d" -eq 1 ]; then mkdir -p "$@"; else cp "$1" "$2"; fi'),
+    }
+    for name, body in scripts.items():
+        (fake / name).write_text("#!/bin/sh\n%s\n" % body)
+        (fake / name).chmod(0o755)
+    if crontab is not None:
+        (tmp / "tab").write_text(crontab)
+    (tmp / "units").mkdir(exist_ok=True)
+    env = dict(os.environ, PATH="%s:%s" % (fake, os.environ["PATH"]))
+    res = subprocess.run(["bash", "-c", _persist_snippet(tmp) + step], capture_output=True, text=True, env=env,
+                         timeout=60)
+    return res, (log.read_text().splitlines() if log.exists() else [])
+
+
+def test_step_ssh_for_real_moves_the_keys_and_takes_the_drop_in_back_when_sshd_refuses_it(tmp_path):
+    """F2 G3, with fakes of sshd and systemctl. sshd -t passes: the key file is the owner's, the drop-in in place,
+    sshd reloaded, the old copy gone. sshd -t fails: the drop-in is removed again, no reload, the old copy stays."""
+    (tmp_path / "owner" / ".ssh").mkdir(parents=True)
+    (tmp_path / "owner" / ".ssh" / "authorized_keys").write_text("ssh-ed25519 AAAAplanted owner\n")
+    old = tmp_path / "work" / ".ssh" / "authorized_keys"
+    old.parent.mkdir(parents=True)
+    old.write_text("ssh-ed25519 AAAAplanted session\n")
+    res, calls = _persist_run(tmp_path, "step_ssh\n", sshd_ok=False)
+    assert res.returncode == 1 and "sshd -t refused" in res.stderr
+    assert not (tmp_path / "sshd.d" / "awb-work-user.conf").exists()
+    assert calls == ["sshd -t"] and old.exists()
+    res, calls = _persist_run(tmp_path, "step_ssh\n")
+    assert res.returncode == 0, res.stderr + res.stdout
+    assert (tmp_path / "keys" / "awb").read_text() == "ssh-ed25519 AAAAplanted owner\n"
+    text = (tmp_path / "sshd.d" / "awb-work-user.conf").read_text()
+    assert "%s awb\n" % setup_value("SSHD_MATCH") in text
+    assert "%s %s/keys/%%u\n" % (setup_value("SSHD_KEYS_FILE"), tmp_path) in text
+    assert calls[-2:] == ["sshd -t", "systemctl try-reload-or-restart ssh.service"]
+    assert not old.exists()
+
+
+def test_step_work_jobs_for_real_keeps_the_other_lines_of_cron_deny_and_drops_the_crontab(tmp_path):
+    """F2 G3, with fakes of crontab and systemctl. A cron.deny whose last line has no newline keeps it as its own
+    line; a crontab line other than the two jobs is named before the crontab goes; a second run changes nothing."""
+    (tmp_path / "cron.deny").write_text("guest\nnobody")
+    tab = "35 1 * * * $HOME/.local/bin/claude update >> $HOME/.local/state/claude-update.log 2>&1\n" \
+          "40 1 * * * $HOME/.local/bin/nightly-kb-commit\n*/5 * * * * $HOME/.cache/planted\n"
+    res, calls = _persist_run(tmp_path, "step_work_jobs\n", crontab=tab)
+    assert res.returncode == 0, res.stderr + res.stdout
+    assert (tmp_path / "cron.deny").read_text() == "guest\nnobody\nawb\n"
+    assert "a line the timers do not run: */5 * * * * $HOME/.cache/planted" in res.stdout
+    assert "claude update" not in "".join(x for x in res.stdout.splitlines() if "warning" in x)
+    assert "crontab -u awb -r" in calls and not (tmp_path / "tab").exists()
+    assert {"systemctl enable --now awb-work-update.timer", "systemctl enable --now awb-kb-commit.timer"} <= set(calls)
+    for unit in ("awb-work-update.service", "awb-work-update.timer", "awb-kb-commit.service", "awb-kb-commit.timer"):
+        text = (tmp_path / "units" / unit).read_text()
+        assert "@" not in text, unit
+        assert "%s/work" % tmp_path in text or unit.endswith(".timer"), unit
+    res, calls = _persist_run(tmp_path, "step_work_jobs\n")
+    assert res.returncode == 0, res.stderr + res.stdout
+    assert (tmp_path / "cron.deny").read_text() == "guest\nnobody\nawb\n"
+    assert "= crontab -u awb -r  # no crontab" in res.stdout
+
+
+def test_verify_dry_run_lists_the_persistence_checks_of_the_work_user(fakebin):
+    """F2 G3: the root owned key file out of the work user's reach, the file sshd -T names for it, no key file in the
+    work home, cron.deny, crontab -l refused and no crontab, both timers enabled and their services as the work user."""
+    res = run_script(VERIFY, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    no_marks(fakebin)
+    checks = [line[6:] for line in res.stdout.splitlines() if line.startswith("CHECK ")]
+    for must in ("the work user's ssh key file /etc/ssh/authorized_keys/awb is owned by root",
+                 "the work user cannot write its ssh key file",
+                 "the work user cannot write the folder of its ssh key file",
+                 "sshd reads the work user's keys from /etc/ssh/authorized_keys alone (sshd -T -C user=awb)",
+                 "the work home holds no .ssh/authorized_keys",
+                 "/etc/cron.deny names the work user",
+                 "crontab -l as the work user is refused",
+                 "the work user has no crontab",
+                 "the timer awb-work-update.timer is enabled", "the timer awb-kb-commit.timer is enabled",
+                 "awb-work-update.service runs as the work user", "awb-kb-commit.service runs as the work user"):
+        assert must in checks, must
+    text = VERIFY.read_text(encoding="utf-8")
+    assert "sshd -T -C \"user=$WORK_USER," in text
+    assert re.search(r"(?m)^SSHD_KEYS_LINE='authorizedkeysfile /etc/ssh/authorized_keys/%u'$", text)
+    assert 'grep -qi "not allowed"' in text
 
 
 def test_the_host_file_names_the_front_socket_and_the_tunnel_user(fakebin):

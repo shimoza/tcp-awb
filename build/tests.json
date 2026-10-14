@@ -3706,8 +3706,8 @@
   {
    "id": "SB1-9",
    "phase": "SB1",
-   "name": "build side: the full dry run with /etc/awb root:awb 751 and the host file 640 root:awb (replaces test_setup_dry_run_prints_every_step)",
-   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_dry_run_prints_every_step_and_closes_the_host_file_to_other_users",
+   "name": "build side: the full dry run with /etc/awb root:awb 751, the host file 640 root:awb and the work user's keys root owned in /etc/ssh/authorized_keys (replaces test_setup_dry_run_prints_every_step_and_closes_the_host_file_to_other_users, F2 G3)",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_dry_run_prints_every_step_and_keeps_the_work_users_keys_out_of_its_reach",
    "status": "passing"
   },
   {
@@ -5739,8 +5739,50 @@
    "name": "egress: verify.sh checks that an established connection passes only with the mark of the allow rules (E1, E2)",
    "run": ".venv/bin/pytest tests/test_egress.py::test_verify_checks_that_an_established_connection_passes_only_with_the_mark",
    "status": "passing"
+  },
+  {
+   "id": "F2G3-1",
+   "phase": "F2-G3",
+   "name": "seal: the dry run puts the work user's keys in a root file, writes the sshd drop-in for the work user alone, runs sshd -t before the reload and removes the old copy; a deploy touches none of it",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_dry_run_puts_the_work_users_keys_in_a_root_file_and_checks_sshd_before_the_reload",
+   "status": "passing"
+  },
+  {
+   "id": "F2G3-2",
+   "phase": "F2-G3",
+   "name": "seal: the dry run renders and enables the two nightly timers at 01:35 and 01:40, then cron.deny names the work user and its crontab goes; a deploy touches none of it",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_dry_run_turns_the_crontab_of_the_work_user_into_root_timers_and_denies_it_cron",
+   "status": "passing"
+  },
+  {
+   "id": "F2G3-3",
+   "phase": "F2-G3",
+   "name": "seal: the nightly jobs run as the work user in a hardened oneshot, the log opened by the job and not by systemd",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_nightly_jobs_run_as_the_work_user_in_a_hardened_oneshot",
+   "status": "passing"
+  },
+  {
+   "id": "F2G3-4",
+   "phase": "F2-G3",
+   "name": "seal: step_ssh for real with fakes moves the keys and takes the drop-in back when sshd -t refuses it",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_step_ssh_for_real_moves_the_keys_and_takes_the_drop_in_back_when_sshd_refuses_it",
+   "status": "passing"
+  },
+  {
+   "id": "F2G3-5",
+   "phase": "F2-G3",
+   "name": "seal: step_work_jobs for real keeps the other lines of cron.deny, names a foreign crontab line and drops the crontab, twice",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_step_work_jobs_for_real_keeps_the_other_lines_of_cron_deny_and_drops_the_crontab",
+   "status": "passing"
+  },
+  {
+   "id": "F2G3-6",
+   "phase": "F2-G3",
+   "name": "seal: verify.sh lists the key file, sshd -T, cron.deny, the refused crontab -l and both timers",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_verify_dry_run_lists_the_persistence_checks_of_the_work_user",
+   "status": "passing"
   }
  ],
- "total_tests": 820,
- "checked": "2026-10-13"
+ "total_tests": 826,
+ "checked": "2026-10-14"
 }

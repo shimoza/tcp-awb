@@ -1,0 +1,11 @@
+# The timer of awb-work-update.service: 01:35 every night, the time of the crontab line it replaces (F2 G3).
+# Installed and enabled by seal/setup.sh.
+[Unit]
+Description=Architect Workbench nightly update of the work user's client, 01:35
+
+[Timer]
+OnCalendar=*-*-* 01:35:00
+Unit=awb-work-update.service
+
+[Install]
+WantedBy=timers.target

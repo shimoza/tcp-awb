@@ -12,7 +12,7 @@ counted by class and, in the mode enforce, refused. Measured on 2026-10-11 on th
 | `api.anthropic.com` | `tcp 443` | `allow` | the model API of every session; the client also checks a WebFetch domain and fetches its feature flags here. Seen on every sample of the work user |
 | `claude.ai` | `tcp 443` | `allow` | the client's account login (the work user signs in with a claude.ai account) |
 | `platform.claude.com` | `tcp 443` | `allow` | the client's token exchange and refresh, also for claude.ai accounts (the nightly run renews the login) |
-| `downloads.claude.ai` | `tcp 443` | `allow` | the nightly `claude update` of the work user (crontab 01:35 UTC): the client is the native install, its version check and download go here |
+| `downloads.claude.ai` | `tcp 443` | `allow` | the nightly `claude update` of the work user (`awb-work-update.timer` 01:35 UTC, a root owned timer in place of its crontab since F2 G3): the client is the native install, its version check and download go here |
 | `http-intake.logs.us5.datadoghq.com` | `tcp 443` | `allow` | the client's operational telemetry, on by default and not switched off in the work user's settings. Seen on the first sample |
 | `browser-intake-us5-datadoghq.com` | `tcp 443` | `allow` | the client's error reports, same switch as the telemetry |
 | `calculator.otc-service.com` | `tcp 443` | `allow` | the public price API of T Cloud Public: `awb price` and the skill tcp-price run in the sessions, no key |
@@ -101,6 +101,7 @@ First match wins, in this order. `awb egress status` shows the counts of the las
 - The client's own list of the hosts it needs (code.claude.com/docs/en/network-config, read on 2026-10-11) against the
   work user's install: native, version 2.1.296, no plugin installed, the official marketplace known, `autoUpdates` off.
 - The crontab of the work user: `claude update` at 01:35 and the commit of the knowledge base at 01:40 (no remote).
+  Since F2 G3 both run from root owned timers as the work user (`seal/work-jobs/`) and the work user has no crontab.
 - The projects of the work user: no git remote. The units that run as the work user (`awb-portal`,
   `awb-console-data`, `awb-project-create`): loopback and Unix sockets only.
 - `/etc/resolv.conf`: the stub `127.0.0.53`. The time: systemd-timesyncd.

@@ -449,7 +449,10 @@ Integration (change these existing modules, keep every existing test green):
   system site packages, one `.pth` line, the exchange of `src`; see "The deploy" at the end), `/usr/local/bin/awb`,
   write `/etc/awb/paths.conf`, install and start every `seal/*.service` (the vault daemon: User=<owner>, Group=awb,
   RuntimeDirectory=awb, RuntimeDirectoryMode=0750), copy the
-  owner's `~/.ssh/authorized_keys` to the work user, install `seal/work-claude/settings.json` and
+  owner's `~/.ssh/authorized_keys` to `/etc/ssh/authorized_keys/awb` (root, 644) with an sshd drop-in that points the
+  work user alone at it (checked with `sshd -t` before the reload), turn the work user's two crontab jobs into root
+  owned timers that run as the work user (`seal/work-jobs/`), name the work user in `/etc/cron.deny` and remove its
+  crontab (F2 G3), install `seal/work-claude/settings.json` and
   `seal/work-claude/CLAUDE.md` into `<work-home>/.claude/`. Home folders are read with `getent passwd`, never
   written into the script. `--mirrors` adds read-only bind mounts of the public doc
   mirrors under `/srv/tcp-mirrors/` with fstab entries. `--dry-run` prints every command and changes nothing, and
@@ -457,7 +460,9 @@ Integration (change these existing modules, keep every existing test green):
 - `seal/verify.sh` (sudo): as the work user each of these must fail: read the register (plain or .gpg), list the
   vault, read the owner's password store, `.claude`, `.ssh`, any folder in the owner's home, `sudo -n true`; the work user is
   in none of the groups above; the check socket answers ping; the work user can write `tcp-shared`; the owner can
-  write the outbox. Prints PASS or FAIL per line, exit 1 on any FAIL.
+  write the outbox; the work user's ssh key file is root owned and not writable for it, `sshd -T -C user=awb` names
+  that file, `crontab -l` as the work user is refused and both timers of its nightly jobs are enabled. Prints PASS or
+  FAIL per line, exit 1 on any FAIL.
 - `seal/work-claude/settings.json`: hooks of the next section with absolute `/usr/local/bin/awb`, permissions deny
   for `mcp__*` (connectors of the account hand raw customer text to a session, T-101), no other change.
 - `seal/work-claude/CLAUDE.md`: at most 60 lines: codes only, never repeat a name he types, intake is his, where

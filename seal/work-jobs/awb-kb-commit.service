@@ -1,0 +1,34 @@
+# The nightly commit of the knowledge base (F2 G3), rendered by seal/setup.sh with the work home and the script:
+# /usr/local/libexec/awb/nightly-kb-commit when the repository carries seal/work-jobs/nightly-kb-commit, otherwise
+# the script where the crontab ran it, .local/bin/nightly-kb-commit of the work home. It ran from the work user's
+# crontab; now root owns the unit and its timer and cron.deny names the work user. It runs as the work user, so the
+# commit gate hooks of the knowledge base run as before; the knowledge base has no remote and the job no network.
+[Unit]
+Description=Architect Workbench nightly commit of the knowledge base
+
+[Service]
+Type=oneshot
+User=awb
+Group=awb
+WorkingDirectory=@WORK_HOME@
+ExecStart=@KB_COMMIT@
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@WORK_HOME@
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+LimitCORE=0
+TimeoutStartSec=15min

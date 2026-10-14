@@ -6,7 +6,7 @@
 #
 # --update is what `sudo awb deploy` runs, from the release folder it has just extracted, never from a working
 # tree. Its steps are an explicit allow list (update_steps): the code, the host file, the units, the needrestart
-# rule, the package holds of cloudflared and terraform, the egress filter, the client files and the managed drop-in. The users, the homes, the moves, the ssh keys and (without
+# rule, the package holds of cloudflared and terraform, the egress filter, the client files and the managed drop-in. The users, the homes, the moves, the ssh keys, the nightly jobs of the work user and (without
 # --mirrors) the mirrors are left alone, so a deploy never chowns the shared tree again. --units-only renders and
 # installs the unit templates and reloads systemd, nothing else (the flip back of a failed reload uses it).
 #
@@ -78,6 +78,14 @@ BUILD_FAILED_UNIT=awb-task-failed@.service   # OnFailure= of every task unit (aw
 BUILD_MODEL_DEFAULT=login             # D-S7 changed: his subscription login; build_model = key in the host file is the fallback
 BUILD_MODEL_KEY=/etc/awb/build-model.key     # the owner's copy for the runner (build_model = key), never printed
 BUILD_MODEL_KEY_SOURCE=/etc/awb/anthropic.key   # the default source; build_model_key_source in the host file wins
+SSH_KEYS_DIR=/etc/ssh/authorized_keys     # the work user's keys, root owned (F2 G3)
+SSHD_DROPIN=/etc/ssh/sshd_config.d/awb-work-user.conf
+SSHD_MATCH="Match User"                  # the two sshd keywords of the drop-in; the tests take them from here
+SSHD_KEYS_FILE=AuthorizedKeysFile
+CRON_DENY=/etc/cron.deny
+WORK_JOBS="awb-work-update awb-kb-commit"   # seal/work-jobs/NAME.service and NAME.timer, the nightly jobs of the work user
+KB_COMMIT=/usr/local/libexec/awb/nightly-kb-commit   # the root owned copy of seal/work-jobs/nightly-kb-commit
+KB_COMMIT_OLD=.local/bin/nightly-kb-commit           # where the crontab ran it, in the work home
 BUILD_KEY_HELPER='  "apiKeyHelper": "cat \"$HOME/.config/awb-build/model.key\"",'   # the template's line with build_model = key
 
 usage() {
@@ -378,7 +386,12 @@ append_line() {
         return 0
     fi
     printf '+ append to %s: %s\n' "$file" "$line"
-    [ "$dry_run" -eq 1 ] || printf '%s\n' "$line" >>"$file"
+    [ "$dry_run" -eq 0 ] || return 0
+    # a last line without its newline stays a line of its own
+    if [ -s "$file" ] && [ -n "$(tail -c 1 -- "$file")" ]; then
+        printf '\n' >>"$file"
+    fi
+    printf '%s\n' "$line" >>"$file"
 }
 
 in_group() {
@@ -801,12 +814,73 @@ step_kb_hooks() {
 }
 
 step_ssh() {
-    local keys="$owner_home/.ssh/authorized_keys"
-    info "the owner's ssh keys open the work user too"
-    run mkdir -p "$work_home/.ssh"
-    run chown "$WORK_USER:$WORK_GROUP" "$work_home/.ssh"
-    run chmod 700 "$work_home/.ssh"
-    run_if_present "$keys" install -o "$WORK_USER" -g "$WORK_GROUP" -m 600 "$keys" "$work_home/.ssh/authorized_keys"
+    local keys="$owner_home/.ssh/authorized_keys" target="$SSH_KEYS_DIR/$WORK_USER"
+    info "the owner's ssh keys open the work user too, from a root owned file (F2 G3): sshd reads the work user's"
+    info "keys from $target alone, so a session of the work user cannot add a key of its own. The owner's ssh"
+    info "stays as it is"
+    run install -d -o root -g root -m 755 "$SSH_KEYS_DIR"
+    run_if_present "$keys" install -o root -g root -m 644 "$keys" "$target"
+    run mkdir -p "$(dirname "$SSHD_DROPIN")"
+    write_file "$SSHD_DROPIN" 644 root:root <<EOF
+# written by seal/setup.sh: the keys of the work user are root owned (F2 G3)
+$SSHD_MATCH $WORK_USER
+    $SSHD_KEYS_FILE $SSH_KEYS_DIR/%u
+Match all
+EOF
+    if [ "$real" -eq 1 ] && ! grep -Eqs '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf' \
+        /etc/ssh/sshd_config; then
+        info "warning: /etc/ssh/sshd_config includes no sshd_config.d/*.conf, seal/verify.sh will report it"
+    fi
+    show sshd -t
+    if [ "$dry_run" -eq 0 ] && ! sshd -t; then
+        run rm -f -- "$SSHD_DROPIN"
+        die "sshd -t refused the configuration with the drop-in: the drop-in was removed, sshd was not reloaded"
+    fi
+    try_run systemctl try-reload-or-restart ssh.service
+    info "the old copy in the work home goes: sshd no longer reads it"
+    run rm -f -- "$work_home/.ssh/authorized_keys"
+}
+
+step_work_jobs() {
+    local name kind kb_exec src="$seal_dir/work-jobs/nightly-kb-commit" line
+    info "the nightly jobs of the work user (F2 G3): root owned timers that run them as the work user, at the times"
+    info "of its crontab, 01:35 claude update (into .local/state/claude-update.log) and 01:40 the commit of the"
+    info "knowledge base. Then $CRON_DENY names the work user and its crontab goes, so a session cannot persist there"
+    if [ -f "$src" ]; then
+        run install -d -o root -g root -m 755 "$(dirname "$KB_COMMIT")"
+        run install -o root -g root -m 755 "$src" "$KB_COMMIT"
+        kb_exec=$KB_COMMIT
+    else
+        info "the repository has no seal/work-jobs/nightly-kb-commit: the timer runs $work_home/$KB_COMMIT_OLD where it"
+        info "is, a file the work user can still change (it runs as the work user, never as root)"
+        kb_exec="$work_home/$KB_COMMIT_OLD"
+    fi
+    for name in $WORK_JOBS; do
+        for kind in service timer; do
+            write_file "$UNITS_DIR/$name.$kind" 644 root:root < <(sed -e "s|@WORK_HOME@|$work_home|g" \
+                -e "s|@KB_COMMIT@|$kb_exec|g" "$seal_dir/work-jobs/$name.$kind")
+        done
+    done
+    run systemctl daemon-reload
+    for name in $WORK_JOBS; do
+        try_run systemctl enable --now "$name.timer"
+    done
+    append_line "$CRON_DENY" "$WORK_USER"
+    run chown root:root "$CRON_DENY"
+    run chmod 644 "$CRON_DENY"
+    if [ "$dry_run" -eq 1 ]; then
+        printf '+ %s  # if present\n' "$(quote_args crontab -u "$WORK_USER" -r)"
+    elif crontab -u "$WORK_USER" -l >/dev/null 2>&1; then
+        while IFS= read -r line; do
+            case "$line" in
+                "" | "#"* | *"claude update"* | *nightly-kb-commit*) ;;
+                *) info "warning: the crontab of the work user goes with a line the timers do not run: $line" ;;
+            esac
+        done < <(crontab -u "$WORK_USER" -l 2>/dev/null)
+        run crontab -u "$WORK_USER" -r
+    else
+        skip "no crontab" crontab -u "$WORK_USER" -r
+    fi
 }
 
 clear_target() {
@@ -1288,6 +1362,7 @@ steps() {
     step_holds
     step_kb_hooks
     step_ssh
+    step_work_jobs
     step_client
     step_managed
     step_build
