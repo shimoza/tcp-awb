@@ -6677,8 +6677,15 @@
    "name": "board: a cell outside the vocabulary of the recheck line is dropped",
    "run": ".venv/bin/pytest tests/test_board.py::test_a_cell_outside_the_vocabulary_of_the_recheck_line_is_dropped",
    "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F8-1",
+   "phase": "FK8",
+   "name": "refresh: the worklist carries the tier and the block, an expired entry without a block is overdue",
+   "run": ".venv/bin/pytest tests/test_refresh.py::test_the_worklist_carries_the_tier_and_the_block_and_an_entry_without_one_is_overdue",
+   "status": "passing"
   }
  ],
- "total_tests": 954,
+ "total_tests": 955,
  "checked": "2026-10-14"
 }

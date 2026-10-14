@@ -7,6 +7,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- The refresh worklist carries the check block (fact-check design F8): every line of `worklist.jsonl` has `tier`
+  (read, write, decision, none or `no block`) and `block`. An expired entry whose block a recheck run takes (read or
+  write, needs none) names `awb kb recheck-run` and is that run's work; every other one, first of all one without a
+  block, counts as overdue in the knowledge part, whose report adds a line with the count by tier.
+
 - The board carries the recheck line (fact-check design F6): from `<shared>/recheck/state.tsv`, the newest run of each
   tier of `awb kb recheck-run` with its counts, the inventory of a write run and the entries for the owner
   (`recheck: read 2026-10-18 12 confirmed, 1 refuted, 3 undecided; write 2026-11-02 4 confirmed, inventory equal; 9

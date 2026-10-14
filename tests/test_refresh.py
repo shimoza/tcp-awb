@@ -57,6 +57,40 @@ def test_the_worklist_holds_the_expired_entries_with_how_to_check_them(home):
     assert {json.loads(line)["id"] for line in lines} == set(methods)
 
 
+
+READ_BLOCK = ("tier: read\n"
+              "calls: GET ecs /v1/{project_id}/cloudservers/flavors\n"
+              "confirms: flavors[name=s3.xlarge.2].os-extra_specs.cond:operation:az has eu-de-01(normal)\n"
+              "refutes: flavors[name=s3.xlarge.2].os-extra_specs.cond:operation:az lacks eu-de-01(normal)\n"
+              "control: flavors[name=s2.medium.1].os-extra_specs.cond:operation:az has sellout\n"
+              "needs: none\n")
+NONE_BLOCK = ("tier: none\n"
+              "confirms: the console form lists the option\n"
+              "refutes: the console form does not list the option\n"
+              "control: a second option the form lists in any case\n"
+              "needs: a person at the console\n")
+
+
+def test_the_worklist_carries_the_tier_and_the_block_and_an_entry_without_one_is_overdue(home):
+    read = entry("ECS flavor s3.xlarge.2 is offered in eu-de-01", checked=OLD)
+    kb.how(read.id, READ_BLOCK)
+    nothing = entry("The console offers the option of a second flavor list", checked=OLD, cls="api")
+    kb.how(nothing.id, NONE_BLOCK)
+    bare = entry("ECS flavor s3.large.4 is offered in eu-de-02", checked=OLD)
+    fresh = entry("ECS flavor s3.medium.2 is offered in eu-de-03")
+    work = {w["id"]: w for w in refresh.worklist(kb.load(home), TODAY)}
+    assert fresh.id not in work
+    assert work[read.id]["tier"] == "read" and work[read.id]["block"] == kb.get(read.id).block
+    assert work[read.id]["method"] == "awb kb recheck-run --tier read (its check block)"
+    assert work[nothing.id]["tier"] == "none" and work[nothing.id]["method"].startswith("read-only live call")
+    assert work[bare.id]["tier"] == "no block" and work[bare.id]["block"] == {}
+    part = refresh.part_knowledge(home, home.shared / "refresh" / "y", today=TODAY)
+    assert part.overdue == 2
+    assert "by check block: no block 1, none 1, read 1; 1 without a block, 2 overdue, 1 for awb kb recheck-run" \
+        in part.lines
+    lines = [json.loads(x) for x in (home.shared / "refresh" / "y" / "worklist.jsonl").read_text().splitlines()]
+    assert {x["id"]: x["tier"] for x in lines} == {read.id: "read", nothing.id: "none", bare.id: "no block"}
+
 def test_projects_with_an_old_state_are_overdue(home, register_path, monkeypatch):
     monkeypatch.setenv("PYTHONPATH", str(ROOT))
     p1 = projects.spawn(home, "engagement", "move two app clusters to managed k8s", fx.CUSTOMER_CODE, register_path)
