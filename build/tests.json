@@ -6460,8 +6460,50 @@
    "name": "projects open: no active project says so",
    "run": ".venv/bin/pytest tests/test_projects_pick.py::test_no_active_project_says_so",
    "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P12-1",
+   "phase": "Z2",
+   "name": "fetch: a put text is fetched with the names back into a private folder",
+   "run": ".venv/bin/pytest tests/test_fetch.py::test_a_put_text_is_fetched_with_the_names_back_into_a_private_folder",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P12-2",
+   "phase": "Z2",
+   "name": "fetch: a second fetch takes only what is new, --again takes all",
+   "run": ".venv/bin/pytest tests/test_fetch.py::test_a_second_fetch_takes_only_what_is_new_and_again_takes_all",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P12-3",
+   "phase": "Z2",
+   "name": "fetch: the default folder is under the owner's home",
+   "run": ".venv/bin/pytest tests/test_fetch.py::test_the_default_folder_is_under_the_owners_home",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P12-4",
+   "phase": "Z2",
+   "name": "fetch: a folder inside a git tree or a project is refused",
+   "run": ".venv/bin/pytest tests/test_fetch.py::test_a_folder_inside_a_git_tree_or_a_project_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P12-5",
+   "phase": "Z2",
+   "name": "fetch: refused inside an assistant session",
+   "run": ".venv/bin/pytest tests/test_fetch.py::test_fetch_is_refused_inside_an_assistant_session",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P12-6",
+   "phase": "Z2",
+   "name": "fetch: only put ids under a date folder are fetched",
+   "run": ".venv/bin/pytest tests/test_fetch.py::test_only_put_ids_under_a_date_folder_are_fetched",
+   "status": "passing"
   }
  ],
- "total_tests": 923,
+ "total_tests": 929,
  "checked": "2026-10-14"
 }

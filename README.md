@@ -76,7 +76,8 @@ only when a customer is registered. A project without one is normal. A file of t
 project's customer. The key service checks every file of the lab inbox before the session gets it.
 
 Results go back with `awb xchg put` into the project's own folder, after the name check and, for a customer
-project, the send gate. The key service runs both again on the bytes it receives. A mail tells you about each file.
+project, the send gate. The key service runs both again on the bytes it receives. A mail tells you about each file. `awb
+fetch tcp-xxxx` in your own terminal downloads what is new into `~/awb-fetch/tcp-xxxx/` with the names back.
 
 ## The board and the console
 
@@ -364,7 +365,7 @@ A file of the lab inbox with a registered name is held, and so is a file of the 
 text. A file of the owner inbox above `max_mb` of keys.conf, or in a folder that is not exactly one customer code,
 stays there and its take is refused. A pdf, a sheet or an archive from the lab inbox lands in `input/opaque/`, which `.gitignore` keeps out of git. You get a mail with the one command to run (`awb import tcp-xxxx`). Results come back with
 `awb xchg put` into `<project>/from-session/<date>/<file id>` of the lab bucket, after the name check of the file and of
-its name and, for a customer project, the send gate. No object key or log line carries a file name the check did not pass, and no mail carries a file name at all. You fetch them in the OBS console. A mail tells you about each one by its file id. A Terraform or code file passes when it holds no address,
+its name and, for a customer project, the send gate. No object key or log line carries a file name the check did not pass, and no mail carries a file name at all. You fetch them with `awb fetch tcp-xxxx` in your own terminal (what is new since your last fetch, through the key service, into `~/awb-fetch/tcp-xxxx/` of mode 700 with the names put back as `awb reveal` does) or in the OBS console. A mail tells you about each one by its file id. A Terraform or code file passes when it holds no address,
 name or mail: a dotted reference in code is not a web address. The session deletes what it put with
 `awb xchg clean CODE --dry-run|--go` (`--older-than DATE` for older date folders), each deletion a row in RESOURCES.md. The key service signs every object call
 and refuses everything outside the inbox and the project's own folders, and every put outside from-session/.

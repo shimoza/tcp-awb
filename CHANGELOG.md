@@ -29,6 +29,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   `recipes/`, a read tier sends `GET` or `HEAD` calls only and a block whose `needs` is not `none` takes the tier
   decision or none.
 
+- `awb fetch tcp-xxxx [--again] [--into DIR]` on the owner side lists what a project put with `awb xchg put` since his last fetch, downloads it through the key service (the op `obs` list and get of `awb xchg list`, no new call) into `~/awb-fetch/tcp-xxxx/` of mode 700, puts the names back into every text with the code of `awb reveal` and prints the folder (P12 of the journey report F3). It replaces a console visit and an `awb reveal` per file.
+
 - `awb projects open` without a code lists the active projects numbered, each with its `Next:` line and the owner items of its OPEN.md, after the name check (P4 of the journey report F3). He types the number and the session opens as `awb projects open CODE` opens it; without a terminal the list is printed only.
 
 - `awb build nudge` reaches the owner when a build task waits on him (automation review A6): on 2026-10-13 a task
