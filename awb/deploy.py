@@ -1,7 +1,7 @@
 """`sudo awb deploy`: one command that brings a commit of the repository live (T1, INTERFACES.md "The deploy").
 
     sudo awb deploy [--dry-run] [--all] [--only UNIT...] [--restart] [--to COMMIT | --rollback | --task ID]
-                    [--mirrors DIR...]
+                    [--mirrors DIR...] [--wait-build]
     sudo awb deploy --task ID       the green commit of a build task: fetch main.git, fast-forward the owner's main,
                                     deploy that commit (self-build SB4)
     awb deploy --dry-run            the plan without root, as the owner
@@ -31,6 +31,14 @@ and not in COMMAND_ONLY restarts every unit and prints as unmapped.
 The build runner (`awb build serve`, presentations/self-build) is never started by a deploy: when it is not running
 it takes the new code at its next start. While an awb-task-* unit is active its restart is deferred and root leaves
 <build_root>/runs/restart-wanted; the runner exits between two tasks and systemd starts it with the new code.
+
+Such a unit binds files of the home template read-only (automation review A1), so the plan lists the task units
+(`build_busy`): while one is active (or the list fails) root passes `--no-build` to `setup.sh --update`, which
+leaves the whole build side out, writes /opt/tcp-awb/BUILD-PENDING (the target) and leaves restart-wanted. A task
+that starts after the plan keeps its files through the swap of the template in setup.sh. The next deploy
+without a task or the runner's next start (its unit runs `setup.sh --update --pending-build` first) applies it and
+removes the file; `awb deploy status` names it. `--wait-build` waits up to WAIT_BUILD_TOTAL for the task units to
+end before anything changes; when they outlast it the deploy goes on as without it and exits 1.
 
 Two refusals hold for every deploy (SB4), because the build runner moves `main` in <build_root>/main.git and a copy
 that is behind would revert its work and restart both daemons: a deployed commit (the release `src` points at, read
@@ -79,6 +87,9 @@ COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 UNIT_RE = re.compile(r"^awb-[a-z0-9-]+\.(service|socket)$")
 TASK_UNIT_RE = re.compile(r"^awb-task-[A-Za-z0-9-]{1,40}\.service$")
 RESTART_WANTED = "restart-wanted"   # in <build_root>/runs: the build runner exits between two tasks
+BUILD_PENDING = "BUILD-PENDING"     # in the install root: the build side a deploy left out (seal/setup.sh reads it)
+WAIT_BUILD_TOTAL = 3600.0           # --wait-build waits this long at most for the task units to end
+WAIT_BUILD_POLL = 10.0
 RUNNING_STATES = ("active", "activating", "reloading")
 SINCE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 ACTIONS = ("restart", "reload", "unchanged", "not installed")
@@ -797,6 +808,47 @@ def live_release(root: Path) -> str | None:
     return None
 
 
+def read_build_pending(root: Path) -> str | None:
+    """The release whose build side a deploy left out (BUILD-PENDING), "unknown" for a file that names none, None
+    when nothing is pending."""
+    try:
+        fd = os.open(Path(root) / BUILD_PENDING, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return "unknown"
+    try:
+        word = os.read(fd, 100).decode("ascii", "replace").strip()
+    finally:
+        os.close(fd)
+    return word if COMMIT_RE.match(word) else "unknown"
+
+
+def write_build_pending(root: Path, target: str) -> None:
+    """BUILD-PENDING (root, 644) names the target: written under a new name, never through a link and renamed."""
+    path = Path(root) / BUILD_PENDING
+    tmp = Path(root) / (".%s.tmp" % BUILD_PENDING)
+    if tmp.is_symlink() or tmp.exists():
+        tmp.unlink()
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644)
+    try:
+        os.write(fd, ("%s\n" % target).encode("ascii"))
+        os.fchmod(fd, 0o644)
+    finally:
+        os.close(fd)
+    os.replace(tmp, path)
+
+
+def build_pending_line(root: Path) -> str | None:
+    """The status line of a build side a deploy left out, None when nothing is pending."""
+    pend = read_build_pending(root)
+    if pend is None:
+        return None
+    return ("build side: pending from release %s (the home template and the rest of the build root): the next sudo "
+            "awb deploy or the build runner's next start applies it once no task unit runs; sudo awb deploy "
+            "--wait-build waits for the task" % short(pend))
+
+
 def boot_id() -> str:
     try:
         return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
@@ -821,6 +873,7 @@ class Options:
     rollback: bool = False
     mirrors: list[str] = field(default_factory=list)
     task: str | None = None
+    wait_build: bool = False
 
 
 # --------------------------------------------------------------------------- the deploy by task (self-build SB4)
@@ -1026,6 +1079,10 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
         if not known(base):
             notes.append("the deployed release is not a commit of this repository: every unit restarts")
             base = None
+    pend = read_build_pending(host.root)
+    if pend is not None:
+        notes.append("the build side of release %s is pending: this deploy applies it unless a task unit runs"
+                     % short(pend))
     if tree is None:
         tree = GitTree(repo, target, run)
     units = templates(tree)
@@ -1135,6 +1192,7 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
         "activated": activated,
         "keep": keep,
         "build_restart_wanted": build_wanted,
+        "build_busy": active_task_units(run),
     }
 
 
@@ -1269,6 +1327,10 @@ def validate_plan(plan, allowed_units: set[str]) -> dict:
             bad(key)
     if not isinstance(plan.get("build_restart_wanted", False), bool):
         bad("build_restart_wanted")
+    busy = plan.get("build_busy", [])
+    if busy is not None and not (isinstance(busy, list) and all(isinstance(x, str) and TASK_UNIT_RE.match(x)
+                                                               for x in busy)):
+        bad("build_busy")
     for key in ("changed", "unmapped", "notes", "pending_last", "keep"):
         if not isinstance(plan.get(key), list) or not all(_plain(x) for x in plan[key]):
             bad(key)
@@ -1516,6 +1578,11 @@ def plan_lines(plan: dict, dry: bool) -> list[str]:
     lines.append("# pending from the last run: %s" % (" ".join(plan["pending_last"]) or "none"))
     if plan.get("build_restart_wanted"):
         lines.append("# the build runner restarts between two tasks: %s is left for it" % RESTART_WANTED)
+    busy = plan.get("build_busy", [])
+    if busy != []:
+        lines.append("# %s: the build side (the home template every task unit binds) waits for the next deploy or "
+                     "the runner's next start; --wait-build waits for the task" % (
+                         "%s runs" % busy[0] if busy else "the task units could not be listed"))
     return lines
 
 
@@ -1536,14 +1603,20 @@ def program_lines(plan: dict, opts: Options, host: Host, owner_name: str, work_n
     services = [u for u in acting if u["kind"] == "service"]
     web = [u for u in acting if u["kind"] == "web"]
     rel = host.releases / t
-    out = ["+ write %s running" % host.journal,
+    out = ["+ wait until no awb-task-* unit is active, at most %d minutes" % (WAIT_BUILD_TOTAL // 60)] \
+        if opts.wait_build else []
+    out += ["+ write %s running" % host.journal,
            "+ %s > %s/.%s.tar   # as %s" % (cmdline([host.bin, "deploy", "archive", t]), host.releases, t,
                                             owner_name),
            "+ tar -x --no-same-permissions --no-same-owner -f %s/.%s.tar -C %s/.%s.partial" % (
                host.releases, t, host.releases, t),
            "+ chmod -R go-w %s/.%s.partial; mv -T -- %s/.%s.partial %s" % (host.releases, t, host.releases, t, rel),
            "+ " + cmdline([str(rel / "seal" / "setup.sh"), "--update"] + (
-               ["--mirrors", *opts.mirrors] if opts.mirrors else []))]
+               ["--mirrors", *opts.mirrors] if opts.mirrors else []) + (
+               ["--no-build"] if plan.get("build_busy", []) != [] and not opts.wait_build else []))]
+    if plan.get("build_busy", []) != []:
+        out.append("+ write %s   # the build side is left out%s" % (
+            host.root / BUILD_PENDING, ", if a task unit still runs after the wait" if opts.wait_build else ""))
     for u in daemons:
         out.append("+ systemctl %s %s" % (u["action"], u["unit"]))
     if plan["web"] and (services or web):
@@ -1586,6 +1659,8 @@ class Run:
         self.journal: dict = {}
         self.restarted_at: float | None = None
         self.failed: list[str] = []
+        self.build_held = False
+        self.busy: list[str] | None = plan.get("build_busy", [])    # the active task units, None: not listed
         self.status: dict = {}
         self.root_env = {"PATH": SECURE_PATH, "HOME": "/root", "SUDO_USER": caller.owner.pw_name,
                          "LANG": host.environ.get("LANG") or "C.UTF-8"}
@@ -1686,16 +1761,60 @@ class Run:
             if tar_file.exists():
                 tar_file.unlink()
 
+    def wait_build(self) -> None:
+        """--wait-build: before anything changes, wait until no task unit is active, at most WAIT_BUILD_TOTAL. A
+        task that outlasts it is a failure of the run, which then goes on as without the option."""
+        if not self.opts.wait_build:
+            return
+        say("+ wait until no awb-task-* unit is active, at most %d minutes" % (WAIT_BUILD_TOTAL // 60))
+        start = self.host.clock()
+        while True:
+            self.busy = active_task_units(self.host.runner)
+            if self.busy == []:
+                return
+            if self.host.clock() - start >= WAIT_BUILD_TOTAL:
+                say("# %s still runs after %d minutes: the build side stays out of this deploy" % (
+                    self.busy[0] if self.busy else "a task unit (the list failed)", WAIT_BUILD_TOTAL // 60))
+                self.failed.append("--wait-build")
+                return
+            self.host.sleep(WAIT_BUILD_POLL)
+
     def install(self) -> None:
         script = self.host.releases / self.target / "seal" / "setup.sh"
         cmd = [str(script), "--update"] + (["--mirrors", *self.opts.mirrors] if self.opts.mirrors else [])
+        # a task unit binds files of the home template: while one runs the build side waits (automation review A1).
+        # The list is the plan's (or the wait's); a task that starts after it keeps its files through the swap of
+        # build_template in setup.sh
+        tasks = self.busy
+        held = tasks != []
+        if held:
+            try:
+                knows = "--no-build)" in script.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                knows = False
+            if not knows:
+                raise StepFailed("%s runs and the setup.sh of %s cannot leave the build side out: the old release "
+                                 "stays live; deploy after the task or with --wait-build"
+                                 % (tasks[0] if tasks else "a task unit", short(self.target)))
+            cmd.append("--no-build")
+            say("# %s: the build side (the home template and the rest of the build root) is left out" % (
+                "%s runs" % tasks[0] if tasks else "the task units could not be listed"))
         self.journal["flip"] = monotonic_us()
         self.save()
         res = self.sh(cmd)
         if res.returncode != 0:
             raise StepFailed("setup.sh --update failed: the old release stays live")
         self.journal["units_from"] = self.target
+        self.journal["build"] = "pending" if held else "done"
         self.save()
+        pending = self.host.root / BUILD_PENDING
+        if held:
+            say("+ write %s   # the next deploy or the build runner's next start applies it" % pending)
+            write_build_pending(self.host.root, self.target)
+            self.build_held = True
+        elif pending.is_symlink() or pending.exists():
+            say("+ rm -f -- %s   # the build side is applied" % pending)
+            pending.unlink()
 
     def main_pid(self, unit: str) -> str:
         return self.show([unit])[unit].get("MainPID", "0")
@@ -1728,8 +1847,9 @@ class Run:
 
     def build_wanted(self) -> None:
         """restart-wanted for a build runner whose restart the plan deferred: written without following a link,
-        given to the owner, who runs the runner and removes it. A missing runs folder is a note, never a failure."""
-        if not self.plan.get("build_restart_wanted"):
+        given to the owner, who runs the runner and removes it. A missing runs folder is a note, never a failure. A
+        build side left out wants it too: the runner's next start applies it."""
+        if not (self.plan.get("build_restart_wanted") or self.build_held):
             return
         path = restart_wanted_path(self.host)
         say("+ write %s   # the build runner exits between two tasks" % path)
@@ -2132,6 +2252,7 @@ def owner_status(host: Host) -> int:
     units = [u for u, e in (j.get("units") or {}).items() if e.get("kind") in DAEMON_ORDER]
     for line in status_lines(j, validate_status(owner_daemon_states()), systemd_show(host.runner, units)):
         print(line)
+    print(build_pending_line(host.root) or "build side: nothing pending")
     from awb import egress
     for line in egress.status_lines():
         print(line)
@@ -2204,6 +2325,8 @@ def _parser():
     ap.add_argument("--rollback", action="store_true", help="deploy the release that was live before this one")
     ap.add_argument("--task", metavar="ID", help="deploy the green commit of a build task (fetches main.git first)")
     ap.add_argument("--mirrors", nargs="+", metavar="DIR", default=[], help="passed to setup.sh --update")
+    ap.add_argument("--wait-build", action="store_true",
+                    help="wait (at most 60 minutes) until no build task unit runs, so the build side comes along")
     return ap
 
 
@@ -2211,7 +2334,7 @@ def _parse_plan_args(argv: list[str]) -> Options:
     ap = _parser()
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
-    return Options(a.dry_run, a.all, a.only, a.restart, a.to, a.rollback, a.mirrors, a.task)
+    return Options(a.dry_run, a.all, a.only, a.restart, a.to, a.rollback, a.mirrors, a.task, a.wait_build)
 
 
 def _plan_argv(opts: Options) -> list[str]:
@@ -2262,6 +2385,7 @@ def root_deploy(opts: Options, host: Host) -> int:
         run = Run(host, caller, plan, opts)
         code = 1
         try:
+            run.wait_build()
             run.start_journal()
             run.extract()
             run.install()
@@ -2288,6 +2412,9 @@ def root_deploy(opts: Options, host: Host) -> int:
                 for line in status_lines(run.journal, run.status, run.show(
                         [u for u, e in run.journal.get("units", {}).items() if e.get("kind") in DAEMON_ORDER])):
                     say(line)
+                line = build_pending_line(host.root)
+                if line:
+                    say(line)
         if run.failed:
             say("# failed: %s" % " ".join(sorted(set(run.failed))))
         return code
@@ -2308,7 +2435,7 @@ def main(argv: list[str] | None = None, *, root: Path = OPT, etc: Path = Path("/
         a = _parser().parse_args(argv)
     except SystemExit as exc:
         return 0 if exc.code in (0, None) else 2
-    opts = Options(a.dry_run, a.all, a.only, a.restart, a.to, a.rollback, a.mirrors, a.task)
+    opts = Options(a.dry_run, a.all, a.only, a.restart, a.to, a.rollback, a.mirrors, a.task, a.wait_build)
     if sum(bool(x) for x in (opts.rollback, opts.to, opts.task)) > 1:
         print("awb deploy: --rollback, --to and --task exclude each other", file=sys.stderr)
         return 2

@@ -117,6 +117,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- `sudo awb deploy` no longer pulls the home template out from under a running build task (automation review A1:
+  two task runs of B-007 ended "Not logged in" a minute after a deploy). While an `awb-task-*` unit runs (or the
+  task units cannot be listed) the deploy runs `setup.sh --update --no-build`, which leaves the whole build side
+  out, writes `/opt/tcp-awb/BUILD-PENDING` and leaves `restart-wanted`. The next deploy without a task or the
+  runner's next start (its unit runs `setup.sh --update --pending-build` first, as root) applies it and removes
+  the file. `awb deploy status` and the plan name the pending step. `sudo awb deploy --wait-build` waits up to 60
+  minutes for the task to end first; a task that outlasts it leaves the step pending and the deploy exits 1.
+  `setup.sh` writes a new home template into a fresh folder and swaps it in with one exchange, so a unit keeps the
+  files it bound; the folder of before stays as `.home-template.swap` until the next swap.
 - The customer and project sockets (`awb.tcp.web.create_api`) read the declared request body (up to 2 MiB) before they answer a refusal, so a client that is still writing no longer meets a closed socket and a `BrokenPipeError`.
 
 - `seal/verify.sh` names the runner's key copy once (`BUILD_MODEL_KEY`, as `setup.sh` does) and its login

@@ -1042,6 +1042,14 @@ archive` stream on standard output), `unlock`, `status --json [--probe SOCKET]..
 `is_build_runner(argv)`, `active_task_units(runner) -> list[str] | None`, `build_runner_action(show, runner, reason)
 -> (action, reason, wanted)`; the plan carries `build_restart_wanted` (bool) and root writes
 `<build_root>/runs/restart-wanted` (`restart_wanted_path(host)`, `Host.build_root`, None for `config.build_root()`).
+A running task unit (automation review A1): the plan carries `build_busy` (the active task units, None when they
+could not be listed); while it is not empty root runs `setup.sh --update --no-build`, writes `<root>/BUILD-PENDING`
+(`BUILD_PENDING`, the target; `write_build_pending(root, target)`, `read_build_pending(root) -> str | None`), the
+journal's `build` (`pending` or `done`) and restart-wanted; a full update removes the file. `build_pending_line(root)`
+is the status line. `Options.wait_build` (`--wait-build`): `Run.wait_build()` lists the task units every
+`WAIT_BUILD_POLL` seconds, at most `WAIT_BUILD_TOTAL`, before the journal; a timeout adds `--wait-build` to the
+failures. `seal/setup.sh --update --pending-build` (the `ExecStartPre` of `awb-buildd.service`) runs the build side
+alone while the file is there and no task unit is active.
 The deploy by task (SB4): `Options.task` (`--task ID`, excludes `--to` and `--rollback`; the plan child gets
 `--task ID` and, on a dry run, `--dry-run`); `owner_task(opts, repo, host) -> (target, note)` (fetch of
 `refs/heads/main` from `main_git(host)` into FETCH_HEAD, `merge --ff-only` unless a dry run);

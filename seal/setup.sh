@@ -2,13 +2,17 @@
 # Seal the Architect Workbench on this host (INTERFACES.md, section "The seal"). Run by the owner with sudo:
 #
 #   sudo seal/setup.sh [--dry-run] [--mirrors DIR...]                     the first seal of a host, every step
-#   releases/<commit>/seal/setup.sh --update [--units-only] [--dry-run] [--mirrors DIR...]
+#   releases/<commit>/seal/setup.sh --update [--units-only | --no-build | --pending-build] [--dry-run] [--mirrors DIR...]
 #
 # --update is what `sudo awb deploy` runs, from the release folder it has just extracted, never from a working
 # tree. Its steps are an explicit allow list (update_steps): the code, the host file, the units, the needrestart
 # rule, the package holds of cloudflared and terraform, the egress filter, the client files and the managed drop-in. The users, the homes, the moves, the ssh keys, the nightly jobs of the work user and (without
 # --mirrors) the mirrors are left alone, so a deploy never chowns the shared tree again. --units-only renders and
 # installs the unit templates and reloads systemd, nothing else (the flip back of a failed reload uses it).
+# --no-build leaves the build side out (step_build): `sudo awb deploy` passes it while a build task unit runs (that
+# unit binds files of the home template) and leaves the root owned marker $OPT/BUILD-PENDING. --pending-build runs
+# the build side alone, only while the marker is there and no task unit runs, then removes the marker; the
+# runner's unit runs it before each start (ExecStartPre), so the runner's exit between two tasks applies it.
 #
 # The code lives in one folder per commit, $OPT/releases/<commit>, and $OPT/src is a symlink to the live one. The
 # flip is one renameat2(RENAME_EXCHANGE) of a new symlink with whatever src is, a symlink or the plain folder of
@@ -86,10 +90,11 @@ CRON_DENY=/etc/cron.deny
 WORK_JOBS="awb-work-update awb-kb-commit"   # seal/work-jobs/NAME.service and NAME.timer, the nightly jobs of the work user
 KB_COMMIT=/usr/local/libexec/awb/nightly-kb-commit   # the root owned copy of seal/work-jobs/nightly-kb-commit
 KB_COMMIT_OLD=.local/bin/nightly-kb-commit           # where the crontab ran it, in the work home
+BUILD_PENDING=/opt/tcp-awb/BUILD-PENDING   # awb/deploy.py BUILD_PENDING: the build side a deploy left out
 BUILD_KEY_HELPER='  "apiKeyHelper": "cat \"$HOME/.config/awb-build/model.key\"",'   # the template's line with build_model = key
 
 usage() {
-    echo "usage: sudo $0 [--dry-run] [--update [--units-only]] [--mirrors DIR...]" >&2
+    echo "usage: sudo $0 [--dry-run] [--update [--units-only | --no-build | --pending-build]] [--mirrors DIR...]" >&2
     echo "       $0 [--dry-run] --suite-venv DIR" >&2
     exit 2
 }
@@ -105,6 +110,8 @@ mirrors=0
 mirror_sources=()
 update=0
 units_only=0
+no_build=0
+pending_build=0
 suite_dir=""
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -114,6 +121,8 @@ while [ $# -gt 0 ]; do
             ;;
         --update) update=1 ;;
         --units-only) units_only=1 ;;
+        --no-build) no_build=1 ;;
+        --pending-build) pending_build=1 ;;
         --mirrors) mirrors=1 ;;
         --suite-venv)
             [ $# -ge 2 ] || usage
@@ -121,7 +130,7 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         -h | --help)
-            echo "usage: sudo $0 [--dry-run] [--update [--units-only]] [--mirrors DIR...]"
+            echo "usage: sudo $0 [--dry-run] [--update [--units-only | --no-build | --pending-build]] [--mirrors DIR...]"
             echo "       $0 [--dry-run] --suite-venv DIR"
             exit 0
             ;;
@@ -137,6 +146,9 @@ if [ "$mirrors" -eq 1 ] && [ "${#mirror_sources[@]}" -eq 0 ]; then
     die "--mirrors needs at least one folder"
 fi
 [ "$units_only" -eq 0 ] || [ "$update" -eq 1 ] || die "--units-only goes with --update"
+{ [ "$no_build" -eq 0 ] && [ "$pending_build" -eq 0 ]; } || [ "$update" -eq 1 ] ||
+    die "--no-build and --pending-build go with --update"
+[ $((units_only + no_build + pending_build)) -le 1 ] || die "--units-only, --no-build and --pending-build exclude each other"
 
 # AWB_SETUP_BUILD_HOST=fresh|present, with --dry-run only (the tests set it): every probe of the build side (the
 # build user's group, its passwd entry and groups, the suite's venv) answers "missing" or "present" instead of
@@ -1149,28 +1161,78 @@ build_identity() {
     mv -f -- "$tmp" "$target"
 }
 
+build_template_entry() {
+    # build_template_entry PATH: a template is in place at PATH (a root owned folder, not a link), answered by
+    # AWB_SETUP_BUILD_HOST in a dry run when it is set
+    case "$build_host" in
+        fresh) return 1 ;;
+        present) return 0 ;;
+    esac
+    [ -d "$1" ] && [ ! -L "$1" ] && [ "$(stat -c %u -- "$1")" = "$ROOT_UID" ]
+}
+
+drop_swap() {
+    # drop_swap PATH: the template the last swap left at PATH (or a half written one of a run that stopped) goes,
+    # its flags first
+    local path="$1"
+    if [ "$dry_run" -eq 1 ]; then
+        printf '+ chattr -R -i %s; rm -rf -- %s  # if present\n' "$path" "$path"
+        return 0
+    fi
+    [ -e "$path" ] || [ -L "$path" ] || return 0
+    if [ -d "$path" ] && [ ! -L "$path" ]; then
+        run chattr -R -i "$path"
+    fi
+    run rm -rf -- "$path"
+}
+
 build_template() {
-    local t="$BUILD_ROOT/home-template" f
+    # A running task unit binds the three files read-only; a file that is unlinked or replaced loses its bind
+    # in the unit (automation review A1). So a template in place is never written into: the new one goes into a
+    # fresh folder and one exchange swaps it in; the unit keeps the files it bound, now in the folder of before.
+    local t="$BUILD_ROOT/home-template" s="$BUILD_ROOT/.home-template.swap" w f
     info "the home template of a build task, root owned and immutable: .claude/settings.json (seal/build-claude),"
     info ".claude/CLAUDE.md (the repository's) and .gitconfig (the owner's identity, no safe.directory)"
-    clear_target "$t" d
-    clear_target "$t/.claude" d
-    run install -d -o root -g root -m 755 "$t" "$t/.claude"
-    clear_target "$t/.claude/settings.json" f
+    w=$t
+    if build_template_entry "$t"; then
+        info "a template is in place: the new one is written into $s and swapped in with one exchange; the one of"
+        info "before stays at $s without its flags until the next swap, for a task unit that bound its files"
+        w=$s
+        drop_swap "$s"
+    else
+        clear_target "$t" d
+    fi
+    clear_target "$w/.claude" d
+    run install -d -o root -g root -m 755 "$w" "$w/.claude"
+    clear_target "$w/.claude/settings.json" f
     if [ "$build_model" = key ]; then
         info "build_model = key: the settings read the model key in the task home with apiKeyHelper"
-        write_file "$t/.claude/settings.json" 644 root:root < <(head -n 2 "$seal_dir/build-claude/settings.json"
+        write_file "$w/.claude/settings.json" 644 root:root < <(head -n 2 "$seal_dir/build-claude/settings.json"
             printf '%s\n' "$BUILD_KEY_HELPER"; tail -n +3 "$seal_dir/build-claude/settings.json")
     else
-        run install -o root -g root -m 644 "$seal_dir/build-claude/settings.json" "$t/.claude/settings.json"
+        run install -o root -g root -m 644 "$seal_dir/build-claude/settings.json" "$w/.claude/settings.json"
     fi
-    clear_target "$t/.claude/CLAUDE.md" f
-    run install -o root -g root -m 644 "$repo/CLAUDE.md" "$t/.claude/CLAUDE.md"
-    clear_target "$t/.gitconfig" f
-    build_identity "$t/.gitconfig"
-    for f in "$t/.claude/settings.json" "$t/.claude/CLAUDE.md" "$t/.gitconfig" "$t/.claude" "$t"; do
+    clear_target "$w/.claude/CLAUDE.md" f
+    run install -o root -g root -m 644 "$repo/CLAUDE.md" "$w/.claude/CLAUDE.md"
+    clear_target "$w/.gitconfig" f
+    if [ "$w" = "$s" ]; then
+        # the identity of before, for a run that finds no plain one (build_identity then leaves the file as it is)
+        run_if_present "$t/.gitconfig" install -o root -g root -m 644 "$t/.gitconfig" "$w/.gitconfig"
+    fi
+    build_identity "$w/.gitconfig"
+    for f in "$w/.claude/settings.json" "$w/.claude/CLAUDE.md" "$w/.gitconfig" "$w/.claude"; do
         run_if_present "$f" chattr +i "$f"
     done
+    if [ "$w" = "$t" ]; then
+        run_if_present "$t" chattr +i "$t"
+        return 0
+    fi
+    info "the swap: every file and .claude of the new template carry their flag before it; a rename refuses an"
+    info "immutable folder, so the two folders themselves lose and get theirs around the exchange"
+    run chattr -i "$t"
+    exchange "$s" "$t"
+    run chattr +i "$t"
+    run chattr -R -i "$s"
 }
 
 build_client() {
@@ -1290,6 +1352,11 @@ EOF
 }
 
 step_build() {
+    if [ "${no_build:-0}" -eq 1 ]; then
+        info "the build side is left out (--no-build): a build task unit runs; $BUILD_PENDING names it for the next"
+        info "deploy or the runner's next start"
+        return 0
+    fi
     info "the build side of the self-build (presentations/self-build, SB1, SB3 and SB5)"
     step_build_user
     build_client
@@ -1347,6 +1414,10 @@ steps() {
         step_code
         return 0
     fi
+    if [ "$pending_build" -eq 1 ]; then
+        pending_build_steps
+        return 0
+    fi
     if [ "$update" -eq 1 ]; then
         update_steps
         return 0
@@ -1367,6 +1438,35 @@ steps() {
     step_managed
     step_build
     step_mirrors
+}
+
+task_units_active() {
+    # an awb-task-* unit is active or systemd cannot tell (counted as active)
+    local out
+    out=$(systemctl list-units --plain --no-legend --state=active --type=service -- 'awb-task-*' 2>/dev/null) ||
+        return 0
+    [ -n "$out" ]
+}
+
+pending_build_steps() {
+    # the build side a deploy left out while a task ran: run by the runner's unit before each start, as root
+    info "the build side a deploy left out while a build task ran ($BUILD_PENDING)"
+    release_of_repo
+    if [ "$real" -eq 0 ]; then
+        info "only while $BUILD_PENDING is there and no awb-task-* unit is active:"
+    elif [ ! -e "$BUILD_PENDING" ] && [ ! -L "$BUILD_PENDING" ]; then
+        info "nothing is pending"
+        return 0
+    elif task_units_active; then
+        info "a build task unit runs: the build side stays pending"
+        return 0
+    fi
+    step_build
+    if [ "$real" -eq 0 ]; then
+        printf '+ rm -f -- %s  # if present\n' "$BUILD_PENDING"
+    else
+        run rm -f -- "$BUILD_PENDING"
+    fi
 }
 
 update_steps() {

@@ -84,11 +84,12 @@ Seal, once, with sudo: `seal/setup.sh --dry-run` (read the plan), `sudo seal/set
 |---|---|
 | `cd ~/tcp-awb && sudo awb deploy` | after a commit: bring it live, restart only what changed, ask the vault passphrase once when the vault daemon restarted, end with the status lines |
 | `awb deploy --dry-run` | the plan and every step, without root; nothing runs and nothing is asked |
-| `awb deploy status` | the journal, the release each daemon runs, locked or down since when, a split between a daemon and the code, the egress filter's mode and its counts of the last 24 hours |
+| `awb deploy status` | the journal, the release each daemon runs, locked or down since when, a split between a daemon and the code, a build side left pending, the egress filter's mode and its counts of the last 24 hours |
 | `sudo awb deploy --only awb-vaultd.service awb-keyd.service` | these units only, also when nothing changed (after a library upgrade) |
 | `sudo awb deploy --all` | restart every installed unit |
 | `sudo awb deploy --restart` | restart the vault daemon and the key service instead of a reload |
 | `sudo awb deploy --mirrors DIR...` | hand the mirror folders to `seal/setup.sh --update` |
+| `sudo awb deploy --wait-build` | wait (at most 60 minutes) until no build task unit runs, so the build side comes along. Without it a deploy while a task runs leaves the build side (the home template every task unit binds) out: `/opt/tcp-awb/BUILD-PENDING` names it and the next deploy or the runner's next start applies it. A task that outlasts the wait leaves it pending and the deploy exits 1 |
 | `sudo awb deploy --rollback` | the release that was live before this one |
 | `sudo awb deploy --to COMMIT` | another commit of the repository |
 | `sudo awb deploy --task ID` | the green commit of a build task: fetches `main` of `/srv/awb-build/main.git`, fast-forwards your `main` to it (with `--dry-run` it fetches only) and deploys the commit `runs/ID/<n>/commit` names. Refused while your tree has changes, your copy is not on `main` or your `main` has commits `main.git` lacks, for an id without a run, a run that is not `done` and a commit that is not on `main`; a task that is live already is refused too. Excludes `--to` and `--rollback` |

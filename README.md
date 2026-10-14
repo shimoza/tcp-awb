@@ -122,6 +122,9 @@ else the note "its code unchanged since".
 `awb deploy status` shows what runs where, `sudo awb deploy --rollback` goes back to the release before.
 `sudo awb deploy --task B-012` brings a green build task live: it pulls `main` of the build side into your copy
 first. A deploy from a copy that is behind the live release is refused, so it cannot take back a build task's work.
+While a build task runs, the deploy leaves the build side (the home template the task reads) for later: the next
+deploy or the build runner's next start applies it, `awb deploy status` names it and `sudo awb deploy --wait-build`
+waits up to 60 minutes for the task instead.
 
 ## What it does for an architect
 

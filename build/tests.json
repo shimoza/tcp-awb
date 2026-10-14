@@ -5830,8 +5830,43 @@
    "name": "board: the checks of a branch reach the build line and free text does not",
    "run": ".venv/bin/pytest tests/test_board.py::test_the_checks_of_a_branch_reach_the_line_and_free_text_does_not",
    "status": "passing"
+  },
+  {
+   "id": "A1R-1",
+   "phase": "B-012",
+   "name": "deploy: while a task unit runs (or the list fails) setup.sh gets --no-build, BUILD-PENDING names the target, restart-wanted is written, the status names it; the next deploy applies it; an old setup.sh is refused before the flip",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_a_deploy_while_a_task_unit_runs_leaves_the_build_side_out_and_pending",
+   "status": "passing"
+  },
+  {
+   "id": "A1R-2",
+   "phase": "B-012",
+   "name": "deploy: the plan lists the active task units; the dry run prints --no-build and the pending file, with --wait-build the wait",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_plan_lists_the_active_task_units_and_the_dry_run_names_the_hold",
+   "status": "passing"
+  },
+  {
+   "id": "A1R-3",
+   "phase": "B-012",
+   "name": "deploy: --wait-build waits for the task units before the journal and times out after 60 minutes with the build side pending and exit 1",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_wait_build_waits_for_the_task_and_times_out",
+   "status": "passing"
+  },
+  {
+   "id": "A1R-4",
+   "phase": "B-012",
+   "name": "seal: the home template is written into a fresh folder and swapped in with one exchange; an open handle and the old inode keep the old files; the flags around the swap",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_home_template_is_swapped_in_whole_and_a_running_unit_keeps_its_files",
+   "status": "passing"
+  },
+  {
+   "id": "A1R-5",
+   "phase": "B-012",
+   "name": "seal: --update --no-build plans nothing on the build side, --update --pending-build the build side alone and the removal of the file; the runner's unit runs it before each start",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_no_build_leaves_the_build_side_out_and_pending_build_applies_it",
+   "status": "passing"
   }
  ],
- "total_tests": 833,
+ "total_tests": 838,
  "checked": "2026-10-14"
 }

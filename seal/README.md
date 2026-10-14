@@ -206,7 +206,11 @@ The build user `awb-build` and what it needs, set up by `setup.sh` (and `--updat
   the deploy ran from), `wt/` (the build user's clones, 755), `runs/` (the runner's records, owner 700), `home/`
   (the build user's own, 700), `venv/` (the suite's venv, root owned: the system packages and the test extras) and
   `home-template/` (root owned and immutable: `.claude/settings.json` from `build-claude/`, `.claude/CLAUDE.md` of
-  the repository and `.gitconfig` with the owner's name and mail, no `safe.directory`).
+  the repository and `.gitconfig` with the owner's name and mail, no `safe.directory`). A template in place is
+  never written into: the new one goes into `.home-template.swap` and one exchange swaps it in, so a task unit
+  keeps the files it bound; the folder of before stays there without its flags until the next swap. While a task
+  unit runs, `sudo awb deploy` passes `--no-build` and the build side waits in `/opt/tcp-awb/BUILD-PENDING` for
+  the next deploy or the runner's next start (`--pending-build`, the `ExecStartPre` of its unit).
 - `/opt/claude-build`: a root owned copy of the client in the version `setup.sh` pins, taken from the owner's native
   install only when its sha256 is the pinned one; `bin/claude` runs it with the updater and the auto memory off.
 - The build settings deny `mcp__*`, `WebFetch`, `WebSearch` and every tool the work user's settings deny, switch the

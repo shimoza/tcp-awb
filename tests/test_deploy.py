@@ -1660,3 +1660,129 @@ def test_the_task_record_reads_as_the_build_module_reads_it(tmp_path):
     imported |= {"%s.%s" % (n.module, a.name) for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module
                  for a in n.names}
     assert "awb.build" not in imported and "awb.buildrun" not in imported
+
+
+# --------------------------------------------------------------------------- the build side and a running task (A1)
+
+TASK = "awb-task-B-012.service"
+
+
+def test_a_deploy_while_a_task_unit_runs_leaves_the_build_side_out_and_pending(world, tmp_path, capsys):
+    """Automation review A1: two task runs ended "Not logged in" after a deploy rewrote the home template every task
+    unit binds. Planted: a plan that lists an active task unit; setup.sh must get --no-build, BUILD-PENDING must name
+    the target (root, 644), restart-wanted must be written and the status must name the pending step. The next
+    deploy without a task runs the full update and removes the file; a release whose setup.sh cannot leave the build
+    side out is refused before the flip; a planted name in build_busy does not validate."""
+    build = tmp_path / "build"
+    (build / "runs").mkdir(parents=True)
+    world.runner.plan = world.plan(build_busy=[TASK])
+    assert world.main([], build_root=build) == 0, capsys.readouterr()
+    out = capsys.readouterr().out
+    rel = world.root / "releases" / world.c1
+    assert [c for c, _ in world.runner.named("setup.sh")] == [[str(rel / "seal" / "setup.sh"), "--update",
+                                                                "--no-build"]]
+    pending = world.root / deploy.BUILD_PENDING
+    assert pending.read_text() == world.c1 + "\n" and oct(pending.stat().st_mode & 0o777) == "0o644"
+    assert (build / "runs" / deploy.RESTART_WANTED).read_text() == world.c1 + "\n"
+    assert json.loads((world.root / "DEPLOYED").read_text())["build"] == "pending"
+    assert "%s runs: the build side (the home template and the rest of the build root) is left out" % TASK in out
+    line = deploy.build_pending_line(world.root)
+    assert line and line.startswith("build side: pending from release %s" % world.c1[:7]) and line in out
+    assert deploy.read_build_pending(world.root) == world.c1
+    # the next deploy without a task applies it
+    world.runner.calls.clear()
+    world.runner.plan = world.plan(build_busy=[])
+    assert world.main([], build_root=build) == 0, capsys.readouterr()
+    assert [c for c, _ in world.runner.named("setup.sh")] == [[str(rel / "seal" / "setup.sh"), "--update"]]
+    assert not pending.exists() and deploy.build_pending_line(world.root) is None
+    assert json.loads((world.root / "DEPLOYED").read_text())["build"] == "done"
+    # the task units could not be listed: held as well
+    w2 = World(tmp_path / "w2")
+    w2.runner.plan = w2.plan(build_busy=None)
+    assert w2.main([], build_root=build) == 0, capsys.readouterr()
+    assert w2.runner.named("setup.sh")[0][0][-1] == "--no-build"
+    assert deploy.read_build_pending(w2.root) == w2.c1
+    # a release whose setup.sh knows no --no-build: refused, the old release stays live
+    w3 = World(tmp_path / "w3")
+    old = w3.root / "releases" / w3.c1
+    shutil.copytree(REPO / "seal", old / "seal")
+    (old / "awb").mkdir()
+    script = old / "seal" / "setup.sh"
+    script.write_text(script.read_text(encoding="utf-8").replace("--no-build)", "--units-only-too)"))
+    w3.runner.plan = w3.plan(build_busy=[TASK])
+    assert w3.main([], build_root=build) == 1
+    assert "cannot leave the build side out" in capsys.readouterr().out
+    assert w3.runner.named("setup.sh") == [] and os.readlink(w3.root / "src") == "releases/%s" % w3.c0
+    assert not (w3.root / deploy.BUILD_PENDING).exists()
+    for bad in (["sshd.service"], ["awb-task-B-012.service;rm"], "awb-task-B-012.service", [1]):
+        with pytest.raises(deploy.Refused):
+            deploy.validate_plan(world.plan(build_busy=bad), set(units_of_repo()))
+    # the plan of a deploy names a pending build side
+    deploy.write_build_pending(world.root, world.c1)
+    notes = " ".join(_build_plan(world, tmp_path, None)["notes"])
+    assert "the build side of release %s is pending" % world.c1[:7] in notes
+
+
+def test_the_plan_lists_the_active_task_units_and_the_dry_run_names_the_hold(world, tmp_path, capsys):
+    """Planted: an active task unit, a listing that fails and none; the dry run of a plan with a task prints
+    --no-build and the pending file, with --wait-build the wait first and no listing of its own."""
+    assert _build_plan(world, tmp_path, "%s loaded active running x\n" % TASK)["build_busy"] == [TASK]
+    assert _build_plan(world, tmp_path, None, rc=1)["build_busy"] is None
+    assert _build_plan(world, tmp_path, None)["build_busy"] == []
+    w = World(tmp_path / "dry")
+    w.runner.plan = w.plan(build_busy=[TASK])
+    assert w.main(["--dry-run"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    setup = str(w.root / "releases" / w.c1 / "seal" / "setup.sh")
+    assert "+ %s --update --no-build" % setup in lines
+    assert "+ write %s   # the build side is left out" % (w.root / deploy.BUILD_PENDING) in lines
+    assert any(x.startswith("# %s runs: the build side" % TASK) for x in lines)
+    w.runner.calls.clear()
+    assert w.main(["--dry-run", "--wait-build"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert "+ wait until no awb-task-* unit is active, at most 60 minutes" in lines
+    assert "+ %s --update" % setup in lines
+    assert [c for c, _ in w.runner.calls] == [[BIN, "deploy", "plan", "--json"]]
+
+
+def test_wait_build_waits_for_the_task_and_times_out(world, tmp_path, capsys):
+    """--wait-build: the root run lists the task units every WAIT_BUILD_POLL seconds before the journal is written.
+    Planted: a task that ends after three listings (the full update runs, nothing pending, exit 0) and one that
+    outlasts the 60 minutes (the deploy goes on with --no-build, the file pending, exit 1, the wait named failed)."""
+    build = tmp_path / "build"
+    (build / "runs").mkdir(parents=True)
+    listed = []
+
+    def tasks(left):
+        def on(cmd, kw):
+            if cmd[:2] != ["systemctl", "list-units"]:
+                return None
+            listed.append(world.clock())
+            assert not (world.root / "DEPLOYED").exists() or json.loads(
+                (world.root / "DEPLOYED").read_text())["target"] != world.c1
+            busy = left is None or len(listed) <= left
+            return subprocess.CompletedProcess(cmd, 0, "%s loaded active running x\n" % TASK if busy else "", "")
+        return on
+
+    world.runner.plan = world.plan(build_busy=[TASK])
+    world.runner.on = tasks(3)
+    start = world.clock()
+    assert world.main(["--wait-build"], build_root=build) == 0, capsys.readouterr()
+    out = capsys.readouterr().out
+    assert "+ wait until no awb-task-* unit is active, at most 60 minutes" in out
+    assert len(listed) == 4 and world.clock() - start == 3 * deploy.WAIT_BUILD_POLL
+    assert [c for c, _ in world.runner.named("setup.sh")][0][-1] == "--update"
+    assert not (world.root / deploy.BUILD_PENDING).exists()
+    w2 = World(tmp_path / "w2")
+    listed.clear()
+    world = w2
+    w2.runner.plan = w2.plan(build_busy=[TASK])
+    w2.runner.on = tasks(None)
+    start = w2.clock()
+    assert w2.main(["--wait-build"], build_root=build) == 1
+    out = capsys.readouterr().out
+    assert w2.clock() - start >= deploy.WAIT_BUILD_TOTAL and w2.clock() - start < deploy.WAIT_BUILD_TOTAL + 60
+    assert "%s still runs after 60 minutes: the build side stays out of this deploy" % TASK in out
+    assert "# failed: --wait-build" in out
+    assert [c for c, _ in w2.runner.named("setup.sh")][0][-1] == "--no-build"
+    assert deploy.read_build_pending(w2.root) == w2.c1

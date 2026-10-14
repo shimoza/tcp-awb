@@ -1960,3 +1960,127 @@ def test_seal_check_on_a_build_host_passes_only_on_a_probe_record_with_the_host_
     monkeypatch.setattr(config, "build_user", lambda: None)
     assert seal.main(["check"]) == 0
     assert "probe unit" not in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- the build side and a running task (A1)
+
+
+def _template_snippet(tmp: Path) -> str:
+    """The printing helpers, the exchange, clear_target and the build section of setup.sh, for build_template run
+    for real in a throw-away build root: install, chown and chattr are fakes on PATH; build_identity finds nothing."""
+    text = SETUP.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    start = next(i for i, x in enumerate(lines) if x.startswith("# ----") and "printing and the guard" in x)
+    end = next(i for i, x in enumerate(lines) if x.startswith("# ----") and x.rstrip().endswith("the steps"))
+    bs = next(i for i, x in enumerate(lines) if x.startswith("# ----") and "the build side (self-build SB1)" in x)
+    be = next(i for i, x in enumerate(lines) if x.startswith("check_mirror() {"))
+    exch = text[text.index("# renameat2(RENAME_EXCHANGE)"):text.index("git_repo() {")]
+    clear = text[text.index("clear_target() {"):text.index("step_client() {")]
+    return ("set -euo pipefail\ndie() { echo \"setup: $*\" >&2; exit 1; }\ndry_run=0\nreal=1\nupdate=1\ntest_root=1\n"
+            "build_host=\nbuild_model=login\nROOT_UID=$(id -u)\nBUILD_ROOT=%s\nseal_dir=%s\nrepo=%s\n"
+            "protected=(%s)\n%s\n%s\n%s\n%s\nbuild_identity() { :; }\nbuild_template\n"
+            % (tmp / "root", SEAL, REPO, tmp / "vault", "".join(lines[start:end]), exch, clear,
+               "".join(lines[bs:be])))
+
+
+def _run_template(tmp: Path):
+    fake = tmp / "fake"
+    fake.mkdir(exist_ok=True)
+    log = tmp / "calls.log"
+    scripts = {
+        "chattr": 'echo "chattr $*" >> "%s"' % log,
+        "chown": "exit 0",
+        "install": ('d=0; while [ $# -gt 0 ]; do case "$1" in -d) d=1; shift ;; -o|-g|-m) shift 2 ;; *) break ;; esac; '
+                    'done; if [ "$d" -eq 1 ]; then mkdir -p "$@"; else cp "$1" "$2"; fi'),
+    }
+    for name, body in scripts.items():
+        (fake / name).write_text("#!/bin/sh\n%s\n" % body)
+        (fake / name).chmod(0o755)
+    env = dict(os.environ, PATH="%s:%s" % (fake, os.environ["PATH"]))
+    res = subprocess.run(["bash", "-c", _template_snippet(tmp)], capture_output=True, text=True, env=env, timeout=60)
+    return res, commands(res.stdout)
+
+
+def test_the_home_template_is_swapped_in_whole_and_a_running_unit_keeps_its_files(tmp_path):
+    """Automation review A1: a template in place is never written into; the new one goes into a fresh folder, its
+    files and .claude get the immutable flag before one exchange swaps it in, the folder of before loses its flags
+    after and stays, so a task unit that bound its files keeps them (an unlinked file loses its bind). Planted: an
+    old template with an open handle on its settings; the handle still reads the old text, the old inode is still
+    linked, the new files are the release's, the identity of before is kept. A second swap drops the folder the
+    first one left. A host without a template gets it in place, without an exchange."""
+    t = tmp_path / "root" / "home-template"
+    swap = tmp_path / "root" / ".home-template.swap"
+    res, cmds = _run_template(tmp_path)
+    assert res.returncode == 0, res.stderr
+    assert (t / ".claude" / "settings.json").read_bytes() == BUILD_SETTINGS.read_bytes()
+    assert not swap.exists() and not [c for c in cmds if c.startswith("+ exchange ")]
+    assert "+ chattr +i %s" % t in cmds
+    # a template in place, a running unit holding its settings
+    old = t / ".claude" / "settings.json"
+    old.write_text('{"old": true}\n')
+    (t / ".gitconfig").write_text("[user]\n\tname = t\n\temail = t@example.org\n")
+    handle = open(old, encoding="utf-8")
+    inode = os.stat(old).st_ino
+    (tmp_path / "calls.log").unlink()
+    res, cmds = _run_template(tmp_path)
+    assert res.returncode == 0, res.stderr
+    assert handle.read() == '{"old": true}\n'
+    handle.close()
+    assert os.stat(swap / ".claude" / "settings.json").st_ino == inode
+    assert (swap / ".claude" / "settings.json").read_text() == '{"old": true}\n'
+    assert (t / ".claude" / "settings.json").read_bytes() == BUILD_SETTINGS.read_bytes()
+    assert (t / ".claude" / "CLAUDE.md").read_bytes() == (REPO / "CLAUDE.md").read_bytes()
+    assert (t / ".gitconfig").read_text() == "[user]\n\tname = t\n\temail = t@example.org\n"
+    swap_cmd = "+ exchange %s %s  # renameat2 RENAME_EXCHANGE, one call" % (swap, t)
+    order = [swap_cmd] + ["+ chattr +i %s" % (swap / rel) for rel in
+                          (".claude/settings.json", ".claude/CLAUDE.md", ".gitconfig", ".claude")] + [
+        "+ chattr -i %s" % t, "+ chattr +i %s" % t, "+ chattr -R -i %s" % swap]
+    assert all(c in cmds for c in order), cmds
+    at = cmds.index(swap_cmd)
+    assert all(cmds.index(c) < at for c in order[1:6]) and all(cmds.index(c) > at for c in order[6:])
+    assert not [c for c in cmds if c.startswith("+ install ") and c.endswith(str(t / ".claude" / "settings.json"))]
+    calls = (tmp_path / "calls.log").read_text().splitlines()
+    assert calls[-1] == "chattr -R -i %s" % swap
+    # the next swap drops the folder the last one left
+    first_new = os.stat(t / ".claude" / "settings.json").st_ino
+    res, cmds = _run_template(tmp_path)
+    assert res.returncode == 0, res.stderr
+    assert "+ rm -rf -- %s" % swap in cmds and cmds.index("+ rm -rf -- %s" % swap) < cmds.index(swap_cmd)
+    assert os.stat(swap / ".claude" / "settings.json").st_ino == first_new
+    assert not [p for p in tmp_path.joinpath("root").iterdir() if p.name not in ("home-template", swap.name)]
+
+
+def test_setup_no_build_leaves_the_build_side_out_and_pending_build_applies_it(fakebin):
+    """Automation review A1: `--update --no-build` (the deploy while a task unit runs) plans no command on the build
+    root, the client or the build user and names the pending file; `--update --pending-build` (the runner's unit
+    before each start) plans the build side alone and the removal of the file. Both go with --update only and
+    exclude each other and --units-only. The runner's unit runs it as root, never holding its start."""
+    res = run_script(SETUP, ["--update", "--no-build", "--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    no_marks(fakebin)
+    cmds = [c.replace(str(REPO), "<release>") for c in commands(res.stdout)]   # the suite may run on the image
+    assert [c for c in cmds if "/srv/awb-build" in c or "home-template" in c or "/opt/claude-build" in c
+            or re.match(r"^[+=] (useradd|groupadd|usermod|gpasswd)\b", c)] == []
+    assert "+ exchange /opt/tcp-awb/src.next /opt/tcp-awb/src  # renameat2 RENAME_EXCHANGE, one call" in cmds
+    assert "# the build side is left out (--no-build): a build task unit runs; /opt/tcp-awb/BUILD-PENDING names it " \
+           "for the next" in res.stdout.splitlines()
+    res = run_script(SETUP, ["--update", "--pending-build", "--dry-run"], fakebin, build_host="present")
+    assert res.returncode == 0, res.stderr
+    no_marks(fakebin)
+    cmds = commands(res.stdout)
+    assert "+ install -o root -g root -m 644 %s /srv/awb-build/.home-template.swap/.claude/settings.json" \
+        % BUILD_SETTINGS in cmds
+    assert "+ exchange /srv/awb-build/.home-template.swap /srv/awb-build/home-template  # renameat2 " \
+           "RENAME_EXCHANGE, one call" in cmds
+    assert cmds[-1] == "+ rm -f -- /opt/tcp-awb/BUILD-PENDING  # if present"
+    assert not [c for c in cmds if "/opt/tcp-awb/src" in c or "/etc/systemd/system/" in c or "paths.conf" in c]
+    assert "# only while /opt/tcp-awb/BUILD-PENDING is there and no awb-task-* unit is active:" in res.stdout.splitlines()
+    for args in (["--no-build", "--dry-run"], ["--pending-build", "--dry-run"]):
+        res = run_script(SETUP, args, fakebin)
+        assert res.returncode == 1 and "go with --update" in res.stderr, args
+    for args in (["--no-build", "--pending-build"], ["--units-only", "--no-build"]):
+        res = run_script(SETUP, ["--update", *args, "--dry-run"], fakebin)
+        assert res.returncode == 1 and "exclude each other" in res.stderr, args
+    unit = BUILD_UNIT.read_text(encoding="utf-8")
+    assert "ExecStartPre=-+/usr/bin/env SUDO_USER=@OWNER@ /opt/tcp-awb/src/seal/setup.sh --update --pending-build" \
+        in unit.splitlines()

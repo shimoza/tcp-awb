@@ -6,6 +6,10 @@
 # A deploy never restarts it while an awb-task-* unit is active: it leaves restart-wanted in <build_root>/runs and
 # the runner exits between two tasks with a non-zero code, which Restart=on-failure turns into a start with the new
 # code. `awb build stop` exits 0 and the runner stays down.
+# While a task unit runs the deploy also leaves the build side out (the home template every task unit binds) and
+# the marker /opt/tcp-awb/BUILD-PENDING; before each start, as root ("+") and never holding the start ("-"), the
+# live release's setup.sh --update --pending-build applies it when the marker is there and no task unit runs
+# (automation review A1). SUDO_USER names the owner for that one command, not for the runner.
 # MemoryMax=2G (review B3): the runner reads no changed blob or commit above 16 MB (git cat-file --batch-check first),
 # so a normal run peaks well under 1G: the fetch of a bundle of BUNDLE_MAX (512 MB) with fsck in git and the gate
 # over blobs of up to 16 MB in Python; git archive streams the export to a file. The sessions and the suite run in
@@ -21,6 +25,7 @@ User=@OWNER@
 Group=awb
 NoNewPrivileges=no
 UMask=0022
+ExecStartPre=-+/usr/bin/env SUDO_USER=@OWNER@ /opt/tcp-awb/src/seal/setup.sh --update --pending-build
 ExecStart=/usr/local/bin/awb build serve
 Restart=on-failure
 RestartSec=30
