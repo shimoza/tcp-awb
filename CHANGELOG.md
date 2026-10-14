@@ -65,6 +65,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The block "Customer data" of `README.md` and the warning of the dataset TCP Facts (its README, PROMPT.md and
+  HOW-TO.pdf) say: give the model technical tasks only and keep them simple, since a detailed description of a
+  customer's project can identify the customer without a name and that can break data protection law.
 - The MCP server of the dataset (`tcp_facts_mcp.py`) refuses a file outside the dataset folder with the JSON-RPC code
   -32050 instead of -32001, since the revision 2026-07-28 keeps new implementations off -32000 to -32019. The message
   stays the same (B-002, test MCP-23).

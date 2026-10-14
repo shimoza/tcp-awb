@@ -163,7 +163,9 @@ WARNING = [
           "offer."),
     ("p", "- A described setup can identify a customer too. A region, a sector, a number of sites, a named "
           "application and a go-live date together are often enough for a capable model to guess who the customer "
-          "is, even when you named nobody. Keep the setup generic or run the model where the data may go."),
+          "is, even when you named nobody. Identifying a customer through such details can break data protection "
+          "law, so give the model technical tasks only and keep them simple. Keep the setup generic or run the "
+          "model where the data may go."),
     ("p", WARNING_RESPONSIBILITY + " The dataset gives you checked facts and nothing else."),
 ]
 MCP_HEADING = "MCP clients"

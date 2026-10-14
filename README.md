@@ -517,7 +517,10 @@ customer data out of the model as far as it can:
 - A gate checks every commit for names, secrets, home paths and the owner's blocklist. A send gate lets only the
   exact reviewed version of a deliverable leave.
 
-These checks are a safeguard, not a guarantee. The architect stays responsible for what goes into a session.
+These checks are a safeguard, not a guarantee. The architect stays responsible for what goes into a session. Give
+the model only technical tasks and keep them simple: a detailed description of a customer's project carries metadata
+(region, sector, size, dates, applications) that can identify the customer even without a name and that can break
+data protection law.
 
 ## The sealed setup and its operation
 
