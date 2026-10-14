@@ -57,6 +57,7 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     awb owner status [--write]                               awb/tcp/owner.py   (owner side, the owner level's status)
     awb ui submit TASKFILE [--mail], awb ui status [--ended], awb ui watch ID      awb/tcp/ui.py   (owner side)
     awb build add|list|status|show|answer|retry|widen|stop|serve|selftest|probe     awb/build.py   (owner side)
+    awb pr take N [--dry-run]                                awb/prtake.py   (owner side)
 
 Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 
@@ -616,6 +617,7 @@ DELEGATED = {
     "ui": ("tcp.ui", "the UI queue: submit a task, list the runs, a result note when a run ends (owner side)"),
     "build": ("build", "the self-build: the task queue (add, list, status, show, answer, retry, widen, stop) and "
                       "its runner (serve, selftest, probe)"),
+    "pr": ("prtake", "take a pull request of a cloud session: rebase, awb build check, merge, push, close"),
     "deploy": ("deploy", "bring a commit live: sudo awb deploy; awb deploy --dry-run and awb deploy status as the owner"),
 }
 

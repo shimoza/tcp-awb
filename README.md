@@ -598,6 +598,7 @@ awb build widen B-012 awb/tcp/keys.py
 awb build widen B-012 --tests-replaced SB1-20   # into the run's task.md, which the checks read
 awb build stop               # the runner ends after the current task
 awb build check pr-12        # a branch from outside: the gate and the suite as awb-build, nothing merged
+awb pr take 12               # fetch, rebase onto main, the check, merge --no-ff, push, close
 ```
 
 `model` (opus, sonnet, fable; opus), `effort` (low, medium, high; medium), `budget` (USD, 1 to 100; 10) and `clock`
@@ -658,6 +659,11 @@ it never runs beside a task: with no runner it runs at once, else it waits until
 next task. No model session runs and nothing is merged, pushed or deployed. It prints the state (`passed` or the
 first failure, as `red: gate name` or `red: tests lost`) and the check lines, exits 0 only for `passed` and keeps
 `runs/C-001/1/result.md`; `awb build list` and the board show the newest three checks. Merging stays your step.
+`awb pr take N` does it in one command: it fetches pull request N, rebases it onto your `main` in a temporary
+worktree (a conflict in `build/tests.json` merged by id, one in `CHANGELOG.md` by week, any other one stops it),
+runs `awb build check` on the result and only when that passed merges it with `--no-ff`, pushes `main` to origin
+and to `main.git` of the build and closes the pull request with a comment that names the merge commit (with gh).
+On a failure `main` stays as it was. It never deploys; `awb pr take N --dry-run` prints the steps.
 
 What the build side does not prove (the accepted limits of `presentations/self-build/THREAT-MODEL.md`, section 6):
 
