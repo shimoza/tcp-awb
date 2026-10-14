@@ -659,6 +659,37 @@ def test_the_selftest_refuses_or_classifies_every_planted_case():
     assert buildrun.selftest(python=sys.executable) == []
 
 
+def test_the_selftest_holds_from_a_working_folder_git_cannot_use(tmp_path):
+    """Finding SC: `awb seal check` as the work user runs the selftest from a folder it cannot enter (in the owner's
+    home). The helpers of LocalUnits run in the caller's process, so git in _clone_ok ran there and failed, the
+    handover refused every clone and each case read `red: no commit`. The cases hold from such a folder (one that is
+    gone and, unless root, one under a folder that is closed) and the caller's folder comes back."""
+    kept = os.getcwd()
+    places = ["gone"] + (["closed"] if os.geteuid() != 0 else [])
+    try:
+        for place in places:
+            outer = tmp_path / place
+            inner = outer / "inner"
+            inner.mkdir(parents=True)
+            os.chdir(inner)
+            if place == "gone":
+                inner.rmdir()
+            else:
+                outer.chmod(0)
+            try:
+                before = os.stat(".")
+                probe = subprocess.run(["git", "config", "--file", os.devnull, "--list"], capture_output=True)
+                assert probe.returncode != 0, place
+                assert buildrun.selftest(only=["n9-outside", "n10-author"], python=sys.executable) == [], place
+                after = os.stat(".")
+                assert (after.st_dev, after.st_ino) == (before.st_dev, before.st_ino), place
+            finally:
+                outer.chmod(0o755)
+                os.chdir(kept)
+    finally:
+        os.chdir(kept)
+
+
 def _no_check(*a, **k):
     return None
 

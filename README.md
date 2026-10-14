@@ -647,8 +647,8 @@ by itself, once, ten minutes later. A task that waits on you (`asked`, `red: <re
 15 minutes with no answer, widen or retry since gets one more mail from `awb build nudge`, which the root owned
 `awb-build-nudge.timer` runs as you every 15 minutes: its body is your next commands (`awb build show ID` then `awb
 build answer ID "..."`, `awb build retry ID` or `awb build widen ID PATH...`, or the hold's own command), never the
-agent's text, once per state, and the board line adds `nudged: B-013 asked 23:30`. `awb build selftest` runs the runner's planted cases in a throw-away folder and
-fails when one of them is missing; `awb build probe` (as you) starts a unit of the runner's own form with the network
+agent's text, once per state, and the board line adds `nudged: B-013 asked 23:30`. `awb build selftest` runs the runner's planted cases in a throw-away folder, which is also its working folder while they run, so
+they hold from any folder you start it in, and fails when one of them is missing; `awb build probe` (as you) starts a unit of the runner's own form with the network
 of a task: the model endpoint and, with your login, `platform.claude.com` connect, a TCP API host, GitHub and port 22
 of `127.0.0.1`, of `127.0.0.53` and of the host's own address do not (a refusal counts only after the model endpoint
 connected in the same run). A task unit never reaches a port of the host itself and no nameserver: the runner
@@ -657,7 +657,8 @@ hosts file of loopback and those names over `/etc/hosts` and a `resolv.conf` wit
 `/etc/resolv.conf`, both written into the run folder. The probe's hosts file also names the TCP API host and
 GitHub, so their refusal is the address filter. Without an upstream nameserver in
 `/run/systemd/resolve/resolv.conf` the queue is still held as `no resolver for the task unit`.
-`sudo seal/verify.sh` runs both; `awb seal check` runs the selftest and reads the record of the last probe. Every
+`sudo seal/verify.sh` runs both; `awb seal check` runs the selftest (the same cases as yours, also as the work user from a folder it cannot
+enter) and reads the record of the last probe. Every
 task unit names the oneshot `awb-task-failed@.service` in `OnFailure=`: a task unit that fails while no runner
 waits on it (the runner stopped or crashed) adds `no runner watched: B-012 failed 14:02 (timeout)` to the board line
 until the runner starts again and reports the task itself. The unit has `MemoryMax=2G`, so a read that grows ends the runner and not the vault daemon or the key service. It is installed and not enabled: start it with

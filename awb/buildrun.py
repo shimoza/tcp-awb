@@ -4047,6 +4047,29 @@ SELFTEST_REQUIRED = ("n6-prompt", "n6-home", "n7-clock", "n9-deleted", "n9-skipp
 to a clean report."""
 
 
+@contextlib.contextmanager
+def _working_folder(path: Path):
+    """The throw-away world as the working folder while the planted cases run, as a unit has its own (/tmp). The
+    helpers of LocalUnits run in this process, so git in them ran in the caller's folder: `awb seal check` as the work
+    user, started in a folder it cannot enter, made git in _clone_ok fail, the handover refused every clone and each
+    case read `red: no commit` (finding SC). The caller's folder comes back after, also one whose path it cannot read."""
+    try:
+        saved = os.open(".", os.O_PATH | os.O_DIRECTORY | os.O_CLOEXEC)
+    except OSError:
+        saved = None
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        if saved is None:
+            os.chdir("/")
+        else:
+            try:
+                os.fchdir(saved)
+            finally:
+                os.close(saved)
+
+
 def selftest(only: list[str] | None = None, python: str | None = None) -> list[str]:
     """Run the planted cases in a throw-away world; the failures, empty when every case was refused or classified as
     it must be. A case that passes where it must be refused is a failure: the harness can fail."""
@@ -4059,7 +4082,7 @@ def selftest(only: list[str] | None = None, python: str | None = None) -> list[s
         failures += ["%s: the planted case is missing" % name for name in SELFTEST_REQUIRED if name not in names]
         failures += ["%s: the planted case is there twice" % name for name in sorted(set(names))
                      if names.count(name) > 1]
-    with tempfile.TemporaryDirectory(prefix="awb-build-selftest-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="awb-build-selftest-") as tmp, _working_folder(Path(tmp)):
         world = World(Path(tmp), python=python)
         try:
             for name, case in SELFTEST_CASES:

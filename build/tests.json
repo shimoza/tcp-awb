@@ -6201,8 +6201,15 @@
    "name": "build nudge: setup installs the root owned timer and its hardened oneshot, verify proves the timer is enabled",
    "run": ".venv/bin/pytest tests/test_seal.py::test_setup_installs_the_nudge_timer_as_root_and_verify_proves_it_is_enabled",
    "status": "passing"
+  },
+  {
+   "id": "B014-1",
+   "phase": "B-014",
+   "name": "build selftest: the planted cases hold from a working folder git cannot use (awb seal check as the work user, finding SC)",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_selftest_holds_from_a_working_folder_git_cannot_use",
+   "status": "passing"
   }
  ],
- "total_tests": 886,
+ "total_tests": 887,
  "checked": "2026-10-14"
 }

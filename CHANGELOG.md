@@ -161,6 +161,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- `awb seal check` run as the work user passes "the build runner refuses its planted cases" again (finding SC):
+  since the handover and rebase units of 2026-10-13 every case read `red: no commit`. The selftest runs its helpers
+  in its own process, and the new clone check ran `git config` in the caller's folder; from a folder the work user
+  cannot enter (the owner's home) git failed and the handover refused every clone. The selftest now runs with its
+  throw-away folder as the working folder, as a unit has its own, and gives the caller's folder back after. Its
+  cases are the same in both runs.
 - `awb service update` reads a "No longer available from" mark again when the page footer of the PDF falls between
   the mark and the heading it belongs to: in the revision of 09.10.2026 Volume Backup Service lost its end date that
   way. A word in brackets with a run of three small letters, such as "GeminiDB (DynamoDB)", is no longer taken as a
