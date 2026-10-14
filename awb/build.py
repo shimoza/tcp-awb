@@ -1,6 +1,7 @@
 """`awb build`: the self-build of the Workbench (presentations/self-build).
 
     awb build add FILE           a task into the queue: its block and its prompt, checked, written atomically
+    awb build draft FINDING      an add file from a row of a findings table (awb/builddraft.py), never queued
     awb build list               one line per task: id, state, since when, waits on what
     awb build status [--ended]   the board line with live, main and the count not deployed, or with --ended each run
                                  that ended since the last call, once
@@ -95,6 +96,8 @@ _NODE_RE = re.compile(r"tests/(?:[A-Za-z0-9_]+/)*test_[A-Za-z0-9_]+\.py"
 _WORD_RE = re.compile(r"[A-Za-z0-9_]+")
 _PROMPT_RE = re.compile(r"build/queue/([A-Za-z0-9][A-Za-z0-9_.-]*\.md)")
 _NUMBER_RE = re.compile(r"[0-9]{1,3}")
+_COMMENT_RE = re.compile(r"#(?!#)")
+"""A comment line of an add file's block (`# ...`, as `awb build draft` writes them); never in QUEUE.md."""
 
 
 @dataclass(frozen=True)
@@ -849,7 +852,8 @@ def _owner_only() -> str | None:
 
 
 def split_add_file(text: str) -> tuple[str, str]:
-    """An add file: the block (its heading and keys; `prompt:` and `end:` may be left out), a line `---`, the prompt."""
+    """An add file: the block (its heading and keys; `prompt:` and `end:` may be left out, a comment line `# ...`
+    is skipped), a line `---`, the prompt."""
     lines = text.split("\n")
     for i, ln in enumerate(lines):
         if ln.rstrip() == "---":
@@ -875,7 +879,7 @@ def add(path: Path, qdir: Path | None = None, runs: Path | None = None, register
     if "\x00" in text:
         raise Refused("the file holds a NUL byte")
     head, prompt = split_add_file(text)
-    head_lines = [ln for ln in head.split("\n") if ln.strip()]
+    head_lines = [ln for ln in head.split("\n") if ln.strip() and not _COMMENT_RE.match(ln)]
     if not head_lines:
         raise Refused("the file has no block")
     hm = _HEADING_RE.fullmatch(head_lines[0].rstrip())
@@ -1138,6 +1142,12 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
     s = sub.add_parser("add", help="a task into the queue: a file with its block, a line ---, its prompt")
     s.add_argument("file")
+    s = sub.add_parser("draft", help="an add file from a row of a findings table, to standard output or --out")
+    s.add_argument("finding", help="the id of the row, for example E1")
+    s.add_argument("--from", dest="source", default=None, metavar="FILE",
+                   help="the markdown file with the table (default docs/review-2026-10-13.md)")
+    s.add_argument("--id", dest="tid", default=None, metavar="B-NNN", help="the task id (default: the next free one)")
+    s.add_argument("--out", default=None, metavar="FILE", help="write the draft to this new file")
     sub.add_parser("list", help="one line per task: id, state, since when, waits on what")
     s = sub.add_parser("status", help="the board line; --ended: each run that ended since the last call, once")
     s.add_argument("--ended", action="store_true")
@@ -1197,6 +1207,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "add":
             return cmd_add(args.file)
+        if args.command == "draft":
+            from awb import builddraft
+
+            return builddraft.cmd_draft(args.finding, args.source, args.out, args.tid)
         if args.command == "list":
             for ln in list_lines() or ["build: the queue is empty"]:
                 _out(ln)

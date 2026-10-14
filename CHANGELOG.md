@@ -7,6 +7,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- `awb build draft FINDING [--from FILE] [--id B-NNN] [--out FILE]` writes the add file of a finding for `awb build
+  add`, so the steering session does not write tasks by hand (automation review A4). It takes the row of a findings
+  table (default `docs/review-2026-10-13.md`) and the section of its id: the title from the summary, `paths` from
+  the place column, the module's test file and the document that marks the finding fixed (never an always allowed
+  file), `check` the test file, `tests_replaced: none` with comment lines that list the rows of `build/tests.json`
+  whose run names a touched test file. The prompt carries the finding, the defaults and the rules of a fix. It writes
+  to standard output or a new file and never adds to the queue. `awb build add` skips comment lines `# ...` of a block.
 - When the whole suite of a build task or of `awb build check` has failures, the failed nodes alone run once more
   in the same suite unit. When they pass, the check passes with a line `flaky: NODE...` in `checks.log` and
   `result.md`; a node flaky a second time in seven days adds a line to `build/queue/FLAKY.md`, which the steering

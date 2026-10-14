@@ -6096,8 +6096,71 @@
    "name": "dataset put --github: a failed git call on the clone names the command, not the safe.directory path",
    "run": ".venv/bin/pytest tests/test_dataset.py::test_a_failed_git_call_on_the_clone_names_the_command_and_not_the_path",
    "status": "passing"
+  },
+  {
+   "id": "BD-A4-1",
+   "phase": "A4",
+   "name": "build draft: the draft takes the row and its section into the block and the prompt: title, paths, check, tests_replaced none, the defaults and the rules",
+   "run": ".venv/bin/pytest tests/test_build_draft.py::test_the_draft_takes_the_row_and_its_section_into_the_block_and_the_prompt",
+   "status": "passing"
+  },
+  {
+   "id": "BD-A4-2",
+   "phase": "A4",
+   "name": "build draft: the comment lines list the rows of build/tests.json whose run names a touched test file",
+   "run": ".venv/bin/pytest tests/test_build_draft.py::test_the_comment_lines_list_the_rows_whose_run_names_a_touched_test_file",
+   "status": "passing"
+  },
+  {
+   "id": "BD-A4-3",
+   "phase": "A4",
+   "name": "build draft: paths never list an always allowed file and the place column loses its line numbers",
+   "run": ".venv/bin/pytest tests/test_build_draft.py::test_the_draft_never_lists_an_always_allowed_file_and_cuts_the_line_numbers",
+   "status": "passing"
+  },
+  {
+   "id": "BD-A4-4",
+   "phase": "A4",
+   "name": "build draft: a place without a path keeps the document; a finding without a section says so",
+   "run": ".venv/bin/pytest tests/test_build_draft.py::test_a_place_without_a_path_keeps_the_document_and_a_finding_without_a_section_says_so",
+   "status": "passing"
+  },
+  {
+   "id": "BD-A4-5",
+   "phase": "A4",
+   "name": "build draft: awb build add takes the draft as it is and skips its comment lines",
+   "run": ".venv/bin/pytest tests/test_build_draft.py::test_awb_build_add_takes_the_draft_as_it_is_and_skips_the_comment_lines",
+   "status": "passing"
+  },
+  {
+   "id": "BD-A4-6",
+   "phase": "A4",
+   "name": "build draft: the id defaults to the one after the queue and the records",
+   "run": ".venv/bin/pytest tests/test_build_draft.py::test_the_id_defaults_to_the_one_after_the_queue_and_the_records",
+   "status": "passing"
+  },
+  {
+   "id": "BD-A4-7",
+   "phase": "A4",
+   "name": "build draft: the command writes to standard output or a new file, never over a file and never to the queue",
+   "run": ".venv/bin/pytest tests/test_build_draft.py::test_the_command_writes_to_standard_output_or_a_new_file_and_never_to_the_queue",
+   "status": "passing"
+  },
+  {
+   "id": "BD-A4-8",
+   "phase": "A4",
+   "name": "build draft: the default findings file is the review; a missing row and a bad id are refused",
+   "run": ".venv/bin/pytest tests/test_build_draft.py::test_the_default_findings_file_is_the_review_and_a_missing_row_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "BD-A4-9",
+   "phase": "A4",
+   "name": "build draft: every finding of the repository's review drafts a block the grammar takes",
+   "run": ".venv/bin/pytest tests/test_build_draft.py::test_the_review_of_the_repository_drafts_every_finding_of_its_table",
+   "status": "passing"
   }
  ],
- "total_tests": 871,
+ "total_tests": 880,
  "checked": "2026-10-14"
 }
