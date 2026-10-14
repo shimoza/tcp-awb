@@ -874,3 +874,52 @@ def test_the_list_of_three_buckets_comes_whole_as_data_and_a_long_object_says_it
     fake.buckets[names[0]]["objects"]["notes.txt"] = b"plain words " * 100
     a = call(svc, method="GET", service="obs", path="/%s/notes.txt" % names[0])
     assert a["status"] == 200 and a["data"] is None and a["cut"] and a["size"] == 1200 and len(a["text"]) == 300
+
+
+# --------------------------------------------------------------------------- a random password (fact-check F2, D3)
+
+
+def test_a_random_password_is_drawn_sent_and_taken_out_of_the_answer_and_the_log(svc, gw, tmp_path):
+    load(svc)
+    lab_gateway(gw)
+    body = {"server": {"name": "lab-1", "admin_pass": keys.RANDOM_PASSWORD}}
+    a = call(svc, role="lab", method="POST", service="ecs", path="/v1/{project_id}/cloudservers", body=body,
+             project=PROJECT)
+    assert a["ok"] and a["status"] == 200, a
+    sent = json.loads(gw.bodies[-1])["server"]["admin_pass"]
+    assert sent != keys.RANDOM_PASSWORD and len(sent) == 16 and "{{" not in sent
+    # the gateway echoed it plainly and in base64: the answer carries neither, the log never a value
+    text = json.dumps(a)
+    assert sent not in text and base64.b64encode(sent.encode()).decode() not in text
+    assert a["data"]["server"]["server"]["admin_pass"] == keys.MASK
+    assert a["data"]["user_data_seen"] == keys.MASK
+    log = "".join(p.read_text(encoding="utf-8") for p in (tmp_path / "log").glob("*"))
+    assert sent not in log
+    # each call draws a new value
+    call(svc, role="lab", method="POST", service="ecs", path="/v1/{project_id}/cloudservers", body=body,
+         project=PROJECT)
+    assert json.loads(gw.bodies[-1])["server"]["admin_pass"] != sent
+
+
+@pytest.mark.parametrize("body, error", [
+    ({"server": {"user_data": "{{random:password}}"}}, "may only fill a password field"),
+    ({"server": {"admin_pass": "x{{random:password}}"}}, "must be the whole value"),
+    ({"server": {"admin_pass": "{{random:token}}"}}, "must be the whole value"),
+])
+def test_a_random_password_fills_a_password_field_and_nothing_else(svc, gw, body, error):
+    load(svc)
+    lab_gateway(gw)
+    n = len(gw.calls)
+    a = call(svc, role="lab", method="POST", service="ecs", path="/v1/{project_id}/cloudservers", body=body,
+             project=PROJECT)
+    assert not a["ok"] and error in a["error"]
+    assert len(gw.calls) == n
+
+
+def test_a_drawn_password_meets_the_rules_of_ecs_and_rds():
+    for _ in range(50):
+        value = keys.random_password()
+        assert len(value) == 16 and value[0].isalnum()
+        assert any(c.isupper() for c in value) and any(c.islower() for c in value) and any(c.isdigit() for c in value)
+        assert any(c in "!@%^-_=+" for c in value) and set(value) <= set(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@%^-_=+")
