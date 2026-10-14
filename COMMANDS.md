@@ -391,7 +391,8 @@ The same for forms, derived, office, pdf, mail_archive and nontext. `tests/test_
 | command | what it does |
 |---|---|
 | `awb kb find [--scope tcp\|hcs] WORDS...` | entries ranked by how much of the query they carry, rare words weighing more, with grade, date and an EXPIRED flag. A service abbreviation and its plain words find each other (`rules/kb-synonyms.txt`); question words and the platform's name are not searched |
-| `awb kb show KB-XXXX` | one entry |
+| `awb kb show KB-XXXX` | one entry, with its check block when it has one |
+| `awb kb how KB-XXXX - < block.txt` | write or replace the check block of an entry from standard input: `key: value` lines `tier` (read, write, decision, none), `event` (an ISO date, optional), `calls` (read: `GET service path`, `;`-separated; write: `recipe NAME k=v ...`), `confirms`, `refutes`, `control`, `needs` (`none` or what the host cannot give). The values go through the text checks of `add`. Refused: a block without `control`, a write tier whose recipe is not in `recipes/`, a read or write tier whose `needs` is not `none`, a decision tier that names no need. Header, statement and check date stay |
 | `awb kb scope [--scope tcp\|hcs] TAG` | a briefing on one technology: facts by grade, negatives with what was tried, expired entries |
 | `awb kb expired` | entries past their re-check date |
 | `awb kb export --out facts.jsonl` | the facts fit to leave as a dataset, one JSON object per line (id, statement, grade, source, checked, expires, tags, tried); by default live, contract and docs only, no retired and no expired entry, every one name checked again. `--grade said` after a clearance, `--include-expired`, `--tag T`, `--scope hcs`, `--force` to replace an existing output file |
