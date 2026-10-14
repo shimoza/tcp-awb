@@ -414,7 +414,7 @@ def test_amend_moves_the_checked_date_only_when_it_is_given(home):
     ("   ", "checked is empty"),
     ("not-a-date", "checked must be an ISO date"),
     ((TODAY + timedelta(days=2)).isoformat(), "checked must not be in the future"),
-])
+], ids=["empty", "blank", "not-a-date", "ahead"])    # fixed ids: a date in the id changes every day
 def test_amend_refuses_a_checked_date_that_is_empty_wrong_or_ahead(home, capsys, value, marker):
     """A shell variable that did not expand gives --checked "", which must not re-date the fact to today."""
     old = (TODAY - timedelta(days=170)).isoformat()
