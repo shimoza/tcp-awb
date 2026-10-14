@@ -242,11 +242,11 @@ BUILD_REASONS = {
     "red": ("no commit", "second branch", "not on main", "too many commits", "merge commit", "dirty tree",
             "blob too big", "message too big", "identity", "outside paths", "link or submodule", "changelog",
             "tests.json", "rules list lost lines", "suite", "tests lost",
-            "check") + tuple("gate %s" % c for c in GATE_CLASSES),
+            "check", "rebase conflict") + tuple("gate %s" % c for c in GATE_CLASSES),
     "stopped": ("by_owner", "no_result", "session_gone", "error", "error_max_turns", "error_during_execution",
                 "error_max_budget_usd"),
     "held": ("checks pending", "push refused", "push pending", "prompt", "prepare", "model endpoint", "no main",
-             "baseline", "gate selftest", "login missing", "changelog week"),
+             "baseline", "gate selftest", "login missing", "changelog week", "rebase"),
 }
 """The fixed phrases of the runner (a test reads them out of awb/buildrun.py)."""
 QUEUE_HELD = ("vault locked", "no vault daemon", "key service not loaded", "no key service", "gate selftest",

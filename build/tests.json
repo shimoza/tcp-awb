@@ -5865,8 +5865,148 @@
    "name": "seal: --update --no-build plans nothing on the build side, --update --pending-build the build side alone and the removal of the file; the runner's unit runs it before each start",
    "run": ".venv/bin/pytest tests/test_seal.py::test_setup_no_build_leaves_the_build_side_out_and_pending_build_applies_it",
    "status": "passing"
+  },
+  {
+   "id": "RF-1",
+   "phase": "RF-A2",
+   "name": "build runner: a retry whose main moved during the session is rebased before the first check, a stale baseline gives no red",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_retry_whose_main_moved_during_the_session_is_rebased_before_the_first_check",
+   "status": "passing"
+  },
+  {
+   "id": "RF-2",
+   "phase": "RF-A2",
+   "name": "build runner: a widened task whose main moved is rebased before the checks run again",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_widened_task_whose_main_moved_is_rebased_before_the_checks_run_again",
+   "status": "passing"
+  },
+  {
+   "id": "RF-3",
+   "phase": "RF-A2",
+   "name": "build runner: a rebase that conflicts before the checks is red: rebase conflict and main stays",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_rebase_that_conflicts_before_the_checks_is_red_with_its_reason_and_main_stays",
+   "status": "passing"
+  },
+  {
+   "id": "RF-4",
+   "phase": "RF-A2",
+   "name": "build runner: a dirty tree is named before a rebase could call it a conflict",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_dirty_tree_is_named_before_a_rebase_could_call_it_a_conflict",
+   "status": "passing"
+  },
+  {
+   "id": "RF-5",
+   "phase": "RF-A2",
+   "name": "build check: a branch whose main moved runs on the main of now",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_check_of_a_branch_whose_main_moved_runs_on_the_main_of_now",
+   "status": "passing"
+  },
+  {
+   "id": "RF-6",
+   "phase": "RF-A2",
+   "name": "build check: a branch that conflicts with the main of now is red before any code runs",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_check_of_a_branch_that_conflicts_with_the_main_of_now_is_red_before_any_code_runs",
+   "status": "passing"
+  },
+  {
+   "id": "RF-7",
+   "phase": "RF-A3",
+   "name": "build add: a task that lists an always allowed file is added with a warning, never refused",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_add_warns_but_does_not_refuse_a_task_that_lists_an_always_allowed_file",
+   "status": "passing"
+  },
+  {
+   "id": "RF-8",
+   "phase": "RF-A3",
+   "name": "build list: a task never waits on an always allowed file",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_list_never_says_a_task_waits_on_an_always_allowed_file",
+   "status": "passing"
+  },
+  {
+   "id": "RF-9",
+   "phase": "RF-A3",
+   "name": "build runner: a task waiting on a question keeps no task waiting for an always allowed file",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_task_waiting_on_a_question_keeps_no_task_waiting_for_an_always_allowed_file",
+   "status": "passing"
+  },
+  {
+   "id": "RF-10",
+   "phase": "RF-A3",
+   "name": "build runner: an always allowed file meets no reserved folder",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_an_always_allowed_file_meets_no_reserved_folder",
+   "status": "passing"
+  },
+  {
+   "id": "RF-11",
+   "phase": "RF-A5",
+   "name": "build widen: --tests-replaced writes the ids into the run's task.md and logs the change in widen.log",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_widen_tests_replaced_writes_the_ids_into_the_run_snapshot_and_logs_the_change",
+   "status": "passing"
+  },
+  {
+   "id": "RF-12",
+   "phase": "RF-A5",
+   "name": "build widen: --tests-replaced refuses a bad id, a missing snapshot and an empty widen",
+   "run": ".venv/bin/pytest tests/test_build_queue.py::test_widen_tests_replaced_refuses_a_bad_id_a_missing_snapshot_and_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "RF-13",
+   "phase": "RF-A5",
+   "name": "build runner: a test id widened into tests_replaced reaches the rejudge, a queue edit does not",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_test_id_widened_into_tests_replaced_reaches_the_rejudge_without_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "RF-14",
+   "phase": "RF-A5",
+   "name": "build runner: an id of tests.json widened into tests_replaced lets its entry change",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_an_id_of_tests_json_widened_into_tests_replaced_lets_its_entry_change",
+   "status": "passing"
+  },
+  {
+   "id": "RF-15",
+   "phase": "RF-A7",
+   "name": "build runner: a node that fails then passes on the rerun passes with a flaky line, twice in seven days tells the owner",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_node_that_fails_then_passes_on_the_rerun_passes_with_a_flaky_line_and_twice_tells_the_owner",
+   "status": "passing"
+  },
+  {
+   "id": "RF-16",
+   "phase": "RF-A7",
+   "name": "build runner: a node that fails on the rerun too is red: suite",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_node_that_fails_on_the_rerun_too_is_red_suite",
+   "status": "passing"
+  },
+  {
+   "id": "RF-17",
+   "phase": "RF-A7",
+   "name": "build runner: the rerun never rescues the hollow-test check",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_rerun_never_rescues_the_hollow_test_check",
+   "status": "passing"
+  },
+  {
+   "id": "RF-18",
+   "phase": "RF-A7",
+   "name": "build check: a flaky node of a branch passes with its line",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_check_of_a_branch_passes_a_flaky_node_with_its_line",
+   "status": "passing"
+  },
+  {
+   "id": "RF-19",
+   "phase": "RF-A7",
+   "name": "build runner: the unit reruns the failed nodes of the whole suite alone, never the baseline or a broad failure",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_unit_reruns_the_failed_nodes_of_the_whole_suite_alone_never_the_baseline_or_a_broad_failure",
+   "status": "passing"
+  },
+  {
+   "id": "RF-20",
+   "phase": "RF-A7",
+   "name": "build runner: a node flaky twice in seven days is told once and a week later counts again",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_node_flaky_twice_in_seven_days_is_told_once_and_a_week_later_counts_again",
+   "status": "passing"
   }
  ],
- "total_tests": 838,
+ "total_tests": 858,
  "checked": "2026-10-14"
 }

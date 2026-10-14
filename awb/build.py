@@ -76,7 +76,8 @@ BUDGET_RANGE = (1, 100)
 CLOCK_RANGE = (10, 480)
 """Minutes of one session; the default 90 is D-S6."""
 ALWAYS_ALLOWED = ("CHANGELOG.md", "README.md", "COMMANDS.md", "INTERFACES.md", "build/tests.json")
-"""Paths every task may change beside its own `paths`, under the rules of DESIGN.md section 2 (checked in SB3)."""
+"""Paths every task may change beside its own `paths`, under the rules of DESIGN.md section 2 (checked in SB3). They
+never reserve a path (A3): a task that lists one waits on no other task for it and keeps no other task waiting."""
 QUEUE_MAX = 1 << 20
 PROMPT_MAX = 64 << 10
 ANSWER_MAX = 8 << 10
@@ -192,6 +193,11 @@ def _check_tokens(value: str) -> tuple[str, ...]:
     return tuple(out)
 
 
+def _test_id(t: str) -> bool:
+    """An id of build/tests.json or a test node id under tests/ with `::`, as `tests_replaced` takes them."""
+    return bool(_TEST_ID_RE.fullmatch(t) or _NODE_RE.fullmatch(t) and "::" in t) and ".." not in t
+
+
 def _validate(tid: str, title: str, values: dict[str, str]) -> Task:
     if not _TITLE_RE.fullmatch(title) or title != title.strip():
         raise Refused("the title holds a control character or a backtick or is too long")
@@ -220,8 +226,7 @@ def _validate(tid: str, title: str, values: dict[str, str]) -> Task:
     replaced: tuple[str, ...] = ()
     if v["tests_replaced"] != "none":
         replaced = tuple(v["tests_replaced"].split())
-        if not replaced or not all((_TEST_ID_RE.fullmatch(t) or _NODE_RE.fullmatch(t) and "::" in t)
-                                   and ".." not in t for t in replaced):
+        if not replaced or not all(_test_id(t) for t in replaced):
             raise Refused("tests_replaced is not none or test ids")
     check = _check_tokens(v["check"])
     budget = v["budget"]
@@ -435,8 +440,9 @@ def read_prompt(task: Task, qdir: Path | None = None, register: Path | None = No
 RUN_FILES = ("task.md", "prompt.txt", "result.json", "status.txt", "task.bundle", "suite.log", "checks.log",
              "result.md", "message.txt", "state", "session", "deadline")
 """The files of one run folder `runs/<ID>/<n>/` (DESIGN.md sections 3 and 7). The runner (SB3) writes them."""
-COMMAND_FILES = ("answer.txt", "widen.txt", "stop-wanted", "reported")
-"""What the commands of this module write into a run folder for the runner, and the mark of `status --ended`."""
+COMMAND_FILES = ("answer.txt", "widen.txt", "widen.log", "stop-wanted", "reported")
+"""What the commands of this module write into a run folder for the runner, and the mark of `status --ended`.
+`awb build widen --tests-replaced` also rewrites the run's `task.md`, the snapshot the runner's checks read."""
 STOP_FILE = "stop"
 """`runs/stop`: the runner ends after the current task (awb build stop)."""
 
@@ -681,6 +687,11 @@ def _since(t: datetime | None) -> str:
     return t.strftime("%Y-%m-%d %H:%M") if t else "?"
 
 
+def reserving(paths: tuple[str, ...]) -> tuple[str, ...]:
+    """The paths of a task that reserve a path in the pick: all but the always allowed ones (A3)."""
+    return tuple(p for p in paths if p not in ALWAYS_ALLOWED)
+
+
 def _waits(task: Task, run: Run | None, done: set[str], states: dict[str, str], reserved: dict[str, str],
            held: str | None) -> str:
     if run is None:
@@ -689,7 +700,7 @@ def _waits(task: Task, run: Run | None, done: set[str], states: dict[str, str], 
         open_deps = [d for d in task.depends if d not in done]
         if open_deps:
             return "depends " + ", ".join("%s (%s)" % (d, states.get(d, "not run")) for d in open_deps)
-        clash = sorted({reserved[p] for p in task.paths if p in reserved and reserved[p] != task.id})
+        clash = sorted({reserved[p] for p in reserving(task.paths) if p in reserved and reserved[p] != task.id})
         if clash:
             return "paths reserved by " + ", ".join(clash)
         return "the runner"
@@ -719,7 +730,7 @@ def list_lines(qdir: Path | None = None, runs: Path | None = None) -> list[str]:
     for t in tasks:
         r = last[t.id]
         if r is not None and r.word != "done":
-            for p in t.paths:
+            for p in reserving(t.paths):
                 reserved.setdefault(p, t.id)
     out: list[str] = []
     for t in tasks:
@@ -1023,13 +1034,20 @@ def cmd_retry(tid: str, qdir: Path | None = None, runs: Path | None = None) -> i
     return 0
 
 
-def cmd_widen(tid: str, paths: list[str], runs: Path | None = None) -> int:
+def cmd_widen(tid: str, paths: list[str], runs: Path | None = None, tests_replaced: list[str] | None = None) -> int:
+    """More paths (widen.txt) and, with `tests_replaced`, more test ids in the `tests_replaced` of the run's own
+    task.md (A5): the runner's checks read that snapshot, never the queue. Each widen adds a line to widen.log."""
     runs = Path(runs or runs_dir())
+    tests = list(tests_replaced or [])
     r = _known(tid, runs)
     if isinstance(r, str):
         return _err(r)
-    if not paths or not all(_plain_path(p) for p in paths):
+    if not paths and not tests:
+        return _err("name a path or --tests-replaced ID...")
+    if not all(_plain_path(p) for p in paths):
         return _err("a path that is not plain or leaves the tree")
+    if not all(_test_id(t) for t in tests):
+        return _err("--tests-replaced takes ids of build/tests.json or test node ids with ::")
     with task_lock(tid, runs):
         r = latest(tid, runs)
         why = _refuse_open(r)
@@ -1043,10 +1061,33 @@ def cmd_widen(tid: str, paths: list[str], runs: Path | None = None) -> int:
             old = []
         except (OSError, UnicodeDecodeError):
             return _err("the widened paths of %s cannot be read safely" % tid)
-        merged = list(dict.fromkeys([*old, *paths]))
-        _write_atomic(r.folder / "widen.txt", ("\n".join(merged) + "\n").encode("utf-8"))
+        snap = None
+        if tests:
+            try:
+                found = parse(_read_regular(r.folder / "task.md", QUEUE_MAX).decode("utf-8"))[0]
+            except (OSError, UnicodeDecodeError):
+                found = []
+            if len(found) != 1 or found[0].id != tid:
+                return _err("the task snapshot of %s (task.md) cannot be read safely" % tid)
+            snap = dataclasses.replace(found[0], tests_replaced=tuple(dict.fromkeys([*found[0].tests_replaced,
+                                                                                      *tests])))
+        if paths:
+            merged = list(dict.fromkeys([*old, *paths]))
+            _write_atomic(r.folder / "widen.txt", ("\n".join(merged) + "\n").encode("utf-8"))
+        if snap is not None:
+            _write_atomic(r.folder / "task.md", snap.block().encode("utf-8"))
+        try:
+            log = _read_regular(r.folder / "widen.log", 64 << 10)
+        except FileNotFoundError:
+            log = b""
+        entry = "%s paths: %s; tests_replaced: %s\n" % (datetime.now().strftime(_STAMP), " ".join(paths) or "none",
+                                                        " ".join(tests) or "none")
+        _write_atomic(r.folder / "widen.log", log + entry.encode("utf-8"))
         write_state(r.folder, "widened")
-    _out("%s widened by %d path(s); the runner checks branch task/%s again, no new session" % (tid, len(paths), tid))
+    what = "%d path(s)" % len(paths)
+    if tests:
+        what = "%s and %d replaced test id(s)" % (what, len(tests)) if paths else "%d replaced test id(s)" % len(tests)
+    _out("%s widened by %s; the runner checks branch task/%s again, no new session" % (tid, what, tid))
     return 0
 
 
@@ -1081,6 +1122,11 @@ def cmd_add(path: str, qdir: Path | None = None, runs: Path | None = None, regis
     except OSError as err:
         return _err("the queue could not be written (%s)" % (err.strerror or "error").lower())
     _out("%s added to the queue (build/queue/%s, %s)" % (task.id, QUEUE_FILE, task.prompt))
+    shared = [p for p in task.paths if p in ALWAYS_ALLOWED]
+    if shared:
+        print("awb build: warning: %s lists %s; every task may change %s, so %s reserve%s no path" % (
+            task.id, " ".join(shared), "it" if len(shared) == 1 else "them", "it" if len(shared) == 1 else "they",
+            "s" if len(shared) == 1 else ""), file=sys.stderr)
     return 0
 
 
@@ -1102,9 +1148,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("text")
     s = sub.add_parser("retry", help="a new numbered run of the task, from main")
     s.add_argument("id")
-    s = sub.add_parser("widen", help="more paths for a red task; the checks run again on its branch")
+    s = sub.add_parser("widen", help="more paths or replaced test ids for a red task; the checks run again on its "
+                                     "branch")
     s.add_argument("id")
-    s.add_argument("paths", nargs="+")
+    s.add_argument("paths", nargs="*")
+    s.add_argument("--tests-replaced", nargs="+", default=[], metavar="ID",
+                   help="test ids or node ids the task may drop or replace, written into the run's task.md")
     s = sub.add_parser("stop", help="the runner ends after the current task, or stops the task ID")
     s.add_argument("id", nargs="?")
     s = sub.add_parser("check", help="the gate and the whole suite of a branch from outside as the build user in a "
@@ -1166,7 +1215,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "retry":
             return cmd_retry(args.id)
         if args.command == "widen":
-            return cmd_widen(args.id, args.paths)
+            return cmd_widen(args.id, args.paths, tests_replaced=args.tests_replaced)
         if args.command == "stop":
             return cmd_stop(args.id)
     except OSError as err:

@@ -27,9 +27,14 @@ The checks (DESIGN.md section 5), in order, the first failure sets the state:
     6  the commits pass the gate            red: gate <class>; a name check that cannot run is held: checks pending
     7  the commits stay inside the task     red: outside paths, red: link or submodule
     8  the bookkeeping is there             red: changelog, red: tests.json, red: rules list lost lines
-    9  the whole suite on a fresh export    red: suite, hung: suite
+    9  the whole suite on a fresh export    red: suite, hung: suite (A7: the failed nodes run once more in the same
+                                            suite unit; when they pass, a line `flaky: NODE...`)
     10 no test was hollowed                 red: tests lost
     11 the task's own check                 red: check
+
+Before check 4 runs on the branch to judge (A2): when `main` moved since the start, check 4 runs on the branch as
+the session left it, then the build unit rebases it onto a fresh bundle of main (a conflict is `red: rebase
+conflict`) and the checks judge it against the main of now.
 
 Green: when `main` moved since the start the build unit rebases the branch onto a fresh bundle of main (a conflict
 is `stale`) and the checks run again; then `update-ref` of main with the expected old value after `merge-base
@@ -128,6 +133,12 @@ HELD_RESTART = ("held: prompt", "held: prepare", "held: model endpoint", "held: 
 """Held before a session was spent: the same run starts again at a later poll, once the cause cleared."""
 MAX_COMMITS = 5
 MAX_ROUNDS = 3              # rebase rounds when main moves under a green task
+RERUN_MAX = 20              # A7: more failed nodes than this get no rerun, a broad failure is no flake
+FLAKY_DAYS = 7              # A7: a node flaky a second time in this many days gets a line in build/queue
+FLAKY_LOG = ".flaky.tsv"    # runs/.flaky.tsv: time, id, run, a hash of the node, the node as shown
+FLAKY_FILE = "FLAKY.md"     # build/queue/FLAKY.md: the lines for the owner, which the steering session reads
+_NODE_SHOWN_RE = re.compile(r"tests/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+\.py(?:::[A-Za-z0-9_]+){1,2}"
+                            r"(?:\[[A-Za-z0-9_.,:=+-]{1,60}\])?")
 BUNDLE_MAX = 512 << 20
 BLOB_MAX = 16 << 20
 """The largest changed blob and commit object the runner reads (B3); `git cat-file --batch-check` sizes them first."""
@@ -916,15 +927,29 @@ def unit_rebase(root: str, tid: str, n: str, old: str, fin) -> int:
     return unit_handover(root, tid, n)
 
 
+def failed_nodes(results: dict[str, str] | None) -> list[str]:
+    """The nodes of a suite that failed or broke, for the one rerun of A7: none when there are more than RERUN_MAX
+    (a broad failure is no flake) or when a node id could be read as an option."""
+    nodes = sorted(i for i, o in (results or {}).items() if o in ("failed", "error"))
+    if len(nodes) > RERUN_MAX or any(not i or i.startswith("-") or "\n" in i or "\0" in i for i in nodes):
+        return []
+    return nodes
+
+
 def unit_suite(root: str, tid: str, n: str, mode: str, python: str, tokens: list[str], fin,
                seconds: float | None = None) -> int:
     """The suite, the baseline or the task's own check on the export given as a tar on stdin, extracted into a fresh
     folder of this unit's private /tmp: the suite's interpreter with -I -B and the cache provider off, a fault handler
-    after ten minutes, the outcome per test in out/<mode>.xml and the output in out/<mode>.log."""
+    after ten minutes, the outcome per test in out/<mode>.xml and the output in out/<mode>.log. A7: when the whole
+    suite (mode `suite`, never the baseline or the task's own check) has failures, the failed nodes alone run once
+    more in this unit on the same tree, into out/rerun.xml and out/rerun.log; the exit code stays the first run's."""
     r, clone, out, home = _helper_places(root, tid, n)
     if mode not in ("base", "suite", "check"):
         return 2
     out.mkdir(exist_ok=True)
+    for name in ("rerun.xml", "rerun.log"):
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(out / name)
     tmp = Path(tempfile.mkdtemp(prefix="awb-suite-"))
     try:
         tree = tmp / "tree"
@@ -933,19 +958,32 @@ def unit_suite(root: str, tid: str, n: str, mode: str, python: str, tokens: list
             tar.extractall(tree, filter="data")
         (tmp / "home").mkdir()
         xml = tmp / "junit.xml"
-        cmd = [python, "-I", "-B", "-m", "pytest", "-p", "no:cacheprovider", "-q", "-o",
-               "faulthandler_timeout=%d" % FAULT_SECONDS, "-o", "junit_family=xunit1", "--junitxml", str(xml),
-               *tokens]
         env = {"HOME": str(tmp / "home"), "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C.UTF-8",
                "PYTHONDONTWRITEBYTECODE": "1", "TMPDIR": str(tmp)}
-        with open(out / ("%s.log" % mode), "wb") as log:
-            try:
-                rc = subprocess.run(cmd, cwd=tree, env=env, stdin=subprocess.DEVNULL, stdout=log,
-                                    stderr=subprocess.STDOUT, timeout=seconds, check=False).returncode
-            except subprocess.TimeoutExpired:
-                rc = 124
+        t0 = time.monotonic()
+
+        def pytest(name: str, junit: Path, args: list[str], limit: float | None) -> int:
+            cmd = [python, "-I", "-B", "-m", "pytest", "-p", "no:cacheprovider", "-q", "-o",
+                   "faulthandler_timeout=%d" % FAULT_SECONDS, "-o", "junit_family=xunit1", "--junitxml", str(junit),
+                   *args]
+            with open(out / ("%s.log" % name), "wb") as log:
+                try:
+                    return subprocess.run(cmd, cwd=tree, env=env, stdin=subprocess.DEVNULL, stdout=log,
+                                          stderr=subprocess.STDOUT, timeout=limit, check=False).returncode
+                except subprocess.TimeoutExpired:
+                    return 124
+
+        rc = pytest(mode, xml, list(tokens), seconds)
         if xml.is_file():
             shutil.copyfile(xml, out / ("%s.xml" % mode))
+        if mode == "suite" and rc not in (0, 124) and xml.is_file():
+            nodes = failed_nodes(outcomes(xml.read_bytes()))
+            left = None if seconds is None else seconds - (time.monotonic() - t0)
+            if nodes and (left is None or left > 1):
+                again = tmp / "rerun.xml"
+                pytest("rerun", again, nodes, left)
+                if again.is_file():
+                    shutil.copyfile(again, out / "rerun.xml")
         return rc
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -1709,17 +1747,87 @@ def check_suite(host: Host, ctx: Ctx) -> dict[str, str]:
     ctx.suite = counts(got)
     if ended.result == "timeout":
         raise _fail(ctx, 9, "hung: suite")
-    if ended.code != 0 or got is None:
+    flaky: list[str] = []
+    if ended.code != 0 and got is not None:
+        nodes = failed_nodes(got)
+        again = outcomes(_take(out / "rerun.xml", host.uid(), LOG_MAX)) if nodes else None
+        if again is not None and all(again.get(i) == "passed" for i in nodes):
+            flaky = nodes
+            got = dict(got, **{i: "passed" for i in nodes})
+            ctx.suite = counts(got)
+            rerun_log = _take(out / "rerun.log", host.uid(), LOG_MAX) or b""
+            _write(ctx.folder / "suite.log", log + b"\n--- the rerun of the failed nodes (A7)\n" + rerun_log)
+    if (ended.code != 0 and not flaky) or got is None:
         try:
             matcher = _matcher(host.register)
         except Exception:
             matcher = None
         ctx.tail = _tail(log.decode("utf-8", "replace"), matcher)
         raise _fail(ctx, 9, "red: suite")
-    _ok(ctx, 9, "%(passed)d passed, %(failed)d failed, %(skipped)d skipped" % ctx.suite)
+    _ok(ctx, 9, "%(passed)d passed, %(failed)d failed, %(skipped)d skipped" % ctx.suite +
+        ("; %d passed on the one rerun" % len(flaky) if flaky else ""))
+    if flaky:
+        note_flaky(host, ctx, flaky)
     build._mkdir(host.runs / ".baseline")
     _write(host.runs / ".baseline" / ("%s.json" % ctx.tip), json.dumps(got, sort_keys=True))
     return got
+
+
+def _node_shown(node: str, matcher) -> str:
+    """A node id of the build user's junit file as the owner's records and build/queue may carry it: test file,
+    class and function names and a short parameter id, after the gate's classes with the register; else withheld."""
+    from awb import gate
+
+    if matcher is None or len(node) > 200 or not _NODE_SHOWN_RE.fullmatch(node):
+        return "(node withheld)"
+    try:
+        return "(node withheld)" if gate._scan_text("node", node, matcher) else node
+    except Exception:
+        return "(node withheld)"
+
+
+def note_flaky(host: Host, ctx: Ctx, nodes: list[str]) -> None:
+    """A7: the nodes that failed and passed on the one rerun. A line `flaky: NODE...` in checks.log (and so in
+    result.md), the nodes in flaky.txt of the run folder, a row each in runs/.flaky.tsv; a node flaky for the second
+    time in FLAKY_DAYS days adds a line to build/queue/FLAKY.md for the owner."""
+    import hashlib
+
+    try:
+        matcher = _matcher(host.register)
+    except Exception:
+        matcher = None
+    shown = [_node_shown(i, matcher) for i in nodes]
+    ctx.lines.append("flaky: %s" % " ".join(shown))
+    _write(ctx.folder / "flaky.txt", "\n".join(shown) + "\n")
+    now = int(host.wall())
+    path = host.runs / FLAKY_LOG
+    rows = [r.split("\t") for r in (_text(path, LOG_MAX) or "").split("\n") if r.count("\t") == 4]
+    rows = [r for r in rows if r[0].isdigit() and now - int(r[0]) < 366 * 86400]
+    told = []
+    me = (ctx.tid, str(ctx.n))
+    for node, word in zip(nodes, shown):
+        sha = hashlib.sha256(node.encode("utf-8", "replace")).hexdigest()[:16]
+        if any(r[3] == sha and (r[1], r[2]) == me for r in rows):
+            continue                    # a second round of the same run (main moved) counts once
+        seen = sorted({(r[1], r[2]) for r in rows if r[3] == sha and now - int(r[0]) < FLAKY_DAYS * 86400})
+        rows.append([str(now), ctx.tid, str(ctx.n), sha, word])
+        if len(seen) == 1:
+            told.append("- %s %s is flaky a second time in %d days (%s run %s, %s run %d): it failed and passed on the "
+                        "rerun; fix the test or file a task" % (host.now().strftime("%Y-%m-%d"), word, FLAKY_DAYS,
+                                                               seen[0][0], seen[0][1], ctx.tid, ctx.n))
+    _write(path, "".join("\t".join(r) + "\n" for r in rows))
+    if told:
+        try:
+            build._make_queue_dir(host.queue)
+            with build._queue_lock(host.queue):
+                try:
+                    old = build._read_regular(host.queue / FLAKY_FILE, build.QUEUE_MAX)
+                except FileNotFoundError:
+                    old = b"# flaky tests: written by awb build serve, one line per node flaky twice in %d days\n\n" \
+                          % FLAKY_DAYS
+                build._write_atomic(host.queue / FLAKY_FILE, old + "".join(t + "\n" for t in told).encode("utf-8"))
+        except (OSError, build.Refused) as err:
+            ctx.lines.append("- build/queue/%s could not be written (%s)" % (FLAKY_FILE, type(err).__name__))
 
 
 def _covered(node: str, nodes: set[str]) -> bool:
@@ -1910,6 +2018,36 @@ def check_branch_commits(host: Host, ctx: Ctx) -> None:
     ctx.start, ctx.commits = base, commits
     _write(ctx.folder / "start", base + "\n")
     _ok(ctx, 4, "%d commit(s) after %s" % (len(commits), base[:7]))
+
+
+def check_onto_main(host: Host, ctx: Ctx) -> None:
+    """A2 for a branch from outside: when main moved past its merge base, the branch's changes go onto the main of
+    now before the suite runs, so check 9 and 10 judge it against today's baseline. main.git has no working tree:
+    `git merge-tree --write-tree` puts the changes from the merge base to the branch onto main (data only, no hook,
+    no filter) and one commit of that tree on top of main is what the suite exports. A conflict is `red: rebase
+    conflict`. The gate still reads the branch's own commits."""
+    main = rev(host, "refs/heads/main")
+    if main is None or main == ctx.start:
+        return
+    r = git(host, "merge-tree", "--write-tree", "--no-messages", "--merge-base=%s" % ctx.start, main, ctx.tip,
+            check=False)
+    tree = r.stdout.decode("ascii", "replace").split("\n", 1)[0].strip()
+    if r.returncode == 1:
+        ctx.lines.append("- main moved to %s: the branch does not rebase onto it without a conflict" % main[:7])
+        raise Stop("red: rebase conflict")
+    if r.returncode or not SHA_RE.fullmatch(tree):
+        ctx.lines.append("- main moved to %s: the branch could not be put onto it" % main[:7])
+        raise Stop("held: rebase")
+    c = git(host, "-c", "user.name=awb build", "-c", "user.email=awb-build@localhost", "commit-tree", tree, "-p",
+            main, "-m", "awb build check %s: the branch onto main" % ctx.tid)
+    onto = c.stdout.decode("ascii", "replace").strip()
+    if not SHA_RE.fullmatch(onto):
+        raise Stop("held: rebase")
+    git(host, "update-ref", quarantine(ctx) + "/onto", onto)
+    ctx.start, ctx.tip = main, onto
+    _write(ctx.folder / "start", main + "\n")
+    _write(ctx.folder / "onto", onto + "\n")
+    ctx.lines.append("- main moved: the branch was rebased onto %s before the checks" % main[:7])
 
 
 def check_outdir(host: Host, ctx: Ctx) -> bool:
@@ -2220,7 +2358,9 @@ class Runner:
 
     def pick(self, tasks: list[build.Task]) -> tuple[build.Task, build.Run | None] | None:
         """The first task with no run (or a queued or answered run) whose depends are done and whose paths meet no
-        path a task that is not done keeps reserved. Serial: the caller runs it to its end."""
+        path a task that is not done keeps reserved. The always allowed files reserve nothing on either side (A3), so a
+        task that waits on a question and lists README.md keeps no other task waiting. Serial: the caller runs it to
+        its end."""
         h = self.host
         last = {t.id: build.latest(t.id, h.runs) for t in tasks}
         done = {tid for tid, r in last.items() if r is not None and r.state == "done"}
@@ -2233,7 +2373,7 @@ class Runner:
         for t in tasks:
             r = last[t.id]
             if r is not None and r.state != "done":
-                reserved += [(p, t.id) for p in t.paths]
+                reserved += [(p, t.id) for p in build.reserving(t.paths)]
         for t in tasks:
             r = last[t.id]
             if r is not None and r.state not in ("queued", "answered") + HELD_RESTART:
@@ -2247,7 +2387,7 @@ class Runner:
                     continue
             if any(d not in done for d in t.depends):
                 continue
-            if any(_meet(p, q) for p in t.paths for q, owner in reserved if owner != t.id):
+            if any(_meet(p, q) for p in build.reserving(t.paths) for q, owner in reserved if owner != t.id):
                 continue
             return t, r
         return None
@@ -2476,6 +2616,9 @@ class Runner:
 
     def judge_and_merge(self, ctx: Ctx) -> None:
         h = self.host
+        state = self.onto_main(ctx)
+        if state is not None:
+            return self.finish(ctx, state)
         for _round in range(MAX_ROUNDS):
             state = self.judge(ctx)
             if state != "green":
@@ -2492,12 +2635,41 @@ class Runner:
                 cur = rev(h, "refs/heads/main")
             if cur is None:
                 return self.finish(ctx, "held: no main")
-            if not self.rebase(ctx, cur):
+            if self.rebase(ctx, cur) != "rebased":
                 return self.finish(ctx, "stale")
         return self.finish(ctx, "stale")
 
-    def rebase(self, ctx: Ctx, main: str) -> bool:
-        """main moved: the build unit rebases the branch onto a fresh bundle of main, hands it over again."""
+    def onto_main(self, ctx: Ctx) -> str | None:
+        """A2: before the checks the branch moves onto the main of now, so check 9 and 10 judge it against today's
+        baseline and never against the start commit of the session. Check 4 runs first on the branch as the session
+        left it (a dirty tree or a merge commit is named as such, never as a conflict). A conflict is `red: rebase
+        conflict`. Returns the state that ends the round, None to go on with the checks."""
+        h = self.host
+        cur = rev(h, "refs/heads/main")
+        if cur is None:
+            return "held: no main"
+        if cur == ctx.start:
+            return None
+        self.phase(ctx, "checks")
+        ctx.lines = [x for x in ctx.lines if x.split(" ", 1)[0] in ("1", "2", "3", "-")]
+        try:
+            check_commits(h, ctx, fetch_bundle(h, ctx), _read(ctx.folder / "status.txt"))
+        except Stop as s:
+            self._checks_log(ctx)
+            return s.state
+        word = self.rebase(ctx, cur, "before the checks")
+        if word == "rebased":
+            return None
+        if word == "conflict":
+            ctx.lines.append("- main moved to %s: the branch does not rebase onto it without a conflict" % cur[:7])
+            self._checks_log(ctx)
+            return "red: rebase conflict"
+        self._checks_log(ctx)
+        return "stale"
+
+    def rebase(self, ctx: Ctx, main: str, when: str = "and the checks run again") -> str:
+        """main moved: the build unit rebases the branch onto a fresh bundle of main, hands it over again. Returns
+        `rebased`, `conflict` (the unit's exit 3, the rebase aborted) or `failed`."""
         h = self.host
         self.phase(ctx, "rebase")
         bundle = ctx.folder / "main.bundle"
@@ -2508,17 +2680,17 @@ class Runner:
             with contextlib.suppress(FileNotFoundError):
                 os.unlink(bundle)
         if e.code != 0:
-            return False
+            return "conflict" if e.code == 3 else "failed"
         out = h.out(ctx.tid, ctx.n)
         status = _take(out / "status.txt", h.uid(), SMALL_MAX)
         if status is not None:
             _write(ctx.folder / "status.txt", status)
         if _take(out / "task.bundle", h.uid(), BUNDLE_MAX, dest=ctx.folder / "task.bundle") is None:
-            return False
+            return "failed"
         ctx.start = main
         _write(ctx.folder / "start", main + "\n")
-        ctx.lines.append("- main moved: the branch was rebased onto %s and the checks run again" % main[:7])
-        return True
+        ctx.lines.append("- main moved: the branch was rebased onto %s %s" % (main[:7], when))
+        return "rebased"
 
     def rejudge(self, ctx: Ctx, widened: bool = False) -> None:
         """`held: checks pending` after the vault opened (or `widened`): the checks again on the kept branch."""
@@ -2571,6 +2743,7 @@ class Runner:
         ctx.lines = []
         try:
             check_branch_commits(h, ctx)
+            check_onto_main(h, ctx)
             check_gate(h, ctx, owner_identity(h))
             ctx.entries = [(p, o, n) for p, o, n, _ in diff_entries(h, ctx.start, ctx.tip) if _plain_path(p)]
             if not check_outdir(h, ctx):

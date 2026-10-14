@@ -595,6 +595,7 @@ awb build show B-012         # the agent's last message, in your own terminal on
 awb build answer B-012 "take 10 MB"
 awb build retry B-012        # a new run from main
 awb build widen B-012 awb/tcp/keys.py
+awb build widen B-012 --tests-replaced SB1-20   # into the run's task.md, which the checks read
 awb build stop               # the runner ends after the current task
 awb build check pr-12        # a branch from outside: the gate and the suite as awb-build, nothing merged
 ```
@@ -605,15 +606,23 @@ it may drop or replace, `check` test node ids under `tests/` with `-k` or `-m`. 
 one line of `awb build list` that names the key, never the value.
 
 The runner (`awb build serve`, the unit `awb-buildd.service`) takes the next task whose `depends` are done and whose
-`paths` meet no path of a task that is not done, one at a time. It runs as you, never as a model. It starts each
+`paths` meet no path of a task that is not done, one at a time. The files every task may change (`README.md`,
+`CHANGELOG.md`, `COMMANDS.md`, `INTERFACES.md`, `build/tests.json`) reserve nothing: a task that waits on your
+answer never blocks the next one for them; `awb build add` warns when a block lists one. It runs as you, never as a model. It starts each
 task as `awb-build` in units of a fixed form: a fresh home from the root template with your login, a clone of
 `main` from a bundle, the headless session with the block's model, effort, budget and clock, then the hand-over of
 the branch as a bundle. The hand-over and the rebase units write only the task's clone and out folder, see no
 other clone, home or login, have no network and refuse a clone whose git configuration could run a command of the
 session (`.git/commondir`, `config.worktree`, `info/attributes`, a key outside a fixed list). The runner judges
-the bundle in `main.git`, never the clone: the unit ended by itself, the client ended well, the last line is `DONE:`, one to five commits as you on `task/<ID>` and nothing else, no changed blob and no commit above 16 MB (sized with `git cat-file --batch-check` before any read), the gate with the
+the bundle in `main.git`, never the clone. When `main` moved since the session started, the branch is rebased onto
+the `main` of now before the checks (after `widen` and the checks of a held run too), so the suite and the
+hollow-test check never judge it against an old baseline; a rebase that conflicts is `red: rebase conflict`. The
+checks: the unit ended by itself, the client ended well, the last line is `DONE:`, one to five commits as you on `task/<ID>` and nothing else, no changed blob and no commit above 16 MB (sized with `git cat-file --batch-check` before any read), the gate with the
 register, the paths, the CHANGELOG and `build/tests.json`, then the whole suite, every test that passed before
-still passing and the block's `check` on a `git archive` export, as `awb-build` on loopback only. Green moves `main`
+still passing and the block's `check` on a `git archive` export, as `awb-build` on loopback only. When the whole
+suite has failures, the failed nodes alone run once more in the same suite unit; when they pass the check passes
+with a line `flaky: NODE...` in `checks.log` and `result.md`; a node flaky a second time in seven days adds a line
+to `build/queue/FLAKY.md` for you. The baseline, the block's `check` and the hollow-test check never rerun. Green moves `main`
 in `main.git` (a rebase first when `main` moved), pushes it to GitHub after the gate over the whole range and ends
 `done`. Otherwise the run is `hung`, `red: <reason>`, `asked`, `stopped: <subtype>`, `stale` or `held: <reason>`,
 and nothing moves. The session's unit has no loopback (in the host's network namespace it would reach sshd and the
@@ -641,8 +650,10 @@ until the runner starts again and reports the task itself. The unit has `MemoryM
 A branch from outside, a pull request of a cloud session, is never tested in your shell: its tests and its
 `conftest.py` would run as you with the vault readable. Fetch it into your working copy and run `awb build check
 REF` there. The runner takes the commit into the quarantine of `main.git` and runs on it what it runs for a task:
-the gate with the register over every commit message and changed file, the whole suite and the hollow-test check
-against the merge base with `main`, as `awb-build` in the task's suite unit. It goes through the runner's lock, so
+the gate with the register over every commit message and changed file, the whole suite and the hollow-test check,
+as `awb-build` in the task's suite unit. When `main` moved past the branch's merge base, its changes go onto the
+`main` of now first (`git merge-tree` in `main.git`, no working tree) and the suite runs on that; a conflict is
+`red: rebase conflict`. It goes through the runner's lock, so
 it never runs beside a task: with no runner it runs at once, else it waits until the runner takes it before its
 next task. No model session runs and nothing is merged, pushed or deployed. It prints the state (`passed` or the
 first failure, as `red: gate name` or `red: tests lost`) and the check lines, exits 0 only for `passed` and keeps

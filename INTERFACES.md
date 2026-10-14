@@ -327,16 +327,19 @@ Since SB2 `awb/build.py` holds the queue and the records; `serve`, `selftest` an
 `parse(text, qdir=None) -> (list[Task], list[Note])`, `read_queue(qdir=None)`, `Task` (frozen: `id`, `title`, `line`,
 `model`, `effort`, `depends`, `paths`, `tests_replaced`, `check`, `budget`, `clock`, `prompt`; `prompt_name`,
 `block()`), `Note(id, line, kind, reason)` with `kind` "refused" or "incomplete" and `text()`, `ID_RE`, `KEYS`,
-`DEFAULTS`, `ALWAYS_ALLOWED`. The prompt: `HEADER`, `compose(task, prompt) -> str`, `read_prompt(task, qdir=None,
+`DEFAULTS`, `ALWAYS_ALLOWED`, `reserving(paths)` (the paths that reserve a path in the pick and in `list_lines`:
+all but `ALWAYS_ALLOWED`). The prompt: `HEADER`, `compose(task, prompt) -> str`, `read_prompt(task, qdir=None,
 register=None, names=True) -> str` (raises `PromptHeld`, the state `held: prompt`), `scan(label, text, register) ->
 list[str]`. The records: `runs_dir() -> Path` (`AWB_BUILD_RUNS`, else `<build_root>/runs`), `RUN_FILES`,
-`COMMAND_FILES` (`answer.txt`, `widen.txt`, `stop-wanted`, `reported`), `STOP_FILE`, `STATES`, `OPEN_STATES`,
+`COMMAND_FILES` (`answer.txt`, `widen.txt`, `widen.log`, `stop-wanted`, `reported`), `STOP_FILE`, `STATES`, `OPEN_STATES`,
 `STATE_RE`, `Run(id, n, folder, state, since)`, `read_state(folder)`, `write_state(folder, state, now=None)` (one
 line `<state>\t<time>`, written atomically), `runs_of(id)`, `latest(id)`, `new_run(id, runs=None, state="queued")`,
 `task_lock(id)` (flock of `runs/<ID>/.lock`, which the runner takes too). The lines: `line(run)` (the one-line forms of
 DESIGN.md section 6), `list_lines()`, `board_line()`, `deploy_tail()` (SB4: live, main, not deployed through `buildrun.deployed_info`), `ended_lines()` (marks each run `reported` with the state it
 printed). The commands: `add(path, qdir=None, runs=None, register=None) -> Task` (raises `Refused`),
-`cmd_show`, `cmd_answer`, `cmd_retry`, `cmd_widen`, `cmd_stop`, `main(argv)`.
+`cmd_show`, `cmd_answer`, `cmd_retry`, `cmd_widen(tid, paths, runs=None, tests_replaced=None)` (A5: the ids go into
+the `tests_replaced` of the run's `task.md`, the snapshot `Runner._ctx` reads; a line per widen in `widen.log`),
+`cmd_stop`, `main(argv)`.
 
 `awb/buildrun.py` (SB3), the runner. `Host` (every place and stand-in: `root`, `runs`, `queue`, `units`, `board`,
 `deployed`, `model_key`, `model` (`login` or `key`, from `build_model`), `register`, `build_uid`, `git_run`, `wall`, `now`, `sleep`, `minute`, `poll`, `tick`,
@@ -354,15 +357,22 @@ and `clean` take `login` as a last argument in the login mode, `prepare` and `re
 `handin(key, bundle)`, `unit_allowed()`, `LOGIN_IN_HOME`, `LOGIN_COMMAND`, `LOGIN_HELD`. The owner's git, in `main.git` only: `git(host, *args)`, `rev`, `is_ancestor`,
 `ensure_main`, `owner_identity`. The checks, each raising `Stop(state)` with its line in `ctx.lines`: `check_unit`,
 `check_client`, `check_answer`, `check_commits`, `check_identity`, `check_gate`, `check_paths`, `check_books`,
-`check_suite`, `check_hollow`, `check_own`; `parse_result`, `outcomes(xml)`, `scan_commits`, `push_main(host,
+`check_suite` (A7: when the first run of the whole suite has failures, the unit reran `failed_nodes(results)` (at
+most `RERUN_MAX`) into `rerun.xml`; all passed is green with `note_flaky(host, ctx, nodes)`: the line `flaky: NODE...`,
+`flaky.txt`, a row in `runs/FLAKY_LOG`, a line in `build/queue/FLAKY_FILE` the second time in `FLAKY_DAYS` days),
+`check_hollow`, `check_own`; `parse_result`, `outcomes(xml)`, `scan_commits`, `push_main(host,
 register) -> "pushed" | "pending" | "refused"`. `Runner(host)` with `serve()`, `reconcile()`, `poll_once()`,
 `pick(tasks)`, `start(task, run)` (returns the started session for `run_session`), `resume`, `judge`,
-`judge_and_merge`, `publish`, `finish`. What he reads: `write_result`, `write_state_tsv`, `deployed_info`. The
+`judge_and_merge` (`onto_main(ctx)` first: when `main` moved since `ctx.start`, check 4 on the branch as the session
+left it, then `rebase(ctx, main, when)` before the checks, `-> "rebased" | "conflict" | "failed"`; a conflict there
+is `red: rebase conflict`, one after a green round stays `stale`), `publish`, `finish`. What he reads: `write_result`, `write_state_tsv`, `deployed_info`. The
 selftest: `World(base, python)`, `SELFTEST_CASES`, `SELFTEST_REQUIRED` (a case missing from the cases fails the
 selftest), `selftest(only=None, python=None) -> list[str]`, `acquire_lock`, `snapshot_prompt`. F2 G1, a branch from
 outside: `check_main(ref, host=None)` (`awb build check REF`, exit 0 `passed`, 1 another end, 2 refused),
 `resolve_ref(host, ref)` (in `host.working`, else the current folder; `REF_RE`, no range), `fetch_ref(host, ctx,
 commit)` (into `refs/quarantine/<C-ID>/1/head`), `check_branch_commits(host, ctx)` (check 4 of a branch),
+`check_onto_main(host, ctx)` (when `main` moved past the merge base: `git merge-tree --write-tree` and one commit on
+top of `main` in `refs/quarantine/<C-ID>/1/onto`, which the suite exports; a conflict is `red: rebase conflict`),
 `check_outdir`, `check_task(cid)`, `Runner.check_branch(run)` and `Runner.judge_check(ctx)` (checks 4, 6, 9 and 10,
 with the runner's lock held; `poll_once` takes a queued check before the next task, `reconcile` ends a running one
 `interrupted`); `awb/build.py` holds `CHECK_ID_RE`, `check_ids(runs)`, `new_check(runs)` and the state `passed`;

@@ -547,3 +547,65 @@ def test_status_carries_live_main_and_the_count_not_deployed(places, tmp_path, m
     journal.unlink()
     assert cli.main(["build", "status"]) == 0
     assert capsys.readouterr().out.strip().endswith("; live unknown, main %s, 2 not deployed" % commits[1][:7])
+
+
+# --------------------------------------------------------------------------- A3: the always allowed files reserve nothing
+
+def test_add_warns_but_does_not_refuse_a_task_that_lists_an_always_allowed_file(places, tmp_path, register_path,
+                                                                                 capsys):
+    q, r = places
+    f = add_file(tmp_path, with_line("paths", "awb/tcp/xchg.py README.md build/tests.json"))
+    assert build.cmd_add(str(f), register=register_path) == 0
+    out = capsys.readouterr()
+    assert out.out == "B-012 added to the queue (build/queue/QUEUE.md, build/queue/B-012.md)\n"
+    assert out.err == ("awb build: warning: B-012 lists README.md build/tests.json; every task may change them, so "
+                       "they reserve no path\n")
+    (t,), _ = build.read_queue(q)
+    assert t.paths == ("awb/tcp/xchg.py", "README.md", "build/tests.json")
+    second = add_file(tmp_path, BLOCK.replace("B-012", "B-013"))
+    assert build.cmd_add(str(second), register=register_path) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_list_never_says_a_task_waits_on_an_always_allowed_file(places):
+    q, r = places
+    b12 = with_line("paths", "awb/tcp/xchg.py CHANGELOG.md README.md")
+    b13 = with_line("paths", "docs/x.md CHANGELOG.md README.md").replace("B-012", "B-013")
+    queue(q, b12 + b13, prompts=("B-012.md", "B-013.md"))
+    build.new_run("B-012", r, "asked")
+    assert build.list_lines(q, r)[1] == "B-013  new  since -  waits on the runner"
+
+
+# --------------------------------------------------------------------------- A5: widen --tests-replaced
+
+def test_widen_tests_replaced_writes_the_ids_into_the_run_snapshot_and_logs_the_change(places, capsys):
+    q, r = places
+    run = build.new_run("B-012", r, "red: tests lost")
+    (run.folder / "task.md").write_text(BLOCK.replace("tests_replaced: none", "tests_replaced: SB1-20"),
+                                        encoding="utf-8")
+    argv = ["build", "widen", "B-012", "--tests-replaced", "SB1-20", "tests/test_xchg.py::test_size", "SB1-21"]
+    assert cli.main(argv) == 0
+    assert capsys.readouterr().out == ("B-012 widened by 3 replaced test id(s); the runner checks branch task/B-012 "
+                                       "again, no new session\n")
+    (t,), _ = build.parse((run.folder / "task.md").read_text(encoding="utf-8"))
+    assert t.tests_replaced == ("SB1-20", "tests/test_xchg.py::test_size", "SB1-21")
+    assert t.paths == ("awb/tcp/xchg.py", "tests/test_xchg.py") and t.check == ("tests/test_xchg.py", "-k", "size")
+    log = (run.folder / "widen.log").read_text(encoding="utf-8").splitlines()
+    assert len(log) == 1 and log[0].endswith(" paths: none; tests_replaced: SB1-20 tests/test_xchg.py::test_size "
+                                             "SB1-21")
+    assert not (run.folder / "widen.txt").exists()
+    assert build.latest("B-012", r).state == "widened"
+    # the queue's block is not what the runner reads, so the queue stays as it was
+    assert not (q / "QUEUE.md").exists()
+
+
+def test_widen_tests_replaced_refuses_a_bad_id_a_missing_snapshot_and_nothing(places, capsys):
+    q, r = places
+    run = build.new_run("B-012", r, "red: tests lost")
+    for argv, word in ((["--tests-replaced", "../x"], "takes ids"),
+                       (["--tests-replaced", "tests/test_x.py"], "takes ids"),
+                       (["--tests-replaced", "SB1-20"], "task.md"), ([], "name a path")):
+        assert cli.main(["build", "widen", "B-012", *argv]) == 2
+        assert word in capsys.readouterr().err
+    assert sorted(p.name for p in run.folder.iterdir()) == ["state"]
+    assert build.latest("B-012", r).state == "red: tests lost"

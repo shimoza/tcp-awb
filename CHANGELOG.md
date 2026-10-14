@@ -7,6 +7,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- When the whole suite of a build task or of `awb build check` has failures, the failed nodes alone run once more
+  in the same suite unit. When they pass, the check passes with a line `flaky: NODE...` in `checks.log` and
+  `result.md`; a node flaky a second time in seven days adds a line to `build/queue/FLAKY.md`, which the steering
+  session reads. The baseline and the hollow-test check never rerun.
+- `awb build widen ID --tests-replaced ID...` adds test ids to the `tests_replaced` of a red task and the checks
+  that run again read them. The ids go into the run's own `task.md`, the snapshot the runner's checks read (an edit
+  of `QUEUE.md` never reached them); each widen adds a line to `widen.log` of the run folder. Paths are now
+  optional when `--tests-replaced` is given.
 - `awb build check REF` checks a branch from outside, a cloud pull request fetched into the working copy, as the
   build user and never in the owner's shell (F2 threat model, gap G1). The runner fetches the commit into the
   quarantine of `main.git` and runs its own checks on it: the commits after the merge base with `main` (at most
@@ -68,6 +76,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - The block "Customer data" of `README.md` and the warning of the dataset TCP Facts (its README, PROMPT.md and
   HOW-TO.pdf) say: give the model technical tasks only and keep them simple, since a detailed description of a
   customer's project can identify the customer without a name and that can break data protection law.
+- The always allowed files of the build queue (`README.md`, `CHANGELOG.md`, `COMMANDS.md`, `INTERFACES.md`,
+  `build/tests.json`) never reserve a path in the runner's pick or in `awb build list`, so a task that waits on a
+  question no longer blocks the next task that lists them. `awb build add` warns (and still adds) when a block lists
+  one.
+- The build runner rebases a task's branch onto the `main` of now before the checks run, not only after they are
+  green: after a session, after `awb build widen` and after `awb build retry`. `awb build check` puts a branch from
+  outside onto the `main` of now the same way (`git merge-tree` in `main.git`). A stale baseline then never causes a
+  false red; on 2026-10-14 a parametrized test whose id held a date failed the hollow-test check against
+  yesterday's baseline. A conflict is `red: rebase conflict`.
 - The MCP server of the dataset (`tcp_facts_mcp.py`) refuses a file outside the dataset folder with the JSON-RPC code
   -32050 instead of -32001, since the revision 2026-07-28 keeps new implementations off -32000 to -32019. The message
   stays the same (B-002, test MCP-23).
