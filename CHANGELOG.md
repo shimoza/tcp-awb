@@ -29,6 +29,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   `recipes/`, a read tier sends `GET` or `HEAD` calls only and a block whose `needs` is not `none` takes the tier
   decision or none.
 
+- `awb start project|query --goal "..." [--customer CUST-XXXX|new] [--tag TAG]...` starts a piece of work in one owner command (P1 of the journey report F3): it issues the customer code for `new`, asks the written forms at the prompt as `awb import` does, runs `awb spawn` as the work user through `sudo -n`, writes the grant of `awb projects kind`, imports the new files of the project's `in/` folder and ends with `open: awb projects open tcp-xxxx`. Four commands in two windows become one. `awb projects open` and `awb start` share the `sudo -n` check.
+
+- `awb fetch tcp-xxxx [--again] [--into DIR]` on the owner side lists what a project put with `awb xchg put` since his last fetch, downloads it through the key service (the op `obs` list and get of `awb xchg list`, no new call) into `~/awb-fetch/tcp-xxxx/` of mode 700, puts the names back into every text with the code of `awb reveal` and prints the folder (P12 of the journey report F3). It replaces a console visit and an `awb reveal` per file.
+
+- `awb projects open` without a code lists the active projects numbered, each with its `Next:` line and the owner items of its OPEN.md, after the name check (P4 of the journey report F3). He types the number and the session opens as `awb projects open CODE` opens it; without a terminal the list is printed only.
+
 - `awb build nudge` reaches the owner when a build task waits on him (automation review A6): on 2026-10-13 a task
   asked at 23:15 and waited 5.5 hours while the steering session slept. For every task whose newest run is `asked`,
   `red: <reason>` or `held: <reason>` for 15 minutes with no answer, widen or retry since, it sends one mail through
@@ -123,6 +129,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   (add, amend, recheck, retire, verify, show, find, scope, expired, export) and so `awb dataset build` now drop a
   name hit that lies inside a name or short name of `rules/services.tsv`, as a whole phrase in the case written
   there and longer than the hit. The same word alone still hits; the intake and `awb gate` are unchanged.
+
+- The held line of `awb inbox take` carries a class word that names no value (P2 of the journey report F3): `held (grant)` for a customer project the owner never granted, with the cure `awb projects kind tcp-xxxx query|project` instead of the import; `held (size)` above `max_mb`, which read as an error line before; `held (unreadable)` for a file the intake cannot read; `held (folder)` for a file in another customer's folder of the owner inbox. A project without a customer and a session refused `awb import` keep the plain line; the hold mail is unchanged.
 - `rules/services.tsv` follows the service description of 09.10.2026 (`awb service update`): Savings plans is new
   as a preview at 3.12.7, Image Management (3.12.2) is gone and the other previews moved up one number (Cloud
   Container Instance 3.12.2 to Cloud Connect 3.12.6). 79 services as before. `rules/tags.txt` has the tag

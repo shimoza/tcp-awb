@@ -71,7 +71,7 @@ import tempfile
 import unicodedata
 from pathlib import Path
 
-from awb import config
+from awb import codes, config
 
 INBOX = "inbox/"
 FROM = "from-session/"
@@ -704,24 +704,29 @@ def serve_take_owner(ctx: Context, req: dict) -> dict:
             return {"ok": True, "state": "absent"}
         src, name, size, etag = f["key"], f["rel"].rsplit("/", 1)[-1], f["size"], f["etag"]
         if not owner_folder_ok(f["rel"]):
-            raise XchgError(hold_line(code))
+            raise XchgError(hold_line(code, "folder"))
         folder_customer = owner_folder_customer(f["rel"])
     else:
         src, folder_customer = INBOX + name, None
-    customer = take_customer(project_customer(ctx, project), folder_customer, named, code)
+    own = project_customer(ctx, project)
+    if own == projects.NO_CUSTOMER and project.customer not in (projects.NO_CUSTOMER, "", None) \
+            and _grant_of(ctx, code) is None:
+        # the row names a customer the owner never granted: his grant cures it, the import does not
+        raise XchgError(hold_line(code, "grant", projects.LEGACY_KINDS.get(project.kind, project.kind)))
+    customer = take_customer(own, folder_customer, named, code)
     if ident is None:
         h = c.head(src)
         if h is None:
             return {"ok": True, "state": "absent"}
         size, etag = int(h.get("Content-Length", 0) or 0), str(h.get("ETag", ""))
     if size > ctx.max_bytes():
-        raise XchgError("the object is larger than the limit of keys.conf (max_mb)")
+        raise XchgError(hold_line(code, "size"))
     config.ensure_layout(p)
     dst = p.inbox / bucket._local_name(name, p.inbox)
     try:
         c.get(src, dst, if_match=etag.strip('"') or None)
         if dst.stat().st_size > ctx.max_bytes():
-            raise XchgError("the object grew past the limit of keys.conf (max_mb)")
+            raise XchgError(hold_line(code, "size"))
     except BaseException:
         dst.unlink(missing_ok=True)
         raise
@@ -762,7 +767,7 @@ def _take_project(ctx: Context, code: str, project, ident: str, named: str | Non
     if f is None:
         return {"ok": True, "state": "absent"}
     if f["size"] > ctx.max_bytes():
-        raise XchgError("the object is larger than the limit of keys.conf (max_mb)")
+        raise XchgError(hold_line(code, "size"))
     p = ctx.paths_fn()
     config.ensure_layout(p)
     dst = p.inbox / bucket._local_name(f["rel"], p.inbox)
@@ -796,21 +801,34 @@ def take_customer(own: str, folder: str | None, named: str | None, code: str = "
     from awb import projects
 
     own = None if own in (projects.NO_CUSTOMER, "", None) else own
-    if own is None or (folder and folder != own) or (named and named != own):
+    if own is not None and folder and folder != own:
+        raise XchgError(hold_line(code, "folder"))
+    if own is None or (named and named != own):
         raise XchgError(hold_line(code))
     return own
 
 
-def hold_line(code: str) -> str:
-    """The one line of a hold: what the owner runs, in his own terminal (the work rules hand out nothing else)."""
+def hold_line(code: str, cls: str | None = None, kind: str | None = None) -> str:
+    """The one line of a hold: what the owner runs, in his own terminal (the work rules hand out nothing else).
+    With a class word of codes.HOLD_CLASSES (P2 of F3) the line names the kind of refusal and no value; a missing
+    grant names awb projects kind with the project's kind, which the import does not cure."""
     from awb import codes
 
+    if cls == "grant":
+        return codes.GRANT_HOLD_LINE % (code, kind if kind in ("query", "project") else "project|query")
+    if cls in codes.HOLD_CLASSES:
+        return codes.CLASS_HOLD_LINE % (cls, code)
     return codes.HOLD_LINE % code
+
+
+HOLD_CLASS_OF = {"unreadable": "unreadable"}
+"""The class word of a hold of the intake by its reason key of HOLD_REASONS; the others keep the plain line."""
 
 
 def _hold(ctx: Context, code: str, customer: str, why: str) -> dict:
     ctx.notify(*exchange_mail("held", code, customer=customer, why=why))
-    return {"ok": True, "state": "held", "why": HOLD_REASONS[why], "customer": customer}
+    return {"ok": True, "state": "held", "why": HOLD_REASONS[why], "customer": customer,
+            "class": HOLD_CLASS_OF.get(why)}
 
 
 WEB_MONTH_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])/$")
@@ -999,8 +1017,9 @@ def _take_one(root: Path, code: str, e: dict, customer: str | None) -> str:
         whence = "the owner inbox" if e["bucket"] == "owner" else "the project's folder in/"
         a = _ok(_call({"op": "take_owner", "id": e["id"], "project": code, "customer": customer}))
         if a.get("state") == "held":
+            cls = a.get("class") if a.get("class") in ("unreadable",) else None
             return "%s from %s: held on the owner's side (%s); the owner has been told. %s" % (
-                what, whence, a.get("why", "held"), hold_line(code))
+                what, whence, a.get("why", "held"), hold_line(code, cls))
         if a.get("state") != "taken":
             raise XchgError("the file left %s before the take" % whence)
         cust = a.get("customer")
@@ -1256,7 +1275,7 @@ def main_inbox(argv: list[str] | None = None) -> int:
         return 0
     except XchgError as err:
         text = str(err)
-        print(text if text.startswith("held: ") else "awb inbox: %s" % text, file=sys.stderr)
+        print(text if codes.HOLD_LINE_RE.match(text) else "awb inbox: %s" % text, file=sys.stderr)
         return 1
     except Exception as err:
         print("awb inbox: %s" % (str(err) if type(err).__name__ == "KeysError" else type(err).__name__),

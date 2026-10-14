@@ -14,7 +14,7 @@
     awb gate --install [--kb] [--force] [--repo PATH]
     awb spawn KIND --goal TEXT [--customer CODE] [--tag T]... [--from-outbox]
     awb close CODE [--force]
-    awb projects list|check|sync
+    awb projects list|check|sync|open [CODE]
 
 Commands that live in their own module (DELEGATED below; `awb NAME --help` shows the options of each):
 
@@ -38,6 +38,8 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     awb words update                                         awb/words.py    (owner side)
     awb bucket sync|folder|pull|put|move                     awb/bucket.py   (owner side)
     awb reveal FILE --out PATH                               awb/reveal.py   (owner side)
+    awb fetch CODE [--again] [--into DIR]                    awb/tcp/fetch.py (owner side)
+    awb start project|query --goal TEXT [--customer C|new]   awb/start.py    (owner side)
     awb price find|snapshot|diff|check                       awb/tcp/price.py
     awb pricebook build|diff                                 awb/tcp/pricebook.py
     awb cloud projects|get                                   awb/tcp/cloud.py   (owner side, read only)
@@ -442,6 +444,8 @@ def _cmd_projects_sync(args, p: config.Paths) -> int:
 def _cmd_projects_open(args, p: config.Paths) -> int:
     from awb import projects
 
+    if args.code is None:
+        return projects.pick_session(p)
     return projects.open_session(p, args.code)
 
 
@@ -559,8 +563,10 @@ def _build() -> argparse.ArgumentParser:
     s = psub.add_parser("delete", help="remove the folder of closed projects; the code stays registered as deleted")
     s.add_argument("codes", nargs="+", metavar="CODE")
     s.set_defaults(func=_cmd_projects_delete)
-    s = psub.add_parser("open", help="start a session in a project as the work user in this terminal (owner side)")
-    s.add_argument("code")
+    s = psub.add_parser("open", help="start a session in a project as the work user in this terminal (owner side); "
+                                     "without a code the active projects numbered with their Next: line and owner "
+                                     "items, the number you type opens one")
+    s.add_argument("code", nargs="?", default=None)
     s.set_defaults(func=_cmd_projects_open)
     s = psub.add_parser("check", help="find tcp- folders that no project registered")
     s.set_defaults(func=_cmd_projects_check)
@@ -604,6 +610,8 @@ DELEGATED = {
     "ask": ("tcp.ask", "questions in plain words, answered only from the checked sources (the Ask page)"),
     "inbox": ("tcp.inbox", "take a file the owner dropped into an inbox into this project"),
     "xchg": ("tcp.xchg", "put a result of this project into the owner's from-session folder"),
+    "start": ("start", "a piece of work in one command: register, spawn, grant, import, the open line (owner side)"),
+    "fetch": ("tcp.fetch", "what a project put for you, in one folder with the names back (owner side)"),
     "paste": ("paste", "put a long terminal output into the project, masked, instead of the chat"),
     "keys": ("tcp.keys", "the key service: keys, logins and passwords of the test tenants, never shown to a session"),
     "migrate": ("tcp.migrate", "a migration to TCP in phases: inventory, mapping, estimate, plan, review"),

@@ -825,14 +825,119 @@ def open_session(p: _config.Paths, code: str, run=subprocess.call) -> int:
         raise ProjectError("project %s is not registered" % code)
     if pr.state == "deleted":
         raise ProjectError("project %s is deleted" % code)
-    work = _config.work_user()
-    if not work:
+    if not _config.work_user():
         raise ProjectError("no work user on this host: open the folder with claude yourself")
     folder = Path(pr.path)
     if folder.is_symlink() or not folder.is_dir():
         raise ProjectError("the folder of %s is missing" % code)
+    return run(work_shell(run) + ["cd %s && claude" % shlex.quote(str(folder))])
+
+
+def work_shell(run=subprocess.call) -> list[str]:
+    """The argv that runs one shell line as the work user (`sudo -n -u WORK -H bash -lc`), after a check that
+    `sudo -n` is allowed here. `awb projects open` starts a session through it and `awb start` spawns through it."""
+    work = _config.work_user()
+    if not work:
+        raise ProjectError("no work user on this host")
     sudo = shutil.which("sudo")
-    if not sudo or run([sudo, "-n", "-u", work, "true"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL) != 0:
+    if not sudo:
         raise ProjectError("sudo -n is not allowed here: start the session from a shell of %s" % work)
-    return run([sudo, "-n", "-u", work, "-H", "bash", "-lc", "cd %s && claude" % shlex.quote(str(folder))])
+    done = run([sudo, "-n", "-u", work, "true"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+               stderr=subprocess.DEVNULL)
+    if getattr(done, "returncode", done) != 0:
+        raise ProjectError("sudo -n is not allowed here: start the session from a shell of %s" % work)
+    return [sudo, "-n", "-u", work, "-H", "bash", "-lc"]
+
+
+WAITING_ITEMS = 5
+"""The most owner items `awb projects open` shows for one project (the board shows as many)."""
+
+
+def _owner_items(text: str) -> list[str]:
+    """The dash items of OPEN.md that wait on the owner: every item under a ## heading that names the owner and an
+    item elsewhere that names him."""
+    out: list[str] = []
+    owner_section = False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            owner_section = "owner" in line.lower()
+            continue
+        if line.startswith("- "):
+            item = " ".join(line[2:].split())
+            if owner_section or re.search(r"\bowner\b", item, re.IGNORECASE):
+                out.append(item)
+    return out
+
+
+def waiting(p: _config.Paths) -> list[dict]:
+    """Every active project in register order with the Next: line of STATE.md and the owner items of OPEN.md (P4 of
+    F3), after the name check as `awb projects list` checks the goals: a text with a hit is withheld and so is every text
+    when the check cannot run."""
+    from awb import ledger, status
+
+    rows = []
+    for r in load(p):
+        if r.state != "active":
+            continue
+        folder = Path(r.path)
+        try:
+            nxt = status.lines((folder / "STATE.md").read_text(encoding="utf-8")).next
+        except (OSError, UnicodeDecodeError):
+            nxt = None
+        try:
+            items = _owner_items((folder / "OPEN.md").read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            items = []
+        rows.append({"code": r.code, "kind": r.kind, "customer": r.customer, "next": nxt,
+                     "owner": items[:WAITING_ITEMS], "more": max(0, len(items) - WAITING_ITEMS)})
+    texts = [t for row in rows for t in [row["next"] or ""] + row["owner"]]
+    try:
+        hidden = ledger.hit_indexes(texts, ledger.register_path(p))
+    except ledger.LedgerError:
+        hidden = set(range(len(texts)))
+    n = 0
+    for row in rows:
+        if n in hidden and row["next"]:
+            row["next"] = ledger.WITHHELD
+        n += 1
+        row["owner"] = [ledger.WITHHELD if n + i in hidden else t for i, t in enumerate(row["owner"])]
+        n += len(row["owner"])
+    return rows
+
+
+def waiting_lines(rows: list[dict]) -> list[str]:
+    lines = []
+    for i, row in enumerate(rows, start=1):
+        lines.append("%d  %s  %s  %s" % (i, row["code"], row["kind"], row["customer"]))
+        lines.append("   Next: %s" % (row["next"] or "none recorded yet"))
+        for item in row["owner"]:
+            lines.append("   owner: %s" % item)
+        if row["more"]:
+            lines.append("   owner: %d more in OPEN.md" % row["more"])
+    return lines
+
+
+def pick_session(p: _config.Paths, read=None, tty=None, run=subprocess.call) -> int:
+    """`awb projects open` without a code: the active projects numbered with their Next: line and owner items; the
+    number he types opens that project's session (`open_session`). Without a terminal the list is printed and
+    nothing opens. An empty answer opens nothing."""
+    import sys
+
+    if _config.is_work_user():
+        raise ProjectError("awb projects open runs on the owner side, not as the work user")
+    rows = waiting(p)
+    if not rows:
+        print("no active project")
+        return 0
+    for line in waiting_lines(rows):
+        print(line)
+    if not (tty if tty is not None else (sys.stdin.isatty() and sys.stdout.isatty())):
+        return 0
+    print("number to open (empty: none): ", end="", flush=True)
+    answer = (read or sys.stdin.readline)().strip()
+    if not answer:
+        return 0
+    if not answer.isdigit() or not 1 <= int(answer) <= len(rows):
+        print("awb projects: no project %s in the list" % answer[:8], file=sys.stderr)
+        return 2
+    return open_session(p, rows[int(answer) - 1]["code"], run=run)

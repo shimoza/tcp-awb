@@ -211,20 +211,20 @@ def test_a_granted_take_from_the_owner_inbox_wipes_unknown_names_and_holds_nothi
     assert fx.PLANTED_CANDIDATE not in text and "[company 1]" in text
 
 
-def test_a_granted_take_of_a_file_that_cannot_be_read_is_held_with_the_one_line(svc, buckets, cust_project,
-                                                                                capsys):
-    """Replaces test_a_file_that_cannot_be_read_is_held_with_the_one_line_of_the_owner (findings 2 and 5 of the
-    review of 2026-10-10: a granted project, the file by its kind)."""
+def test_p2_a_granted_take_of_a_file_that_cannot_be_read_is_held_with_its_class_word(svc, buckets, cust_project,
+                                                                                    capsys):
+    """Replaces test_a_granted_take_of_a_file_that_cannot_be_read_is_held_with_the_one_line (P2 of F3, 2026-10-14:
+    the held line carries the class word unreadable, the mail keeps its reason and the plain line)."""
     _, own = buckets
     _grant(capsys, cust_project.code)
     own.objects["inbox/scan.png"] = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + b"\x00" * 17
     code, out, err = run(["inbox", "take", "picture"], capsys)
-    line = "held: run awb import %s as the owner in your own terminal" % cust_project.code
+    line = "held (unreadable): run awb import %s as the owner in your own terminal" % cust_project.code
     assert code == 0 and "held on the owner's side" in out and line in out
-    assert svc.notes and line in svc.notes[-1][1] and fx.CUSTOMER_CODE in svc.notes[-1][1]
+    mail = "held: run awb import %s as the owner in your own terminal" % cust_project.code
+    assert svc.notes and mail in svc.notes[-1][1] and fx.CUSTOMER_CODE in svc.notes[-1][1]
     assert "/" not in svc.notes[-1][1].replace("in/ folder", ""), "the mail names no path"
     assert not [f for f in (Path(cust_project.path) / "input").iterdir() if f.name != ".gitkeep"]
-
 
 def test_a_project_without_a_customer_is_refused_an_owner_file_by_kind_with_the_one_line(svc, buckets, lab_project,
                                                                                         capsys):
