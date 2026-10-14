@@ -140,7 +140,7 @@ Impact first, then likelihood. "Host" says whether the owner's host is needed be
 
 | # | gap | impact | likelihood | control that closes it | host |
 |---|---|---|---|---|---|
-| G1 | a pull request's tests run under the owner's uid with the vault readable | high | medium | the gate and the suite of a foreign branch as `awb-build` in a task unit (`awb build check BRANCH`); never `pytest` of an unreviewed branch in the owner's shell | yes |
+| G1 | a pull request's tests run under the owner's uid with the vault readable | high | medium | the gate and the suite of a foreign branch as `awb-build` in a task unit (`awb build check BRANCH`); never `pytest` of an unreviewed branch in the owner's shell (fixed, 78f28ff: the rule line in `CLAUDE.md` names it; a merge in the GitHub web interface still skips it) | yes |
 | G2 | the deploy makes HEAD root code without a mechanical gate | high | low to medium | the deploy runs the gate over deployed..target and the suite in the build unit first; it shows the diff of `seal/`, `awb/deploy.py`, `awb/buildrun.py` and `hooks*/` and asks once | yes |
 | G3 | a hijacked session persists through the work user's `authorized_keys` and crontab | high | medium | `AuthorizedKeysFile` of sshd pointing at a root owned path; `cron.deny` for `awb`; the two nightly jobs as root timers with `User=awb` (fixed, 626643f: the kb commit script is not in the repository and still runs from the work home) | yes |
 | G4 | the lab key is tenant wide, so a session deletes any resource of a granted tenant | medium to high | medium | one tenant per project; or writes only through a lease whose policy carries a tag condition on the project code; or a write allow list by service and path in `keys.conf` | yes |
