@@ -37,7 +37,8 @@
 # the client pinned by version and digest with its updater off; the unit of the runner, installed and not enabled
 # (the steering session starts it by hand for the first trial task and enables it on his word); the oneshot
 # awb-task-failed@.service that every task unit names in OnFailure= (SB5), so a task unit that fails while no runner
-# waits on it writes one board line. /etc/awb and its two files go to root:awb (751, paths.conf and blocklist.txt
+# waits on it writes one board line; awb-build-nudge.timer, which runs awb build nudge as the owner every 15 minutes, so
+# a task that waits on his answer or word reaches him by mail (automation review A6). /etc/awb and its two files go to root:awb (751, paths.conf and blocklist.txt
 # 640): the build user reads neither, the owner, the work user and the Ask page do.
 #
 # The egress filter of the work user (seal/egress/ALLOW.md) is an nftables table that root loads with `awb egress
@@ -79,6 +80,7 @@ BUILD_CLIENT_VERSION=2.1.296          # the client the build user runs, pinned b
 BUILD_CLIENT_SHA256=24972e3bc859fab2b46ed4c1e51f7d6130f06d3bd550811a114640de3370d0de
 INSTALL_ONLY="awb-buildd.service"     # installed, never enabled here: the steering session starts it by hand
 BUILD_FAILED_UNIT=awb-task-failed@.service   # OnFailure= of every task unit (awb/buildrun.py FAILED_UNIT, SB5)
+BUILD_NUDGE_UNIT=awb-build-nudge          # .service and .timer: awb build nudge as the owner every 15 minutes (A6)
 BUILD_MODEL_DEFAULT=login             # D-S7 changed: his subscription login; build_model = key in the host file is the fallback
 BUILD_MODEL_KEY=/etc/awb/build-model.key     # the owner's copy for the runner (build_model = key), never printed
 BUILD_MODEL_KEY_SOURCE=/etc/awb/anthropic.key   # the default source; build_model_key_source in the host file wins
@@ -775,6 +777,7 @@ step_units() {
         write_file "$UNITS_DIR/$name" 644 root:root < <(sed -e "s|@OWNER@|$owner|g" "$f")
     done
     [ "$units_only" -eq 1 ] || build_failed_unit
+    [ "$units_only" -eq 1 ] || build_nudge_unit
     run systemctl daemon-reload
     [ "$units_only" -eq 0 ] || return 0
     for f in "$seal_dir"/*.service "$seal_dir"/*.timer; do
@@ -785,6 +788,7 @@ step_units() {
         fi
         try_run systemctl enable --now "$name"
     done
+    try_run systemctl enable --now "$BUILD_NUDGE_UNIT.timer"
 }
 
 step_egress() {
@@ -1348,6 +1352,63 @@ NoNewPrivileges=yes
 ExecStart=$BIN_LINK build failed %i
 TimeoutStartSec=60
 LimitCORE=0
+EOF
+}
+
+build_nudge_unit() {
+    # written by step_units (not in --units-only) like the oneshot above, enabled at the end of step_units
+    info "$BUILD_NUDGE_UNIT.timer: every 15 minutes awb build nudge as the owner mails him the next commands of a"
+    info "task that is asked, red or held for 15 minutes, once per state, and writes one board line (A6)"
+    write_file "$UNITS_DIR/$BUILD_NUDGE_UNIT.service" 644 root:root <<EOF
+# Written by seal/setup.sh (automation review A6). awb build nudge as the owner: one mail through the key service's
+# notify for each build task that waits on him for 15 minutes, its body his next commands and never the agent's
+# text, once per state; a nudged row in the board's state.tsv. It reads the run folders and writes only its mark in
+# them and the board's state.tsv; the mail goes over the key service's admin socket, so no address family but unix.
+[Unit]
+Description=Architect Workbench build: mail the owner the next command of a task that waits on him
+RequiresMountsFor=$BUILD_ROOT
+
+[Service]
+Type=oneshot
+User=$owner
+Group=$WORK_GROUP
+UMask=0027
+Environment=AWB_CONF=$CONF_FILE
+ExecStart=$BIN_LINK build nudge
+TimeoutStartSec=300
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=$BUILD_ROOT/runs -$work_home/tcp-shared/build
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+LimitCORE=0
+EOF
+    write_file "$UNITS_DIR/$BUILD_NUDGE_UNIT.timer" 644 root:root <<EOF
+# Written by seal/setup.sh (automation review A6): $BUILD_NUDGE_UNIT.service every 15 minutes.
+[Unit]
+Description=Architect Workbench build: the nudge of a task that waits on the owner, every 15 minutes
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=15min
+AccuracySec=1min
+Unit=$BUILD_NUDGE_UNIT.service
+
+[Install]
+WantedBy=timers.target
 EOF
 }
 

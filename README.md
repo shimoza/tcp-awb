@@ -600,6 +600,7 @@ awb build retry B-012        # a new run from main
 awb build widen B-012 awb/tcp/keys.py
 awb build widen B-012 --tests-replaced SB1-20   # into the run's task.md, which the checks read
 awb build stop               # the runner ends after the current task
+awb build nudge              # a mail with your next commands for a task asked, red or held for 15 minutes
 awb build check pr-12        # a branch from outside: the gate and the suite as awb-build, nothing merged
 awb pr take 12               # fetch, rebase onto main, the check, merge --no-ff, push, close
 ```
@@ -642,7 +643,11 @@ suite to the runner. Before the first task of an ISO week the runner opens that 
 `main` of `main.git` as its own commit with your identity (the old week loses `(in progress)`); pull from
 `main.git` before you add a line of your own. Each ended run writes `/srv/awb-build/runs/<ID>/<n>/result.md` (fixed fields only), one line on
 the board (`state.tsv` in `tcp-shared/build`) and one mail. Only an API error before the first tool call is retried
-by itself, once, ten minutes later. `awb build selftest` runs the runner's planted cases in a throw-away folder and
+by itself, once, ten minutes later. A task that waits on you (`asked`, `red: <reason>` or `held: <reason>`) for
+15 minutes with no answer, widen or retry since gets one more mail from `awb build nudge`, which the root owned
+`awb-build-nudge.timer` runs as you every 15 minutes: its body is your next commands (`awb build show ID` then `awb
+build answer ID "..."`, `awb build retry ID` or `awb build widen ID PATH...`, or the hold's own command), never the
+agent's text, once per state, and the board line adds `nudged: B-013 asked 23:30`. `awb build selftest` runs the runner's planted cases in a throw-away folder and
 fails when one of them is missing; `awb build probe` (as you) starts a unit of the runner's own form with the network
 of a task: the model endpoint and, with your login, `platform.claude.com` connect, a TCP API host, GitHub and port 22
 of `127.0.0.1`, of `127.0.0.53` and of the host's own address do not (a refusal counts only after the model endpoint

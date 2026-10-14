@@ -6166,8 +6166,43 @@
    "name": "build draft: every finding of the repository's review drafts a block the grammar takes",
    "run": ".venv/bin/pytest tests/test_build_draft.py::test_the_review_of_the_repository_drafts_every_finding_of_its_table",
    "status": "passing"
+  },
+  {
+   "id": "NG-A6-1",
+   "phase": "A6",
+   "name": "build nudge: an asked run older than 15 minutes gets one mail with show and answer, a second nudge none, one board line",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_an_asked_run_older_than_fifteen_minutes_gets_one_mail_with_both_commands_and_one_board_line",
+   "status": "passing"
+  },
+  {
+   "id": "NG-A6-2",
+   "phase": "A6",
+   "name": "build nudge: an answered run gets no mail, a new ask after the answer gets one, a mail not sent is tried again",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_an_answered_run_gets_no_mail_and_a_new_ask_after_the_answer_gets_one",
+   "status": "passing"
+  },
+  {
+   "id": "NG-A6-3",
+   "phase": "A6",
+   "name": "build nudge: a red run names retry and widen, a held run its own command",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_red_run_names_retry_and_widen_and_a_held_run_its_own_command",
+   "status": "passing"
+  },
+  {
+   "id": "NG-A6-4",
+   "phase": "A6",
+   "name": "build nudge: the command is the owner's and refuses the build user",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_awb_build_nudge_is_the_owners_command",
+   "status": "passing"
+  },
+  {
+   "id": "NG-A6-5",
+   "phase": "A6",
+   "name": "build nudge: setup installs the root owned timer and its hardened oneshot, verify proves the timer is enabled",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_installs_the_nudge_timer_as_root_and_verify_proves_it_is_enabled",
+   "status": "passing"
   }
  ],
- "total_tests": 881,
+ "total_tests": 886,
  "checked": "2026-10-14"
 }

@@ -1856,6 +1856,39 @@ def test_the_host_file_keeps_its_mode_and_group_when_a_command_rewrites_it(tmp_p
 
 # --------------------------------------------------------------------------- SB5: the selftest, the probe and the oneshot
 
+def test_setup_installs_the_nudge_timer_as_root_and_verify_proves_it_is_enabled(fakebin):
+    """A6: the first seal and every update write awb-build-nudge.service (a hardened oneshot that runs awb build
+    nudge as the owner, writes only the run folders and the board's folder, reaches the key service's socket and
+    nothing else) and its timer every 15 minutes, root owned, then enable the timer after the reload; --units-only
+    writes neither. verify.sh's dry run names the check that the timer is enabled."""
+    for args in (["--dry-run"], ["--update", "--dry-run"]):
+        res = run_script(SETUP, args, fakebin)
+        assert res.returncode == 0, res.stderr
+        cmds = commands(res.stdout)
+        unit = dropin_lines(res.stdout, "/etc/systemd/system/awb-build-nudge.service")
+        for want in ("Type=oneshot", "User=%s" % USER, "Group=awb", "ExecStart=/usr/local/bin/awb build nudge",
+                     "NoNewPrivileges=yes", "ProtectSystem=strict", "ProtectHome=read-only", "PrivateTmp=yes",
+                     "RestrictAddressFamilies=AF_UNIX", "CapabilityBoundingSet=", "RequiresMountsFor=/srv/awb-build",
+                     "Environment=AWB_CONF=/etc/awb/paths.conf"):
+            assert want in unit, want
+        rw = [x for x in unit if x.startswith("ReadWritePaths=")]
+        assert len(rw) == 1 and rw[0].split("=", 1)[1].split()[0] == "/srv/awb-build/runs"
+        assert rw[0].endswith("/tcp-shared/build")
+        timer = dropin_lines(res.stdout, "/etc/systemd/system/awb-build-nudge.timer")
+        for want in ("OnUnitActiveSec=15min", "Unit=awb-build-nudge.service", "WantedBy=timers.target"):
+            assert want in timer, want
+        reload = cmds.index("+ systemctl daemon-reload")
+        assert cmds.index("+ write /etc/systemd/system/awb-build-nudge.timer (mode 644, root:root)") < reload
+        assert cmds.index("+ systemctl enable --now awb-build-nudge.timer") > reload
+    res = run_script(SETUP, ["--update", "--units-only", "--dry-run"], fakebin)
+    assert "awb-build-nudge" not in res.stdout
+    res = run_script(VERIFY, ["--dry-run"], fakebin)
+    checks = [line[6:] for line in res.stdout.splitlines() if line.startswith("CHECK ")]
+    assert "the timer awb-build-nudge.timer is enabled and runs awb build nudge as the owner" in checks
+    text = VERIFY.read_text(encoding="utf-8")
+    assert 'systemctl is-enabled --quiet "$3.timer"' in text
+
+
 def test_the_dry_runs_name_the_selftest_the_probe_of_a_task_and_the_failure_oneshot(fakebin):
     """SB5: verify.sh's dry run names the runner's selftest, the oneshot of a failed task unit and the lines of `awb
     build probe` in its order (the token host of his login among them); setup.sh's dry run writes the oneshot as

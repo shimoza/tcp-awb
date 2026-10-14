@@ -379,7 +379,9 @@ with the runner's lock held; `poll_once` takes a queued check before the next ta
 `state.tsv` carries a `check` row (id, state, time, short hash) for each of the `CHECKS_SHOWN` newest. SB5: every task unit
 of `SystemdUnits.argv` names `FAILED_UNIT % name` in `OnFailure=` (not `PROBE_UNIT`); `failed_main(unit)` (`awb
 build failed`, the oneshot's command) with `runner_alive(runs)` and `record_failed(host, name, result) -> "watched" |
-"written" | "not written"` (a `failed` row of `state.tsv`, at most `FAILED_ROWS`); `board_write(board, name,
+"written" | "not written"` (a `failed` row of `state.tsv`, at most `FAILED_ROWS`); A6: `nudge_main()` (`awb build nudge`) and
+`nudge(host) -> [line]`, `nudge_due(host, run)`, `nudge_commands(tid, state)` and `nudged_rows(runs)` (the mark
+`NUDGE_FILE` of a run folder, `NUDGE_MINUTES`, a `nudged` row of `state.tsv` with id, state and the time of the mail); `board_write(board, name,
 data)` and `board_read(board, name)` (the board's folder, no link followed); the probe: `probe_lines(model)`,
 `probe_spec(host, argv, allow, stdout=None, binds=None)`, `run_probe(host, user) -> [(key, passed, line)]` (the
 checks `loopback`, `stub` and `host` refuse port 22 of the host itself, `probe_target(key)`, `host_address()`); the

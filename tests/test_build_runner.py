@@ -2087,3 +2087,99 @@ def test_a_node_flaky_twice_in_seven_days_is_told_once_and_a_week_later_counts_a
     assert (world.queue / buildrun.FLAKY_FILE).read_text(encoding="utf-8").count("\n- ") == 2
     rows = (world.runs / buildrun.FLAKY_LOG).read_text().splitlines()
     assert node not in "".join(r.split("\t")[3] for r in rows) and len(rows) == 5
+
+
+# --------------------------------------------------------------------------- A6: awb build nudge
+
+ASKED_AT = datetime(2026, 10, 13, 23, 15, 0)
+
+
+def nudge_world(world, minutes: float):
+    """The board's folder with the runner's state.tsv and the clock `minutes` after ASKED_AT."""
+    h = world.host
+    h.board = world.base / "shared" / "build"
+    h.board.mkdir(parents=True)
+    h.now = lambda: ASKED_AT + timedelta(minutes=minutes)
+    buildrun.Runner(h).write_board()
+    return h
+
+
+def test_an_asked_run_older_than_fifteen_minutes_gets_one_mail_with_both_commands_and_one_board_line(world):
+    """A6: a run asked for more than 15 minutes gets one mail through the runner's mail path whose body names `awb
+    build show ID` and then `awb build answer ID "..."`, never the agent's text; a second nudge sends nothing, nor
+    one five hours later; the board line names it, also after the runner wrote state.tsv again. Planted: the agent's
+    message with a marker never reaches the mail."""
+    from awb.tcp import board as boardmod
+
+    h = nudge_world(world, 14)
+    run = build.new_run("B-013", world.runs, state="asked", now=ASKED_AT)
+    (run.folder / "message.txt").write_text("zyxwo-marker which size do you want?\n", encoding="utf-8")
+    assert buildrun.nudge(h) == [] and world.mails == []
+    h.now = lambda: ASKED_AT + timedelta(minutes=16)
+    assert buildrun.nudge(h) == ["B-013 asked: mail sent"]
+    assert len(world.mails) == 1
+    subject, body = world.mails[0]
+    assert subject.endswith("B-013: asked, waits on you")
+    assert body.strip().split("\n")[1:] == ["awb build show B-013", 'awb build answer B-013 "..."']
+    assert "zyxwo" not in subject + body and "size" not in body
+    assert "nudged\tB-013\tasked\t2026-10-13T23:31:00" in (h.board / "state.tsv").read_text()
+    shared = types.SimpleNamespace(shared=world.base / "shared")
+    assert "; nudged: B-013 asked 23:31" in boardmod.build_line(shared)
+    assert buildrun.nudge(h) == [] and len(world.mails) == 1
+    h.now = lambda: ASKED_AT + timedelta(hours=5)
+    assert buildrun.nudge(h) == [] and len(world.mails) == 1
+    buildrun.Runner(h).write_board()
+    assert "; nudged: B-013 asked 23:31" in boardmod.build_line(shared)
+
+
+def test_an_answered_run_gets_no_mail_and_a_new_ask_after_the_answer_gets_one(world):
+    """A6: an answered run gets no mail and the board line drops it; a run that asks again after the answer is a
+    new state line and gets one mail of its own. A mail that was not sent is tried again at the next nudge."""
+    h = nudge_world(world, 120)
+    run = build.new_run("B-013", world.runs, state="asked", now=ASKED_AT)
+    build.write_state(run.folder, "answered", ASKED_AT + timedelta(minutes=10))
+    assert buildrun.nudge(h) == [] and world.mails == []
+    assert "nudged" not in (h.board / "state.tsv").read_text()
+    build.write_state(run.folder, "asked", ASKED_AT + timedelta(minutes=40))
+    h.mail = lambda s, m: False
+    assert buildrun.nudge(h) == ["B-013 asked: mail not sent, tried again next time"]
+    h.mail = lambda s, m: world.mails.append((s, m)) or True
+    assert buildrun.nudge(h) == ["B-013 asked: mail sent"] and len(world.mails) == 1
+    build.write_state(run.folder, "answered", ASKED_AT + timedelta(minutes=110))
+    assert buildrun.nudge(h) == [] and len(world.mails) == 1
+    assert "nudged" not in (h.board / "state.tsv").read_text()
+
+
+def test_a_red_run_names_retry_and_widen_and_a_held_run_its_own_command(world):
+    """A6: red names `awb build retry ID` and `awb build widen ID PATH...`; a hold its own command (the login, the
+    vault unlock); a done or running run, a check of a branch and a run younger than 15 minutes get none."""
+    h = nudge_world(world, 20)
+    build.new_run("B-601", world.runs, state="red: outside paths", now=ASKED_AT)
+    build.new_run("B-602", world.runs, state=buildrun.LOGIN_HELD, now=ASKED_AT)
+    build.new_run("B-603", world.runs, state="held: checks pending", now=ASKED_AT)
+    build.new_run("B-604", world.runs, state="done", now=ASKED_AT)
+    build.new_run("B-605", world.runs, state="running", now=ASKED_AT)
+    build.new_run("B-606", world.runs, state="red: suite", now=ASKED_AT + timedelta(minutes=10))
+    build.new_check(world.runs, now=ASKED_AT)
+    assert buildrun.nudge(h) == ["B-601 red: outside paths: mail sent", "B-602 held: login missing: mail sent",
+                                 "B-603 held: checks pending: mail sent"]
+    bodies = {s.split()[2].rstrip(":"): m.strip().split("\n")[1:] for s, m in world.mails}
+    assert bodies == {"B-601": ["awb build retry B-601", "awb build widen B-601 PATH..."],
+                      "B-602": [buildrun.LOGIN_COMMAND, "awb build retry B-602"],
+                      "B-603": ["awb vault unlock"]}
+    assert buildrun.nudge_commands("B-601", "held: push refused") == ["awb build retry B-601"]
+
+
+def test_awb_build_nudge_is_the_owners_command(world, monkeypatch, capsys):
+    """A6: `awb build nudge` runs the nudge of the host as the owner and refuses the build user."""
+    from awb import config
+
+    h = nudge_world(world, 20)
+    build.new_run("B-013", world.runs, state="asked", now=ASKED_AT)
+    monkeypatch.setattr(buildrun.Host, "from_config", classmethod(lambda cls: h))
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    monkeypatch.setattr(config, "is_build_user", lambda: False)
+    assert build.main(["nudge"]) == 0
+    assert "nudge B-013 asked: mail sent" in capsys.readouterr().out and len(world.mails) == 1
+    monkeypatch.setattr(config, "is_build_user", lambda: True)
+    assert build.main(["nudge"]) == 2 and len(world.mails) == 1

@@ -7,6 +7,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- `awb build nudge` reaches the owner when a build task waits on him (automation review A6): on 2026-10-13 a task
+  asked at 23:15 and waited 5.5 hours while the steering session slept. For every task whose newest run is `asked`,
+  `red: <reason>` or `held: <reason>` for 15 minutes with no answer, widen or retry since, it sends one mail through
+  the runner's mail path whose body is his next commands (`awb build show ID` and `awb build answer ID "..."`; `awb
+  build retry ID` and `awb build widen ID PATH...`; the hold's own command), never the agent's text. Once per state
+  line of a run (the mark `nudged` in the run folder); a `nudged` row of `state.tsv` adds `nudged: B-013 asked
+  23:30` to the board line. `seal/setup.sh` installs the root owned `awb-build-nudge.timer`, which runs it as the
+  owner every 15 minutes in a hardened oneshot; `seal/verify.sh` proves the timer is enabled.
 - `awb build draft FINDING [--from FILE] [--id B-NNN] [--out FILE]` writes the add file of a finding for `awb build
   add`, so the steering session does not write tasks by hand (automation review A4). It takes the row of a findings
   table (default `docs/review-2026-10-13.md`) and the section of its id: the title from the summary, `paths` from

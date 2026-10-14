@@ -15,7 +15,8 @@ done 14:02, B-013 running since 14:10, check C-001 passed; live eb928d2, main 1a
 newest checks of a branch from outside, awb build check). Every cell of that file is
 matched against a fixed form or vocabulary before it reaches the line; anything else is dropped or cut to its word.
 A task unit that failed while no runner watched (the oneshot awb-task-failed@.service, SB5) adds "; no runner
-watched: B-012 failed 14:02 (timeout)" until the runner writes the file again.
+watched: B-012 failed 14:02 (timeout)" until the runner writes the file again. A task that waited on the owner long
+enough for a mail of awb build nudge (A6) adds "; nudged: B-013 asked 23:30" until its state moves.
 While the vault is locked both commands open with "locked since <time>" (T3); the project texts wait for the
 unlock, because the data check cannot run.
 """
@@ -299,7 +300,7 @@ def build_state(p) -> dict | None:
     if text is None:
         return None
     out = {"queue": None, "tasks": [], "live": "unknown", "main": "unknown", "not_deployed": None, "behind": [],
-           "failed": [], "checks": []}
+           "failed": [], "checks": [], "nudged": []}
     seen = set()
     for row in text.splitlines():
         cells = row.split("\t")
@@ -331,6 +332,10 @@ def build_state(p) -> dict | None:
             out["not_deployed"] = int(cells[1])
         elif kind == "daemons" and len(cells) == 2:
             out["behind"] = [d for d in ("vault", "keys") if d in cells[1].split(",")]
+        elif kind == "nudged" and len(cells) == 4:
+            word, m = build_state_word(cells[2]), _STAMP.fullmatch(cells[3])
+            if _ID.fullmatch(cells[1]) and word is not None and m:
+                out["nudged"].append({"id": cells[1], "state": word, "time": m.group(1)})
         elif kind == "failed" and len(cells) == 4:
             m_unit, m = _TASK_UNIT.fullmatch(cells[1]), _STAMP.fullmatch(cells[3])
             if m_unit and m and cells[2] in UNIT_RESULTS:
@@ -372,6 +377,8 @@ def build_line(p) -> str:
     unsent = [t["id"] for t in tasks if t["mail_not_sent"]]
     if unsent:
         line += "; mail not sent: %s" % " ".join(unsent)
+    if data["nudged"]:
+        line += "; nudged: %s" % ", ".join("%s %s %s" % (n["id"], n["state"], n["time"]) for n in data["nudged"])
     if data["failed"]:
         line += "; no runner watched: %s" % ", ".join(
             "%s failed %s (%s)" % (f["unit"], f["time"], f["result"]) for f in data["failed"][-DONE_SHOWN:])

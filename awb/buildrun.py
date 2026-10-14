@@ -161,6 +161,11 @@ FAILED_UNIT = "awb-task-failed@%s.service"
 """The oneshot every task unit names in OnFailure= (seal/setup.sh writes the template, SB5): it runs `awb build
 failed <unit>` as the owner, which writes one board line when no runner waits on the unit. The probe unit has none."""
 FAILED_ROWS = 5             # the failed rows state.tsv keeps, the newest last
+NUDGE_MINUTES = 15          # A6: a task that waits on him this long gets one mail from awb build nudge
+NUDGE_FILE = "nudged"
+"""The mark of `awb build nudge` in a run folder: `<state>\\t<since>\\t<sent>`, the state line it mailed for and the
+time of the mail. A new state line (an answer or a widen that ends in the same state again) is mailed again."""
+NUDGE_WORDS = ("asked", "red", "held")
 TCP_API_HOST = "iam.eu-de.otc.t-systems.com"    # seal/verify.sh names the same host
 GITHUB_HOST = "github.com"
 PROBE_SECONDS = 60
@@ -3097,6 +3102,7 @@ def write_state_tsv(host: Host, info: dict, held: str | None) -> None:
             tid, r.n, r.state, r.since.strftime(build._STAMP) if r.since else "-",
             commit[:7] if SHA_RE.fullmatch(commit) else "-", "not_sent" if mail == "not sent" else
             "sent" if mail == "sent" else "-"))
+    rows += nudged_rows(host.runs)
     for cid in build.check_ids(host.runs)[-build.CHECKS_SHOWN:]:
         r = build.latest(cid, host.runs)
         if r is None or not _TSV_STATE.fullmatch(r.state):
@@ -3196,7 +3202,7 @@ def record_failed(host: Host, name: str, result: str) -> str:
         kind = row.split("\t", 1)[0]
         if kind == "failed":
             failed.append(row)
-        elif kind in ("queue", "task", "check", "live", "main", "not_deployed", "daemons"):
+        elif kind in ("queue", "task", "nudged", "check", "live", "main", "not_deployed", "daemons"):
             rows.append(row)
     failed.append("failed\t%s\t%s\t%s" % (name, result, host.now().strftime(build._STAMP)))
     rows += failed[-FAILED_ROWS:]
@@ -3229,6 +3235,101 @@ def failed_main(name: str) -> int:
         return 0
     print("awb build: %s failed (%s); the board line could not be written" % (name, result), file=sys.stderr)
     return 1
+
+
+# --------------------------------------------------------------------------- the nudge of a waiting task (A6)
+
+def nudge_commands(tid: str, state: str) -> list[str]:
+    """His exact next commands for a run that waits on him: fixed words and the id, nothing of the agent's side. A
+    hold without a command of its own is cleared by a new run, as `awb build list` says."""
+    w = state.split(":", 1)[0]
+    if w == "asked":
+        return ["awb build show %s" % tid, 'awb build answer %s "..."' % tid]
+    if w == "red":
+        return ["awb build retry %s" % tid, "awb build widen %s PATH..." % tid]
+    if state == LOGIN_HELD:
+        return [LOGIN_COMMAND, "awb build retry %s" % tid]
+    if state == "held: checks pending":
+        return ["awb vault unlock"]
+    return ["awb build retry %s" % tid]
+
+
+def _nudge_mark(r: build.Run) -> list[str] | None:
+    """The fields of a run's mark when it holds the run's state line of now and a time, else None."""
+    mark = (_text(r.folder / NUDGE_FILE) or "").rstrip("\n").split("\t")
+    if r.since is None or len(mark) != 3 or mark[:2] != [r.state, r.since.strftime(build._STAMP)]:
+        return None
+    try:
+        datetime.strptime(mark[2], build._STAMP)
+    except ValueError:
+        return None
+    return mark
+
+
+def nudge_due(host: Host, r: build.Run) -> bool:
+    """The run is asked, red or held for NUDGE_MINUTES and its state line of now has no mail yet. An answer, a widen
+    or a retry writes a new state or a new run, so a due run had none of them since."""
+    if r.word not in NUDGE_WORDS or r.since is None or not _TSV_STATE.fullmatch(r.state):
+        return False
+    if (host.now() - r.since).total_seconds() < NUDGE_MINUTES * 60:
+        return False
+    return _nudge_mark(r) is None
+
+
+def nudged_rows(runs: Path) -> list[str]:
+    """The `nudged` rows of state.tsv: id, state and the time of the mail of every newest run whose mark holds its
+    state line of now. The board line names them until the state moves."""
+    rows = []
+    for tid in build.ids_with_runs(runs):
+        r = build.latest(tid, runs)
+        mark = _nudge_mark(r) if r is not None else None
+        if mark is not None:
+            rows.append("nudged\t%s\t%s\t%s" % (tid, r.state, mark[2]))
+    return rows
+
+
+def nudge(host: Host) -> list[str]:
+    """`awb build nudge`: one mail through the runner's mail path for every task whose newest run is due
+    (nudge_due), its body his next commands and never the agent's text. The mark is written only when the mail was
+    sent, so one that failed is tried at the next call. Then the `nudged` rows of state.tsv, the other rows as they
+    are. One line per run it tried."""
+    out = []
+    for tid in build.ids_with_runs(host.runs):
+        r = build.latest(tid, host.runs)
+        if r is None or not nudge_due(host, r):
+            continue
+        lines = ["%s is %s since %s and waits on you. As the owner in your terminal:" % (
+            tid, r.state, build._since(r.since))] + nudge_commands(tid, r.state)
+        try:
+            sent = bool(host.mail and host.mail("Workbench build %s: %s, waits on you" % (tid, r.word),
+                                                "\n".join(lines) + "\n"))
+        except Exception:
+            sent = False
+        if sent:
+            _write(r.folder / NUDGE_FILE, "%s\t%s\t%s\n" % (r.state, r.since.strftime(build._STAMP),
+                                                         host.now().strftime(build._STAMP)))
+        out.append("%s %s: %s" % (tid, r.state, "mail sent" if sent else "mail not sent, tried again next time"))
+    text = board_read(host.board, "state.tsv", 256 << 10)
+    if text is not None:
+        rows = [x for x in text.splitlines() if x.split("\t", 1)[0] != "nudged"]
+        board_write(host.board, "state.tsv", ("\n".join(rows + nudged_rows(host.runs)) + "\n").encode("utf-8"))
+    return out
+
+
+def nudge_main() -> int:
+    """`awb build nudge`, the ExecStart of awb-build-nudge.service, which its timer starts every 15 minutes as the
+    owner (seal/setup.sh)."""
+    if config.is_work_user() or config.is_build_user():
+        print("awb build: the nudge is the owner's", file=sys.stderr)
+        return 2
+    try:
+        host = Host.from_config()
+    except Exception as err:
+        print("awb build: the nudge cannot run (%s)" % type(err).__name__, file=sys.stderr)
+        return 1
+    for ln in nudge(host):
+        print("awb build: nudge %s" % ln)
+    return 0
 
 
 # --------------------------------------------------------------------------- the probe unit (SB5)

@@ -25,7 +25,8 @@
 # code (`awb build probe`, as the owner, SB5): a unit of the runner's systemd-run form with the address list of a
 # task's session reaches the model endpoint (and with build_model = login the token host of his login) while a TCP
 # API host and GitHub stay closed. A probe counts only after the unit was shown to run as the build user. The
-# oneshot awb-task-failed@.service that every task unit names in OnFailure= is installed.
+# oneshot awb-task-failed@.service that every task unit names in OnFailure= is installed; awb-build-nudge.timer is
+# enabled and its unit runs awb build nudge as the owner (A6).
 # One line per check, PASS or FAIL; exit 1 on any FAIL.
 # --dry-run lists the checks and runs none (it works without root). Paths come from /etc/awb/paths.conf when it
 # is there, home folders from getent passwd. No line names a folder of the owner: they are counted.
@@ -386,6 +387,7 @@ TOKEN_HOST=platform.claude.com        # awb/buildrun.py TOKEN_HOST: the refresh 
 TCP_API_HOST=iam.eu-de.otc.t-systems.com
 GITHUB_HOST=github.com
 BUILD_FAILED_UNIT=awb-task-failed@.service
+BUILD_NUDGE_UNIT=awb-build-nudge      # seal/setup.sh writes its .service and .timer (A6)
 build_root=$(conf_value build_root)
 build_root="${build_root:-/srv/awb-build}"
 # exit 0 when the unix socket at $1 accepts a connection
@@ -449,6 +451,7 @@ build_dry() {
         "the build hooks of the release run the gate --no-register by the installed interpreter" \
         "the build runner's unit is installed" \
         "the oneshot $BUILD_FAILED_UNIT of a failed task unit is installed and writes the board line as the owner" \
+        "the timer $BUILD_NUDGE_UNIT.timer is enabled and runs awb build nudge as the owner" \
         "the build side runs on his login (build_model = login) and the login is there, or on the model key" \
         "the model key of a build task is the owner's (400) and matches its source" \
         "the board's build folder is the work user's, 3770" \
@@ -599,6 +602,10 @@ build_checks() {
     allowed "the oneshot $BUILD_FAILED_UNIT of a failed task unit is installed and writes the board line as the owner" \
         sh -c 'test "$(stat -c "%U %a" -- "$1")" = "root 644" && grep -qx "Type=oneshot" "$1" && grep -qx "User=$2" "$1" &&
         grep -qx "ExecStart=/usr/local/bin/awb build failed %i" "$1"' verify "/etc/systemd/system/$BUILD_FAILED_UNIT" "$owner"
+    allowed "the timer $BUILD_NUDGE_UNIT.timer is enabled and runs awb build nudge as the owner" \
+        sh -c 'systemctl is-enabled --quiet "$3.timer" && test "$(stat -c "%U %a" -- "$1")" = "root 644" &&
+        grep -qx "Type=oneshot" "$1" && grep -qx "User=$2" "$1" && grep -qx "ExecStart=/usr/local/bin/awb build nudge" "$1"' \
+        verify "/etc/systemd/system/$BUILD_NUDGE_UNIT.service" "$owner" "$BUILD_NUDGE_UNIT"
     build_model_check "$t"
     allowed "the board's build folder is the work user's, 3770" test \
         "$(stat -c '%U %G %a' -- "$shared/build" 2>/dev/null)" = "awb awb 3770"

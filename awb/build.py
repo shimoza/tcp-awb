@@ -10,6 +10,8 @@
     awb build retry ID           a new numbered run of the task, from main
     awb build widen ID PATH...   more paths for a red task; the runner checks the kept branch again
     awb build stop [ID]          the runner ends after the current task, or stops the task ID
+    awb build nudge              one mail with his next commands for each task asked, red or held for 15 minutes,
+                                 once per state; the ExecStart of awb-build-nudge.service, its timer every 15 minutes
     awb build check REF          the gate and the whole suite of a branch from outside (a cloud pull request) as the
                                  build user in a task unit, through the runner's lock; never merges (F2 G1)
     awb build serve              the runner of the build queue, the ExecStart of awb-buildd.service
@@ -443,8 +445,9 @@ def read_prompt(task: Task, qdir: Path | None = None, register: Path | None = No
 RUN_FILES = ("task.md", "prompt.txt", "result.json", "status.txt", "task.bundle", "suite.log", "checks.log",
              "result.md", "message.txt", "state", "session", "deadline")
 """The files of one run folder `runs/<ID>/<n>/` (DESIGN.md sections 3 and 7). The runner (SB3) writes them."""
-COMMAND_FILES = ("answer.txt", "widen.txt", "widen.log", "stop-wanted", "reported")
-"""What the commands of this module write into a run folder for the runner, and the mark of `status --ended`.
+COMMAND_FILES = ("answer.txt", "widen.txt", "widen.log", "stop-wanted", "reported", "nudged")
+"""What the commands of this module write into a run folder for the runner, the mark of `status --ended` and the
+mark of `awb build nudge`.
 `awb build widen --tests-replaced` also rewrites the run's `task.md`, the snapshot the runner's checks read."""
 STOP_FILE = "stop"
 """`runs/stop`: the runner ends after the current task (awb build stop)."""
@@ -1166,6 +1169,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="test ids or node ids the task may drop or replace, written into the run's task.md")
     s = sub.add_parser("stop", help="the runner ends after the current task, or stops the task ID")
     s.add_argument("id", nargs="?")
+    sub.add_parser("nudge", help="one mail with your next commands for each task asked, red or held for 15 minutes, "
+                                 "once per state")
     s = sub.add_parser("check", help="the gate and the whole suite of a branch from outside as the build user in a "
                                      "task unit, through the runner's lock; never merges, pushes or deploys")
     s.add_argument("ref", help="a branch or commit of your working copy, for example a fetched pull request head")
@@ -1184,7 +1189,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         ap.print_usage(sys.stderr)
         return 2
-    if args.command in ("serve", "selftest", "unit", "probe", "failed", "check"):
+    if args.command in ("serve", "selftest", "unit", "probe", "failed", "check", "nudge"):
         from awb import buildrun
 
         if args.command == "check":
@@ -1197,6 +1202,8 @@ def main(argv: list[str] | None = None) -> int:
             return buildrun.probe_main()
         if args.command == "failed":
             return buildrun.failed_main(args.unit)
+        if args.command == "nudge":
+            return buildrun.nudge_main()
         why = buildrun.unit_allowed()
         if why:
             return _err(why)
