@@ -1,0 +1,2 @@
+build/tests.json merge=awb-tests
+CHANGELOG.md merge=awb-changelog

@@ -7,6 +7,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- `awb pr take N` takes a pull request of a cloud session in one command instead of six steps (automation review,
+  A8). In the owner's working copy on a clean `main` it fetches `pull/N/head`, rebases it onto `main` in a temporary
+  worktree with hooks off, runs `awb build check` on the result and only when that passed merges it with `--no-ff`
+  as "Merge pull request #N: TITLE", pushes `main` to origin and to `main.git` of the build and closes the pull
+  request with gh and a comment that names the merge commit. A conflict in `build/tests.json` is merged by id and
+  one in `CHANGELOG.md` keeps both sides' lines in their week, through the git merge drivers of `.gitattributes`
+  (`awb/mergedriver.py`); two different rows with one id and any other conflict stop it with the file names. On a
+  failure `main` stays as it was. It never deploys. `--dry-run` prints the steps.
 - `awb build check REF` checks a branch from outside, a cloud pull request fetched into the working copy, as the
   build user and never in the owner's shell (F2 threat model, gap G1). The runner fetches the commit into the
   quarantine of `main.git` and runs its own checks on it: the commits after the merge base with `main` (at most

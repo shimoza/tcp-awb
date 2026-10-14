@@ -5830,8 +5830,85 @@
    "name": "board: the checks of a branch reach the build line and free text does not",
    "run": ".venv/bin/pytest tests/test_board.py::test_the_checks_of_a_branch_reach_the_line_and_free_text_does_not",
    "status": "passing"
+  },
+  {
+   "id": "PRT-1",
+   "phase": "A8",
+   "name": "pr take: a clean take rebases, checks, merges with --no-ff and pushes to origin and the build repository",
+   "run": ".venv/bin/pytest tests/test_pr_take.py::test_a_clean_take_rebases_checks_merges_with_no_ff_and_pushes_to_origin_and_the_build",
+   "status": "passing"
+  },
+  {
+   "id": "PRT-2",
+   "phase": "A8",
+   "name": "pr take: with gh the title comes from the pull request and the close comment names the merge commit",
+   "run": ".venv/bin/pytest tests/test_pr_take.py::test_a_take_with_gh_names_the_title_and_closes_the_pull_request_with_the_merge_commit",
+   "status": "passing"
+  },
+  {
+   "id": "PRT-3",
+   "phase": "A8",
+   "name": "pr take: a conflict in build/tests.json is a union by id and one in CHANGELOG.md keeps both lines in their week",
+   "run": ".venv/bin/pytest tests/test_pr_take.py::test_a_tests_json_and_changelog_conflict_is_merged_by_id_and_by_week",
+   "status": "passing"
+  },
+  {
+   "id": "PRT-4",
+   "phase": "A8",
+   "name": "pr take: two different rows with one id are refused and main stays",
+   "run": ".venv/bin/pytest tests/test_pr_take.py::test_two_different_rows_with_one_id_are_refused_and_main_stays",
+   "status": "passing"
+  },
+  {
+   "id": "PRT-5",
+   "phase": "A8",
+   "name": "pr take: any other conflict stops with the file name",
+   "run": ".venv/bin/pytest tests/test_pr_take.py::test_another_conflict_stops_with_the_file_name",
+   "status": "passing"
+  },
+  {
+   "id": "PRT-6",
+   "phase": "A8",
+   "name": "pr take: a failed check leaves main alone and keeps the branch",
+   "run": ".venv/bin/pytest tests/test_pr_take.py::test_a_failed_check_leaves_main_alone_and_keeps_the_branch",
+   "status": "passing"
+  },
+  {
+   "id": "PRT-7",
+   "phase": "A8",
+   "name": "pr take: a dirty tree is refused before the fetch",
+   "run": ".venv/bin/pytest tests/test_pr_take.py::test_a_dirty_tree_is_refused_before_the_fetch",
+   "status": "passing"
+  },
+  {
+   "id": "PRT-8",
+   "phase": "A8",
+   "name": "pr take: a main behind the build repository is refused",
+   "run": ".venv/bin/pytest tests/test_pr_take.py::test_a_main_behind_the_build_repository_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PRT-9",
+   "phase": "A8",
+   "name": "pr take: --dry-run prints the steps and changes nothing",
+   "run": ".venv/bin/pytest tests/test_pr_take.py::test_the_dry_run_prints_the_steps_and_changes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "PRT-10",
+   "phase": "A8",
+   "name": "merge driver: CHANGELOG.md keeps both sides' lines in their week, a new week in its place",
+   "run": ".venv/bin/pytest tests/test_pr_take.py::test_the_changelog_driver_keeps_both_sides_lines_in_their_week",
+   "status": "passing"
+  },
+  {
+   "id": "PRT-11",
+   "phase": "A8",
+   "name": "merge driver: build/tests.json drops a row one side dropped and refuses one id twice",
+   "run": ".venv/bin/pytest tests/test_pr_take.py::test_the_tests_driver_drops_a_row_one_side_dropped_and_refuses_a_file_with_one_id_twice",
+   "status": "passing"
   }
  ],
- "total_tests": 833,
+ "total_tests": 844,
  "checked": "2026-10-14"
 }
