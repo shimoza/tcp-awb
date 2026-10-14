@@ -70,6 +70,14 @@ def is_code(s: str) -> bool:
 
 HOLD_LINE = "held: run awb import %s as the owner in your own terminal"
 """The one line of a hold for a project code: what the owner runs, in his own terminal (awb import and awb.tcp.xchg)."""
+HOLD_CLASSES = ("grant", "size", "unreadable", "folder")
+"""The class word of a hold (P2 of F3): it names the kind of refusal, never a value, a file or a name."""
+CLASS_HOLD_LINE = "held (%s): run awb import %s as the owner in your own terminal"
+"""The one line of a hold of a class: the file too large, unreadable or in the wrong folder of the owner inbox."""
+GRANT_HOLD_LINE = "held (grant): run awb projects kind %s %s as the owner in your own terminal"
+"""The one line of a hold for a missing grant: the import does not cure it, the owner's grant does."""
+HOLD_LINE_RE = re.compile(r"^held(?: \((?:grant|size|unreadable|folder)\))?: ")
+"""The start of every hold line, plain or with its class word: printed as it is, never behind a prefix."""
 PASTE_HOLD_LINE = "held: a pasted mail or transcript goes in through awb import %s --paste in your own terminal"
 """The one line of a hold for pasted text: a session that is handed a mail, a transcript or a table as text points the
 owner at the paste door of the intake (awb import --paste)."""

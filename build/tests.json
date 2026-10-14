@@ -6376,8 +6376,50 @@
    "name": "sweep inventory: equal id sets give equal digests, one id more does not, the difference in counts only",
    "run": ".venv/bin/pytest tests/test_sweep.py::test_equal_id_sets_give_equal_digests_and_one_id_more_does_not",
    "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P2-1",
+   "phase": "Z2",
+   "name": "hold class: held (grant) names awb projects kind for a customer project never granted",
+   "run": ".venv/bin/pytest tests/test_hold_class.py::test_a_take_for_a_customer_project_never_granted_names_the_grant",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P2-2",
+   "phase": "Z2",
+   "name": "hold class: held (size) for a file over max_mb, no number in the line",
+   "run": ".venv/bin/pytest tests/test_hold_class.py::test_a_file_over_the_limit_is_held_with_the_class_size_and_no_number",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P2-3",
+   "phase": "Z2",
+   "name": "hold class: held (folder) for a file in another customer's folder of the owner inbox",
+   "run": ".venv/bin/pytest tests/test_hold_class.py::test_a_folder_of_another_customer_is_held_with_the_class_folder",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P2-4",
+   "phase": "Z2",
+   "name": "hold class: a project without a customer keeps the plain held line",
+   "run": ".venv/bin/pytest tests/test_hold_class.py::test_a_project_without_a_customer_keeps_the_plain_line",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P2-5",
+   "phase": "Z2",
+   "name": "hold class: every class line names a command and no value",
+   "run": ".venv/bin/pytest tests/test_hold_class.py::test_every_class_line_names_a_command_and_no_value",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P2-6",
+   "phase": "Z2",
+   "name": "hold class: held (unreadable) on the terminal, the mail keeps its reason (replaces the plain-line test of an unreadable take)",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_p2_a_granted_take_of_a_file_that_cannot_be_read_is_held_with_its_class_word",
+   "status": "passing"
   }
  ],
- "total_tests": 911,
+ "total_tests": 917,
  "checked": "2026-10-14"
 }

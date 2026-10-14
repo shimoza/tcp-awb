@@ -123,6 +123,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   (add, amend, recheck, retire, verify, show, find, scope, expired, export) and so `awb dataset build` now drop a
   name hit that lies inside a name or short name of `rules/services.tsv`, as a whole phrase in the case written
   there and longer than the hit. The same word alone still hits; the intake and `awb gate` are unchanged.
+
+- The held line of `awb inbox take` carries a class word that names no value (P2 of the journey report F3): `held (grant)` for a customer project the owner never granted, with the cure `awb projects kind tcp-xxxx query|project` instead of the import; `held (size)` above `max_mb`, which read as an error line before; `held (unreadable)` for a file the intake cannot read; `held (folder)` for a file in another customer's folder of the owner inbox. A project without a customer and a session refused `awb import` keep the plain line; the hold mail is unchanged.
 - `rules/services.tsv` follows the service description of 09.10.2026 (`awb service update`): Savings plans is new
   as a preview at 3.12.7, Image Management (3.12.2) is gone and the other previews moved up one number (Cloud
   Container Instance 3.12.2 to Cloud Connect 3.12.6). 79 services as before. `rules/tags.txt` has the tag
