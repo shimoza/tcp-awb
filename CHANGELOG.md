@@ -7,6 +7,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- `awb projects open` without a code lists the active projects numbered, each with its `Next:` line and the owner items of its OPEN.md, after the name check (P4 of the journey report F3). He types the number and the session opens as `awb projects open CODE` opens it; without a terminal the list is printed only.
 - `awb build nudge` reaches the owner when a build task waits on him (automation review A6): on 2026-10-13 a task
   asked at 23:15 and waited 5.5 hours while the steering session slept. For every task whose newest run is `asked`,
   `red: <reason>` or `held: <reason>` for 15 minutes with no answer, widen or retry since, it sends one mail through
