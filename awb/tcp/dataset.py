@@ -883,16 +883,23 @@ def clone_dir(p: config.Paths) -> Path:
     return datasets_dir(p) / (SLUG + ".git")
 
 
+def _git(clone: Path, *args: str) -> list[str]:
+    """A git command on the clone that names the clone as a safe directory, so the owner may run it on a clone the
+    work user owns without a global git setting; only that path, never every directory."""
+    return ["git", "-c", "safe.directory=%s" % Path(clone).resolve(), *args]
+
+
 def _run(args: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
     """One git or gh call. A failure names the command and its exit code, never its output."""
+    shown = args[3:] if args[1:2] == ["-c"] else args[1:]          # the safe.directory setting names a path
     try:
         res = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=GIT_TIMEOUT)
     except FileNotFoundError:
         raise DatasetError("%s is not installed" % args[0]) from None
     except subprocess.TimeoutExpired:
-        raise DatasetError("%s %s took longer than %d seconds" % (args[0], args[1], GIT_TIMEOUT)) from None
+        raise DatasetError("%s %s took longer than %d seconds" % (args[0], shown[0], GIT_TIMEOUT)) from None
     if check and res.returncode != 0:
-        raise DatasetError("%s %s failed (exit %d)" % (args[0], " ".join(args[1:3]), res.returncode))
+        raise DatasetError("%s %s failed (exit %d)" % (args[0], " ".join(shown[:2]), res.returncode))
     return res
 
 
@@ -912,8 +919,8 @@ def _account_identity(clone: Path) -> None:
     uid = _run(["gh", "api", "user", "-q", ".id"], cwd=clone).stdout.strip()
     if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", login) or not uid.isdigit():
         raise DatasetError("gh api user names no account; run gh auth login")
-    _run(["git", "config", "user.name", login], cwd=clone)
-    _run(["git", "config", "user.email", "%s+%s@users.noreply.github.com" % (uid, login)], cwd=clone)
+    _run(_git(clone, "config", "user.name", login), cwd=clone)
+    _run(_git(clone, "config", "user.email", "%s+%s@users.noreply.github.com" % (uid, login)), cwd=clone)
 
 
 def _person_re(values: list[str]) -> "re.Pattern[str] | None":
@@ -973,12 +980,12 @@ def read_facts(path_or_text) -> list[dict]:
 def previous_release(clone: Path, day: str) -> tuple[str, list[dict]] | None:
     """The newest release tag before `day` in the clone and the facts of its facts.jsonl; None when there is no
     earlier release or it holds no facts.jsonl."""
-    tags = [t for t in _run(["git", "tag", "--list"], cwd=clone).stdout.split()
+    tags = [t for t in _run(_git(clone, "tag", "--list"), cwd=clone).stdout.split()
             if re.fullmatch(r"\d{4}-\d{2}-\d{2}", t) and t < day]
     if not tags:
         return None
     prev = max(tags)
-    res = _run(["git", "show", "refs/tags/%s:facts.jsonl" % prev], cwd=clone, check=False)
+    res = _run(_git(clone, "show", "refs/tags/%s:facts.jsonl" % prev), cwd=clone, check=False)
     if res.returncode != 0:
         return None
     return prev, read_facts(res.stdout)
@@ -997,9 +1004,9 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
         clone.parent.mkdir(parents=True, exist_ok=True)
         _run(["gh", "repo", "clone", GITHUB_REPO, str(clone)])
     else:
-        _run(["git", "pull", "--ff-only", "--tags", "--force"], cwd=clone)
+        _run(_git(clone, "pull", "--ff-only", "--tags", "--force"), cwd=clone)
     _account_identity(clone)
-    tagged = bool(_run(["git", "tag", "--list", day], cwd=clone).stdout.strip())
+    tagged = bool(_run(_git(clone, "tag", "--list", day), cwd=clone).stdout.strip())
     if tagged and not replace:
         raise DatasetError("the repository holds the dataset of %s already; give --replace" % day)
     prev = previous_release(clone, day)            # read before the files of this build land in the clone
@@ -1017,17 +1024,17 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
     public += [folder / n for n in ("PROMPT.md", "MANIFEST.json")]    # inside the zip and the release
     problems = scan_people(public, person_values(), p.register)
     if problems:
-        _run(["git", "checkout", "--", "."], cwd=clone, check=False)
-        _run(["git", "clean", "-fdq"], cwd=clone, check=False)
+        _run(_git(clone, "checkout", "--", "."), cwd=clone, check=False)
+        _run(_git(clone, "clean", "-fdq"), cwd=clone, check=False)
         raise DatasetError("refused, nothing was published: " + "; ".join(problems))
-    _run(["git", "add", "-A", "--", *GITHUB_FILES], cwd=clone)
-    if _run(["git", "diff", "--cached", "--quiet"], cwd=clone, check=False).returncode:
-        _run(["git", "commit", "-q", "-m", "%s %s" % (NAME, day)], cwd=clone)
-    _run(["git", "tag", "-f", day] if replace else ["git", "tag", day], cwd=clone)
-    _run(["git", "push", "-q", "origin", "HEAD"], cwd=clone)
+    _run(_git(clone, "add", "-A", "--", *GITHUB_FILES), cwd=clone)
+    if _run(_git(clone, "diff", "--cached", "--quiet"), cwd=clone, check=False).returncode:
+        _run(_git(clone, "commit", "-q", "-m", "%s %s" % (NAME, day)), cwd=clone)
+    _run(_git(clone, "tag", "-f", day) if replace else _git(clone, "tag", day), cwd=clone)
+    _run(_git(clone, "push", "-q", "origin", "HEAD"), cwd=clone)
     if tagged:
         _run(["gh", "release", "delete", day, "--repo", GITHUB_REPO, "--yes"], cwd=clone, check=False)
-    _run(["git", "push", "-q", *(["--force"] if replace else []), "origin", "refs/tags/" + day], cwd=clone)
+    _run(_git(clone, "push", "-q", *(["--force"] if replace else []), "origin", "refs/tags/" + day), cwd=clone)
     manifest = json.loads((folder / "MANIFEST.json").read_text(encoding="utf-8"))
     if _sha(folder / "HOW-TO.pdf") != manifest["files"]["HOW-TO.pdf"]["sha256"]:
         raise DatasetError("HOW-TO.pdf differs from its sum in MANIFEST.json; run awb dataset build --force")

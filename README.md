@@ -403,6 +403,8 @@ files and the build's README.md into the root of the public repository
 stays as the repository has it. It commits them
 as the GitHub account, tags the date and makes a release of it with the zip, the PDF, the manifest and the `.mcpb`. The files are
 scanned for a person and a registered name first, and a hit refuses the put.
+Every git call on the clone (`~/tcp-shared/datasets/tcp-facts.git`, owned by the work user) names that path in
+`-c safe.directory=`, so your put passes git's ownership check without a global git setting.
 `--github-only` does the GitHub part alone, without the bucket and without asking for its key.
 The release notes say what is new since the previous release: the facts added, amended (same id, changed statement
 or source) and retired, compared by id with the `facts.jsonl` of the previous release tag in the local clone, and the

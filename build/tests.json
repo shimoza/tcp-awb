@@ -6082,8 +6082,22 @@
    "name": "merge driver: build/tests.json drops a row one side dropped and refuses one id twice",
    "run": ".venv/bin/pytest tests/test_pr_take.py::test_the_tests_driver_drops_a_row_one_side_dropped_and_refuses_a_file_with_one_id_twice",
    "status": "passing"
+  },
+  {
+   "id": "BD-DS1",
+   "phase": "DS",
+   "name": "dataset put --github: every git call on the clone carries -c safe.directory=<the clone path>, only that path, never * and no global setting",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_every_git_call_on_the_clone_names_only_the_clone_as_a_safe_directory",
+   "status": "passing"
+  },
+  {
+   "id": "BD-DS2",
+   "phase": "DS",
+   "name": "dataset put --github: a failed git call on the clone names the command, not the safe.directory path",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_a_failed_git_call_on_the_clone_names_the_command_and_not_the_path",
+   "status": "passing"
   }
  ],
- "total_tests": 869,
+ "total_tests": 871,
  "checked": "2026-10-14"
 }

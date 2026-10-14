@@ -142,6 +142,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- `awb dataset put --github` run by the owner no longer stops on git's "detected dubious ownership" for the clone
+  `tcp-facts.git`, which the work user owns: every git call on the clone carries `-c safe.directory=<the clone>`,
+  that path only and never `*`, so no global git setting is needed. A failed call names the git command, not the path.
 - `sudo awb deploy` no longer pulls the home template out from under a running build task (automation review A1:
   two task runs of B-007 ended "Not logged in" a minute after a deploy). While an `awb-task-*` unit runs (or the
   task units cannot be listed) the deploy runs `setup.sh --update --no-build`, which leaves the whole build side
