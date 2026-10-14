@@ -1488,3 +1488,13 @@ def test_a_commit_subject_with_a_name_shaped_candidate_is_refused_with_a_reword_
     msg.write_text("call with %s\n" % fixtures.FIRST_LAST, encoding="utf-8")
     monkeypatch.setattr(intake, "_SHORT_ALLOWED", intake._SHORT_ALLOWED | {fixtures.FIRST_LAST.casefold()})
     assert gate.main(["--message", str(msg), "--register", str(register_path)]) == 0
+
+
+def test_a_service_named_like_the_customer_is_still_refused(tmp_path, register_path, monkeypatch):
+    """The allowance of the knowledge base for full service names (B-015) does not reach the commit gate."""
+    from awb import offered
+    catalog = tmp_path / "services.tsv"
+    catalog.write_text("\n".join(fixtures.service_lines()) + "\n", encoding="utf-8")
+    monkeypatch.setattr(offered, "CATALOG", catalog)
+    f = plant(tmp_path, "the service %s forwards traffic" % fixtures.SERVICE_FORM)
+    assert gate.scan_files([f], register_path) == [gate.Finding(str(f), 3, "name")]

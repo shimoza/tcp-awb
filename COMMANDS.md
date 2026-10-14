@@ -404,6 +404,13 @@ The same for forms, derived, office, pdf, mail_archive and nontext. `tests/test_
 | `awb kb verify [--staged] [FILE...]` | the checks of `add` over entry files; `--staged` over what a commit carries (the commit hook runs it) |
 | `awb kb bench [--top N] FILE` | how well `find` answers questions whose answering entries are known: first place and first N (default 5). `~/tcp-kb/bench/` holds the question sets; every refresh runs them |
 
+The name check of `awb kb` (add, amend, recheck, retire, verify, what `find`, `show`, `scope` and `expired` print
+and the export that `awb dataset build` reads) lets a registered form pass in one place only: inside the full name
+or short name of a service of `rules/services.tsv`, written as the service description writes it (whole phrase,
+same case) and longer than the form. A service named like a customer is a fact and stays as it is. The same word
+alone, in other case or beside only a part of the service name still hits. `awb register keep` is not the way: it
+would let the customer's own material pass. The intake and `awb gate` keep the plain check.
+
 `awb kb` writes files, it never runs git. The knowledge base is your own repository: create it once with
 `git init` and give it an identity of its own, because the work user has no global one and a commit fails
 without it.

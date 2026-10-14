@@ -43,6 +43,12 @@ dates. What `find`, `show`, `scope` and `expired` print passed these checks when
 the name check once more before it is printed, so an entry that carries a name registered later is withheld.
 A name check that cannot run stops every command with exit 2: the knowledge base fails closed.
 
+The name check of the knowledge base (add, amend, recheck, retire, verify, what is printed and the export the
+dataset build reads) drops one kind of hit: a name hit that lies inside an occurrence of the full name or short
+name of a service of rules/services.tsv, written as the service description writes it (whole phrase, same case)
+and longer than the hit. A service named like a customer is a fact; the same word outside such a name still hits.
+The intake, `awb gate` and every other path of customer material keep the plain check.
+
     awb kb add --scope S --tag T... --grade G --class C --source TEXT [--tried TEXT]... [--checked D]
                [--force-new] STATEMENT|-
     awb kb amend [--checked D] [--tried TEXT]... [--force-new] ID STATEMENT|-
@@ -76,7 +82,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from awb import check, codes, config, gate, normalize, patterns, register
+from awb import check, codes, config, gate, normalize, offered, patterns, register
 
 SCOPES = ("tcp", "hcs")
 SCOPE_FILE = "SCOPE"
@@ -314,9 +320,71 @@ def _require_register(register_path: Path) -> None:
 
 def _name_hits(text: str, register_path: Path) -> list[dict]:
     try:
-        return check.check_text(text, register_path)
+        hits = check.check_text(text, register_path)
     except register.RegisterError as err:   # check.CheckUnavailable included
         raise KBError(_unavailable(err)) from None
+    return _without_service_names(text, hits)
+
+
+@functools.lru_cache(maxsize=4)
+def _service_patterns(path: str, stamp: tuple[int, int]) -> tuple[tuple[str, re.Pattern], ...]:
+    names: set[str] = set()
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        if line.strip() and not line.startswith("#"):
+            fields = (line.split("\t") + [""] * 5)[:5]
+            names.add(fields[1].strip())
+            names.update(a.strip() for a in fields[4].split("|"))
+    names.discard("")
+    return tuple((n, re.compile(r"(?<!\w)%s(?!\w)" % re.escape(n))) for n in sorted(names))
+
+
+def service_names() -> tuple[tuple[str, re.Pattern], ...]:
+    """The names and short names of the services of rules/services.tsv (offered.CATALOG), each with the pattern of
+    its whole phrase. Empty when the file cannot be read: then no hit is dropped."""
+    path = Path(offered.CATALOG)
+    try:
+        st = path.stat()
+        return _service_patterns(str(path), (st.st_mtime_ns, st.st_size))
+    except (OSError, UnicodeDecodeError):
+        return ()
+
+
+def _without_service_names(text: str, hits: list[dict]) -> list[dict]:
+    """`hits` without the name hits that lie inside a full service name of rules/services.tsv (B-015). The hits
+    point into the normalised text; an occurrence counts only where the original text under it is the name as the
+    service description writes it and only when it is longer than the hit. The text is normalised as the check
+    read it (with its decoded and reversed views), so the positions agree; an occurrence in a view does not count."""
+    names = [h for h in hits if isinstance(h, dict) and h.get("cls") == "name"]
+    if not names:
+        return hits
+    services = service_names()
+    if not services:
+        return hits
+    scanned = check.with_hidden_views(text)
+    views = check._bidi_views(scanned)
+    if views:
+        scanned += "".join("\n\n" + v for v in views)
+    n = normalize.normalize(scanned)
+    spans: list[tuple[int, int]] = []
+    for name, pattern in services:
+        for m in pattern.finditer(n.text):
+            a, b = m.span()
+            lo, hi = n.to_original[a], n.to_original_end[b - 1]
+            if hi <= len(text) and text[lo:hi] == name:
+                spans.append((a, b))
+    if not spans:
+        return hits
+
+    def inside(h: dict) -> bool:
+        try:
+            start, end = int(h["start"]), int(h["start"]) + int(h["length"])
+        except (KeyError, TypeError, ValueError):
+            return False
+        if end <= start:
+            return False
+        return any(a <= start and end <= b and b - a > end - start for a, b in spans)
+
+    return [h for h in hits if not (isinstance(h, dict) and h.get("cls") == "name" and inside(h))]
 
 
 def text_problems(label: str, text: str, register_path: Path, *, language: bool = True) -> list[str]:

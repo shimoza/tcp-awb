@@ -102,3 +102,19 @@ FIRST_LAST = " ".join((LISTED_FIRST, "Vrelkam"))
 SELFTEST_CUSTOMER_CODE = "CUST-SELF"
 SELFTEST_CUSTOMER_SHORT = "Wqyzt"
 SELFTEST_CUSTOMER_FORM = " ".join((SELFTEST_CUSTOMER_SHORT, "Spedition", "GmbH"))
+
+# an invented TCP service whose full name carries the registered short form of the customer (B-015): the name check
+# of the knowledge base lets it pass inside this name and nowhere else. Built from single words, like the names above
+SERVICE_SHORT_FORM = CUSTOMER_FORMS[1]
+SERVICE_FORM = " ".join((SERVICE_SHORT_FORM, "Edge", "Relay"))
+SERVICE_ALIAS = "ZER"
+
+
+def service_lines() -> list[str]:
+    """An invented rules/services.tsv: its header, one ordinary service and the service named like the customer."""
+    return [
+        "# The services of the invented service description, revision 2026-10-09.",
+        "# number\tname\tarea\tstatus\tother names\tno longer from\tno longer what",
+        "\t".join(("3.1.1", "Elastic Cloud Server", "Computing", "offered", "ECS", "", "")),
+        "\t".join(("3.9.1", SERVICE_FORM, "Network", "offered", SERVICE_ALIAS, "", "")),
+    ]

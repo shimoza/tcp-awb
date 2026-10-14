@@ -96,6 +96,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The name check of the knowledge base accepts the full name of a TCP service from the service description (B-015).
+  A fact about a service named like a customer was withheld and changing the word would change the fact. `awb kb`
+  (add, amend, recheck, retire, verify, show, find, scope, expired, export) and so `awb dataset build` now drop a
+  name hit that lies inside a name or short name of `rules/services.tsv`, as a whole phrase in the case written
+  there and longer than the hit. The same word alone still hits; the intake and `awb gate` are unchanged.
 - `rules/services.tsv` follows the service description of 09.10.2026 (`awb service update`): Savings plans is new
   as a preview at 3.12.7, Image Management (3.12.2) is gone and the other previews moved up one number (Cloud
   Container Instance 3.12.2 to Cloud Connect 3.12.6). 79 services as before. `rules/tags.txt` has the tag

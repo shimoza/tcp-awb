@@ -480,7 +480,9 @@ One JSON object per line:
 By default the export carries `live`, `contract` and `docs` facts only. Statements of the product team (`said`) may
 be confidential and need a clearance first (`--grade said`). Assumptions stay out. Retired facts never leave and
 expired ones only on request (`--include-expired`, marked `"expired": true`). Every entry passes the name check once
-more before it is written.
+more before it is written. That check lets a registered form pass only inside the full name of a service of
+`rules/services.tsv`, written as the service description writes it: a service named like a customer stays a fact
+and the same word anywhere else still withholds the entry. The intake and the commit gate keep the plain check.
 
 A dataset ages. Facts about availability expire after 30 days, API facts after 180. Use the `checked` and `expires`
 fields. Take a fresh export rather than an old one.

@@ -1230,3 +1230,18 @@ def test_a_refused_or_busy_seal_leaves_no_plaintext_in_the_vault(sealed_vault, m
     assert _names_under(p.originals) == [] and _names_under(p.private_reports) == []
     out = p.outbox / fx.CUSTOMER_CODE
     assert not out.exists() or not [f for f in out.iterdir() if f.suffix == ".md" and f.stem.startswith("F-")]
+
+
+def test_a_service_named_like_the_customer_is_still_replaced(home, tmp_path, monkeypatch):
+    """The allowance of the knowledge base for full service names (B-015) does not reach the intake."""
+    from awb import offered
+    catalog = tmp_path / "services.tsv"
+    catalog.write_text("\n".join(fx.service_lines()) + "\n", encoding="utf-8")
+    monkeypatch.setattr(offered, "CATALOG", catalog)
+    f = home.inbox / "dienst.txt"
+    f.write_text("der Dienst %s verbindet die Standorte\n" % fx.SERVICE_FORM, encoding="utf-8")
+    res = intake.run([f], fx.CUSTOMER_CODE, home)
+    (out,) = res.outputs
+    text = out.read_text(encoding="utf-8")
+    assert fx.CUSTOMER_CODE in text
+    fx.assert_no_fixture_name(text, "the intake output")

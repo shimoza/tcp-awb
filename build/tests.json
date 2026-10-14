@@ -6208,8 +6208,50 @@
    "name": "build selftest: the planted cases hold from a working folder git cannot use (awb seal check as the work user, finding SC)",
    "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_selftest_holds_from_a_working_folder_git_cannot_use",
    "status": "passing"
+  },
+  {
+   "id": "B015-1",
+   "phase": "B-015",
+   "name": "knowledge base: a fact that names a service named like a customer passes add, verify, show, find, scope and export",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_a_fact_that_names_a_service_named_like_a_customer_passes",
+   "status": "passing"
+  },
+  {
+   "id": "B015-2",
+   "phase": "B-015",
+   "name": "knowledge base: the short form outside the full service name still hits (alone, lower case, part of the name, beside the alias)",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_the_short_form_outside_the_full_service_name_still_hits",
+   "status": "passing"
+  },
+  {
+   "id": "B015-3",
+   "phase": "B-015",
+   "name": "knowledge base: an entry edited to the bare short form is withheld from show, find and export",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_an_entry_edited_to_the_bare_short_form_is_withheld",
+   "status": "passing"
+  },
+  {
+   "id": "B015-4",
+   "phase": "B-015",
+   "name": "knowledge base: without the service in the service description its full name hits",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_without_the_service_in_the_description_the_full_name_hits",
+   "status": "passing"
+  },
+  {
+   "id": "B015-5",
+   "phase": "B-015",
+   "name": "intake: a service named like the customer is still replaced by the code",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_a_service_named_like_the_customer_is_still_replaced",
+   "status": "passing"
+  },
+  {
+   "id": "B015-6",
+   "phase": "B-015",
+   "name": "gate: a service named like the customer is still refused",
+   "run": ".venv/bin/pytest tests/test_gate.py::test_a_service_named_like_the_customer_is_still_refused",
+   "status": "passing"
   }
  ],
- "total_tests": 887,
+ "total_tests": 893,
  "checked": "2026-10-14"
 }

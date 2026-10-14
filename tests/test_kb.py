@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from awb import check, cli, kb, register
+from awb import check, cli, kb, offered, register
 from tests import fixtures
 
 TODAY = date.today()
@@ -675,6 +675,68 @@ def test_an_entry_that_carries_a_name_registered_later_is_withheld(home, capsys)
     assert code == 0 and word not in out and clean.id in out and "1 entry withheld" in out
     code, out, err = run(["show", kept.id], capsys)
     assert code == 1 and word not in out + err
+
+
+@pytest.fixture
+def services(tmp_path, monkeypatch) -> Path:
+    """An invented rules/services.tsv with a service named like the fixture customer (B-015)."""
+    path = tmp_path / "services.tsv"
+    path.write_text("\n".join(fixtures.service_lines()) + "\n", encoding="utf-8")
+    monkeypatch.setattr(offered, "CATALOG", path)
+    return path
+
+
+S_SERVICE = "%s forwards ECS traffic between regions eu-de and eu-nl" % fixtures.SERVICE_FORM
+
+
+def test_a_fact_that_names_a_service_named_like_a_customer_passes(home, services, capsys):
+    e = new(S_SERVICE)
+    assert kb.verify([e.path]) == []
+    code, out, _ = run(["show", e.id], capsys)
+    assert code == 0 and fixtures.SERVICE_FORM in out
+    code, out, _ = run(["find", "forwards", "traffic"], capsys)
+    assert code == 0 and e.id in out and "withheld" not in out
+    code, out, _ = run(["scope", "ecs"], capsys)
+    assert code == 0 and e.id in out and "withheld" not in out
+    records, left = kb.export(today=TODAY)
+    assert [r["id"] for r in records] == [e.id] and left["withheld"] == 0
+    assert kb._name_hits(fixtures.SERVICE_FORM, home.register) == []
+
+
+@pytest.mark.parametrize("case", ["alone", "also alone", "lower case", "part of the name", "alias only"])
+def test_the_short_form_outside_the_full_service_name_still_hits(home, services, capsys, case):
+    short = fixtures.SERVICE_SHORT_FORM
+    statement = {
+        "alone": "%s forwards ECS traffic between regions eu-de and eu-nl" % short,
+        "also alone": "%s for %s forwards ECS traffic between regions" % (fixtures.SERVICE_FORM, short),
+        "lower case": "%s forwards ECS traffic between regions" % fixtures.SERVICE_FORM.lower(),
+        "part of the name": "%s forwards ECS traffic between regions" % fixtures.SERVICE_FORM.rsplit(" ", 1)[0],
+        "alias only": "%s forwards ECS traffic for %s" % (fixtures.SERVICE_ALIAS, short),
+    }[case]
+    code, out, err = run(add_argv(statement), capsys)
+    assert code == 1 and "name check" in err
+    assert short not in out + err and short.lower() not in out + err
+    assert entry_files(home) == []
+
+
+def test_an_entry_edited_to_the_bare_short_form_is_withheld(home, services, capsys):
+    e = new(S_SERVICE)
+    hand_edit(e, fixtures.SERVICE_FORM, fixtures.SERVICE_SHORT_FORM)
+    assert "name check" in reasons(kb.verify([e.path]))
+    code, out, err = run(["show", e.id], capsys)
+    assert code == 1 and fixtures.SERVICE_SHORT_FORM not in out + err
+    code, out, _ = run(["find", "forwards", "traffic"], capsys)
+    assert code == 0 and e.id not in out and "1 entry withheld" in out
+    records, left = kb.export(today=TODAY)
+    assert records == [] and left["withheld"] == 1
+
+
+def test_without_the_service_in_the_description_the_full_name_hits(home, tmp_path, monkeypatch, capsys):
+    path = tmp_path / "services.tsv"
+    path.write_text("\n".join(fixtures.service_lines()[:3]) + "\n", encoding="utf-8")
+    monkeypatch.setattr(offered, "CATALOG", path)
+    code, _, err = run(add_argv(S_SERVICE), capsys)
+    assert code == 1 and "name check" in err
 
 
 def test_a_malformed_entry_is_named_by_id_and_line_only(home, capsys):
