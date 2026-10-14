@@ -39,6 +39,7 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     awb bucket sync|folder|pull|put|move                     awb/bucket.py   (owner side)
     awb reveal FILE --out PATH                               awb/reveal.py   (owner side)
     awb fetch CODE [--again] [--into DIR]                    awb/tcp/fetch.py (owner side)
+    awb start project|query --goal TEXT [--customer C|new]   awb/start.py    (owner side)
     awb price find|snapshot|diff|check                       awb/tcp/price.py
     awb pricebook build|diff                                 awb/tcp/pricebook.py
     awb cloud projects|get                                   awb/tcp/cloud.py   (owner side, read only)
@@ -609,6 +610,7 @@ DELEGATED = {
     "ask": ("tcp.ask", "questions in plain words, answered only from the checked sources (the Ask page)"),
     "inbox": ("tcp.inbox", "take a file the owner dropped into an inbox into this project"),
     "xchg": ("tcp.xchg", "put a result of this project into the owner's from-session folder"),
+    "start": ("start", "a piece of work in one command: register, spawn, grant, import, the open line (owner side)"),
     "fetch": ("tcp.fetch", "what a project put for you, in one folder with the names back (owner side)"),
     "paste": ("paste", "put a long terminal output into the project, masked, instead of the chat"),
     "keys": ("tcp.keys", "the key service: keys, logins and passwords of the test tenants, never shown to a session"),

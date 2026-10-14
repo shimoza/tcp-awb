@@ -825,17 +825,28 @@ def open_session(p: _config.Paths, code: str, run=subprocess.call) -> int:
         raise ProjectError("project %s is not registered" % code)
     if pr.state == "deleted":
         raise ProjectError("project %s is deleted" % code)
-    work = _config.work_user()
-    if not work:
+    if not _config.work_user():
         raise ProjectError("no work user on this host: open the folder with claude yourself")
     folder = Path(pr.path)
     if folder.is_symlink() or not folder.is_dir():
         raise ProjectError("the folder of %s is missing" % code)
+    return run(work_shell(run) + ["cd %s && claude" % shlex.quote(str(folder))])
+
+
+def work_shell(run=subprocess.call) -> list[str]:
+    """The argv that runs one shell line as the work user (`sudo -n -u WORK -H bash -lc`), after a check that
+    `sudo -n` is allowed here. `awb projects open` starts a session through it and `awb start` spawns through it."""
+    work = _config.work_user()
+    if not work:
+        raise ProjectError("no work user on this host")
     sudo = shutil.which("sudo")
-    if not sudo or run([sudo, "-n", "-u", work, "true"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL) != 0:
+    if not sudo:
         raise ProjectError("sudo -n is not allowed here: start the session from a shell of %s" % work)
-    return run([sudo, "-n", "-u", work, "-H", "bash", "-lc", "cd %s && claude" % shlex.quote(str(folder))])
+    done = run([sudo, "-n", "-u", work, "true"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+               stderr=subprocess.DEVNULL)
+    if getattr(done, "returncode", done) != 0:
+        raise ProjectError("sudo -n is not allowed here: start the session from a shell of %s" % work)
+    return [sudo, "-n", "-u", work, "-H", "bash", "-lc"]
 
 
 WAITING_ITEMS = 5

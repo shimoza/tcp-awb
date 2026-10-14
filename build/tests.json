@@ -6327,8 +6327,57 @@
    "name": "fetch: only put ids under a date folder are fetched",
    "run": ".venv/bin/pytest tests/test_fetch.py::test_only_put_ids_under_a_date_folder_are_fetched",
    "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P1-1",
+   "phase": "Z2",
+   "name": "start: a project of a known customer is spawned, granted and ends with the open line",
+   "run": ".venv/bin/pytest tests/test_start.py::test_a_project_of_a_known_customer_is_spawned_granted_and_ends_with_the_open_line",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P1-2",
+   "phase": "Z2",
+   "name": "start: a new customer is asked for its forms at the prompt",
+   "run": ".venv/bin/pytest tests/test_start.py::test_a_new_customer_is_asked_for_its_forms_at_the_prompt_never_as_an_argument",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P1-3",
+   "phase": "Z2",
+   "name": "start: without a terminal a new customer is refused before the spawn",
+   "run": ".venv/bin/pytest tests/test_start.py::test_without_a_terminal_a_new_customer_is_refused_before_the_spawn",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P1-4",
+   "phase": "Z2",
+   "name": "start: on a sealed host the spawn runs as the work user through sudo",
+   "run": ".venv/bin/pytest tests/test_start.py::test_on_a_sealed_host_the_spawn_runs_as_the_work_user_through_sudo",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P1-5",
+   "phase": "Z2",
+   "name": "start: where sudo is not allowed nothing is spawned",
+   "run": ".venv/bin/pytest tests/test_start.py::test_where_sudo_is_not_allowed_nothing_is_spawned",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P1-6",
+   "phase": "Z2",
+   "name": "start: what lies in the folder in/ is imported",
+   "run": ".venv/bin/pytest tests/test_start.py::test_what_lies_in_the_folder_in_is_imported",
+   "status": "passing"
+  },
+  {
+   "id": "z2-convenience-P1-7",
+   "phase": "Z2",
+   "name": "start: refused inside an assistant session and for a bad customer",
+   "run": ".venv/bin/pytest tests/test_start.py::test_start_is_refused_inside_an_assistant_session_and_for_a_bad_customer",
+   "status": "passing"
   }
  ],
- "total_tests": 904,
+ "total_tests": 911,
  "checked": "2026-10-14"
 }

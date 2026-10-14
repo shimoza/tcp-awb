@@ -136,6 +136,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/pastein.py": "awb import --paste, run by the owner in his own terminal",
     "awb/tcp/inbox.py": "awb inbox take, run in a working session",
     "awb/tcp/fetch.py": "awb fetch, run by the owner in his own terminal",
+    "awb/start.py": "awb start, run by the owner in his own terminal",
     "awb/tcp/migrate.py": "awb migrate, run in a working session",
     "awb/tcp/lab.py": "awb lab list|dry-run|run, run in a working session",
     "awb/tcp/refresh.py": "awb refresh, run by the owner or a timer of his",
