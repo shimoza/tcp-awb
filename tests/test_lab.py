@@ -1276,3 +1276,145 @@ def test_a_blocked_health_check_fails_health_passes_after_web_serves_passed(proj
     assert "- result: check failed (health-passes)" in text
     assert "| web-serves | the web server of the backend answers on the port locally after cloud-init | " \
            "output contains AWB-WEB-UP | contains it | passed |" in text
+
+
+# --------------------------------------------------------------------------- the recipe guards of the fact check (F2)
+
+GPU_FLAVOR = "p2s.2xlarge.8"
+BIG_FLAVOR = "s3.4xlarge.2"
+
+
+def flavor_recipe(default="s3.medium.2") -> dict:
+    recipe = copy.deepcopy(RECIPE)
+    recipe["params"]["flavor"] = {"default": default, "pattern": r"^[a-z0-9]+\.[a-z0-9]+\.[0-9]+$"}
+    recipe["steps"][0]["call"]["body"]["widget"]["flavorRef"] = "${flavor}"
+    return recipe
+
+
+def deny_line(n: int) -> str:
+    return lab.DENY_FILE.read_text(encoding="utf-8").splitlines()[n - 1]
+
+
+def test_the_deny_list_names_the_families_sizes_and_physical_flavors_of_the_design():
+    for value, starts in ((GPU_FLAVOR, "p"), ("pi2.2xlarge.4", "p"), ("g6.xlarge.4", "g"), ("ai1.large.4", "ai"),
+                          ("kp1.2xlarge.4", "kp"), (BIG_FLAVOR, "(?:.+"), ("physical.s4.large", "(?:.+\\.)?physical"),
+                          ("rds.pg.c2.large.8", "(?:rds")):
+        n = lab.denied(value)
+        assert n and deny_line(n).startswith(starts), value
+    for value in ("s3.medium.2", "s3.2xlarge.8", "c4.xlarge.4", "rds.pg.c2.large.4", "eu-de-01", "100.125.0.0/16",
+                  "Standard_Ubuntu_22.04_latest", "${flavor}"):
+        assert lab.denied(value) is None, value
+
+
+@pytest.mark.parametrize("change, where", [
+    (lambda r: r["params"]["flavor"].update(default=GPU_FLAVOR), "the default of param flavor"),
+    (lambda r: r.update(vars={"probe": BIG_FLAVOR}), "var probe"),
+    (lambda r: r["steps"][0]["call"]["body"]["widget"].update(flavorRef="g6.xlarge.4"),
+     "a flavor field of step widget"),
+])
+def test_a_recipe_that_carries_a_denied_flavor_even_as_a_default_is_refused(change, where):
+    recipe = flavor_recipe()
+    lab.validate(recipe)
+    change(recipe)
+    with pytest.raises(lab.LabError) as info:
+        lab.validate(recipe)
+    said = str(info.value)
+    assert said.startswith("cost guard: %s matches line " % where) and "recipes/DENY.txt" in said
+    assert GPU_FLAVOR not in said and BIG_FLAVOR not in said and "g6" not in said
+
+
+@pytest.mark.parametrize("value", [GPU_FLAVOR, BIG_FLAVOR])
+def test_a_denied_flavor_as_a_parameter_is_refused_by_line_number_before_any_call(project, value):
+    write_recipe(Path(os.environ[lab.RECIPES_ENV]), flavor_recipe())
+    fake = FakeKeyService()
+    code, lines, errors = run(fake, params=["flavor=" + value])
+    assert code == lab.EXIT_STOPPED and fake.calls == []
+    assert errors == ["awb lab: cost guard: the value of flavor matches line %d of recipes/DENY.txt (a denied flavor)"
+                      % lab.denied(value)]
+    assert value not in " ".join(lines + errors)
+
+
+def test_a_deny_list_that_cannot_be_read_refuses_every_recipe(tmp_path, monkeypatch):
+    monkeypatch.setattr(lab, "DENY_FILE", tmp_path / "missing.txt")
+    with pytest.raises(lab.LabError, match="cannot be read"):
+        lab.validate(flavor_recipe())
+    (tmp_path / "broken.txt").write_text("# a comment\n(unclosed\n", encoding="utf-8")
+    monkeypatch.setattr(lab, "DENY_FILE", tmp_path / "broken.txt")
+    with pytest.raises(lab.LabError, match="line 2 of recipes/DENY.txt is not a regular expression"):
+        lab.validate(flavor_recipe())
+
+
+def test_the_recheck_cap_cuts_the_lifetime_to_30_minutes_and_the_budget_with_it(project):
+    long = copy.deepcopy(RECIPE)
+    long["guard"]["lifetime_minutes"], long["budget"] = 60, {"minutes": 40, "teardown_minutes": 15}
+    cut = lab.capped(long)
+    assert cut["guard"]["lifetime_minutes"] == lab.RECHECK_LIFETIME == 30
+    assert cut["budget"] == {"minutes": 15, "teardown_minutes": 15}
+    assert long["guard"]["lifetime_minutes"] == 60          # the recipe itself is unchanged
+    lab.validate(cut)
+    assert lab.capped(RECIPE)["guard"] == RECIPE["guard"]   # a guard under the cap stays
+    with pytest.raises(lab.LabError, match="the teardown \\(15 minutes\\) does not fit in the cap of 10 minutes"):
+        lab.capped(long, 10)
+    write_recipe(Path(os.environ[lab.RECIPES_ENV]), long)
+    code, lines, errors = run(FakeKeyService(), cap_minutes=30)
+    assert code == lab.EXIT_OK, (lines, errors)
+    assert "budget 15 minutes" in lines[0]
+    assert "for at most 30 minutes" in evidence(project)
+
+
+def test_a_random_password_is_drawn_by_the_key_service_and_never_in_the_answer_the_evidence_or_a_log(
+        project, tmp_path, monkeypatch):
+    from tests.tcp_fake import FakeGateway
+    from tests.test_keys import LAB_AK, LAB_SK, STORE, running_service
+    from awb.tcp import keys, throttle
+
+    monkeypatch.setattr(throttle, "log_call", lambda *a, **k: None)
+    made: dict[str, bool] = {}
+
+    class EchoLab(FakeGateway):
+        def route(self, method, raw_path):
+            path = raw_path.partition("?")[0]
+            base = "/v1/%s/widgets" % self.PROJECT
+            if method == "POST" and path == base:
+                rid = "%08x-2222-4333-8444-%012x" % (len(made) + 7, 0xbead)
+                made[rid] = True
+                return 200, {"widget": dict(json.loads(self.bodies[-1])["widget"], id=rid)}   # echoes the body
+            if path.startswith(base + "/"):
+                rid = path[len(base) + 1:]
+                if method == "DELETE" and made.get(rid):
+                    made[rid] = False
+                    return 204, ""
+                if method == "GET":
+                    return (200, {"widget": {"id": rid, "status": "ACTIVE", "size": "small"}}) if made.get(rid) \
+                        else (404, {"error_msg": "gone"})
+            if method == "GET" and path == "/v1/%s/forbidden" % self.PROJECT:
+                return 403, {"error_msg": "denied"}
+            return super().route(method, raw_path)
+
+    recipe = copy.deepcopy(RECIPE)
+    recipe["steps"] = [s for s in recipe["steps"] if s["id"] != "gadget"]
+    recipe["teardown"].pop("gadget")
+    recipe["steps"][0]["call"]["body"]["widget"]["admin_pass"] = keys.RANDOM_PASSWORD
+    recipe["steps"][0]["save"] = {"echoed": "widget.admin_pass"}
+    write_recipe(Path(os.environ[lab.RECIPES_ENV]), recipe)
+    with EchoLab(LAB_AK, LAB_SK) as gw, running_service(gw, tmp_path / "log") as svc:
+        svc._active_project = lambda code: code == PROJECT
+        keys.unlock(svc.admin_path, sorted(STORE), reader=lambda e: STORE[e])
+        monkeypatch.setenv(keys.CALL_SOCKET_ENV, str(svc.call_path))
+        lines: list[str] = []
+        errors: list[str] = []
+        clock = Clock()
+        code = lab.run("widget-check", PROJECT, TENANT, [], clock=clock, sleep=clock.sleep, out=lines.append,
+                       err=errors.append)
+        assert code == lab.EXIT_OK, (lines, errors)
+        sent = [json.loads(b) for b in gw.bodies if b and b"admin_pass" in b]
+    assert len(sent) == 1
+    drawn = sent[0]["widget"]["admin_pass"]
+    assert drawn != keys.RANDOM_PASSWORD and len(drawn) == 16
+    assert any(c.isupper() for c in drawn) and any(c.islower() for c in drawn) and any(c.isdigit() for c in drawn)
+    text = evidence(project)
+    logs = "".join(p.read_text(encoding="utf-8") for p in (tmp_path / "log").glob("*"))
+    for where in (text, logs, "\n".join(lines + errors), (project / "RESOURCES.md").read_text(encoding="utf-8")):
+        assert drawn not in where
+    # a second call draws another value
+    assert keys.random_password() != keys.random_password()

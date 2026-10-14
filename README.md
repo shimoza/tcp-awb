@@ -265,7 +265,7 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 | see the projects | `awb projects list` | every project with its goal and the session that holds it |
 | finish a project | `awb close tcp-xxxx`, then `awb projects delete tcp-xxxx` | close waits for open items and live resources; delete removes the folder and keeps the code |
 | take a file | `awb inbox take the pdf` | the file you described, from either inbox, into the project |
-| look up a fact | `awb kb find "ecs flavor eu-nl"`, `awb kb show KB-XXXX` | ranked facts with grade, source and check date |
+| look up a fact | `awb kb find "ecs flavor eu-nl"`, `awb kb show KB-XXXX` | ranked facts with grade, source and check date; `show` also prints how the fact is checked again (its check block) |
 | offered or not | `awb service check dms rds` | the section and revision of the latest service description |
 | a price | `awb price find ecs --grep s3.large` | the live records with every term |
 | check a price sheet | `awb price check sheet.csv` | every price fetched again, every total recomputed |

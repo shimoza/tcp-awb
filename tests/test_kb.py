@@ -1097,3 +1097,132 @@ def test_export_withholds_an_entry_with_a_name_registered_after_it_was_added(hom
     monkeypatch.setattr(kb, "_name_hits", lambda text, reg: [{"cls": "name"}] if "s3.large.2" in text else real(text, reg))
     records, left = kb.export()
     assert records == [] and left["withheld"] == 1
+
+
+# --------------------------------------------------------------------------- the check block (F4 design, task F1)
+
+BLOCK_WRITE = ("tier: write\n"
+               "calls: recipe smn-http-confirm flavor=s3.medium.1\n"
+               "confirms: the subscription reads status 1 after the endpoint's GET of subscribe_url\n"
+               "refutes: the status stays 0 after the GET or the GET answers a redirect to a login page\n"
+               "control: the status is read before the GET and must be 0 then\n"
+               "needs: none\n")
+BLOCK_READ = ("needs: none\n"
+              "control: a size that is sellout in the same answer, so a list that says normal for every size is "
+              "undecided\n"
+              "refutes: the size reads sellout or is missing\n"
+              "confirms: cond:operation:az of s9.medium.1 lists eu-de-01 as normal\n"
+              "calls: GET ecs /v1/{project_id}/cloudservers/flavors\n"
+              "tier: read\n")
+
+
+@pytest.fixture
+def recipes(tmp_path, monkeypatch) -> Path:
+    folder = tmp_path / "recipes"
+    folder.mkdir()
+    (folder / "smn-http-confirm.json").write_text("{}\n", encoding="utf-8")
+    monkeypatch.setenv("AWB_RECIPES", str(folder))
+    return folder
+
+
+def test_an_entry_without_a_check_block_parses_and_renders_as_before(home):
+    e = new(S_FLAVOR)
+    text = e.path.read_text(encoding="utf-8")
+    parsed = kb.parse(text, e.id)
+    assert parsed.check == () and parsed.block == {} and parsed.statement == S_FLAVOR
+    assert kb.render(parsed) == text and "--- check" not in text
+
+
+def test_a_check_block_round_trips_in_its_fixed_order(home, recipes):
+    e = new(S_FLAVOR)
+    text = e.path.read_text(encoding="utf-8") + "--- check\n" + BLOCK_READ
+    parsed = kb.parse(text, e.id)
+    assert parsed.statement == S_FLAVOR
+    assert [k for k, _ in parsed.check] == ["tier", "calls", "confirms", "refutes", "control", "needs"]
+    rendered = kb.render(parsed)
+    assert rendered.endswith("---\n%s\n--- check\ntier: read\ncalls: GET ecs " % S_FLAVOR
+                             + rendered.split("calls: GET ecs ", 1)[1])
+    assert kb.parse(rendered, e.id) == parsed
+    assert kb.block_problems(parsed.check) == []
+    # a statement may not carry the line that starts the block
+    with pytest.raises(kb.KBError, match="--- check"):
+        new("ECS flavors in eu-de\n--- check\ntier: read")
+
+
+@pytest.mark.parametrize("line, marker", [
+    ("colour: blue", "line 12: not a check line with a known key"),
+    ("tier: sometimes", "line 12: tier must be one of"),
+    ("control:", "line 12: the check key control is empty"),
+])
+def test_a_malformed_check_block_is_named_by_id_and_line_only(home, line, marker):
+    e = new(S_FLAVOR)
+    with pytest.raises(kb.KBError, match=marker):
+        kb.parse(e.path.read_text(encoding="utf-8") + "--- check\n" + line + "\n", e.id)
+
+
+def test_how_writes_and_replaces_the_block_and_show_prints_it(home, recipes, capsys, monkeypatch):
+    e = new(S_FLAVOR)
+    code, out, err = run(["how", e.id, "-"], capsys, monkeypatch, stdin=BLOCK_WRITE)
+    assert code == 0 and err == "" and "tier write" in out
+    got = kb.get(e.id, home)
+    assert got.block["calls"] == "recipe smn-http-confirm flavor=s3.medium.1"
+    assert (got.statement, got.checked, got.expires) == (e.statement, e.checked, e.expires)
+    code, out, err = run(["show", e.id], capsys)
+    assert code == 0 and out.endswith("--- check\n" + BLOCK_WRITE)
+    code, out, err = run(["how", e.id, "-"], capsys, monkeypatch, stdin="--- check\n" + BLOCK_READ)
+    assert code == 0, err
+    got = kb.get(e.id, home)
+    assert got.block["tier"] == "read" and "recipe" not in e.path.read_text(encoding="utf-8")
+    assert kb.verify([got.path]) == []
+    # an amendment keeps the block
+    kb.amend(e.id, "ECS flavor s3.large.2 is offered in eu-de and eu-nl")
+    assert kb.get(e.id, home).block == got.block
+
+
+HOW_REFUSALS = {
+    "no control": ("".join(x for x in BLOCK_WRITE.splitlines(True) if not x.startswith("control")),
+                   "has no control", None),
+    "a name": (BLOCK_WRITE.replace("login page", "login page of %s" % fixtures.CUSTOMER_FORMS[0]),
+               "check refutes carries hits of the name check", fixtures.CUSTOMER_FORMS[0]),
+    "a price": (BLOCK_WRITE.replace("must be 0 then", "must be 0 then, the flavor costs 0.05 EUR per hour"),
+                "check control carries a price", "0.05"),
+    "a secret": (BLOCK_WRITE.replace("flavor=s3.medium.1", "flavor=s3.medium.1 " + SECRET_LINE.replace(" ", "")),
+                 "check calls carries an identifier, a home path, a secret or a token", SECRET_VALUE),
+    "a write tier without a recipe": (BLOCK_WRITE.replace("recipe smn-http-confirm flavor=s3.medium.1",
+                                                          "POST smn /v2/topics"), "names a recipe", None),
+    "a recipe that does not exist": (BLOCK_WRITE.replace("smn-http-confirm", "smn-nowhere"),
+                                     "not a recipe of recipes/", None),
+    "needs on a write tier": (BLOCK_WRITE.replace("needs: none", "needs: a person at a console"),
+                              "takes the tier decision or none", None),
+    "a decision tier that needs nothing": (BLOCK_WRITE.replace("tier: write", "tier: decision"),
+                                           "a decision tier names what it needs", None),
+    "a read tier with a post": (BLOCK_READ.replace("GET ecs", "POST ecs"), "GET service path", None),
+    "an event that is not a date": (BLOCK_READ + "event: last summer\n", "event is not an ISO date", None),
+}
+
+
+@pytest.mark.parametrize("case", sorted(HOW_REFUSALS))
+def test_how_refuses_a_block_that_cannot_stand_and_writes_nothing(home, recipes, capsys, monkeypatch, case):
+    block, marker, planted = HOW_REFUSALS[case]
+    e = new(S_FLAVOR)
+    before = e.path.read_text(encoding="utf-8")
+    code, out, err = run(["how", e.id, "-"], capsys, monkeypatch, stdin=block)
+    assert code == 1 and "awb kb how: refused" in err and marker in err, err
+    if planted:
+        assert planted not in out + err
+    fixtures.assert_no_fixture_name(out + err, "kb how refusal")
+    assert e.path.read_text(encoding="utf-8") == before
+
+
+def test_verify_refuses_a_hand_written_block_without_a_recipe_or_a_control(home, recipes):
+    from awb.tcp import lab
+    assert (kb.RECIPES_DIR, kb.RECIPES_ENV) == (lab.RECIPES_DIR, lab.RECIPES_ENV)   # the folder awb lab reads
+    e = new(S_FLAVOR)
+    text = e.path.read_text(encoding="utf-8")
+    e.path.write_text(text + "--- check\n" + BLOCK_WRITE.replace("smn-http-confirm", "smn-nowhere"), "utf-8")
+    assert "not a recipe of recipes/" in reasons(kb.verify([e.path]))
+    e.path.write_text(text + "--- check\ntier: none\nneeds: the console form\n", "utf-8")
+    assert "has no control" in reasons(kb.verify([e.path]))
+    e.path.write_text(text + "--- check\ntier: none\nneeds: the console form\ncontrol: the form shows the field\n",
+                      "utf-8")
+    assert kb.verify([e.path]) == []

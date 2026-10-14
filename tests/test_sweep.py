@@ -318,3 +318,69 @@ def test_the_command_line_sweeps_the_buckets_with_the_flag_only(home, tmp_path, 
     assert asked == ["eu-de"]
     assert "untagged" in out and "expired" in out and "not in RESOURCES.md" in out
     assert "tcp-abcd-misc" not in out and "tcp-abcd-old" not in out
+
+
+# --------------------------------------------------------------------------- named sources and digests (fact-check F3)
+
+WAF_PATH, TOPIC_PATH, SUB_PATH, RDS_PATH = (s[2] for s in sweep.NAMED_SOURCES)
+
+
+def named_answers() -> dict:
+    return {
+        WAF_PATH: [{"id": "waf-id-0001", "name": "tcp-q7m4-lab-20260920-wxyz"},
+                   {"id": "waf-id-0002", "name": NAMED}],
+        TOPIC_PATH: [{"topic_urn": "urn:smn:eu-de:0a1b:tcp-q7m4-lab-20261231-qrst",
+                      "name": "tcp-q7m4-lab-20261231-qrst"},
+                     {"topic_urn": "urn:smn:eu-de:0a1b:%s" % NAMED, "name": NAMED}],
+        SUB_PATH: [{"subscription_urn": "urn:smn:eu-de:0a1b:tcp-q7m4-lab-20261231-qrst:sub-1",
+                    "topic_urn": "urn:smn:eu-de:0a1b:tcp-q7m4-lab-20261231-qrst"}],
+        RDS_PATH: [{"id": "rds-id-0001", "name": "tcp-q7m4-db", "status": "ACTIVE"}],
+    }
+
+
+def test_a_named_source_finds_the_resources_of_the_code_in_their_name(tmp_path):
+    asked: list = []
+    h = sweep.Handles(tmp_path / "h.json")
+    rep = sweep.sweep(net_listings(named_answers(), asked), TODAY, h, known={"rds-id-0001": "tcp-q7m4"},
+                      sources=sweep.NAMED_SOURCES)
+    assert [a[1] for a in asked] == [WAF_PATH, TOPIC_PATH, SUB_PATH, RDS_PATH]
+    by = {i.kind: i for i in rep.items}
+    assert by["waf"].project == "tcp-q7m4" and by["waf"].expiry == "2026-09-20"
+    assert by["waf"].reasons == ["not in RESOURCES.md", "expired"]
+    assert by["smn"].reasons == ["not in RESOURCES.md"] and by["smns"].reasons == ["not in RESOURCES.md"]
+    # the database a project lists, with the code but no lab name, has no expiry to tell
+    assert by["rds"].known == "tcp-q7m4" and by["rds"].reasons == ["no expiry"]
+    # a resource without a code is not the Workbench's: never reported, its name never in the report
+    assert len(rep.items) == 4 and rep.unknown == []
+    assert NAMED not in "\n".join(sweep.report_lines(rep))
+
+
+def test_an_unreadable_named_listing_is_unknown_in_the_sweep_and_the_inventory(tmp_path):
+    answers = named_answers()
+    answers[WAF_PATH] = None
+    rep = sweep.sweep(net_listings(answers), TODAY, sweep.Handles(tmp_path / "h.json"), sources=sweep.NAMED_SOURCES)
+    assert rep.unknown == ["waf"] and "waf" not in {i.kind for i in rep.items}
+    inv = sweep.inventory(net_listings(answers), sweep.NAMED_SOURCES)
+    assert inv["waf"] is None and inv["rds"][0] == 1
+    assert "waf unknown" in sweep.inventory_lines(inv)
+    assert sweep.inventory_diff(inv, inv) == ["waf unknown"]
+
+
+def test_equal_id_sets_give_equal_digests_and_one_id_more_does_not(tmp_path):
+    answers = named_answers()
+    before = sweep.inventory(net_listings(answers), sweep.NAMED_SOURCES)
+    # every item counts, also one without a code: the inventory proves the tenant unchanged
+    assert before["waf"][0] == 2 and before["smn"][0] == 2
+    shuffled = dict(answers, **{WAF_PATH: list(reversed(answers[WAF_PATH]))})
+    assert sweep.inventory(net_listings(shuffled), sweep.NAMED_SOURCES) == before
+    assert sweep.inventory_diff(before, before) == []
+    more = dict(answers, **{RDS_PATH: answers[RDS_PATH] + [{"id": "rds-id-0002", "name": "tcp-q7m4-db-2"}]})
+    after = sweep.inventory(net_listings(more), sweep.NAMED_SOURCES)
+    assert after["rds"][1] != before["rds"][1]
+    assert sweep.inventory_diff(before, after) == ["rds +1/-0"]
+    lines = sweep.inventory_lines(after)
+    assert all("rds-id" not in line and NAMED not in line for line in lines)
+    assert sweep.digest(["b", "a"]) == sweep.digest(["a", "b"]) != sweep.digest(["a", "b", "c"])
+    # the network and server sources are in the inventory too
+    inv = sweep.inventory(net_listings({}))
+    assert set(inv) == {s[0] for s in sweep.ALL_SOURCES + sweep.NAMED_SOURCES} and inv["ecs"] == (0, sweep.digest([]))

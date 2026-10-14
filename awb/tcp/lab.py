@@ -42,6 +42,15 @@ A recipe whose calls fill a field with `{{secret:NAME}}` needs that secret of th
 run asks the key service for the names of the tenant's secrets (never a value) after the grant read and before its
 first create; a name that is missing stops it there with one line, so it makes nothing.
 
+A password field may carry `{{random:password}}` instead: the key service draws a throw-away value at call time,
+takes it out of the answer and forgets it, so it is never printed, never in the evidence and never in a log.
+
+The flavor deny list `recipes/DENY.txt` (one pattern per line: the GPU families p, pi, g, ai and kp, every size above
+2xlarge, physical and bare-metal flavors, database sizes from large.8) refuses a recipe whose parameter defaults,
+choices, vars or flavor fields of a create body match a line and a run whose parameter matches one, before any call;
+the refusal names the line number, never the value. `capped` cuts a recipe's lifetime to 30 minutes for a recheck run
+(`run(..., cap_minutes=30)`): the guard's lifetime or 30, whichever is less, the time budget shrinking with it.
+
 A recipe whose create bodies name an EVS disk type (`volumetype` or `volume_type`, such as the system disk of a
 server) gets the disk types read with the read key (GET evs /v2/{project_id}/types) after the secrets and before its
 first create. A type the answer does not list, a type whose RESKEY:availability_zones leaves out the recipe's AZ and a
@@ -76,6 +85,13 @@ MAX_RESOURCES = 12
 """The most resources any recipe may create, whatever its guard says."""
 MAX_LIFETIME = 120
 """Minutes: the longest any recipe may keep a resource, whatever its guard says."""
+RECHECK_LIFETIME = 30
+"""Minutes: the cap a recheck run puts on every recipe (`capped`), under MAX_LIFETIME."""
+DENY_FILE = RECIPES_DIR / "DENY.txt"
+"""The flavor deny list, one pattern per line. Always the file of the repository, never of AWB_RECIPES: a recipe
+folder of its own does not bring its own list."""
+_FLAVOR_KEY_RE = re.compile(r"(?i)flavor|spec_?code|instance_?type|node_?size|resource_?spec")
+"""The body fields of a call whose value is a flavor or a size, checked against the deny list."""
 METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
 DOS = ("create", "call", "wait")
 COSTS = ("none", "small", "medium")
@@ -161,6 +177,90 @@ def _refs(obj) -> set[str]:
     if isinstance(obj, list):
         return set().union(*(_refs(v) for v in obj)) if obj else set()
     return set()
+
+
+def deny_patterns(path: Path | None = None) -> list[tuple[int, re.Pattern]]:
+    """(line number, pattern) of the deny list. A list that cannot be read or holds a broken pattern refuses every
+    recipe: the guard fails closed."""
+    path = Path(path or DENY_FILE)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        raise LabError("the flavor deny list recipes/DENY.txt cannot be read; no recipe runs without it") from None
+    out = []
+    for n, line in enumerate(lines, start=1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            out.append((n, re.compile(line, re.IGNORECASE)))
+        except re.error:
+            raise LabError("line %d of recipes/DENY.txt is not a regular expression" % n) from None
+    return out
+
+
+def denied(value, patterns: list[tuple[int, re.Pattern]] | None = None) -> int | None:
+    """The line number of the first deny pattern the whole value matches, None when none does."""
+    if not isinstance(value, str) or "${" in value:
+        return None
+    for n, pat in (deny_patterns() if patterns is None else patterns):
+        if pat.fullmatch(value.strip()):
+            return n
+    return None
+
+
+def _deny_check(r: dict) -> None:
+    """Refuse a recipe that carries a denied flavor: a parameter default, a value of its choices, a var or a flavor
+    field of a call body. The message names where and the line of the list, never the value."""
+    patterns = deny_patterns()
+
+    def refuse(where: str, n: int):
+        raise LabError("cost guard: %s matches line %d of recipes/DENY.txt (a denied flavor)" % (where, n))
+
+    for k, p in r["params"].items():
+        n = denied(p["default"], patterns)
+        if n:
+            refuse("the default of param %s" % k, n)
+        for choice, values in (p.get("choices") or {}).items():
+            for v in [choice, *values.values()]:
+                n = denied(v, patterns)
+                if n:
+                    refuse("a choice of param %s" % k, n)
+    for k, v in (r.get("vars") or {}).items():
+        n = denied(v, patterns)
+        if n:
+            refuse("var %s" % k, n)
+
+    def walk(obj, key: str, where: str) -> None:
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                walk(v, str(k), where)
+        elif isinstance(obj, list):
+            for v in obj:
+                walk(v, key, where)
+        elif _FLAVOR_KEY_RE.search(key):
+            n = denied(obj, patterns)
+            if n:
+                refuse("a flavor field of %s" % where, n)
+
+    for s in r["steps"]:
+        walk((s.get("call") or {}).get("body"), "", "step %s" % s["id"])
+
+
+def capped(r: dict, minutes: int = RECHECK_LIFETIME) -> dict:
+    """The recipe with its lifetime cut to `minutes` when its guard allows more (a recheck run caps every recipe at
+    30 minutes): the guard's lifetime becomes the smaller of both, the time budget shrinks so that budget and
+    teardown still fit in it. The `awb-expiry` tag and the name follow the cut lifetime. A teardown that alone
+    does not fit is refused."""
+    guard, budget = r["guard"], r["budget"]
+    life = min(guard["lifetime_minutes"], minutes)
+    if budget["teardown_minutes"] >= life:
+        raise LabError("cost guard: the teardown (%d minutes) does not fit in the cap of %d minutes"
+                       % (budget["teardown_minutes"], life))
+    out = json.loads(json.dumps(r))
+    out["guard"]["lifetime_minutes"] = life
+    out["budget"]["minutes"] = min(budget["minutes"], life - budget["teardown_minutes"])
+    return out
 
 
 def _check_call(call, where: str) -> None:
@@ -370,6 +470,7 @@ def validate(r: dict) -> None:
                                and kb.get("class") in ("availability", "api", "stable")
                                and isinstance(kb.get("statement"), str)):
         raise LabError("kb has scope, tags, class and statement")
+    _deny_check(r)
 
 
 def confirm_notes(r: dict) -> list[tuple[str, str]]:
@@ -489,8 +590,12 @@ def params_of(r: dict, given: list[str]) -> dict[str, str]:
         if k not in r["params"]:
             raise LabError("the recipe has no parameter %s" % (k if _VAR_RE.match(k) else "of that name"))
         out[k] = v
+    patterns = deny_patterns()
     for k, v in out.items():
         p = r["params"][k]
+        n = denied(v, patterns)
+        if n:
+            raise LabError("cost guard: the value of %s matches line %d of recipes/DENY.txt (a denied flavor)" % (k, n))
         if "pattern" in p and not re.fullmatch(p["pattern"], v):
             raise LabError("cost guard: the value of %s is outside what the recipe allows" % k)
         if "choices" in p and v not in p["choices"]:
@@ -1420,13 +1525,15 @@ def project_folder(code: str) -> Path:
 
 
 def run(name: str, project: str, tenant: str, given: list[str], *, send=None, clock=time.monotonic,
-        sleep=time.sleep, now=None, out=print, err=None) -> int:
+        sleep=time.sleep, now=None, out=print, err=None, cap_minutes: int | None = None) -> int:
     from awb import config
     from awb.tcp import sweep
 
     err = err or (lambda line: print(line, file=sys.stderr))
     try:
         r = load(find(name))
+        if cap_minutes is not None:
+            r = capped(r, cap_minutes)
         params = params_of(r, given)
         if not re.match(r"^[a-z][a-z0-9-]{1,30}$", tenant or ""):
             raise LabError("a tenant alias reads like test-1")

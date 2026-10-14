@@ -7,6 +7,28 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- Named sources and id-set digests of the sweep (fact-check design F3): `sweep.NAMED_SOURCES` lists WAF policies,
+  SMN topics and subscriptions and RDS instances (no tags the sweep reads) and finds the Workbench's own
+  by the project code in their name (a subscription by the name of its topic). `sweep.inventory` gives per type the
+  count and the sha256 digest of the sorted id set (unknown when a listing cannot be read) and `inventory_diff`
+  names what differs in counts only (`rds +1/-0`), never an id. `awb cloud sweep` itself is unchanged.
+
+- Recipe guards of the fact check (design F2): the flavor deny list `recipes/DENY.txt` (the GPU families p, pi, g,
+  ai and kp, sizes above 2xlarge, physical and bare-metal flavors, database sizes from large.8) refuses a recipe
+  that carries a denied flavor as a default, a choice, a var or a flavor field of a body and a run whose `--param`
+  is one, before any call and by line number, never the value. A list that cannot be read refuses every recipe.
+  `lab.capped` cuts a recipe to 30 minutes of life for a recheck run (`run(..., cap_minutes=30)`), the time budget
+  with it. A password field may carry `{{random:password}}`: the key service draws a throw-away value at call time,
+  masks it in the answer and never returns or logs it.
+
+- The check block of a knowledge base entry (fact-check design F1): a line `--- check` after the statement, then
+  `tier` (read, write, decision, none), `event`, `calls`, `confirms`, `refutes`, `control` and `needs`, written
+  in that order. An entry without it parses as before. `awb kb how ID -` writes or replaces the block from standard
+  input through the text checks of `add` (English, no name, no code, no price, no secret); `awb kb show` prints
+  it and `awb kb verify` checks it. A block without `control` is refused, a write tier names a recipe of
+  `recipes/`, a read tier sends `GET` or `HEAD` calls only and a block whose `needs` is not `none` takes the tier
+  decision or none.
+
 - `awb build nudge` reaches the owner when a build task waits on him (automation review A6): on 2026-10-13 a task
   asked at 23:15 and waited 5.5 hours while the steering session slept. For every task whose newest run is `asked`,
   `red: <reason>` or `held: <reason>` for 15 minutes with no answer, widen or retry since, it sends one mail through

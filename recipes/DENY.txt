@@ -1,0 +1,19 @@
+# The flavor deny list of the lab recipes (fact-check design F4 of 2026-10-14, section 5, default D4).
+# One regular expression per line, matched case-insensitively against the whole value. `awb lab` refuses a recipe
+# whose parameter defaults, choices, vars or create bodies (a flavor field) match a line and a run whose parameter
+# matches one, before any call; the refusal names the line number, never the value. Blank lines and lines that
+# start with # are not patterns. A recipe never lifts this list; the owner edits it in his own terminal.
+#
+# GPU and AI families: every family that starts with p (p1, p2s, p2v, p3), pi (pi1, pi2), g (g6, g7), ai, kp
+p[a-z]*[0-9][a-z0-9]*\..+
+pi[0-9][a-z0-9]*\..+
+g[a-z]*[0-9][a-z0-9]*\..+
+ai[a-z]*[0-9][a-z0-9]*\..+
+kp[a-z]*[0-9][a-z0-9]*\..+
+# any size above 2xlarge (3xlarge, 4xlarge, 8xlarge, 16xlarge, ...)
+(?:.+\.)?(?:[3-9]|[1-9][0-9]+)xlarge(?:\..+)?
+# physical and bare-metal flavors
+(?:.+\.)?physical(?:\..+)?
+.*bare.?metal.*
+# RDS, DDS, DCS, CSS and MRS sizes named large.8 and above (a memory ratio of 8 or more)
+(?:rds|dds|dcs|css|mrs)\..*(?:2x|x)?large\.(?:8|16|32|64)(?:\..*)?

@@ -14,6 +14,14 @@ oldest first. A listing that could not be read is reported as unknown and never 
 project lists in its RESOURCES.md is marked known, with that project's code (`known_ids`). Dedicated ELB (v3) is
 not swept yet: no shape of its API is in the repository (NOT_SWEPT, the report says so).
 
+Named sources (fact-check design F3): WAF policies, SMN topics and subscriptions and RDS instances take no tags the
+sweep can read, so it finds the Workbench's own by the project code in their name (NAMED_SOURCES: the id field and
+the name field of each; a subscription has no name and is found by the name of its topic in its topic URN). A
+resource of these types whose name carries no project code is not the Workbench's and is not reported. `inventory`
+lists every source and gives per type the count and the sha256 digest of the sorted id set (unknown when the
+listing cannot be read); `inventory_diff` compares two of them with counts only, never an id. A recheck run takes it
+before and after a recipe.
+
 T-97. The name or the id of a live resource can carry a name (an environment code, an account name, a key pair
 file). What a session reads carries a neutral handle instead: `ecs-1`, `evs-3`, `eip-2`. The handles live in
 `<shared>/handles.json` (mode 600) with the id they stand for; only the tool that makes a call resolves a handle
@@ -25,6 +33,7 @@ to `$XDG_STATE_HOME/awb/handles.json` (default `~/.local/state/awb/`) and the sw
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -59,6 +68,15 @@ NETWORK_SOURCES = (
     ("nat", "nat", "/v2.0/nat_gateways", "nat_gateways", "marker", {}, True),
 )
 ALL_SOURCES = tuple(s + ({}, False) for s in SOURCES) + NETWORK_SOURCES
+# (kind, service, path, key of the list, paging, query, project header, id field, name field): the services without
+# tags the sweep reads, found by the project code in the name. Paths, keys and paging are to confirm live
+NAMED_SOURCES = (
+    ("waf", "waf", "/v1/{project_id}/waf/policy", "items", "none", {"pagesize": "100"}, False, "id", "name"),
+    ("smn", "smn", "/v2/{project_id}/notifications/topics", "topics", "offset", {}, False, "topic_urn", "name"),
+    ("smns", "smn", "/v2/{project_id}/notifications/subscriptions", "subscriptions", "offset", {}, False,
+     "subscription_urn", "topic_urn"),
+    ("rds", "rds", "/v3/{project_id}/instances", "instances", "offset", {}, False, "id", "name"),
+)
 # the OBS buckets of the region (`awb cloud sweep --buckets`): the lister answers them with Client.buckets, the
 # bucket's name as its id and the tags of GET /BUCKET?tagging, one call per bucket
 OBS_SOURCES = (("obs", "obs", "/", "buckets", "none", {}, False),)
@@ -66,6 +84,7 @@ NOT_SWEPT = ("dedicated ELB load balancers, listeners and pools (ELB v3): no sha
              "yet, to confirm live",)
 NOT_SWEPT_OBS = "OBS buckets: awb cloud sweep --buckets sweeps them, with one call per bucket for its tags"
 IDLE_STATES = {"ecs": ("SHUTOFF",), "evs": ("available",), "eip": ("DOWN",)}
+_CODE_IN_NAME_RE = re.compile(r"(?<![a-z0-9])(?:tcp|hcs)-[a-z2-7]{4}(?![a-z0-9])")
 _LAB_NAME_RE = re.compile(r"^(?P<code>(?:tcp|hcs)-[a-z2-7]{4})-lab-(?P<y>\d{4})(?P<m>\d{2})(?P<d>\d{2})-[a-z]{4}"
                           r"(?:-[a-z0-9]{1,8})?$")
 
@@ -287,29 +306,32 @@ def sweep(lister: Callable[..., jobs.Listing], today: datetime.date, handles: Ha
     items: list[Item] = []
     unknown: list[str] = []
     for source in sources:
-        kind, service, path, key, paging = source[:5]
-        query, project_header = (source[5], source[6]) if len(source) > 5 else ({}, False)
-        if query or project_header:
-            listing = lister(service, path, key, paging, query=dict(query), project_header=project_header)
-        else:
-            listing = lister(service, path, key, paging)
+        kind = source[0]
+        listing = _list(lister, source)
         if listing.state == jobs.UNKNOWN:
             unknown.append(kind)
             continue
+        named = len(source) > 7
         for raw in listing.items:
-            if not isinstance(raw, dict) or not isinstance(raw.get("id"), str):
+            rid, name = _id_and_name(source, raw)
+            if rid is None:
                 continue
-            tags = _tags(raw.get("tags") if "tags" in raw else raw.get("metadata"))
-            name = raw.get("name") if isinstance(raw.get("name"), str) else ""
-            if PROJECT_TAG not in tags:
-                tags.update(name_tags(name))
-            h = handles.handle(kind, raw["id"], name)
+            if named:
+                code = _CODE_IN_NAME_RE.search(name)
+                if code is None:
+                    continue           # not the Workbench's: these services carry no tag to tell
+                tags = name_tags(name) or {PROJECT_TAG: code.group(0)}
+            else:
+                tags = _tags(raw.get("tags") if "tags" in raw else raw.get("metadata"))
+                if PROJECT_TAG not in tags:
+                    tags.update(name_tags(name))
+            h = handles.handle(kind, rid, name)
             project = tags.get(PROJECT_TAG, "")
             expiry = tags.get(EXPIRY_TAG, "")
             reasons = []
             if not project:
                 reasons.append("untagged")
-            elif listed and raw["id"] not in known:
+            elif listed and rid not in known:
                 reasons.append("not in RESOURCES.md")
             if expiry:
                 try:
@@ -323,7 +345,7 @@ def sweep(lister: Callable[..., jobs.Listing], today: datetime.date, handles: Ha
             if state in IDLE_STATES.get(kind, ()):
                 reasons.append("idle")
             if reasons:
-                items.append(Item(h, kind, _created(raw), state, project, expiry, reasons, known.get(raw["id"], "")))
+                items.append(Item(h, kind, _created(raw), state, project, expiry, reasons, known.get(rid, "")))
     items.sort(key=lambda i: (i.created or "9999", i.handle))
     counts: dict[str, int] = {}
     for i in items:
@@ -333,6 +355,66 @@ def sweep(lister: Callable[..., jobs.Listing], today: datetime.date, handles: Ha
     if not_swept and not any(src in OBS_SOURCES for src in sources):
         not_swept.append(NOT_SWEPT_OBS)
     return SweepReport(items, unknown, counts, not_swept)
+
+
+def _list(lister, source) -> jobs.Listing:
+    kind, service, path, key, paging = source[:5]
+    query, project_header = (source[5], source[6]) if len(source) > 5 else ({}, False)
+    if query or project_header:
+        return lister(service, path, key, paging, query=dict(query), project_header=project_header)
+    return lister(service, path, key, paging)
+
+
+def _id_and_name(source, raw) -> tuple[str | None, str]:
+    """The id and the name of a listed item; a named source names its fields, a URN gives its last part."""
+    if not isinstance(raw, dict):
+        return None, ""
+    id_field, name_field = (source[7], source[8]) if len(source) > 7 else ("id", "name")
+    rid = raw.get(id_field)
+    name = raw.get(name_field) if isinstance(raw.get(name_field), str) else ""
+    if name.startswith("urn:"):
+        name = name.rsplit(":", 1)[-1]
+    return (rid if isinstance(rid, str) and rid else None), name
+
+
+def digest(ids) -> str:
+    """The sha256 of the sorted id set: equal sets give equal digests, whatever the order of the listing."""
+    return hashlib.sha256("\n".join(sorted(set(ids))).encode("utf-8")).hexdigest()
+
+
+def inventory(lister: Callable[..., jobs.Listing], sources=ALL_SOURCES + NAMED_SOURCES
+              ) -> dict[str, tuple[int, str] | None]:
+    """{kind: (count, digest of the id set)} of every source, None for a listing that cannot be read (an unknown
+    listing proves no equality). Every item counts, the Workbench's or not: the inventory proves that a run left
+    the tenant as it found it."""
+    out: dict[str, tuple[int, str] | None] = {}
+    for source in sources:
+        listing = _list(lister, source)
+        if listing.state == jobs.UNKNOWN:
+            out[source[0]] = None
+            continue
+        ids = {rid for rid, _ in (_id_and_name(source, raw) for raw in listing.items) if rid is not None}
+        out[source[0]] = (len(ids), digest(ids))
+    return out
+
+
+def inventory_lines(inv: dict[str, tuple[int, str] | None]) -> list[str]:
+    """One line per type for inventory-before.txt and inventory-after.txt: kind, count and digest or unknown."""
+    return ["%s %s" % (kind, "unknown" if v is None else "%d %s" % v) for kind, v in sorted(inv.items())]
+
+
+def inventory_diff(before: dict, after: dict) -> list[str]:
+    """What differs between two inventories, per type and in counts only ("TYPE +n/-n", "TYPE unknown"); empty when
+    every type is known in both and its digest is equal."""
+    out = []
+    for kind in sorted(set(before) | set(after)):
+        a, b = before.get(kind), after.get(kind)
+        if a is None or b is None:
+            out.append("%s unknown" % kind)
+        elif a[1] != b[1]:
+            more, fewer = max(b[0] - a[0], 0), max(a[0] - b[0], 0)
+            out.append("%s +%d/-%d" % (kind, more, fewer) if more or fewer else "%s other ids" % kind)
+    return out
 
 
 def report_lines(rep: SweepReport) -> list[str]:
