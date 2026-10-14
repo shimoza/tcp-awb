@@ -9,6 +9,8 @@
     awb build retry ID           a new numbered run of the task, from main
     awb build widen ID PATH...   more paths for a red task; the runner checks the kept branch again
     awb build stop [ID]          the runner ends after the current task, or stops the task ID
+    awb build check REF          the gate and the whole suite of a branch from outside (a cloud pull request) as the
+                                 build user in a task unit, through the runner's lock; never merges (F2 G1)
     awb build serve              the runner of the build queue, the ExecStart of awb-buildd.service
     awb build selftest           the runner's planted cases of THREAT-MODEL N6 to N12 and the push, in a throw-away world
     awb build probe              the probe unit with a task's own properties (the runner's systemd-run form): the
@@ -439,12 +441,16 @@ STOP_FILE = "stop"
 """`runs/stop`: the runner ends after the current task (awb build stop)."""
 
 STATES = ("queued", "running", "green", "done", "asked", "answered", "widened", "red", "hung", "stopped", "held",
-          "interrupted", "stale")
+          "interrupted", "stale", "passed")
 OPEN_STATES = ("queued", "running", "green", "answered", "widened")
 """The runner still owes the next move: the run has not ended."""
-STATE_RE = re.compile(r"(queued|running|green|done|asked|answered|widened|interrupted|stale|hung(?:: suite)?"
+STATE_RE = re.compile(r"(queued|running|green|done|asked|answered|widened|interrupted|stale|passed|hung(?:: suite)?"
                       r"|red: [a-z0-9][a-z0-9 ._-]{0,59}|stopped: [a-z0-9_]{1,40}|held: [a-z0-9][a-z0-9 ._-]{0,59})")
-"""Every state a run can be in. A reason is a short fixed phrase of the runner, matched before it is used."""
+"""Every state a run can be in. A reason is a short fixed phrase of the runner, matched before it is used. `passed`
+is the end of a check of a branch (awb build check) that met every check; a task never ends `passed`."""
+CHECK_ID_RE = re.compile(r"C-[0-9]{3,4}")
+"""The id of a check of a branch from outside (`awb build check`): `runs/C-001/1/`, one run per check."""
+CHECKS_SHOWN = 3
 UNKNOWN = "unknown"
 _STAMP = "%Y-%m-%dT%H:%M:%S"
 
@@ -552,6 +558,36 @@ def ids_with_runs(runs: Path | None = None) -> list[str]:
     return sorted(n for n in names if ID_RE.fullmatch(n))
 
 
+def check_ids(runs: Path | None = None) -> list[str]:
+    """The ids of the checks of a branch (C-001, ...), oldest first."""
+    try:
+        names = os.listdir(Path(runs or runs_dir()))
+    except OSError:
+        return []
+    return sorted((n for n in names if CHECK_ID_RE.fullmatch(n)), key=lambda n: int(n[2:]))
+
+
+def new_check(runs: Path | None = None, now: datetime | None = None) -> Run:
+    """The folder of a new check of a branch, `runs/C-<n>/1/` (mkdir, never an existing one), queued."""
+    runs = Path(runs or runs_dir())
+    _mkdir(runs)
+    ids = check_ids(runs)
+    n = int(ids[-1][2:]) + 1 if ids else 1
+    while True:
+        cid = "C-%03d" % n
+        if not CHECK_ID_RE.fullmatch(cid):
+            raise ValueError("no check id left")
+        try:
+            os.mkdir(runs / cid, 0o700)
+            break
+        except FileExistsError:
+            n += 1
+    folder = runs / cid / "1"
+    os.mkdir(folder, 0o700)
+    write_state(folder, "queued", now)
+    return Run(cid, 1, folder, "queued", now)
+
+
 def new_run(tid: str, runs: Path | None = None, state: str = "queued", now: datetime | None = None) -> Run:
     """The next numbered run folder of a task (mkdir, never an existing one) with its first state."""
     if not ID_RE.fullmatch(tid):
@@ -604,6 +640,12 @@ def line(run: Run) -> str:
     """The one line of a run as section 6 of DESIGN.md says it. Only the id, fixed words and a state that matched
     STATE_RE go in: no text of the agent."""
     tid, s, w = run.id, run.state, run.word
+    if CHECK_ID_RE.fullmatch(tid):
+        if w == "running":
+            return "build check %s running since %s" % (tid, _hm(run.since))
+        if w == "queued":
+            return "build check %s queued, waits for the runner" % tid
+        return "build check %s %s; nothing merged; %s" % (tid, s, run.rel)
     branch = "branch task/%s kept" % tid
     if w == "done":
         return "build %s done; deploy: sudo awb deploy --task %s" % (tid, tid)
@@ -697,6 +739,11 @@ def list_lines(qdir: Path | None = None, runs: Path | None = None) -> list[str]:
         r = latest(tid, runs)
         if tid not in queued and r is not None:
             out.append("%s  %s  since %s  not in the queue" % (tid, r.state, _since(r.since)))
+    for cid in check_ids(runs):
+        r = latest(cid, runs)
+        if r is not None:
+            out.append("%s  %s  since %s  a check of a branch, %s" % (
+                cid, r.state, _since(r.since), "waits on the runner" if r.open else "result in %s" % r.rel))
     return out
 
 
@@ -722,6 +769,10 @@ def board_line(qdir: Path | None = None, runs: Path | None = None) -> str:
             parts.append("%s %s" % (tid, r.state))
     if new:
         parts.append("%d new" % new)
+    for cid in check_ids(runs)[-CHECKS_SHOWN:]:
+        r = latest(cid, runs)
+        if r is not None:
+            parts.append("check %s %s" % (cid, "running since %s" % _hm(r.since) if r.word == "running" else r.state))
     return "build: " + (", ".join(parts) if parts else "the queue is empty")
 
 
@@ -748,7 +799,7 @@ def ended_lines(runs: Path | None = None) -> list[str]:
     answer or a widen is printed again."""
     runs = Path(runs or runs_dir())
     out: list[str] = []
-    for tid in ids_with_runs(runs):
+    for tid in ids_with_runs(runs) + check_ids(runs):
         r = latest(tid, runs)
         if r is None or r.open or r.state == UNKNOWN:
             continue
@@ -1056,6 +1107,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("paths", nargs="+")
     s = sub.add_parser("stop", help="the runner ends after the current task, or stops the task ID")
     s.add_argument("id", nargs="?")
+    s = sub.add_parser("check", help="the gate and the whole suite of a branch from outside as the build user in a "
+                                     "task unit, through the runner's lock; never merges, pushes or deploys")
+    s.add_argument("ref", help="a branch or commit of your working copy, for example a fetched pull request head")
     sub.add_parser("serve", help="the runner of the build queue, the ExecStart of awb-buildd.service")
     sub.add_parser("selftest", help="the runner's planted cases, each must be refused or classified")
     sub.add_parser("probe", help="the probe unit with a task's own properties: the model endpoint connects, a TCP "
@@ -1071,9 +1125,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         ap.print_usage(sys.stderr)
         return 2
-    if args.command in ("serve", "selftest", "unit", "probe", "failed"):
+    if args.command in ("serve", "selftest", "unit", "probe", "failed", "check"):
         from awb import buildrun
 
+        if args.command == "check":
+            return buildrun.check_main(args.ref)
         if args.command == "serve":
             return buildrun.serve_main()
         if args.command == "selftest":

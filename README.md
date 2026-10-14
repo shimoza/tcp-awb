@@ -590,6 +590,7 @@ awb build answer B-012 "take 10 MB"
 awb build retry B-012        # a new run from main
 awb build widen B-012 awb/tcp/keys.py
 awb build stop               # the runner ends after the current task
+awb build check pr-12        # a branch from outside: the gate and the suite as awb-build, nothing merged
 ```
 
 `model` (opus, sonnet, fable; opus), `effort` (low, medium, high; medium), `budget` (USD, 1 to 100; 10) and `clock`
@@ -630,6 +631,16 @@ task unit names the oneshot `awb-task-failed@.service` in `OnFailure=`: a task u
 waits on it (the runner stopped or crashed) adds `no runner watched: B-012 failed 14:02 (timeout)` to the board line
 until the runner starts again and reports the task itself. The unit has `MemoryMax=2G`, so a read that grows ends the runner and not the vault daemon or the key service. It is installed and not enabled: start it with
 `sudo systemctl start awb-buildd.service`, stop it with `awb build stop`.
+
+A branch from outside, a pull request of a cloud session, is never tested in your shell: its tests and its
+`conftest.py` would run as you with the vault readable. Fetch it into your working copy and run `awb build check
+REF` there. The runner takes the commit into the quarantine of `main.git` and runs on it what it runs for a task:
+the gate with the register over every commit message and changed file, the whole suite and the hollow-test check
+against the merge base with `main`, as `awb-build` in the task's suite unit. It goes through the runner's lock, so
+it never runs beside a task: with no runner it runs at once, else it waits until the runner takes it before its
+next task. No model session runs and nothing is merged, pushed or deployed. It prints the state (`passed` or the
+first failure, as `red: gate name` or `red: tests lost`) and the check lines, exits 0 only for `passed` and keeps
+`runs/C-001/1/result.md`; `awb build list` and the board show the newest three checks. Merging stays your step.
 
 What the build side does not prove (the accepted limits of `presentations/self-build/THREAT-MODEL.md`, section 6):
 

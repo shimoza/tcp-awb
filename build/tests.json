@@ -5781,8 +5781,57 @@
    "name": "seal: verify.sh lists the key file, sshd -T, cron.deny, the refused crontab -l and both timers",
    "run": ".venv/bin/pytest tests/test_seal.py::test_verify_dry_run_lists_the_persistence_checks_of_the_work_user",
    "status": "passing"
+  },
+  {
+   "id": "F2G1-1",
+   "phase": "F2-G1",
+   "name": "build check: a branch from outside is checked in the suite unit as the build user and nothing moves",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_branch_from_outside_is_checked_in_the_suite_unit_and_nothing_moves",
+   "status": "passing"
+  },
+  {
+   "id": "F2G1-2",
+   "phase": "F2-G1",
+   "name": "build check: a branch that breaks or drops a test is red and main stays",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_branch_that_breaks_or_drops_a_test_is_red_and_main_stays",
+   "status": "passing"
+  },
+  {
+   "id": "F2G1-3",
+   "phase": "F2-G1",
+   "name": "build check: a registered form in a commit of the branch is red gate before any code runs",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_registered_form_in_a_commit_of_the_branch_is_red_gate_before_any_code_runs",
+   "status": "passing"
+  },
+  {
+   "id": "F2G1-4",
+   "phase": "F2-G1",
+   "name": "build check: a ref that is an option, a range or unknown is refused and nothing is written",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_ref_that_is_an_option_a_range_or_unknown_is_refused_and_nothing_is_written",
+   "status": "passing"
+  },
+  {
+   "id": "F2G1-5",
+   "phase": "F2-G1",
+   "name": "build check: the check goes through the runner lock and the runner takes it between tasks",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_check_goes_through_the_runner_lock_and_the_runner_takes_it_between_tasks",
+   "status": "passing"
+  },
+  {
+   "id": "F2G1-6",
+   "phase": "F2-G1",
+   "name": "build check: the command reaches the runner and the unit helper makes the out folder of a check",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_awb_build_check_reaches_the_runner_and_the_unit_helper_takes_a_check_id",
+   "status": "passing"
+  },
+  {
+   "id": "F2G1-7",
+   "phase": "F2-G1",
+   "name": "board: the checks of a branch reach the build line and free text does not",
+   "run": ".venv/bin/pytest tests/test_board.py::test_the_checks_of_a_branch_reach_the_line_and_free_text_does_not",
+   "status": "passing"
   }
  ],
- "total_tests": 826,
+ "total_tests": 833,
  "checked": "2026-10-14"
 }

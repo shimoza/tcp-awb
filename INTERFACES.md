@@ -348,7 +348,8 @@ alone), `Ended(result, code)`, `Units` with `start(spec)` (a handle with `poll()
 `attach(name)`, `result(name)`, `stop(name)`, `probe()`; `SystemdUnits(user, run, popen)` with `argv(spec)`, the one
 fixed `sudo -n systemd-run` form; `sudo -n systemctl stop|reset-failed` of a name of `UNIT_RE` alone;
 `LocalUnits(commands)` for the tests and the selftest. The helpers the units run as the build user:
-`unit_main(args, fin, home, seconds)` (`prepare`, `rekey`, `handover`, `rebase`, `suite`, `clean`; `prepare`, `rekey`
+`unit_main(args, fin, home, seconds)` (`prepare`, `rekey`, `handover`, `rebase`, `suite`, `clean`, `outdir` (the out
+folder of a check); `prepare`, `rekey`
 and `clean` take `login` as a last argument in the login mode, `prepare` and `rekey` exit 7 without a login),
 `handin(key, bundle)`, `unit_allowed()`, `LOGIN_IN_HOME`, `LOGIN_COMMAND`, `LOGIN_HELD`. The owner's git, in `main.git` only: `git(host, *args)`, `rev`, `is_ancestor`,
 `ensure_main`, `owner_identity`. The checks, each raising `Stop(state)` with its line in `ctx.lines`: `check_unit`,
@@ -358,7 +359,14 @@ register) -> "pushed" | "pending" | "refused"`. `Runner(host)` with `serve()`, `
 `pick(tasks)`, `start(task, run)` (returns the started session for `run_session`), `resume`, `judge`,
 `judge_and_merge`, `publish`, `finish`. What he reads: `write_result`, `write_state_tsv`, `deployed_info`. The
 selftest: `World(base, python)`, `SELFTEST_CASES`, `SELFTEST_REQUIRED` (a case missing from the cases fails the
-selftest), `selftest(only=None, python=None) -> list[str]`, `acquire_lock`, `snapshot_prompt`. SB5: every task unit
+selftest), `selftest(only=None, python=None) -> list[str]`, `acquire_lock`, `snapshot_prompt`. F2 G1, a branch from
+outside: `check_main(ref, host=None)` (`awb build check REF`, exit 0 `passed`, 1 another end, 2 refused),
+`resolve_ref(host, ref)` (in `host.working`, else the current folder; `REF_RE`, no range), `fetch_ref(host, ctx,
+commit)` (into `refs/quarantine/<C-ID>/1/head`), `check_branch_commits(host, ctx)` (check 4 of a branch),
+`check_outdir`, `check_task(cid)`, `Runner.check_branch(run)` and `Runner.judge_check(ctx)` (checks 4, 6, 9 and 10,
+with the runner's lock held; `poll_once` takes a queued check before the next task, `reconcile` ends a running one
+`interrupted`); `awb/build.py` holds `CHECK_ID_RE`, `check_ids(runs)`, `new_check(runs)` and the state `passed`;
+`state.tsv` carries a `check` row (id, state, time, short hash) for each of the `CHECKS_SHOWN` newest. SB5: every task unit
 of `SystemdUnits.argv` names `FAILED_UNIT % name` in `OnFailure=` (not `PROBE_UNIT`); `failed_main(unit)` (`awb
 build failed`, the oneshot's command) with `runner_alive(runs)` and `record_failed(host, name, result) -> "watched" |
 "written" | "not written"` (a `failed` row of `state.tsv`, at most `FAILED_ROWS`); `board_write(board, name,
@@ -372,7 +380,8 @@ task unit's resolver: `resolvers()` (the upstream nameservers of `UPSTREAM_RESOL
 
 The board's reader of `state.tsv` (SB4) is `awb/tcp/board.py`: `build_state(p) -> dict | None` (every cell matched:
 ids by `_ID`, state words in `BUILD_WORDS` with a reason only from `BUILD_REASONS`, queue holds from `QUEUE_HELD`,
-short hashes, times; SB5: `failed` rows by `_TASK_UNIT`, `UNIT_RESULTS` and the time), `build_line(p) -> str`;
+short hashes, times; SB5: `failed` rows by `_TASK_UNIT`, `UNIT_RESULTS` and the time; `check` rows by `_CHECK_ID`),
+`build_line(p) -> str`;
 `awb board` and `projects_api.board()` (the field `build` of GET /api/board) print it.
 
 ### `awb/vault.py`: encryption, the daemon, the client

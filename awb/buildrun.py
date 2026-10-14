@@ -143,7 +143,7 @@ SUITE_ALLOW = ("localhost",)
 has a network namespace of its own (PrivateNetwork=yes), so this is its own loopback, not the host's listeners; the
 outside stays denied and has no route besides."""
 
-UNIT_RE = re.compile(r"awb-task-(?:probe|B-[0-9]{3,4}(?:-(?:prep|hand|suite))?)")
+UNIT_RE = re.compile(r"awb-task-(?:probe|[BC]-[0-9]{3,4}(?:-(?:prep|hand|suite))?)")
 """Every unit name the runner starts, stops or resets: the fixed forms, nothing from the agent's side."""
 PROBE_UNIT = "awb-task-probe"
 FAILED_UNIT = "awb-task-failed@%s.service"
@@ -294,6 +294,8 @@ class Host:
     client: str = CLIENT
     awb: str = AWB
     quiet: bool = False
+    working: Path | None = None
+    """The owner's working copy `awb build check` takes a branch or commit from; None is the current folder."""
 
     @property
     def main_git(self) -> Path:
@@ -708,7 +710,7 @@ def _clone_ok(env: dict, clone: Path) -> bool:
 
 
 def _helper_places(root: str, tid: str, n: str) -> tuple[Path, Path, Path, Path]:
-    if not build.ID_RE.fullmatch(tid) or not re.fullmatch(r"[1-9][0-9]{0,3}", n):
+    if not (build.ID_RE.fullmatch(tid) or build.CHECK_ID_RE.fullmatch(tid)) or not re.fullmatch(r"[1-9][0-9]{0,3}", n):
         raise ValueError("not a task id or run number")
     r = Path(root)
     name = "%s-%s" % (tid, n)
@@ -977,6 +979,18 @@ def unit_clean(root: str, tid: str, n: str, what: str, model: str = "key") -> in
     return 0
 
 
+def unit_outdir(root: str, tid: str, n: str) -> int:
+    """The out folder of a check of a branch (awb build check), which has no prepare unit: the suite unit may write
+    only a folder that is there. Exit 3 when something is at its place already."""
+    r, clone, out, home = _helper_places(root, tid, n)
+    if not build.CHECK_ID_RE.fullmatch(tid):
+        return 2
+    if os.path.lexists(out):
+        return 3
+    os.mkdir(out, 0o755)
+    return 0
+
+
 def unit_main(args: list[str], fin=None, home: str | None = None, seconds: float | None = None) -> int:
     """`awb build unit ACTION ...`, what the units run as the build user. Never the owner on a sealed host."""
     fin = fin if fin is not None else sys.stdin.buffer
@@ -997,6 +1011,8 @@ def unit_main(args: list[str], fin=None, home: str | None = None, seconds: float
             return unit_suite(rest[0], rest[1], rest[2], rest[3], rest[4], rest[5:], fin, seconds)
         if action == "clean" and len(rest) in (4, 5):
             return unit_clean(*rest)
+        if action == "outdir" and len(rest) == 3:
+            return unit_outdir(*rest)
     except (ValueError, OSError, tarfile.TarError, subprocess.SubprocessError):
         return 2
     return 2
@@ -1745,7 +1761,7 @@ def check_own(host: Host, ctx: Ctx) -> None:
 
 # --------------------------------------------------------------------------- the unit helpers of the owner side
 
-_WT_NAME_RE = re.compile(r"B-[0-9]{3,4}-[0-9]{1,6}(?:\.out)?")      # a clone of wt/ and its export
+_WT_NAME_RE = re.compile(r"[BC]-[0-9]{3,4}-[0-9]{1,6}(?:\.out)?")   # a clone of wt/, its export, a check's export
 
 
 def _hidden(host: Host, ctx: Ctx | None, clone: bool = True) -> list[str]:
@@ -1826,6 +1842,79 @@ def handover(host: Host, ctx: Ctx) -> bool:
     if status is not None:
         _write(ctx.folder / "status.txt", status)
     _take(out / "task.bundle", host.uid(), BUNDLE_MAX, dest=ctx.folder / "task.bundle")
+    return e.code == 0
+
+
+# --------------------------------------------------------------------------- a branch from outside (F2 G1)
+
+REF_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._/-]{0,199}")
+"""What `awb build check` takes as REF: a branch, a remote branch or a commit hash; never an option or a range."""
+CHECK_MAX_COMMITS = 200
+CHECK_WAIT = 5.0            # how often `awb build check` looks whether the runner took and ended its check
+
+
+def check_task(cid: str) -> build.Task:
+    """The stand-in block of a check of a branch: no paths, no replaced test, no own check. Check 10 reads
+    `tests_replaced`, so a branch from outside may drop no test that passed on its merge base."""
+    return build.Task(cid, "check of a branch", 0, build.DEFAULTS["model"], build.DEFAULTS["effort"], (), (), (), (),
+                      int(build.DEFAULTS["budget"]), int(build.DEFAULTS["clock"]), "build/queue/%s.md" % cid)
+
+
+def _working(host: Host) -> str:
+    return os.path.abspath(host.working or Path.cwd())
+
+
+def resolve_ref(host: Host, ref: str) -> str | None:
+    """REF in the owner's working copy as a commit hash (fsmonitor and hooks off); None when it is none."""
+    if not REF_RE.fullmatch(ref) or ".." in ref:
+        return None
+    cmd = ["git", "-C", _working(host), "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "rev-parse",
+           "--verify", "--quiet", "--end-of-options", ref + "^{commit}"]
+    try:
+        r = host.git_run(cmd, input=None, capture_output=True, timeout=60, check=False,
+                         env=dict(os.environ, GIT_TERMINAL_PROMPT="0", LANG="C"))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    out = r.stdout.decode("ascii", "replace").strip()
+    return out if r.returncode == 0 and SHA_RE.fullmatch(out) else None
+
+
+def fetch_ref(host: Host, ctx: Ctx, commit: str) -> bool:
+    """The commit from the owner's working copy into refs/quarantine/<C-ID>/1/head of main.git: the objects checked,
+    no tag, no FETCH_HEAD, no gc. A bundle would need a ref in his copy for a bare commit, so main.git fetches it."""
+    head = quarantine(ctx) + "/head"
+    r = git(host, "-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true", "-c", "gc.auto=0", "fetch",
+            "--quiet", "--no-tags", "--no-write-fetch-head", _working(host), "+%s:%s" % (commit, head), check=False)
+    return r.returncode == 0 and rev(host, head) == commit
+
+
+def check_branch_commits(host: Host, ctx: Ctx) -> None:
+    """Check 4 for a branch from outside: its commit is in quarantine, it meets main at a merge base and brings one
+    to CHECK_MAX_COMMITS commits, none of them and no changed blob above BLOB_MAX (sized before any read, B3)."""
+    main = rev(host, "refs/heads/main")
+    if not SHA_RE.fullmatch(ctx.tip) or main is None or rev(host, quarantine(ctx) + "/head") != ctx.tip:
+        raise _fail(ctx, 4, "red: no commit")
+    base = git(host, "merge-base", main, ctx.tip, check=False).stdout.decode("ascii", "replace").strip()
+    if not SHA_RE.fullmatch(base):
+        raise _fail(ctx, 4, "red: not on main")
+    commits = git(host, "rev-list", "--reverse", "%s..%s" % (base, ctx.tip)).stdout.decode("ascii").split()
+    if not commits:
+        raise _fail(ctx, 4, "red: no commit")
+    if len(commits) > CHECK_MAX_COMMITS:
+        raise _fail(ctx, 4, "red: too many commits")
+    big = oversized(host, commits)
+    if big == "message":
+        raise _fail(ctx, 4, "red: message too big")
+    if big:
+        raise _fail(ctx, 4, "red: blob too big")
+    ctx.start, ctx.commits = base, commits
+    _write(ctx.folder / "start", base + "\n")
+    _ok(ctx, 4, "%d commit(s) after %s" % (len(commits), base[:7]))
+
+
+def check_outdir(host: Host, ctx: Ctx) -> bool:
+    """The out folder of the check's suite unit, made by a unit of the build user (a check has no prepare unit)."""
+    e = unit_run(host, ctx, "hand", ["outdir", str(host.root), ctx.tid, str(ctx.n)], rw=[str(host.wt)])
     return e.code == 0
 
 
@@ -2084,6 +2173,10 @@ class Runner:
                 return self._guarded(tid, lambda: self.rejudge(self._ctx(r, by_id.get(tid))))
             if r.state == "widened":
                 return self._guarded(tid, lambda: self.rejudge(self._ctx(r, by_id.get(tid)), widened=True))
+        for cid in build.check_ids(h.runs):
+            r = build.latest(cid, h.runs)
+            if r is not None and r.state == "queued":
+                return self._guarded(cid, lambda: self.check_branch(r))
         pick = self.pick(tasks)
         if pick is None:
             self.write_board()
@@ -2440,6 +2533,57 @@ class Runner:
             return self.finish(ctx, "red: no commit")
         self.judge_and_merge(ctx)
 
+    # ------------------------------------------------------------------ a branch from outside (F2 G1)
+
+    def _check_ctx(self, run: build.Run) -> Ctx:
+        ctx = Ctx(check_task(run.id), run)
+        ctx.tip = (_text(run.folder / "head") or "").strip()
+        ctx.start = (_text(run.folder / "start") or "").strip()
+        return ctx
+
+    def check_branch(self, run: build.Run) -> None:
+        """A queued check of a branch (awb build check); the caller holds the runner's lock. Checks 4, 6, 9 and 10 of
+        a task on the commit in quarantine, the suite as the build user in the task's suite unit; `passed` or the
+        first failure's state. Nothing moves main, nothing is pushed. A check found running lost its runner."""
+        h = self.host
+        with build.task_lock(run.id, h.runs):
+            cur = build.latest(run.id, h.runs)
+            if cur is None or cur.n != run.n or cur.state not in ("queued", "running"):
+                return
+            gone = cur.state == "running"
+            if not gone:
+                build.write_state(run.folder, "running", h.now())
+        ctx = self._check_ctx(dataclasses.replace(cur, state="running"))
+        if gone:
+            with contextlib.suppress(Exception):
+                clean(h, ctx, "all")
+            return self.finish(ctx, "interrupted")
+        self.phase(ctx, "checks")
+        try:
+            state = self.judge_check(ctx)
+        finally:
+            with contextlib.suppress(Exception):
+                clean(h, ctx, "all")
+        self.finish(ctx, state)
+
+    def judge_check(self, ctx: Ctx) -> str:
+        h = self.host
+        ctx.lines = []
+        try:
+            check_branch_commits(h, ctx)
+            check_gate(h, ctx, owner_identity(h))
+            ctx.entries = [(p, o, n) for p, o, n, _ in diff_entries(h, ctx.start, ctx.tip) if _plain_path(p)]
+            if not check_outdir(h, ctx):
+                ctx.lines.append("- the out folder of the suite unit could not be made")
+                raise Stop("held: prepare")
+            after = check_suite(h, ctx)
+            check_hollow(h, ctx, after)
+        except Stop as s:
+            self._checks_log(ctx)
+            return s.state
+        self._checks_log(ctx)
+        return "passed"
+
     # ------------------------------------------------------------------ the push
 
     def publish(self, ctx: Ctx) -> None:
@@ -2550,6 +2694,10 @@ class Runner:
             with contextlib.suppress(Exception):
                 clean(h, ctx, "all" if phase == "prep" else "home")
             self.finish(ctx, "interrupted")
+        for cid in build.check_ids(h.runs):
+            r = build.latest(cid, h.runs)
+            if r is not None and r.state == "running":
+                self.check_branch(r)
 
 
 def acquire_lock(runs: Path) -> int | None:
@@ -2673,6 +2821,12 @@ def login_note(tid: str) -> str:
 
 def next_step(ctx: Ctx, state: str) -> str:
     w = state.split(":", 1)[0]
+    if build.CHECK_ID_RE.fullmatch(ctx.tid):
+        if state == "passed":
+            return "read the diff, then merge it yourself; the check merged nothing"
+        if state == "held: checks pending":
+            return "awb vault unlock, then awb build check again"
+        return "nothing was merged; awb build check again after a fix"
     if w == "done":
         return "deploy: sudo awb deploy --task %s" % ctx.tid
     if w == "asked":
@@ -2770,6 +2924,13 @@ def write_state_tsv(host: Host, info: dict, held: str | None) -> None:
             tid, r.n, r.state, r.since.strftime(build._STAMP) if r.since else "-",
             commit[:7] if SHA_RE.fullmatch(commit) else "-", "not_sent" if mail == "not sent" else
             "sent" if mail == "sent" else "-"))
+    for cid in build.check_ids(host.runs)[-build.CHECKS_SHOWN:]:
+        r = build.latest(cid, host.runs)
+        if r is None or not _TSV_STATE.fullmatch(r.state):
+            continue
+        head = (_text(r.folder / "head") or "").strip()
+        rows.append("check\t%s\t%s\t%s\t%s" % (cid, r.state, r.since.strftime(build._STAMP) if r.since else "-",
+                                                 head[:7] if SHA_RE.fullmatch(head) else "-"))
     rows.append("live\t%s" % info["live"])
     rows.append("main\t%s" % info["main"])
     rows.append("not_deployed\t%s" % info["not_deployed"])
@@ -2862,7 +3023,7 @@ def record_failed(host: Host, name: str, result: str) -> str:
         kind = row.split("\t", 1)[0]
         if kind == "failed":
             failed.append(row)
-        elif kind in ("queue", "task", "live", "main", "not_deployed", "daemons"):
+        elif kind in ("queue", "task", "check", "live", "main", "not_deployed", "daemons"):
             rows.append(row)
     failed.append("failed\t%s\t%s\t%s" % (name, result, host.now().strftime(build._STAMP)))
     rows += failed[-FAILED_ROWS:]
@@ -3113,6 +3274,61 @@ def probe_main() -> int:
 
 
 # --------------------------------------------------------------------------- the commands
+
+def check_main(ref: str, host: Host | None = None) -> int:
+    """`awb build check REF` (F2 G1): REF of the owner's working copy into the quarantine of main.git, then the checks
+    of a task on it (check_branch) through the runner's lock: at once when no runner holds it, else the runner takes
+    it between two tasks and this waits. The state line and the check lines; exit 0 for `passed`, else 1. It never
+    merges, pushes or deploys and starts no model session."""
+    if config.is_work_user() or config.is_build_user():
+        print("awb build: the check of a branch is the owner's", file=sys.stderr)
+        return 2
+    try:
+        h = host or Host.from_config()
+    except Exception as err:
+        print("awb build: the check cannot start (%s)" % type(err).__name__, file=sys.stderr)
+        return 2
+    h.quiet = True
+    commit = resolve_ref(h, ref)
+    if commit is None:
+        print("awb build: REF is not a branch or commit of your working copy", file=sys.stderr)
+        return 2
+    try:
+        ensure_main(h)
+        run = build.new_check(h.runs, now=h.now())
+    except (GitFailed, OSError, ValueError) as err:
+        print("awb build: the check cannot start (%s)" % type(err).__name__, file=sys.stderr)
+        return 2
+    _write(run.folder / "head", commit + "\n")
+    runner = Runner(h)
+    if not fetch_ref(h, runner._check_ctx(run), commit):
+        ctx = runner._check_ctx(run)
+        _fail(ctx, 4, "red: no commit")
+        runner._checks_log(ctx)
+        runner.finish(ctx, "red: no commit")
+    told = False
+    while True:
+        r = build.latest(run.id, h.runs)
+        if r is None or r.state not in ("queued", "running"):
+            break
+        fd = acquire_lock(h.runs)
+        if fd is not None:
+            try:
+                runner._guarded(run.id, lambda: runner.check_branch(r))
+            finally:
+                os.close(fd)
+            break
+        if not told:
+            print("check %s of %s queued: the runner takes it after its current task" % (run.id, commit[:7]))
+            told = True
+        h.sleep(CHECK_WAIT)
+    r = build.latest(run.id, h.runs)
+    print(build.line(r))
+    for ln in (_text(r.folder / "checks.log") or "").split("\n"):
+        if ln.strip():
+            print("  " + ln)
+    return 0 if r.state == "passed" else 1
+
 
 def serve_main() -> int:
     if config.is_work_user() or config.is_build_user():

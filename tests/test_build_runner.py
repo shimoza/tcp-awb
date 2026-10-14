@@ -1639,3 +1639,138 @@ def test_a_helper_unit_refuses_a_clone_whose_git_would_run_a_command_of_the_sess
     with open(base / "main.bundle", "rb") as fin:
         assert buildrun.unit_rebase(str(root), "B-012", "1", start, fin) == 0
     assert _plain_git("log", "--format=%s", "task/B-012", cwd=clone).splitlines() == ["task", "moved", "seed"]
+
+
+# --------------------------------------------------------------------------- awb build check: a branch from outside
+
+def outside_branch(w, name: str = "pr-1", files: dict | None = None, message: str = "a change from outside") -> str:
+    """A branch of the working copy as a cloud session pushes it (its own author), fetched by the owner."""
+    w.g("checkout", "-q", "-b", name, "main", cwd=w.seed)
+    for rel, text in (files or {"awb/x.py": "VALUE = 2\n"}).items():
+        (w.seed / rel).write_text(text, encoding="utf-8")
+    w.g("add", "-A", cwd=w.seed)
+    w.g("-c", "user.name=a cloud session", "-c", "user.email=cloud@localhost", "commit", "-q", "-m", message,
+        cwd=w.seed)
+    tip = w.g("rev-parse", "HEAD", cwd=w.seed).strip()
+    w.g("checkout", "-q", "main", cwd=w.seed)
+    return tip
+
+
+def check(w, ref: str, capsys) -> tuple[int, str, build.Run | None]:
+    w.host.working = w.seed
+    rc = buildrun.check_main(ref, w.host)
+    ids = build.check_ids(w.runs)
+    return rc, capsys.readouterr().out, build.latest(ids[-1], w.runs) if ids else None
+
+
+def suite_specs(w) -> list:
+    return [s for s in w.units.started if s.name.endswith("-suite")]
+
+
+def test_a_branch_from_outside_is_checked_in_the_suite_unit_and_nothing_moves(world, capsys, tmp_path):
+    from awb.tcp import board
+
+    start, pushed = main_of(world), origin_of(world)
+    tip = outside_branch(world)
+    rc, out, run = check(world, "pr-1", capsys)
+    assert rc == 0 and run.id == "C-001" and run.state == "passed"
+    assert main_of(world) == start and origin_of(world) == pushed
+    assert world.g("--git-dir", str(world.root / "main.git"), "rev-parse",
+                   "refs/quarantine/C-001/1/head").strip() == tip
+    log = checks_of(run)
+    assert [ln.split()[0:2] for ln in log.splitlines() if ln[:1].isdigit()] == [["4", "ok"], ["6", "ok"],
+                                                                               ["9", "ok"], ["10", "ok"]]
+    assert out.splitlines()[0] == "build check C-001 passed; nothing merged; runs/C-001/1/"
+    assert "9 ok    the whole suite is green in a fresh export" in out
+    # the suite and the baseline ran in the task's suite unit: its own loopback alone, the records hidden
+    specs = suite_specs(world)
+    assert [s.argv[7] for s in specs] == ["suite", "base"]
+    for s in specs:
+        assert s.name == "awb-task-C-001-suite" and s.netns and s.allow == list(buildrun.SUITE_ALLOW)
+        assert s.rw == [str(world.host.out("C-001", 1))] and str(world.runs) in s.hidden
+    assert any(s.argv[3:4] == ["outdir"] for s in world.units.started)
+    assert not world.host.out("C-001", 1).exists()
+    assert not any(s.name == "awb-task-C-001" or s.name.endswith("-prep") for s in world.units.started)
+    result = (run.folder / "result.md").read_text(encoding="utf-8")
+    assert "state: passed" in result and "next: read the diff, then merge it yourself" in result
+    assert "awb/x.py +1 -1" in result
+    # awb build list, awb build status and the board show it
+    assert any(ln.startswith("C-001  passed  since ") and ln.endswith("result in runs/C-001/1/")
+               for ln in build.list_lines(world.queue, world.runs))
+    assert build.board_line(world.queue, world.runs).endswith("check C-001 passed")
+    tsv = (world.board / "state.tsv").read_text()
+    assert "\ncheck\tC-001\tpassed\t" in tsv and ("\t%s\n" % tip[:7]) in tsv
+    (tmp_path / "build").mkdir()
+    (tmp_path / "build" / "state.tsv").write_text(tsv, encoding="utf-8")
+    assert board.build_line(types.SimpleNamespace(shared=tmp_path)).startswith("build: check C-001 passed; live ")
+
+
+@pytest.mark.parametrize("text, state", [
+    ("def test_one():\n    assert 1 + 1 == 2\n", "red: tests lost"),
+    ("def test_one():\n    assert 1 + 1 == 3\n", "red: suite"),
+])
+def test_a_branch_that_breaks_or_drops_a_test_is_red_and_main_stays(world, capsys, text, state):
+    start = main_of(world)
+    outside_branch(world, files={"tests/test_x.py": text})
+    rc, out, run = check(world, "pr-1", capsys)
+    assert rc == 1 and run.state == state and main_of(world) == start
+    assert out.splitlines()[0] == "build check C-001 %s; nothing merged; runs/C-001/1/" % state
+    assert suite_specs(world) and not world.host.out("C-001", 1).exists()
+
+
+def test_a_registered_form_in_a_commit_of_the_branch_is_red_gate_before_any_code_runs(world, capsys):
+    from awb import gate
+
+    outside_branch(world, message="mention %s" % gate._SELFTEST_FORM)
+    rc, out, run = check(world, "pr-1", capsys)
+    assert rc == 1 and run.state == "red: gate name"
+    assert not suite_specs(world) and gate._SELFTEST_FORM not in out
+    assert gate._SELFTEST_FORM not in (run.folder / "result.md").read_text(encoding="utf-8")
+
+
+def test_a_ref_that_is_an_option_a_range_or_unknown_is_refused_and_nothing_is_written(world, capsys):
+    outside_branch(world)
+    for ref in ("--upload-pack=touch", "main..pr-1", "no-such-branch", "-q"):
+        rc, out, run = check(world, ref, capsys)
+        assert rc == 2 and run is None, ref
+    assert not world.units.started
+
+
+def test_the_check_goes_through_the_runner_lock_and_the_runner_takes_it_between_tasks(world, capsys):
+    """While a runner holds runs/.runner.lock the check waits queued; the runner's next poll takes it, never beside a
+    task. A check found running at the reconcile lost its runner and is interrupted."""
+    outside_branch(world)
+    held = buildrun.acquire_lock(world.runs)
+    polls = []
+
+    def runner_polls(seconds):
+        if seconds != buildrun.CHECK_WAIT:      # the tick of the runner's own wait for a unit
+            time.sleep(seconds)
+            return
+        polls.append(build.latest("C-001", world.runs).state)
+        world.runner().poll_once()
+
+    world.host.sleep = runner_polls
+    try:
+        rc, out, run = check(world, "pr-1", capsys)
+    finally:
+        os.close(held)
+    assert polls == ["queued"] and rc == 0 and run.state == "passed"
+    assert "queued: the runner takes it after its current task" in out
+    second = build.new_check(world.runs)
+    build.write_state(second.folder, "running")
+    world.runner().reconcile()
+    assert build.latest(second.id, world.runs).state == "interrupted"
+    assert build.latest("C-001", world.runs).state == "passed"
+
+
+def test_awb_build_check_reaches_the_runner_and_the_unit_helper_takes_a_check_id(monkeypatch, tmp_path):
+    monkeypatch.setattr(buildrun, "check_main", lambda ref: 7 if ref == "pr-1" else 0)
+    assert build.main(["check", "pr-1"]) == 7
+    root = tmp_path / "root"
+    (root / "wt").mkdir(parents=True)
+    assert buildrun.unit_main(["outdir", str(root), "C-001", "1"]) == 0
+    assert (root / "wt" / "C-001-1.out").is_dir()
+    assert buildrun.unit_main(["outdir", str(root), "C-001", "1"]) == 3
+    assert buildrun.unit_main(["outdir", str(root), "B-001", "1"]) == 2
+    assert buildrun.UNIT_RE.fullmatch("awb-task-C-001-suite")

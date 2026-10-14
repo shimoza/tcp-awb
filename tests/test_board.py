@@ -238,6 +238,23 @@ def test_a_planted_free_text_does_not_reach_the_build_line(tmp_path):
                     "unknown not deployed; daemon code behind: vault")
 
 
+def test_the_checks_of_a_branch_reach_the_line_and_free_text_does_not(tmp_path):
+    """F2 G1: a `check` row (awb build check) adds "check C-001 passed" after the tasks, the three newest. Planted: a
+    name in the id, a free reason, a free time and an extra column never reach the line."""
+    from awb import build
+
+    rows = ("check\tC-001\tred: suite\t2026-10-14T09:00:00\t1a2b3c4\n"
+            "check\tC-002\tpassed\t2026-10-14T09:10:00\tabcdef1\n"
+            "check\tC-003\trunning\t2026-10-14T09:20:00\t-\n"
+            "check\tC-004\tred: ask zyxwo\t2026-10-14T09:30:00\t-\n"
+            "check\tZyxwo-1\tpassed\t2026-10-14T09:40:00\t-\n"
+            "check\tC-005\tpassed\tzyxwo\t-\textra zyxwo\n")
+    line = board.build_line(shared(tmp_path, TSV + rows))
+    assert ", check C-002 passed, check C-003 running since 09:20, check C-004 red; live eb928d2" in line, line
+    assert "zyxwo" not in line.lower() and "C-001" not in line
+    assert board.CHECKS_SHOWN == build.CHECKS_SHOWN and board._CHECK_ID.pattern == build.CHECK_ID_RE.pattern
+
+
 def test_the_vocabulary_of_the_line_covers_every_state_the_runner_writes():
     """SB4: the board cuts an unknown reason to its word, so each fixed phrase of the runner must be known here.
     Planted: a new state literal in awb/buildrun.py or a gate class the board does not know."""

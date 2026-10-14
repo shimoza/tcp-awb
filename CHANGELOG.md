@@ -7,6 +7,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- `awb build check REF` checks a branch from outside, a cloud pull request fetched into the working copy, as the
+  build user and never in the owner's shell (F2 threat model, gap G1). The runner fetches the commit into the
+  quarantine of `main.git` and runs its own checks on it: the commits after the merge base with `main` (at most
+  200, none above 16 MB), the gate with the register over every commit message and changed file, the whole suite
+  and the hollow-test check in the task's suite unit. It goes through the runner's lock, so it never runs beside a
+  task, starts no model session and never merges, pushes or deploys. The result is `runs/C-001/1/result.md` with
+  the new state `passed`; `awb build list`, `awb build status` and the board show it. `CLAUDE.md` names it as the
+  only way to test such a branch.
 - Ask runs on `claude-opus-5-5` by default. `AWB_ASK_EFFORT` (`low`, `medium`, `high`, `xhigh` or `max`, default `medium`) is sent as `output_config.effort` and a wrong value is refused when the service starts. `MAX_TOKENS` is 16000 (`AWB_ASK_MAX_TOKENS` changes it) because thinking counts against it; a stop at the limit gives a clear error instead of a cut answer. The answer shows text blocks only and thinking blocks go back to the API unchanged.
 - The project chat and the Ask API (`awb.tcp.web.chat_service`, the service behind `awb-ask` on this host) send the same `output_config.effort` and `AWB_ASK_MAX_TOKENS` cap as the Ask page, fail a turn that stops at the cap instead of saving a cut answer and refuse to start on a bad `AWB_ASK_EFFORT`. `awb write translate` sends the effort too.
 - The dataset TCP Facts installs in Claude Desktop with one click. Every build writes `tcp-facts-<date>.mcpb` (an MCP Bundle: a zip with `manifest.json`, the server and the data files of that build) beside the zip, and `awb dataset put --github` uploads it as a release asset. `README.md` of the build and the section "The dataset as an MCP server" start with the one-click install.

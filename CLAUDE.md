@@ -20,6 +20,11 @@ The instructions for a Claude Code session that works on this repository.
   fixes the README where it describes that part.
 - English. No em-dash. No comma before "and" or "or". Plain words.
 
+## The build queue
+
+- A branch from outside (a cloud pull request) is checked with `awb build check REF`, never with `pytest` in the
+  owner's shell.
+
 ## Commands
 
 ```bash

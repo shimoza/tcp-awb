@@ -11,7 +11,8 @@ status lags behind its commits or has no status line yet is marked, never update
 that. Codes only, every text after the data check. The HTML prints on A4 as it is, for a PDF from the browser.
 Both carry the line of the last wipe measurement of the refresh: "wipe: L leaks, M losses of N (date)", and the build
 line of the self-build from <shared>/build/state.tsv, which the build runner writes (awb/buildrun.py): "build: B-012
-done 14:02, B-013 running since 14:10; live eb928d2, main 1a2b3c4, 1 not deployed". Every cell of that file is
+done 14:02, B-013 running since 14:10, check C-001 passed; live eb928d2, main 1a2b3c4, 1 not deployed" (the three
+newest checks of a branch from outside, awb build check). Every cell of that file is
 matched against a fixed form or vocabulary before it reaches the line; anything else is dropped or cut to its word.
 A task unit that failed while no runner watched (the oneshot awb-task-failed@.service, SB5) adds "; no runner
 watched: B-012 failed 14:02 (timeout)" until the runner writes the file again.
@@ -227,10 +228,12 @@ def wipe_line(p) -> str:
 BUILD_TSV_MAX = 256 << 10
 DONE_SHOWN = 3
 _ID = re.compile(r"B-[0-9]{3,4}")                        # awb.build.ID_RE
+_CHECK_ID = re.compile(r"C-[0-9]{3,4}")                  # awb.build.CHECK_ID_RE
+CHECKS_SHOWN = 3                                         # awb.build.CHECKS_SHOWN
 _STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}):\d{2}")    # awb.build._STAMP
 _SHORT = re.compile(r"[0-9a-f]{7}")
 BUILD_WORDS = ("queued", "running", "green", "done", "asked", "answered", "widened", "interrupted", "stale", "hung",
-               "red", "stopped", "held")
+               "red", "stopped", "held", "passed")
 """The state words of awb.build.STATES; a reason after `word: ` shows only when it is in BUILD_REASONS."""
 GATE_CLASSES = ("name", "secret", "private-key", "token", "homepath", "blocklist", "identifier", "opaque",
                 "attribution")                          # awb.gate.CLASSES
@@ -253,7 +256,7 @@ QUEUE_HELD = ("vault locked", "no vault daemon", "key service not loaded", "no k
 UNIT_RESULTS = ("success", "exit-code", "signal", "core-dump", "timeout", "watchdog", "start-limit-hit", "resources",
                 "oom-kill", "protocol", "exec-condition", "start-failed", "unknown")
 """awb.buildrun.RESULTS and `unknown`: the result of a task unit that failed while no runner watched (SB5)."""
-_TASK_UNIT = re.compile(r"awb-task-(B-[0-9]{3,4}(?:-(?:prep|hand|suite))?)")    # awb.buildrun.UNIT_RE, the probe out
+_TASK_UNIT = re.compile(r"awb-task-([BC]-[0-9]{3,4}(?:-(?:prep|hand|suite))?)")    # awb.buildrun.UNIT_RE, the probe out
 
 
 def build_tsv(p) -> Path:
@@ -296,7 +299,7 @@ def build_state(p) -> dict | None:
     if text is None:
         return None
     out = {"queue": None, "tasks": [], "live": "unknown", "main": "unknown", "not_deployed": None, "behind": [],
-           "failed": []}
+           "failed": [], "checks": []}
     seen = set()
     for row in text.splitlines():
         cells = row.split("\t")
@@ -313,6 +316,15 @@ def build_state(p) -> dict | None:
             out["tasks"].append({"id": tid, "state": word, "since": since if m else "", "time": m.group(1) if m else "",
                                  "commit": commit if _SHORT.fullmatch(commit) else "",
                                  "mail_not_sent": mail == "not_sent"})
+        elif kind == "check" and len(cells) == 5:
+            cid, state, since, commit = cells[1:]
+            word = build_state_word(state)
+            m = _STAMP.fullmatch(since)
+            if not _CHECK_ID.fullmatch(cid) or cid in seen or word is None:
+                continue
+            seen.add(cid)
+            out["checks"].append({"id": cid, "state": word, "time": m.group(1) if m else "",
+                                  "commit": commit if _SHORT.fullmatch(commit) else ""})
         elif kind in ("live", "main") and len(cells) == 2 and _SHORT.fullmatch(cells[1]):
             out[kind] = cells[1]
         elif kind == "not_deployed" and len(cells) == 2 and cells[1].isdigit() and len(cells[1]) <= 4:
@@ -347,6 +359,11 @@ def build_line(p) -> str:
             parts.append("%s %s" % (t["id"], t["state"]))
     if len(done) > DONE_SHOWN:
         parts.append("%d more done" % (len(done) - DONE_SHOWN))
+    for c in data["checks"][-CHECKS_SHOWN:]:
+        if c["state"] == "running":
+            parts.append("check %s running since %s" % (c["id"], c["time"] or "unknown"))
+        else:
+            parts.append("check %s %s" % (c["id"], c["state"]))
     line = "build: " + (", ".join(parts) or "no task yet")
     nd = data["not_deployed"]
     line += "; live %s, main %s, %s not deployed" % (data["live"], data["main"], "unknown" if nd is None else nd)
