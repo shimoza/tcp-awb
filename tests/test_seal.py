@@ -1062,6 +1062,46 @@ def test_the_nightly_jobs_run_as_the_work_user_in_a_hardened_oneshot(name, famil
     assert "WantedBy=timers.target" in timer and "Persistent" not in timer
 
 
+def test_the_weekly_recheck_job_runs_the_read_tier_alone_as_the_work_user_and_is_installed_and_verified(fakebin):
+    """Fact-check F9. awb-kb-recheck.service runs awb kb recheck-run --tier read as the work user in the hardened
+    oneshot of the nightly jobs, unix sockets only, after the kb commit; its timer fires Sunday 02:30 UTC, at most 10
+    minutes late, no catch-up. setup.sh writes and enables both, verify.sh proves the timer enabled, the work user and
+    the read tier. Planted: a unit that names the write tier, a second ExecStart or another time fails."""
+    service = (WORK_JOBS / "awb-kb-recheck.service").read_text(encoding="utf-8")
+    keys = _service_keys(WORK_JOBS / "awb-kb-recheck.service")
+    assert keys["ExecStart"] == ["/usr/local/bin/awb kb recheck-run --tier read --tenant test-1"]
+    assert "write" not in "".join(line for line in service.splitlines() if not line.startswith("#"))
+    assert keys["Type"] == ["oneshot"] and keys["User"] == ["awb"] and keys["Group"] == ["awb"]
+    for key in ("NoNewPrivileges", "PrivateTmp", "PrivateDevices", "ProtectKernelTunables", "ProtectKernelModules",
+                "ProtectControlGroups", "RestrictSUIDSGID", "LockPersonality", "RestrictNamespaces"):
+        assert keys[key] == ["yes"], key
+    assert keys["ProtectSystem"] == ["strict"] and keys["ProtectHome"] == ["read-only"]
+    assert keys["ReadWritePaths"] == ["@WORK_HOME@"] and keys["CapabilityBoundingSet"] == [""]
+    assert keys["RestrictAddressFamilies"] == ["AF_UNIX"]
+    assert re.search(r"(?m)^After=.*\bawb-kb-commit\.service\b", service)
+    timer = (WORK_JOBS / "awb-kb-recheck.timer").read_text(encoding="utf-8").splitlines()
+    assert "OnCalendar=Sun *-*-* 02:30:00 UTC" in timer and "Persistent=false" in timer
+    assert "Unit=awb-kb-recheck.service" in timer and "WantedBy=timers.target" in timer
+    delay = [line.split("=", 1)[1] for line in timer if line.startswith("RandomizedDelaySec=")]
+    assert len(delay) == 1 and re.fullmatch(r"([1-9]|10)min", delay[0])
+    assert "awb-kb-recheck" in setup_value("WORK_JOBS").split()
+    res = run_script(SETUP, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    cmds = commands(res.stdout)
+    writes = [cmds.index("+ write /etc/systemd/system/awb-kb-recheck.%s (mode 644, root:root)" % k)
+              for k in ("service", "timer")]
+    assert max(writes) < cmds.index("+ systemctl enable --now awb-kb-recheck.timer")
+    body = dropin_lines(res.stdout, "/etc/systemd/system/awb-kb-recheck.service")
+    assert not [line for line in body if "@" in line]
+    assert "ExecStart=/usr/local/bin/awb kb recheck-run --tier read --tenant test-1" in body
+    res = run_script(VERIFY, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    checks = [line[6:] for line in res.stdout.splitlines() if line.startswith("CHECK ")]
+    for must in ("the timer awb-kb-recheck.timer is enabled", "awb-kb-recheck.service runs as the work user",
+                 "awb-kb-recheck.service runs awb kb recheck-run --tier read alone"):
+        assert must in checks, must
+
+
 def _persist_snippet(tmp: Path) -> str:
     lines = SETUP.read_text(encoding="utf-8").splitlines(keepends=True)
     start = next(i for i, x in enumerate(lines) if x.startswith("# ----") and "printing and the guard" in x)

@@ -1,0 +1,14 @@
+# The timer of awb-kb-recheck.service: Sunday 02:30 UTC (D1 of the fact-check design), at night because of the name
+# check budget, up to 10 minutes later at random. A missed run is not made up at boot. Installed and enabled by
+# seal/setup.sh.
+[Unit]
+Description=Architect Workbench weekly fact-check of the knowledge base, read tier, Sunday 02:30 UTC
+
+[Timer]
+OnCalendar=Sun *-*-* 02:30:00 UTC
+RandomizedDelaySec=10min
+Persistent=false
+Unit=awb-kb-recheck.service
+
+[Install]
+WantedBy=timers.target

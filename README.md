@@ -268,7 +268,7 @@ The full list, with every option and who runs what, is in `COMMANDS.md`.
 | finish a project | `awb close tcp-xxxx`, then `awb projects delete tcp-xxxx` | close waits for open items and live resources; delete removes the folder and keeps the code |
 | take a file | `awb inbox take the pdf` | the file you described, from either inbox, into the project |
 | look up a fact | `awb kb find "ecs flavor eu-nl"`, `awb kb show KB-XXXX` | ranked facts with grade, source and check date; `show` also prints how the fact is checked again (its check block) |
-| check facts again | `awb kb recheck-run --tier read --tenant test-1` (`--dry-run` first) | the expired entries whose check block a run can send, checked on the test tenant and written back: confirmed ones are fresh again, the rest stays expired and is listed in the run's RESULT.md |
+| check facts again | `awb kb recheck-run --tier read --tenant test-1` (`--dry-run` first); the read tier also runs by itself every Sunday at 02:30 UTC as the work user (`awb-kb-recheck.timer`) | the expired entries whose check block a run can send, checked on the test tenant and written back: confirmed ones are fresh again, the rest stays expired and is listed in the run's RESULT.md |
 | clean up after a check | nothing: `awb-kb-recheck-watch.timer` runs `awb kb recheck-watch` as you every 15 minutes | every resource of the service project whose expiry has passed is deleted and proven gone and its row in RESOURCES.md says so; one mail for a resource it cannot delete and one for each recheck run that ended |
 | offered or not | `awb service check dms rds` | the section and revision of the latest service description |
 | a price | `awb price find ecs --grep s3.large` | the live records with every term |

@@ -7,6 +7,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- The weekly read tier of the fact-check (design F9): `seal/work-jobs/awb-kb-recheck.service` and `.timer`, installed
+  and enabled by `seal/setup.sh` beside the nightly jobs of the work user and proven by `seal/verify.sh`, run
+  `awb kb recheck-run --tier read --tenant test-1` as the work user every Sunday at 02:30 UTC (up to 10 minutes later,
+  no catch-up at boot), unix sockets only and after `awb-kb-commit.service`. The write tier never runs from a timer.
+
 - `awb kb recheck-watch [--project CODE] [--tenant ALIAS]...` (fact-check design F5, `awb/tcp/recheckwatch.py`): the
   watchdog of the service project, run as the owner every 15 minutes by the root owned timer
   `awb-kb-recheck-watch.timer` that `seal/setup.sh` installs and `seal/verify.sh` proves enabled. It sweeps the

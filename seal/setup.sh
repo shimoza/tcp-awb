@@ -92,7 +92,7 @@ SSHD_DROPIN=/etc/ssh/sshd_config.d/awb-work-user.conf
 SSHD_MATCH="Match User"                  # the two sshd keywords of the drop-in; the tests take them from here
 SSHD_KEYS_FILE=AuthorizedKeysFile
 CRON_DENY=/etc/cron.deny
-WORK_JOBS="awb-work-update awb-kb-commit"   # seal/work-jobs/NAME.service and NAME.timer, the nightly jobs of the work user
+WORK_JOBS="awb-work-update awb-kb-commit awb-kb-recheck"   # seal/work-jobs/NAME.service and NAME.timer, the jobs of the work user
 KB_COMMIT=/usr/local/libexec/awb/nightly-kb-commit   # the root owned copy of seal/work-jobs/nightly-kb-commit
 KB_COMMIT_OLD=.local/bin/nightly-kb-commit           # where the crontab ran it, in the work home
 BUILD_PENDING=/opt/tcp-awb/BUILD-PENDING   # awb/deploy.py BUILD_PENDING: the build side a deploy left out
@@ -866,7 +866,8 @@ step_work_jobs() {
     local name kind kb_exec src="$seal_dir/work-jobs/nightly-kb-commit" line
     info "the nightly jobs of the work user (F2 G3): root owned timers that run them as the work user, at the times"
     info "of its crontab, 01:35 claude update (into .local/state/claude-update.log) and 01:40 the commit of the"
-    info "knowledge base. Then $CRON_DENY names the work user and its crontab goes, so a session cannot persist there"
+    info "knowledge base. Then $CRON_DENY names the work user and its crontab goes, so a session cannot persist there."
+    info "Beside them the weekly read tier of the fact-check, Sunday 02:30 UTC: awb kb recheck-run --tier read (F9)"
     if [ -f "$src" ]; then
         run install -d -o root -g root -m 755 "$(dirname "$KB_COMMIT")"
         run install -o root -g root -m 755 "$src" "$KB_COMMIT"

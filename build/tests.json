@@ -6768,8 +6768,15 @@
    "name": "kb recheck-watch: seal: setup installs the owner timer every 15 minutes, verify proves it enabled",
    "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_setup_installs_the_owner_timer_and_verify_proves_it_enabled",
    "status": "passing"
+  },
+  {
+   "id": "fk-recheck-job-F9-1",
+   "phase": "FK9",
+   "name": "kb recheck job: the weekly read tier as the work user, Sunday 02:30 UTC, installed by setup and proven by verify",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_weekly_recheck_job_runs_the_read_tier_alone_as_the_work_user_and_is_installed_and_verified",
+   "status": "passing"
   }
  ],
- "total_tests": 967,
+ "total_tests": 968,
  "checked": "2026-10-15"
 }
