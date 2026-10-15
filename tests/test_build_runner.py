@@ -24,9 +24,18 @@ import pytest
 from awb import build, buildrun
 
 
+@pytest.fixture(scope="module")
+def seeded(tmp_path_factory):
+    """One world for the module that no task runs in: its seed and bare repositories are built once and every test
+    gets a copy of its own (F1 section 5: 144 worlds each ran git init, add, commit and two pushes)."""
+    w = buildrun.World(tmp_path_factory.mktemp("seeded") / "w")
+    yield w
+    w.close()
+
+
 @pytest.fixture
-def world(tmp_path):
-    w = buildrun.World(tmp_path / "w")
+def world(tmp_path, seeded):
+    w = buildrun.World(tmp_path / "w", like=seeded)
     yield w
     w.close()
 

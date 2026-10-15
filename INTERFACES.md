@@ -397,7 +397,8 @@ register) -> "pushed" | "pending" | "refused"`. `Runner(host)` with `serve()`, `
 `judge_and_merge` (`onto_main(ctx)` first: when `main` moved since `ctx.start`, check 4 on the branch as the session
 left it, then `rebase(ctx, main, when)` before the checks, `-> "rebased" | "conflict" | "failed"`; a conflict there
 is `red: rebase conflict`, one after a green round stays `stale`), `publish`, `finish`. What he reads: `write_result`, `write_state_tsv`, `deployed_info`. The
-selftest: `World(base, python)`, `SELFTEST_CASES`, `SELFTEST_REQUIRED` (a case missing from the cases fails the
+selftest: `World(base, python, quiet=True, like=None)` (`like`: a world no task ran in, copied in place of a new
+seed), `SELFTEST_CASES`, `SELFTEST_REQUIRED` (a case missing from the cases fails the
 selftest), `selftest(only=None, python=None) -> list[str]`, `acquire_lock`, `snapshot_prompt`. F2 G1, a branch from
 outside: `check_main(ref, host=None)` (`awb build check REF`, exit 0 `passed`, 1 another end, 2 refused),
 `resolve_ref(host, ref)` (in `host.working`, else the current folder; `REF_RE`, no range), `fetch_ref(host, ctx,
@@ -966,7 +967,8 @@ Recorded here so that the next builder works against them. Each module keeps `ma
   `describe()` and no truth value, `MISSING`, `dig(obj, *path, default=MISSING)`, `JobStopped(done)`,
   `Job(name, state_dir, budget=, out=, clock=)` with `say`, `elapsed`, `remaining`, `is_done`, `done_count`, `mark`,
   `step(key, fn, cost=0)`, `finish`, `retry(fn, attempts=3, delay=2.0, job=None, retry_on=(Exception,),
-  sleep=None)`.
+  sleep=None)`, `pause(seconds)` (every real wait of a job: retry without its own `sleep` and the Retry-After of the
+  cloud client; the suite disarms it).
 - `awb/sign.py` (neutral): `ALGORITHM = "SDK-HMAC-SHA256"`, `canonical_uri(path)`, `canonical_query(query)`,
   `string_to_sign(method, url, headers, body, date)`, `sign(method, url, headers, body, ak, sk, now=None) -> headers`.
 - `awb/tcp/` holds the modules of one platform; no module outside it imports it (T-88, tested).

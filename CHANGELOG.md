@@ -163,6 +163,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The suite faster and less fragile (B-023, step 5 of the F1 plan): a test without a Workbench of its own gets a
+  shared side, a vault, a knowledge base and throttle stamps of its own, no longer one set for the whole run. Run as
+  root, the tests that need a user skip instead of failing: the dry runs of `seal/setup.sh` and `seal/verify.sh`,
+  the code step of the seal and the root path of `awb deploy`. Every wait of a job goes through `jobs.pause`, the
+  Retry-After of a busy gateway in the cloud client too, and the suite disarms it there. The runner tests copy one
+  seeded world per module and the seal's code step one layout per run instead of building them for every test.
+
 - One Ask engine (B-022, step 4 of the F1 plan): the model loop is written once, as `chat_service.engine`, and the
   project chat, `POST /api/ask`, the chat service's form page, the Ask page of a bare `awb-ask.service` and
   `awb ask QUESTION` all run it. Every door keeps its words, its answers and its source of names. `awb ask` and

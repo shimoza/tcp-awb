@@ -26,6 +26,7 @@ from pathlib import Path
 import pytest
 
 from awb import config, deploy
+from tests.conftest import not_as_root
 
 REPO = Path(__file__).resolve().parent.parent
 USER = getpass.getuser()
@@ -425,6 +426,7 @@ def no_getpass(monkeypatch):
 # --------------------------------------------------------------------------- dry run and validation
 
 
+@not_as_root
 def test_dry_run_runs_nothing_and_asks_nothing(world, no_getpass, capsys):
     """Planted: the fake runner records any systemctl, setup.sh or tar call and the fake getpass any prompt."""
     world.runner.plan = world.plan(actions={"awb-vaultd.service": "restart", "awb-ask.service": "restart"},
@@ -442,6 +444,7 @@ def test_dry_run_runs_nothing_and_asks_nothing(world, no_getpass, capsys):
     assert "awb projects sync   # as %s, rules/work.md changed" % WORK in out
 
 
+@not_as_root
 def test_the_plan_is_validated_against_allowlists(world, capsys):
     """Planted: a unit name outside the template set, an action outside the fixed set or a commit id of 39
     characters: exit 2 before any root step."""
@@ -514,6 +517,7 @@ def root_path_problems(source: str) -> list[str]:
     return out
 
 
+@not_as_root
 def test_the_root_path_never_prompts(world, no_getpass, capsys):
     """Planted: an `import getpass` or a module level `awb.vault` import in the root path fails the ast check; a
     fake getpass with geteuid 0 records zero calls over a full run; unlock runs only as a child that dropped root."""
@@ -546,6 +550,7 @@ def test_the_root_path_never_prompts(world, no_getpass, capsys):
 DROP_KEYS = {"HOME", "USER", "LOGNAME", "SHELL", "PATH", "XDG_RUNTIME_DIR", "LANG", "TERM", "GPG_TTY"}
 
 
+@not_as_root
 def test_the_drop_to_the_owner_is_complete(world, capsys):
     """Planted: a call without extra_groups, with a PYTHON* or AWB_* variable or with root's HOME fails."""
     world.runner.plan = world.plan(actions={"awb-vaultd.service": "restart", "awb-ask.service": "restart"},
@@ -588,6 +593,7 @@ def test_the_drop_for_real_with_the_own_uid(tmp_path):
 # --------------------------------------------------------------------------- refusals before anything runs
 
 
+@not_as_root
 def test_a_dirty_tree_is_refused_with_exit_2_and_nothing_runs(tmp_path, capsys):
     """Planted: a tree with one unstaged change; the plan must refuse before any other call."""
     repo = tmp_path / "repo"
@@ -619,6 +625,7 @@ def test_the_work_user_is_refused(world, monkeypatch, capsys):
     assert "the work user cannot deploy" in capsys.readouterr().err
 
 
+@not_as_root
 def test_the_entry_checks_refuse_a_wrong_caller(world, tmp_path, capsys):
     """Planted: with geteuid returning 0 so the battery reaches each check: no SUDO_USER, root, the work user, a
     folder not owned by the owner, a real path outside the owner's home, a module outside /opt/tcp-awb, a held
@@ -685,6 +692,7 @@ def test_the_lock_dies_with_its_holder(tmp_path):
 # --------------------------------------------------------------------------- the run and its journal
 
 
+@not_as_root
 def test_a_full_run_writes_the_journal_extracts_and_restarts(world, capsys):
     """Planted: a run that restarts a unit the plan left unchanged, or leaves the journal running, fails."""
     world.runner.plan = world.plan(actions={"awb-ask.service": "restart"})
@@ -709,6 +717,7 @@ def test_a_full_run_writes_the_journal_extracts_and_restarts(world, capsys):
     assert "target=%s" % world.c1 in log and "result=ok" in log
 
 
+@not_as_root
 def test_a_restarted_active_socket_passes_the_final_check(world, capsys):
     """2026-10-07: three active web sockets were marked failed because NRestarts, which a socket unit does not
     have, was compared with a stored "0"."""
@@ -720,6 +729,7 @@ def test_a_restarted_active_socket_passes_the_final_check(world, capsys):
     assert "after the restart" not in capsys.readouterr().out
 
 
+@not_as_root
 def test_an_interrupted_run_leaves_its_units_pending(world, tmp_path, capsys):
     """Planted: the runner flips the symlink and raises KeyboardInterrupt at step 7; the next plan must list the
     units as pending from an interrupted run (a plan built from the symlink and the old journal prints unchanged);
@@ -796,6 +806,7 @@ def plan_host(world: World, repo: Path, daemons=None, show=None) -> deploy.Host:
                        daemons=daemons or (lambda: {"vault": {"state": "unlocked"}, "keys": {"state": "unlocked"}}))
 
 
+@not_as_root
 def test_a_unit_that_does_not_come_back_is_reported_and_pending(world, capsys):
     """Planted: is-active answers failed, or the MainPID keeps changing: exit 1, the unit named, the journal lists
     it pending; the next run restarts it without a new commit."""
@@ -831,6 +842,7 @@ def test_a_unit_that_does_not_come_back_is_reported_and_pending(world, capsys):
     assert json.loads((world.root / "DEPLOYED").read_text())["pending"] == []
 
 
+@not_as_root
 def test_a_reload_that_failed_but_switched_is_not_flipped_back(world, capsys):
     """Planted: systemctl reload exits 1 while the MainPID changed: recorded reloaded, no flip back; unchanged: the
     flip back, the previous units reinstalled, exit 1."""
@@ -864,6 +876,7 @@ def test_a_reload_that_failed_but_switched_is_not_flipped_back(world, capsys):
     assert ["systemctl", "restart", "awb-vaultd.service"] not in w2.runner.systemctl()
 
 
+@not_as_root
 def test_a_partial_hand_over_is_named(world, capsys):
     """Planted: the vault reload answers ok with a release, the keys reload fails: exit 1, the journal carries
     both, the status line names both releases and the next command."""
@@ -931,6 +944,7 @@ def test_the_archive_is_extracted_into_a_partial_folder(world, tmp_path):
     deploy.check_archive(good)
 
 
+@not_as_root
 def test_a_release_a_daemon_reports_is_kept(world, capsys):
     """Planted: the retention with a stand-in daemon that reports an old release; without the rule that folder is
     removed and the test fails."""
@@ -949,6 +963,7 @@ def test_a_release_a_daemon_reports_is_kept(world, capsys):
     assert sorted(removed) == sorted([old, pre])
 
 
+@not_as_root
 def test_rollback_deploys_the_previous_release(world, tmp_path, capsys):
     """Planted: --rollback with two releases diffs backwards and the install names the older release; a target
     without --takeover restarts the daemons (with it, they reload); with one release: exit 2."""
@@ -995,6 +1010,7 @@ def test_rollback_deploys_the_previous_release(world, tmp_path, capsys):
         deploy.owner_plan(deploy.Options(rollback=True), repo, host)
 
 
+@not_as_root
 def test_projects_sync_runs_as_the_work_user_only_when_rules_changed(world, tmp_path, capsys):
     """Planted: rules/work.md in the diff gives one call as the work user; awb/vault.py alone gives none."""
     repo = tmp_path / "sync"
@@ -1112,6 +1128,7 @@ def test_the_status_lines_name_three_states_and_the_split():
     assert lines[1] == "keys: t1, t2"
 
 
+@not_as_root
 def test_deploy_decides_reload_or_restart_before_systemctl(world, tmp_path, capsys):
     """T2, design 3.2. The plan decides from the running daemons' ops, the target tree, a changed unit template and
     --restart; the root run then calls systemctl with exactly that verb. Planted: a daemon whose status has no ops
@@ -1186,6 +1203,7 @@ def test_deploy_decides_reload_or_restart_before_systemctl(world, tmp_path, caps
         assert not w.runner.named("deploy", "unlock")
 
 
+@not_as_root
 def test_a_socket_activated_service_restarted_alone_is_not_waited_for(world, tmp_path, capsys):
     """2026-10-09, planted from the deploy of 62004d7: only the code of awb-owner-actions.service changed, its
     socket did not restart, and the service stays inactive until the gateway's first call. The deploy waited for
@@ -1221,6 +1239,7 @@ def front_closed(path, mode):
     return not (path == os.path.dirname(FRONT) or path.startswith(os.path.dirname(FRONT) + "/"))
 
 
+@not_as_root
 def test_the_front_socket_is_probed_through_the_status_socket(world, tmp_path, monkeypatch, capsys):
     """2026-10-09: since T9 step 1 the front socket is root:cloudflared 0660 in a 0750 folder, the status child runs
     as the owner and cannot connect, so every deploy ended in "awb-web.socket gave no answer" and exit 1 although
@@ -1316,6 +1335,7 @@ def test_the_next_line_of_a_daemon_only_when_its_code_changed():
     assert deploy.status_lines(j, status, {})[0] == "vault: unlocked, 2 codes, release bbbbbbb"
 
 
+@not_as_root
 def test_the_plan_records_whether_a_daemon_code_changed_since_its_release(world, tmp_path, capsys):
     """The plan diffs the release each daemon reports against the target and records per daemon unit whether a
     file of its closure changed; root keeps it in the journal and the status reads it. Planted: a change of the
@@ -1427,6 +1447,7 @@ def test_a_build_runner_restart_waits_for_its_task(world, tmp_path):
     assert calls and all(c[-2:] == ["--", "awb-task-*"] for c in calls)
 
 
+@not_as_root
 def test_the_root_run_leaves_restart_wanted_for_a_deferred_runner(world, tmp_path, capsys):
     """SB1 item 2: a plan with build_restart_wanted makes the root run write <build_root>/runs/restart-wanted (the
     target, mode 600) and restart nothing of the runner; a plan without it writes nothing; a value that is not a
@@ -1620,6 +1641,7 @@ def test_rollback_and_to_still_pass_a_non_descendant(tw):
     assert tw.plan(to=tw.c0)["target"] == tw.c0
 
 
+@not_as_root
 def test_the_root_run_hands_task_to_the_owner_child(world, capsys):
     """SB4: --task reaches the plan child (with --dry-run on a dry run, so it fetches only); --task, --to and
     --rollback exclude each other. Planted: a plan child without --task; a run with two of them."""
@@ -1667,6 +1689,7 @@ def test_the_task_record_reads_as_the_build_module_reads_it(tmp_path):
 TASK = "awb-task-B-012.service"
 
 
+@not_as_root
 def test_a_deploy_while_a_task_unit_runs_leaves_the_build_side_out_and_pending(world, tmp_path, capsys):
     """Automation review A1: two task runs ended "Not logged in" after a deploy rewrote the home template every task
     unit binds. Planted: a plan that lists an active task unit; setup.sh must get --no-build, BUILD-PENDING must name
@@ -1723,6 +1746,7 @@ def test_a_deploy_while_a_task_unit_runs_leaves_the_build_side_out_and_pending(w
     assert "the build side of release %s is pending" % world.c1[:7] in notes
 
 
+@not_as_root
 def test_the_plan_lists_the_active_task_units_and_the_dry_run_names_the_hold(world, tmp_path, capsys):
     """Planted: an active task unit, a listing that fails and none; the dry run of a plan with a task prints
     --no-build and the pending file, with --wait-build the wait first and no listing of its own."""
@@ -1745,6 +1769,7 @@ def test_the_plan_lists_the_active_task_units_and_the_dry_run_names_the_hold(wor
     assert [c for c, _ in w.runner.calls] == [[BIN, "deploy", "plan", "--json"]]
 
 
+@not_as_root
 def test_wait_build_waits_for_the_task_and_times_out(world, tmp_path, capsys):
     """--wait-build: the root run lists the task units every WAIT_BUILD_POLL seconds before the journal is written.
     Planted: a task that ends after three listings (the full update runs, nothing pending, exit 0) and one that

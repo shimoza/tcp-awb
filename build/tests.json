@@ -7034,8 +7034,29 @@
    "name": "ask: the model loop is written once, in chat_service.engine, and ask.py has none",
    "run": ".venv/bin/pytest tests/test_ask.py::test_the_model_loop_is_written_once",
    "status": "passing"
+  },
+  {
+   "id": "B-023-1",
+   "phase": "B-023",
+   "name": "jobs: retry without its own sleep waits through jobs.pause and the suite disarms it",
+   "run": ".venv/bin/pytest tests/test_jobs.py::test_retry_without_its_own_sleep_waits_through_pause_and_the_suite_never_waits",
+   "status": "passing"
+  },
+  {
+   "id": "B-023-2",
+   "phase": "B-023",
+   "name": "cloud: the Retry-After of a busy gateway is waited through jobs.pause, never a sleep of the client's own",
+   "run": ".venv/bin/pytest tests/test_cloud.py::test_the_retry_after_of_a_busy_gateway_is_waited_through_jobs_pause",
+   "status": "passing"
+  },
+  {
+   "id": "B-023-3",
+   "phase": "B-023",
+   "name": "suite: each test has its own shared side, vault, knowledge base and throttle stamps; nothing one test left reaches the next",
+   "run": ".venv/bin/pytest tests/test_vault_guard.py::test_each_test_has_its_own_shared_side_vault_kb_and_throttle_stamps",
+   "status": "passing"
   }
  ],
- "total_tests": 1005,
+ "total_tests": 1008,
  "checked": "2026-10-15"
 }

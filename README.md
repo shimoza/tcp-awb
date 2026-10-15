@@ -219,8 +219,12 @@ test fails after 120 seconds (pytest-timeout) instead of hanging, also when it b
 (`tests/timeouts.py`); a test that never comes back to Python ends the run with the stacks of every thread 30 seconds
 later.
 
-The suite is quick where it can be: the stand-in servers shut down at once; the retry waits of the fetch code are not
-waited out and the self-test of the intake runs once for an untouched engine. A few tests must stay long and carry
+The suite is quick where it can be: the stand-in servers shut down at once; the waits of a job (`jobs.pause`: the
+retry waits of the fetch code and the Retry-After of a busy gateway) are not waited out; the self-test of the intake
+runs once for an untouched engine; the runner tests copy one seeded world per module. Each test gets a shared side, a
+vault, a knowledge base and throttle stamps of its own, so nothing one test leaves there reaches the next. Run as
+root (a container), the tests that need a user skip: the seal scripts refuse their test-only variables as root and
+`awb deploy` refuses root as the owner. A few tests must stay long and carry
 the marker `long` with the reason on the test; `.venv/bin/pytest -m "not long"` leaves them out for a quick look in a
 working loop, the full run and every build run them. Running with pytest-xdist (`-n 2`) is not set up: some tests
 rely on the timing of real daemons and failed under the load of a second worker.

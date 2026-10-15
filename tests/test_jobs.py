@@ -141,3 +141,24 @@ def test_retry_lets_other_errors_through_at_once():
     with pytest.raises(KeyError):
         jobs.retry(broken, attempts=3, retry_on=(TimeoutError,), sleep=lambda s: None)
     assert len(calls) == 1
+
+
+def test_retry_without_its_own_sleep_waits_through_pause_and_the_suite_never_waits(monkeypatch):
+    """F1 section 5: every wait of a job goes through `jobs.pause`, which the suite disarms (tests/conftest.py).
+    Planted: a retry that calls time.sleep itself, or a pause the suite left armed (30 s here)."""
+    import time
+
+    started = time.monotonic()
+    jobs.pause(30)
+    assert time.monotonic() - started < 5
+    waits, calls = [], []
+    monkeypatch.setattr(jobs, "pause", waits.append)
+
+    def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise TimeoutError("slow")
+        return "ok"
+
+    assert jobs.retry(flaky, attempts=3, delay=1.0) == "ok"
+    assert waits == [1.0, 2.0]

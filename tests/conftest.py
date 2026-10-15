@@ -121,27 +121,28 @@ def _quick_serve_forever(self, poll_interval=0.01):
 socketserver.BaseServer.serve_forever = _quick_serve_forever
 
 
-def _no_retry_wait_hook():
+def _no_job_wait_hook():
     """`jobs.retry` waits 2, 4 ... seconds between its tries and a stand-in server that is not there (the dead
-    address of this file) was waited out in real time: a test of a refused fetch took 6 s. The waiting goes, the tries
-    stay: the same calls are made in the same order. Not touched: a caller that passes its own `sleep` and a test
-    that replaced `time.sleep` to see the waits (it then gets them as before)."""
+    address of this file) was waited out in real time: a test of a refused fetch took 6 s. The cloud client slept the
+    Retry-After of a busy gateway for real, up to 30 s (F1 section 5). Both wait through `jobs.pause`, which is
+    disarmed here. The waiting goes, the tries stay: the same calls are made in the same order. Not touched: a caller
+    of `retry` that passes its own `sleep` and a test that replaced `time.sleep` to see the waits (it then gets them
+    as before)."""
     import time
 
     from awb import jobs
 
-    real_retry, real_sleep = jobs.retry, time.sleep
+    real_pause, real_sleep = jobs.pause, time.sleep
 
-    def retry(fn, **kw):
-        if kw.get("sleep") is None and time.sleep is real_sleep:
-            kw["sleep"] = lambda seconds: None
-        return real_retry(fn, **kw)
+    def pause(seconds):
+        if time.sleep is not real_sleep:
+            time.sleep(seconds)
 
-    retry.__wrapped__ = real_retry
-    jobs.retry = retry
+    pause.__wrapped__ = real_pause
+    jobs.pause = pause
 
 
-_no_retry_wait_hook()
+_no_job_wait_hook()
 
 
 def _engine_state() -> tuple:
@@ -209,6 +210,20 @@ that needs a hook process answering is skipped there."""
 
 not_as_build_user = pytest.mark.skipif(AS_BUILD_USER, reason="the suite runs as the build user: the test takes the "
                                                              "user who runs it for the owner of the host")
+
+AS_ROOT = os.geteuid() == 0
+"""True when the suite runs as root, as in a cloud container (F1 section 5): the seal scripts refuse their test-only
+variables as root and `awb deploy` refuses root as the owner, so a test that needs either skips there instead of
+failing. The owner's runs and the build's run as a user and skip nothing."""
+
+not_as_root = pytest.mark.skipif(AS_ROOT, reason="runs as root: awb deploy refuses root as the owner and runs the "
+                                                 "owner's steps never as root")
+
+
+def skip_as_root(why: str) -> None:
+    """Skip the running test with `why` when the suite runs as root; nothing otherwise."""
+    if AS_ROOT:
+        pytest.skip("runs as root: %s" % why)
 
 
 def _real_vault_places() -> tuple[tuple[str, ...], frozenset[str]]:
@@ -402,20 +417,23 @@ def invented_blocklist(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(gate, "BLOCKLIST_FILES", (none / "blocklist.txt", none / "home-blocklist.txt"))
     monkeypatch.setenv("AWB_BLOCKLIST", str(BLOCKLIST))
     # no test writes to the real shared side or the real throttle stamps: a test that builds no Workbench of its
-    # own still gets a throw-away shared folder (the call log of the cloud client wrote to the owner's home once)
-    monkeypatch.setenv("AWB_SHARED", str(none / "shared"))
+    # own still gets a throw-away shared folder (the call log of the cloud client wrote to the owner's home once).
+    # The shared side, the vault, the knowledge base and the throttle stamps are a folder of each test's own, not
+    # one of the run (F1 section 5): a stamp or a file one test left is never read by the next.
+    own = Path(tempfile.mkdtemp(prefix="test-", dir=none))
+    monkeypatch.setenv("AWB_SHARED", str(own / "shared"))
     # never the real key service of the host: a test that wants one starts its own
     monkeypatch.setenv("AWB_KEYS_SOCKET", str(none / "cloud.sock"))
     monkeypatch.setenv("AWB_KEYS_CONF", str(none / "keys.conf"))
-    monkeypatch.setenv("AWB_THROTTLE_DIR", str(none / "throttle"))
+    monkeypatch.setenv("AWB_THROTTLE_DIR", str(own / "throttle"))
     monkeypatch.setattr(config, "HOST_CONF", str(none / "paths.conf"))
     monkeypatch.setattr(hooks, "HOST_FILE", none / "paths.conf")
     # nothing of the host a run could share with another run (two runs waited on each other for hours on
     # 2026-10-09): not the vault, check and key sockets of the host's own services, not the owner's vault,
     # knowledge base and mirrors, not the network. Each run has its own base folder, so these names are unique per
     # run; a test that wants one of them sets its own.
-    monkeypatch.setenv("AWB_VAULT", str(none / "vault"))
-    monkeypatch.setenv("AWB_KB", str(none / "kb"))
+    monkeypatch.setenv("AWB_VAULT", str(own / "vault"))
+    monkeypatch.setenv("AWB_KB", str(own / "kb"))
     monkeypatch.setenv("AWB_PROJECTS", str(none / "projects"))
     monkeypatch.setenv("AWB_CONF", str(none / "paths.conf"))
     monkeypatch.setenv("AWB_CHECK_SOCKET", str(none / "check.sock"))

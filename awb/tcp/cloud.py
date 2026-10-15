@@ -180,7 +180,7 @@ class Client:
                     # the gateway may name its own wait: take it before the next try, within the job's budget
                     hint = throttle.retry_after(exc.headers.get("Retry-After") if exc.headers else None)
                     if hint and tries["n"] < 3 and (self.job is None or self.job.remaining() > hint):
-                        time.sleep(hint)
+                        jobs.pause(hint)
                     raise _Transient(r)
                 return r
             except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError) as exc:

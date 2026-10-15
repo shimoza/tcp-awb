@@ -12,6 +12,7 @@ contradicted it; a direct index into an answer killed a job halfway.
   synced), refuses to start a step when the budget is spent (JobStopped) and skips a recorded step on the next
   run: the same command, run again, resumes where it stopped.
 - `retry` never sleeps past the budget of its job.
+- Every wait of a job goes through `pause`: the retry waits and the Retry-After of a busy gateway (awb/tcp/cloud.py).
 - `dig` reads a nested answer without raising: a missing part is MISSING, never an exception halfway through.
 """
 from __future__ import annotations
@@ -197,6 +198,12 @@ class Job:
                 pass
 
 
+def pause(seconds: float) -> None:
+    """The one place a job waits for real: `retry` between its tries (unless the caller passes its own `sleep`) and
+    the cloud client on the Retry-After of a busy gateway. The tests disarm it here (tests/conftest.py)."""
+    time.sleep(seconds)
+
+
 def retry(fn: Callable[[], Any], *, attempts: int = 3, delay: float = 2.0, job: Job | None = None,
           retry_on: tuple = (Exception,), sleep: Callable[[float], None] | None = None) -> Any:
     """`fn()`, again after `delay`, 2 x `delay`, ... on the exceptions of `retry_on`, at most `attempts` times. With a
@@ -212,6 +219,6 @@ def retry(fn: Callable[[], Any], *, attempts: int = 3, delay: float = 2.0, job: 
             wait = delay * (2 ** n)
             if job is not None and job.remaining() <= wait:
                 raise
-            (sleep or time.sleep)(wait)
+            (sleep or pause)(wait)
     raise AssertionError("unreachable")
 

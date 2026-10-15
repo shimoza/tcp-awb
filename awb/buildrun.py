@@ -3797,34 +3797,40 @@ class World:
 
     IDENTITY = ("awb selftest", "selftest@localhost")
 
-    def __init__(self, base: Path, python: str | None = None, quiet: bool = True):
+    def __init__(self, base: Path, python: str | None = None, quiet: bool = True, like: "World | None" = None):
+        """`like`: a world no task ran in, whose folders are copied in place of a new seed (git init, add, commit and
+        two bare repositories): the tests make one per module and copy it for every test (F1 section 5)."""
         from awb import gate, register
 
         self.base = Path(base)
         b = self.base
         self.root = b / "root"
-        for d in ("wt", "home", "home-template/.claude"):
-            (self.root / d).mkdir(parents=True)
-        t = self.root / "home-template"
-        (t / ".claude" / "settings.json").write_text("{}\n", encoding="utf-8")
-        (t / ".claude" / "CLAUDE.md").write_text("# build rules\n", encoding="utf-8")
-        (t / ".gitconfig").write_text("[user]\n\tname = %s\n\temail = %s\n" % self.IDENTITY, encoding="utf-8")
         self.queue = b / "queue"
-        self.queue.mkdir()
         self.runs = b / "runs"
         self.board = b / "board"
-        self.board.mkdir()
         self.register = b / "register.tsv"
-        register.save(self.register, [register.Entry(gate._SELFTEST_CODE, "ORG", gate._SELFTEST_FORM, "2026-09-22",
-                                                     "active")])
         agent = b / "agent.py"
-        agent.write_text("FORM = %r\n" % gate._SELFTEST_FORM + _AGENT, encoding="utf-8")
+        self.hooks = b / "no-hooks"
+        self.origin = b / "origin.git"
+        if like is not None:
+            shutil.copytree(like.base, b, symlinks=True)
+            self.seed = b / "seed"
+        else:
+            for d in ("wt", "home", "home-template/.claude"):
+                (self.root / d).mkdir(parents=True)
+            t = self.root / "home-template"
+            (t / ".claude" / "settings.json").write_text("{}\n", encoding="utf-8")
+            (t / ".claude" / "CLAUDE.md").write_text("# build rules\n", encoding="utf-8")
+            (t / ".gitconfig").write_text("[user]\n\tname = %s\n\temail = %s\n" % self.IDENTITY, encoding="utf-8")
+            self.queue.mkdir()
+            self.board.mkdir()
+            register.save(self.register, [register.Entry(gate._SELFTEST_CODE, "ORG", gate._SELFTEST_FORM,
+                                                         "2026-09-22", "active")])
+            agent.write_text("FORM = %r\n" % gate._SELFTEST_FORM + _AGENT, encoding="utf-8")
+            self.hooks.mkdir()
+            self._seed()
         self.mails: list[tuple[str, str]] = []
         self.units = LocalUnits({CLIENT: [sys.executable, "-I", str(agent)]})
-        self.hooks = b / "no-hooks"
-        self.hooks.mkdir()
-        self.origin = b / "origin.git"
-        self._seed()
         self.host = Host(root=self.root, runs=self.runs, queue=self.queue, units=self.units, board=self.board,
                          deployed=b / "DEPLOYED", model_key=None, register=self.register, build_uid=os.geteuid(),
                          minute=1.0, poll=0.0, tick=0.02, suite_seconds=300, push=True, push_url=str(self.origin),

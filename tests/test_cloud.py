@@ -382,3 +382,34 @@ def test_an_answer_is_read_up_to_its_bound_and_marked_cut(monkeypatch):
     monkeypatch.setattr(cloud.urllib.request, "urlopen", refused)
     r = cloud.Client(obs.Keys(AK, SK)).request("GET", "obs", "/tcp-ab2c-lab-1/big.bin")
     assert r.status == 403 and r.data is None and r.cut
+
+
+def test_the_retry_after_of_a_busy_gateway_is_waited_through_jobs_pause(monkeypatch):
+    """F1 section 5: the Retry-After of a 429 was a time.sleep of the client's own, up to 30 s for real in the
+    suite. It goes through `jobs.pause` now, as the retry wait after it does. No server: a stand-in urlopen answers
+    429 with Retry-After 7, then 200. Planted: a client that sleeps by itself records no 7."""
+    import email.message
+    import io
+    import urllib.error
+
+    from awb.tcp import throttle
+
+    monkeypatch.setattr(throttle, "log_call", lambda *a, **k: None)
+    monkeypatch.setattr(throttle, "wait_turn", lambda host: 0.0)
+    waits, sent = [], []
+    monkeypatch.setattr(jobs, "pause", waits.append)
+
+    def busy_once(req, timeout=None):
+        sent.append(req.full_url)
+        if len(sent) == 1:
+            headers = email.message.Message()
+            headers["Retry-After"] = "7"
+            raise urllib.error.HTTPError(req.full_url, 429, "busy", headers, io.BytesIO(b"{}"))
+        answer = _Endless()
+        answer.read = lambda n=-1: b'{"servers": []}'
+        return answer
+
+    monkeypatch.setattr(cloud.urllib.request, "urlopen", busy_once)
+    r = cloud.Client(obs.Keys(AK, SK)).get("ecs", "/v1/servers")
+    assert r.status == 200 and r.data == {"servers": []}
+    assert len(sent) == 2 and waits == [7.0, 2.0]

@@ -137,3 +137,35 @@ def test_the_guard_refuses_the_network_and_lets_loopback_pass():
         sock.close()
     assert socket.getaddrinfo("localhost", 9) and socket.getaddrinfo(None, 9)
     assert conftest._VAULT_GUARD["hits"] == []
+
+
+def test_each_test_has_its_own_shared_side_vault_kb_and_throttle_stamps(tmp_path):
+    """F1 section 5: the four roots were one folder for the whole run, so a throttle stamp or a file of the shared
+    side one test left was read by the next. Planted: the first of two tests writes into each root; the second finds
+    other folders with nothing in them."""
+    body = """
+import os
+from pathlib import Path
+
+ROOTS = ("AWB_SHARED", "AWB_VAULT", "AWB_KB", "AWB_THROTTLE_DIR")
+SEEN = {}
+
+
+def test_first():
+    for name in ROOTS:
+        root = Path(os.environ[name])
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "left-by-the-first").write_text("x", encoding="utf-8")
+        SEEN[name] = root
+
+
+def test_second():
+    assert len(SEEN) == len(ROOTS)
+    for name in ROOTS:
+        root = Path(os.environ[name])
+        assert root != SEEN[name], name
+        assert not (root / "left-by-the-first").exists(), name
+"""
+    done = _inner_run(tmp_path, body, {})
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert done.stdout.split()[0] == "..", done.stdout

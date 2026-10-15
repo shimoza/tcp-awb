@@ -25,7 +25,7 @@ import pytest
 
 from awb import config, gate, hooks, seal
 from tests import fixtures
-from tests.conftest import not_as_build_user
+from tests.conftest import not_as_build_user, skip_as_root
 
 REPO = Path(__file__).resolve().parent.parent
 SEAL = REPO / "seal"
@@ -64,6 +64,8 @@ def run_script(script: Path, args: list[str], fakebin, sudo_user: str | None = U
     the host the suite runs on, which may carry the build user and its venv (D-SB1-11)."""
     if build_host is None:
         build_host = "fresh" if "--dry-run" in args else ""
+    if "--dry-run" in args:
+        skip_as_root("a dry run here reads AWB_SETUP_CONF or AWB_VERIFY_CONF, which the scripts refuse as root")
     folder, _ = fakebin
     env = {k: v for k, v in os.environ.items()
            if k not in ("SUDO_USER", "AWB_SETUP_BUILD_HOST", "AWB_SETUP_CONF", "AWB_VERIFY_CONF")}
@@ -734,16 +736,19 @@ def _git(repo, *args):
                           env=env).stdout.strip()
 
 
-def _layout(tmp: Path) -> tuple[Path, Path, dict]:
-    """A repository with the seal and the package, an install root with the plain folder of before T1 (with a marker)
-    and the files of an editable install, and the environment of the test-only override."""
-    repo = tmp / "repo"
+@pytest.fixture(scope="session")
+def layout_seed(tmp_path_factory) -> Path:
+    """A repository with the seal and the package in one commit and an install root with the plain folder of before
+    T1 (with a marker) and the files of an editable install, made once for the run: every layout copied awb/ twice
+    and ran git init, add and commit (F1 section 5). `_layout` copies it; nothing writes here."""
+    seed = tmp_path_factory.mktemp("layout-seed")
+    repo = seed / "repo"
     shutil.copytree(SEAL, repo / "seal", ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(REPO / "awb", repo / "awb", ignore=shutil.ignore_patterns("__pycache__"))
     _git(repo, "init", "-q")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "--no-verify", "-m", "one")
-    opt = tmp / "opt"
+    opt = seed / "opt"
     shutil.copytree(REPO / "awb", opt / "src" / "awb", ignore=shutil.ignore_patterns("__pycache__"))
     (opt / "src" / "MARK").write_text("the plain folder\n")
     (opt / "venv" / "bin").mkdir(parents=True)
@@ -752,6 +757,16 @@ def _layout(tmp: Path) -> tuple[Path, Path, dict]:
     (site / "tcp_awb-0.1.0.dist-info").mkdir(parents=True)
     (site / "__editable__.tcp_awb-0.1.0.pth").write_text("import __editable___tcp_awb_0_1_0_finder\n")
     (site / "__editable___tcp_awb_0_1_0_finder.py").write_text("")
+    return seed
+
+
+def _layout(tmp: Path, seed: Path) -> tuple[Path, Path, dict]:
+    """A copy of its own of the layout seed (the repository and the install root) and the environment of the
+    test-only override."""
+    skip_as_root("the scripts refuse AWB_SETUP_OPT and AWB_SETUP_BIN as root")
+    repo, opt = tmp / "repo", tmp / "opt"
+    shutil.copytree(seed / "repo", repo, symlinks=True)
+    shutil.copytree(seed / "opt", opt, symlinks=True)
     (tmp / "bin").mkdir()
     env = {k: v for k, v in os.environ.items() if k not in ("SUDO_USER",)}
     env.update(SUDO_USER=USER, AWB_SETUP_OPT=str(opt), AWB_SETUP_BIN=str(tmp / "bin" / "awb"),
@@ -795,13 +810,13 @@ def _first_case_problems(res, opt: Path) -> list[str]:
     return out
 
 
-def test_setup_update_code_step_for_real(tmp_path):
+def test_setup_update_code_step_for_real(tmp_path, layout_seed):
     """Under the test-only override: the plain src with a marker becomes a symlink into releases/<commit> and
     releases/pre-deploy holds the marker; the .pth holds one line; a second run with a new commit keeps two releases
     and flips while a second process imports awb through the layout every few milliseconds; a fake git that exits 1
     leaves src untouched. Planted: the migration swapped with the flip, or mv in place of the exchange, fails the
     first case."""
-    repo, opt, env = _layout(tmp_path)
+    repo, opt, env = _layout(tmp_path, layout_seed)
     c1 = _git(repo, "rev-parse", "HEAD")
     run1 = lambda: subprocess.run(["bash", str(repo / "seal" / "setup.sh")], capture_output=True, text=True,  # noqa
                                   env=env, timeout=120)
@@ -850,7 +865,7 @@ def test_setup_update_code_step_for_real(tmp_path):
     }
     for name, mutated in mutations.items():
         assert mutated != text, name
-        r, o, e = _layout(tmp_path / name)
+        r, o, e = _layout(tmp_path / name, layout_seed)
         (r / "seal" / "setup.sh").write_text(mutated, encoding="utf-8")
         res = subprocess.run(["bash", str(r / "seal" / "setup.sh")], capture_output=True, text=True, env=e,
                              timeout=120)
