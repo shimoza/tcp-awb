@@ -9,9 +9,11 @@ Parts, in this order:
   --no-update); a new revision of the service description marks every contract entry for a re-check.
 - prices: a snapshot of every region, unless there is one of today, and every value changed since the one before.
 - knowledge: the expired entries of the knowledge base, each with the way it can be checked again, which follows
-  from its grade and scope. They go to worklist.jsonl; the expiry classes decide what is re-checked, nothing is
-  re-read that has not expired. Every question file in <kb>/bench/ is run (awb kb bench), so each report carries
-  the retrieval numbers.
+  from its grade and scope, with the tier of its check block ("no block" without one) and the block itself. An entry
+  whose block a recheck run takes (tier read or write, needs none) names `awb kb recheck-run` and is that run's
+  work; every other expired entry, first of all one without a block, counts as overdue. They go to worklist.jsonl;
+  the expiry classes decide what is re-checked, nothing is re-read that has not expired. Every question file in
+  <kb>/bench/ is run (awb kb bench), so each report carries the retrieval numbers.
 - wipe: the red-team pack of wipe mode (calibration/redteam/wipe/) through the installed intake, rules and lists,
   the same intake.run as awb import, on the pack's invented texts only and in throw-away Workbenches. The pack's
   selfcheck runs first: when its planted leak comes out clean, nothing is recorded and the part ends in an error.
@@ -142,8 +144,21 @@ def part_prices(p: config.Paths, *, today: datetime.date, job: jobs.Job) -> Part
 # --------------------------------------------------------------------------- knowledge
 
 
+def tier_of(e: kb.Entry) -> str:
+    """The tier of the entry's check block (read, write, decision, none) or "no block"."""
+    return e.block.get("tier", "no block") if e.check else "no block"
+
+
+def by_run(e: kb.Entry) -> bool:
+    """True when awb kb recheck-run takes the entry: a block of the tier read or write that needs nothing."""
+    return tier_of(e) in ("read", "write") and e.block.get("needs", "none") == "none"
+
+
 def method_for(e: kb.Entry) -> str:
-    """How an expired entry can be checked again, from its scope, grade and tags."""
+    """How an expired entry can be checked again: by its check block when a recheck run takes it, else from its
+    scope, grade and tags."""
+    if by_run(e):
+        return "awb kb recheck-run --tier %s (its check block)" % tier_of(e)
     if e.scope != "tcp":
         return "%s: not from this host" % e.scope
     if "pricing" in e.tags:
@@ -166,7 +181,7 @@ def worklist(entries: list[kb.Entry], today: datetime.date) -> list[dict]:
             continue
         out.append({"id": e.id, "scope": e.scope, "grade": e.grade, "class": e.cls, "tags": list(e.tags),
                     "checked": e.checked, "expires": e.expires, "source": e.source, "tried": list(e.tried),
-                    "statement": e.statement, "method": method_for(e)})
+                    "statement": e.statement, "method": method_for(e), "tier": tier_of(e), "block": e.block})
     return sorted(out, key=lambda w: (w["checked"], w["id"]))
 
 
@@ -178,9 +193,18 @@ def part_knowledge(p: config.Paths, out_dir: Path, *, today: datetime.date) -> P
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "worklist.jsonl").write_text("".join(json.dumps(w, ensure_ascii=False) + "\n" for w in work),
                                             encoding="utf-8")
-    part.overdue = len(work)
+    # an expired entry a recheck run takes (a read or write block) is that run's work; every other one, first of all
+    # one without a block, is overdue here
+    by_tier: dict[str, int] = {}
+    for w in work:
+        by_tier[w["tier"]] = by_tier.get(w["tier"], 0) + 1
+    taken = sum(1 for w in work if w["tier"] in ("read", "write") and w["block"].get("needs", "none") == "none")
+    part.overdue = len(work) - taken
     part.lines.append("%d of %d active entries expired; worklist: %s" % (len(work), len(active),
                                                                        out_dir / "worklist.jsonl"))
+    part.lines.append("by check block: %s; %d without a block, %d overdue, %d for awb kb recheck-run"
+                      % (", ".join("%s %d" % kv for kv in sorted(by_tier.items())) or "none expired",
+                         by_tier.get("no block", 0), part.overdue, taken))
     by_method: dict[str, int] = {}
     for w in work:
         by_method[w["method"]] = by_method.get(w["method"], 0) + 1

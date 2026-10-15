@@ -7,6 +7,25 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- The refresh worklist carries the check block (fact-check design F8): every line of `worklist.jsonl` has `tier`
+  (read, write, decision, none or `no block`) and `block`. An expired entry whose block a recheck run takes (read or
+  write, needs none) names `awb kb recheck-run` and is that run's work; every other one, first of all one without a
+  block, counts as overdue in the knowledge part, whose report adds a line with the count by tier.
+
+- The board carries the recheck line (fact-check design F6): from `<shared>/recheck/state.tsv`, the newest run of each
+  tier of `awb kb recheck-run` with its counts, the inventory of a write run and the entries for the owner
+  (`recheck: read 2026-10-18 12 confirmed, 1 refuted, 3 undecided; write 2026-11-02 4 confirmed, inventory equal; 9
+  for the owner`). A line whose date, tier or counts do not match is skipped, an exit or inventory cell outside the
+  vocabulary is dropped.
+
+- `awb kb recheck-run [--tier read|write] [--id KB-XXXX]... [--project CODE] [--tenant ALIAS] [--dry-run]` (fact-check
+  design F4, `awb/tcp/recheck.py`): the expired entries with a check block of the tier, checked one at a time in the
+  service project through the key service. A read tier sends its `GET` calls and reads confirms, refutes and control
+  as tests `[N:]PATH is|is not|has|lacks VALUE`; a write tier runs its recipe as a lab run capped at 30 minutes, with
+  the inventory of the sweep before and after. Confirmed is `kb recheck`, an event gets a line with the state of the
+  day through `kb amend`, refuted and undecided stay expired (D2). Evidence in `evidence/recheck-<date>-<n>/`, one
+  line per run in `<shared>/recheck/state.tsv`. Exit 4 for a resource left live or an inventory that differs.
+
 - Named sources and id-set digests of the sweep (fact-check design F3): `sweep.NAMED_SOURCES` lists WAF policies,
   SMN topics and subscriptions and RDS instances (no tags the sweep reads) and finds the Workbench's own
   by the project code in their name (a subscription by the name of its topic). `sweep.inventory` gives per type the

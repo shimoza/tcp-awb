@@ -308,3 +308,43 @@ def test_a_task_unit_that_failed_unwatched_reaches_the_line_and_free_text_does_n
     for name in ("awb-task-B-012", "awb-task-B-0123-prep", "awb-task-B-012-hand", "awb-task-B-012-suite"):
         assert board._TASK_UNIT.fullmatch(name) and buildrun.UNIT_RE.fullmatch(name)
     assert not board._TASK_UNIT.fullmatch("awb-task-probe") and buildrun.UNIT_RE.fullmatch("awb-task-probe")
+
+
+# --------------------------------------------------------------------------- the recheck line (fact-check F6)
+
+RECHECK_TSV = ("2026-10-11\tread\t2\t0\t1\t7\t0\tnone\n"
+               "2026-10-18\tread\t12\t1\t3\t9\t0\tnone\n"
+               "2026-11-02\twrite\t4\t0\t0\t9\t0\tequal\n")
+
+
+def recheck_shared(tmp_path, text: str | None):
+    import types
+
+    if text is not None:
+        (tmp_path / "recheck").mkdir(exist_ok=True)
+        (tmp_path / "recheck" / "state.tsv").write_text(text, encoding="utf-8")
+    return types.SimpleNamespace(shared=tmp_path)
+
+
+def test_the_recheck_line_carries_the_counts_of_the_newest_run_of_each_tier(tmp_path):
+    assert board.recheck_line(recheck_shared(tmp_path, RECHECK_TSV)) == (
+        "recheck: read 2026-10-18 12 confirmed, 1 refuted, 3 undecided; write 2026-11-02 4 confirmed, inventory "
+        "equal; 9 for the owner")
+    later = RECHECK_TSV + "2026-12-07\twrite\t0\t0\t1\t5\t4\tdiffers\n"
+    assert board.recheck_line(recheck_shared(tmp_path, later)).endswith(
+        "write 2026-12-07 1 undecided, inventory differs, exit 4; 5 for the owner")
+    assert board.recheck_line(recheck_shared(tmp_path / "none", None)) == "recheck: no run yet"
+    board_data = {"generated_at": "2026-10-18T10:00:00+00:00", "projects": [], "recheck": "recheck: no run yet",
+                  "summary": {"projects": 0, "current": 0, "lagging": 0, "without_status": 0}}
+    assert "recheck: no run yet" in board.markdown(board_data) and "recheck: no run yet" in board.page(board_data)
+
+
+def test_a_cell_outside_the_vocabulary_of_the_recheck_line_is_dropped(tmp_path):
+    planted = ("2026-10-19\tread\t5\t0\t0\t9\t0\tnone\n"
+               "2026-10-20\tread\tmany\t0\t0\t9\t0\tnone\n"
+               "2026-10-21\tdecision\t1\t0\t0\t9\t0\tnone\n"
+               "someday\twrite\t1\t0\t0\t9\t0\tequal\n"
+               "2026-10-22\twrite\t3\t0\t0\t9\tcrashed\tKB-Q7M4 left\n"
+               "2026-10-23\tread\t1\t0\t0\n")
+    line = board.recheck_line(recheck_shared(tmp_path, planted))
+    assert line == "recheck: read 2026-10-19 5 confirmed; write 2026-10-22 3 confirmed; 9 for the owner"

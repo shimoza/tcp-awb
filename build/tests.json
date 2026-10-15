@@ -6551,8 +6551,141 @@
    "name": "start: refused inside an assistant session and for a bad customer",
    "run": ".venv/bin/pytest tests/test_start.py::test_start_is_refused_inside_an_assistant_session_and_for_a_bad_customer",
    "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-1",
+   "phase": "FK4",
+   "name": "kb recheck-run: a confirmed read tier rechecks the entry, no block and for the owner are listed",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_a_confirmed_read_tier_rechecks_the_entry_and_the_rest_is_listed",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-2",
+   "phase": "FK4",
+   "name": "kb recheck-run: a refuted read tier leaves the entry expired",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_a_refuted_read_tier_leaves_the_entry_expired_with_the_answers",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-3",
+   "phase": "FK4",
+   "name": "kb recheck-run: a control that does not hold or a 5xx is undecided and writes nothing",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_an_undecided_read_tier_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-4",
+   "phase": "FK4",
+   "name": "kb recheck-run: a prose line is not a test and stays undecided",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_a_prose_line_is_not_a_test_and_stays_undecided",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-5",
+   "phase": "FK4",
+   "name": "kb recheck-run: an event is amended with the state of the day",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_an_event_is_amended_with_the_state_of_the_day",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-6",
+   "phase": "FK4",
+   "name": "kb recheck-run: an event keeps at most three state lines",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_an_event_keeps_at_most_three_state_lines",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-7",
+   "phase": "FK4",
+   "name": "kb recheck-run: a confirmed write tier runs the recipe with an equal inventory",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_a_confirmed_write_tier_runs_the_recipe_with_an_equal_inventory",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-8",
+   "phase": "FK4",
+   "name": "kb recheck-run: a refuted write tier leaves the entry expired",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_a_refuted_write_tier_leaves_the_entry_expired",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-9",
+   "phase": "FK4",
+   "name": "kb recheck-run: a failed control check of a recipe is undecided",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_a_failed_control_check_is_undecided_and_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-10",
+   "phase": "FK4",
+   "name": "kb recheck-run: an unequal inventory skips the write-back and exits 4",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_an_unequal_inventory_skips_the_write_back_and_exits_4",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-11",
+   "phase": "FK4",
+   "name": "kb recheck-run: a resource left live exits 4 and skips every further entry",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_a_resource_left_live_skips_every_further_entry",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-12",
+   "phase": "FK4",
+   "name": "kb recheck-run: an unreadable inventory stops a write run before any create",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_an_unreadable_inventory_stops_the_write_run_before_any_create",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-13",
+   "phase": "FK4",
+   "name": "kb recheck-run: the dry run makes no call and prints the recipe",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_the_dry_run_makes_no_call_and_prints_the_recipe",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-14",
+   "phase": "FK4",
+   "name": "kb recheck-run: an id not expired is listed, an unknown id refused",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_an_id_that_is_not_expired_is_listed_and_an_unknown_id_refused",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-15",
+   "phase": "FK4",
+   "name": "kb recheck-run: awb kb recheck-run reaches the run, a run needs a tenant",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_the_command_reaches_the_run_and_a_run_needs_a_tenant",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F4-16",
+   "phase": "FK4",
+   "name": "kb recheck-run: the inventory reads every source the key service can send",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_the_inventory_reads_every_source_the_key_service_can_send",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F6-1",
+   "phase": "FK6",
+   "name": "board: the recheck line carries the counts of the newest run of each tier",
+   "run": ".venv/bin/pytest tests/test_board.py::test_the_recheck_line_carries_the_counts_of_the_newest_run_of_each_tier",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F6-2",
+   "phase": "FK6",
+   "name": "board: a cell outside the vocabulary of the recheck line is dropped",
+   "run": ".venv/bin/pytest tests/test_board.py::test_a_cell_outside_the_vocabulary_of_the_recheck_line_is_dropped",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-run-F8-1",
+   "phase": "FK8",
+   "name": "refresh: the worklist carries the tier and the block, an expired entry without a block is overdue",
+   "run": ".venv/bin/pytest tests/test_refresh.py::test_the_worklist_carries_the_tier_and_the_block_and_an_entry_without_one_is_overdue",
+   "status": "passing"
   }
  ],
- "total_tests": 936,
+ "total_tests": 955,
  "checked": "2026-10-14"
 }
