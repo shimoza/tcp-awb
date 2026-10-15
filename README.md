@@ -106,7 +106,9 @@ The console reaches the same Ask through a JSON API on the main host: `POST /api
 answers the text, the fact ids it names, the prices it used and the questions left today; `GET /api/ask/budget`
 returns the questions left. It shares the daily budget and the name check with the Ask page. A refusal says why:
 `name` (a registered name: write the code), `budget` (used up until 00:00 UTC), `busy` or `error`. The contract is
-`docs/api/openapi.yaml`.
+`docs/api/openapi.yaml`. The project chat, the Ask API, the Ask page and `awb ask QUESTION` in the terminal run one
+engine: the same model loop, the same budget (an unreadable usage record refuses) and the same check of the tool
+answers and the answer.
 Every door that sends or shows a text runs the same screen (`check.screen`): the Ask question, the project chat, the
 working copy of an imported material, the project read API and the owner status. It looks for registered names,
 structured data, secrets, tokens, private keys and home paths, also behind base64 and hex. The project read API

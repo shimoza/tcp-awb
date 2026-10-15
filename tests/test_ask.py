@@ -173,3 +173,92 @@ def test_thinking_blocks_are_kept_in_the_history_and_never_in_the_answer(facts):
     res = ask.ask("Which node flavors does the cluster service offer?", facts, key="k", sender=api)
     assert res["answer"] == "Done." and "REASONING" not in res["answer"]
     assert bodies[1]["messages"][1]["content"][0] == thinking
+
+
+# --------------------------------------------------------------------------- one engine (B-022, F1 step 4)
+
+
+def test_the_page_and_the_ask_api_send_the_model_the_same_request(facts, tmp_path, monkeypatch):
+    """B-022: `awb ask`, the Ask page and POST /api/ask run the one engine (chat_service.engine): a general question
+    sends the same model, effort, cap, system prompt, tools and messages through either door and gets the same
+    answer and the same tools."""
+    from awb import vault
+    from awb.tcp.web import chat_service
+
+    monkeypatch.setattr(vault, "ping", lambda *a, **k: "unlocked")
+    monkeypatch.setattr(vault, "check_remote", lambda *a, **k: [])
+    page, api = Api(), Api()
+    res = ask.ask("Which node flavors does the cluster service offer?", facts, key="k", sender=page)
+    status, body = chat_service.Conversations(tmp_path / "chat.sqlite3", facts, sender=api).ask_json(
+        "Which node flavors does the cluster service offer?")
+    assert status == 200 and body["answer"] == res["answer"] and body["tools"] == res["tools"] == ["kb_find"]
+    assert len(page.bodies) == 2 and page.bodies == api.bodies
+
+
+def test_the_cli_ask_fails_closed_on_an_unreadable_usage_record(facts):
+    """B-022: the budget reader of the web Ask: an unreadable usage record refuses before anything is sent."""
+    ask.USAGE_FILE.write_text("{broken", encoding="utf-8")
+    api = Api()
+    with pytest.raises(ask.AskError, match="usage record"):
+        ask.ask("Which node flavors does the cluster service offer?", facts, key="k", sender=api)
+    assert api.bodies == []
+
+
+def test_every_round_reserves_its_tokens_and_a_reply_without_usage_keeps_the_reservation(facts):
+    seen = []
+
+    def api(body, key):
+        seen.append(ask.budget_left()[1])
+        return {"stop_reason": "end_turn", "usage": {"input_tokens": 10, "output_tokens": 5},
+                "content": [{"type": "text", "text": "Done."}]}
+
+    assert ask.ask("Which node flavors does the cluster service offer?", facts, key="k", sender=api)["tokens"] == 15
+    assert seen[0] <= ask.DAILY_TOKENS - 16000 and ask.budget_left()[1] == ask.DAILY_TOKENS - 15
+    res = ask.ask("Which node flavors does the cluster service offer?", facts, key="k",
+                  sender=lambda body, key: {"stop_reason": "end_turn", "content": [{"type": "text", "text": "Done."}]})
+    assert res["answer"] == "Done." and res["tokens"] == 0
+    assert ask.budget_left()[1] <= ask.DAILY_TOKENS - 15 - 16000
+
+
+def test_a_tool_answer_with_a_registered_name_never_reaches_the_model(facts, monkeypatch):
+    """B-022: the tool answers pass the screen of the engine; a hit is withheld and the loop goes on."""
+    import json
+
+    name = fixtures.CUSTOMER_FORMS[0]
+    monkeypatch.setattr(ask, "run_tool", lambda p, tool, args: json.dumps([{"id": "KB-AAAA", "fact": name + " runs it."}]))
+    bodies = []
+
+    def api(body, key):
+        bodies.append(json.dumps(body))
+        if len(bodies) == 1:
+            return {"stop_reason": "tool_use", "usage": {"input_tokens": 10, "output_tokens": 5}, "content": [
+                {"type": "tool_use", "id": "toolu_1", "name": "kb_find", "input": {"query": "node flavors"}}]}
+        return {"stop_reason": "end_turn", "usage": {"input_tokens": 10, "output_tokens": 5},
+                "content": [{"type": "text", "text": "No checked fact covers this question."}]}
+
+    res = ask.ask("Which node flavors does the cluster service offer?", facts, key="k", sender=api)
+    assert res["answer"] == "No checked fact covers this question." and res["tools"] == ["kb_find"]
+    assert name not in bodies[1] and "withheld by the data check" in bodies[1]
+
+
+def test_an_answer_or_a_tool_request_with_a_registered_name_stops(facts, monkeypatch):
+    name = fixtures.CUSTOMER_FORMS[0]
+    with pytest.raises(ask.AskError) as err:
+        ask.ask("Which node flavors does the cluster service offer?", facts, key="k",
+                sender=_reply("end_turn", [{"type": "text", "text": name + " runs three node flavors."}]))
+    assert name not in str(err.value)
+    ran = []
+    monkeypatch.setattr(ask, "run_tool", lambda *a: ran.append(a) or "[]")
+    with pytest.raises(ask.AskError):
+        ask.ask("Which node flavors does the cluster service offer?", facts, key="k", sender=_reply(
+            "tool_use", [{"type": "tool_use", "id": "t", "name": "kb_find", "input": {"query": name}}]))
+    assert ran == []
+
+
+def test_the_model_loop_is_written_once():
+    from pathlib import Path
+
+    from awb.tcp.web import chat_service
+
+    assert "stop_reason" not in Path(ask.__file__).read_text(encoding="utf-8")
+    assert Path(chat_service.__file__).read_text(encoding="utf-8").count("stop_reason") == 3

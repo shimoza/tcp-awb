@@ -8,12 +8,13 @@ runs on the test tenants (`tenant_now`). The system prompt tells it to answer fr
 the entry of every fact (KB-XXXX) and the time of every price, and to say so when no checked fact answers the
 question. It never guesses a price.
 
-Before a question leaves the machine it goes through the name check (`check.check_text`, through the vault daemon
-on a sealed host): a registered name or structured data stops it, the way the prompt hook stops a prompt. The API
-key is read from KEY_FILE, which only the service user can read: the work user's sessions never see it. A daily
-budget of questions and tokens (USAGE_FILE, counted from the usage every answer reports) stops the page before the
-credit runs out. The page answers GET (the form) and POST (a question, only from its own origin); it logs no
-question.
+Before a question leaves the machine it goes through the name check (`check.screen`, through the vault daemon on a
+sealed host): a registered name, structured data or a secret stops it, the way the prompt hook stops a prompt. The
+model loop is the one Ask engine of the project chat (`chat_service.engine`): the tool requests, the tool answers
+and the answer pass the same check. The API key is read from KEY_FILE, which only the service user can read: the
+work user's sessions never see it. A daily budget of questions and tokens (USAGE_FILE, counted from the usage every
+answer reports, an unreadable file refuses) stops the page before the credit runs out. The page answers GET (the
+form) and POST (a question, only from its own origin); it logs no question.
 
 Runtime code is the standard library: the Messages API is called over HTTPS with urllib.
 """
@@ -223,7 +224,11 @@ def screen(question: str, p: config.Paths) -> None:
 
 
 def ask(question: str, p: config.Paths | None = None, key: str | None = None, sender=None) -> dict:
-    """{"answer": text, "tools": [names used], "tokens": n}. Raises AskError."""
+    """{"answer": text, "tools": [names used], "tokens": n}. Raises AskError. The model loop is the one Ask engine of
+    the project chat (chat_service.engine) with the names of check.checker; the stops keep the words of this page."""
+    from awb import check
+    from awb.tcp.web import chat_service as chat
+
     p = p or config.paths()
     question = (question or "").strip()
     if not question:
@@ -232,49 +237,28 @@ def ask(question: str, p: config.Paths | None = None, key: str | None = None, se
         raise AskError("the question is longer than %d characters" % MAX_QUESTION)
     check_settings()
     screen(question, p)
-    left_q, left_t = budget_left()
-    if left_q <= 0 or left_t <= 0:
-        raise AskError("the daily budget of the Ask page is used up; it resets at midnight")
     if sender is None:          # the real API needs the key; a stand-in (tests) does not
         key, sender = key or read_key(), post
-    messages: list[dict] = [{"role": "user", "content": question}]
-    used: list[str] = []
-    tokens = 0
-    from awb.tcp import services
-    system = SYSTEM + "\n\n" + services.prompt_lines()
+    words = {chat.BUDGET_SPENT: "the daily budget of the Ask page is used up; it resets at midnight",
+             chat.SHORT_BUDGET: "the daily budget of the Ask page is used up; it resets at midnight",
+             chat.DECLINED: "the model declined this question",
+             chat.CUT_ANSWER: "the answer did not fit in the token limit (thinking counts against it): "
+                              "ask a narrower question or raise AWB_ASK_MAX_TOKENS",
+             chat.TOOL_LIMIT: "no answer after %d tool rounds" % MAX_ROUNDS}
     try:
-        for _ in range(MAX_ROUNDS):
-            resp = sender({"model": MODEL, "max_tokens": _max_tokens(), "output_config": {"effort": _effort()},
-                           "system": system, "tools": TOOLS, "messages": messages}, key)
-            usage = resp.get("usage") or {}
-            tokens += int(usage.get("input_tokens", 0)) + int(usage.get("output_tokens", 0))
-            content = resp.get("content") or []
-            stop = resp.get("stop_reason")
-            if stop == "refusal":
-                raise AskError("the model declined this question")
-            if stop == "max_tokens":
-                raise AskError("the answer did not fit in the token limit (thinking counts against it): "
-                               "ask a narrower question or raise AWB_ASK_MAX_TOKENS")
-            if stop != "tool_use":
-                text = "\n\n".join(b.get("text", "") for b in content if b.get("type") == "text").strip()
-                note = services.note_for(text)          # a service the service description does not offer
-                return {"answer": (text + "\n\n" + note if note else text) or "(no answer)", "tools": used,
-                        "tokens": tokens}
-            messages.append({"role": "assistant", "content": content})
-            results = []
-            for b in content:
-                if b.get("type") != "tool_use":
-                    continue
-                used.append(b.get("name", "?"))
-                try:
-                    out = run_tool(p, b.get("name", ""), b.get("input") or {})
-                except Exception as err:     # a tool that fails answers with its error class, never a value
-                    out = json.dumps({"error": type(err).__name__})
-                results.append({"type": "tool_result", "tool_use_id": b.get("id"), "content": out[:60_000]})
-            messages.append({"role": "user", "content": results})
-        raise AskError("no answer after %d tool rounds" % MAX_ROUNDS)
-    finally:
-        spend(tokens, questions=1)
+        names = check.checker(p.register)
+    except Exception:
+        raise AskError("the name check did not run, so the question was not sent") from None
+    turn = chat.Turn()
+    try:
+        chat.reserve_question()
+        answer = chat.engine(p, [{"role": "user", "content": question}], sender, key, names=names, turn=turn,
+                             usage_required=False)
+    except chat.ChatError as err:
+        if str(err) != chat.EMPTY_ANSWER:
+            raise AskError(words.get(str(err), str(err))) from None
+        answer = "(no answer)"
+    return {"answer": answer, "tools": turn.used, "tokens": turn.tokens}
 
 
 # --------------------------------------------------------------------------- the page

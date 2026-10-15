@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
 from http.server import ThreadingHTTPServer
-from awb import check, codes, config, vault, normalize, kb
+from awb import check, codes, config, register, vault, normalize, kb
 from awb.tcp import ask, services
 
 CODE = re.compile(codes.TCP_PROJECT_WIDE)
@@ -42,6 +42,8 @@ BUDGET_SPENT = 'The daily Ask budget is used up. It resets at 00:00 UTC.'
 SHORT_BUDGET = 'Not enough daily token budget remains for this answer.'
 DECLINED = 'The model declined this question.'
 CUT_ANSWER = 'The answer did not fit in the token limit. Ask a narrower question.'
+TOOL_LIMIT = 'The answer reached its tool limit. Ask a narrower question.'
+EMPTY_ANSWER = 'The model returned an empty answer.'
 CITED_PRICES = 50
 """Price records kept for one answer of the Ask API."""
 
@@ -189,18 +191,21 @@ def fetch_project(code, port=8182):
         raise ChatError('Project context could not be loaded. Nothing was sent.') from None
 
 
-def screen(text, paths, numeric_price=False):
+def screen(text, paths, numeric_price=False, names=None):
+    """The normalised text, or ChatError: 422 for a hit, 503 when the check cannot run. `names` is where the names
+    come from; None (the chat and the Ask API) is the check socket only, `awb ask` passes check.checker."""
     text = normalize.normalize(text).text
     try:
-        if vault.ping(paths.check_socket) == 'locked':
-            raise ChatError('The data check is locked. Nothing was sent.')
+        if names is None:
+            if vault.ping(paths.check_socket) == 'locked':
+                raise ChatError('The data check is locked. Nothing was sent.')
+            # The names go to the check socket only; the secret detectors never load the register.
+            names = check.RemoteCheck(paths.check_socket)
         # The existing public price tool returns decimal rates and timestamps that
         # can resemble phone numbers. This exception applies only to that tool's
         # response, never user input, project files, history or model answers.
-        # The names go to the check socket only; the secret detectors never load the register.
-        found = check.screen(text, check.RemoteCheck(paths.check_socket),
-                             allow=('phone',) if numeric_price else ()).found
-    except (check.CheckUnavailable, vault.VaultError, OSError):
+        found = check.screen(text, names, allow=('phone',) if numeric_price else ()).found
+    except (check.CheckUnavailable, register.RegisterError, vault.VaultError, OSError):
         raise ChatError('The data check is unavailable. Nothing was sent.') from None
     if found:
         raise ChatError(NAME_FOUND, 422)
@@ -232,6 +237,131 @@ def snapshot(project):
         out['status_note'] = ('STATE.md is older than %d later commit(s) of this project: say that the recorded '
                               'status may be out of date.' % status['behind'])
     return out
+
+
+def budget():
+    """The questions and tokens left today. The web service fails closed: an unreadable or malformed usage record
+    refuses every new question (ask.budget_left alone reads it as empty)."""
+    try:
+        usage = json.loads(ask.USAGE_FILE.read_text()) if ask.USAGE_FILE.exists() else {}
+        if not isinstance(usage, dict):
+            raise ValueError()
+        for entry in usage.values():
+            if not isinstance(entry, dict) or any(not isinstance(entry.get(k, 0), int) or entry.get(k, 0) < 0 for k in ('questions', 'tokens')):
+                raise ValueError()
+    except (OSError, ValueError):
+        raise ChatError('The usage record is unavailable. No new questions can be sent.') from None
+    q, t = ask.budget_left()
+    return {'questions_left': max(0, q), 'tokens_left': max(0, t),
+            'daily_questions': ask.DAILY_QUESTIONS, 'daily_tokens': ask.DAILY_TOKENS, 'resets': '00:00 UTC'}
+
+
+def reserve_question():
+    """Count one question before a model request, or refuse when the day has no question or too few tokens left."""
+    left = budget()
+    if left['questions_left'] < 1 or left['tokens_left'] < 4096:
+        raise ChatError(BUDGET_SPENT, 429)
+    ask.spend(0, questions=1)
+
+
+class Turn:
+    """What one answer of the engine used, also when it stopped early: the tokens the model reported, the tools in
+    the order called and the fact ids and price records the tools handed over."""
+
+    def __init__(self):
+        self.tokens = 0
+        self.used = []
+        self.facts = set()
+        self.prices = []
+
+
+def system_prompt(context=None):
+    """The system prompt: the Ask prompt and the service list, for a project conversation also the snapshot."""
+    system = (SYSTEM if context else ask.SYSTEM) + '\n\n' + services.prompt_lines()
+    if context:
+        if context.get('inputs'):
+            system += INPUTS_NOTE
+        system += '\n\nPROJECT SNAPSHOT (source data):\n' + json.dumps(context, ensure_ascii=False)
+    return system
+
+
+def engine(paths, messages, sender, key, context=None, inputs=None, tool_runner=None, names=None, turn=None,
+           usage_required=True):
+    """The one Ask engine: the model loop of the project chat, the Ask API, the chat's form page, the Ask page of a
+    bare awb-ask.service and `awb ask QUESTION`. Returns the screened answer with the service note; raises
+    ChatError, or AskError from the settings, the key or `sender`. Before every round it reserves the request's
+    size in the daily tokens (fail closed) and settles it with the usage the model reports. The model's tool
+    requests, every tool answer and the answer pass `screen` with `names`; a tool answer with a hit is withheld.
+    With `usage_required` off (`awb ask`) a reply without a usage record keeps its reservation instead of failing."""
+    turn = Turn() if turn is None else turn
+    tool_runner = tool_runner or ask.run_tool
+    tools = ask.TOOLS + [INPUT_TOOL] if inputs else ask.TOOLS
+    system = system_prompt(context)
+    for _ in range(ask.MAX_ROUNDS):
+        cap = ask._max_tokens()
+        body = {'model': ask.MODEL, 'max_tokens': cap, 'output_config': {'effort': ask._effort()},
+                'system': system, 'tools': tools, 'messages': messages}
+        # Bytes provide a conservative input token allowance plus protocol overhead.
+        reserve = len(json.dumps(body, ensure_ascii=False).encode()) + cap + 4096
+        day = dt.date.today().isoformat()
+        budget()
+        if reserve > ask.budget_left(day)[1]:
+            raise ChatError(SHORT_BUDGET, 429)
+        ask.spend(reserve, today=day)
+        response = sender(body, key)
+        usage = response.get('usage', {})
+        if usage_required or (isinstance(usage, dict) and 'input_tokens' in usage and 'output_tokens' in usage):
+            actual = sum(int(usage.get(k, 0)) for k in ('input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'))
+            if not isinstance(usage, dict) or 'input_tokens' not in usage or 'output_tokens' not in usage or actual < 0:
+                raise ChatError('The model returned no usable usage record. The token allowance remains reserved.')
+            ask.spend(actual - reserve, today=day)
+            turn.tokens += actual
+        content = response.get('content', [])
+        if response.get('stop_reason') == 'refusal':
+            raise ChatError(DECLINED, 422)
+        if response.get('stop_reason') == 'max_tokens':       # thinking counts against the cap
+            raise ChatError(CUT_ANSWER)
+        if response.get('stop_reason') != 'tool_use':
+            answer = '\n\n'.join(b.get('text', '') for b in content if b.get('type') == 'text').strip()
+            if not answer:
+                raise ChatError(EMPTY_ANSWER)
+            answer = screen(answer, paths, names=names)
+            note = services.note_for(answer)       # a service the service description does not offer
+            return answer + '\n\n' + note if note else answer
+        # Model-generated tool arguments and intermediate text are checked before reuse.
+        screen(json.dumps(content, ensure_ascii=False), paths, names=names)
+        messages.append({'role': 'assistant', 'content': content})
+        results = []
+        allowed = {t['name'] for t in tools}
+        for block in content:
+            if block.get('type') != 'tool_use':
+                continue
+            name = block.get('name')
+            if name not in allowed or not isinstance(block.get('input'), dict):
+                raise ChatError('The model requested an unsupported tool.')
+            try:
+                if name == 'input_find':
+                    output = input_find(inputs, block['input'].get('query'))
+                else:
+                    output = tool_runner(paths, name, block['input'])
+            except Exception:
+                output = '{"error":"The source is unavailable."}'
+            output = str(output)[:12000]
+            try:
+                output = screen(output, paths, numeric_price=name == 'price_find', names=names)
+            except ChatError as e:
+                if e.status != 422:
+                    raise
+                output = '{"error":"Source text was withheld by the data check."}'
+            turn.used.append(name)
+            found, priced = citations(name, output)
+            turn.facts.update(found)
+            turn.prices.extend(priced)
+            results.append({'type': 'tool_result', 'tool_use_id': block['id'], 'content': output})
+        if not results:
+            raise ChatError('The model returned no usable tool request.')
+        messages.append({'role': 'user', 'content': results})
+    raise ChatError(TOOL_LIMIT)
 
 
 def fetch_material(code, ident):
@@ -275,19 +405,7 @@ class Conversations:
         return con
 
     def budget(self):
-        # The original CLI treats unreadable usage as empty. The web service must fail closed.
-        try:
-            usage = json.loads(ask.USAGE_FILE.read_text()) if ask.USAGE_FILE.exists() else {}
-            if not isinstance(usage, dict):
-                raise ValueError()
-            for entry in usage.values():
-                if not isinstance(entry, dict) or any(not isinstance(entry.get(k, 0), int) or entry.get(k, 0) < 0 for k in ('questions', 'tokens')):
-                    raise ValueError()
-        except (OSError, ValueError):
-            raise ChatError('The usage record is unavailable. No new questions can be sent.') from None
-        q, t = ask.budget_left()
-        return {'questions_left': max(0, q), 'tokens_left': max(0, t),
-                'daily_questions': ask.DAILY_QUESTIONS, 'daily_tokens': ask.DAILY_TOKENS, 'resets': '00:00 UTC'}
+        return budget()
 
     def row(self, request_id):
         with self.connect() as con:
@@ -383,10 +501,8 @@ class Conversations:
             for turn in reversed(retained):
                 messages.extend([{'role': 'user', 'content': turn['question']}, {'role': 'assistant', 'content': turn['answer']}])
             messages.append({'role': 'user', 'content': question})
-            if self.budget()['questions_left'] < 1 or self.budget()['tokens_left'] < 4096:
-                raise ChatError(BUDGET_SPENT, 429)
             # Reserve the question before returning 202 or starting a model request.
-            ask.spend(0, questions=1)
+            reserve_question()
             with self.connect() as con:
                 con.execute('INSERT INTO turns(id,project,question,status,created,context_time,material_ids,material_sources) VALUES(?,?,?,?,?,?,?,?)',
                             (request_id, code, question, 'pending', now(), context['fetched_at'] if context else None,
@@ -402,92 +518,19 @@ class Conversations:
             raise
 
     def run(self, request_id, context, messages, inputs=None):
-        tokens = 0
-        used = []
-        facts, prices = set(), []
-        tools = ask.TOOLS + [INPUT_TOOL] if inputs else ask.TOOLS
+        turn = Turn()
         try:
             sender = self.sender or ask.post
             key = None if self.sender else ask.read_key()
-            system = (SYSTEM if context else ask.SYSTEM) + '\n\n' + services.prompt_lines()
-            if context:
-                if context.get('inputs'):
-                    system += INPUTS_NOTE
-                system += '\n\nPROJECT SNAPSHOT (source data):\n' + json.dumps(context, ensure_ascii=False)
-            for _ in range(ask.MAX_ROUNDS):
-                cap = ask._max_tokens()
-                body = {'model': ask.MODEL, 'max_tokens': cap, 'output_config': {'effort': ask._effort()},
-                        'system': system, 'tools': tools, 'messages': messages}
-                # Bytes provide a conservative input token allowance plus protocol overhead.
-                reserve = len(json.dumps(body, ensure_ascii=False).encode()) + cap + 4096
-                day = dt.date.today().isoformat()
-                self.budget()
-                if reserve > ask.budget_left(day)[1]:
-                    raise ChatError(SHORT_BUDGET, 429)
-                ask.spend(reserve, today=day)
-                response = sender(body, key)
-                usage = response.get('usage', {})
-                actual = sum(int(usage.get(k, 0)) for k in ('input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'))
-                if not isinstance(usage, dict) or 'input_tokens' not in usage or 'output_tokens' not in usage or actual < 0:
-                    raise ChatError('The model returned no usable usage record. The token allowance remains reserved.')
-                ask.spend(actual - reserve, today=day)
-                tokens += actual
-                content = response.get('content', [])
-                if response.get('stop_reason') == 'refusal':
-                    raise ChatError(DECLINED, 422)
-                if response.get('stop_reason') == 'max_tokens':       # thinking counts against the cap
-                    raise ChatError(CUT_ANSWER)
-                if response.get('stop_reason') != 'tool_use':
-                    answer = '\n\n'.join(b.get('text', '') for b in content if b.get('type') == 'text').strip()
-                    if not answer:
-                        raise ChatError('The model returned an empty answer.')
-                    answer = screen(answer, self.paths)
-                    note = services.note_for(answer)       # a service the service description does not offer
-                    if note:
-                        answer += '\n\n' + note
-                    with self.connect() as con:
-                        con.execute("UPDATE turns SET answer=?,status='complete',completed=?,tokens=?,tools=? WHERE id=?", (answer, now(), tokens, json.dumps(sorted(set(used))), request_id))
-                        # the facts the answer names and the prices the tools handed over, for the Ask API
-                        con.execute('INSERT OR REPLACE INTO cites VALUES(?,?,?)', (request_id, json.dumps(sorted(f for f in facts if f in answer)), json.dumps(prices[:CITED_PRICES])))
-                    return
-                # Model-generated tool arguments and intermediate text are checked before reuse.
-                screen(json.dumps(content, ensure_ascii=False), self.paths)
-                messages.append({'role': 'assistant', 'content': content})
-                results = []
-                allowed = {t['name'] for t in tools}
-                for block in content:
-                    if block.get('type') != 'tool_use':
-                        continue
-                    name = block.get('name')
-                    if name not in allowed or not isinstance(block.get('input'), dict):
-                        raise ChatError('The model requested an unsupported tool.')
-                    try:
-                        if name == 'input_find':
-                            output = input_find(inputs, block['input'].get('query'))
-                        else:
-                            output = self.tool_runner(self.paths, name, block['input'])
-                    except Exception:
-                        output = '{"error":"The source is unavailable."}'
-                    output = str(output)[:12000]
-                    try:
-                        output = screen(output, self.paths, numeric_price=name == 'price_find')
-                    except ChatError as e:
-                        if e.status != 422:
-                            raise
-                        output = '{"error":"Source text was withheld by the data check."}'
-                    used.append(name)
-                    found, priced = citations(name, output)
-                    facts.update(found)
-                    prices.extend(priced)
-                    results.append({'type': 'tool_result', 'tool_use_id': block['id'], 'content': output})
-                if not results:
-                    raise ChatError('The model returned no usable tool request.')
-                messages.append({'role': 'user', 'content': results})
-            raise ChatError('The answer reached its tool limit. Ask a narrower question.')
+            answer = engine(self.paths, messages, sender, key, context, inputs, self.tool_runner, turn=turn)
+            with self.connect() as con:
+                con.execute("UPDATE turns SET answer=?,status='complete',completed=?,tokens=?,tools=? WHERE id=?", (answer, now(), turn.tokens, json.dumps(sorted(set(turn.used))), request_id))
+                # the facts the answer names and the prices the tools handed over, for the Ask API
+                con.execute('INSERT OR REPLACE INTO cites VALUES(?,?,?)', (request_id, json.dumps(sorted(f for f in turn.facts if f in answer)), json.dumps(turn.prices[:CITED_PRICES])))
         except (ChatError, ask.AskError) as e:
-            self.fail(request_id, str(e), tokens, used)
+            self.fail(request_id, str(e), turn.tokens, turn.used)
         except Exception:
-            self.fail(request_id, 'The answer could not be completed. It will not be resent automatically.', tokens, used)
+            self.fail(request_id, 'The answer could not be completed. It will not be resent automatically.', turn.tokens, turn.used)
         finally:
             self.busy.release()
 

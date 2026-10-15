@@ -1259,6 +1259,19 @@ answers 404 Not found. for both, as it does for the Ask page and the chat. The c
   `ask.budget_left`, `ask.USAGE_FILE`) and the model call (`self.sender`, `ask.post` by default, `tool_runner` for the
   tools) are those of the Ask page. `citations(name, output)` reads the fact ids and price records out of a tool output;
   they are kept in the table `cites` (by request id) beside `turns`, which keeps its columns.
+- One Ask engine (B-022): `chat_service.engine(paths, messages, sender, key, context=None, inputs=None,
+  tool_runner=None, names=None, turn=None, usage_required=True) -> str` is the only model loop. `Conversations.run`
+  (the chat, the Ask API, the chat service's form page) and `ask.ask` (`awb ask QUESTION`, the page of a bare
+  `awb-ask.service`) call it. Before every round it reads the usage record fail closed (`chat_service.budget()`),
+  reserves the request's size in the day's tokens and settles it with the reported usage; the tool requests, the
+  tool answers (withheld on a hit) and the answer pass `chat_service.screen(text, paths, numeric_price, names)`.
+  `names=None` is the check socket only (the chat); `ask.ask` passes `check.checker(p.register)`. `turn`
+  (`chat_service.Turn`) collects the tokens, the tools used and the cited facts and prices, also when the loop
+  stops. `reserve_question()` counts one question or refuses with `BUDGET_SPENT`. A stop is a `ChatError` with the
+  chat's sentence (`DECLINED`, `CUT_ANSWER`, `TOOL_LIMIT`, `EMPTY_ANSWER`, ...); `ask.ask` gives it in its own words
+  as `AskError` and turns `EMPTY_ANSWER` into "(no answer)". With `usage_required` off (`ask.ask`) a reply without
+  a usage record keeps its reservation instead of failing. `ask.py` keeps the settings, the tools, `run_tool`, the
+  key file, `post`, the budget file and the page.
 
 ## Host-file keys and environment variables that were documented nowhere (F1 step 1, 2026-10-15)
 

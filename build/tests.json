@@ -6992,8 +6992,50 @@
    "name": "check: the table \"One text screen\" of INTERFACES.md has one row for each of the five doors",
    "run": ".venv/bin/pytest tests/test_check.py::test_the_table_of_the_doors_names_every_door",
    "status": "passing"
+  },
+  {
+   "id": "B-022-1",
+   "phase": "B-022",
+   "name": "ask: awb ask and POST /api/ask send the model the same request for a general question and get the same answer and tools (one engine)",
+   "run": ".venv/bin/pytest tests/test_ask.py::test_the_page_and_the_ask_api_send_the_model_the_same_request",
+   "status": "passing"
+  },
+  {
+   "id": "B-022-2",
+   "phase": "B-022",
+   "name": "ask: awb ask refuses on an unreadable usage record before anything is sent, as the web Ask does",
+   "run": ".venv/bin/pytest tests/test_ask.py::test_the_cli_ask_fails_closed_on_an_unreadable_usage_record",
+   "status": "passing"
+  },
+  {
+   "id": "B-022-3",
+   "phase": "B-022",
+   "name": "ask: every model round of awb ask reserves its tokens before the call and settles them; a reply without usage keeps the reservation",
+   "run": ".venv/bin/pytest tests/test_ask.py::test_every_round_reserves_its_tokens_and_a_reply_without_usage_keeps_the_reservation",
+   "status": "passing"
+  },
+  {
+   "id": "B-022-4",
+   "phase": "B-022",
+   "name": "ask: a tool answer of awb ask with a registered name is withheld from the model and the loop goes on",
+   "run": ".venv/bin/pytest tests/test_ask.py::test_a_tool_answer_with_a_registered_name_never_reaches_the_model",
+   "status": "passing"
+  },
+  {
+   "id": "B-022-5",
+   "phase": "B-022",
+   "name": "ask: an answer or a tool request of the model with a registered name stops awb ask without the name and without running the tool",
+   "run": ".venv/bin/pytest tests/test_ask.py::test_an_answer_or_a_tool_request_with_a_registered_name_stops",
+   "status": "passing"
+  },
+  {
+   "id": "B-022-6",
+   "phase": "B-022",
+   "name": "ask: the model loop is written once, in chat_service.engine, and ask.py has none",
+   "run": ".venv/bin/pytest tests/test_ask.py::test_the_model_loop_is_written_once",
+   "status": "passing"
   }
  ],
- "total_tests": 999,
+ "total_tests": 1005,
  "checked": "2026-10-15"
 }

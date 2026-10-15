@@ -163,6 +163,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- One Ask engine (B-022, step 4 of the F1 plan): the model loop is written once, as `chat_service.engine`, and the
+  project chat, `POST /api/ask`, the chat service's form page, the Ask page of a bare `awb-ask.service` and
+  `awb ask QUESTION` all run it. Every door keeps its words, its answers and its source of names. `awb ask` and
+  the bare page now work like the web Ask: an unreadable usage record refuses and every model round reserves its
+  tokens first. The model's tool requests, the tool answers and the answer pass the screen: a tool answer with a
+  hit is withheld from the model, an answer with a hit is refused.
+
 - One text screen for the five doors (B-021, step 3 of the F1 plan): `check.screen(text, names, mask, allow)` finds
   registered names and structured data (also behind base64, hex and a bidi override) and the gate's secret, private
   key, token and home path detectors, and the Ask question, the project chat, the working copy of an imported
