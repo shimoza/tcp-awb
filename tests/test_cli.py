@@ -341,6 +341,17 @@ def test_help_lists_every_command(con):
     con.assert_clean()
 
 
+def test_the_help_line_of_kb_and_review_names_every_subcommand(con):
+    """F1 review, section 2: the DELEGATED help of kb left out index and verify, the one of review calibrate."""
+    for name in ("kb", "review"):
+        code, out, _ = con.run(name, "--help")
+        assert code == 0
+        subs = re.search(r"\{([a-z0-9,-]+)\}", out).group(1).split(",")
+        named = re.findall(r"[a-z0-9-]+", cli.DELEGATED[name][1].split(":", 1)[1])
+        assert set(subs) <= set(named), (name, sorted(set(subs) - set(named)))
+    con.assert_clean()
+
+
 @pytest.fixture
 def quick_refresh(monkeypatch):
     """`awb refresh` runs the whole wipe pack (405 cases, eight minutes); one case shows the part runs, and the

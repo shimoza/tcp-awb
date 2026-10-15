@@ -163,6 +163,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- Dead and nearly dead code of the F1 review, section 2 (B-019, step 1 of the plan): `jobs.wait_gone` and its
+  constants `PRESENT` and `GONE` are gone (no caller). The module text of `awb/cli.py` names the commands and points at
+  `COMMANDS.md` for their subcommands and options instead of a stale list; `awb --help` names `kb index`,
+  `kb verify` and `review calibrate`. `INTERFACES.md` documents the host-file keys `admin_socket` and
+  `build_push_url` and fifteen `AWB_*` variables in one table. No behaviour change otherwise.
+
 - The name check of the knowledge base accepts the full name of a TCP service from the service description (B-015).
   A fact about a service named like a customer was withheld and changing the word would change the fact. `awb kb`
   (add, amend, recheck, retire, verify, show, find, scope, expired, export) and so `awb dataset build` now drop a

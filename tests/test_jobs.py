@@ -141,20 +141,3 @@ def test_retry_lets_other_errors_through_at_once():
     with pytest.raises(KeyError):
         jobs.retry(broken, attempts=3, retry_on=(TimeoutError,), sleep=lambda s: None)
     assert len(calls) == 1
-
-
-def test_wait_gone_asks_about_one_resource_until_it_is_gone():
-    clock = Clock()
-
-    def run(answers, timeout):
-        it = iter(answers)
-        return jobs.wait_gone(lambda: next(it), timeout=timeout, interval=5, clock=clock,
-                              sleep=lambda s: setattr(clock, "now", clock.now + s))
-
-    assert run(["present", "present", "gone"], 60) == "gone"
-    clock.now = 0
-    assert run(["present"] * 20, 12) == "present"
-    clock.now = 0
-    assert run(["present", "unknown", "unknown"], 12) == "unknown"
-    with pytest.raises(ValueError):
-        run(["deleted"], 12)

@@ -1,67 +1,16 @@
 """The `awb` command.
 
-    awb init
-    awb intake --customer CODE|new [--review] [FILE...]     (no FILE: every file in the vault inbox)
-    awb register add CODE KIND FORM                          (FORM "-" reads the form from standard input)
-    awb register new CUST|PART
-    awb register list [--forms]
-    awb register retire CODE
-    awb register keep PHRASE                                 (PHRASE "-" reads the phrase from standard input)
-    awb register keep --list                                 (vault side: prints the kept phrases)
-    awb check [--register PATH | --no-register] FILE...
-    awb gate [--staged] [--pushed [--remote NAME]] [--message FILE] [--selftest] [--register PATH | --no-register]
-             [--repo PATH] [PATH...]
-    awb gate --install [--kb] [--force] [--repo PATH]
-    awb spawn KIND --goal TEXT [--customer CODE] [--tag T]... [--from-outbox]
-    awb close CODE [--force]
-    awb projects list|check|sync|open [CODE]
+COMMANDS.md lists every command with its options and what it does; `awb --help` lists the commands and
+`awb NAME --help` shows the options of one. This text names the commands only, so it cannot fall behind a subcommand.
 
-Commands that live in their own module (DELEGATED below; `awb NAME --help` shows the options of each):
+Built in: awb init, awb intake, awb register, awb spawn, awb close, awb projects.
 
-    awb vault serve|unlock|lock|status|encrypt              awb/vault.py
-    awb kb add|amend|retire|find|show|scope|expired|index|verify    awb/kb.py
-    awb kb recheck-run                                       awb/tcp/recheck.py
-    awb kb recheck-watch                                     awb/tcp/recheckwatch.py
-    awb ledger add|list, awb report --by KEY|--period        awb/ledger.py, awb/period.py
-    awb career add|update|due                                awb/career.py
-    awb write check FILE, awb voice learn DRAFT SENT         awb/writing.py
-    awb review init|claims|l0|pass|status|calibrate          awb/review.py
-    awb calc EXPRESSION, awb calc list|show                  awb/calc.py
-    awb migrate init|status|next|inventory|map|estimate|done awb/tcp/migrate.py
-    awb keys serve|unlock|lock|status                        awb/tcp/keys.py
-    awb inbox take|list, awb xchg put|list                   awb/tcp/xchg.py
-    awb paste [--as NAME]                                    awb/paste.py
-    awb images list|release                                  awb/images.py
-    awb hook prompt|pre-write|post-write|stop|session-start  awb/hooks.py
-    awb seal check                                           awb/seal.py
-    awb egress status, sudo awb egress load|enforce|count    awb/egress.py   (the egress filter of the work user)
-    awb import CODE [FILE...] [--customer C|new] [--review] [--redo]    awb/importcmd.py (owner side)
-    awb import CODE --paste [--kind mail|transcript|table]   awb/importcmd.py, awb/pastein.py (owner side)
-    awb words update                                         awb/words.py    (owner side)
-    awb bucket sync|folder|pull|put|move                     awb/bucket.py   (owner side)
-    awb reveal FILE --out PATH                               awb/reveal.py   (owner side)
-    awb fetch CODE [--again] [--into DIR]                    awb/tcp/fetch.py (owner side)
-    awb start project|query --goal TEXT [--customer C|new]   awb/start.py    (owner side)
-    awb price find|snapshot|diff|check                       awb/tcp/price.py
-    awb pricebook build|diff                                 awb/tcp/pricebook.py
-    awb cloud projects|get                                   awb/tcp/cloud.py   (owner side, read only)
-    awb mirror docs|sd|status                                awb/tcp/mirror.py  (owner side updates)
-    awb refresh [--part P]..., awb refresh apply RESULTS     awb/tcp/refresh.py
-    awb dataset build|put                                    awb/tcp/dataset.py (put: owner side)
-    awb english list [--month YYYY-MM]                       awb/english.py
-    awb portal serve [--port N]                              awb/tcp/portal.py
-    awb tenant add|snapshot|list|now|history|at|project      awb/tcp/tenants.py
-    awb lab list|dry-run|run                                 awb/tcp/lab.py   (a live check on a test tenant)
-    awb ask serve [--port N] | awb ask QUESTION              awb/tcp/ask.py
-    awb api write|check                                      awb/tcp/web/contract.py
-    awb service check|list|update                            awb/tcp/services.py
-    awb board write [--out DIR] | show                       awb/tcp/board.py
-    sudo awb deploy [--dry-run] [--only UNIT...] ..., awb deploy status    awb/deploy.py   (owner side)
-    sudo awb web publish --from-queue ID|FILE|--rollback [NAME], awb web status    awb/tcp/web/publish.py (owner side)
-    awb owner status [--write]                               awb/tcp/owner.py   (owner side, the owner level's status)
-    awb ui submit TASKFILE [--mail], awb ui status [--ended], awb ui watch ID      awb/tcp/ui.py   (owner side)
-    awb build add|draft|list|status|show|answer|retry|widen|stop|serve|selftest|probe     awb/build.py   (owner side)
-    awb pr take N [--dry-run]                                awb/prtake.py   (owner side)
+In their own module (DELEGATED below, each with main(argv)): awb check, awb gate, awb vault, awb kb, awb ledger,
+awb report, awb career, awb write, awb voice, awb review, awb calc, awb hook, awb images, awb seal, awb egress,
+awb bucket, awb import, awb words, awb reveal, awb price, awb pricebook, awb cloud, awb mirror, awb refresh,
+awb dataset, awb english, awb portal, awb ask, awb inbox, awb xchg, awb start, awb fetch, awb paste, awb keys,
+awb migrate, awb lab, awb tenant, awb api, awb service, awb board, awb web, awb owner, awb ui, awb build, awb pr,
+awb deploy.
 
 Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 
@@ -585,13 +534,14 @@ DELEGATED = {
     "check": ("check", "check files for names and structured data"),
     "gate": ("gate", "the commit gate"),
     "vault": ("vault", "the vault: serve, unlock, lock, status, encrypt"),
-    "kb": ("kb", "the knowledge base: add, amend, retire, find, scope, expired, show, recheck-run, recheck-watch"),
+    "kb": ("kb", "the knowledge base: add, amend, how, bench, recheck, retire, find, show, scope, expired, export, "
+           "index, verify, recheck-run, recheck-watch"),
     "ledger": ("ledger", "the activity ledger: add, list"),
     "report": ("ledger", "reports from the ledger by customer, technology, kind or project"),
     "career": ("career", "the career log: add, update, due"),
     "write": ("writing", "check a text against the house style"),
     "voice": ("writing", "learn from a draft and the version that was sent"),
-    "review": ("review", "review a deliverable: init, claims, l0, pass, status"),
+    "review": ("review", "review a deliverable: init, claims, l0, pass, status, calibrate"),
     "calc": ("calc", "compute with exact decimals and record it in the project: every total an offer states"),
     "hook": ("hooks", "entry points for the client hooks of working sessions"),
     "images": ("images", "pictures of the intake, held on the vault side: list, release"),

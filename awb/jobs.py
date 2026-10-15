@@ -12,8 +12,6 @@ contradicted it; a direct index into an answer killed a job halfway.
   synced), refuses to start a step when the budget is spent (JobStopped) and skips a recorded step on the next
   run: the same command, run again, resumes where it stopped.
 - `retry` never sleeps past the budget of its job.
-- `wait_gone` asks about one resource, by its own probe, until it is gone. A probe that looks at the whole tenant is
-  the wrong probe.
 - `dig` reads a nested answer without raising: a missing part is MISSING, never an exception halfway through.
 """
 from __future__ import annotations
@@ -30,7 +28,6 @@ from typing import Any, Callable
 
 LIST, EMPTY, UNKNOWN = "list", "empty", "unknown"
 STATES = (LIST, EMPTY, UNKNOWN)
-PRESENT, GONE = "present", "gone"
 
 EXIT_STOPPED = 3
 """Exit code of a command whose job stopped at its time limit: run the same command again to resume."""
@@ -218,18 +215,3 @@ def retry(fn: Callable[[], Any], *, attempts: int = 3, delay: float = 2.0, job: 
             (sleep or time.sleep)(wait)
     raise AssertionError("unreachable")
 
-
-def wait_gone(probe: Callable[[], str], *, timeout: float, interval: float = 5.0,
-              clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] | None = None) -> str:
-    """Ask `probe` until it answers gone or `timeout` seconds have passed. The probe looks at ONE resource by its own
-    id and answers present, gone or unknown. Returns gone, or the last answer (present or unknown) at the timeout."""
-    deadline = clock() + timeout
-    while True:
-        state = probe()
-        if state not in (PRESENT, GONE, UNKNOWN):
-            raise ValueError("a probe answers present, gone or unknown")
-        if state == GONE:
-            return GONE
-        if clock() + interval > deadline:
-            return state
-        (sleep or time.sleep)(interval)

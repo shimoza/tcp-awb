@@ -276,7 +276,7 @@
   {
    "id": "PC1",
    "phase": "PC",
-   "name": "jobs: a list answers list, empty or unknown and refuses a truth value; dig reads without raising; a job flushes every line, resumes from its state file after a kill, stops at its budget; retry never waits past the budget; wait_gone asks about one resource",
+   "name": "jobs: a list answers list, empty or unknown and refuses a truth value; dig reads without raising; a job flushes every line, resumes from its state file after a kill, stops at its budget; retry never waits past the budget",
    "run": ".venv/bin/pytest tests/test_jobs.py",
    "status": "passing"
   },
@@ -6880,8 +6880,15 @@
    "name": "lab: by of a find needs a list",
    "run": ".venv/bin/pytest tests/test_lab_fk_recipes.py::test_by_of_a_find_needs_a_list",
    "status": "passing"
+  },
+  {
+   "id": "B-019-1",
+   "phase": "B-019",
+   "name": "cli: the help line of kb and review names every subcommand of its parser",
+   "run": ".venv/bin/pytest tests/test_cli.py::test_the_help_line_of_kb_and_review_names_every_subcommand",
+   "status": "passing"
   }
  ],
- "total_tests": 983,
+ "total_tests": 984,
  "checked": "2026-10-15"
 }

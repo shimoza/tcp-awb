@@ -930,12 +930,12 @@ Recorded here so that the next builder works against them. Each module keeps `ma
 
 ## Package 3, first part (2026-09-24): prices, the cloud client, tenant jobs
 
-- `awb/jobs.py` (T-60, neutral): `LIST`, `EMPTY`, `UNKNOWN`, `PRESENT`, `GONE`, `EXIT_STOPPED = 3`,
+- `awb/jobs.py` (T-60, neutral): `LIST`, `EMPTY`, `UNKNOWN`, `EXIT_STOPPED = 3`,
   `DEFAULT_BUDGET = 100.0`, `Listing(state, items, reason)` with `of(items)`, `unknown(reason)`, `known`,
   `describe()` and no truth value, `MISSING`, `dig(obj, *path, default=MISSING)`, `JobStopped(done)`,
   `Job(name, state_dir, budget=, out=, clock=)` with `say`, `elapsed`, `remaining`, `is_done`, `done_count`, `mark`,
   `step(key, fn, cost=0)`, `finish`, `retry(fn, attempts=3, delay=2.0, job=None, retry_on=(Exception,),
-  sleep=None)`, `wait_gone(probe, timeout=, interval=5.0, clock=, sleep=None)`.
+  sleep=None)`.
 - `awb/sign.py` (neutral): `ALGORITHM = "SDK-HMAC-SHA256"`, `canonical_uri(path)`, `canonical_query(query)`,
   `string_to_sign(method, url, headers, body, date)`, `sign(method, url, headers, body, ak, sk, now=None) -> headers`.
 - `awb/tcp/` holds the modules of one platform; no module outside it imports it (T-88, tested).
@@ -1228,3 +1228,29 @@ answers 404 Not found. for both, as it does for the Ask page and the chat. The c
   `ask.budget_left`, `ask.USAGE_FILE`) and the model call (`self.sender`, `ask.post` by default, `tool_runner` for the
   tools) are those of the Ask page. `citations(name, output)` reads the fact ids and price records out of a tool output;
   they are kept in the table `cites` (by request id) beside `turns`, which keeps its columns.
+
+## Host-file keys and environment variables that were documented nowhere (F1 step 1, 2026-10-15)
+
+Two keys of the host file (`/etc/awb/paths.conf`, or the file `AWB_CONF` names for a user who is not the work user)
+and fifteen `AWB_*` variables. Most variables exist so that a test points a command at a temporary file or a stand-in.
+"Not the work user" means the value is left out when `config.is_work_user()` holds.
+
+| Key or variable | Read by | What it sets | Default |
+|---|---|---|---|
+| `admin_socket` (host file) | `config.paths` | the admin socket of the vault daemon (`Paths.admin_socket`) | `<vault>/admin.sock` |
+| `build_push_url` (host file) | `buildrun.Host.from_config` | where the runner pushes a green `main` (with `build_push` yes) | `buildrun.PUSH_URL` |
+| `AWB_ADMIN_SOCKET` | `config.paths`, not the work user | the admin socket of the vault daemon, before `admin_socket` | `admin_socket`, then `<vault>/admin.sock` |
+| `AWB_CHECK_SOCKET` | `config.paths`, not the work user | the check socket of the vault daemon, before `check_socket` | `/run/awb/check.sock` |
+| `AWB_DATASET_AUTHOR` | `tcp.dataset.person_values` | an old author setting: a value still set is searched for in the dataset files, never written | none |
+| `AWB_KEYS_ADMIN` | `tcp.keys.admin_socket` | the admin socket of the key service | `<vault>/keys-admin.sock` |
+| `AWB_KEYS_CONF` | `tcp.xchg.settings_file` | the owner's settings file of the exchange | `~/.config/awb/keys.conf` |
+| `AWB_KEYS_SOCKET` | `tcp.keys.call_socket`, `projects`; `hooks` not for the work user | the call socket of the key service | `/run/awb-keys/cloud.sock` |
+| `AWB_OWNER_PUBLISH` | `tcp.web.users` | the copy of the owner secrets | next to a users file of `AWB_WEB_USERS`, else `/etc/awb/owner-publish.json` |
+| `AWB_PRICE_API` | `tcp.price`, not the work user | the address of the price API | `tcp.price.API` |
+| `AWB_THROTTLE_DIR` | `tcp.throttle` | the folder of the lock files that space the calls to one host | `<tmp>/awb-throttle-<uid>` |
+| `AWB_UI_SOURCE` | `tcp.web.publish` | the applied source of the UI queue | `tcp.web.publish.SOURCE` under the owner's home |
+| `AWB_WEB_PUBLISH_STATE` | `tcp.web.publish.publish_state` | the state folder of `awb web publish` | `/var/lib/awb-web-publish` |
+| `AWB_WEB_ROOT` | `tcp.web.publish` (`--root` wins) | the folder of the console page | `/srv/awb-web` |
+| `AWB_WEB_SIGNIN_LOG` | `tcp.web.publish` (`awb web status`) | the sign-in log of the gateway | `/var/lib/awb-web/signin.log` |
+| `AWB_WEB_STATUS_SOCKET` | `tcp.web.publish` (`awb web status`) | the status socket of the gateway | `/run/awb-web-status.sock` |
+| `AWB_WEB_USERS` | `tcp.web.users` | the users file of the console | `/etc/awb-web/users.json` |
