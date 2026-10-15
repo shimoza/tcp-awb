@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import zipfile
+from pathlib import Path
 
 import docx
 import pytest
@@ -429,3 +430,214 @@ def test_cli_prints_no_hit_list_when_the_check_fails_after_the_first_file(tmp_pa
     out, err = capsys.readouterr()
     assert out == "" and err.strip() == "awb check: name check unavailable: vault locked"
     assert len(calls) == 4
+
+
+# --------------------------------------------------------------------------- the five doors (B-021)
+# The same invented inputs go through every door that screens a text before it leaves or is shown: the Ask
+# question (awb/tcp/ask.py), the project chat (chat_service.py), the working copy of an imported material
+# (materials_api.py), the project read API (projects_api.py, which masks) and the owner status (owner.py). The
+# tests named "as_before" passed on the code before check.screen and must keep passing: no door accepts what it
+# refused before and no door masks less. The table "One text screen" in INTERFACES.md says the same.
+
+def _secret_assignment() -> str:
+    return "db_" + "pass" + "word" + ' = "' + "t7Kq2Zp9" + "Lw4Rx8Vn3Bm6Yc" + '"'
+
+
+DOOR_INPUTS = {
+    "name": "Notes for %s on the cluster." % CUSTOMER,
+    "hidden-name": "Blob " + base64.b64encode(
+        ("The workshop with %s starts on Monday morning." % CUSTOMER).encode()).decode(),
+    "ip": "Is the server 203.0.113.40 still running?",
+    "mail": "Write to ops@example.org today.",
+    "phone": "Call +49 30 1234567 now.",
+    "iban": "Pay to %s today." % IBAN,
+    "secret": _secret_assignment(),
+    "private-key": "-----BEGIN RSA " + "PRI" + "VATE KEY-----",
+    "token": "push with " + "gh" + "p_" + "Zx8Kq3Lw7Rt2Vn5Bm9Yc4Hd6Jf1Gs0Pa3Ue7Wi",
+    "homepath": "written to /ho" + "me/builder/notes.txt",
+}
+DOOR_CLEAN = "Which node flavors does the cluster service offer?"
+STRUCTURED = ("ip", "mail", "phone", "iban")
+SECRETS = ("secret", "private-key", "token", "homepath")
+
+
+@pytest.fixture
+def daemon(home, monkeypatch):
+    """The check socket of the vault daemon, stood in by the scan the daemon runs over the fixture register."""
+    from awb.matcher import Matcher
+
+    matcher = Matcher(register.forms_for_matching(register.parse(home.register.read_bytes())))
+    calls = []
+
+    def check_remote(text, sock, *args, **kwargs):
+        calls.append(text)
+        return check._scan(text, matcher)
+
+    monkeypatch.setattr(vault, "ping", lambda sock, *a, **k: "unlocked")
+    monkeypatch.setattr(vault, "check_remote", check_remote)
+    return calls
+
+
+def _ask_refuses(home, text) -> bool:
+    from awb.tcp import ask
+
+    try:
+        ask.screen(text, home)
+    except ask.AskError:
+        return True
+    return False
+
+
+def _chat_refuses(home, text) -> bool:
+    from awb.tcp.web import chat_service
+
+    try:
+        out = chat_service.screen(text, home)
+    except chat_service.ChatError as err:
+        assert err.status == 422
+        return True
+    assert out == normalize.normalize(text).text
+    return False
+
+
+def _materials_refuses(home, tmp_path, text) -> bool:
+    from awb.tcp.web import materials_api
+
+    store = materials_api.Store(home, tmp_path / "materials", sources=object(), publisher=lambda row, text: None)
+    try:
+        assert store.checked(text) == text
+    except materials_api.Problem as err:
+        assert err.status == 422
+        return True
+    return False
+
+
+def _owner_refuses(text) -> bool:
+    from awb import status_shape
+    from awb.tcp import owner
+
+    try:
+        assert owner.name_check(text) == "passed"
+    except status_shape.StatusError:
+        return True
+    return False
+
+
+def test_the_ask_door_refuses_as_before(home):
+    for cls in ("name", "hidden-name") + STRUCTURED:
+        assert _ask_refuses(home, DOOR_INPUTS[cls]), cls
+    assert not _ask_refuses(home, DOOR_CLEAN)
+
+
+def test_the_chat_door_refuses_as_before(home, daemon):
+    from awb.tcp.web import chat_service
+
+    for cls in ("name",) + STRUCTURED + SECRETS:
+        assert _chat_refuses(home, DOOR_INPUTS[cls]), cls
+    assert not _chat_refuses(home, DOOR_CLEAN)
+    # the answer of the public price tool may carry a number that reads as a phone number, nothing else
+    assert chat_service.screen(DOOR_INPUTS["phone"], home, numeric_price=True) == DOOR_INPUTS["phone"]
+    for cls in ("name", "ip", "mail", "iban") + SECRETS:
+        with pytest.raises(chat_service.ChatError):
+            chat_service.screen(DOOR_INPUTS[cls], home, numeric_price=True)
+
+
+def test_the_materials_door_refuses_as_before(home, tmp_path):
+    for cls in ("name", "hidden-name") + STRUCTURED + SECRETS:
+        assert _materials_refuses(home, tmp_path, DOOR_INPUTS[cls]), cls
+    assert not _materials_refuses(home, tmp_path, DOOR_CLEAN)
+
+
+def test_the_projects_door_masks_as_before(home, daemon):
+    from awb.tcp.web import projects_api
+
+    assert projects_api.checked(DOOR_INPUTS["name"], home) == ("Notes for [withheld] on the cluster.", True)
+    assert projects_api.checked(DOOR_INPUTS["ip"], home) == ("Is the server [withheld] still running?", True)
+    assert projects_api.checked(DOOR_INPUTS["mail"], home) == ("Write to [withheld] today.", True)
+    assert projects_api.checked(DOOR_INPUTS["phone"], home) == ("Call [withheld] now.", True)
+    assert projects_api.checked(DOOR_INPUTS["iban"], home) == ("Pay to [withheld] today.", True)
+    assert projects_api.checked(DOOR_CLEAN, home) == (DOOR_CLEAN, False)
+
+
+def test_the_owner_door_refuses_as_before(home):
+    from awb.tcp import owner
+
+    for cls in ("name", "hidden-name", "secret", "private-key", "token"):
+        assert _owner_refuses(DOOR_INPUTS[cls]), cls
+    for cls in STRUCTURED + ("homepath",):
+        assert not _owner_refuses(DOOR_INPUTS[cls]), cls
+    assert not _owner_refuses(DOOR_CLEAN)
+    screen = owner.summary_screen()
+    for cls in ("name", "hidden-name", "secret", "private-key", "token"):
+        assert screen(DOOR_INPUTS[cls]) == (None, "name" if cls == "hidden-name" else cls), cls
+    for cls in STRUCTURED + ("homepath",):
+        assert screen(DOOR_INPUTS[cls]) == (DOOR_INPUTS[cls], None), cls
+    assert screen(DOOR_CLEAN) == (DOOR_CLEAN, None)
+
+
+def _local(home) -> check.LocalCheck:
+    return check.checker(home.register)
+
+
+def test_screen_finds_the_same_classes_for_every_door(home, daemon):
+    for names in (_local(home), check.RemoteCheck(home.check_socket)):
+        for cls, text in DOOR_INPUTS.items():
+            found = check.screen(text, names).found
+            assert found == ("name",) if cls == "hidden-name" else found == (cls,), cls
+        assert check.screen(DOOR_CLEAN, names) == check.Screened(DOOR_CLEAN, ())
+    assert check.screen(DOOR_INPUTS["phone"], _local(home), allow=("phone",)).found == ()
+    assert check.screen(DOOR_INPUTS["token"], _local(home), allow=("phone",)).found == ("token",)
+    # a Matcher is taken as the local check over it
+    assert check.screen(DOOR_INPUTS["name"], _local(home).matcher).found == ("name",)
+
+
+def test_screen_with_mask_masks_what_it_can_and_withholds_the_rest(home):
+    names = _local(home)
+    assert check.screen(DOOR_INPUTS["name"], names, mask=True) == \
+        check.Screened("Notes for [withheld] on the cluster.", ("name",))
+    both = "Mail ops@example.org about %s." % CUSTOMER
+    assert check.screen(both, names, mask=True) == check.Screened("Mail [withheld] about [withheld].",
+                                                                  ("mail", "name"))
+    for cls in ("hidden-name",) + SECRETS:
+        assert check.screen(DOOR_INPUTS[cls], names, mask=True).text is None, cls
+    assert check.screen(DOOR_INPUTS["phone"], names, mask=True, allow=("phone",)) == \
+        check.Screened(DOOR_INPUTS["phone"], ())
+    assert check.screen(DOOR_CLEAN, names, mask=True) == check.Screened(DOOR_CLEAN, ())
+
+
+def test_screen_fails_closed_when_the_daemon_does_not_answer(home, monkeypatch):
+    from awb.tcp.web import chat_service, projects_api
+
+    def down(text, sock, *args, **kwargs):
+        raise vault.VaultUnavailable("no vault daemon")
+
+    monkeypatch.setattr(vault, "ping", lambda sock, *a, **k: "unlocked")
+    monkeypatch.setattr(vault, "check_remote", down)
+    with pytest.raises(check.CheckUnavailable):
+        check.screen(DOOR_CLEAN, check.RemoteCheck(home.check_socket))
+    with pytest.raises(chat_service.ChatError) as err:
+        chat_service.screen(DOOR_CLEAN, home)
+    assert err.value.status == 503
+    with pytest.raises(projects_api.Unavailable):
+        projects_api.checked(DOOR_CLEAN, home)
+
+
+def test_the_doors_now_refuse_what_another_door_already_refused(home, daemon):
+    """The gaps of F1 1b and 1c: the Ask question ran no secret detector, the chat and the project read API did not
+    look behind base64 or hex, the project read API ran no secret detector."""
+    from awb.tcp.web import projects_api
+
+    for cls in SECRETS:
+        assert _ask_refuses(home, DOOR_INPUTS[cls]), cls
+    assert _chat_refuses(home, DOOR_INPUTS["hidden-name"])
+    for cls in ("hidden-name",) + SECRETS:
+        assert projects_api.checked(DOOR_INPUTS[cls], home) == ("[Content withheld by the data check.]", True), cls
+
+
+def test_the_table_of_the_doors_names_every_door():
+    text = (Path(__file__).resolve().parent.parent / "INTERFACES.md").read_text(encoding="utf-8")
+    table = text.split("### One text screen", 1)[1].split("\n\n|", 1)[1].split("\n\n", 1)[0]
+    rows = table.splitlines()[2:]
+    assert len(rows) == 5
+    for where in ("awb/tcp/ask.py", "chat_service.py", "materials_api.py", "projects_api.py", "awb/tcp/owner.py"):
+        assert sum(where in row for row in rows) == 1, where

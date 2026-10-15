@@ -10,7 +10,7 @@ import stat
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
-from awb import codes, config, projects, review, vault, normalize
+from awb import check, codes, config, projects, review, vault, normalize
 from awb import status as recorded
 
 FILES = ('SCOPE.md', 'STATE.md', 'OPEN.md', 'RESOURCES.md')
@@ -48,24 +48,15 @@ def checked(text, paths):
     """Use the check-only socket. Never read the vault or its register."""
     normal = normalize.normalize(text).text
     try:
-        hits = vault.check_remote(normal, paths.check_socket)
-        if not hits:
-            return normal, False
-        ranges = sorted((max(0,h['start']),min(len(normal),h['start']+h['length'])) for h in hits)
-        merged = []
-        for start,end in ranges:
-            if merged and start <= merged[-1][1]:
-                merged[-1] = (merged[-1][0],max(end,merged[-1][1]))
-            else:
-                merged.append((start,end))
-        result = normal
-        for start,end in reversed(merged):
-            result = result[:start]+'[withheld]'+result[end:]
-        if vault.check_remote(result,paths.check_socket):
-            return '[Content withheld by the data check.]', True
-        return result, True
-    except (vault.VaultError, OSError):
+        # check.screen masks every class; a hit it cannot mask withholds the whole text
+        screened = check.screen(normal, check.RemoteCheck(paths.check_socket), mask=True)
+    except (check.CheckUnavailable, vault.VaultError, OSError):
         raise Unavailable('The data check is unavailable. Project content was not returned.') from None
+    if not screened.found:
+        return normal, False
+    if screened.text is None:
+        return '[Content withheld by the data check.]', True
+    return screened.text, True
 
 
 def resource_rows(text):

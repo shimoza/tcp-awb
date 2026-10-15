@@ -6922,8 +6922,78 @@
    "name": "codes: the grep finds each kind of local spelling and leaves other codes alone",
    "run": ".venv/bin/pytest tests/test_codes.py::test_the_grep_finds_a_local_spelling",
    "status": "passing"
+  },
+  {
+   "id": "B-021-1",
+   "phase": "B-021",
+   "name": "check: the Ask question refuses a name, a name behind base64 and an ip, a mail, a phone number and an IBAN as before check.screen, and passes a clean question",
+   "run": ".venv/bin/pytest tests/test_check.py::test_the_ask_door_refuses_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "B-021-2",
+   "phase": "B-021",
+   "name": "check: the project chat refuses a name, structured data, a secret, a private key, a token and a home path as before; the price tool may carry a phone number and nothing else",
+   "run": ".venv/bin/pytest tests/test_check.py::test_the_chat_door_refuses_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "B-021-3",
+   "phase": "B-021",
+   "name": "check: the working copy of an imported material is refused for every class of the door inputs as before, a clean text passes unchanged",
+   "run": ".venv/bin/pytest tests/test_check.py::test_the_materials_door_refuses_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "B-021-4",
+   "phase": "B-021",
+   "name": "check: the project read API masks a name, an ip, a mail, a phone number and an IBAN as [withheld] as before and returns a clean text unmasked",
+   "run": ".venv/bin/pytest tests/test_check.py::test_the_projects_door_masks_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "B-021-5",
+   "phase": "B-021",
+   "name": "check: the owner status and the run summaries refuse a name (also behind base64), a secret, a private key and a token as before and pass structured data and a home path",
+   "run": ".venv/bin/pytest tests/test_check.py::test_the_owner_door_refuses_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "B-021-6",
+   "phase": "B-021",
+   "name": "check: check.screen finds the class of every door input, the same through the register and through the check socket; allow lets a class pass",
+   "run": ".venv/bin/pytest tests/test_check.py::test_screen_finds_the_same_classes_for_every_door",
+   "status": "passing"
+  },
+  {
+   "id": "B-021-7",
+   "phase": "B-021",
+   "name": "check: check.screen with mask replaces names and structured data by [withheld] and gives no text for a secret class or a hit behind base64",
+   "run": ".venv/bin/pytest tests/test_check.py::test_screen_with_mask_masks_what_it_can_and_withholds_the_rest",
+   "status": "passing"
+  },
+  {
+   "id": "B-021-8",
+   "phase": "B-021",
+   "name": "check: without an answer of the vault daemon check.screen raises CheckUnavailable and the chat and the project read API refuse",
+   "run": ".venv/bin/pytest tests/test_check.py::test_screen_fails_closed_when_the_daemon_does_not_answer",
+   "status": "passing"
+  },
+  {
+   "id": "B-021-9",
+   "phase": "B-021",
+   "name": "check: the Ask question refuses the secret classes, the chat sees a name behind base64, the project read API withholds a text with a secret class or a hidden name",
+   "run": ".venv/bin/pytest tests/test_check.py::test_the_doors_now_refuse_what_another_door_already_refused",
+   "status": "passing"
+  },
+  {
+   "id": "B-021-10",
+   "phase": "B-021",
+   "name": "check: the table \"One text screen\" of INTERFACES.md has one row for each of the five doors",
+   "run": ".venv/bin/pytest tests/test_check.py::test_the_table_of_the_doors_names_every_door",
+   "status": "passing"
   }
  ],
- "total_tests": 989,
+ "total_tests": 999,
  "checked": "2026-10-15"
 }

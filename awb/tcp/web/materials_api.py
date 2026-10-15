@@ -26,7 +26,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
-from awb import codes, config, projects, register, intake, check, extract, gate
+from awb import codes, config, projects, register, intake, check, extract
 from awb.tcp import keys
 
 SOCKET='/run/awb-materials.sock'
@@ -319,7 +319,7 @@ CREATE INDEX IF NOT EXISTS import_project ON imports(project,created);
         return local_call(PUBLISH_SOCKET,'/internal/projects/'+row['project']+'/materials','POST',{'id':row['id'],'customer':row['customer'],'text':text,'sha256':digest(text.encode())})
     def checked(self,text):
         if len(text.encode())>MAX_TEXT:raise Problem(422,'Extracted text is too large. Split this document into smaller files.')
-        if check.check_text(text,self.p.register) or any(gate.DETECTORS[k](text) for k in ('secret','private-key','token','homepath')):
+        if check.screen(text,check.checker(self.p.register)).found:
             raise Problem(422,'The working copy contains protected values. Owner review is required.')
         return text
     def process(self,ident):

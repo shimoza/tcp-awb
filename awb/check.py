@@ -15,6 +15,11 @@ full (a limit, an encrypted member, an embedded object) also gets one record of 
 length 0): a check never calls a file clean that it could not read. The file name is checked too: a
 registered form in it gives one record of class `path` (start 0, length 0).
 
+`screen` is the one text screen of the five doors that check a text before it leaves or is shown (the Ask
+question, the project chat, the working copy of a material, the project read API, the owner status): the classes
+of `check_text` plus the gate's secret, private key, token and home path detectors; a door chooses where its names
+come from, what it lets pass and whether it masks (INTERFACES.md, "One text screen").
+
 Nothing here prints, logs or raises with a matched value, a register form or a code. The command line prints
 JSON lines with file, start, length and class only. It prints a path only when the path carries no
 registered form, else "file N" (N counts the arguments). It exits 2 when there is no register, unless
@@ -36,6 +41,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 from awb import normalize, patterns, register
 from awb.matcher import Matcher, Span, public
@@ -248,6 +254,75 @@ def check_text(text: str, register_path: Path | None) -> list[dict]:
     the register is readable, else through the vault daemon. Raises RegisterError on a bad register and
     CheckUnavailable (a RegisterError) when the names cannot be checked at all."""
     return checker(register_path).scan(with_hidden_views(text))
+
+
+SECRET_CLASSES = ("secret", "private-key", "token", "homepath")
+"""The pattern detectors of the gate a text screen runs besides the name check. They need no register."""
+
+WITHHELD = "[withheld]"
+"""What a masking screen writes in place of a hit."""
+
+
+class Screened(NamedTuple):
+    """What `screen` found. `found`: the classes of every hit, sorted, without the allowed ones. `text`: the
+    normalised text; with `mask`, every hit replaced by WITHHELD, or None when a hit cannot be masked (a secret
+    class, a hit behind an encoding or under a bidi override, a hit the second check still finds)."""
+    text: str | None
+    found: tuple[str, ...]
+
+
+def _secret_classes(text: str) -> set[str]:
+    """The SECRET_CLASSES of `text`, looked for as the gate's scan does: in the text as given, in its normalised
+    form and in what its base64 and hex blocks decode to."""
+    from awb import gate
+
+    texts = [text]
+    blocks = gate.extract_text.encoded_blocks(text)
+    if blocks:
+        texts.append("\n".join(decoded for _, decoded in blocks))
+    found: set[str] = set()
+    for t in texts:
+        n = normalize.normalize(t).text
+        found.update(cls for cls in SECRET_CLASSES
+                     if gate.DETECTORS[cls](t) or (n != t and gate.DETECTORS[cls](n)))
+    return found
+
+
+def _masked(text: str, hits: list[dict]) -> str | None:
+    """`text` with every hit replaced by WITHHELD, None when a hit lies past its end."""
+    ranges = sorted((h["start"], h["start"] + h["length"]) for h in hits)
+    if any(end > len(text) for _, end in ranges):
+        return None
+    merged: list[tuple[int, int]] = []
+    for start, end in ranges:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+        else:
+            merged.append((start, end))
+    for start, end in reversed(merged):
+        text = text[:start] + WITHHELD + text[end:]
+    return text
+
+
+def screen(text: str, names, mask: bool = False, allow: tuple[str, ...] = ()) -> Screened:
+    """The one text screen of the doors (the table "One text screen" in INTERFACES.md). It finds registered
+    names and structured data with `names` (a Matcher, a LocalCheck or a RemoteCheck), also behind base64 and
+    hex blocks and under a bidi override, and the SECRET_CLASSES with the gate's detectors. A class in `allow`
+    passes. A door refuses when `found` is not empty; with `mask` it shows `text` instead, or nothing when that
+    is None. Raises what the name check raises (CheckUnavailable, RegisterError); the result carries no value."""
+    names = _as_checker(names)
+    normal = normalize.normalize(text).text
+    hits = [h for h in names.scan(with_hidden_views(text)) if h["cls"] not in allow]
+    secrets = _secret_classes(text) - set(allow)
+    found = tuple(sorted({h["cls"] for h in hits} | secrets))
+    if not mask:
+        return Screened(normal, found)
+    out = None if secrets else _masked(normal, hits)
+    if out is not None and hits:
+        again = [h for h in names.scan(with_hidden_views(out)) if h["cls"] not in allow]
+        if again or _secret_classes(out) - set(allow):
+            out = None
+    return Screened(out, found)
 
 
 def _opaque() -> dict:

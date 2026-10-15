@@ -215,6 +215,37 @@ def check_file(path: Path, register_path: Path) -> list[dict]
 CLI `awb check FILE...` prints JSON lines `{"file":..,"start":..,"length":..,"cls":..}` and exits 1 on any hit.
 It never prints the matched value or the code.
 
+### One text screen (F1 step 3, 2026-10-15)
+
+```python
+SECRET_CLASSES = ("secret", "private-key", "token", "homepath")
+WITHHELD = "[withheld]"
+class Screened(NamedTuple): text: str | None; found: tuple[str, ...]
+def screen(text: str, names, mask: bool = False, allow: tuple[str, ...] = ()) -> Screened
+```
+`screen` is the one text screen of the five doors that check a text before it leaves the machine or is shown.
+`names` is a Matcher, a `LocalCheck` or a `RemoteCheck`; the door chooses where the names come from. Every door
+gets the same classes: registered names and structured data (also behind base64 and hex blocks and under a bidi
+override) and the gate's four detectors of `SECRET_CLASSES` (over the text as given, its normalised form and its
+decoded blocks). `found` lists the classes, sorted, without those in `allow`. `text` is the normalised text; with
+`mask` every hit is replaced by `[withheld]`, and `text` is None when a hit cannot be masked (a secret class, a hit
+behind an encoding or under a bidi override, a hit that a second check of the masked text still finds). It raises
+what the name check raises (`CheckUnavailable`, `RegisterError`) and never carries a value. A new detector goes
+into `screen` and so reaches every door.
+
+| Door | Where | Names from | Refuses | Masks | Passes |
+|---|---|---|---|---|---|
+| Ask question (`awb ask`, the form page) | `awb/tcp/ask.py` `screen` | register or check socket | every class | nothing | nothing |
+| Project chat (question, project files, tool answers, model answer) | `awb/tcp/web/chat_service.py` `screen` | check socket only | every class | nothing | `phone` in the answer of the public price tool only |
+| Working copy of an imported material | `awb/tcp/web/materials_api.py` `Store.checked` | register or check socket | every class | nothing | nothing |
+| Project read API (goal, project files) | `awb/tcp/web/projects_api.py` `checked` | check socket only | nothing: shows "[Content withheld by the data check.]" when `text` is None | names and structured data | nothing |
+| Owner status file and run summaries | `awb/tcp/owner.py` `name_check`, `summary_screen` | `publish.name_matcher` (register or check socket) | `publish.CLASSES`: name, secret, token, private-key | nothing | structured data and `homepath` (a status file carries times and numbers) |
+
+A door that cannot run the name check refuses (Ask, chat, materials, projects) or writes the status as
+`unavailable` and withholds every summary (owner). Closed by this step: the Ask question now refuses the secret
+classes, the chat and the project read API now see a name behind base64 or hex and the project read API
+withholds a text with a secret class.
+
 ## `awb/gate.py`
 
 ```python

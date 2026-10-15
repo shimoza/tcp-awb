@@ -206,16 +206,19 @@ def spend(tokens: int, questions: int = 0, today: str | None = None) -> None:
 
 
 def screen(question: str, p: config.Paths) -> None:
-    """Refuse a question with a registered name or structured data before it leaves the machine."""
+    """Refuse a question with a registered name, structured data, a secret or a home path before it leaves the
+    machine (check.screen, every class refuses)."""
     from awb import check
 
     try:
-        hits = check.check_text(question, p.register)
+        found = check.screen(question, check.checker(p.register)).found
     except Exception:
         raise AskError("the name check did not run, so the question was not sent") from None
-    if any(h.get("cls") == "name" for h in hits):
+    if "name" in found:
         raise AskError("the question carries a registered name: write the code instead")
-    if hits:
+    if set(found) & set(check.SECRET_CLASSES):
+        raise AskError("the question carries a secret, a token, a key or a home path: leave it out")
+    if found:
         raise AskError("the question carries structured data (such as an address or a number): leave it out")
 
 

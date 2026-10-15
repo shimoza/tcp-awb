@@ -163,6 +163,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- One text screen for the five doors (B-021, step 3 of the F1 plan): `check.screen(text, names, mask, allow)` finds
+  registered names and structured data (also behind base64, hex and a bidi override) and the gate's secret, private
+  key, token and home path detectors, and the Ask question, the project chat, the working copy of an imported
+  material, the project read API (masks) and the owner status all call it. A door only chooses where its names come
+  from and what it lets pass; the table "One text screen" in `INTERFACES.md` says which door refuses and which
+  masks. No door accepts or shows more than before. Stricter now: the Ask question refuses secrets and home paths,
+  the chat and the project read API see a name behind base64 or hex, and the project read API withholds a text with
+  a secret.
+
 - One definition of the code patterns (B-020, step 2 of the F1 plan): `awb/codes.py` spells the project, customer,
   fact and calculation codes once (`PROJECT_RE`, `CUST_RE`, `KB_RE`, `CALC_RE` and their text) and names the narrower
   or older shapes some modules accepted (`TCP_PROJECT`, `TCP_PROJECT_WIDE`, `ANY_PROJECT`, `KB_WIDE`, `KB_ANY_LENGTH`,

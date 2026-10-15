@@ -145,7 +145,7 @@ def run_summary(folder: Path) -> str | None:
 def summary_screen():
     """A screen for run summaries: text -> (summary, None) when the name check passes it, (None, classes) when it
     finds a name, a secret, a token or a private key, (None, "unavailable") when the check cannot run."""
-    from awb import check, gate, register
+    from awb import check, register
     from awb.tcp.web import publish
 
     state = {}
@@ -161,7 +161,7 @@ def summary_screen():
         if state["matcher"] is None:
             return None, "unavailable"
         try:
-            found = {f.cls for f in gate._scan_text("summary", text, state["matcher"]) if f.cls in publish.CLASSES}
+            found = set(check.screen(text, state["matcher"]).found) & set(publish.CLASSES)
         except check.CheckUnavailable:
             return None, "unavailable"
         if found:
@@ -188,13 +188,13 @@ def collect(p: config.Paths | None = None) -> dict:
 
 def name_check(text: str) -> str:
     """'passed', 'unavailable' (the vault cannot check now) or StatusError when the text carries a name, a secret,
-    a token or a private key."""
-    from awb import check, gate
+    a token or a private key (check.screen, the classes of publish.CLASSES refuse)."""
+    from awb import check
     from awb.tcp.web import publish
 
     try:
         matcher = publish.name_matcher()
-        found = {f.cls for f in gate._scan_text("status.json", text, matcher) if f.cls in publish.CLASSES}
+        found = set(check.screen(text, matcher).found) & set(publish.CLASSES)
     except (publish.Refused, check.CheckUnavailable):
         return "unavailable"
     if found:

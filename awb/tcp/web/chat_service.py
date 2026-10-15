@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
 from http.server import ThreadingHTTPServer
-from awb import codes, config, vault, normalize, gate, kb
+from awb import check, codes, config, vault, normalize, kb
 from awb.tcp import ask, services
 
 CODE = re.compile(codes.TCP_PROJECT_WIDE)
@@ -194,17 +194,15 @@ def screen(text, paths, numeric_price=False):
     try:
         if vault.ping(paths.check_socket) == 'locked':
             raise ChatError('The data check is locked. Nothing was sent.')
-        hits = vault.check_remote(text, paths.check_socket)
         # The existing public price tool returns decimal rates and timestamps that
         # can resemble phone numbers. This exception applies only to that tool's
         # response, never user input, project files, history or model answers.
-        if numeric_price:
-            hits = [hit for hit in hits if hit.get('cls') != 'phone']
-    except (vault.VaultError, OSError):
+        # The names go to the check socket only; the secret detectors never load the register.
+        found = check.screen(text, check.RemoteCheck(paths.check_socket),
+                             allow=('phone',) if numeric_price else ()).found
+    except (check.CheckUnavailable, vault.VaultError, OSError):
         raise ChatError('The data check is unavailable. Nothing was sent.') from None
-    # These detectors are local pattern checks. They never load the name register.
-    secret = any(gate.DETECTORS[k](text) for k in ('secret', 'private-key', 'token', 'homepath'))
-    if hits or secret:
+    if found:
         raise ChatError(NAME_FOUND, 422)
     return text
 

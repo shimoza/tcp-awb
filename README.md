@@ -107,6 +107,11 @@ answers the text, the fact ids it names, the prices it used and the questions le
 returns the questions left. It shares the daily budget and the name check with the Ask page. A refusal says why:
 `name` (a registered name: write the code), `budget` (used up until 00:00 UTC), `busy` or `error`. The contract is
 `docs/api/openapi.yaml`.
+Every door that sends or shows a text runs the same screen (`check.screen`): the Ask question, the project chat, the
+working copy of an imported material, the project read API and the owner status. It looks for registered names,
+structured data, secrets, tokens, private keys and home paths, also behind base64 and hex. The project read API
+masks what it finds as `[withheld]`, the owner status refuses names and secrets only, the others refuse. The table
+"One text screen" in `INTERFACES.md` lists each door.
 
 ## Deploy
 
