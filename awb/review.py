@@ -652,7 +652,7 @@ def _scan(sentence: str) -> tuple[list[str], bool]:
     take(_URL_RE, "url", trim=True)
     take(_API_RE, "api-path", trim=True)
     take(codes.PLACEHOLDER_RE)
-    take(codes.PROJECT_CODE_RE)
+    take(codes.PROJECT_RE)
     take(_IP4_RE)
     take(_IP6_RE)
     take(_DATE_RE)
@@ -924,8 +924,8 @@ def _writing_tells(path: Path, mode: str, scope: str, text: str | None = None) -
     return out, len(tells)
 
 
-_KB_EVIDENCE_RE = re.compile(r"kb:(KB-[A-Z0-9]{4})")
-_CALC_EVIDENCE_RE = re.compile(r"calc:(K-[1-9][0-9]{0,4})")
+_KB_EVIDENCE_RE = re.compile(r"kb:(%s)" % codes.KB_WIDE)
+_CALC_EVIDENCE_RE = re.compile(r"calc:(%s)" % codes.CALC)
 _ARITH_RE = re.compile(
     r"(?i)\b(?:total|totals|totalling|totaling|sum|subtotal|altogether|in all|saves?|saving|savings|difference"
     r"|average)\b|\u00d7|(?<![\w.])[0-9]+(?:[.,][0-9]+)?\s?[x*\u00d7]\s?[0-9]"

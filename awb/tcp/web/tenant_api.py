@@ -22,7 +22,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
-from awb import config
+from awb import codes, config
 from awb.tcp import keys, tenants, sweep
 
 SOURCES = (
@@ -87,12 +87,12 @@ def safe_value(value,pattern,default=''):
 
 def project_tag(raw):
     tags=sweep.tags(raw.get('tags') or (raw.get('metadata') or {}).get('tags'))
-    return safe_value(tags.get('awb-project'),r'tcp-[a-z0-9]{4}')
+    return safe_value(tags.get('awb-project'),codes.TCP_PROJECT_WIDE)
 
 
 def project_from_name(raw):
     # Only an explicit AWB code is retained. Other resource names are not returned.
-    matches=re.findall(r'(?<![a-z0-9])tcp-[a-z0-9]{4}(?![a-z0-9])',str(raw.get('name') or ''))
+    matches=re.findall(r'(?<![a-z0-9])'+codes.TCP_PROJECT_WIDE+r'(?![a-z0-9])',str(raw.get('name') or ''))
     return matches[0] if len(set(matches))==1 else ''
 
 

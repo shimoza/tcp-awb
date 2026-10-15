@@ -133,8 +133,8 @@ MIN_TRIED = 2
 MAX_STATEMENT = 2000
 MAX_LINE = 300
 
-ID_RE = re.compile(r"KB-[A-Z2-7]{4}")
-_FILE_RE = re.compile(r"KB-[A-Z2-7]{4}\.md")
+ID_RE = re.compile(codes.KB)
+_FILE_RE = re.compile(codes.KB + r"\.md")
 _DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _TAG_RE = re.compile(r"[a-z0-9][a-z0-9.+_-]{0,47}")
 

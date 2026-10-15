@@ -23,6 +23,8 @@ import re
 import sys
 from pathlib import Path
 
+from awb import codes
+
 REPO = Path(__file__).resolve().parents[3]
 CONTRACT_FILE = REPO / "docs" / "api" / "openapi.yaml"
 VERSION = "0.1.0"
@@ -30,8 +32,8 @@ DEPLOYED = "2026-10-02"
 STATES = ("deployed", "repository")
 METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
 
-PROJECT_CODE = r"^tcp-[a-z2-7]{4}$"
-CUSTOMER_CODE = r"^CUST-[A-Z2-7]{4}$"
+PROJECT_CODE = "^%s$" % codes.TCP_PROJECT
+CUSTOMER_CODE = "^%s$" % codes.CUST
 REQUEST_ID = r"^[a-f0-9]{32}$"
 MATERIAL_ID = r"^M-[A-Z]{24}$"
 SOURCE_ID = r"^[a-f0-9]{64}$"
@@ -522,7 +524,7 @@ def _schemas() -> dict:
         "ProjectCode": string("A project code.", pattern=PROJECT_CODE),
         "CustomerCode": string("A customer code.", pattern=CUSTOMER_CODE),
         "CustomerOrNone": string("A customer code, or none for an internal project.",
-                                 pattern=r"^(none|CUST-[A-Z2-7]{4})$"),
+                                 pattern="^(none|%s)$" % codes.CUST),
         "RequestId": string("Made by the browser for one submission: 32 lower-case hex characters. A retry sends "
                             "the same one.", pattern=REQUEST_ID),
         "MaterialId": string("An import: M- and 24 capital letters.", pattern=MATERIAL_ID),
@@ -620,7 +622,7 @@ def _schemas() -> dict:
             "tags": array(string(), "Tags of GET /api/project-options. Default: none.", maxItems=20),
         }, required=["request_id", "kind", "goal"], closed=True),
         "CreationResult": obj({
-            "code": string("The new code.", pattern=r"^(tcp-[a-z2-7]{4}|CUST-[A-Z2-7]{4})$"),
+            "code": string("The new code.", pattern="^(%s|%s)$" % (codes.TCP_PROJECT, codes.CUST)),
             "created": boolean("Always true."),
             "warning": string("The work is done but a side step is not. Show it to the person."),
         }, required=["code", "created"]),
@@ -896,7 +898,7 @@ def _schemas() -> dict:
         "AskAnswer": obj({
             "request_id": ref("RequestId"),
             "answer": string("Plain text, no Markdown."),
-            "facts": array(string(pattern=r"^KB-[A-Z0-9]+$"), "The fact ids the answer names and a lookup returned."),
+            "facts": array(string(pattern="^%s$" % codes.KB_ANY_LENGTH), "The fact ids the answer names and a lookup returned."),
             "prices": array(ref("AskPrice"), "The price records the live price API handed to the model for this "
                             "answer, at most 50. The answer text says which of them it quotes."),
             "tools": array(string(enum=["kb_find", "price_find", "tenant_now"]), "The sources the answer used."),

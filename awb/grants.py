@@ -19,12 +19,12 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from awb import config
+from awb import codes, config
 
 NAME = "grants.json"
-CODE_RE = re.compile(r"^tcp-[a-z0-9]{4}$")
+CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
 KINDS = ("query", "project")
-CUST_RE = re.compile(r"^CUST-[A-Z2-7]{4}$")
+CUST_RE = re.compile("^%s$" % codes.CUST)
 NO_CUSTOMER = "none"
 
 

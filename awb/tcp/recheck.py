@@ -64,7 +64,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from awb import jobs, kb
+from awb import codes, jobs, kb
 
 SERVICE_PROJECT = "tcp-n7e6"
 """The standing service project of the design (kind project, no customer, granted on the lab test tenant)."""
@@ -601,7 +601,7 @@ def run(tier: str, ids, project: str, tenant: str | None, *, dry_run: bool = Fal
         if tier not in TIERS:
             raise RecheckError("the tier is read or write; a decision tier stays the owner's")
         for i in ids:
-            if not re.fullmatch(r"KB-[A-Z2-7]{4}", i):
+            if not re.fullmatch(codes.KB, i):
                 raise RecheckError("an id reads like KB-Q7M4")
         p = pick(tier, ids, where=where, today=now.date())
         if dry_run:

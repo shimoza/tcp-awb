@@ -46,7 +46,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from awb import config, jobs, obs
+from awb import codes, config, jobs, obs
 from awb.tcp import sweep as _sweep
 
 TENANTS_DIR = "tenants"
@@ -56,8 +56,8 @@ SNAPSHOTS = "snapshots"
 HANDLES = "handles.json"
 _ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_PROJECT_TAG_RE = re.compile(r"tcp-[a-z0-9]{4}")          # as tenant_api.project_tag of the console
-_CODE_RE = re.compile(r"^tcp-[a-z0-9]{4}$")
+_PROJECT_TAG_RE = re.compile(codes.TCP_PROJECT_WIDE)          # as tenant_api.project_tag of the console
+_CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
 FIELDS = ("alias", "regions", "keys", "added")
 PASS_REF, FILE_REF = "pass" + ":", "file" + ":"
 """The two ways a tenant names its read-only key."""

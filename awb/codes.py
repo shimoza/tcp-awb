@@ -27,7 +27,41 @@ ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 PLACEHOLDER_RE = re.compile(
     r"\b(?:%s)-[A-Z2-7]{4}(?:-(?:%s)-\d{1,3})?\b" % ("|".join(KINDS), "|".join(ENTITY_KINDS))
 )
-PROJECT_CODE_RE = re.compile(r"\b(?:tcp|hcs)-[a-z2-7]{4}\b")
+
+# The one spelling of each code shape. A module that needs anchors, a group or a route around a code builds it from
+# the text below and never writes the character classes again (tests/test_codes.py greps the package for that).
+PROJECT_ID = r"[a-z2-7]{4}"
+"""the four characters of a project code after its platform prefix"""
+PROJECT = r"(?:tcp|hcs)-" + PROJECT_ID
+"""a project code of either platform: tcp-q7m4, hcs-q7m4"""
+CUST = r"CUST-[A-Z2-7]{4}"
+"""a customer code: CUST-Q7M4"""
+KB = r"KB-[A-Z2-7]{4}"
+"""a fact id of the knowledge base: KB-Q7M4"""
+CALC = r"K-[1-9][0-9]{0,4}"
+"""a calculation id: K-1 to K-99999"""
+
+PROJECT_RE = re.compile(r"\b%s\b" % PROJECT)
+CUST_RE = re.compile(r"\b%s\b" % CUST)
+KB_RE = re.compile(r"\b%s\b" % KB)
+CALC_RE = re.compile(r"\b%s\b" % CALC)
+PROJECT_CODE_RE = PROJECT_RE
+"""the older name of PROJECT_RE"""
+
+# Narrower or older shapes that a module keeps as it was. None of them is the rule for a new place.
+TCP_PROJECT = r"tcp-" + PROJECT_ID
+"""a project code of the tcp platform only"""
+TCP_PROJECT_WIDE = r"tcp-[a-z0-9]{4}"
+"""a tcp project code with the older alphabet of lowercase letters and every digit (the web services, the grants,
+the keys and the tenants); new codes are base32 only (new_project_code)"""
+ANY_PROJECT = r"[a-z]{3}-" + PROJECT_ID
+"""a project code with any three letter platform prefix (the hooks name a project folder by it)"""
+KB_WIDE = r"KB-[A-Z0-9]{4}"
+"""a fact id with every digit (the evidence of a review)"""
+KB_ANY_LENGTH = r"KB-[A-Z0-9]+"
+"""a fact id of any length (the Ask answer of the web contract)"""
+CALC_WIDE = r"K-[0-9]+"
+"""a calculation id with any digits (the notes a migration reads)"""
 
 
 def _id() -> str:
@@ -84,7 +118,7 @@ owner at the paste door of the intake (awb import --paste)."""
 
 
 def is_project_code(s: str) -> bool:
-    return bool(PROJECT_CODE_RE.fullmatch(s or ""))
+    return bool(PROJECT_RE.fullmatch(s or ""))
 
 
 def kind_of(code: str) -> str:
@@ -117,5 +151,5 @@ def count_codes(text: str) -> tuple[int, int]:
     characters or invisible characters inside."""
     folded = fold_for_codes(text)
     n_reg = max(len(PLACEHOLDER_RE.findall(text or "")), len(PLACEHOLDER_RE.findall(folded)))
-    n_proj = max(len(PROJECT_CODE_RE.findall(text or "")), len(PROJECT_CODE_RE.findall(folded)))
+    n_proj = max(len(PROJECT_RE.findall(text or "")), len(PROJECT_RE.findall(folded)))
     return n_reg, n_proj

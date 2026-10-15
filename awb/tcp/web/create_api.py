@@ -28,7 +28,7 @@ from awb import codes, config, intake, ledger, projects, register, vault
 
 PROJECT_SOCKET = '/run/awb-project-create.sock'
 REQUEST = re.compile(r'[a-f0-9]{32}')
-CUSTOMER = re.compile(r'CUST-[A-Z2-7]{4}')
+CUSTOMER = re.compile(codes.CUST)
 WEB_REGISTER_OFF = "New customers are registered on the owner's terminal, not in the console."
 
 
@@ -361,7 +361,7 @@ class Handler(BaseHTTPRequestHandler):
     def dispatch(self):
         try:
             uid = struct.unpack('3i', self.connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))[1]
-            publish = re.fullmatch(r'/internal/projects/(tcp-[a-z2-7]{4})/materials', self.path)
+            publish = re.fullmatch(r'/internal/projects/('+codes.TCP_PROJECT+r')/materials', self.path)
             if self.server.mode == 'projects' and publish and self.command == 'POST' and uid == self.server.owner_uid:
                 lengths = self.headers.get_all('Content-Length', [])
                 if len(lengths) != 1 or self.headers.get('Transfer-Encoding') or self.headers.get('Content-Type', '').split(';')[0] != 'application/json':

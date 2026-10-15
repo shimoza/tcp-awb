@@ -6887,8 +6887,43 @@
    "name": "cli: the help line of kb and review names every subcommand of its parser",
    "run": ".venv/bin/pytest tests/test_cli.py::test_the_help_line_of_kb_and_review_names_every_subcommand",
    "status": "passing"
+  },
+  {
+   "id": "B-020-1",
+   "phase": "B-020",
+   "name": "codes: PROJECT_RE, CUST_RE, KB_RE and CALC_RE accept the codes and refuse the rest; PROJECT_CODE_RE is PROJECT_RE",
+   "run": ".venv/bin/pytest tests/test_codes.py::test_central_patterns_accept_the_codes_and_refuse_the_rest",
+   "status": "passing"
+  },
+  {
+   "id": "B-020-2",
+   "phase": "B-020",
+   "name": "codes: the named variants (TCP_PROJECT, TCP_PROJECT_WIDE, ANY_PROJECT, KB_WIDE, KB_ANY_LENGTH, CALC_WIDE) accept what the local patterns accepted",
+   "run": ".venv/bin/pytest tests/test_codes.py::test_variants_keep_what_the_local_patterns_accepted",
+   "status": "passing"
+  },
+  {
+   "id": "B-020-3",
+   "phase": "B-020",
+   "name": "codes: every module pattern built on awb.codes has the text the module wrote before",
+   "run": ".venv/bin/pytest tests/test_codes.py::test_the_modules_compile_the_same_patterns_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "B-020-4",
+   "phase": "B-020",
+   "name": "codes: a grep of the package finds no local spelling of a project, customer, fact or calculation code outside codes.py (the gateway only the variants codes.py names)",
+   "run": ".venv/bin/pytest tests/test_codes.py::test_no_module_spells_a_code_pattern_of_its_own",
+   "status": "passing"
+  },
+  {
+   "id": "B-020-5",
+   "phase": "B-020",
+   "name": "codes: the grep finds each kind of local spelling and leaves other codes alone",
+   "run": ".venv/bin/pytest tests/test_codes.py::test_the_grep_finds_a_local_spelling",
+   "status": "passing"
   }
  ],
- "total_tests": 984,
+ "total_tests": 989,
  "checked": "2026-10-15"
 }

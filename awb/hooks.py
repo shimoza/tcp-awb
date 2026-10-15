@@ -692,8 +692,9 @@ def hook_prompt(data: dict) -> int:
 def _paste_door(data: dict) -> str:
     """The way in for a pasted mail or transcript: the owner's `awb import CODE --paste`, with the code of the
     project the session works in when the hook can tell it."""
+    from awb import codes
     root = project_root(data.get("cwd") if isinstance(data.get("cwd"), str) else None)
-    code = root.name if root is not None and re.fullmatch(r"[a-z]{3}-[a-z2-7]{4}", root.name) else "CODE"
+    code = root.name if root is not None and re.fullmatch(codes.ANY_PROJECT, root.name) else "CODE"
     return "A pasted mail or transcript goes in through `awb import %s --paste` in your own terminal." % code
 
 
@@ -2482,7 +2483,7 @@ def _receipt_mark(p: config.Paths, sid) -> Path | None:
 def _log_receipt(p: config.Paths, sid, root: Path | None, missing: list[str]) -> None:
     from awb import codes
 
-    code = root.name if root is not None and codes.PROJECT_CODE_RE.fullmatch(root.name) else "-"
+    code = root.name if root is not None and codes.PROJECT_RE.fullmatch(root.name) else "-"
     sid = re.sub(r"[^A-Za-z0-9_-]", "", sid)[:80] if isinstance(sid, str) else ""
     line = "%s\t%s\t%s\t%s\n" % (datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                                  sid or "-", code, ",".join(missing) or "ok")

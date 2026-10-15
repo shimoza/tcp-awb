@@ -50,13 +50,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import awb
-from awb import config, jobs, kb, offered, projects
+from awb import codes, config, jobs, kb, offered, projects
 from awb.tcp import board, dataset, mirror, price
 
 PARTS = ("mirrors", "prices", "knowledge", "wipe", "projects", "defaults", "dataset")
 VERDICTS = ("confirmed", "changed", "refuted", "unchecked")
 MAX_STATE_AGE = 14
-_KB_ID_RE = re.compile(r"\bKB-[A-Z2-7]{4}\b")
+_KB_ID_RE = codes.KB_RE
 _AWB_CMD_RE = re.compile(r"`awb ([a-z][a-z-]*)")
 _REVISION_RE = re.compile(r"\b(?:revision|revised|Rev\.?)\s+(\d{2})\.(\d{2})\.(\d{4})\b", re.I)
 

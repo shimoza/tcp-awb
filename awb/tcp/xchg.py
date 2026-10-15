@@ -81,8 +81,8 @@ SETTING_KEYS = ("bucket_tenant", "lab_bucket", "owner_bucket", "region", "max_mb
 _SERVICE_RE = re.compile(r"^[a-z][a-z0-9]{1,20}$")
 """One service of tf_services: the short name of the lease policy's actions (ecs, evs, vpc)."""
 _NAME_RE = re.compile(r"^[^/\\\x00-\x1f\x7f]{1,200}$")
-_CODE_RE = re.compile(r"^tcp-[a-z0-9]{4}$")
-_CUST_RE = re.compile(r"^CUST-[A-Z2-7]{4}$")
+_CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
+_CUST_RE = re.compile("^%s$" % codes.CUST)
 DIFFERS_LINE = "%s: its row in projects.tsv names another customer than the owner's grant: refused"
 """The refusal of a row changed after the grant (the residual of F5 and F6): the project code, never a name."""
 STALE_LINE = ("%s: the owner's grant records no customer: he runs awb projects kind %s %s in his own terminal "
@@ -832,7 +832,7 @@ def _hold(ctx: Context, code: str, customer: str, why: str) -> dict:
 
 
 WEB_MONTH_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])/$")
-_WEB_FOLDER_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])/(tcp-[a-z2-7]{4})/in/")
+_WEB_FOLDER_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])/(" + codes.TCP_PROJECT + r")/in/")
 WEB_MAX_OBJECTS = 2000
 """The most objects one listing of the web mode returns; more is refused as too many."""
 WEB_MAX_ROOT = 1000

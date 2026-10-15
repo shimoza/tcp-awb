@@ -1027,7 +1027,7 @@ def _role_shape(low: str) -> bool:
 _TOKEN_RE = _TOKEN_RE
 _WORD_RE = _WORD_RE
 _CODE_RES = (
-    codes.PLACEHOLDER_RE, codes.PROJECT_CODE_RE,
+    codes.PLACEHOLDER_RE, codes.PROJECT_RE,
     re.compile(r"(?<![\w-])F-[A-Z2-7]{4}(?:\.\d+)*(?![\w-])"),
     re.compile(r"\[(?:person|company|place|name)(?: \d+)?\]"),
 )
@@ -3130,7 +3130,7 @@ def learn(state: WipeState, text: str, names: list[Span], structured: list[Span]
     return spans
 
 
-_CODE_MERGE_RE = re.compile(r"(?<![\w-])(CUST-[A-Z2-7]{4})[ \t]+\[company(?: \d+)?\]")
+_CODE_MERGE_RE = re.compile(r"(?<![\w-])(" + codes.CUST + r")[ \t]+\[company(?: \d+)?\]")
 
 
 def merge_customer_code(text: str) -> str:

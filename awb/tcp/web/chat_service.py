@@ -17,12 +17,12 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
 from http.server import ThreadingHTTPServer
-from awb import config, vault, normalize, gate, kb
+from awb import codes, config, vault, normalize, gate, kb
 from awb.tcp import ask, services
 
-CODE = re.compile(r'tcp-[a-z0-9]{4}')
+CODE = re.compile(codes.TCP_PROJECT_WIDE)
 REQUEST_ID = re.compile(r'[a-f0-9]{32}')
-CHAT_ROUTE = re.compile(r'/api/projects/(tcp-[a-z0-9]{4})/chat')
+CHAT_ROUTE = re.compile(r'/api/projects/('+codes.TCP_PROJECT_WIDE+r')/chat')
 SYSTEM = ask.SYSTEM + '''
 
 You also answer about the selected AWB project. Its current files are supplied as a JSON snapshot.

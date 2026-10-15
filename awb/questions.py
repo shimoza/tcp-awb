@@ -17,11 +17,11 @@ import os
 import re
 from pathlib import Path
 
-from awb import config, english
+from awb import codes, config, english
 
 COLUMNS = ("date", "project", "replies", "questions")
 NONE = "none"
-_PROJECT_RE = re.compile(r"tcp-[a-z0-9]{4}")
+_PROJECT_RE = re.compile(codes.TCP_PROJECT_WIDE)
 _FENCE_RE = re.compile(r"(?ms)^\s*(```|~~~).*?(^\s*\1[^\n]*$|\Z)")
 _NOTE_RE = re.compile(r"(?is)(?:^|\n)\s*[*_]*English note:?[*_]*:?.*$")
 _TRAIL = " \t\r\n*_`\"')]}>»“”’"

@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from awb import config, jobs
+from awb import codes, config, jobs
 
 PROJECT_TAG = "awb-project"
 EXPIRY_TAG = "awb-expiry"
@@ -84,8 +84,8 @@ NOT_SWEPT = ("dedicated ELB load balancers, listeners and pools (ELB v3): no sha
              "yet, to confirm live",)
 NOT_SWEPT_OBS = "OBS buckets: awb cloud sweep --buckets sweeps them, with one call per bucket for its tags"
 IDLE_STATES = {"ecs": ("SHUTOFF",), "evs": ("available",), "eip": ("DOWN",)}
-_CODE_IN_NAME_RE = re.compile(r"(?<![a-z0-9])(?:tcp|hcs)-[a-z2-7]{4}(?![a-z0-9])")
-_LAB_NAME_RE = re.compile(r"^(?P<code>(?:tcp|hcs)-[a-z2-7]{4})-lab-(?P<y>\d{4})(?P<m>\d{2})(?P<d>\d{2})-[a-z]{4}"
+_CODE_IN_NAME_RE = re.compile(r"(?<![a-z0-9])" + codes.PROJECT + r"(?![a-z0-9])")
+_LAB_NAME_RE = re.compile(r"^(?P<code>" + codes.PROJECT + r")-lab-(?P<y>\d{4})(?P<m>\d{2})(?P<d>\d{2})-[a-z]{4}"
                           r"(?:-[a-z0-9]{1,8})?$")
 
 

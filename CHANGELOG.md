@@ -163,6 +163,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- One definition of the code patterns (B-020, step 2 of the F1 plan): `awb/codes.py` spells the project, customer,
+  fact and calculation codes once (`PROJECT_RE`, `CUST_RE`, `KB_RE`, `CALC_RE` and their text) and names the narrower
+  or older shapes some modules accepted (`TCP_PROJECT`, `TCP_PROJECT_WIDE`, `ANY_PROJECT`, `KB_WIDE`, `KB_ANY_LENGTH`,
+  `CALC_WIDE`). Every module of `awb/` builds its patterns on that text; `tests/test_codes.py` greps the package for a
+  local spelling. The gateway imports no module of awb and keeps its own spellings, only the ones `codes.py` names.
+  No pattern accepts more or less than before. The README counts six hooks everywhere.
+
 - Dead and nearly dead code of the F1 review, section 2 (B-019, step 1 of the plan): `jobs.wait_gone` and its
   constants `PRESENT` and `GONE` are gone (no caller). The module text of `awb/cli.py` names the commands and points at
   `COMMANDS.md` for their subcommands and options instead of a stale list; `awb --help` names `kb index`,

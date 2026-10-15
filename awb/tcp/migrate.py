@@ -45,7 +45,7 @@ from decimal import Decimal, DecimalException
 from pathlib import Path
 from typing import Callable
 
-from awb import calc
+from awb import calc, codes
 
 FOLDER = "migration"
 STATE = "state.json"
@@ -695,7 +695,7 @@ def _gate_estimate(project: Path) -> list[str]:
     notes = _read(_folder(project) / "estimate-notes.md")
     if not notes or not notes.strip():
         return ["migration/estimate-notes.md is missing or empty"]
-    ids = set(re.findall(r"calc:(K-[0-9]+)", notes))
+    ids = set(re.findall(r"calc:(%s)" % codes.CALC_WIDE, notes))
     if not ids:
         return ["estimate-notes.md names no calculation (calc:K-N of the totals)"]
     try:

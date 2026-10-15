@@ -515,9 +515,9 @@ customer data out of the model as far as it can:
   text you wrote yourself is still your brief and goes into the chat.
 - The register of names lives in a vault on the owner's side. The sealed setup runs every session as a separate
   system user that cannot read it.
-- Five hooks check every prompt, every written file and the start and end of every session, so that a registered
-  name typed by mistake is stopped before the model sees it. While the name check cannot run (a locked vault),
-  every prompt is refused with the time of the lock.
+- Six hooks check every prompt, every written file, every file or shell call and the start and end of every
+  session, so that a registered name typed by mistake is stopped before the model sees it. While the name check
+  cannot run (a locked vault), every prompt is refused with the time of the lock.
 - A session on the sealed host starts only when every guard answers: the hooks, the commit gate of the project, the
   vault daemon, the key service, the installed rules and the host mode. Its context opens with "guards: 6 of 6
   active"; a missing guard refuses the start and every prompt with one line that names it. `awb board show` counts

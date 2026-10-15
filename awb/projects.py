@@ -571,7 +571,7 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
         taken = {r.code for r in rows}
         if code is None:
             code = _codes.new_project_code(PLATFORM, taken)
-        elif not re.fullmatch(r"%s-[a-z2-7]{4}" % PLATFORM, code) or code in taken:
+        elif not re.fullmatch(r"%s-%s" % (PLATFORM, _codes.PROJECT_ID), code) or code in taken:
             raise ProjectError("the reserved project code is already registered")
         if any(r.code == code for r in rows):
             raise ProjectError("project %s is already registered" % code)

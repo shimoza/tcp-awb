@@ -11,10 +11,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from awb import config
+from awb import codes, config
 
 COUNTS_NAME = "intake-counts.json"
-CUSTOMER_RE = re.compile(r"^CUST-[A-Z2-7]{4}$")
+CUSTOMER_RE = re.compile("^%s$" % codes.CUST)
 
 
 def now_text(t: float | None = None) -> str:

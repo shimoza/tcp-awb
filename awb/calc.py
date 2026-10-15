@@ -34,10 +34,12 @@ from datetime import datetime, timezone
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal, DecimalException, localcontext
 from pathlib import Path
 
+from awb import codes
+
 HEADER = ("id", "time", "label", "expression", "lets", "result")
 FOLDER = "calc"
 FILE = "calc.tsv"
-ID_RE = re.compile(r"K-[1-9][0-9]{0,4}")
+ID_RE = re.compile(codes.CALC)
 LABEL_RE = re.compile(r"[a-z0-9][a-z0-9 -]{0,59}")
 NAME_RE = re.compile(r"[a-z_][a-z0-9_]{0,31}")
 MAX_EXPRESSION = 2000

@@ -382,7 +382,7 @@ def masked(text: str) -> str:
     """A ledger text for the career side: every register code becomes "a customer", every project code "a
     project", because a career entry names no customer at all."""
     from awb import codes
-    return codes.PROJECT_CODE_RE.sub("a project", codes.PLACEHOLDER_RE.sub("a customer", text))
+    return codes.PROJECT_RE.sub("a project", codes.PLACEHOLDER_RE.sub("a customer", text))
 
 
 def ledger_candidates(p: config.Paths, since: date | None) -> str:

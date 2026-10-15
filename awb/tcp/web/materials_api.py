@@ -26,13 +26,13 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
-from awb import config, projects, register, intake, check, extract, gate
+from awb import codes, config, projects, register, intake, check, extract, gate
 from awb.tcp import keys
 
 SOCKET='/run/awb-materials.sock'
 PUBLISH_SOCKET='/run/awb-project-create.sock'
 STATE='/var/lib/awb-materials'
-CODE=re.compile(r'tcp-[a-z2-7]{4}')
+CODE=re.compile(codes.TCP_PROJECT)
 IDENT=re.compile(r'M-[A-Z]{24}')
 IDENT_FILE=re.compile(r'M-[A-Z]{24}\.md')
 PROJECT_COPY='Ready text copy from the project folder.'
@@ -419,8 +419,8 @@ class Handler(BaseHTTPRequestHandler):
     def dispatch(self):
         try:
             uid=struct.unpack('3i',self.connection.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))[1]
-            url=urllib.parse.urlsplit(self.path);route=re.fullmatch(r'/api/projects/(tcp-[a-z2-7]{4})/materials(?:/(sources|imports|upload|M-[A-Z]{24}))?',url.path)
-            inner=re.fullmatch(r'/internal/projects/(tcp-[a-z2-7]{4})/materials/(M-[A-Z]{24})',url.path)
+            url=urllib.parse.urlsplit(self.path);route=re.fullmatch(r'/api/projects/('+codes.TCP_PROJECT+r')/materials(?:/(sources|imports|upload|M-[A-Z]{24}))?',url.path)
+            inner=re.fullmatch(r'/internal/projects/('+codes.TCP_PROJECT+r')/materials/(M-[A-Z]{24})',url.path)
             if inner and self.command=='GET' and uid in self.server.read_uids:return self.reply(200,self.server.store.text(*inner.groups()))
             if uid!=self.server.web_uid:raise Problem(403,'Not allowed.')
             if not route:raise Problem(404,'Not found.')

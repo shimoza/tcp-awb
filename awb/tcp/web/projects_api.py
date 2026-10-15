@@ -10,12 +10,12 @@ import stat
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
-from awb import config, projects, review, vault, normalize
+from awb import codes, config, projects, review, vault, normalize
 from awb import status as recorded
 
 FILES = ('SCOPE.md', 'STATE.md', 'OPEN.md', 'RESOURCES.md')
 LIMIT = 256 * 1024
-CODE = re.compile(r'tcp-[a-z0-9]{4}')
+CODE = re.compile(codes.TCP_PROJECT_WIDE)
 
 class Unavailable(Exception):
     pass
@@ -250,7 +250,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.command!='HEAD':self.wfile.write(raw)
     def do_GET(self):
         path=urlsplit(self.path).path
-        if path!='/api/board' and not re.fullmatch(r'/api/projects(?:/tcp-[a-z0-9]{4})?',path):
+        if path!='/api/board' and not re.fullmatch(r'/api/projects(?:/'+codes.TCP_PROJECT_WIDE+r')?',path):
             self.reply(404,{'error':'No such project endpoint.'});return
         try:
             paths=config.paths()
