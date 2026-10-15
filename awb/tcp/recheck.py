@@ -3,6 +3,10 @@
 
     awb kb recheck-run [--tier read|write] [--id KB-XXXX]... [--project CODE] [--tenant ALIAS] [--dry-run]
 
+Without --tenant a run takes the tenant from `recheck_tenant` of the host file (awb/config.py: AWB_CONF or the root
+host file, the root file alone for the work user), so that no tenant alias of a host is written into the
+repository; with neither it stops.
+
 The steps, each a line of the run's RESULT.md:
 
 1. Pick: the expired entries (`kb.expired`) with a check block of the tier (default read), oldest expiry first;
@@ -604,8 +608,10 @@ def run(tier: str, ids, project: str, tenant: str | None, *, dry_run: bool = Fal
             for line in dry_run_lines(p, tier):
                 out(line)
             return EXIT_OK
+        tenant = tenant or config.host_conf().get("recheck_tenant")
         if not re.match(r"^[a-z][a-z0-9-]{1,30}$", tenant or ""):
-            raise RecheckError("a run needs --tenant: a tenant alias reads like test-1")
+            raise RecheckError("a run needs --tenant or recheck_tenant in the host file: a tenant alias reads like "
+                               "test-1")
         folder = lab.project_folder(project)
         handles = sweep.Handles(sweep.handles_path(config.paths()))
     except (RecheckError, kb.KBError, lab.LabError, sweep.SweepError) as e:

@@ -228,6 +228,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- `awb kb recheck-run` without `--tenant` takes the tenant from `recheck_tenant` of the host file (B-018, FK9 fix):
+  the weekly unit `awb-kb-recheck.service` named the tenant alias of the tests and would have stopped on the host
+  every Sunday. The unit now names no tenant; `--tenant` still wins; with neither the run stops with one line that
+  names the setting. `seal/verify.sh` warns once when the setting is missing or empty and `seal/setup.sh` keeps it
+  when it rewrites the host file.
+
 - `awb seal check` run as the work user passes "the build runner refuses its planted cases" again (finding SC):
   since the handover and rebase units of 2026-10-13 every case read `red: no commit`. The selftest runs its helpers
   in its own process, and the new clone check ran `git config` in the caller's folder; from a folder the work user

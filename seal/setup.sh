@@ -734,7 +734,7 @@ build_model_mode() {
 }
 
 step_conf() {
-    local web_keys owner_host
+    local web_keys owner_host recheck_tenant
     info "the host file of the Workbench paths: /etc/awb root:awb 751 (a user outside the group may reach a file it"
     info "owns there, awb-owner its secret, and lists nothing), paths.conf and blocklist.txt 640 root:awb"
     run mkdir -p "$CONF_DIR"
@@ -745,6 +745,10 @@ step_conf() {
 cloudflared_user = $(kept_conf cloudflared_user cloudflared)"
     [ -z "$owner_host" ] || web_keys="$web_keys
 owner_host = $owner_host"
+    # recheck_tenant is the owner's, the tenant of the weekly awb kb recheck-run (B-018): kept as it was, never set
+    recheck_tenant=$(kept_conf recheck_tenant "")
+    [ -z "$recheck_tenant" ] || web_keys="$web_keys
+recheck_tenant = $recheck_tenant"
     write_file "$CONF_FILE" 640 root:"$WORK_GROUP" <<EOF
 # written by seal/setup.sh, read by awb/config.py
 owner = $owner

@@ -288,8 +288,13 @@ for t in $WORK_JOBS; do
         sh -c '[ "$(systemctl show -p User --value "$1")" = "$2" ]' verify "$t.service" "$WORK_USER"
 done
 allowed "awb-kb-recheck.service runs awb kb recheck-run --tier read alone" \
-    sh -c 'test "$(grep -c "^ExecStart=" "$1")" = 1 && grep -qx "ExecStart=/usr/local/bin/awb kb recheck-run --tier read --tenant test-1" "$1"' \
+    sh -c 'test "$(grep -c "^ExecStart=" "$1")" = 1 && grep -qx "ExecStart=/usr/local/bin/awb kb recheck-run --tier read" "$1"' \
     verify /etc/systemd/system/awb-kb-recheck.service
+# the unit names no tenant: awb kb recheck-run takes recheck_tenant of the host file, which the owner sets (B-018).
+# Without it the weekly run stops: one warning, not a failure, and the value is never printed
+[ -n "$(conf_value recheck_tenant)" ] ||
+    printf 'WARN  recheck_tenant in %s is missing or empty: the weekly awb kb recheck-run stops until the owner sets it\n' \
+        "$CONF_FILE"
 allowed "the timer $RECHECK_WATCH_UNIT.timer is enabled and runs awb kb recheck-watch as the owner" \
     sh -c 'systemctl is-enabled --quiet "$3.timer" && test "$(stat -c "%U %a" -- "$1")" = "root 644" &&
     grep -qx "Type=oneshot" "$1" && grep -qx "User=$2" "$1" && grep -qx "ExecStart=/usr/local/bin/awb kb recheck-watch" "$1"' \

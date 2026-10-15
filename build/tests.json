@@ -6775,8 +6775,36 @@
    "name": "kb recheck job: the weekly read tier as the work user, Sunday 02:30 UTC, installed by setup and proven by verify",
    "run": ".venv/bin/pytest tests/test_seal.py::test_the_weekly_recheck_job_runs_the_read_tier_alone_as_the_work_user_and_is_installed_and_verified",
    "status": "passing"
+  },
+  {
+   "id": "fk-recheck-tenant-B018-1",
+   "phase": "FK9",
+   "name": "kb recheck-run: without --tenant the run takes recheck_tenant of the host file",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_a_run_without_tenant_takes_recheck_tenant_of_the_host_file",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-tenant-B018-2",
+   "phase": "FK9",
+   "name": "kb recheck-run: --tenant wins over recheck_tenant of the host file",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_tenant_wins_over_the_host_setting",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-tenant-B018-3",
+   "phase": "FK9",
+   "name": "kb recheck-run: with neither --tenant nor recheck_tenant the run stops with one line that names the setting",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_a_run_with_neither_stops_with_one_line_that_names_the_setting",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-tenant-B018-4",
+   "phase": "FK9",
+   "name": "kb recheck job: the unit names no tenant, verify warns without recheck_tenant, setup keeps it",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_weekly_recheck_job_names_no_tenant_and_verify_warns_without_the_host_setting",
+   "status": "passing"
   }
  ],
- "total_tests": 968,
+ "total_tests": 972,
  "checked": "2026-10-15"
 }

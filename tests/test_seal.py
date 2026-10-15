@@ -1069,7 +1069,7 @@ def test_the_weekly_recheck_job_runs_the_read_tier_alone_as_the_work_user_and_is
     the read tier. Planted: a unit that names the write tier, a second ExecStart or another time fails."""
     service = (WORK_JOBS / "awb-kb-recheck.service").read_text(encoding="utf-8")
     keys = _service_keys(WORK_JOBS / "awb-kb-recheck.service")
-    assert keys["ExecStart"] == ["/usr/local/bin/awb kb recheck-run --tier read --tenant test-1"]
+    assert keys["ExecStart"] == ["/usr/local/bin/awb kb recheck-run --tier read"]
     assert "write" not in "".join(line for line in service.splitlines() if not line.startswith("#"))
     assert keys["Type"] == ["oneshot"] and keys["User"] == ["awb"] and keys["Group"] == ["awb"]
     for key in ("NoNewPrivileges", "PrivateTmp", "PrivateDevices", "ProtectKernelTunables", "ProtectKernelModules",
@@ -1093,13 +1093,41 @@ def test_the_weekly_recheck_job_runs_the_read_tier_alone_as_the_work_user_and_is
     assert max(writes) < cmds.index("+ systemctl enable --now awb-kb-recheck.timer")
     body = dropin_lines(res.stdout, "/etc/systemd/system/awb-kb-recheck.service")
     assert not [line for line in body if "@" in line]
-    assert "ExecStart=/usr/local/bin/awb kb recheck-run --tier read --tenant test-1" in body
+    assert "ExecStart=/usr/local/bin/awb kb recheck-run --tier read" in body
     res = run_script(VERIFY, ["--dry-run"], fakebin)
     assert res.returncode == 0, res.stderr
     checks = [line[6:] for line in res.stdout.splitlines() if line.startswith("CHECK ")]
     for must in ("the timer awb-kb-recheck.timer is enabled", "awb-kb-recheck.service runs as the work user",
                  "awb-kb-recheck.service runs awb kb recheck-run --tier read alone"):
         assert must in checks, must
+
+
+def test_the_weekly_recheck_job_names_no_tenant_and_verify_warns_without_the_host_setting(fakebin):
+    """B-018 (FK9 fix): the unit names no tenant, awb takes recheck_tenant of the host file. verify.sh warns once
+    when the setting is missing or empty (no failure, no value printed); setup.sh keeps it when it rewrites the host
+    file and never writes one of its own. test-7 is an invented alias."""
+    service = (WORK_JOBS / "awb-kb-recheck.service").read_text(encoding="utf-8")
+    assert "--tenant" not in service and not re.search(r"\btest-\d", service)
+    conf = fakebin[0].parent / "host-paths.conf"
+    for text in (None, "owner = x\n", "recheck_tenant =\n"):
+        if text is None:
+            conf.unlink(missing_ok=True)
+        else:
+            conf.write_text(text, encoding="utf-8")
+        res = run_script(VERIFY, ["--dry-run"], fakebin)
+        assert res.returncode == 0, res.stderr
+        warns = [line for line in res.stdout.splitlines() if "recheck_tenant" in line]
+        assert len(warns) == 1 and warns[0].startswith("WARN  "), warns
+        res = run_script(SETUP, ["--dry-run"], fakebin)
+        assert res.returncode == 0, res.stderr
+        assert not [line for line in res.stdout.splitlines() if line.startswith("    | recheck_tenant")]
+    conf.write_text("owner = x\nrecheck_tenant = test-7\n", encoding="utf-8")
+    res = run_script(VERIFY, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    assert "recheck_tenant" not in res.stdout and "test-7" not in res.stdout
+    res = run_script(SETUP, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    assert "    | recheck_tenant = test-7" in res.stdout.splitlines()
 
 
 def _persist_snippet(tmp: Path) -> str:

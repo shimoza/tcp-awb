@@ -175,11 +175,13 @@ that `awb egress status`, `awb seal check` and `awb deploy status` read; never t
    `<work-home>/.local/bin/nightly-kb-commit` where the crontab ran it. Then `/etc/cron.deny` names `awb` (other
    lines stay) and the crontab of the work user goes; a line in it other than the two jobs is named first. Beside
    them `awb-kb-recheck.timer` runs the weekly read tier of the fact-check, Sunday 02:30 UTC up to 10 minutes later
-   and no catch-up at boot: `awb kb recheck-run --tier read --tenant test-1` as the work user, unix sockets only,
-   after `awb-kb-commit.service`, never the write tier (fact-check F9).
+   and no catch-up at boot: `awb kb recheck-run --tier read` as the work user, unix sockets only,
+   after `awb-kb-commit.service`, never the write tier (fact-check F9). The unit names no tenant: the run takes
+   `recheck_tenant` of `/etc/awb/paths.conf`, which the owner sets and `setup.sh` keeps when it rewrites the file.
    `verify.sh` proves the root owned key file, the file `sshd -T -C user=awb` names, no key file in the work home,
    `cron.deny`, a refused `crontab -l` as the work user, no crontab, the three timers enabled with their services as
-   the work user and the recheck service running the read tier alone.
+   the work user and the recheck service running the read tier alone; a missing or empty `recheck_tenant` is one
+   WARN line, not a failure.
 9. Installs `work-claude/settings.json` and `work-claude/CLAUDE.md` into the `.claude` folder of the work home,
    owned by root, readable for the work user and immutable (`chattr +i`): the folder is the work user's own
    (the client keeps its login and history there), so without the flag it could rename them and put its own

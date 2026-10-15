@@ -313,6 +313,49 @@ def test_the_command_reaches_the_run_and_a_run_needs_a_tenant(project, home, cap
     assert cli.main(["kb", "recheck-run", "--tier", "decision", "--dry-run"]) == 2
 
 
+def test_a_run_without_tenant_takes_recheck_tenant_of_the_host_file(project, home, monkeypatch, tmp_path):
+    """B-018 (FK9 fix): without --tenant the run takes recheck_tenant of the host file (AWB_CONF here); test-7 is an
+    invented alias."""
+    entry("ECS flavor s9.medium.1 is offered in eu-de-01", READ_BLOCK)
+    conf = tmp_path / "paths.conf"
+    conf.write_text("# a host file\nrecheck_tenant = test-7\n", encoding="utf-8")
+    monkeypatch.setenv("AWB_CONF", str(conf))
+    cloud = Cloud()
+    clock = Clock()
+    errors: list[str] = []
+    code = recheck.run("read", [], PROJECT, None, send=cloud, clock=clock, sleep=clock.sleep, out=lambda line: None,
+                       err=errors.append)
+    assert code == 0, errors
+    assert cloud.calls and {c["tenant"] for c in cloud.calls} == {"test-7"}
+
+
+def test_tenant_wins_over_the_host_setting(project, home, monkeypatch, tmp_path):
+    entry("ECS flavor s9.medium.1 is offered in eu-de-01", READ_BLOCK)
+    conf = tmp_path / "paths.conf"
+    conf.write_text("recheck_tenant = test-7\n", encoding="utf-8")
+    monkeypatch.setenv("AWB_CONF", str(conf))
+    cloud = Cloud()
+    code, lines, errors = go(cloud)
+    assert code == 0, errors
+    assert cloud.calls and {c["tenant"] for c in cloud.calls} == {TENANT}
+
+
+@pytest.mark.parametrize("text", [None, "owner = x\n", "recheck_tenant =\n"])
+def test_a_run_with_neither_stops_with_one_line_that_names_the_setting(project, home, monkeypatch, tmp_path, text):
+    entry("ECS flavor s9.medium.1 is offered in eu-de-01", READ_BLOCK)
+    conf = tmp_path / "paths.conf"
+    if text is not None:
+        conf.write_text(text, encoding="utf-8")
+    monkeypatch.setenv("AWB_CONF", str(conf))
+    cloud = Cloud()
+    clock = Clock()
+    errors: list[str] = []
+    code = recheck.run("read", [], PROJECT, None, send=cloud, clock=clock, sleep=clock.sleep, out=lambda line: None,
+                       err=errors.append)
+    assert code == 2 and not cloud.calls
+    assert len(errors) == 1 and "recheck_tenant" in errors[0] and "\n" not in errors[0]
+
+
 def test_the_inventory_reads_every_source_the_key_service_can_send():
     kinds = {s[0] for s in recheck._sources()}
     assert {"ecs", "evs", "eip", "vpc", "sub", "sg", "waf", "smn", "smns", "rds"} <= kinds
