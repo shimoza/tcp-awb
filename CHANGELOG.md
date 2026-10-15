@@ -20,6 +20,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   records it in RESOURCES.md. A resource it cannot delete is mailed once with its handle; every line of
   `<shared>/recheck/state.tsv` is mailed once. A resource of another project and one not expired are never touched.
 
+- Three check recipes of the fact-check design F7: `ecs-flavor-boot` (any flavor the deny list leaves, the s9
+  family too, after `cond:operation:az` says normal; the console read is reported, not failed), `smn-http-confirm`
+  (an HTTP subscription confirmed by a plain GET of its subscribe_url) and `rds-create-refusal` (a SQL Server
+  collation refused like an invented control, nothing made). The lab gains what they need: a `status` check on a
+  create expects a refusal and the run goes on when nothing was made, a check may carry `report`, a gone proof
+  `also` (a second read) and a list find `by` (the item field that holds the name).
+
 - The refresh worklist carries the check block (fact-check design F8): every line of `worklist.jsonl` has `tier`
   (read, write, decision, none or `no block`) and `block`. An expired entry whose block a recheck run takes (read or
   write, needs none) names `awb kb recheck-run` and is that run's work; every other one, first of all one without a

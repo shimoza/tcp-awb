@@ -6803,8 +6803,85 @@
    "name": "kb recheck job: the unit names no tenant, verify warns without recheck_tenant, setup keeps it",
    "run": ".venv/bin/pytest tests/test_seal.py::test_the_weekly_recheck_job_names_no_tenant_and_verify_warns_without_the_host_setting",
    "status": "passing"
+  },
+  {
+   "id": "fk-recipes-F7-1",
+   "phase": "FK7",
+   "name": "lab: each F7 recipe passes the validator and the dry run within the 30-minute cap",
+   "run": ".venv/bin/pytest tests/test_lab_fk_recipes.py::test_each_fk7_recipe_passes_the_validator_and_the_dry_run",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recipes-F7-2",
+   "phase": "FK7",
+   "name": "lab: ecs-flavor-boot refuses a GPU flavor parameter before any call",
+   "run": ".venv/bin/pytest tests/test_lab_fk_recipes.py::test_ecs_flavor_boot_refuses_a_gpu_flavor_parameter_before_any_call",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recipes-F7-3",
+   "phase": "FK7",
+   "name": "lab: ecs-flavor-boot admits the s9 family and refuses a size above 2xlarge",
+   "run": ".venv/bin/pytest tests/test_lab_fk_recipes.py::test_ecs_flavor_boot_admits_the_s9_family_and_refuses_a_size_above_2xlarge",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recipes-F7-4",
+   "phase": "FK7",
+   "name": "lab: an expected refusal of a create goes on when nothing was made",
+   "run": ".venv/bin/pytest tests/test_lab_fk_recipes.py::test_an_expected_refusal_of_a_create_goes_on_when_nothing_was_made",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recipes-F7-5",
+   "phase": "FK7",
+   "name": "lab: an accepted create where a refusal was expected fails its check and is torn down",
+   "run": ".venv/bin/pytest tests/test_lab_fk_recipes.py::test_an_accepted_create_where_a_refusal_was_expected_fails_its_check_and_is_torn_down",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recipes-F7-6",
+   "phase": "FK7",
+   "name": "lab: a check of report is reported and does not fail the run",
+   "run": ".venv/bin/pytest tests/test_lab_fk_recipes.py::test_a_check_of_report_is_reported_and_does_not_fail_the_run",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recipes-F7-7",
+   "phase": "FK7",
+   "name": "lab: a gone proof with also reads both and proves the resource gone",
+   "run": ".venv/bin/pytest tests/test_lab_fk_recipes.py::test_a_gone_proof_with_also_reads_both_and_proves_the_resource_gone",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recipes-F7-8",
+   "phase": "FK7",
+   "name": "lab: a gone proof whose also does not hold leaves the row live",
+   "run": ".venv/bin/pytest tests/test_lab_fk_recipes.py::test_a_gone_proof_whose_also_does_not_hold_leaves_the_row_live",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recipes-F7-9",
+   "phase": "FK7",
+   "name": "lab: the validator refuses a malformed report or also",
+   "run": ".venv/bin/pytest tests/test_lab_fk_recipes.py::test_the_validator_refuses_a_malformed_report_or_also",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recipes-F7-10",
+   "phase": "FK7",
+   "name": "lab: a find by another field places a create whose answer was lost",
+   "run": ".venv/bin/pytest tests/test_lab_fk_recipes.py::test_a_find_by_another_field_places_a_create_whose_answer_was_lost",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recipes-F7-11",
+   "phase": "FK7",
+   "name": "lab: by of a find needs a list",
+   "run": ".venv/bin/pytest tests/test_lab_fk_recipes.py::test_by_of_a_find_needs_a_list",
+   "status": "passing"
   }
  ],
- "total_tests": 972,
+ "total_tests": 983,
  "checked": "2026-10-15"
 }

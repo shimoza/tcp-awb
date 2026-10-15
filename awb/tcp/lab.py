@@ -374,7 +374,7 @@ def validate(r: dict) -> None:
                 raise LabError("%s: the name refers to a value it does not have" % where)
             find_ = s.get("find")
             if find_ is not None:
-                if not (isinstance(find_, dict) and set(find_) <= {"call", "list", "field", "status", "within"}
+                if not (isinstance(find_, dict) and set(find_) <= {"call", "list", "field", "status", "within", "by"}
                         and (isinstance(find_.get("field"), str)
                              or (isinstance(find_.get("status"), list) and find_["status"]
                                  and all(isinstance(x, int) for x in find_["status"]) and "list" not in find_
@@ -383,6 +383,9 @@ def validate(r: dict) -> None:
                                    "resource) or, for an id_value, the statuses that say it exists" % where)
                 if "list" in find_ and not isinstance(find_["list"], str):
                     raise LabError("%s: the list of a find is a field path" % where)
+                if "by" in find_ and not ("list" in find_ and isinstance(find_["by"], str)
+                                          and _VAR_RE.match(find_["by"])):
+                    raise LabError("%s: by of a find names the field of a list item that holds the name" % where)
                 if "within" in find_ and not (isinstance(find_["within"], int) and find_["within"] >= 0):
                     raise LabError("%s: within of a find is a number of seconds" % where)
                 _check_call(find_.get("call"), where + " find")
@@ -437,6 +440,8 @@ def validate(r: dict) -> None:
         if kinds[0] == "status" and not (isinstance(c["status"], list) and c["status"]
                                          and all(isinstance(x, int) for x in c["status"])):
             raise LabError("check %s: status is a list of HTTP statuses" % c["id"])
+        if "report" in c and not isinstance(c["report"], bool):
+            raise LabError("check %s: report is true or false" % c["id"])
     teardown = r["teardown"]
     if not isinstance(teardown, dict) or set(teardown) != set(creates):
         raise LabError("teardown has one entry for every create step and no other")
@@ -446,14 +451,20 @@ def validate(r: dict) -> None:
             raise LabError("%s: an entry has a call and a gone proof" % where)
         _check_call(t.get("call"), where)
         g = t["gone"]
-        if not set(g) <= {"call", "status", "field", "in", "within"}:
-            raise LabError("%s: gone has call, status, field, in and within" % where)
-        _check_call(g.get("call"), where + " gone")
-        if g["call"]["method"] not in ("GET", "HEAD"):
-            raise LabError("%s: the gone proof is a read" % where)
-        if not (isinstance(g.get("status"), list) and g["status"]) and not ("field" in g and "in" in g):
-            raise LabError("%s: gone names the statuses or the field values that prove the resource gone" % where)
-        if (_refs(t["call"]) | _refs(g["call"])) - known - {"id"}:
+        if not set(g) <= {"call", "status", "field", "in", "within", "also"}:
+            raise LabError("%s: gone has call, status, field, in, within and also" % where)
+        proofs = [g] + ([g["also"]] if "also" in g else [])
+        if "also" in g and not (isinstance(g["also"], dict) and set(g["also"]) <= {"call", "status", "field", "in"}):
+            raise LabError("%s: also of gone is a second read with call, status, field and in" % where)
+        for proof in proofs:
+            _check_call(proof.get("call"), where + " gone")
+            if proof["call"]["method"] not in ("GET", "HEAD"):
+                raise LabError("%s: the gone proof is a read" % where)
+            if not (isinstance(proof.get("status"), list) and proof["status"]) \
+                    and not ("field" in proof and "in" in proof):
+                raise LabError("%s: gone names the statuses or the field values that prove the resource gone"
+                               % where)
+        if (_refs(t["call"]) | set().union(*(_refs(x["call"]) for x in proofs))) - known - {"id"}:
             raise LabError("%s: refers to a value it does not have" % where)
     if len(creates) > guard["resources"]:
         raise LabError("cost guard: the recipe creates %d resources and its guard allows %d"
@@ -915,6 +926,8 @@ class Run:
         if len(self.made) >= self.r["guard"]["resources"]:
             raise Stop("cost guard: the run would create more than %d resources" % self.r["guard"]["resources"])
         # a signal between the row and the end of the create would lose a resource: it waits until the row is right
+        # a create whose status a check expects (an expected refusal) goes on when nothing was made
+        expected = any(c["step"] == step["id"] and "status" in c for c in self.r["checks"])
         self.critical = True
         try:
             res = self._open(step, expand(step.get("name", "${name}"), self.env))
@@ -929,23 +942,28 @@ class Run:
                 self._drop_row(res)
                 self.handles.drop(res.handle)
                 self.handles.save()
-                raise Stop("the create %s answered %s" % (step["id"], self._said(rec)))
-            if "id_value" in step:
+                if not expected:
+                    raise Stop("the create %s answered %s" % (step["id"], self._said(rec)))
+                rid = None
+            elif "id_value" in step:
                 # an id the recipe names itself (a bucket): made when the answer is 2xx
                 rid = expand(step["id_value"], self.env) if 200 <= st < 300 else None
             else:
                 rid = self._read(rec, answer, step["id_field"]) if 200 <= st < 300 else None
             rid = rid if isinstance(rid, str) and rid else None
-            if rid is None:
-                rid = self._settle(step, res, rec.status, lost)
-            else:
+            if rid is None and (lost or 200 <= st < 300):
+                rid = self._settle(step, res, rec.status, lost, expected)
+            elif rid is not None:
                 self._place(res, rid)
         finally:
             self.critical = False
         if self.pending:
             raise Interrupted(self.pending)
-        self.env[step["id"]] = rid
         self.results[step["id"]] = {"answer": answer, "record": rec}
+        if rid is None:
+            # an expected refusal: nothing was made, its check reads the status
+            return
+        self.env[step["id"]] = rid
         tags = step["tags"]
         if isinstance(tags, dict):
             saved, self.env = self.env, dict(self.env, id=rid)
@@ -956,9 +974,9 @@ class Run:
             if not 200 <= self.status(ta) < 300:
                 raise Stop("the tags of %s (%s) could not be set: %s" % (res.handle, step["id"], self._said(trec)))
 
-    def _settle(self, step: dict, res: Resource, said: str, lost: bool) -> str:
+    def _settle(self, step: dict, res: Resource, said: str, lost: bool, expected: bool = False) -> str | None:
         """A create whose answer holds no id: the find by name places it, proves it not created or cannot tell.
-        Returns the id; raises Stop when there is none."""
+        Returns the id; None for an expected refusal the find proves not made; raises Stop otherwise."""
         if lost:
             res.lost = said
         if not step.get("find"):
@@ -979,6 +997,8 @@ class Run:
         if verdict == "absent" and lost:
             res.state, res.proof = "not created", "the create got %s; %s" % (said, proof)
             self._write_row(res, "%s: not created, %s" % (self._label(), res.proof))
+            if expected:
+                return None
             raise Stop("the create %s got %s and the find by name proves nothing was made" % (step["id"], said))
         if lost:
             self._unplaced(res, "the create got %s and the find could not tell (%s)" % (said, proof))
@@ -1007,7 +1027,9 @@ class Run:
                 elif "list" in f:
                     items = dig(answer.get("data"), expand(f["list"], self.env))
                     if isinstance(items, list):
-                        hit = next((x for x in items if isinstance(x, dict) and x.get("name") == name), None)
+                        # the field that holds the name: name or what `by` says (the remark of an SMN subscription)
+                        by = f.get("by", "name")
+                        hit = next((x for x in items if isinstance(x, dict) and x.get(by) == name), None)
                         value = dig(hit, f["field"]) if hit is not None else None
                         # a full page without it proves nothing: it may be on the next one
                         limit = str((c.get("query") or {}).get("limit", ""))
@@ -1103,8 +1125,9 @@ class Run:
                 got = self._clean(path, value)
             if "contains" not in c:
                 res["record"].fields[self.handles.mask(path)] = self._clean(path, value)
-        self.checks.append((c, got, "passed" if ok else "failed"))
-        if not ok:
+        # a check of report goes to the evidence as reported and does not stop the run
+        self.checks.append((c, got, "passed" if ok else "reported" if c.get("report") else "failed"))
+        if not ok and not c.get("report"):
             raise CheckFailed(c["id"])
 
     def _expected(self, c: dict) -> str:
@@ -1265,6 +1288,12 @@ class Run:
             res.proof = res.proof or "no id to delete: %s" % proof
         return False
 
+    def _proves_gone(self, g: dict, answer: dict) -> bool:
+        st = self.status(answer)
+        return bool(answer.get("ok")) and (st in (g.get("status") or [])
+                                           or ("field" in g and 200 <= st < 300
+                                               and dig(answer.get("data"), g["field"]) in g["in"]))
+
     def _tear(self, res: Resource, end: float) -> None:
         if not res.id and not self._look_again(res, end):
             return
@@ -1275,7 +1304,7 @@ class Run:
         saved = self.env
         self.env = dict(saved, id=res.id)
         try:
-            deleted, drec, grec = False, None, None
+            deleted, drec, grec, arec = False, None, None, None
             while True:
                 if not deleted:
                     answer, drec = self._call("teardown", res.handle, t["call"], record=drec)
@@ -1284,9 +1313,12 @@ class Run:
                 if deleted:
                     answer, grec = self._call("teardown", res.handle + " gone", g["call"], record=grec)
                     st = self.status(answer)
-                    gone = answer.get("ok") and (st in (g.get("status") or [])
-                                                 or ("field" in g and 200 <= st < 300
-                                                     and dig(answer.get("data"), g["field"]) in g["in"]))
+                    gone = self._proves_gone(g, answer)
+                    if gone and "also" in g:
+                        # a second read that must say gone as well (an RDS instance and the recycle bin)
+                        also, arec = self._call("teardown", res.handle + " gone also", g["also"]["call"], record=arec)
+                        gone = self._proves_gone(g["also"], also)
+                        arec.fields["gone"] = "yes" if gone else "no"
                     if gone:
                         res.state = "deleted"
                         res.proof = "the read answered %s" % (st if st in (g.get("status") or []) else
@@ -1465,6 +1497,9 @@ def dry_run_lines(r: dict, params: dict[str, str], project: str = "tcp-xxxx", te
         g = expand(t["gone"]["call"], dict(env, id="<%s>" % sid), loose=True)
         out.append("   %s: %s %s %s, then %s %s %s" % (sid, c["method"], c["service"], c["path"], g["method"],
                                                      g["service"], g["path"]))
+        if t["gone"].get("also"):
+            a = expand(t["gone"]["also"]["call"], dict(env, id="<%s>" % sid), loose=True)
+            out.append("   %s: and also %s %s %s" % (sid, a["method"], a["service"], a["path"]))
         if t.get("confirm"):
             out.append("   to confirm live: %s" % t["confirm"])
     out.append("dry run: no call was made")
