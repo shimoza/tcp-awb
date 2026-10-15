@@ -11,7 +11,8 @@
 # managed drop-in carries the hooks. The work user cannot persist past a session (F2 G3): its ssh key file is root
 # owned in /etc/ssh/authorized_keys and out of its reach, sshd -T names that file for it, its home holds none,
 # cron.deny names it, crontab -l is refused and it has no crontab, the timers of its two nightly jobs are enabled and
-# run as the work user. The egress table of the work user is loaded in the mode of the host file, takes
+# run as the work user. awb-kb-recheck-watch.timer is enabled and its unit runs awb kb recheck-watch as the owner
+# (fact-check F5). The egress table of the work user is loaded in the mode of the host file, takes
 # the work user's uid alone, lets an established connection pass only with the mark of the allow rules, counts a
 # planted connection of the work user to 192.0.2.1 (and refuses it in the mode enforce) and leaves one of the owner's
 # uid, which the key service runs under, uncounted; its timer is active. That an established connection opened before
@@ -42,6 +43,7 @@ CLIENT_FILES="settings.json CLAUDE.md skills/drafting/SKILL.md"
 SSH_KEYS_DIR=/etc/ssh/authorized_keys     # as in setup.sh
 CRON_DENY=/etc/cron.deny
 WORK_JOBS="awb-work-update awb-kb-commit"   # as in setup.sh
+RECHECK_WATCH_UNIT=awb-kb-recheck-watch   # seal/setup.sh writes its .service and .timer (fact-check F5)
 seal_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 FORBIDDEN_GROUPS=(ubuntu docker adm sudo lxd)
 
@@ -284,6 +286,10 @@ for t in $WORK_JOBS; do
     allowed "$t.service runs as the work user" \
         sh -c '[ "$(systemctl show -p User --value "$1")" = "$2" ]' verify "$t.service" "$WORK_USER"
 done
+allowed "the timer $RECHECK_WATCH_UNIT.timer is enabled and runs awb kb recheck-watch as the owner" \
+    sh -c 'systemctl is-enabled --quiet "$3.timer" && test "$(stat -c "%U %a" -- "$1")" = "root 644" &&
+    grep -qx "Type=oneshot" "$1" && grep -qx "User=$2" "$1" && grep -qx "ExecStart=/usr/local/bin/awb kb recheck-watch" "$1"' \
+    verify "/etc/systemd/system/$RECHECK_WATCH_UNIT.service" "$owner" "$RECHECK_WATCH_UNIT"
 
 # --------------------------------------------------------------------------- the egress filter (seal/egress)
 

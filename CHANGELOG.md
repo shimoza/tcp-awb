@@ -7,6 +7,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- `awb kb recheck-watch [--project CODE] [--tenant ALIAS]...` (fact-check design F5, `awb/tcp/recheckwatch.py`): the
+  watchdog of the service project, run as the owner every 15 minutes by the root owned timer
+  `awb-kb-recheck-watch.timer` that `seal/setup.sh` installs and `seal/verify.sh` proves enabled. It sweeps the
+  tenants with the read key, deletes every resource of tcp-n7e6 whose `awb-expiry` has passed with the lab key (the
+  recipe's teardown by its row in RESOURCES.md, else the delete call of its kind), proves each gone with a read and
+  records it in RESOURCES.md. A resource it cannot delete is mailed once with its handle; every line of
+  `<shared>/recheck/state.tsv` is mailed once. A resource of another project and one not expired are never touched.
+
 - The refresh worklist carries the check block (fact-check design F8): every line of `worklist.jsonl` has `tier`
   (read, write, decision, none or `no block`) and `block`. An expired entry whose block a recheck run takes (read or
   write, needs none) names `awb kb recheck-run` and is that run's work; every other one, first of all one without a

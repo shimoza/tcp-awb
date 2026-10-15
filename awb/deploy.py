@@ -140,6 +140,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/migrate.py": "awb migrate, run in a working session",
     "awb/tcp/lab.py": "awb lab list|dry-run|run, run in a working session",
     "awb/tcp/recheck.py": "awb kb recheck-run, run in a working session or by the steering session",
+    "awb/tcp/recheckwatch.py": "awb kb recheck-watch, run by the owner's timer awb-kb-recheck-watch every 15 minutes",
     "awb/tcp/refresh.py": "awb refresh, run by the owner or a timer of his",
     "awb/tcp/dataset.py": "awb dataset build|put, run by the owner or by the refresh",
     "awb/tcp/tcp_facts_mcp.py": "the MCP server of the dataset, copied into every build and run by its recipient",

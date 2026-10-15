@@ -38,7 +38,9 @@
 # (the steering session starts it by hand for the first trial task and enables it on his word); the oneshot
 # awb-task-failed@.service that every task unit names in OnFailure= (SB5), so a task unit that fails while no runner
 # waits on it writes one board line; awb-build-nudge.timer, which runs awb build nudge as the owner every 15 minutes, so
-# a task that waits on his answer or word reaches him by mail (automation review A6). /etc/awb and its two files go to root:awb (751, paths.conf and blocklist.txt
+# a task that waits on his answer or word reaches him by mail (automation review A6); awb-kb-recheck-watch.timer,
+# which runs awb kb recheck-watch as the owner every 15 minutes, so a resource of the fact-check service project is
+# deleted once its expiry has passed (fact-check design F5). /etc/awb and its two files go to root:awb (751, paths.conf and blocklist.txt
 # 640): the build user reads neither, the owner, the work user and the Ask page do.
 #
 # The egress filter of the work user (seal/egress/ALLOW.md) is an nftables table that root loads with `awb egress
@@ -81,6 +83,7 @@ BUILD_CLIENT_SHA256=24972e3bc859fab2b46ed4c1e51f7d6130f06d3bd550811a114640de3370
 INSTALL_ONLY="awb-buildd.service"     # installed, never enabled here: the steering session starts it by hand
 BUILD_FAILED_UNIT=awb-task-failed@.service   # OnFailure= of every task unit (awb/buildrun.py FAILED_UNIT, SB5)
 BUILD_NUDGE_UNIT=awb-build-nudge          # .service and .timer: awb build nudge as the owner every 15 minutes (A6)
+RECHECK_WATCH_UNIT=awb-kb-recheck-watch   # .service and .timer: awb kb recheck-watch as the owner every 15 minutes (F5)
 BUILD_MODEL_DEFAULT=login             # D-S7 changed: his subscription login; build_model = key in the host file is the fallback
 BUILD_MODEL_KEY=/etc/awb/build-model.key     # the owner's copy for the runner (build_model = key), never printed
 BUILD_MODEL_KEY_SOURCE=/etc/awb/anthropic.key   # the default source; build_model_key_source in the host file wins
@@ -778,6 +781,7 @@ step_units() {
     done
     [ "$units_only" -eq 1 ] || build_failed_unit
     [ "$units_only" -eq 1 ] || build_nudge_unit
+    [ "$units_only" -eq 1 ] || recheck_watch_unit
     run systemctl daemon-reload
     [ "$units_only" -eq 0 ] || return 0
     for f in "$seal_dir"/*.service "$seal_dir"/*.timer; do
@@ -789,6 +793,7 @@ step_units() {
         try_run systemctl enable --now "$name"
     done
     try_run systemctl enable --now "$BUILD_NUDGE_UNIT.timer"
+    try_run systemctl enable --now "$RECHECK_WATCH_UNIT.timer"
 }
 
 step_egress() {
@@ -1406,6 +1411,66 @@ OnBootSec=15min
 OnUnitActiveSec=15min
 AccuracySec=1min
 Unit=$BUILD_NUDGE_UNIT.service
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+recheck_watch_unit() {
+    # written by step_units (not in --units-only) like the nudge, enabled at the end of step_units
+    info "$RECHECK_WATCH_UNIT.timer: every 15 minutes awb kb recheck-watch as the owner deletes the resources of the"
+    info "fact-check service project whose expiry has passed, mails him a leftover once and each recheck run end once"
+    info "(fact-check design F5); its marks go to its state folder /var/lib/$RECHECK_WATCH_UNIT, his (700)"
+    write_file "$UNITS_DIR/$RECHECK_WATCH_UNIT.service" 644 root:root <<EOF
+# Written by seal/setup.sh (fact-check design F5). awb kb recheck-watch as the owner: the sweep of the tenants with the
+# read key, every resource of the service project whose expiry has passed deleted with the lab key and proven gone,
+# one mail through the key service's notify for a resource it cannot delete and one for each new line of the
+# recheck state.tsv. Every call goes over the key service's sockets, so no address family but unix. It writes its
+# marks, its handles and, where the project's folder is not his to write, its rows in its state folder alone.
+[Unit]
+Description=Architect Workbench fact-check: delete the expired resources of the service project and mail the owner
+
+[Service]
+Type=oneshot
+User=$owner
+Group=$WORK_GROUP
+UMask=0027
+Environment=AWB_CONF=$CONF_FILE
+Environment=XDG_STATE_HOME=/var/lib/$RECHECK_WATCH_UNIT
+StateDirectory=$RECHECK_WATCH_UNIT
+StateDirectoryMode=0700
+ExecStart=$BIN_LINK kb recheck-watch
+TimeoutStartSec=840
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+LimitCORE=0
+EOF
+    write_file "$UNITS_DIR/$RECHECK_WATCH_UNIT.timer" 644 root:root <<EOF
+# Written by seal/setup.sh (fact-check design F5): $RECHECK_WATCH_UNIT.service every 15 minutes.
+[Unit]
+Description=Architect Workbench fact-check: the watchdog of the service project, every 15 minutes
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=15min
+AccuracySec=1min
+Unit=$RECHECK_WATCH_UNIT.service
 
 [Install]
 WantedBy=timers.target

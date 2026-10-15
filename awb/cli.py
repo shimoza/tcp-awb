@@ -21,6 +21,7 @@ Commands that live in their own module (DELEGATED below; `awb NAME --help` shows
     awb vault serve|unlock|lock|status|encrypt              awb/vault.py
     awb kb add|amend|retire|find|show|scope|expired|index|verify    awb/kb.py
     awb kb recheck-run                                       awb/tcp/recheck.py
+    awb kb recheck-watch                                     awb/tcp/recheckwatch.py
     awb ledger add|list, awb report --by KEY|--period        awb/ledger.py, awb/period.py
     awb career add|update|due                                awb/career.py
     awb write check FILE, awb voice learn DRAFT SENT         awb/writing.py
@@ -584,7 +585,7 @@ DELEGATED = {
     "check": ("check", "check files for names and structured data"),
     "gate": ("gate", "the commit gate"),
     "vault": ("vault", "the vault: serve, unlock, lock, status, encrypt"),
-    "kb": ("kb", "the knowledge base: add, amend, retire, find, scope, expired, show, recheck-run"),
+    "kb": ("kb", "the knowledge base: add, amend, retire, find, scope, expired, show, recheck-run, recheck-watch"),
     "ledger": ("ledger", "the activity ledger: add, list"),
     "report": ("ledger", "reports from the ledger by customer, technology, kind or project"),
     "career": ("career", "the career log: add, update, due"),
@@ -643,6 +644,8 @@ def _delegate(name: str, argv: list[str]) -> int:
         # the recheck run calls the cloud through the key service: it lives in the platform package, which the
         # core kb never imports
         mod, argv = importlib.import_module("awb.tcp.recheck"), list(argv[1:])
+    if name == "kb" and argv[:1] == ["recheck-watch"]:
+        mod, argv = importlib.import_module("awb.tcp.recheckwatch"), list(argv[1:])
     try:
         return int(mod.main(argv))
     except SystemExit as exc:

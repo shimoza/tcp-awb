@@ -67,6 +67,8 @@ The intake, `awb gate` and every other path of customer material keep the plain 
     awb kb how ID -                          the check block from standard input
     awb kb recheck-run [--tier read|write] [--id ID]... [--project CODE] [--tenant ALIAS] [--dry-run]
                                              awb/tcp/recheck.py: the expired entries checked by their block
+    awb kb recheck-watch [--project CODE] [--tenant ALIAS]...
+                                             awb/tcp/recheckwatch.py: the owner's reaper of expired resources
     awb kb scope [--scope S] TAG
     awb kb expired
     awb kb index

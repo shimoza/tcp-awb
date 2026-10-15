@@ -6684,8 +6684,92 @@
    "name": "refresh: the worklist carries the tier and the block, an expired entry without a block is overdue",
    "run": ".venv/bin/pytest tests/test_refresh.py::test_the_worklist_carries_the_tier_and_the_block_and_an_entry_without_one_is_overdue",
    "status": "passing"
+  },
+  {
+   "id": "fk-recheck-watch-F5-1",
+   "phase": "FK5",
+   "name": "kb recheck-watch: an expired tagged resource of the service project is deleted and proven gone, its row says deleted",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_an_expired_tagged_resource_is_deleted_and_proven_gone",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-watch-F5-2",
+   "phase": "FK5",
+   "name": "kb recheck-watch: a resource whose row names its lab run is deleted by the recipe's teardown and proven gone by its read",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_a_resource_a_lab_row_names_is_deleted_by_its_recipe_teardown",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-watch-F5-3",
+   "phase": "FK5",
+   "name": "kb recheck-watch: a resource not yet expired is left: only reads go out",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_a_resource_not_yet_expired_is_left",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-watch-F5-4",
+   "phase": "FK5",
+   "name": "kb recheck-watch: a resource that cannot be deleted exits 4 and mails once with its handle, never its id, and not again",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_a_resource_that_cannot_be_deleted_mails_once_and_not_again",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-watch-F5-5",
+   "phase": "FK5",
+   "name": "kb recheck-watch: a resource of another project, untagged or named, is never touched",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_a_resource_of_another_project_is_never_touched",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-watch-F5-6",
+   "phase": "FK5",
+   "name": "kb recheck-watch: a named resource of FK3 is found and deleted; a subnet goes before its VPC",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_a_named_resource_of_the_service_project_is_deleted_after_the_networks_order",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-watch-F5-7",
+   "phase": "FK5",
+   "name": "kb recheck-watch: the rows go to the owner's state folder when the project folder cannot be written",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_rows_go_to_the_owners_state_folder_when_the_project_folder_is_not_there",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-watch-F5-8",
+   "phase": "FK5",
+   "name": "kb recheck-watch: no tenant with a read and a lab key stops with exit 2 and sends nothing",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_no_tenant_with_both_keys_stops_with_exit_2",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-watch-F5-9",
+   "phase": "FK5",
+   "name": "kb recheck-watch: a run end in state.tsv mails once per line",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_a_run_end_in_state_tsv_mails_once_per_line",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-watch-F5-10",
+   "phase": "FK5",
+   "name": "kb recheck-watch: a run end mail that was not sent is tried again, then not again",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_a_run_end_mail_not_sent_is_tried_again",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-watch-F5-11",
+   "phase": "FK5",
+   "name": "kb recheck-watch: awb kb recheck-watch is wired and refuses a bad project code",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_the_command_is_wired_and_refuses_a_bad_project",
+   "status": "passing"
+  },
+  {
+   "id": "fk-recheck-watch-F5-12",
+   "phase": "FK5",
+   "name": "kb recheck-watch: seal: setup installs the owner timer every 15 minutes, verify proves it enabled",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_setup_installs_the_owner_timer_and_verify_proves_it_enabled",
+   "status": "passing"
   }
  ],
- "total_tests": 955,
- "checked": "2026-10-14"
+ "total_tests": 967,
+ "checked": "2026-10-15"
 }
