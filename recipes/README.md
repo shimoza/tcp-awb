@@ -101,6 +101,9 @@ here has a `find`: a read that looks the resource up by that name when the answe
 - `"find": {"call": {...}, "field": "servers.0.id"}`: a field of the whole answer.
 - `"find": {"call": {"method": "HEAD", ...}, "status": [200]}`: for an `id_value`, the statuses that say it exists.
 
+A list find matches the item's `name`; `"by": "remark"` names another field of the item that holds the name, for a
+resource without a name such as an SMN subscription.
+
 The find reads every 10 seconds for `within` seconds (default 60). Only two answers prove the resource absent: a
 list without its name (on a page that is not full, when the query names a `limit`) and a 404 of the read of a find
 of statuses. Any other answer cannot tell, so a wrong shape never marks a row not created.
@@ -124,7 +127,15 @@ answer 2xx stops the run, unless a check expects its status.
 
 Checks: `"reached": true` (a wait reached its state), `"status": [403]` (an expected refusal), `"field"` with
 `"equals"`, `"contains"` or `"present"`. A step runs, then its checks; the first check that fails stops the run and
-the teardown follows.
+the teardown follows. A check with `"report": true` goes to the evidence as passed or reported and never stops the
+run (a console that may stay empty on some flavor families).
+
+A `status` check on a create step expects a refusal: a 3xx or a 4xx or a 5xx whose find proves nothing was made,
+does not stop the run; the row goes again or reads not created and the check reads the status. A create that is
+accepted gets its row as usual, so its check fails and the teardown deletes it.
+
+A `gone` proof may carry `"also"`: a second read (`call` with `status` or with `field` and `in`) that must say gone as
+well, read after the first one holds (an RDS instance: the read by id and the recycle bin).
 
 A step or a teardown entry may carry `"confirm"`: the note that its API shape is not proven by a live call yet. The
 dry run, the list and the evidence show these notes, so the first live run says which shapes held.
@@ -174,6 +185,9 @@ dry run, the list and the evidence show these notes, so the first live run says 
 | `ecs-boot-ssh` | does an ECS of a flavor boot an image and answer on SSH port 22 inside its VPC (security group rule, no EIP) | 5 resources, 45 minutes |
 | `obs-policy-deny` | does an OBS bucket whose policy denies a listed action refuse it | 1 resource, 15 minutes |
 | `elb-health` | does a shared ELB listener with one ECS backend pass its health check | 9 resources, 60 minutes |
+| `ecs-flavor-boot` | does an ECS of any flavor the deny list leaves (up to 2xlarge, the s9 family too) boot in an AZ whose `cond:operation:az` says normal and read ACTIVE with that flavor and AZ; the console read is reported, not failed | 4 resources, 30 minutes |
+| `smn-http-confirm` | does an HTTP subscription of an SMN topic get a SubscriptionConfirmation with a subscribe_url on the console host and does a plain GET of it confirm the subscription (status 1) | 7 resources, 30 minutes |
+| `rds-create-refusal` | does RDS for SQL Server refuse a collation under test as it refuses the invented control `Awb_No_Such_Collation_CI_AS` (HTTP 500), with nothing made | 5 resources, 30 minutes |
 
 `elb-health` lets the port in from `100.125.0.0/16` (the parameter `hc_source`), the address range the health checks
 of a shared ELB are said to come from; that range is to confirm live. Its first live run on 2026-10-12 left the member
@@ -185,6 +199,19 @@ with `os-getConsoleOutput`) before the load balancer is made, and the check `web
 `web-serves` says the web server is down (no marker at all: the user_data did not run or cloud-init did not end); a
 passed `web-serves` with a failed `health-passes` says the health checks do not reach the port, so the source range
 is the one to look at.
+
+The last three are the check recipes of the fact-check design F7 (`docs/strategy/F4-fact-check-design-2026-10-14.md`),
+each within the 30 minutes of a recheck run. `ecs-flavor-boot` reads the extra specs of the flavor first and stops
+before any create unless `cond:operation:az` says normal for the AZ. `smn-http-confirm` lets TCP 80 in, gives the
+server an EIP of 1 Mbit/s and writes a web server that writes the type of each message and the host and path of its
+subscribe_url to the console, never the token; for a SubscriptionConfirmation it waits 60 seconds, then GETs the URL
+with no login, no cookie and no redirect. The run reads the subscription at status 0 before that GET (the control)
+and at 1 after it. SMN takes no tags: the topic and the subscription carry the project code in their name and remark.
+`rds-create-refusal` sends two creates with the same body but the collation: the value under test, then the
+control. RDS answers a collation it does not take with 500 DBS.200005, so each create is followed by the find by
+name and the instance count must not change. An accepted create fails the check (the value is taken); it builds
+for about 26 minutes and refuses its delete meanwhile (409 DBS.200019), so the teardown repeats the delete and
+proves it gone by the read by id and the recycle bin. The password is `{{random:password}}`.
 
 Their VPC, subnet and shared ELB calls are the ones `awb cloud lease-check` already makes. Every other shape is
 marked "to confirm live" in the recipe, with what to look at. That holds for the finds by name too: the list of VPCs
