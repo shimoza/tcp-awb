@@ -427,7 +427,9 @@ outside: `check_main(ref, host=None)` (`awb build check REF`, exit 0 `passed`, 1
 commit)` (into `refs/quarantine/<C-ID>/1/head`), `check_branch_commits(host, ctx)` (check 4 of a branch),
 `check_onto_main(host, ctx)` (when `main` moved past the merge base: `git merge-tree --write-tree` and one commit on
 top of `main` in `refs/quarantine/<C-ID>/1/onto`, which the suite exports; a conflict is `red: rebase conflict`),
-`check_outdir`, `check_task(cid)`, `Runner.check_branch(run)` and `Runner.judge_check(ctx)` (checks 4, 6, 9 and 10,
+`check_outdir`, `check_task(cid)`, `check_protected(host, ctx, allowed)` (check 7 of a branch with `build.PROTECTED`
+the other way round: `red: protected path` unless `awb build check REF --allow-protected` wrote `allow-protected`
+into the run folder, R2), `Runner.check_branch(run)` and `Runner.judge_check(ctx)` (checks 4, 6, 7, 9 and 10,
 with the runner's lock held; `poll_once` takes a queued check before the next task, `reconcile` ends a running one
 `interrupted`); `awb/build.py` holds `CHECK_ID_RE`, `check_ids(runs)`, `new_check(runs)` and the state `passed`;
 `state.tsv` carries a `check` row (id, state, time, short hash) for each of the `CHECKS_SHOWN` newest. SB5: every task unit
