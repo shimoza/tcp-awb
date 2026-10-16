@@ -73,7 +73,9 @@ words which one you mean ("the pdf", "the newest", a part of its name). The sess
 | the owner inbox | anything that may hold customer material | only the sanitised copies of the owner's intake, never the original |
 
 Every project also has its own folder `<YYYY-MM>/<code>/in/` in the owner bucket. `awb spawn` makes it through
-the key service. The console puts files there. The project code is the one identifier: a customer code exists
+the key service. The console puts files there, each of at most 25 MiB and of a kind the console reads; the key
+service moves at most `max_mb` of keys.conf (default 100) in one object. `awb/bucket_layout.py` sets the folders, the
+kinds and both limits for every side. The project code is the one identifier: a customer code exists
 only when a customer is registered. A project without one is normal. A file of the owner inbox goes to the
 project's customer. The key service checks every file of the lab inbox before the session gets it.
 

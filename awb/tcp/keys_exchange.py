@@ -18,7 +18,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from awb import codes, config, parts
+from awb import bucket_layout, codes, config, parts
 from awb.tcp.xchg import (DIFFERS_LINE, FIND_MAX, FROM, IN, INBOX, STALE_LINE, XchgError, _CODE_RE, _CUST_RE, _ID_RE,
                           _ID_SECRET, check_problems, match, suffix, valid_name)
 
@@ -45,9 +45,9 @@ class Context:
 
     def max_bytes(self) -> int:
         try:
-            return max(1, int(self.settings.get("max_mb") or 100)) * 1024 * 1024
+            return max(1, int(self.settings.get("max_mb") or bucket_layout.MAX_MB)) * 1024 * 1024
         except ValueError:
-            return 100 * 1024 * 1024
+            return bucket_layout.MAX_MB * 1024 * 1024
 
 
 def allowed_key(key: str, method: str, project: str | None) -> bool:
@@ -608,8 +608,8 @@ def _hold(ctx: Context, code: str, customer: str, why: str) -> dict:
             "class": HOLD_CLASS_OF.get(why)}
 
 
-WEB_MONTH_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])/$")
-_WEB_FOLDER_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])/(" + codes.TCP_PROJECT + r")/in/")
+WEB_MONTH_RE = re.compile("^" + bucket_layout.WEB_MONTH + "/$")
+_WEB_FOLDER_RE = re.compile("^" + bucket_layout.WEB_MONTH + "/(" + codes.TCP_PROJECT + ")/" + bucket_layout.IN)
 WEB_MAX_OBJECTS = 2000
 """The most objects one listing of the web mode returns; more is refused as too many."""
 WEB_MAX_ROOT = 1000

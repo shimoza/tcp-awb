@@ -1308,6 +1308,25 @@ answers 404 Not found. for both, as it does for the Ask page and the chat. The c
   a usage record keeps its reservation instead of failing. `ask.py` keeps the settings, the tools, `run_tool`, the
   key file, `post`, the budget file and the page.
 
+## The bucket layout and the owner routes in one place (F1 step 9, 2026-10-16)
+
+- `awb/bucket_layout.py` (standard library alone) owns the layout and the limits of the owner bucket for every side:
+  `IN`, `OUT` (`bucket.IN`, `bucket.OUT`, `xchg.IN`), `OWNER_BUCKET` and `REGION` (the defaults of `awb bucket` and
+  of `xchg.DEFAULTS`), `MONTH` (the month folder, ASCII digits, `bucket._MONTH_RE`) and `WEB_MONTH` (the web mode's
+  spelling with `\d`, which `keys_exchange.WEB_MONTH_RE` and `_WEB_FOLDER_RE` are built from), `folder_of(month,
+  code) -> "<YYYY-MM>/<code>/"` (`bucket.ensure_folder`, `bucket.move`, `materials_api.Sources.prefixes`),
+  `MAX_UPLOAD` (25 MiB: `materials_api.MAX_FILE`; the gateway keeps `gateway.MAX_UPLOAD` as a copy, it imports no
+  module of awb), `MAX_MB` (100: the default of `max_mb` in keys.conf, `Context.max_bytes`), `CONSOLE_SUFFIXES`
+  (`materials_api.SUPPORTED`), `TEXT_SUFFIXES` and `IMAGE_SUFFIXES` (`xchg.TEXT_SUFFIXES`, `xchg.IMAGE_SUFFIXES`).
+  A module of its own and not `awb/bucket.py`, so that the services reach no bucket client through it.
+  `tests/test_bucket_layout.py` holds the copies equal and greps the package for another spelling of the month or
+  the limit.
+- `gateway.OWNER_ROUTES` is the one table of the owner routes: (method, path, the server's socket attribute,
+  whether the query string goes along). `OWNER_PATHS`, `OWNER_ACTIONS`, `OWNER_POSTS` and `owner_route_of(method,
+  path) -> (socket, query) | None` (a HEAD is the GET) derive from it; `owner_actions.ROUTES` and
+  `owner_actions.PUBLISH` read it. `tests/test_gateway_routes.py` walks the gateway with every operation of the
+  contract on its host and holds the table to the contract's owner operations.
+
 ## Host-file keys and environment variables that were documented nowhere (F1 step 1, 2026-10-15)
 
 Two keys of the host file (`/etc/awb/paths.conf`, or the file `AWB_CONF` names for a user who is not the work user)

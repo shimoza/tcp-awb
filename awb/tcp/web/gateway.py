@@ -28,7 +28,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, parse_qs, urlencode
 
 MAX_BODY = 16_384
-MAX_UPLOAD = 25 * 1024 * 1024   # one file of the owner page into a project's in/ (the materials service's limit)
+MAX_UPLOAD = 25 * 1024 * 1024   # one file of the owner page into a project's in/: bucket_layout.MAX_UPLOAD
 UPLOAD_PATH = re.compile(r'/api/projects/tcp-[a-z2-7]{4}/materials/upload')
 MAX_RESPONSE = 12 * 1024 * 1024
 BACKEND_ROUTES = {'/kb', '/price', '/projects', '/reviews', '/tenants', '/health', '/portal', '/ask'}
@@ -793,9 +793,30 @@ class Auth:
 OWNER_COOKIE = '__Host-awb-owner'
 OWNER_LOGIN_COOKIE = '__Host-awb-owner-login'
 OWNER_FAIL_TEXT = 'The username, password or code is incorrect.'
-OWNER_ACTIONS = ('/api/owner/state', '/api/owner/ui-runs', '/api/owner/intake', '/api/ui-runs')
+OWNER_ROUTES = (
+    # the one table of the owner routes (F1 step 9): method, path, the socket of the server it goes to and whether
+    # the query string goes along. owner_actions answers the rows of owner_socket and reads them from here.
+    ('GET', '/api/owner/state', 'owner_socket', False),
+    ('GET', '/api/owner/ui-runs', 'owner_socket', False),
+    ('GET', '/api/owner/intake', 'owner_socket', False),
+    ('GET', '/api/ui-runs', 'owner_socket', False),
+    ('POST', '/api/owner/publish', 'owner_socket', False),
+    # the IAM domain names: on the tenant service's owner socket, which answers this uid alone (finding 14)
+    ('GET', '/api/owner/tenants', 'owner_tenants_socket', True),
+)
+OWNER_PATHS = frozenset(path for _, path, _, _ in OWNER_ROUTES)
+OWNER_ACTIONS = tuple(path for method, path, sock, _ in OWNER_ROUTES if method == 'GET' and sock == 'owner_socket')
 OWNER_ONLY_TEXT = b'{"error":"Owner only."}'
-OWNER_POSTS = ('/api/owner/publish',)
+OWNER_POSTS = tuple(path for method, path, _, _ in OWNER_ROUTES if method == 'POST')
+
+
+def owner_route_of(method, path):
+    """(socket attribute, query goes along) of an owner route; None for any other. A HEAD is the GET."""
+    method = 'GET' if method == 'HEAD' else method
+    for m, p, sock, query in OWNER_ROUTES:
+        if (m, p) == (method, path):
+            return sock, query
+    return None
 
 
 def is_moved(path, method):
@@ -1034,8 +1055,9 @@ class Gateway(BaseHTTPRequestHandler):
             # T9 step 2: the owner routes and the routes that show or take customer data live on the owner host
             self.reply(404, b'Not found.\n')
             return
-        if path == '/api/ui-runs':
-            # T7 part 2: the UI runs answer on the owner host only; a session of the main host is a reader's
+        if path in OWNER_PATHS:
+            # T7 part 2: an owner route outside /api/owner/ (the UI runs) answers on the owner host only; a session
+            # of the main host is a reader's
             self.refusal = 'level'
             self.reply(403, OWNER_ONLY_TEXT, {'Content-Type': 'application/json; charset=utf-8'})
             return
@@ -1242,19 +1264,14 @@ class Gateway(BaseHTTPRequestHandler):
                 self.reply(403, b'{"error":"The code is missing or not current."}',
                            {'Content-Type': 'application/json; charset=utf-8'})
                 return
-            if path == '/api/owner/publish':
-                self.forward(('unix', self.server.owner_socket), path, body)
-                return
-        if path in OWNER_ACTIONS and self.command in {'GET', 'HEAD'}:
+        route = owner_route_of(self.command, path)
+        if route is not None:
+            sock, query = route
             extra = None
             if path == '/api/owner/state':
                 extra = {'csrf': self.server.auth.owner_csrf(session),
                          'shared_password_active': not self.server.auth.accounts()[0]}
-            self.forward(('unix', self.server.owner_socket), path, None, extra)
-            return
-        if path == '/api/owner/tenants' and self.command in {'GET', 'HEAD'}:
-            # the IAM domain names: on the tenant service's owner socket, which answers this uid alone (finding 14)
-            self.forward(('unix', self.server.owner_tenants_socket), self.path, None)
+            self.forward(('unix', getattr(self.server, sock)), self.path if query else path, body, extra)
             return
         if path.startswith('/api/owner/'):
             self.reply(404, b'Not found.\n')

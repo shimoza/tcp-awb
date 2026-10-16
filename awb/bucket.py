@@ -33,11 +33,10 @@ from datetime import date
 from pathlib import Path
 
 from awb import config, obs
+from awb.bucket_layout import IN, MONTH, OUT, OWNER_BUCKET, REGION, folder_of
 
-IN = "in/"
-OUT = "out/"
 PULLED = "bucket-pulled.tsv"
-_MONTH_RE = re.compile(r"[0-9]{4}-(?:0[1-9]|1[0-2])/")
+_MONTH_RE = re.compile(MONTH + "/")
 _UNSAFE_RE = re.compile(r"[\x00-\x1f/\\\x7f]")
 
 
@@ -56,7 +55,8 @@ def settings() -> dict[str, str | None]:
     def get(env: str, key: str, default: str | None) -> str | None:
         return os.environ.get(env) or conf.get(key) or default
 
-    return {"bucket": get("AWB_BUCKET", "bucket", "awb"), "region": get("AWB_BUCKET_REGION", "bucket_region", "eu-de"),
+    return {"bucket": get("AWB_BUCKET", "bucket", OWNER_BUCKET),
+            "region": get("AWB_BUCKET_REGION", "bucket_region", REGION),
             "keys": get("AWB_BUCKET_KEYS", "bucket_keys", None), "endpoint": os.environ.get("AWB_BUCKET_ENDPOINT")}
 
 
@@ -106,7 +106,7 @@ def ensure_folder(c: obs.Client, project) -> tuple[str, bool]:
     folder = find_folder(c, project.code)
     created = folder is None
     if created:
-        folder = "%s/%s/" % (project.created[:7], project.code)
+        folder = folder_of(project.created[:7], project.code)
     for key in (folder, folder + IN, folder + OUT):
         if c.head(key) is None:
             c.put_bytes(key, b"")
@@ -261,7 +261,7 @@ def move(p: config.Paths, c: obs.Client, old: str, code: str) -> dict:
     _project(p, code)
     if not (_MONTH_RE.match(old or "") and old.endswith("/") and old.count("/") == 2):
         raise BucketError("give the folder as <YYYY-MM>/<name>/")
-    target = old[:8] + code + "/"
+    target = folder_of(old[:7], code)
     if target == old:
         raise BucketError("the folder already carries the name of %s" % code)
     if find_folder(c, code) is not None:

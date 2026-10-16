@@ -38,6 +38,8 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
+from awb.tcp.web import gateway
+
 SOCKET = "/run/awb-owner.sock"
 PUBLISH_SOCKET = "/run/awb-web-publish.sock"
 SECRETS = Path("/etc/awb/owner-publish.json")
@@ -50,10 +52,11 @@ MAX_STATUS = 256 * 1024
 STALE = 300
 REQUEST_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 UNAVAILABLE = "The owner status is not available yet."
-ROUTES = ("/api/owner/state", "/api/owner/ui-runs", "/api/owner/intake", "/api/ui-runs")
+ROUTES = gateway.OWNER_ACTIONS
+"""The GET rows of the gateway's owner-route table that come to this service (F1 step 9)."""
 OWNER_RUN_KEYS = ("id", "state", "finished", "validation", "diff_bytes", "candidate_only", "publishable")
 PAGE_RUN_KEYS = ("id", "state", "created", "finished", "validation", "summary", "withheld")
-PUBLISH = "/api/owner/publish"
+(PUBLISH,) = gateway.OWNER_POSTS
 
 
 def read_status(path: Path, opener=None) -> dict | None:

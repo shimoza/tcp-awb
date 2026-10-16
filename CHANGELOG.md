@@ -163,6 +163,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The bucket layout and the owner routes in one place each (B-026, step 9 of the F1 plan), with no change of
+  behaviour: `awb/bucket_layout.py` sets the folder `<YYYY-MM>/<code>/in/`, the default bucket and region, the 25
+  MiB of the console's upload, the default 100 of `max_mb` and the suffix lists. `awb bucket`, the key service, the
+  materials service and the exchange build on it. The gateway keeps its copy of the 25 MiB, held equal by a test. The owner
+  routes are one table in the gateway (`OWNER_ROUTES`) that owner-actions reads too. A new test walks the gateway
+  with every operation of the API contract on its host.
+
 - The vault, the exchange, the project-root finders and the owner mail in fewer places (B-025, step 7 of the F1
   plan), with no change of behaviour: the client of the vault daemon is `awb/vault_client.py` and the sockets and
   the hand-over the key service shares are `awb/handover.py`; the service side of the exchange is

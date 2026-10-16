@@ -69,12 +69,13 @@ import tempfile
 import unicodedata
 from pathlib import Path
 
-from awb import codes, config
+from awb import bucket_layout, codes, config
 
 INBOX = "inbox/"
 FROM = "from-session/"
-IN = "in/"
-DEFAULTS = {"lab_bucket": "awb-lab-eu-de", "owner_bucket": "awb", "region": "eu-de", "max_mb": "100"}
+IN = bucket_layout.IN
+DEFAULTS = {"lab_bucket": "awb-lab-eu-de", "owner_bucket": bucket_layout.OWNER_BUCKET,
+            "region": bucket_layout.REGION, "max_mb": str(bucket_layout.MAX_MB)}
 SETTING_KEYS = ("bucket_tenant", "lab_bucket", "owner_bucket", "region", "max_mb", "notify_topic", "tf_services")
 _SERVICE_RE = re.compile(r"^[a-z][a-z0-9]{1,20}$")
 """One service of tf_services: the short name of the lease policy's actions (ecs, evs, vpc)."""
@@ -86,9 +87,8 @@ DIFFERS_LINE = "%s: its row in projects.tsv names another customer than the owne
 STALE_LINE = ("%s: the owner's grant records no customer: he runs awb projects kind %s %s in his own terminal "
               "once more")
 """The refusal of a customer row under a grant of before 2026-10-10: the owner's one-time re-run records it."""
-TEXT_SUFFIXES = (".md", ".txt", ".csv", ".tsv", ".json", ".yaml", ".yml", ".log", ".tf", ".py", ".sh", ".xml",
-                 ".html", ".htm", ".ini", ".conf", ".cfg", ".toml", ".sql", ".ps1", ".rst")
-IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
+TEXT_SUFFIXES = bucket_layout.TEXT_SUFFIXES
+IMAGE_SUFFIXES = bucket_layout.IMAGE_SUFFIXES
 
 
 class XchgError(Exception):

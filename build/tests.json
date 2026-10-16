@@ -7118,8 +7118,106 @@
    "name": "hooks: the four project-root finders walk through config.scope_root and keep their own edges",
    "run": ".venv/bin/pytest tests/test_hooks.py::test_one_walk_finds_the_project_root_for_the_four_finders",
    "status": "passing"
+  },
+  {
+   "id": "B-026-1",
+   "phase": "B-026",
+   "name": "bucket layout: a new folder is <YYYY-MM>/<code>/ with in/ and out/, built by bucket.folder_of",
+   "run": ".venv/bin/pytest tests/test_bucket_layout.py::test_a_new_folder_is_month_and_code_with_in_and_out",
+   "status": "passing"
+  },
+  {
+   "id": "B-026-2",
+   "phase": "B-026",
+   "name": "bucket layout: the web mode of the key service names the months and allows the in/ the layout makes, for an active project only",
+   "run": ".venv/bin/pytest tests/test_bucket_layout.py::test_the_web_mode_reads_the_folder_the_layout_makes",
+   "status": "passing"
+  },
+  {
+   "id": "B-026-3",
+   "phase": "B-026",
+   "name": "bucket layout: the materials service lists inbox/ and the in/ of every month through bucket.folder_of",
+   "run": ".venv/bin/pytest tests/test_bucket_layout.py::test_the_materials_service_lists_the_in_folders_of_the_layout",
+   "status": "passing"
+  },
+  {
+   "id": "B-026-4",
+   "phase": "B-026",
+   "name": "bucket layout: the month of the CLI and of the web mode keep the patterns they had",
+   "run": ".venv/bin/pytest tests/test_bucket_layout.py::test_the_month_spellings_keep_what_they_accepted",
+   "status": "passing"
+  },
+  {
+   "id": "B-026-5",
+   "phase": "B-026",
+   "name": "bucket limits: 25 MiB in bucket_layout, materials and the gateway's copy; max_mb default 100 in one place",
+   "run": ".venv/bin/pytest tests/test_bucket_layout.py::test_one_upload_limit_and_one_key_service_limit",
+   "status": "passing"
+  },
+  {
+   "id": "B-026-6",
+   "phase": "B-026",
+   "name": "bucket suffixes: the console's list and the exchange's lists are those of bucket_layout, with the same entries",
+   "run": ".venv/bin/pytest tests/test_bucket_layout.py::test_the_suffix_lists_live_in_the_layout_and_keep_their_entries",
+   "status": "passing"
+  },
+  {
+   "id": "B-026-7",
+   "phase": "B-026",
+   "name": "bucket defaults: awb and eu-de once, for awb bucket and keys.conf",
+   "run": ".venv/bin/pytest tests/test_bucket_layout.py::test_one_default_for_the_owner_bucket_and_its_region",
+   "status": "passing"
+  },
+  {
+   "id": "B-026-8",
+   "phase": "B-026",
+   "name": "bucket layout: a grep of the package finds the month and the 25 MiB in bucket_layout.py alone (the gateway's copy aside)",
+   "run": ".venv/bin/pytest tests/test_bucket_layout.py::test_no_other_module_spells_the_month_or_the_upload_limit",
+   "status": "passing"
+  },
+  {
+   "id": "B-026-9",
+   "phase": "B-026",
+   "name": "gateway routes: every operation of the contract reaches its route on its host",
+   "run": ".venv/bin/pytest tests/test_gateway_routes.py::test_every_operation_of_the_contract_reaches_its_route_on_its_host",
+   "status": "passing"
+  },
+  {
+   "id": "B-026-10",
+   "phase": "B-026",
+   "name": "gateway routes: no owner operation of the contract answers on the main host or reaches a backend",
+   "run": ".venv/bin/pytest tests/test_gateway_routes.py::test_no_owner_operation_answers_on_the_main_host",
+   "status": "passing"
+  },
+  {
+   "id": "B-026-11",
+   "phase": "B-026",
+   "name": "gateway routes: the owner-route table holds owner operations of the contract only, the rest are moved routes",
+   "run": ".venv/bin/pytest tests/test_gateway_routes.py::test_the_owner_route_table_is_the_owner_operations_of_the_contract",
+   "status": "passing"
+  },
+  {
+   "id": "B-026-12",
+   "phase": "B-026",
+   "name": "gateway routes: each owner route goes to the socket of its row, with the query only where the row says so",
+   "run": ".venv/bin/pytest tests/test_gateway_routes.py::test_each_owner_route_goes_to_the_socket_of_its_row",
+   "status": "passing"
+  },
+  {
+   "id": "B-026-13",
+   "phase": "B-026",
+   "name": "gateway routes: owner-actions reads its routes and Publish from the gateway's table",
+   "run": ".venv/bin/pytest tests/test_gateway_routes.py::test_owner_actions_answers_the_rows_of_its_socket",
+   "status": "passing"
+  },
+  {
+   "id": "B-026-14",
+   "phase": "B-026",
+   "name": "bucket layout: awb/bucket_layout.py imports no module of awb",
+   "run": ".venv/bin/pytest tests/test_bucket_layout.py::test_the_layout_needs_no_module_of_awb",
+   "status": "passing"
   }
  ],
- "total_tests": 1017,
+ "total_tests": 1031,
  "checked": "2026-10-16"
 }

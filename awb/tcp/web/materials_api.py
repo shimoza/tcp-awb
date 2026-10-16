@@ -26,7 +26,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
-from awb import codes, config, projects, register, intake, check, extract
+from awb import bucket_layout, codes, config, projects, register, intake, check, extract
 from awb.tcp import keys
 
 SOCKET='/run/awb-materials.sock'
@@ -38,10 +38,10 @@ IDENT_FILE=re.compile(r'M-[A-Z]{24}\.md')
 PROJECT_COPY='Ready text copy from the project folder.'
 TOO_LARGE='Extracted text is too large. Split this document into smaller files.'
 REQ=re.compile(r'[a-f0-9]{32}')
-MAX_FILE=25*1024*1024
+MAX_FILE=bucket_layout.MAX_UPLOAD
 MAX_TEXT=256*1024
 MAX_OBJECTS=2000
-SUPPORTED={'.md','.txt','.csv','.tsv','.json','.yaml','.yml','.pdf','.docx','.xlsx','.pptx','.odt','.ods','.odp'}
+SUPPORTED=bucket_layout.CONSOLE_SUFFIXES
 # the console's upload (2026-10-09): the file lands in the project's folder in/ of the owner bucket under an id and
 # its extension, never its name, and the project session takes it from there (awb inbox take); nothing is imported
 UPLOAD_STORED='The file is in the project folder in/. The session takes it with: take the files from in'
@@ -188,7 +188,7 @@ class Sources:
         months = {project.created[:7]} | {m.rstrip('/') for m in self.client(source).months()}
         if len(months) > 120:
             raise Problem(413, 'The customer bucket layout exceeds the supported limit.')
-        return ['inbox/'] + [m + '/' + project.code + '/in/' for m in sorted(months)]
+        return ['inbox/'] + [bucket_layout.folder_of(m, project.code) + bucket_layout.IN for m in sorted(months)]
 
 
 class Store:
