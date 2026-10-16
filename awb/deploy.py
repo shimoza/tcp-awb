@@ -123,6 +123,7 @@ SUBCOMMAND = "subcommand"
 DYNAMIC: dict[tuple[str, str], object] = {
     ("awb/cli.py", "_delegate"): SUBCOMMAND,
     ("awb/cli.py", "_exchange_leftovers"): ("awb.tcp.xchg",),
+    ("awb/cli.py", "status_lines"): ("awb.tcp.keys",),
     ("awb/career.py", "_writing_module"): ("awb.writing",),
     ("awb/review.py", "_writing_tells"): ("awb.writing",),
     ("awb/extract/__init__.py", "_call_reader"): ("awb.extract.archive", "awb.extract.mail", "awb.extract.office",

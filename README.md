@@ -49,7 +49,7 @@ daily snapshot tells what ran on which tenant on which day. `awb close` refuses 
 What a session learned live on the platform goes into the knowledge base with the grade `live`.
 
 The most frequent live check (raise a few resources, check one thing, tear down) is a lab recipe: `awb lab run
-ecs-boot-ssh --project tcp-q7m4 --tenant test-1` does it in one command. The recipe (a JSON file under `recipes/`)
+ecs-boot-ssh --project tcp-q7m4 --tenant test-1` does it in one command (inside the project's folder both flags are optional: the code comes from SCOPE.md and the tenant from its `tenant:` line, which `awb spawn --tenant test-1` writes). The recipe (a JSON file under `recipes/`)
 names the question, the calls, the checks, the teardown, a time budget and a cost guard. The run tags every resource
 and writes its row in `RESOURCES.md` before the create call. When the answer of a create is lost it looks the
 resource up by its name and records it or proves it not created. It always tears down, also on a failed check, an
@@ -308,7 +308,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | compute | `awb calc "730 * 0.0418 * 3" --places 2` | the exact result, recorded as `K-N` for the review |
 | the test tenants | `awb cloud tenants`, `awb tenant now test-1` | the tenants by alias and what runs there |
 | call the TCP API | `awb cloud call GET vpc "/v1/{project_id}/vpcs" --tenant test-1` | the answer, signed by the key service (an OBS list such as `GET obs /` whole as data); a write needs `--role lab` and runs for the project of the folder |
-| a live check in one command | `awb lab run ecs-boot-ssh --project tcp-q7m4 --tenant test-1` | raise, check, evidence in `evidence/`, always torn down and proven gone; `awb lab list` and `awb lab dry-run RECIPE` first |
+| a live check in one command | `awb lab run ecs-boot-ssh --project tcp-q7m4 --tenant test-1` | raise, check, evidence in `evidence/`, always torn down and proven gone (in the project's folder `--project` and `--tenant` default from SCOPE.md); `awb lab list` and `awb lab dry-run RECIPE` first |
 | a migration | `awb migrate init --from azure`, then `awb migrate next` | the next phase, its worker and its files |
 | review a text | `awb review init`, `claims`, `l0`, `pass` | the claim list with evidence and a review record |
 | the week | `awb ledger add ...`, `awb report --by customer` | one line per piece of work, reports by customer, technology or project |
@@ -604,7 +604,7 @@ enabled yet; `sudo seal/verify.sh` proves the rest. `seal/README.md`, section "T
 
 | when | what to run |
 |---|---|
-| after a reboot | `awb vault unlock`, then `awb keys unlock` (as the owner) |
+| after a reboot | `awb unlock` (as the owner: the vault, then the keys, each asks its passphrase); `awb` alone shows what is locked |
 | after a commit | `sudo awb deploy`: the vault and the keys stay unlocked |
 | to stop what a session could send out | `awb egress status`, then `sudo awb egress enforce` when the last 24 hours counted nothing unexpected |
 | after a library upgrade | `sudo awb deploy --only awb-vaultd.service awb-keyd.service` |

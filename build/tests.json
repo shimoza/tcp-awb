@@ -7797,8 +7797,99 @@
    "name": "build check: the command passes --allow-protected to the runner only when given",
    "run": ".venv/bin/pytest tests/test_build_runner.py::test_awb_build_check_passes_allow_protected_to_the_runner_only_when_given",
    "status": "passing"
+  },
+  {
+   "id": "f3-unlock-and-status-1",
+   "phase": "f3-unlock-and-status",
+   "name": "lab: project and tenant default from the folder's SCOPE.md, the flags win",
+   "run": ".venv/bin/pytest tests/test_f3_unlock_and_status.py::test_lab_run_takes_project_and_tenant_from_the_folder",
+   "status": "passing"
+  },
+  {
+   "id": "f3-unlock-and-status-2",
+   "phase": "f3-unlock-and-status",
+   "name": "lab: the code and the tenant line are read from SCOPE.md",
+   "run": ".venv/bin/pytest tests/test_f3_unlock_and_status.py::test_scope_defaults_read_the_code_and_the_tenant_line",
+   "status": "passing"
+  },
+  {
+   "id": "f3-unlock-and-status-3",
+   "phase": "f3-unlock-and-status",
+   "name": "lab: the flags still win over the defaults",
+   "run": ".venv/bin/pytest tests/test_f3_unlock_and_status.py::test_the_flags_still_win",
+   "status": "passing"
+  },
+  {
+   "id": "f3-unlock-and-status-4",
+   "phase": "f3-unlock-and-status",
+   "name": "lab: a folder without a tenant line stops with one line",
+   "run": ".venv/bin/pytest tests/test_f3_unlock_and_status.py::test_a_folder_without_a_tenant_line_stops_with_one_line",
+   "status": "passing"
+  },
+  {
+   "id": "f3-unlock-and-status-5",
+   "phase": "f3-unlock-and-status",
+   "name": "lab: outside a project both flags are asked for",
+   "run": ".venv/bin/pytest tests/test_f3_unlock_and_status.py::test_outside_a_project_both_flags_are_asked_for",
+   "status": "passing"
+  },
+  {
+   "id": "f3-unlock-and-status-6",
+   "phase": "f3-unlock-and-status",
+   "name": "spawn: the tenant line is written only when given",
+   "run": ".venv/bin/pytest tests/test_f3_unlock_and_status.py::test_spawn_writes_the_tenant_line_only_when_one_is_given",
+   "status": "passing"
+  },
+  {
+   "id": "f3-unlock-and-status-7",
+   "phase": "f3-unlock-and-status",
+   "name": "spawn: a tenant for a query and a bad alias are refused",
+   "run": ".venv/bin/pytest tests/test_f3_unlock_and_status.py::test_spawn_refuses_a_tenant_for_a_query_and_a_bad_alias",
+   "status": "passing"
+  },
+  {
+   "id": "f3-unlock-and-status-8",
+   "phase": "f3-unlock-and-status",
+   "name": "unlock: the vault then the keys, no argument",
+   "run": ".venv/bin/pytest tests/test_f3_unlock_and_status.py::test_unlock_runs_the_vault_then_the_keys_without_any_argument",
+   "status": "passing"
+  },
+  {
+   "id": "f3-unlock-and-status-9",
+   "phase": "f3-unlock-and-status",
+   "name": "unlock: stops at the first failure",
+   "run": ".venv/bin/pytest tests/test_f3_unlock_and_status.py::test_unlock_stops_at_the_first_failure",
+   "status": "passing"
+  },
+  {
+   "id": "f3-unlock-and-status-10",
+   "phase": "f3-unlock-and-status",
+   "name": "unlock: takes no passphrase option",
+   "run": ".venv/bin/pytest tests/test_f3_unlock_and_status.py::test_unlock_takes_no_passphrase_option",
+   "status": "passing"
+  },
+  {
+   "id": "f3-unlock-and-status-11",
+   "phase": "f3-unlock-and-status",
+   "name": "unlock: refused for the work user",
+   "run": ".venv/bin/pytest tests/test_f3_unlock_and_status.py::test_unlock_is_for_the_owner",
+   "status": "passing"
+  },
+  {
+   "id": "f3-unlock-and-status-12",
+   "phase": "f3-unlock-and-status",
+   "name": "awb alone: side, locks and the next owner item",
+   "run": ".venv/bin/pytest tests/test_f3_unlock_and_status.py::test_awb_alone_prints_side_locks_and_the_next_owner_item",
+   "status": "passing"
+  },
+  {
+   "id": "f3-unlock-and-status-13",
+   "phase": "f3-unlock-and-status",
+   "name": "awb alone: no answer, none, work side",
+   "run": ".venv/bin/pytest tests/test_f3_unlock_and_status.py::test_awb_alone_says_no_answer_and_none_and_names_the_work_side",
+   "status": "passing"
   }
  ],
- "total_tests": 1114,
+ "total_tests": 1127,
  "checked": "2026-10-17"
 }

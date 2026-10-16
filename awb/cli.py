@@ -3,7 +3,8 @@
 COMMANDS.md lists every command with its options and what it does; `awb --help` lists the commands and
 `awb NAME --help` shows the options of one. This text names the commands only, so it cannot fall behind a subcommand.
 
-Built in: awb init, awb intake, awb register, awb spawn, awb close, awb projects.
+Built in: awb init, awb intake, awb register, awb spawn, awb close, awb projects, awb unlock. `awb` alone
+prints the side and the lock state.
 
 In their own module (DELEGATED below, each with main(argv)): awb check, awb gate, awb vault, awb kb, awb ledger,
 awb report, awb career, awb write, awb voice, awb review, awb calc, awb hook, awb images, awb seal, awb egress,
@@ -224,7 +225,7 @@ def _cmd_spawn(args, p: config.Paths) -> int:
     from awb import ledger, projects
 
     pr = projects.spawn(p, args.kind, args.goal, args.customer, p.register, args.tag or [],
-                        from_outbox=args.from_outbox)
+                        from_outbox=args.from_outbox, tenant=args.tenant)
     print("spawned %s (%s, customer %s): %s" % (pr.code, pr.kind, pr.customer, pr.path))
     print(pr.folder_note)
     try:
@@ -233,6 +234,52 @@ def _cmd_spawn(args, p: config.Paths) -> int:
     except ledger.LedgerError as err:
         print("awb spawn: the first ledger entry was not written (%s); add it with awb ledger add" % err,
               file=sys.stderr)
+    return EXIT_OK
+
+
+def _lock_word(probe) -> str:
+    """The answer of a lock probe, or "no answer" when no daemon answers; nothing of the failure is printed."""
+    try:
+        return probe()
+    except Exception:
+        return "no answer"
+
+
+def status_lines(p: config.Paths) -> list[str]:
+    """`awb` without arguments (P15 of F3): the side, the lock state of the vault and the key service, and the first
+    owner item of the board. Codes only: the item passes the name check of `projects.waiting`."""
+    from awb import projects, vault
+
+    def vault_state() -> str:
+        state = vault.ping_state(p.check_socket)
+        return vault.locked_line(state["since"]) if state["state"] == "locked" else state["state"]
+
+    def keys_state() -> str:
+        keys = importlib.import_module("awb.%s" % DELEGATED["keys"][0])      # the platform package, as xchg is
+        return keys.request(keys.call_socket(), {"op": "ping"}, timeout=5)["state"]
+
+    work = config.is_work_user()
+    lines = ["side: %s" % ("work" if work else "owner"),
+             "vault: %s" % _lock_word(vault_state),
+             "keys: %s" % _lock_word(keys_state)]
+    try:
+        rows = projects.waiting(p)
+    except Exception:
+        rows = []
+    item = next(((r["code"], t) for r in rows for t in r["owner"]), None)
+    lines.append("next owner item: %s" % ("%s: %s" % item if item else "none"))
+    lines.append("locked? awb unlock (owner). All commands: awb --help" if not work else "All commands: awb --help")
+    return lines
+
+
+def _cmd_unlock(args, p: config.Paths) -> int:
+    """P14 of F3: the vault, then the key service, each through its own command; the passphrases are asked on the
+    terminal and never taken as arguments."""
+    if config.is_work_user():
+        return _err("unlock is for the owner")
+    for name in ("vault", "keys"):
+        if _delegate(name, ["unlock"]) != EXIT_OK:
+            return _err("unlock stopped at awb %s unlock" % name)
     return EXIT_OK
 
 
@@ -502,7 +549,13 @@ def _build() -> argparse.ArgumentParser:
     s.add_argument("--customer", default=None)
     s.add_argument("--tag", action="append", default=[])
     s.add_argument("--from-outbox", action="store_true", help="move the customer's outbox copies into input/")
+    s.add_argument("--tenant", default=None, metavar="ALIAS",
+                   help="the test tenant of the project: written as the tenant: line of SCOPE.md, the default of "
+                        "awb lab run")
     s.set_defaults(func=_cmd_spawn)
+
+    s = sub.add_parser("unlock", help="unlock the vault, then the key service (owner)")
+    s.set_defaults(func=_cmd_unlock)
 
     s = sub.add_parser("close", help="close a project: OPEN.md empty, no live resource, a ledger entry")
     s.add_argument("code")
@@ -622,6 +675,9 @@ def main(argv: list[str] | None = None) -> int:
         return _exit_code(exc)
     func = getattr(args, "func", None)
     if func is None:
+        if not argv:
+            print("\n".join(status_lines(config.paths())))
+            return EXIT_OK
         ap.print_usage(sys.stderr)
         return EXIT_ERROR
     from awb import intake, projects
