@@ -273,10 +273,10 @@ def test_put_sends_the_zip_the_pdf_and_the_manifest_and_marks_the_latest(home, f
         with pytest.raises(dataset.DatasetError, match="already; give --replace"):
             dataset.put(fake.client(), built.folder)
         assert dataset.put(fake.client(), built.folder, replace=True) == keys
-        # the command finds the newest build and needs the owner's key setting
-        monkeypatch.setenv("AWB_BUCKET_KEYS", "")
+        # the command finds the newest build and needs the key service (Z3 step 11, his word P31)
+        monkeypatch.setenv("AWB_KEYS_ADMIN", str(tmp_path / "no-such-keys-admin.sock"))
         assert cli.main(["dataset", "put", "--out", str(tmp_path / "ds")]) == 1
-        assert "no key setting" in capsys.readouterr().err
+        assert "the key service is locked or not running" in capsys.readouterr().err
         assert cli.main(["dataset", "put", "--out", str(tmp_path / "none")]) == 1
         assert "no built dataset" in capsys.readouterr().err
     (built.folder / "HOW-TO.pdf").unlink()
@@ -629,7 +629,7 @@ def test_put_github_only_publishes_without_the_bucket_and_asks_for_no_key(home, 
     monkeypatch.setattr(dataset.bucket, "client", client)
     n = len(github.log())
     assert cli.main(["dataset", "put", "--out", str(tmp_path / "ds"), "--github", "--replace"]) == 1
-    assert "no key setting" in capsys.readouterr().err and len(github.log()) == n
+    assert "the key service is locked or not running" in capsys.readouterr().err and len(github.log()) == n
     assert cli.main(["dataset", "put", "--out", str(tmp_path / "ds"), "--github", "--github-only"]) == 1
     assert "not both" in capsys.readouterr().err
 

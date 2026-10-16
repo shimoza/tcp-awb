@@ -140,17 +140,15 @@ def test_the_work_user_cannot_use_the_bucket(monkeypatch):
 
 
 def test_the_command_line_end_to_end(home, fake, project, tmp_path, monkeypatch, capsys):
-    fake_pass(tmp_path, monkeypatch, {"cloud/owner/ak": fake.ak, "cloud/owner/sk": fake.sk})
+    """Since Z3 step 11 the command line reaches the bucket through the key service alone (tests/test_bucket_keys.py
+    runs it end to end against a real key service); without one it stops with the unlock line and reads no key
+    setting (his word P31)."""
+    monkeypatch.setenv("AWB_KEYS_ADMIN", str(tmp_path / "no-such-keys-admin.sock"))
     monkeypatch.setenv("AWB_BUCKET_KEYS", "pass:cloud/owner")
-    monkeypatch.setenv("AWB_BUCKET_ENDPOINT", fake.endpoint)
-    monkeypatch.setenv("AWB_BUCKET", fake.bucket)
-    assert cli.main(["bucket", "folder", project.code]) == 0
-    assert project.code in capsys.readouterr().out
-    assert cli.main(["bucket", "sync"]) == 0
-    capsys.readouterr()
-    monkeypatch.delenv("AWB_BUCKET_KEYS")
+    assert cli.main(["bucket", "folder", project.code]) == 2
+    assert bucket.LOCKED_LINE in capsys.readouterr().err
     assert cli.main(["bucket", "sync"]) == 2
-    assert "AWB_BUCKET_KEYS" in capsys.readouterr().err
+    assert bucket.LOCKED_LINE in capsys.readouterr().err
 
 
 def test_pull_prints_the_wiped_counts_and_never_blocked(home, fake, project, monkeypatch, capsys):
