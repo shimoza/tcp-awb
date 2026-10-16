@@ -398,7 +398,7 @@ BUILD_IMAGE=/var/lib/awb-build.img
 BUILD_SIZE_GB=20
 BUILD_CLIENT=/opt/claude-build
 MODEL_HOST=api.anthropic.com
-TOKEN_HOST=platform.claude.com        # awb/buildrun.py TOKEN_HOST: the refresh of his login
+TOKEN_HOST=platform.claude.com        # awb/build_units.py TOKEN_HOST: the refresh of his login
 TCP_API_HOST=iam.eu-de.otc.t-systems.com
 GITHUB_HOST=github.com
 BUILD_FAILED_UNIT=awb-task-failed@.service
@@ -488,7 +488,7 @@ build_dry() {
 }
 
 net_lines() {
-    # net_lines MODEL: the lines of awb build probe (awb/buildrun.py probe_lines), in its order
+    # net_lines MODEL: the lines of awb build probe (awb/build_probe.py probe_lines), in its order
     printf '%s\n' "the probe unit with a task's own properties runs as the build user" \
         "the probe unit reaches the model endpoint ($MODEL_HOST)"
     [ "$1" != login ] || printf '%s\n' "the probe unit reaches the token host of his login ($TOKEN_HOST)"

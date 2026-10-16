@@ -372,7 +372,15 @@ printed). The commands: `add(path, qdir=None, runs=None, register=None) -> Task`
 the `tests_replaced` of the run's `task.md`, the snapshot `Runner._ctx` reads; a line per widen in `widen.log`),
 `cmd_stop`, `main(argv)`.
 
-`awb/buildrun.py` (SB3), the runner. `Host` (every place and stand-in: `root`, `runs`, `queue`, `units`, `board`,
+`awb/buildrun.py` (SB3), the runner. Since F1 step 6 it keeps the runner (`Runner`, the records, the board's
+state, the nudge, `check_main`, `serve_main`) and its parts are `awb/build_units.py` (`Host`, `build_root`, the
+run's `Ctx`, the units, `_hidden`, `model_allow`, `name_binds`, the board files), `awb/build_unit_side.py` (what
+runs in the units as the build user: `unit_main`, `unit_allowed`, `outcomes`, `failed_nodes`),
+`awb/build_checks.py` (checks 1 to 11, `git`, `unit_run`, the checks of `awb build check`), `awb/build_probe.py`
+(`awb build probe`) and `awb/build_selftest.py` (`World`, `SELFTEST_CASES`, `selftest`). Every name below still
+answers as `buildrun.NAME` (`awb/parts.py`: `parts.join(name, *parts)` copies the names of the parts into the old
+module and hands a name set on it on to the part that holds the same object; the selftest, which imports the
+runner, is loaded on the first use of one of its names). `Host` (every place and stand-in: `root`, `runs`, `queue`, `units`, `board`,
 `deployed`, `model_key`, `model` (`login` or `key`, from `build_model`), `register`, `build_uid`, `git_run`, `wall`, `now`, `sleep`, `minute`, `poll`, `tick`,
 `suite_seconds`, `retry_wait`, `push`, `push_url`, `mail`, `precheck`, `resolve`, `python`, `hooks_path`, `client`,
 `awb`, `quiet`; `Host.from_config()`), `build_root()` (`AWB_BUILD_ROOT`, which the tests set, else
@@ -540,6 +548,13 @@ Integration (change these existing modules, keep every existing test green):
 ## `awb/hooks.py`: client hooks for working sessions
 
 `awb hook NAME` reads the hook JSON from stdin. Messages never carry a name or a code of the register.
+
+Since F1 step 6 the pre-tool guards of both users are `awb/toolguard.py` (`guard`, `place_class`, `build_guard`,
+`build_place_class`, their classes, `hook_pre_tool`, `hook_build_tool`, `refusals` and `selftest`; also the exit
+codes `OK`, `ERROR`, `BLOCK`, `project_root` and `_sealed`, which the guard needs) and the receipt of a sealed start is
+`awb/receipt.py` (`receipt`, `GUARDS`, `_start_receipt`, `refused_today`, `refused_line`, `keys_call`).
+`awb/hooks.py` keeps the hooks and `main` and is the door to both (`awb/parts.py`): every name still answers as
+`hooks.NAME` and a name set there reaches the part that holds it.
 
 - `prompt` (UserPromptSubmit): check the prompt text through `check.check_text` (remote when the register is not
   readable). A hit: exit 2, stderr "the prompt carries a registered name (N hits). Register new names with `awb

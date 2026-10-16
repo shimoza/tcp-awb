@@ -163,6 +163,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The build runner and the client hooks in smaller modules (B-024, step 6 of the F1 plan), with no change of
+  behaviour: `awb/buildrun.py` keeps the runner and its commands; its parts are `awb/build_units.py` (the host
+  and the units), `awb/build_unit_side.py` (what runs in the units as the build user), `awb/build_checks.py` (the
+  eleven checks), `awb/build_probe.py` and `awb/build_selftest.py`. `awb/hooks.py` keeps the hooks; the pre-tool
+  guards are `awb/toolguard.py` and the receipt of a sealed start `awb/receipt.py`. Every old name still answers
+  through the old module (`awb/parts.py`). `awb deploy` restarts for each new module what it restarted for its
+  old one.
+
 - The suite faster and less fragile (B-023, step 5 of the F1 plan): a test without a Workbench of its own gets a
   shared side, a vault, a knowledge base and throttle stamps of its own, no longer one set for the whole run. Run as
   root, the tests that need a user skip instead of failing: the dry runs of `seal/setup.sh` and `seal/verify.sh`,

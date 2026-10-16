@@ -7055,8 +7055,29 @@
    "name": "suite: each test has its own shared side, vault, knowledge base and throttle stamps; nothing one test left reaches the next",
    "run": ".venv/bin/pytest tests/test_vault_guard.py::test_each_test_has_its_own_shared_side_vault_kb_and_throttle_stamps",
    "status": "passing"
+  },
+  {
+   "id": "B-024-1",
+   "phase": "B-024",
+   "name": "deploy: the modules split out of buildrun and hooks restart what their old module restarted; the selftest is reached through the function-level import of buildrun",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_split_modules_restart_what_their_old_module_restarted",
+   "status": "passing"
+  },
+  {
+   "id": "B-024-2",
+   "phase": "B-024",
+   "name": "hooks: the old module is the door to its parts; a name set on it reaches the part that holds it and the undo puts it back",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_the_old_module_is_the_door_to_its_parts",
+   "status": "passing"
+  },
+  {
+   "id": "B-024-3",
+   "phase": "B-024",
+   "name": "board: the vocabulary of the build line covers the fixed phrases of every part of the runner",
+   "run": ".venv/bin/pytest tests/test_board.py::test_the_vocabulary_of_the_line_covers_every_part_of_the_runner",
+   "status": "passing"
   }
  ],
- "total_tests": 1008,
- "checked": "2026-10-15"
+ "total_tests": 1011,
+ "checked": "2026-10-16"
 }

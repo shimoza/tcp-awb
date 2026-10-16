@@ -39,7 +39,7 @@ The seal keeps the register of names away from every working session. It uses tw
   tunnel and Terraform alone; an upgrade is a deliberate step (`apt-mark unhold`, upgrade, `apt-mark hold`).
 - `work-claude/settings.json`: the client settings of the work user: the six Workbench hooks (`/usr/local/bin/awb hook
   NAME`) and deny rules for every connector tool (`mcp__*`) and for every tool of the client that reads or sends a file,
-  runs a command or starts work elsewhere and that the tool guard does not see (`DENIED_TOOLS` of `awb/hooks.py`:
+  runs a command or starts work elsewhere and that the tool guard does not see (`DENIED_TOOLS` of `awb/toolguard.py`:
   PowerShell, LSP, the artifact and worktree tools, Workflow, RemoteTrigger, SendUserFile, the MCP resource tools).
   Connectors of the account would hand raw customer text to a session.
 - `work-claude/CLAUDE.md`: the instructions of the work user, at most 60 lines.

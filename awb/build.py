@@ -25,7 +25,7 @@
 This module holds the queue grammar (DESIGN.md section 2), the fixed header, the numbered run folders, the state
 words, the one-line forms (section 6) and the commands above. The commands only write the records the runner reads
 (`answer.txt`, `widen.txt`, `stop-wanted`, the stop file, a new run in `queued`); the runner itself, its units and its
-eleven checks are awb/buildrun.py (step SB3).
+eleven checks are awb/buildrun.py (step SB3) and its parts (F1 step 6: the checks in awb/build_checks.py).
 
 The queue is his: `build/queue/QUEUE.md` and the prompt files beside it in his working copy, untracked (D-S15). The
 runner reads it and never writes it. The records are the runner's: `<build_root>/runs/<ID>/<n>/`, owner 700.

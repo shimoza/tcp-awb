@@ -1221,3 +1221,36 @@ def test_the_build_user_leaves_the_host_blocklist_to_the_runner(monkeypatch, tmp
     assert gate.BLOCKLIST_FILES[0] in gate.blocklist_files()
     monkeypatch.setattr(config, "is_build_user", lambda: True)
     assert gate.blocklist_files() == list(gate._SELFTEST_FILES)
+
+
+def test_the_old_module_is_the_door_to_its_parts(monkeypatch):
+    """F1 step 6: awb/hooks.py went into hooks, toolguard and receipt and awb/buildrun.py into five modules; the old
+    module stays the door to its parts (awb/parts.py). Every old name is the part's object, a name set on the old
+    module reaches the part that holds it (a test's stand-in is what the part calls) and the undo puts it back, also
+    in a part loaded after the join. Planted: a part's name that the old module binds to another object of its own
+    is left alone."""
+    from awb import build_checks, build_selftest, buildrun, parts, toolguard
+    from awb import receipt as receipt_part
+
+    assert hooks.guard is toolguard.guard and hooks.receipt is receipt_part.receipt
+    assert hooks.keys_call is receipt_part.keys_call and hooks.HOST_FILE is toolguard.HOST_FILE
+    assert buildrun.World is build_selftest.World and buildrun.check_gate is build_checks.check_gate
+    real, cases = toolguard.place_class, build_selftest.SELFTEST_CASES
+    with monkeypatch.context() as m:
+        m.setattr(hooks, "place_class", lambda *a: "planted")
+        m.setattr(buildrun, "SELFTEST_CASES", [])
+        assert toolguard.place_class() == "planted" and build_selftest.SELFTEST_CASES == []
+    assert toolguard.place_class is real is hooks.place_class and build_selftest.SELFTEST_CASES is cases
+    door, part, later = (types.ModuleType("awb_zz_door"), types.ModuleType("awb_zz_part"),
+                         types.ModuleType("awb_zz_later"))
+    shared, own, other = object(), object(), object()
+    part.shared, part.own, door.own = shared, other, own
+    for module in (door, part):
+        monkeypatch.setitem(sys.modules, module.__name__, module)
+    parts.join("awb_zz_door", "awb_zz_part", "awb_zz_later")
+    assert door.shared is shared and door.own is own
+    later.shared = shared
+    monkeypatch.setitem(sys.modules, "awb_zz_later", later)
+    new = object()
+    door.shared, door.own = new, new
+    assert part.shared is new and later.shared is new and part.own is other

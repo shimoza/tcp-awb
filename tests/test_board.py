@@ -274,6 +274,28 @@ def test_the_vocabulary_of_the_line_covers_every_state_the_runner_writes():
     assert held and held <= set(board.QUEUE_HELD)
 
 
+def test_the_vocabulary_of_the_line_covers_every_part_of_the_runner():
+    """F1 step 6: awb/buildrun.py went into parts and most fixed phrases of the checks now live in
+    awb/build_checks.py, which the test above does not read. Every part of the runner is read here. Planted: a
+    phrase the board does not know in a part is found; each part the runner joins is a file of the package."""
+    import re as _re
+    from pathlib import Path
+
+    from awb import buildrun
+
+    package = Path(board.__file__).parents[1]
+    names = ["buildrun"] + [p.split(".", 1)[1] for p in buildrun._parts_]
+    assert {"build_units", "build_unit_side", "build_checks", "build_probe", "build_selftest"} <= set(names)
+    sources = {n: (package / ("%s.py" % n)).read_text(encoding="utf-8") for n in names}
+    pattern = r'"((?:red|held|stopped|hung): [a-z_. -]+)"'
+    literals = {s for text in sources.values() for s in _re.findall(pattern, text)}
+    assert {"red: tests lost", "hung: suite", "held: gate selftest", "stopped: no_result"} <= literals
+    assert all(board.build_state_word(s) == s for s in literals if not s.endswith(" "))
+    planted = sources["build_checks"] + '\nraise _fail(ctx, 4, "red: zyxwo phrase")\n'
+    found = set(_re.findall(pattern, planted)) - literals
+    assert found == {"red: zyxwo phrase"} and board.build_state_word("red: zyxwo phrase") != "red: zyxwo phrase"
+
+
 def test_awb_board_and_the_api_carry_the_build_line(home, monkeypatch, capsys):
     """SB4: awb board show and GET /api/board print the line. Planted: the line on one of them only."""
     (home.shared / "build").mkdir(parents=True, exist_ok=True)

@@ -176,6 +176,42 @@ def test_every_module_has_a_unit_or_is_listed(tmp_path):
     assert problems(deploy.DirTree(copy)) == ["dynamic: awb/newthing.py:load"]
 
 
+class _Changed(deploy.DirTree):
+    """A tree with some files read as other text."""
+
+    def __init__(self, root: Path, changed: dict[str, str]):
+        super().__init__(root)
+        self.changed = changed
+
+    def read(self, rel: str) -> str:
+        return self.changed[rel] if rel in self.changed else super().read(rel)
+
+
+@pytest.mark.long   # it maps the whole awb tree twice: the size is the proof
+def test_the_split_modules_restart_what_their_old_module_restarted():
+    """F1 step 6: awb/buildrun.py went into five modules and awb/hooks.py into hooks, toolguard and receipt. The
+    import map over the package finds every new module, none of them in COMMAND_ONLY; a change of one restarts
+    the units a change of its old module restarts: the build runner's for the five, every unit of the hooks for
+    toolguard, receipt and parts. Planted: without the `__getattr__` of buildrun.py (a function-level import, the
+    only one of the selftest) the selftest is in no closure."""
+    tree = deploy.DirTree(REPO)
+    um = deploy.unit_map(tree)
+    split = {"awb/buildrun.py": ("awb/build_units.py", "awb/build_unit_side.py", "awb/build_checks.py",
+                                 "awb/build_probe.py", "awb/build_selftest.py"),
+             "awb/hooks.py": ("awb/toolguard.py", "awb/receipt.py", "awb/parts.py")}
+    for old, new in split.items():
+        want = set(um.effects([old]).units)
+        assert want, old
+        for rel in new:
+            assert rel in um.reached and rel not in deploy.COMMAND_ONLY, rel
+            assert set(um.effects([rel]).units) == want, rel
+    assert set(um.effects(["awb/buildrun.py"]).units) == {"awb-buildd.service"}
+    text = tree.read("awb/buildrun.py")
+    assert text.count("\ndef __getattr__(") == 1
+    planted = _Changed(REPO, {"awb/buildrun.py": text.split("\ndef __getattr__(")[0]})
+    assert problems(planted) == ["no unit: awb/build_selftest.py"]
+
+
 def test_the_map_from_changed_files_with_the_held_sockets_of_the_gateway_and_the_tenants(tmp_path):
     """Replaces test_the_map_from_changed_files_with_the_held_sockets (finding 14 of the review of 2026-10-10: the
     tenant service holds its owner socket unit too, Sockets=), which replaced test_the_map_from_changed_files (T9
