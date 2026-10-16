@@ -7475,8 +7475,15 @@
    "name": "bucket: bucket move stops before it changes anything",
    "run": ".venv/bin/pytest tests/test_bucket_keys.py::test_move_stops_before_it_changes_anything",
    "status": "passing"
+  },
+  {
+   "id": "fk10-check-blocks-1",
+   "phase": "fk10-check-blocks",
+   "name": "kb check blocks: every block staged under kb-check-blocks/ is parsed by the kb parser and taken by kb how (block problems and the text checks of add); the FK10 file carries its 44 entries",
+   "run": ".venv/bin/pytest tests/test_kb_check_blocks.py",
+   "status": "passing"
   }
  ],
- "total_tests": 1068,
+ "total_tests": 1069,
  "checked": "2026-10-16"
 }

@@ -7,6 +7,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- The check blocks of the 44 expired knowledge entries of October (fact-check design F10, section 9), staged in
+  `kb-check-blocks/FK10-2026-10.md` for `awb kb how ID -` on the host: one section per entry, every block with a
+  control, the tiers decision and none only (no entry of the batch is a plain GET through the read key). A test,
+  `tests/test_kb_check_blocks.py`, parses every block of the folder with the kb parser and takes it through `kb.how`
+  against the fixture register, so a block the host would refuse fails here first.
 - The reader service answers `GET /api/kb?q=`, `/api/price?service=` and `/api/usage` (Z3 step 10, server part,
   `awb/tcp/web/reader_api.py`): the knowledge base with the name check of today's register, the price records of one
   service and the TCP API calls of the month by day, as JSON with codes and counts only. The gateway forwards them
