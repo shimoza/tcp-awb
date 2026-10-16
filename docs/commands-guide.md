@@ -1,0 +1,485 @@
+# Commands
+
+`awb` is the one command of the Architect Workbench. Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
+`awb <command> --help` shows the options of any command.
+
+Two sides. The owner side holds the register of names and the originals and is run by you in your own shell. The
+work side is what Workbench sessions (and you) run inside `tcp-` projects. A name is only ever typed on the owner
+side.
+
+## Owner side (your own shell, never through a session)
+
+| command | what it does |
+|---|---|
+| `awb start project\|query --goal "..." [--customer CUST-XXXX\|new] [--tag TAG]...` | a piece of work in one command: register, spawn, grant, import, then the line `open: awb projects open tcp-xxxx`. `--customer new` issues a code (`awb register new CUST`); a customer without a registered form is asked for its written forms on the terminal, one per line, an empty line ends, as `awb import` asks. The spawn runs as the work user through `sudo -n` as `awb projects open` does (on a host without a work user in this process); then your grant `awb projects kind CODE KIND`; then `awb import CODE` for the new files of the project's `in/` folder of the owner bucket (the vault inbox is never taken here, it may hold another customer's files). A step that fails stops the run and says which steps are done. Your own terminal only |
+| `awb init` | create `~/tcp-shared`, `~/tcp-vault` and an empty register (done once) |
+| `awb import tcp-xxxx [FILE...]` | the one door for customer material: takes the FILE arguments, else every new file of the project's `in/` folder in the bucket, else everything in `~/tcp-vault/inbox`, and runs the intake for the project's customer in wipe mode. The copies go to `~/tcp-shared/outbox/CUST-XXXX/` (for a project without a customer to `~/tcp-shared/outbox/tcp-xxxx/`, with no customer code) and carry the customer as its code and every other name the rules recognise as a token (`[person 1]`, `[company 1]`, `[place 1]`, `[name 1]`, numbered within the import); nothing stops, no editor opens. It prints the files taken, the copies written, the values wiped per class, the pictures held and the files withheld, never a name, and the sessions of the project read "new input" at their next prompt. Your own terminal only |
+| `awb import tcp-xxxx --customer CUST-XXXX` or `--customer new` | only when a project without a customer is to get one (without it such a project imports with no customer code): `new` issues `CUST-` and the project's four characters (a random code when that one is taken). A customer without a registered form is asked for its written forms on the terminal, one per line, an empty line ends; for a project without a customer an empty first line issues the code without a form |
+| `awb import tcp-xxxx --redo` | the repair of a wiped term: after `awb register keep "the term"`, the originals of the customer's last import run again from the vault and the copies replace the earlier ones under the same file ids; the session reads "replaced" |
+| `awb import tcp-xxxx --review` | the rare case where a person, a partner or a place must keep a code: the run stops once, an editor opens with the candidates (`p` person, `o` company, `c` this customer, `s` place, `+` one more form, `-` later, no mark: keep), then it goes on in wipe mode and a candidate left for later is a token |
+| `awb vault show` | the newest private report (what was wiped, by class and rule, and the forms the run learned) of `--customer CUST-XXXX` or of the only customer with a report of the last day; a FILE shows that file. Your own terminal only, never to a pipe or inside an assistant session |
+| `awb import tcp-xxxx --paste [--kind mail\|transcript\|table]` | the same one door for text you copy from a mail client, a meeting tool or a spreadsheet: the text comes on standard input (`pbpaste \| awb import tcp-xxxx --paste`, `wl-paste` or `xclip -o -selection clipboard` on Linux) or paste into the terminal and end with Ctrl-D with nothing shown and is never printed. It runs through the intake of the project's customer in wipe mode: the customer's forms become its code and every other person, company, place, mail address and phone a token. A secret (a key, a token, a password line) refuses the whole paste with its class and line number and writes nothing. The copy goes to the outbox like an imported file (`~/tcp-shared/outbox/CUST-XXXX/`, for a project without a customer under the project code), the sessions of the project read "new input" at their next prompt. The reports are written as for a file. The paste itself is not kept, so `--redo` does not take it again: paste it again after `awb register keep`. It prints the kind, the lines, the name of the copy and the values wiped per class. It takes no FILE, `--customer`, `--review` or `--redo`. Your own terminal only: a work session and the work user get `held: a pasted mail or transcript goes in through awb import tcp-xxxx --paste in your own terminal` |
+| `--kind mail` | the copy is `mail-<date>-<n>.md`. A signature block (from a closing such as Best regards or Mit freundlichen Grüßen or from a line `--` to the next quoted header or the end, 25 lines at most) is wiped as a whole to the line `[signature]` and the token of its signer. Every quoted chain header (an `On ... wrote:` line, `-----Original Message-----`, a block of From, Sent, To and Subject lines) to the line `[mail header] from [person 2] to [person 1]` with no date, subject or address. A signature inside a quoted answer goes the same way |
+| `--kind transcript` | the copy is `transcript-<date>-<n>.md`. Each speaker becomes `[person 1]`, `[person 2]` within the paste, numbered by the first turn, also where the name is spoken; timestamps stay; the filler lines of the meeting tool (who joined or left, recording started, a generated-by line, a cue number) are dropped |
+| `--kind table` | the copy is `table-<date>-<n>.csv`. The text is tab-separated as a spreadsheet copies it and keeps its columns; a column whose header names people or mail addresses (also phones, companies and places) is wiped as a whole column. A Name column of a technical table (Typ, IP, Version next to it) is a list of resources and stays unless the table has a mail or a phone column |
+| `awb import tcp-xxxx --paste` (no kind) | plain text: the copy is `paste-<date>-<n>.md`, signatures and quoted headers are wiped as for a mail, nothing else is added |
+| `awb register keep "phrase"` | a term that was wiped by mistake is never wiped again, in any customer's material (then `awb import --redo`) |
+| `awb register keep --list` | the kept phrases (vault side only) |
+| `awb register add CUST-XXXX CUST "full company name"` | register one written form of a code; add every short form too. `-` reads the form from standard input; `awb import` asks for the forms of a new customer itself |
+| `awb register new CUST` or `PART` | print a fresh code; `PERS`, `ORG` and `SITE` codes come from `--review` only |
+| `awb register list` | codes, kinds and counts of forms, no names |
+| `awb register list --forms` | the same with the written forms (vault side only) |
+| `awb register retire CUST-XXXX` | retire every form of a code; the code is never reused |
+| `awb words update [--root DIR]` | rebuild `rules/known-words.txt` and `rules/known-phrases.txt` (the capitalised words and two-word phrases of the public mirrors, which the intake reads as terms) after `awb mirror docs` or a new service description; `--root` names the mirror root (default `AWB_MIRRORS` or `~/tcp-mirrors`) |
+| `awb images list [CUST-XXXX]` | the pictures the intake held on the vault side (office media, pdf images, image files), per file: held, released, left out |
+| `awb images release CUST-XXXX FILEID N...` | after you looked at them: copy the chosen pictures to `~/tcp-shared/outbox/CUST-XXXX/images/`; `--all` for every held picture of the file |
+| `awb reveal FILE --out PATH [--replace]` | put the real names back into a finished text: every code becomes its first active form; the named file gets mode 600 and never goes where a session reads; `--replace` overwrites an existing output file |
+| `awb fetch tcp-xxxx [--again] [--into DIR]` | what the project put with `awb xchg put` since your last fetch: each file of `<code>/from-session/` of the lab bucket downloaded through the key service (the same list and get a session's `awb xchg list` uses) into `~/awb-fetch/tcp-xxxx/` (mode 700, files mode 600; `--into` names another folder), the real names put back into every text as `awb reveal` does, a file that is not a text kept as it came, then the folder printed. A file counts as fetched once downloaded (its key in `bucket-pulled.tsv` of the vault); `--again` takes all again. Refused inside a git tree and where a session reads. The objects stay in the bucket (`awb xchg clean` in the session deletes them). Your own terminal only |
+| `awb vault status` | state of the vault: plain, locked or unlocked, with the count of codes and forms |
+| `awb vault encrypt [--stdin]` | encrypt the vault once (new passphrase twice), then unlock; `--stdin` reads the passphrase twice from standard input |
+| `awb vault unlock [--stdin]` | give the passphrase to the vault daemon, after every reboot; `--stdin` reads it from standard input |
+| `awb vault lock` | drop the passphrase and the register from the daemon's memory |
+| `awb vault reload` | hand the vault daemon to a new process of the installed code without a lock (what `awb deploy` and `systemctl reload awb-vaultd.service` run): `vault <state>, pid <n>, release <commit>`. While it runs, a write to the vault (unlock, lock, a register save, a seal) answers `busy`: the vault daemon is reloading, try again. A stop, a crash or a reboot still lock the vault |
+
+Every import first runs its self-test over the planted cases of `awb/planted.py` and takes nothing in when one of
+them is no longer found, when a planted name of the wipe cases comes out unwiped, when a control term is wiped or
+when the customer inside a company shape does not become the code. Every output passes the final check: the matcher,
+the structured patterns and the candidate rules over its body, and a second check by another method (the letters of
+whole words against every registered form and every form the run learned). A file that fails it is withheld and its
+original stays in the inbox. What the rules do not recognise passes: a first name alone in prose, a name only glued
+into an identifier, a name in a picture (the pictures stay held, `awb images`).
+
+The pieces behind `awb import`, one line each:
+
+| command | what it does |
+|---|---|
+| `awb intake --customer CUST-XXXX [--review] [FILE...]` | the intake alone, in wipe mode (no FILE: the vault inbox; `--customer new` issues a random code) |
+| `awb bucket pull CODE` | new files of `in/` into the vault inbox, then the intake |
+| `awb register review CUST-XXXX [--report REPORT]` | the review of the newest stop of `--review` by hand; `--report` names another private report of the customer |
+
+## The bucket (owner side)
+
+One folder per project in the bucket `awb`: `<YYYY-MM>/<project-code>/in/` for your originals and `out/` for
+results. A folder is looked for under every month and used where it is; a new one goes under the month the
+project was created. A drifted folder is renamed in the bucket, never the project.
+
+| command | what it does |
+|---|---|
+| `awb bucket sync` | create the folders of every active project; report folders that match no project (count per month, no name) |
+| `awb bucket folder CODE` | the folder of one project, created when missing |
+| `awb bucket pull CODE` | new files of `in/` into the vault inbox, then the intake for the project's customer (for a project without one under the project code), in wipe mode; it prints the values wiped per class. A file is taken once (`--again` takes it again). `awb import CODE` does the same and more. Your own shell |
+| `awb bucket put CODE FILE` | FILE into `out/`; `--replace` overwrites, `--reveal` puts the real names back first (your own shell). The send gate runs first: for a project with a customer or partner it refuses a deliverable without a valid review at tier 3 (or a tier he lowered) and a tier 3 review without the request check; an internal file leaves with a warning |
+| `awb dataset put [--out DIR] [--date D] [--replace] [--github \| --github-only]` | the zip, the how-to PDF and the manifest of the newest built dataset (or the one of `--date`) into `datasets/tcp-facts/<date>/` of the bucket (`--out` names the folder that holds the built datasets, default `~/tcp-shared/datasets`) and the date into `datasets/tcp-facts/LATEST`. `--github` also copies facts.md, facts.jsonl, services.md, topics/ and prices/ into the root of github.com/shimoza/tcp-facts through a clone under `~/tcp-shared/datasets/tcp-facts.git` (made on first use with gh), commits them as the GitHub account, tags the date and makes a release of it with the zip, HOW-TO.pdf and MANIFEST.json, the counts as notes. Every git call on the clone carries `-c safe.directory=<the clone>` (that path only), so you put from a clone the work user owns without a global git setting; the owner's commit identity, an old author setting or a registered name in any file refuses it, and a date already tagged needs `--replace`. `--github-only` does the GitHub part alone, without the bucket and without asking for its key. Your own shell, it takes the bucket key (not with `--github-only`) and your gh login |
+| `awb bucket move <YYYY-MM>/<NAME>/ CODE` | rename a drifted folder: copy inside the object storage, compare names and sizes, then delete the old objects |
+
+Set once in your shell profile: `export AWB_BUCKET_KEYS=pass:<entry of your password store>` (the entry holds
+`ak` and `sk`). `AWB_BUCKET` and `AWB_BUCKET_REGION` default to `awb` and `eu-de`. The work user of the seal
+cannot use the bucket, by design.
+
+Seal, once, with sudo: `seal/setup.sh --dry-run` (read the plan), `sudo seal/setup.sh --mirrors
+~/tcp-mirrors/docs ~/tcp-mirrors/service-description` (your shell expands the `~`), log in again,
+`sudo seal/verify.sh` (every line PASS).
+
+## Deploy (owner side, your own shell)
+
+| command | what it does |
+|---|---|
+| `cd ~/tcp-awb && sudo awb deploy` | after a commit: bring it live, restart only what changed, ask the vault passphrase once when the vault daemon restarted, end with the status lines |
+| `awb deploy --dry-run` | the plan and every step, without root; nothing runs and nothing is asked |
+| `awb deploy status` | the journal, the release each daemon runs, locked or down since when, a split between a daemon and the code, a build side left pending, the egress filter's mode and its counts of the last 24 hours |
+| `sudo awb deploy --only awb-vaultd.service awb-keyd.service` | these units only, also when nothing changed (after a library upgrade) |
+| `sudo awb deploy --all` | restart every installed unit |
+| `sudo awb deploy --restart` | restart the vault daemon and the key service instead of a reload |
+| `sudo awb deploy --mirrors DIR...` | hand the mirror folders to `seal/setup.sh --update` |
+| `sudo awb deploy --wait-build` | wait (at most 60 minutes) until no build task unit runs, so the build side comes along. Without it a deploy while a task runs leaves the build side (the home template every task unit binds) out: `/opt/tcp-awb/BUILD-PENDING` names it and the next deploy or the runner's next start applies it. A task that outlasts the wait leaves it pending and the deploy exits 1 |
+| `sudo awb deploy --rollback` | the release that was live before this one |
+| `sudo awb deploy --to COMMIT` | another commit of the repository |
+| `sudo awb deploy --task ID` | the green commit of a build task: fetches `main` of `/srv/awb-build/main.git`, fast-forwards your `main` to it (with `--dry-run` it fetches only) and deploys the commit `runs/ID/<n>/commit` names. Refused while your tree has changes, your copy is not on `main` or your `main` has commits `main.git` lacks, for an id without a run, a run that is not `done` and a commit that is not on `main`; a task that is live already is refused too. Excludes `--to` and `--rollback` |
+
+The tree must be clean (commit first). Two refusals hold for every deploy, with the line `git pull --rebase
+/srv/awb-build/main.git main`: a deployed commit (the journal and the release `src` points at) that your repository
+does not know, and a target that does not descend from it unless `--to` or `--rollback` names it. Without them a
+deploy from a copy that is behind would take back the build runner's work. The deploy runs the installed copy of its own code, so a change of
+`awb/deploy.py` is live from the following deploy. `seal/setup.sh` (full) stays for the first seal of a host.
+
+## The build queue (owner side, presentations/self-build)
+
+A build task is a block in `build/queue/QUEUE.md` of your working copy (untracked) and a prompt file beside it.
+The runner (`awb build serve`, step SB3) reads the queue and never writes it but `build/queue/FLAKY.md`; its records are
+`/srv/awb-build/runs/<ID>/<n>/`, owner 700: `task.md` and `prompt.txt` (the snapshot at the start), `result.json`,
+`session`, `deadline`, `ended`, `task.bundle`, `status.txt`, `checks.log` (one line per check), `suite.log`,
+`result.md` (fixed fields), `message.txt` (the agent's text, for `awb build show` alone), `commit`, `mail`, `state`,
+`flaky.txt` (the nodes that passed on the rerun), `widen.log`.
+
+When the whole suite of a task or of `awb build check` has failures, the failed nodes alone run once more in the same
+suite unit on the same tree (at most 20 nodes; more is a broad failure and gets no rerun). When they all pass, check 9
+passes with a line `flaky: NODE...` in `checks.log` and `result.md`; a node that fails again is `red: suite`. The
+baseline and the task's own check never rerun; the hollow-test check is never rerun either: a test that is gone or
+skipped stays `red: tests lost`. `runs/.flaky.tsv` keeps a row per flaky node; a node flaky a second time in seven
+days adds a line to `build/queue/FLAKY.md`, which the steering session reads. A node id the gate or the plain form
+of a test id refuses is written as `(node withheld)`.
+
+| command | what it does |
+|---|---|
+| `awb build add FILE` | a task into the queue. FILE holds the block (`## B-012: title`, then `key: value` lines; `model`, `effort`, `budget` and `clock` may be left out, `prompt` and `end` are written for you), a line `---` and the prompt. The grammar and the gate's classes with the register run first (a refusal names the key or the class and the line, never the value); then `build/queue/B-012.md` and `QUEUE.md` are each written to a fresh name and renamed, so a reader sees the old queue or the new one. Refused when the id is in the queue or has a run and when the name check cannot run. A block that lists an always allowed file (`README.md`, `CHANGELOG.md`, `COMMANDS.md`, `INTERFACES.md`, `build/tests.json`) is added with a warning on stderr: every task may change those files, so they reserve no path |
+| `awb build draft FINDING [--from FILE] [--id B-NNN] [--out FILE]` | in the root of your working copy: an add file for `awb build add` from a row of a findings table, so the steering session writes no task by hand. FINDING is the id of the row in `docs/review-2026-10-13.md` or the markdown file of `--from` (a table with an `ID` or `#` column and a `Finding`, `Summary` or `gap` column; `Severity` and `Place` when there). The title is the summary and the id; `paths` the files of the place column that exist, the test file of each module (`tests/test_<module>.py` when it exists) and the document that marks the finding fixed, never an always allowed file; `check` those test files (`none` without one); `tests_replaced: none` with comment lines `# ID  RUN` above it, one per row of `build/tests.json` whose `run` names one of those test files, so you name the ones the fix replaces before the add. The prompt carries the row, the section of the id below the table, the defaults ("Defaults, do not ask") and the rules of a fix: tests that fail before, the finding marked fixed with the commit, the CHANGELOG line, the rows of `build/tests.json`, capitalised words from `tests/fixtures.py`, a commit as the owner without a co-author line. The id defaults to the one after the highest of `QUEUE.md` and the records. It writes to standard output or to the new file `--out` and never adds to the queue. `awb build add` skips the comment lines (`# ...`) of a block |
+| `awb build list` | one line per task in queue order: id, state, since when, what it waits on (the runner, a dependency, paths another open task holds (never an always allowed file), your answer, your word); a block that is refused or not complete yet gets its own line with the key and the line number |
+| `awb build status [--ended]` | the board line (`build: B-012 done 14:02, B-013 running since 14:10, ...; live eb928d2, main 1a2b3c4, 1 not deployed`, the last part read fresh from `/opt/tcp-awb/DEPLOYED` and `main.git`); with `--ended` the one line of each run that ended since the last call, each once |
+| `awb build show ID` | the agent's last message of the newest run (`message.txt`), control characters dropped; to your own terminal only, refused in a pipe, a file or an assistant session |
+| `awb build answer ID TEXT` | the answer to a task that is `asked` (gate classes with the register first); the runner resumes the same session |
+| `awb build retry ID` | a new numbered run of a task that ended without `done` (hung, red, stopped, held, interrupted, stale, asked); it starts from `main`; when `main` moved during the session the branch is rebased onto the `main` of now before the checks run (a conflict is `red: rebase conflict`) |
+| `awb build widen ID [PATH...] [--tests-replaced ID...]` | more paths for a `red` task (`widen.txt`) and, with `--tests-replaced`, more ids of `build/tests.json` or test node ids with `::` in the `tests_replaced` of the run's own `task.md`: the checks read that snapshot, never the queue, so an edit of `QUEUE.md` does not reach them. Each widen adds a line to `widen.log` of the run folder. The runner checks the kept branch again, no new session. When `main` moved since the run's start, the branch is first rebased onto the `main` of now, so the suite and the hollow-test check never judge it against an old baseline; a conflict is `red: rebase conflict` |
+| `awb build stop [ID]` | without ID: the runner ends after the current task; with ID: the runner stops `awb-task-ID.service` of that running task |
+| `awb build nudge` | as the owner, the `ExecStart` of `awb-build-nudge.service`, which its root owned timer starts every 15 minutes (automation review A6): for each task whose newest run is `asked`, `red: <reason>` or `held: <reason>` for 15 minutes with no answer, widen or retry since, one mail through the runner's mail path whose body is your next commands (`awb build show ID` and `awb build answer ID "..."`; `awb build retry ID` and `awb build widen ID PATH...`; the hold's own command), never the agent's text. Once per state line of a run (the mark `nudged` in the run folder, written only when the mail was sent); a `nudged` row of `state.tsv` adds `nudged: B-013 asked 23:30` to the board line until the state moves |
+| `awb build check REF` | as the owner, in your working copy: the checks of a build task on a branch from outside (a cloud pull request you fetched), never `pytest` in your shell (F2 G1). REF is a branch, a remote branch or a commit of the working copy (no option, no range). The commit goes into `refs/quarantine/C-001/1/head` of `main.git` (objects checked); then, under the runner's lock `runs/.runner.lock`, check 4 (one to 200 commits after the merge base with `main`, no commit or changed blob above 16 MB), the branch onto the `main` of now when `main` moved past the merge base (`git merge-tree` in `main.git`, the result one commit on top of `main` in `refs/quarantine/C-001/1/onto`; a conflict is `red: rebase conflict`), the gate with the register over every commit message and changed file, the whole suite and the hollow-test check against the `main` of now, both as `awb-build` in the task's suite unit (its own loopback alone, the records, the clones and the homes hidden). With no runner it runs at once; while the runner holds the lock the check waits `queued` and the runner takes it before its next task. No model session; it never merges, pushes or deploys. Prints the state line and the check lines; exit 0 `passed`, 1 red, hung, held or interrupted, 2 refused. The run folder is `runs/C-001/1/` with `head`, `start`, `onto` (when it was rebased), `checks.log`, `suite.log` and `result.md`; `awb build list`, `awb build status` and the board show the newest three checks |
+| `awb pr take N [--dry-run]` | as the owner, in your working copy on `main` with a clean tree: takes pull request N of a cloud session in one command. It refuses a tree with a change, a working copy not on `main` and a `main` that lacks the `main` of origin or of the build repository (`<build_root>/main.git`). It fetches `pull/N/head` into the branch `take/pr-N` and rebases it onto `main` in a temporary worktree outside the working copy, with git hooks off. A conflict in `build/tests.json` is merged by id (a row one side changed, added or dropped wins, `total_tests` is the count, two different rows with one id are refused) and one in `CHANGELOG.md` keeps both sides' lines in their week and section: the drivers `awb-tests` and `awb-changelog` of `.gitattributes` (`awb/mergedriver.py`, copied out of the working copy first and run with `python3 -I`). Any other conflict stops the take with the file names. Then `awb build check take/pr-N` and its lines. Only when the check passed: `git merge --no-ff` into `main` with "Merge pull request #N: TITLE" (the title from `gh pr view N --json title` when gh is there, else the branch name on origin; the gate checks the message), `git push origin main`, `git push <build_root>/main.git main` and, with gh, `gh pr close N` with a comment that names the merge commit (a rebased pull request does not show as merged). On any failure `main` stays as it was and the take prints what happened; a failed check keeps `take/pr-N`. It never deploys. `--dry-run` prints the steps and changes nothing. Exit 0 taken, 1 a step failed, 2 refused before anything changed |
+| `awb build serve` | the runner of the build queue, the `ExecStart` of `awb-buildd.service`, as the owner: one runner (a lock on `runs/.runner.lock`, a second one exits 1), the reconcile of a run left running, then every 30 s the open business (a green run's push, a held push after ten minutes, the checks again after `widen` or once the name check runs) and the next task. Before a session it needs the vault unlocked, the key service loaded, the gate's self-test, 5 GB free, the owner's identity, the model key (only with `build_model = key`) and a no-op unit as `awb-build`; while one fails the queue is held (one board line, one mail). With `build_model = login` (the default) a task whose build user has no login ends at once as `held: login missing`, mailed once with the one command you run, and holds the queue until `awb build retry ID`. Exit 0 after `awb build stop`, 75 after `restart-wanted` (the unit starts again with the new code). A deploy never starts the runner and defers its restart while a build task runs |
+| `awb build selftest` | the runner's planted cases (THREAT-MODEL N6, N7, N9 to N12 and a push that is not a fast-forward) in a throw-away folder; each must be refused or classified, exit 1 names the case that passed or a case that is missing from its fixed list. `seal/verify.sh` and `awb seal check` run it |
+| `awb build probe` | as the owner: the network of a build task, proven in units of the runner's own `sudo -n systemd-run` form with the address list, the hidden places and the environment of a task's session. A control unit shows the build user first; then the model endpoint and, with `build_model = login`, `platform.claude.com` connect, a TCP API host and `github.com` do not. One PASS or FAIL line each, exit 1 on a FAIL; the record `tcp-shared/build/probe.tsv` is what `awb seal check` reads. `seal/verify.sh` runs it |
+
+`answer`, `retry`, `widen` and `stop ID` refuse an id that never ran and a task that is running or waits for the
+runner. States: `queued`, `running`, `green`, `done`, `asked`, `answered`, `widened`, `red: <reason>`, `hung`,
+`hung: suite`, `stopped: <subtype>`, `held: <reason>`, `interrupted`, `stale`; a check of a branch ends `passed` or
+in one of the others.
+
+## The egress filter of the work user (seal/egress/ALLOW.md)
+
+| command | what it does |
+|---|---|
+| `awb egress status [--json]` | any user: the mode, when the table was loaded and refreshed, and per class what the last 24 hours counted outside the list (`allowed` counts the connections to the list) |
+| `sudo awb egress load` | root: resolve the host names of `seal/egress/ALLOW.md`, load the table `inet awb_egress` in the mode of `/etc/awb/paths.conf` or refresh its address sets in place, record the counters. `seal/setup.sh`, `awb-egress.service` at boot and `awb-egress.timer` every 5 minutes run it |
+| `sudo awb egress enforce [--accept CLASS...]` | your own shell: refuse every connection of the work user outside the list, also one opened while the filter counted (its packets lack the mark of the allow rules) and the answers of a listener to an inbound connection. With `conntrack` installed it deletes the conntrack entries of those connections (mark `0xa0b002`) and says how many; without it says so and the filter refuses their packets all the same. Refused (exit 1, the mode stays count) unless the last 24 hours were counted without a gap of more than 30 minutes and no class counted a connection but `probe` (the planted one of `seal/verify.sh`) and the classes you name with `--accept` because you expect to lose them |
+| `sudo awb egress count` | your own shell: back to counting, nothing refused; the 24 hours start again |
+
+The mode is the line `egress = count|enforce` of `/etc/awb/paths.conf` (count when it is missing); the setup writes
+count and keeps what it finds. The classes: `probe`, `metadata`, `dns`, `ntp`, `tcp_api`, `github`, `ssh`, `mail`,
+`web`, `other_tcp`, `other_udp`, `icmp`, `other` (`seal/egress/ALLOW.md` says what each holds).
+
+## The console page (owner side, your own shell)
+
+| Command | What it does |
+|---|---|
+| `sudo awb web publish --from-queue ID` | publish the page of a UI queue run: the applied source of a completed run or the candidate of a `--candidate-only` run in state ready, only with a validation that starts with PASS. Checks names, secrets, tokens, private keys, one `<title>` and no external script, keeps the current page as `index.html.before-ID`, installs the new one 644 root:root, prints the size and the backup |
+| `sudo awb web publish --from-queue ID --newest` | the same, but only for the newest PASS run among the completed and the ready runs, with an id after the last published one and bytes other than the live page; keeps the newest 10 backups. The owner host's Publish runs exactly this through a root unit |
+| `sudo awb web publish FILE` | the same for a file; the backup is `index.html.before-<date-time>` |
+| `awb web publish --dry-run --from-queue ID` | the checks only, without sudo; nothing is installed |
+| `sudo awb web publish --rollback [NAME]` | put a backup back (the newest without NAME); the replaced page is kept as a backup too |
+| `awb web status` | the size and time of the page, the last backup, the gateway (its status socket) and `/health`; under sudo also the sign-ins of the last 24 hours by result, a closed site and every login that waits |
+| `awb web check [FILE \| --from-queue ID] [--newest] [--emit]` | the checks of `publish` as your own user, without sudo and without installing; `--newest` refuses a run that is not the newest PASS run, `--emit` writes the checked page to standard output |
+| `sudo awb web user add LOGIN` | a console login of the level reader (the default): a random password of 20 characters printed once, only its salt and PBKDF2 digest kept in `/etc/awb-web/users.json` (root:awb-web 640). The first login ends the single login of `auth.json`. Refused inside an assistant session |
+| `sudo awb web user add LOGIN --level owner` | an owner entry: the password and a TOTP secret for the owner host, printed once as a key, an otpauth line and (with qrencode on the host) a QR code for the authenticator app; on the owner host an owner entry is never locked: each failure delays the next try of the name from that address up to 60 seconds, a wrong code after the right password the name from every address; on the main host it waits after 5 failures like any login |
+| `sudo awb web user reset LOGIN` | a new password for the login (and a new TOTP secret for an owner entry), printed once after a first line that says the old ones no longer work; its generation grows and its sessions end |
+| `sudo awb web user remove LOGIN` | the login goes and its sessions end; without logins nobody signs in |
+| `awb web user list` | the logins with their level, never a digest |
+| `awb owner status [--write]` | the owner level's status: the vault and the key service, the release, the page, the UI runs and the intake counts per customer code, codes and states only; `--write` checks every field and the names and writes `/var/lib/awb-owner-status/status.json` for owner-actions (its timer runs it every minute as you) |
+| `sudo awb web host HOST` | the host name of the owner level in `/etc/awb/paths.conf` (`owner_host`), one level under the zone of the site and not the site itself; once, before the deploy that brings the owner level (the web side's installer stops without it) |
+
+A refusal names the class of the finding (name, secret, token, private-key, html) and never the text. Under sudo the
+page is read and checked as you; root only keeps the backup and installs.
+
+## The UI queue (owner side)
+
+| command | what it does |
+|---|---|
+| `awb ui submit TASKFILE [--candidate-only] [--mail] [--no-watch]` | check a task file (`presentations/ui-tasks/ID.txt`: named by its ID, the first line `UI task ID: ...`, the scope `architect-workbench.html` only; no name, secret, token, private key, home path or blocklisted word), hand it to the queue and start `watch` in the background. `--candidate-only` asks for a checked candidate and leaves the source as it is, `--mail` sends a mail through the SMN topic of keys.conf when the run ends, `--no-watch` submits only |
+| `awb ui status [--ended] [--limit N]` | one line per run: id, state and finish time; `--ended` prints one line for each run that ended since the last `--ended` and nothing else |
+| `awb ui watch ID [--mail] [--interval S] [--timeout S]` | wait until the run leaves queued and running (every 20 s, at most 2 days) and write `<ID>.result.md` beside the task file: the state, the validation, the summary and limitations, the size of the change and the `awb web publish` command. A text of the run that the checks find something in is withheld with its class only |
+
+The queue itself is only read; the bridge named in `~/.config/awb/ui.conf` (`AWB_UI_CONF` gives another file) is the
+only writer. `AWB_UI_QUEUE` gives another queue folder and `AWB_UI_STATE` another folder for the watch logs.
+
+## Offered services of T Cloud Public (TCP)
+
+Offered is what the latest service description lists, nothing else. The docs, an API that answers, a price record
+or a memory never make a service offered. Sessions run these as well.
+
+| command | what it does |
+|---|---|
+| `awb service check NAME...` | offered or not, with the section and the revision; takes short names and the forms people write; a service the text marks no longer available counts as not offered after that date; exit 1 when one is not offered; a note when the mirror holds a newer revision than the lists |
+| `awb service list` | every service of the current revision with its section, its other names and its end date |
+| `awb service update` | after `awb mirror sd` brought a new revision: `rules/services.tsv` and the block of service names in `rules/stop-words.txt` rebuilt from it (owner side); the documented services the service description does not know are printed, to check each before it goes into `rules/services-not-offered.txt` by hand |
+
+The chats get the list in their instructions and a note under an answer that names a service which is not
+offered; the review refuses such a deliverable (`service:` in the findings); `awb refresh` reports lists older
+than the mirror.
+
+## Prices of T Cloud Public (TCP)
+
+The public price API needs no key, so sessions run these as well. Every answer is records, empty (the API
+answered with none, which is no proof that the item does not exist) or unknown (no usable answer). A flavor that
+is not under the service asked for is looked for under every service name of the region: the ECS families sit
+under six of them.
+
+| command | what it does |
+|---|---|
+| `awb price find SERVICE [--flavor F] [--os TEXT] [--grep TEXT]` | records of one service in a region (`--region`, default eu-de); exit 1 when nothing matches; `--json` for a script |
+| `awb price find --id ID` | one record by its id |
+| `awb price snapshot [--region R]... [--replace]` | keep the whole listing of a region in `~/tcp-shared/prices/tcp/<region>/<date>.json` (default: eu-de, eu-nl, eu-ch2); an empty listing is refused and a snapshot of the same day needs `--replace` |
+| `awb price diff [--region R]` | every price value against the last snapshot, by record id; `awb price diff OLD NEW` compares two snapshots |
+| `awb price check SHEET [--max-age DAYS]` | a price sheet to the cent: every price fetched again, every total and the grand total recomputed, after a self-test with planted wrong rows; a row dated more than `--max-age` days back (default 30) gets a note |
+
+A sheet is CSV or TSV with a header row and one position per row: `id` (or `service` and `flavor`, with `os` when
+several OS tiers match), `region`, `term` (PAYG, R12, R24, R36, RU12, RU24, RU36), `unit_price`, `quantity`,
+`hours` (for an hourly rate), `total`, `source`, `date`. A row with the id `TOTAL` carries the grand total. Numbers
+take a decimal point; a comma counts only as a thousands separator next to one.
+
+## The price workbook
+
+`awb pricebook` builds one workbook per estimate from a specification file with live prices and compares versions. It
+needs no key and no vault, so sessions run it. Runtime code is the standard library only.
+
+| command | what it does |
+|---|---|
+| `awb pricebook build SPEC [--out FILE] [--lang en\|de] [--against OLD] [--no-record] [--project DIR]` | refuses a service the service description does not offer (before any price call), asks the public price API once per region, prices every line from the record it found and writes `FILE.xlsx` (default: the specification with the ending `.xlsx`) and a Markdown summary `FILE.md` for a mail. Nothing is written unless every line is priced. `--lang` picks the headers, the fixed texts and the number format of the summary (default: `language:` of the specification, else en). `--against OLD` (a workbook or a specification) adds the sheet of changes. The two totals are recorded with `awb calc` when the specification lies in a project, so the review takes them with `calc:K-N` (`--no-record` leaves that out). Exit 0 done, 1 a line refused (nothing written), 2 the price API did not answer, a bad specification or an error |
+| `awb pricebook diff OLD NEW [--lang en\|de] [--no-prices]` | what changed between two specifications, two workbooks or one of each, line by line (matched by item name) and in the totals. A specification is priced now, both versions against the same snapshot; `--no-prices` compares the settings of the lines only. Exit 0 no difference, 1 a difference, 2 the price API did not answer or an error |
+
+A specification is a text file (or JSON) that a person can read. Settings at the top (`title`, `region`,
+`language`), then one block per line item, headed by its name in square brackets. A line starting with `#` is a
+comment and a line starting with a blank continues the key above.
+
+```
+title: Sizing for CUST-Q7M4
+region: eu-de
+language: en
+
+[web servers]
+service: ecs
+flavor: s3.large.2
+os: Open Linux
+quantity: 4
+mode: payg
+assumption: Two zones and all day.
+assumption.de: Zwei Zonen und rund um die Uhr.
+
+[data disks]
+service: evs
+flavor: vss.ssd
+quantity: 2000
+assumption: 500 GB per server.
+```
+
+| key | meaning |
+|---|---|
+| `service` | the service as the service description or the price API names it (`ecs`, `Elastic Cloud Server`); it is checked against the service description |
+| `api` | the price API service when it is not the same (`ecsflex` under ECS); needed when `service` is not written like an API name. A name in `rules/services-not-offered.txt` or a withdrawn section is refused here too |
+| `flavor`, `os` | the record: `os` is the OS unit (`Open Linux`) or a part of it that fits one record only (`Linux` alone fits four of them); it is needed when the flavor has several OS tiers |
+| `id` | the id of a price record, instead of `flavor` and `os` (for records without a flavor and for tiered rates) |
+| `region` | `eu-de`, `eu-nl` or `eu-ch2`; the setting at the top is the default, which is `eu-de` |
+| `quantity` | a positive number with a decimal point, not a comma |
+| `hours` | hours per month, for an hourly rate only; 720 when left out (the public calculator counts 720). Not allowed for a reserved rate or a monthly unit. At most 744 |
+| `mode` | `payg` (default), `r12`, `r24`, `r36` (reserved) or `ru12`, `ru24`, `ru36` (reserved, up front); also written `pay as you go`, `reserved 12`, `up front 24` |
+| `assumption` | free text per line; `assumption.de` and `assumption.en` replace it in a workbook of that language |
+
+A line needs a unique item name. The JSON form has the same keys in a list `lines` (each with a `label`), with
+`assumption_de` for `assumption.de`. At most 120 lines. A specification carries codes (`CUST-Q7M4`), never a name.
+
+The monthly figure of a line is the rate times quantity times hours rounded half up to the cent (a reserved rate is a
+flat monthly value, so rate times quantity); the yearly figure is the monthly figure times 12. The workbook has the
+sheets Lines, Sources and (with `--against`) Changes, in German Positionen, Quellen and Änderungen. The lines carry
+the unit price, quantity, hours, monthly and yearly figure (formulas with their stored results), the assumption in
+its own column and the id of the price record. Below them a block of totals holds the monthly and yearly total and the
+cells `Months per year` and `Hours per month` that the formulas use. Sources holds the time of the price API
+snapshot of each region, the revision of the service description, the section of each service, notes such as a
+tiered rate and the recorded calculation ids. A rate in a currency other than EUR is refused.
+
+## The cloud (owner side, read only)
+
+| command | what it does |
+|---|---|
+| `awb cloud projects [--region R]` | how many projects the key reaches, with names and short ids |
+| `awb cloud get SERVICE PATH [--region R] [--query K=V]...` | one signed GET (`--region` defaults to eu-de); `{project_id}` in PATH is the project named like the region; an OBS list in XML comes whole as data, any other answer that is not JSON is cut to its first 300 bytes and one line says how long the whole was |
+| `awb cloud get SERVICE PATH --list KEY` | a paged list (`--paging` marker, offset or none; `--limit N` per page, default 100): list, empty or unknown |
+| `awb cloud sweep [--region R] [--today YYYY-MM-DD] [--buckets]` | servers, disks, elastic IPs, VPCs, subnets, security groups, shared ELB load balancers, listeners and pools and NAT gateways that are untagged (no `awb-project` tag), expired (`awb-expiry` passed), not in RESOURCES.md (a project tag and no project lists the id) or idle (servers, disks and addresses only), oldest first; a resource without tags that carries the lab name `<code>-lab-<YYYYMMDD>-<rand>` counts as tagged by it; a listing it cannot read is unknown, never empty; dedicated ELB (v3) is not swept yet and the output says so; `--buckets` adds the OBS buckets of the region by the same rules, the bucket's name as its id and its tags from `GET /BUCKET?tagging` (one call per bucket; a bucket without tags is untagged, any other failed answer makes the buckets unknown); without it the output says the buckets were not swept; every resource as a neutral handle such as `ecs-3`, the ids in `~/tcp-shared/handles.json` (mode 600); when that file is not this user's (the owner on a sealed host, where it is the work user's), the handles go to `~/.local/state/awb/handles.json` and one line says so; a handle file that cannot be written is one line and exit 2; `--today` sets the date the expiry is judged against |
+| `awb cloud usage [--month YYYY-MM]` | every call to the TCP API per day from the call log: count, 429 answers, errors, seconds waited, by service. Every call keeps at least 0.25 s from the one before to the same host and waits what a 429 names in Retry-After |
+
+Set `AWB_CLOUD_KEYS=pass:<entry of your password store>` like the key of the bucket. The command line sends GET
+only. The work user of the seal gets its own key with T-100.
+
+## The refresh and the mirrors
+
+| command | what it does |
+|---|---|
+| `awb refresh` | one run of the refresh with a report in `~/tcp-shared/refresh/<date>/REPORT.md`: mirrors brought up to date, a price snapshot and every value changed since the one before, the expired knowledge entries with how each can be checked again, the tier of its check block (`no block` without one) and the block (`worklist.jsonl`; an entry with a read or write block names `awb kb recheck-run` and is not overdue here, every other one is) and the retrieval numbers, the red-team pack of wipe mode through the installed intake (its selfcheck first, the leaks and losses per case module also in `refresh/wipe.tsv`, overdue when they grew against the last line), projects whose STATE.md is older than 14 days and stale pointers (a command the rules name that does not exist, a knowledge id the code cites that is retired, a contract entry citing an old revision), and at the end the dataset of the day (`awb dataset build`), not built when a part before ended in an error. `--part P` for some parts (mirrors, prices, knowledge, wipe, projects, defaults, dataset; repeat for more), `--no-update` to read the mirrors only, `--max-state-age DAYS` for the age of a STATE.md that counts as stale (default 14), `--budget SECONDS` for the time limit of the run (default 100). Exit 1 when something is overdue |
+| `awb refresh apply RESULTS.jsonl [--plants PLANTS.json]` | record the results of a re-check through the checks of the knowledge base: confirmed as `kb recheck`, changed as `kb amend` plus `kb recheck`, refuted as `kb retire` (and the corrected fact as a new entry), unchecked left alone. A batch that confirmed one of its planted false facts is not applied at all |
+| `awb mirror docs` | clone or update every documentation repository of the public GitHub organisation into `~/tcp-mirrors/docs/` (owner side; `--budget SECONDS`, the same command resumes and exits 3 when the budget stopped it; `--only REPO` for one repository, repeat for more) |
+| `awb mirror sd` | the service description into `~/tcp-mirrors/service-description/<revision>/`, PDF and text; a new revision gets its own folder |
+| `awb mirror status` | what the mirrors hold |
+
+The re-check of the worklist is agent work, run from a session on the owner side. Split `worklist.jsonl` into
+batches by service and plant one false fact in each (the brief forbids looking ids up). Every first-check agent
+reads `workflows/refresh-brief.md`. Every changed and refuted result goes to a second agent with
+`workflows/refresh-verify.md`. Merge the two: agree applies, adjust applies the fixed fields, disagree leaves the
+entry as it is. Then run `awb refresh apply` with the plants file, on a copy of the knowledge base first
+(`AWB_KB=<copy>`), then for real.
+
+The work user of the seal reads the mirrors read-only under `/srv/tcp-mirrors/`: give them to the seal with
+`sudo seal/setup.sh --mirrors ~/tcp-mirrors/docs ~/tcp-mirrors/service-description`.
+
+## Projects
+
+| command | what it does |
+|---|---|
+| `awb spawn query --goal "..." [--customer CUST-XXXX] --tag iam` | a query `tcp-<code>` with its files, hooks and git: the knowledge base, the docs mirror, live prices and calculations, no test tenant (the key service refuses it). It ends with the project's folder `<YYYY-MM>/tcp-<code>/` with `in/` and `out/` in the owner bucket, made by the key service; when the service cannot be reached it says so in one line and goes on (the first take or `awb bucket folder CODE` makes it). The console's creation runs the same spawn |
+| `awb spawn project --goal "..." [--customer CUST-XXXX] --tag vpn` | a project: everything a query has plus the test tenants through the key service |
+| `awb spawn query --goal "..." --customer CUST-XXXX --from-outbox` | the sanitised copies waiting in `~/tcp-shared/outbox/CUST-XXXX/` move into `input/` and the first commit |
+| `awb projects kind tcp-xxxx project` | switch a query to a project (or back); a ledger line records it. The old kinds engagement, topic and code read as query, lab as project. Run by a session it changes the project's row only; run by you in your own terminal it also writes your grant (`<vault>/grants.json`) with the customer of the row at that moment, and the key service lets a session reach a test tenant only with that grant and an active row of the kind project. The key service takes a granted project's customer from the grant alone (owner-inbox take, project take, send gate of a put, lease) and refuses a row that names another one. A project you never granted has no customer for the key service: its owner-inbox take holds, its project take runs under the project code and its put meets the strict send gate. Run it once more for a project granted before 2026-10-10 so its grant records the customer; a change of the grant's customer is printed |
+| `awb projects list` | the project register with the goal of each project (checked for names again) and the session that holds each active project; `--paths` shows the folders instead of the goals |
+| `awb projects delete CODE...` | remove the folder of closed projects (`awb close` first); refused while RESOURCES.md lists a live resource or a session holds the project; the code stays registered as deleted and `awb projects list` hides it (`--all` shows it) |
+| `awb projects open tcp-xxxx` | owner side: start a session in the project as the work user in this terminal (`sudo -n -u` the work user, then `claude` in the folder the register names); refused for an unknown or deleted code, as the work user and where `sudo -n` is not allowed |
+| `awb projects open` | owner side, without a code: the active projects numbered, each with its `Next:` line of STATE.md and its owner items of OPEN.md (every item under a heading that names the owner and an item that names him; five at most, then a count), after the name check as `awb projects list` checks the goals. Type the number and that project's session opens as above; an empty answer opens nothing. Without a terminal it prints the list only |
+| `awb projects check` | tcp- folders that no project registered (a name that is not a code shows as "a folder"); run by you, also every granted project whose grant records no customer while its row names one (with the `awb projects kind` line to run) and every row whose customer differs from its grant, by code only |
+| `awb projects sync [CODE...]` | bring the template lines of CLAUDE.md and STATE.md of every active project (or the ones named) up to the current rules: an old line is replaced, a line the template gained is added, every other line and the project's own notes stay; nothing is committed. Running sessions hear of changed rules by themselves: the prompt hook tells a session once when the rules it loaded at its start changed |
+| `awb board write [--out DIR]`, `awb board show` | the status of every active project for management, on demand: the Status: and Next: lines of STATE.md with their date and time, the commits newer than them (marked, never written), what each project waits on, its first open items, its deliverables by review state and its live resources, the line of the last wipe measurement (`wipe: L leaks, M losses of N (date)`) and the build line from `<shared>/build/state.tsv` (`build: B-012 done 14:02, B-013 running since 14:10; live eb928d2, main 1a2b3c4, 1 not deployed`, ids, fixed state words, short hashes and times only; `build: no runner state yet` without the file) and the recheck line from `<shared>/recheck/state.tsv` (`recheck: read 2026-10-18 12 confirmed, 1 refuted, 3 undecided; write 2026-11-02 4 confirmed, inventory equal; 9 for the owner`, the newest run of each tier of `awb kb recheck-run`, counts and fixed words only, a cell outside its form dropped; `recheck: no run yet` without the file). `write` puts `board-<date>-<time>.md` and `.html` (prints on A4) into `presentations/board/`, `show` prints the Markdown; codes only. The portal shows the same live under Board (`GET /api/board`) |
+| `awb close tcp-xxxx` | close a project: refused while OPEN.md holds items or RESOURCES.md lists a resource that is not deleted, kept or not created; `--force` closes anyway and says what is left |
+| `awb english list [--month YYYY-MM]` | the English notes the sessions wrote, kept after a name check; once a month, the three that keep coming back |
+| `awb portal serve [--port 8080]` | a read-only web page over the knowledge, live prices, the projects and the reviews, on 127.0.0.1 only; reached through a tunnel with an access check in front, never directly |
+| `awb keys unlock` | load the keys and secrets of every tenant from your password store into the key service (`awb/tenant/<alias>/ak`, `sk`, `lab/ak`, `lab/sk`, `secret/<name>`); after every start of the service. `awb keys lock` forgets them, `awb keys status` shows aliases, roles and secret names, never a value. `awb keys reload` hands the service to a new process of the installed code and keeps the keys (what `awb deploy` and `systemctl reload awb-keyd.service` run). Your own shell |
+| `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role read\|lab] [--region R] [--query K=V] [--body FILE] [--project CODE]` | one call through the key service, for sessions too: the service signs (SERVICE obs the OBS way with PATH `/BUCKET[/KEY]`, the bucket by its own host and `/` for the list of buckets; every other service the way of the API gateway, SDK-HMAC-SHA256), a write needs the lab key and an active project, a body may fill a password field with `{{secret:NAME}}`, an OBS call never reaches the two exchange buckets and an OBS write only a bucket named after the project, the answer comes back with every key and secret taken out (an OBS error in XML with its `code` and `message` in the data; an OBS list in XML whole as data: `buckets` with name, creation date and location when given, `keys` of one page of a bucket with `prefixes`, `truncated` and `next_marker`, `tags` of `?tagging`; any other answer that is not JSON cut to its first 300 bytes, with `cut` and `size` in the answer and one line that says how long the whole was). `awb cloud tenants` lists the tenants |
+| `awb cloud lease-check ALIAS [--region R] [--yes] [--no-terraform]` | the live check of a leased key (T12 part 3, P2 and P3), owner side: the key service mints a 15-minute temporary key of the lab key (op lease: the Terraform services, OBS only on buckets named after a project, IAM and both exchange buckets denied; never from the lab key of the bucket tenant of keys.conf, so the check runs on another tenant), then one read and one throw-away create and delete per service (VPC and subnet, ECS server group, EVS disk, DNS private zone, shared ELB, NAT gateway; IMS read only, OBS not checked) and one Terraform plan, apply and destroy of a VPC with the key in its environment only; everything made is deleted newest first and checked gone; without `--yes` a dry run |
+| `awb lab list`, `awb lab dry-run RECIPE [--param K=V]... [--project CODE] [--tenant ALIAS]` | the lab recipes of `recipes/` with their question, their cost guard and how many of their API shapes are still to confirm live; the dry run prints every call a run would make with its checks and its teardown, and the disk type check before the first create as a step `0. disk types`; it makes no call (`--project` and `--tenant` replace the placeholders `tcp-xxxx` and `ALIAS` in the printed calls) |
+| `awb lab run RECIPE --project CODE --tenant ALIAS [--param K=V]...` | a live check on a test tenant in one command, from a project of the kind project: the project's row and grant first, then one read through the key service for its grant; a recipe that fills a field with `{{secret:NAME}}` then asks the key service for the names of the tenant's secrets (never a value) and stops with one line such as `the secret ecs-admin is missing for test-1` before any create; a recipe whose create bodies name an EVS disk type (`volumetype` or `volume_type`) then reads the disk types with the read key (`GET evs /v2/{project_id}/types`) and stops with one line, before any create, when the type is not listed, not offered in the recipe's AZ or sold out there (`os-vendor-extended:sold_out_availability_zones`); every resource tagged `awb-project` and `awb-expiry` (in the body, a tag call or its name); before each create a row in RESOURCES.md in the state creating with the name the resource gets, then its id when the answer holds it; when the answer is lost (no answer, a timeout or a 5xx) or holds no id, the find of the step looks the resource up by that name: found, the row gets the id; a find that answers without it marks the row not created with its answer as proof; a find that cannot tell leaves the row live with the name for the owner; a create the platform refuses with a 4xx takes its row back and the stop line names the step and the error code of the answer; the checks; then the teardown, which always runs (also on a failed check, an error, the time budget and Ctrl-C or SIGTERM) and proves each resource gone with a read; a row without an id is looked up by its name once more first. A resource it cannot delete or cannot place keeps its row as live with the line to delete it. The evidence goes to `evidence/lab-<recipe>-<date>-<n>.md` (every call with its status and the fields read, a refused or failed call also with its error code and the first 200 characters of its error message, withheld when the name check finds a name or cannot run, the checks, the teardown proof, the time and the resource count; ids as handles, no key, token or secret) and ends with a ready `awb kb add` line with the grade live when every check passed. A parameter outside its pattern, a recipe over its guard (at most 12 resources for at most 120 minutes) and a flavor of the deny list `recipes/DENY.txt` (GPU families p, pi, g, ai, kp, sizes above 2xlarge, physical flavors; as a default, a choice, a var, a flavor field or `--param`) are refused before any call, the deny list by its line number, never the value. A password field may carry `{{random:password}}`: the key service draws a throw-away password at call time that is never returned, printed or logged. Exit 0 passed, 1 a check failed, 2 refused or stopped (also any error of the host in the preflight, as one line), 4 a resource left live. The format: `recipes/README.md` |
+| `awb inbox take WORDS...` | a session takes the file you described, from either inbox: your words as they are ("the pdf", "эксель", "the newest", a part of the name; `|` between several ways of saying it) are matched inside the key service, so no exact name is needed: a kind and "the newest" meet every file, the same letters or a part of the name only a file of the lab inbox whose name is shown; a file of the owner inbox or of `in/` is never found by a word of its name. One file found: from the lab inbox (`<lab bucket>/inbox/`) after the name check into `input/` and the project's `in/`, from the owner inbox (`awb/inbox/`) only through your intake in wipe mode, the session gets the sanitised copies. The new files of the project's own folder `in/` of the owner bucket are listed beside the inboxes for every project and taken the same way, for the project's customer or, without one, under the project code; "take the files from in" takes all of them. A project without a customer takes nothing from the owner inbox, nor does a project you never granted (`awb projects kind CODE query` once). A file of the owner inbox above `max_mb` or in a folder that is not exactly one `CUST-XXXX` stays there. A registered name in a lab inbox file holds it, and a file of the owner inbox that cannot be read as text is held with a mail that says `held: run awb import tcp-xxxx as the owner in your own terminal`. None or several: both inboxes are listed (id, kind, size, time; names of the owner inbox are never shown) and the session takes the one you mean with `--id ID`. `--all` takes every file of both inboxes. Every refusal is the one line `held: run awb import tcp-xxxx as the owner in your own terminal`, with a class word that names no value where the kind of refusal is known: `held (grant): run awb projects kind tcp-xxxx query as the owner in your own terminal` for a customer project you never granted (the import does not cure that), `held (size)` for a file above `max_mb`, `held (unreadable)` for a file the intake cannot read as text and `held (folder)` for a file in a folder of the owner inbox that is not the project's customer; a project without a customer keeps the plain line. `awb inbox list` shows both inboxes. `--project CODE` names another project than the one of the folder and `--customer CUST-XXXX` only has to agree with the customer of the project |
+| `awb xchg put FILE [--as NAME] [--image --reason TEXT]` | a result into `<lab bucket>/<code>/from-session/<date>/<file id>` after the name check of its content and of its name (the `--as` name or its own, also for `--image`) and, for a customer project, the send gate (the key service runs both again, the send gate strict unless your grant records no customer); you get a mail with the code, the id and the size, never the name. `awb xchg list` shows what the project put. `awb xchg clean CODE [--older-than DATE] --dry-run\|--go` deletes what the project put into `<code>/from-session/` (`--dry-run` lists it, `--go` deletes it, `--older-than DATE` takes only the date folders before that day) and records each deletion as a row in RESOURCES.md |
+| `awb paste [--as NAME]` | a long terminal output into the project instead of the chat: the text on standard input passes the name check and the secret check, addresses, web addresses, phone numbers and MAC addresses are masked (`[ip]`, `[url]`, `[phone]`, `[mac]`) and it lands in `notes/pastes/<date>-<n>.txt` (`<date>-<NAME>.txt`); a registered name, a mail, bank data or a secret refuses it and nothing is written. The session reads the file |
+| `~/.config/awb/keys.conf` | your settings of the exchange, sent with `awb keys unlock`: `bucket_tenant` (the alias whose lab key reaches both buckets), `lab_bucket`, `owner_bucket`, `region`, `max_mb` (default 100), `notify_topic` (an SMN topic urn for the mails), `tf_services` (the services a leased key may use, comma-separated, default `ecs, evs, vpc, elb, nat, dns, obs, ims`; a shorter list narrows every lease, an empty line allows none, `iam` or a name that is no service stops the unlock) |
+| `awb tenant setup ALIAS --domain-id ID [--region R] [--lab-key \| --lab-user] [--alerts [--topic URN]]` | a new test tenant in one command, from the admin login you put into pass once (`awb/admin/ALIAS/domain`, `user`, `password`): group awb-read with Tenant Guest on all projects, user awb-read-<number> with its key into `awb/tenant/ALIAS/ak\|sk` (through stdin), with `--lab-key` a key of the admin user into `lab/ak\|sk`, with `--lab-user` in its place the user awb-lab-<number> in group awb-lab with the Terraform services' system policies on the region's project only (OBS on the account, no IAM) and its key into `lab/ak\|sk` (a lab key of the admin there is replaced and stays in IAM until you delete it), with `--alerts` the CTS alert awb_new_access_key to the topic of keys.conf, then `tenant add`, `awb keys unlock` and the first snapshot; makes only what is missing, prints names and counts, never a value; owner side |
+| `awb tenant add ALIAS --keys file:PATH [--region R]...` | a test tenant by an alias (test-1) with its read-only key: a file of the owner (mode 600, `ak=` and `sk=` lines) or `pass:ENTRY`; owner side |
+| `awb tenant snapshot [ALIAS]...` | list the servers, disks and elastic IPs of every region, keep the snapshot of the day and append what appeared, changed and went; GET only, owner side, fit for a daily cron line |
+| `awb tenant list`, `now ALIAS`, `history ALIAS [--project CODE] [--since DATE]`, `at ALIAS DATE`, `project CODE` | what runs now, what ran when and for which project, from the snapshots; handles instead of ids, aliases instead of tenant ids |
+| `awb ask serve [--port 8081]`, `awb ask QUESTION` | the Ask page: a question in plain words, answered by the model (`claude-opus-5-5`, effort from `AWB_ASK_EFFORT`, default `medium`) only from the knowledge base, the live price API and the tenant snapshots, with the entry of every fact; the question is name checked before it leaves; runs as its own service user that alone reads the API key; a daily budget of questions and tokens |
+| `POST /api/ask`, `GET /api/ask/budget` (web API, no command) | the Ask for the console: `{"question": "..."}` returns `answer`, `facts` (the `KB-XXXX` ids it names), `prices` (the records of the price API it used, with their source line) and `questions_left`; a refusal carries `reason` (`name`, `budget`, `busy`, `error`). Same budget, same name check and same model call as the Ask page; main host only |
+| `awb api write [--out FILE]`, `awb api check [--file FILE]` | the contract of the web API: `docs/api/openapi.yaml` (or `--out`) is written from `awb/tcp/web/contract.py`; check (of `--file`, default `docs/api/openapi.yaml`) refuses a file that drifted from the module, an example that does not fit its schema, an unresolved reference and an operation without `x-awb-state` (deployed or repository) |
+
+The goal and the tags carry no name. Tags come from `rules/tags.txt` and a tag not listed there is refused. Spawn
+and close each write a ledger entry. A session claims its project at start (another live session in the same project
+is named), the stop hook drafts a ledger entry from the day's commits at most every two hours and keeps the English
+note of the last reply. It also holds a reply that shows him a draft (a file under deliverables/ or a mail draft)
+before `awb write check` of that file ran clean in the same turn, with one line naming the file; a mail written
+into the reply must go into a file first, and a draft in Russian is exempt. Session start says when STATE.md is over 150 lines or a project has been idle for 30
+days. RESOURCES.md holds one row per cloud resource: id, type, region, cost class, expiry, state (live, deleted, kept,
+creating or not created, the last two from `awb lab run`) and a note.
+
+## Checks
+
+| command | what it does |
+|---|---|
+| `awb check [--register FILE] FILE...` | registered names and structured data (mail, IP, IBAN, phone...) in files; positions and classes only |
+| `awb check --no-register FILE...` | structured data only |
+| `awb gate [--register FILE \| --no-register] PATH...` | names, secrets, private keys, tokens, home paths, blocklist words and ids in files |
+| `awb gate --staged` | the same over what a commit will carry (the pre-commit hook runs this) |
+| `awb gate --selftest` | prove that every class can be found, also in a commit message |
+| `awb gate --message FILE` | the commit message (the commit-msg hook gives its file): comment lines and the part after the scissors line are not scanned. After the register check a name-shaped word the register does not know refuses as `candidate-person`, `candidate-company` or `candidate-unknown` with its line: reword it, or put a technical term into the section intake-seed of `rules/allowed-terms.txt`. The Workbench runs it from `hooks/commit-msg` |
+| `awb gate --install [--kb] [--force] --repo PATH` | write the commit hook of another repository (`--force` replaces a hook of another tool): the self-test, then `--staged`; with `--kb` also `awb kb verify --staged`. It writes the commit-msg hook (`--message`) and the push hook (`--pushed`) too. `awb spawn` does it for every project |
+| `awb gate --pushed --repo PATH [--remote NAME]` | every file, the author, the committer and the message of every commit a push carries and the pushed ref names (an annotated tag with its tagger and message), read from the lines git gives a pre-push hook; a secret added and removed again in the pushed history is still found; a merge commit is diffed against each parent. With `--remote` a new branch is new against that remote only. The Workbench runs it from `hooks/pre-push` |
+| `awb write check FILE --mode mail` | house style: long dash, comma before and/or, banned words and jargon, "we" (also wir and unser) in a mail or a document, commitments, references to earlier mails, vendor name, certification terms, a paragraph with a bold lead, an invented name for an option, admissions of weakness, sales tone, the history of the draft. Modes mail, doc, chat (chat reports the drafting tells without blocking). `--scope tcp\|hcs` (default tcp) decides the platform: the vendor-name check runs for tcp only. Reported with lines, never blocking: fragments, comma splices, headings written as verdicts, connectors outside his set (and, so, then, but, also, because), a mail with too little "I", sections the request did not ask for (`--request FILE` names them by heading) |
+| `awb write translate FILE --to de --to ru` | `--to` takes de, en or ru and may be repeated. The German version and his Russian reading copy from the accepted text in one step: FILE.de.md and FILE.ru.md next to it (FILE.en.md for en; `--mode mail\|doc` and `--scope tcp\|hcs` as for `write check`), every number, identifier and code block kept (refused on a difference), the German text through `awb write check` (the Russian copy is exempt). The model is reached through the Ask path only; where its key is not readable (a working session) the prompt file goes to `reviews/.translate/` and the command stops with one line; translate along it and run it again with `--verify` |
+| `awb write keep BEFORE AFTER` | the voice pass changed no fact: numbers, identifiers, negations and code blocks of the text before and after it are compared, any difference blocks (exit 1). Prints kinds, counts and lines, never a value |
+| `awb voice learn DRAFT SENT` | store a draft and the version you sent, write suggestions for the style rules |
+| `awb seal check` | the checks of the seal that need no root, for the current user; on a host with the egress filter also its load and mode, and its counts as comment lines |
+
+## The red-team pack (owner side)
+
+Not an `awb` command: the case files of the red team of 2026-09-27 (`calibration/redteam/`, README.md there) run
+with python from the repository root, one dimension at a time, and compare the run with the known leftovers.
+
+```bash
+.venv/bin/python calibration/redteam/harness.py calibration/redteam/structured.py --work /tmp/rt/structured --json /tmp/rt/structured.json --expected calibration/redteam/EXPECTED.md
+.venv/bin/python calibration/redteam/gate_harness.py calibration/redteam/gate.py --json /tmp/rt/gate.json --expected calibration/redteam/EXPECTED.md
+```
+
+The same for forms, derived, office, pdf, mail_archive and nontext. `tests/test_redteam_pack.py` runs a sample.
+
+## Knowledge base (`~/tcp-kb`)
+
+| command | what it does |
+|---|---|
+| `awb kb find [--scope tcp\|hcs] WORDS...` | entries ranked by how much of the query they carry, rare words weighing more, with grade, date and an EXPIRED flag. A service abbreviation and its plain words find each other (`rules/kb-synonyms.txt`); question words and the platform's name are not searched |
+| `awb kb show KB-XXXX` | one entry, with its check block when it has one |
+| `awb kb how KB-XXXX - < block.txt` | write or replace the check block of an entry from standard input: `key: value` lines `tier` (read, write, decision, none), `event` (an ISO date, optional), `calls` (read: `GET service path`, `;`-separated; write: `recipe NAME k=v ...`), `confirms`, `refutes`, `control`, `needs` (`none` or what the host cannot give). The values go through the text checks of `add`. Refused: a block without `control`, a write tier whose recipe is not in `recipes/`, a read or write tier whose `needs` is not `none`, a decision tier that names no need. Header, statement and check date stay |
+| `awb kb scope [--scope tcp\|hcs] TAG` | a briefing on one technology: facts by grade, negatives with what was tried, expired entries |
+| `awb kb expired` | entries past their re-check date |
+| `awb kb recheck-run [--tier read\|write] [--id KB-XXXX]... [--project CODE] [--tenant ALIAS] [--dry-run]` | the expired entries checked again by their check block (fact-check design F4), in the service project (default tcp-n7e6) on the tenant ALIAS (without `--tenant` the one `recheck_tenant` of the host file names; with neither the run stops with one line that names the setting), one entry at a time: pick (oldest expiry first; no block, another tier, a decision tier or a need go to lists for the owner and are not touched), inventory before (write tier only), check, the recipe's teardown, inventory after, write back. A read tier sends its `GET` calls with the read key and reads its confirms, refutes and control as tests `[N:]PATH is\|is not\|has\|lacks VALUE` over the answers (a prose line is undecided); a write tier runs its recipe as a lab run capped at 30 minutes and follows the recipe's checks (a failed check `control` is undecided). Confirmed: `kb recheck` with grade live and the evidence path as source; an event: `kb amend` with a line `On DATE the state is: ...` (at most three); refuted or undecided: stays expired. Evidence in `evidence/recheck-<date>-<n>/` of the project (RESULT.md, the two inventories, calls.log, one file per entry), one line in `~/tcp-shared/recheck/state.tsv`. `--dry-run` stops after the pick and prints the calls or recipes. Exit 0 done, 2 refused or stopped before a create, 4 a resource left live or the inventory differs (no write-back of a write tier). The read tier runs by itself every Sunday at 02:30 UTC (up to 10 minutes later) as the work user: `awb-kb-recheck.timer`, a root owned timer beside the nightly jobs of the work user, starts `awb-kb-recheck.service` with `--tier read` and no tenant (the owner sets `recheck_tenant` in `/etc/awb/paths.conf`; `seal/verify.sh` warns without it), never the write tier |
+| `awb kb recheck-watch [--project CODE] [--tenant ALIAS]...` | the watchdog of the fact-check service (design F5), as the owner: the `ExecStart` of `awb-kb-recheck-watch.service`, which its root owned timer starts every 15 minutes. First one mail through the key service's notify for each new line of `<shared>/recheck/state.tsv` (a run end of `awb kb recheck-run`: counts, exit, inventory, where the evidence is). Then the sweep with the read key over every tenant of the key service with a read and a lab key (or the ones named), over the sources the key service can list, the named ones of FK3 included. Every resource of the service project (default tcp-n7e6) whose `awb-expiry` has passed is deleted with the lab key, servers first and networks last: by the recipe's teardown when its row in RESOURCES.md names the lab run that made it, else by the delete call of its kind; each is proven gone with a read. A resource of another project, one not expired and one without an expiry are never touched. Each is recorded in RESOURCES.md of the project by its id (deleted with the proof; LEFT LIVE with the call that deletes it), in `RESOURCES-watch.md` of the owner's state folder where he cannot write the project's folder. A resource it cannot delete goes into one mail, once, with its handle, kind, type and tenant alias, never an id. The marks live in `recheck-watch.tsv` of the owner's state folder (`XDG_STATE_HOME/awb`; the unit's is `/var/lib/awb-kb-recheck-watch`); a mail that was not sent is tried again. Exit 0 done, 2 refused or no tenant, 4 a resource left live |
+| `awb kb export --out facts.jsonl` | the facts fit to leave as a dataset, one JSON object per line (id, statement, grade, source, checked, expires, tags, tried); by default live, contract and docs only, no retired and no expired entry, every one name checked again. `--grade said` after a clearance, `--include-expired`, `--tag T`, `--scope hcs`, `--force` to replace an existing output file |
+| `awb dataset build [--out DIR] [--date D] [--force] [--no-live] [--price-sample N]` | the dataset TCP Facts, checked while it is built: a fact that names a service the service description does not offer without saying so stays out and is named (the check proved first on a planted BMS fact), and N rows per region (default 3) are fetched again from the live price API and compared by id and price after a planted wrong price proved the comparison; a mismatch refuses the build. Its price lists without the services the service description does not offer (withdrawn sections and `rules/services-not-offered.txt`, named in the CSV header; the files and the PDF metadata credit `TCP Facts, github.com/shimoza/tcp-facts`, never a person, and no setting changes that) as a folder `tcp-facts-<date>/` and its zip under `~/tcp-shared/datasets/` (or `--out`): README.md and PROMPT.md (how to use it, the one-line prompt "Use the attached TCP Facts. Answer: ..."), HOW-TO.pdf, facts.md (every fact on one line, grouped by topic, small enough for one chat), topics/<tag>.md, facts.jsonl (the export with its metadata), services.md (what the latest service description lists), prices/<region>.csv (the latest snapshot of each region), MANIFEST.json (counts, dates, sha256). Every text file opens with the rules for the assistant and the best-before date (30 days). The facts come from `awb kb export` (live, contract, docs; name checked); a test tenant alias is rewritten to "a TCP test tenant", proven on a planted alias first, and a folder with one left is removed again |
+| `awb kb add --scope tcp --tag T --grade G --class C --source "..." "statement"` | add one checked fact. Grades live, contract, docs, said, assumed. Classes availability (30 days), api (180), stable (365). A negative needs two `--tried "..."`. `--checked DATE` for an older check, `--force-new` over a near duplicate |
+| `awb kb amend KB-XXXX "the new statement"` | correct the statement of an entry, keeping its id. Every check of `add` runs again, a negative against the tried texts the entry already carries. New ones given with `--tried "..."` (twice) replace them. `--checked DATE` when the fact itself was checked again (the date does not move by itself), `--force-new` over a near duplicate, `-` reads the statement from standard input |
+| `awb kb recheck KB-XXXX --grade G --source "..."` | record a fresh check of an entry whose statement still holds: grade, source and date become those of the new check (today unless `--checked DATE`). A negative needs two `--tried "..."` of the new check |
+| `awb kb retire KB-XXXX --why "..."` | withdraw an entry. The file, its history and its id stay, `find`, `scope`, `expired` and INDEX.md stop offering it, `show` still prints it with the date and the reason |
+| `awb kb index` | write INDEX.md again |
+| `awb kb verify [--staged] [FILE...]` | the checks of `add` over entry files; `--staged` over what a commit carries (the commit hook runs it) |
+| `awb kb bench [--top N] FILE` | how well `find` answers questions whose answering entries are known: first place and first N (default 5). `~/tcp-kb/bench/` holds the question sets; every refresh runs them |
+
+The name check of `awb kb` (add, amend, recheck, retire, verify, what `find`, `show`, `scope` and `expired` print
+and the export that `awb dataset build` reads) lets a registered form pass in one place only: inside the full name
+or short name of a service of `rules/services.tsv`, written as the service description writes it (whole phrase,
+same case) and longer than the form. A service named like a customer is a fact and stays as it is. The same word
+alone, in other case or beside only a part of the service name still hits. `awb register keep` is not the way: it
+would let the customer's own material pass. The intake and `awb gate` keep the plain check.
+
+`awb kb` writes files, it never runs git. The knowledge base is your own repository: create it once with
+`git init` and give it an identity of its own, because the work user has no global one and a commit fails
+without it.
+
+```
+cd ~/tcp-kb && git init && git config user.name "Architect Workbench" && git config user.email awb@localhost
+```
+
+Then give it the commit gate once: `awb gate --install --kb --repo ~/tcp-kb`. Every commit runs the self-test of the
+gate, the gate over what it carries and `awb kb verify --staged`, so a file written around `awb kb` does not get in.
+
+## Ledger, reports, career
+
+| command | what it does |
+|---|---|
+| `awb ledger add --kind proof --done "..." --project tcp-xxxx --customer CUST-XXXX --tag T` | one activity entry. Kinds proof, inquiry, pricing, tender, training, tooling, code, other. Also `--partner PART-XXXX`, `--outcome`, `--deliverable`, `--open`, `--date` |
+| `awb ledger list --from 2026-09-01 --to 2026-09-30` | entries of a period |
+| `awb report --by customer --from 2026-04-01` | a report by customer; also `--by tech`, `--by kind`, `--by project`, `--by questions` (the monthly count of replies that end with a question), `--format html` |
+| `awb report --period --from 2026-04-01 --to 2026-09-30` | the period report: every project with activity in the period in three blocks (active customer work, finished customer work, technical questions), a summary above and the block rules at the end; codes only, `--format html` for a page |
+| `awb report --period --from 2026-04-01 --to 2026-09-30 --reveal --out FILE` | the same with the customer names put back: owner only, your own terminal, never inside an assistant session; FILE (mode 600) outside every git working copy, the shared side, the knowledge base and the projects, or no `--out` for the terminal; `--replace` overwrites an existing FILE |
+| `awb career add --title "..." --role "..." --stack "..." --outcome "..." --cv-line "..."` | one career entry, no customer reference at all. `--tag T` sets the tags (default: the words of the stack that are tags) and `--date` the date |
+| `awb career update --since 2026-06-01` | CV bullets and a LinkedIn paragraph as a draft |
+| `awb career due` | days since the last update (exit 1 after 90) |
+
+## Review of a deliverable (inside a project)
+
+| command | what it does |
+|---|---|
+| `awb review init deliverables/FILE --request REQUEST.md --tier 2 --budget 400` | the contract: request, reader, questions, budget, tier. Also `--reader`, `--mode mail` (default doc), `--force` to write the contract again. A text for a customer or partner is tier 3; `--lowered "his words"` records that he lowered it |
+| `awb review claims deliverables/FILE` | every checkable statement into `reviews/FILE/claims.tsv`; fill evidence and verdict there. `kb.tsv` next to it lists the knowledge entries per claim; one of grade live or contract that has not expired settles a claim as evidence `kb:KB-XXXX` |
+| `awb review l0 deliverables/FILE` | the level-0 check: style, names, budget, claims with evidence; a computed number (a total, a sum, a saving, 20 x 8) needs `calc:K-N` as evidence |
+| `awb migrate init --from azure` | start a migration in the project (every `awb migrate` command takes `--project DIR` before its name for another project); `awb migrate status` and `awb migrate next` show the phases (discover, map, estimate, plan, review), the next phase file and its worker |
+| `awb migrate inventory input/FILE [--table N]` | the machines of a CSV or a sanitised copy into `migration/inventory.json` as R-1, R-2 ...; vCPU from the Azure size name when the column is missing; `--table N` picks one table of a sanitised copy that holds several |
+| `awb migrate map [--region eu-de]` | each machine to the nearest TCP flavor that is not smaller, from the live price API, into `migration/mapping.tsv` with a status: ok, flag, needs-input, manual, no-fit |
+| `awb migrate estimate [--term PAYG] [--hours N]` | the price per month (720 hours unless `--hours` says other) of every mapped row by its OS, into `migration/estimate-TERM.tsv`, the total recorded by `awb calc` |
+| `awb migrate done PHASE` | the gate of a phase; a phase whose files change later turns stale with every phase after it |
+| `awb calc "20 * 8"` | exact decimal arithmetic, recorded in `calc/calc.tsv` of the project as K-N (R-005). `--let hours=730`, `--places 2`, `--label TEXT`, `--project DIR`, `--dry`; functions sum, min, max, abs, round, ceil, floor, pct. `awb calc list`, `awb calc show K-N` |
+| `awb review pass deliverables/FILE` | l0 and, for tier 3, the lens results; writes `record.json` with the counts per lens, the claims by verdict, the agent runs and the open points |
+| `awb review status` | valid, stale or missing record for every deliverable (the stop hook uses this) |
+| `awb review calibrate [--json]` | the calibration set (`calibration/cases.json`, invented texts with one seeded defect each and five clean ones) through the script steps; lists the cases that need the review workflow |
+| `awb review calibrate --lenses PROJECT` | scores a run of both workflows over `calibration/workflow-cases.json` in a lab project: per case the lenses with open blocking findings (an EXTRA finding counts for the extra-content cases), caught, missed or false alarm |
+
+The saved workflow `workflows/review.js` runs the blind checks of tier 2 and 3 first and then the lenses, which see
+the blind results; a lens finding without a quote or evidence is dropped and counted, a refute agent that cannot
+settle a finding leaves it plausible (soften the sentence, set `softened`). After every fix and the cut to the
+budget, `workflows/request-check.js` is the last check (tier 3): where each question is answered, what nobody asked
+for, what is stated more firmly than its grade. Both workflows are started by him or on his word.
+
+A text in his name follows the drafting skill (`seal/work-claude/skills/drafting/SKILL.md`, installed by the seal
+for the work user): facts first (the review above), then the checked version is kept as
+`reviews/FILE/before-voice.md`, then the voice pass, `awb write keep`, `awb write check`, the cut to the budget as
+a last step and both checks again. After he sends it, `awb voice learn DRAFT SENT`.
+
+## Used by the client, not by hand
+
+`awb hook prompt | pre-write | pre-tool | post-write | stop | session-start` are the hooks of working sessions
+(`pre-tool` is the tool guard that keeps a session inside its project; a hook that runs over 50 seconds stops itself
+and fails closed). `awb hook selftest` plants refused cases and a pass in a throw-away home and exits 1 when a planted refusal passes. While the vault is locked, or the name check cannot run for any
+other reason, every prompt of a work session is refused with the time of the lock and the unlock to run, and a
+session starts without its project files. `awb vault status`, `awb board` and the portal's `/health` open with
+`locked since <time>`. `awb vault serve` is the vault daemon under systemd (`--admin-socket` and `--check-socket` name its two sockets).
+
+On a sealed host `/usr/local/bin/awb` is a root owned wrapper that runs `/opt/tcp-awb/venv/bin/python3 -I -m awb`,
+so a package in the invoking user's site folder or on `PYTHONPATH` is never loaded ahead of the installed code. A
+project gets the hooks of that installed command only: `awb spawn` from the repository environment refuses on a
+sealed host (fail closed); run it as the work user.

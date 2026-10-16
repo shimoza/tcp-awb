@@ -7,6 +7,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- `COMMANDS.md` and the three client hook files are generated (Z3 step 12, `tools/gen_docs.py`): `COMMANDS.md` is the
+  hand-written `docs/commands-guide.md` followed by a reference of every command and option taken from the argparse
+  parsers, and `plugin/hooks/hooks.json`, `seal/work-claude/settings.json` and `seal/work-claude/managed-settings.json`
+  are `hooks.client_settings` (the work user's file with its deny list). `python tools/gen_docs.py --write` writes them,
+  without `--write` it lists what is out of date; `tests/test_generated_docs.py` fails when a committed file differs.
+  The hook files did not change.
+
 - The weekly read tier of the fact-check (design F9): `seal/work-jobs/awb-kb-recheck.service` and `.timer`, installed
   and enabled by `seal/setup.sh` beside the nightly jobs of the work user and proven by `seal/verify.sh`, run
   `awb kb recheck-run --tier read --tenant test-1` as the work user every Sunday at 02:30 UTC (up to 10 minutes later,
