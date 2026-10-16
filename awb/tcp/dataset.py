@@ -3,6 +3,9 @@ files any assistant reads, built in one command so that a fresh copy appears wit
 
     awb dataset build [--out DIR] [--date D] [--force]    the folder tcp-facts-<date>/ and its zip, under
                                                           <shared>/datasets/ unless --out says otherwise
+    awb kb review [--out DIR] [--date D]                  the facts of the built folder added or amended since the
+                                                          last release, with source and grade, plus the mark that
+                                                          lets `put` release that folder (G6 of the threat model)
     awb dataset put [--date D] [--replace] [--github | --github-only]
                                                           the zip, the how-to PDF and the manifest into the owner's
                                                           bucket under datasets/tcp-facts/<date>/ (owner side);
@@ -10,6 +13,14 @@ files any assistant reads, built in one command so that a fresh copy appears wit
                                                           root of the public repository, tags the date and makes
                                                           a release of it; --github-only does that without the
                                                           bucket and does not call the key service
+
+The review before a release: `awb kb review` compares the facts.jsonl of the folder with RELEASED.jsonl beside the
+folders (the facts.jsonl of the last release, written by every successful put) and prints every fact added, amended
+(statement, source or grade changed) or retired since, with its id, grade, check date, source and statement, so the
+owner reads what a session put into the knowledge base before it goes public. It writes
+`tcp-facts-<date>.review.json` beside the folder with the sha256 of the facts it showed and the release it compared
+with; `put` refuses a folder without that mark, with a mark of other facts (a build after the review) or of another
+release. It names the command in one line.
 
 What the folder holds: README.md and PROMPT.md (how to use it, the one-line prompt), HOW-TO.pdf (the same for
 people who read PDF), facts.md (every fact on one line, grouped by topic, small enough for one chat), topics/<tag>.md
@@ -60,10 +71,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from awb import bucket, bucket_layout, config, gate, kb, obs, offered, register
-from awb.tcp import price
+from awb.tcp import kbreview, price
+from awb.tcp.kbreview import (changes, datasets_dir, latest, read_facts, record_release, released, released_path,  # noqa: F401
+                              require_review, review, review_path)
 
 NAME = "TCP Facts"
-SLUG = "tcp-facts"
+SLUG = kbreview.SLUG
 REGIONS = ("eu-de", "eu-nl")            # eu-ch2 is the Swiss offering, not a region of the TCP service description
 BEST_BEFORE_DAYS = 30                   # the re-check period of an availability fact
 OLD_AFTER_DAYS = 90
@@ -327,11 +340,7 @@ def coverage_blocks(records: list[dict], services: list[offered.Service], revisi
 def whats_new(previous: list[dict], records: list[dict], services: list[offered.Service], since: str) -> str:
     """The changes since the previous published build: facts added, amended (same id, changed statement or source)
     and retired, and the requirement areas and service sections the added facts touch."""
-    before = {r["id"]: (r.get("statement"), r.get("source")) for r in previous if r.get("id")}
-    now = {r["id"]: r for r in records}
-    added = [now[i] for i in sorted(set(now) - set(before))]
-    amended = [i for i in sorted(set(now) & set(before)) if (now[i]["statement"], now[i]["source"]) != before[i]]
-    retired = sorted(set(before) - set(now))
+    added, amended, retired = changes(previous, records)
     text = "## What is new since %s\n\n%d facts added, %d amended (same id, changed statement or source), %d retired." \
            % (since, len(added), len(amended), len(retired))
     areas = sorted({area_of(r["statement"]) for r in added} - {""})
@@ -628,10 +637,6 @@ class Built:
     lines: list[str] = field(default_factory=list)
 
 
-def datasets_dir(p: config.Paths) -> Path:
-    return p.shared / "datasets"
-
-
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -854,15 +859,6 @@ def pack_mcpb(root: Path, day: str, best_before: str, facts: int) -> Path:
     return path
 
 
-def latest(p: config.Paths, out: Path | None = None, day: str | None = None) -> Path | None:
-    base = out or datasets_dir(p)
-    if day:
-        folder = base / ("%s-%s" % (SLUG, day))
-        return folder if folder.is_dir() else None
-    folders = sorted(base.glob("%s-????-??-??" % SLUG))
-    return folders[-1] if folders else None
-
-
 # --------------------------------------------------------------------------- the bucket (owner side)
 
 
@@ -987,13 +983,6 @@ def release_notes(manifest: dict, sums: dict[str, str] | None = None, new: str =
     return text
 
 
-def read_facts(path_or_text) -> list[dict]:
-    """The fact rows of a facts.jsonl (a path or its text), without its first line of metadata."""
-    text = path_or_text.read_text(encoding="utf-8") if isinstance(path_or_text, Path) else path_or_text
-    rows = [json.loads(line) for line in text.splitlines() if line.strip()]
-    return [r for r in rows if isinstance(r, dict) and r.get("id")]
-
-
 def previous_release(clone: Path, day: str) -> tuple[str, list[dict]] | None:
     """The newest release tag before `day` in the clone and the facts of its facts.jsonl; None when there is no
     earlier release or it holds no facts.jsonl."""
@@ -1116,13 +1105,17 @@ def main(argv: list[str] | None = None) -> int:
         folder = latest(p, args.out, args.date)
         if folder is None:
             raise DatasetError("no built dataset%s; run awb dataset build" % (" of that date" if args.date else ""))
-        keys = [] if args.github_only else put(bucket.client(), folder, replace=args.replace)
+        client = None if args.github_only else bucket.client()
+        require_review(folder)                      # G6: nothing leaves that the owner has not read
+        keys = [] if args.github_only else put(client, folder, replace=args.replace)
         if args.github or args.github_only:
             keys += github_put(p, folder, replace=args.replace)
+        record_release(folder)
         for key in keys:
             print("awb dataset put: " + key)
         return 0
-    except (DatasetError, kb.KBError, price.PriceError, obs.OBSError, bucket.BucketError, ValueError) as err:
+    except (DatasetError, kbreview.ReviewError, kb.KBError, price.PriceError, obs.OBSError, bucket.BucketError,
+            ValueError) as err:
         print("awb dataset: %s" % err, file=sys.stderr)
         return 1
     except OSError as err:

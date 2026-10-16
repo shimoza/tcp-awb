@@ -606,9 +606,12 @@ def _parser():
     s.add_argument("--root", help=argparse.SUPPRESS)
     h = sub.add_parser("host", help="set the host name of the owner level in /etc/awb/paths.conf (sudo)")
     h.add_argument("name", metavar="HOST")
-    u = sub.add_parser("user", help="the logins of the console: add, reset (a new password), remove, list (sudo)")
-    u.add_argument("action", choices=("add", "reset", "remove", "list"))
+    u = sub.add_parser("user", help="the logins of the console: add, reset (a new password), remove, projects (the "
+                                    "codes a login may open), list (sudo)")
+    u.add_argument("action", choices=("add", "reset", "remove", "projects", "list"))
     u.add_argument("login", nargs="?", metavar="LOGIN")
+    u.add_argument("code", nargs="*", metavar="CODE",
+                   help="with projects: the project codes the login may open (tcp-xxxx); none for every project")
     u.add_argument("--level", choices=("reader", "owner"), default=None,
                    help="with add: reader (the default) or owner (also a TOTP code for the owner host)")
     return ap
@@ -635,7 +638,9 @@ def main(argv: list[str] | None = None, host: Host | None = None) -> int:
             from awb.tcp.web import users
 
             if (a.action == "list") != (a.login is None):
-                raise Refused("give LOGIN with add, reset and remove, none with list")
+                raise Refused("give LOGIN with add, reset, remove and projects, none with list")
+            if a.code and a.action != "projects":
+                raise Refused("project codes go with projects")
             try:
                 return users.main(a, host.environ, host.geteuid, _say)
             except users.Refused as err:

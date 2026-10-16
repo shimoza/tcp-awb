@@ -23,6 +23,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   refused target prints the plan, the refusal and no step, exit 2. `gate.range_commits` and `gate.scan_commits`
   (the commit part of the push scan, unchanged) are the pieces the deploy uses. The suite in the build unit and
   the diff question of the threat model's row are left open.
+- `awb kb review [--out DIR] [--date D]` (gap G6 of the threat model F2, `awb/tcp/kbreview.py`): the facts of the
+  newest built dataset (or the one of `--date`) added, amended (statement, source or grade) or retired since the last
+  release, each with id, grade, check date, source and statement, codes only, compared with `RELEASED.jsonl` beside
+  the folders (the `facts.jsonl` of the last release, which every successful `awb dataset put` writes). It writes
+  `tcp-facts-<date>.review.json` beside the folder (the sha256 of the facts reviewed and the release compared with),
+  and `awb dataset put` refuses a folder without that mark, with a mark of other facts or of another release, in one
+  line that names the command. The put checks the review before the bucket, after the key service client is made.
+- A project list per reader (gap G10, `awb/tcp/web/gateway.py`, `users.py`): `sudo awb web user projects LOGIN
+  CODE...` stores the codes a login may open as `projects` in `users.json` (no code clears the list; a reset keeps
+  it; `list` shows it). The gateway reads the list on every request: a route of a project not listed answers 404
+  (`project` as the refusal word of the log line), `/api/projects` and `/api/board` carry the listed codes alone. An
+  empty or missing list keeps today's behaviour of every project, so nothing changes before the owner fills it; an
+  entry whose list is not a list of codes stays out like one with a bad level.
 
 - Two small steps of the architect journey (F3, P8 and P13). The stop hook sends one mail through the key service's notify (`keys.send_mail`, as `awb build nudge` does) for every owner item of OPEN.md that names an `awb` command, once per item: the project code, the item and the command, never a name (`projects.mail_owner_commands`, the mark in `<code>.mailed` beside the ledger drafts, written only when the mail was sent). `awb close` prints the open items of OPEN.md and the live rows of RESOURCES.md, codes only, each with its command, when it refuses.
 

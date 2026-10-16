@@ -63,7 +63,10 @@ A new page of the console goes live with `sudo awb web publish --from-queue ID` 
 kept as `index.html.before-ID`. `awb web status` shows the page, the last backup and the gateway.
 
 The logins of the console live in `/etc/awb-web/users.json` (`sudo awb web user add LOGIN [--level owner]`, `reset`,
-`remove`, F4 and T9). Until that file exists the single login of `auth.json` works. On the main host a login waits
+`remove`, F4 and T9). A reader entry may carry a project list (`sudo awb web user projects LOGIN CODE...`, the key
+`projects`, G10 of the threat model): the gateway answers a route of any other project with 404 and cuts the other
+codes out of `/api/projects` and `/api/board`; an empty or missing list opens every project, as before the list, and
+an entry whose list is not a list of codes stays out until it is fixed. Until that file exists the single login of `auth.json` works. On the main host a login waits
 15 minutes after 5 failures within 15 minutes, doubled for each further series up to 24 hours; 30 failures within an
 hour pause every sign-in there. An owner entry is a login like any other on the main host, so its name answers
 exactly like an unknown one; the owner host has its own sign-in, which is never locked: each failure moves the next

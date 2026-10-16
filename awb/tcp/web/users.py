@@ -2,6 +2,7 @@
 
     sudo awb web user add LOGIN [--level reader|owner]
     sudo awb web user reset|remove LOGIN
+    sudo awb web user projects LOGIN [CODE...]
     sudo awb web user list
 
 The gateway reads `/etc/awb-web/users.json` (root, group awb-web, mode 640): per login a salt and a PBKDF2 digest,
@@ -14,6 +15,10 @@ secret. While the file
 does not exist the single login of `auth.json` works; `add` creates the file and ends it. `remove` of the last login
 leaves an empty file: nobody signs in, the single login does not come back. The gateway reads the file again on
 every change and ends the sessions of a removed login and of a login with a new password.
+
+`projects` (G10 of the threat model) sets the project list of a login: the codes it may open on the main host, which
+the gateway enforces on every project route and in the project lists; no code clears the list and the login sees
+every project again, as a login without a list does. A reset keeps the list.
 
 For Publish (T9 step 3) owner-actions checks the code again against its own copy of the owner entries' secrets,
 `/etc/awb/owner-publish.json` (awb-owner, 600): `add`, `reset` and `remove` of an owner entry keep it in step.
@@ -35,8 +40,9 @@ import subprocess
 from urllib.parse import quote
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Sequence
 
-from awb.tcp.web.gateway import DEFAULT_ROUNDS, LEVELS, LOGIN_RE
+from awb.tcp.web.gateway import DEFAULT_ROUNDS, LEVELS, LOGIN_RE, PROJECT_CODE
 
 USERS = Path("/etc/awb-web/users.json")
 OWNER_PUBLISH = Path("/etc/awb/owner-publish.json")
@@ -140,29 +146,48 @@ def entry(password: str, rounds: int = DEFAULT_ROUNDS, level: str = "reader", ge
 
 
 def change(path: Path, action: str, login: str, as_root: bool, rounds: int = DEFAULT_ROUNDS,
-           level: str | None = None) -> str | None:
-    """Apply add, reset or remove. Returns the new password (add, reset) or None (remove). `level` is for add
-    (reader when left out); a reset keeps the level and raises the generation."""
+           level: str | None = None, projects: Sequence[str] | None = None) -> str | None:
+    """Apply add, reset, remove or projects. Returns the new password (add, reset) or None (remove, projects).
+    `level` is for add (reader when left out); a reset keeps the level and the project list and raises the
+    generation. `projects` is for projects: the codes the login may open, none for every project."""
     if not LOGIN_RE.fullmatch(login):
         raise Refused("a login is 2 to 32 characters: a small letter first, then small letters, digits, . _ -")
     data = load(path)
     users = data["users"]
     if action == "add" and login in users:
         raise Refused("the login exists: use reset for a new password")
-    if action in ("reset", "remove") and login not in users:
+    if action in ("reset", "remove", "projects") and login not in users:
         raise Refused("no such login")
     if level is not None and (action != "add" or level not in LEVELS):
         raise Refused("--level goes with add and is reader or owner")
+    if projects and action != "projects":
+        raise Refused("project codes go with projects")
     password = None
     if action == "remove":
         del users[login]
+    elif action == "projects":
+        codes = sorted(set(projects or ()))
+        if not all(PROJECT_CODE.fullmatch(c) for c in codes):
+            raise Refused("a project code reads tcp-xxxx (small letters and digits)")
+        if codes:
+            users[login]["projects"] = codes
+        else:
+            users[login].pop("projects", None)
     else:
         password = new_password()
         old = users.get(login, {})
         users[login] = entry(password, rounds, level or old.get("level", "reader"),
                              int(old.get("generation", 0)) + 1)
+        if old.get("projects"):
+            users[login]["projects"] = old["projects"]
     save(path, data, as_root)
     return password
+
+
+def projects_of(path: Path, login: str) -> list[str]:
+    """The project list of a login as the file holds it; empty for every project."""
+    value = load(path)["users"].get(login, {}).get("projects")
+    return list(value) if isinstance(value, list) else []
 
 
 def enrolment(login: str, secret: str, issuer: str = "AWB") -> str:
@@ -191,8 +216,12 @@ def main(a, environ: dict, geteuid=os.geteuid, say=print) -> int:
     as_root = geteuid() == 0
     if a.action == "list":
         users = load(path)["users"]
-        say("logins: %s" % (", ".join("%s (%s)" % (k, users[k].get("level", "reader")) for k in sorted(users))
-                            if users else "none")
+
+        def shown(login: str) -> str:
+            codes = users[login].get("projects")
+            return "%s (%s%s)" % (login, users[login].get("level", "reader"),
+                                  "; projects %s" % ", ".join(codes) if isinstance(codes, list) and codes else "")
+        say("logins: %s" % (", ".join(shown(k) for k in sorted(users)) if users else "none")
             + ("" if path.exists() else " (the single login of auth.json works)"))
         return 0
     if vault.in_assistant_session():
@@ -200,7 +229,12 @@ def main(a, environ: dict, geteuid=os.geteuid, say=print) -> int:
     if path == USERS and not as_root:
         raise Refused("run it with sudo: sudo awb web user %s LOGIN" % a.action)
     before = load(path)["users"].get(a.login, {}).get("level")
-    password = change(path, a.action, a.login, as_root, level=getattr(a, "level", None))
+    password = change(path, a.action, a.login, as_root, level=getattr(a, "level", None),
+                      projects=getattr(a, "code", None))
+    if a.action == "projects":
+        codes = projects_of(path, a.login)
+        say("projects of %s: %s" % (a.login, ", ".join(codes) if codes else "every project (no list)"))
+        return 0
     if "owner" in (before, getattr(a, "level", None)) or publish_path(environ).exists():
         sync_publish(path, publish_path(environ), as_root)
     if password is None:
