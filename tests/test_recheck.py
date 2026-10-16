@@ -360,3 +360,34 @@ def test_the_inventory_reads_every_source_the_key_service_can_send():
     kinds = {s[0] for s in recheck._sources()}
     assert {"ecs", "evs", "eip", "vpc", "sub", "sg", "waf", "smn", "smns", "rds"} <= kinds
     assert not kinds & {"elb", "lsn", "pool", "nat"}
+
+
+# --------------------------------------------------------------------------- the grade (review of 2026-10-16, finding R3)
+
+
+def test_an_entry_whose_grade_is_not_live_is_the_owners_and_no_call_is_made(project, home):
+    """A planted statement of the grade said with a well formed read block: the run does not check it, lists it for
+    the owner with its grade and the knowledge base keeps it expired with the grade said."""
+    e = entry("ECS flavor s9.medium.1 is offered in eu-de-01", READ_BLOCK, grade="said", source="a session said so")
+    cloud = Cloud()
+    code, lines, errors = go(cloud)
+    assert code == 0, errors
+    assert cloud.calls == []
+    got = kb.get(e.id)
+    assert got.is_expired() and got.grade == "said" and got.checked == OLD
+    result = (run_dir(project) / "RESULT.md").read_text()
+    assert "for the owner: 1" in result and "%s (read): grade said, not live" % e.id in result
+    assert state(home) == [[TODAY.isoformat(), "read", "0", "0", "0", "1", "0", "none"]]
+
+
+def test_the_write_back_keeps_the_grade_of_a_confirmed_entry(project, home):
+    """Step 6 on its own: a confirmed outcome of an entry of the grade docs is rechecked with the grade docs, never
+    live; the source and the check date move."""
+    e = entry("ECS flavor s9.medium.1 is offered in eu-de-01", READ_BLOCK, grade="docs", source="the docs")
+    job = recheck.Recheck("read", PROJECT, TENANT, project, None, send=Cloud(), out=lambda line: None)
+    o = recheck.Outcome(e, verdict="confirmed", why="confirms holds, refutes does not")
+    job.write_back(o, "evidence/recheck-x-1")
+    got = kb.get(e.id)
+    assert o.written == "rechecked, grade docs kept"
+    assert got.grade == "docs" and got.checked == TODAY.isoformat() and not got.is_expired()
+    assert got.source == "recheck run, evidence/recheck-x-1/%s.md" % e.id

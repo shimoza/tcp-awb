@@ -435,6 +435,22 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- Four findings of the attacker review of 2026-10-16 of the fact-check service are closed (R3, R4, R5, R7). The recheck
+  run never raises a grade: `write_back` passes the entry's own grade to `kb.recheck` and `pick` lists an entry whose
+  grade is not live under "for the owner" instead of checking it, so a planted statement of the grade said with a
+  well formed read block cannot come out of a Sunday run as live; `kb.block_problems` refuses a read tier whose
+  confirms, refutes or control line tests `status` alone or whose confirms line equals its control line (R3). The lab
+  judges the flavor deny list over expanded values too: the vars of a recipe when the run starts and the body of every
+  call in `Run._call` before the send, so a flavor put together from pieces (`p2s.${size}`) is refused by its line
+  number like a plain one (R4). The folder of a project is `<projects root>/<code>` and nothing else: `awb kb
+  recheck-watch` and `awb lab` refuse a register row whose path is another folder (and a project folder that is a
+  link) instead of reading and writing RESOURCES.md there, the watchdog's rows then go to the owner's state folder
+  (R5). The leftover mail of the watchdog is built from the sweep's handle and kind, a row's type cell only when it is
+  a plain type word, cut to the cap before the mask and printable ASCII like the exchange mails; a row's handle cell
+  reaches the output, the mail and the row written back only when it reads as a handle (R7). Finding R8 (a tagged
+  source without the project tag is the service project's by its name alone) is not changed: the lab names subnets
+  and security groups because their services take no tag at create and two tests of the watchdog require the name
+  path; the pull request names the patch for the owner.
 - The work user can no longer persist past a session through its ssh keys or its crontab (F2 threat model, gap G3).
   `seal/setup.sh` copies the owner's keys to `/etc/ssh/authorized_keys/awb` (root, 644), writes the sshd drop-in
   `/etc/ssh/sshd_config.d/awb-work-user.conf` that points the work user alone at that file, checks it with `sshd -t`

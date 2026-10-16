@@ -114,6 +114,9 @@ CHECK_SEPARATOR = "--- check"
 CHECK_KEYS = ("tier", "event", "calls", "confirms", "refutes", "control", "needs")
 TIERS = ("read", "write", "decision", "none")
 _READ_CALL_RE = re.compile(r"(?:GET|HEAD) [a-z0-9][a-z0-9-]* /\S*")
+_READ_TEST_RE = re.compile(r"^(?:(?P<n>[1-9]):)?(?P<path>\S+) (?P<op>is not|is|has|lacks) (?P<value>.+)$")
+"""A test line of a read tier as the recheck run reads it (awb/tcp/recheck.py, the same form): the number of the
+call, a path into its answer or `status`, an operator and a value."""
 _RECIPE_CALL_RE = re.compile(r"recipe ([a-z0-9][a-z0-9-]{0,63})((?: [a-z_][a-z0-9_]*=\S+)*)")
 ENTRIES = "entries"
 INDEX = "INDEX.md"
@@ -648,10 +651,19 @@ def _recipe_exists(recipe: str) -> bool:
     return (Path(os.environ.get(RECIPES_ENV) or RECIPES_DIR) / ("%s.json" % recipe)).is_file()
 
 
+def _read_test(line: str):
+    """(call, path, op, value) of a read tier's test line, None when the line is not a test."""
+    m = _READ_TEST_RE.match(line.strip())
+    return (int(m.group("n") or 1), m.group("path"), m.group("op"), m.group("value").strip()) if m else None
+
+
 def block_problems(check: Sequence[tuple[str, str]]) -> list[str]:
     """Why a check block cannot stand, as messages that name fields and never their values: the tier and the
     control are required; a read tier sends GET or HEAD calls; a write tier names a recipe of recipes/; a read or
-    write tier says what confirms and what refutes; `needs` other than none means the tier decision or none."""
+    write tier says what confirms and what refutes; `needs` other than none means the tier decision or none. A read
+    tier's test lines must be able to tell something: a line that tests `status` alone proves nothing (a call that
+    does not answer 2xx is undecided before any test runs) and a confirms line that equals the control line has no
+    control (review of 2026-10-16, finding R3)."""
     b = dict(check)
     out: list[str] = ["check %s is longer than %d characters" % (k, MAX_LINE) for k, v in check if len(v) > MAX_LINE]
     tier = b.get("tier")
@@ -681,7 +693,16 @@ def block_problems(check: Sequence[tuple[str, str]]) -> list[str]:
         parts = [c.strip() for c in calls.split(";")]
         if not all(_READ_CALL_RE.fullmatch(c) for c in parts):
             out.append("a read tier sends calls of the form GET service path, separated by ;")
-    elif calls is not None and tier in ("write", "decision"):
+    if tier == "read":
+        tests = {k: _read_test(b[k]) for k in ("confirms", "refutes", "control") if k in b}
+        for key, test in tests.items():
+            if test is not None and test[1] == "status":
+                out.append("the %s line of a read tier tests status alone: a call that does not answer 2xx is "
+                           "undecided before any test, so the line proves nothing" % key)
+        if tests.get("confirms") is not None and tests["confirms"] == tests.get("control"):
+            out.append("the confirms line equals the control line: a control that is the confirm cannot tell a "
+                       "confirm from a refute")
+    if calls is not None and tier in ("write", "decision"):
         m = _RECIPE_CALL_RE.fullmatch(calls)
         if not m:
             out.append("a %s tier names a recipe: calls is recipe NAME k=v ..." % tier)

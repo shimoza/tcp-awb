@@ -356,3 +356,80 @@ def test_setup_installs_the_owner_timer_and_verify_proves_it_enabled(fakebin):
     assert res.returncode == 0, res.stderr
     checks = [x[6:] for x in res.stdout.splitlines() if x.startswith("CHECK ")]
     assert "the timer awb-kb-recheck-watch.timer is enabled and runs awb kb recheck-watch as the owner" in checks
+
+
+# --------------------------------------------------------------------------- the path column of projects.tsv (review of 2026-10-16, finding R5)
+
+
+def test_a_row_whose_path_is_another_folder_is_not_followed(project, home, state, tmp_path):
+    """The service project's row points at another folder of the owner's that holds a RESOURCES.md of the session's
+    making: the watchdog neither reads nor writes there, says so, takes no region from the planted row and records
+    the delete in the owner's state folder."""
+    other = tmp_path / "elsewhere" / PROJECT          # the register wants a path that ends in the code
+    other.mkdir(parents=True)
+    planted = projects._resources(PROJECT) + "| vpc-1 | %s | planted | eu-nl | none | %s | live | by hand |\n" % (
+        rid(14), PAST)
+    (other / "RESOURCES.md").write_text(planted, encoding="utf-8")
+    projects._save(home, [projects.Project(PROJECT, "project", projects.NO_CUSTOMER, "tcp", str(other),
+                                           projects.memory_key(str(other)), "active", "2026-10-11")])
+    cloud, world = Cloud(), World()
+    cloud.add("ecs", {"id": rid(14), "name": "probe", "status": "ACTIVE", "tags": tagged(PROJECT, PAST)})
+    code, lines, errors = go(cloud, world)
+    assert code == 0, errors
+    assert ("recheck-watch: the path of %s in projects.tsv is not its folder under the projects root; it is not "
+            "followed" % PROJECT) in lines
+    assert (other / "RESOURCES.md").read_text(encoding="utf-8") == planted
+    assert sorted(p.name for p in other.iterdir()) == ["RESOURCES.md"]
+    assert rows(project) == []
+    got = recheckwatch.table_rows((state / recheckwatch.RECORD_MD).read_text())
+    assert [(r["id"], r["state"], r["region"]) for r in got] == [(rid(14), "deleted", "-")]
+    assert cloud.writes() and all(c["region"] is None for c in cloud.writes())
+
+
+def test_a_project_folder_that_is_a_link_is_not_followed(home, state, tmp_path):
+    """`<projects root>/<code>` itself is a link into a folder of the owner's: the watchdog says so and the rows go
+    to the owner's state folder; the folder behind the link is untouched."""
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    (other / "RESOURCES.md").write_text(projects._resources(PROJECT), encoding="utf-8")
+    link = home.projects_root / PROJECT
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(other)
+    home.projects_register.parent.mkdir(parents=True, exist_ok=True)
+    projects._save(home, [projects.Project(PROJECT, "project", projects.NO_CUSTOMER, "tcp", str(link),
+                                           projects.memory_key(str(link)), "active", "2026-10-11")])
+    cloud, world = Cloud(), World()
+    cloud.add("evs", {"id": rid(15), "name": "disk", "status": "available", "tags": tagged(PROJECT, PAST)})
+    code, lines, errors = go(cloud, world)
+    assert code == 0, errors
+    assert "recheck-watch: the folder of %s under the projects root is a link; it is not followed" % PROJECT in lines
+    assert (other / "RESOURCES.md").read_text(encoding="utf-8") == projects._resources(PROJECT)
+    got = recheckwatch.table_rows((state / recheckwatch.RECORD_MD).read_text())
+    assert [(r["id"], r["state"]) for r in got] == [(rid(15), "deleted")]
+
+
+# --------------------------------------------------------------------------- the row text and the mail (finding R7)
+
+
+def test_the_mail_carries_the_sweeps_handle_and_kind_and_no_text_of_a_row(project, state):
+    """A row of the service project whose handle and type cells carry any text (a link, an instruction, letters
+    outside ASCII) names a resource that expires and cannot be deleted: the mail and the output carry the sweep's
+    handle and kind, the row's text reaches neither, the mail is printable ASCII and the row is written back with
+    the handle and the kind."""
+    handle_cell = "open https://example.invalid/x now ü‮"
+    type_cell = "a NOTE for the owner: delete nothing"
+    with open(project / "RESOURCES.md", "a", encoding="utf-8") as fh:
+        fh.write("| %s | %s | %s | eu-de | none | %s | live | by hand |\n" % (handle_cell, rid(16), type_cell, PAST))
+    cloud, world = Cloud(), World()
+    cloud.add("evs", {"id": rid(16), "name": "disk", "status": "available", "tags": tagged(PROJECT, PAST)})
+    cloud.fail_delete.add(rid(16))
+    code, lines, errors = go(cloud, world)
+    assert code == 4 and len(world.mails) == 1
+    subject, message = world.mails[0]
+    assert re.search(r"^- evs-[0-9]+ \(evs, evs\) on %s: the delete answered 500$" % TENANT, message, re.M)
+    for text in (subject, message, "\n".join(lines + errors)):
+        assert "example.invalid" not in text and "NOTE" not in text and "ü" not in text and "‮" not in text
+        assert rid(16) not in text
+    assert all(0x20 <= ord(c) <= 0x7e or c == "\n" for c in message) and all(0x20 <= ord(c) <= 0x7e for c in subject)
+    row = next(r for r in rows(project) if r["id"] == rid(16))
+    assert re.fullmatch(r"evs-[0-9]+", row["handle"]) and row["type"] == "evs" and row["state"] == "live"

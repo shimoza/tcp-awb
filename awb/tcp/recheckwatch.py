@@ -22,12 +22,15 @@ The ExecStart of awb-kb-recheck-watch.service, which its root owned timer starts
    had) by the delete call of its type (DELETES, to confirm live) and proven gone by the listing of its type. A
    delete answered 2xx or 404 is followed by the read until it proves the resource gone or the time is up.
 4. Record: each resource in RESOURCES.md of the project, its row by its id (a new row when none names it), state
-   deleted with the proof or live with LEFT LIVE, the proof and the call that deletes it. Where this user cannot write
-   the project's folder (on a sealed host it is the work user's), the rows go to RESOURCES-watch.md in the owner's
-   state folder in the same form; the output says so.
-5. Leftovers: the resources it could not delete go into one mail, each once: its handle, its kind and type, the
-   tenant alias and why, never an id or a name. The mark holds the sha256 of the id (never the id) and is written only
-   when the mail was sent.
+   deleted with the proof or live with LEFT LIVE, the proof and the call that deletes it. The project's folder is
+   `<projects root>/<code>` and nothing else: the path column of projects.tsv is in the shared tree the work user
+   writes, so a row whose path is another folder is said and not followed (review of 2026-10-16, finding R5). Where
+   this user cannot write the project's folder (on a sealed host it is the work user's), or the register does not
+   give it, the rows go to RESOURCES-watch.md in the owner's state folder in the same form; the output says so.
+5. Leftovers: the resources it could not delete go into one mail, each once: its handle and its kind as the sweep
+   gave them, its type from its row when the cell is a plain type word, the tenant alias and why, never an id or a
+   name and never another text of a row (the rows are the session's; finding R7). The mail is printable ASCII. The
+   mark holds the sha256 of the id (never the id) and is written only when the mail was sent.
 
 The marks (recheck-watch.tsv), the fallback rows and this user's handles live in the owner's state folder
 (`$XDG_STATE_HOME/awb`, default `~/.local/state/awb`, as `sweep.owner_handles_path`); the unit points XDG_STATE_HOME
@@ -81,6 +84,8 @@ EXIT_WORDS = {"0": "went through", "2": "stopped before its first call", "4": "a
               "differs"}
 _LAB_LABEL_RE = re.compile(r"^awb lab run (?P<recipe>[a-z][a-z0-9-]{2,40}) \d{4}-\d{2}-\d{2}\b")
 _HANDLE_RE = re.compile(r"^(?P<kind>[a-z]{2,5})-(?P<n>[1-9][0-9]{0,5})$")
+_TYPE_RE = re.compile(r"^[a-z][a-z0-9 -]{0,40}$")
+"""A type cell of RESOURCES.md the mail and the output may carry: plain lowercase words, as the recipes write them."""
 
 
 class WatchError(Exception):
@@ -308,14 +313,34 @@ class Watch:
         self.out("recheck-watch: %s" % line)
 
     def project_folder(self) -> Path | None:
-        """The folder of the service project from the register, whatever its state; None when it has none."""
+        """The folder of the service project, `<projects root>/<code>`, when the register has a row for it (whatever
+        its state) and the folder is there; None otherwise. The path column of the row is checked against that
+        folder and never followed: the register is in the shared tree the work user writes while the owner's process
+        reads and writes RESOURCES.md in the folder it names. A row whose path is another folder, or a folder that
+        is a link, is said and refused: the rows go to the owner's state folder."""
         from awb import projects
 
         try:
             row = next((r for r in projects.load(self.p) if r.code == self.project), None)
         except Exception:
             return None
-        return Path(row.path) if row is not None and Path(row.path).is_dir() else None
+        if row is None:
+            return None
+        folder = self.p.projects_root / self.project
+        if folder.is_symlink():
+            self.say("the folder of %s under the projects root is a link; it is not followed" % self.project)
+            return None
+        if not folder.is_dir():
+            return None
+        try:
+            same = Path(row.path).resolve() == folder.resolve()
+        except OSError:
+            same = False
+        if not same:
+            self.say("the path of %s in projects.tsv is not its folder under the projects root; it is not followed"
+                     % self.project)
+            return None
+        return folder
 
     def open_handles(self):
         """(handles, kept): the shared handles where this user may write them, else this user's own; in memory only
@@ -529,7 +554,12 @@ class Watch:
         else:
             note = "%s: LEFT LIVE after its expiry: %s%s, then set this row to deleted" % (
                 when, t.proof, ("; " + t.owner_line) if t.owner_line else "; delete it by hand")
-        cells = [row.get("handle") or t.handle, t.rid, row.get("type") or t.kind, row.get("region") or "-",
+        # the handle and the type of the row only when they read as such: the row is the session's, the handle goes
+        # into the output and the mail (finding R7)
+        handle = row.get("handle", "")
+        kind_type = row.get("type", "")
+        cells = [handle if _HANDLE_RE.match(handle) else t.handle, t.rid,
+                 kind_type if _TYPE_RE.match(kind_type) else t.kind, row.get("region") or "-",
                  row.get("cost class") or "-", row.get("expiry") or t.expiry, t.state, note]
         if self.folder is not None:
             try:
@@ -565,18 +595,32 @@ class Watch:
 
     # ----------------------------------------------------------------- step 5 and the whole call
 
+    @staticmethod
+    def _type_of(t: Target) -> str:
+        """The type of a resource for the output and the mail: its row's cell when it is a plain type word, else
+        its kind."""
+        kind_type = (t.row or {}).get("type", "")
+        return kind_type if _TYPE_RE.match(kind_type) else t.kind
+
     def mail_leftovers(self, left: list[Target]) -> None:
+        """One mail for the new leftovers, built from the sweep's handle and kind, the vetted type, the tenant alias
+        and the proof of the delete (fixed words and the masked answer of the key service): a cell of a row never
+        reaches it as it stands. Cut to the cap before the mask, then printable ASCII only (keys_exchange's rule)."""
+        from awb.tcp.keys_exchange import _MAIL_UNSAFE_RE
+
         new = [t for t in left if (t.tenant, t.kind, id_mark(t.rid)) not in self.marks.left]
         if not new:
             return
         lines = ["awb kb recheck-watch could not delete %d expired resource(s) of %s:" % (len(new), self.project)]
-        lines += ["- %s (%s, %s) on %s: %s" % ((t.row or {}).get("handle") or t.handle, t.kind,
-                                             (t.row or {}).get("type") or t.kind, t.tenant, t.proof) for t in new]
+        lines += ["- %s (%s, %s) on %s: %s" % (t.handle, t.kind, self._type_of(t), t.tenant, t.proof) for t in new]
         lines.append("Each has its row in RESOURCES.md of %s (or in %s of the owner's state folder) with the call that "
                      "deletes it; set the row to deleted after that. This mail comes once per resource."
                      % (self.project, RECORD_MD))
-        if not self._mail("Workbench recheck-watch %s: %d resource(s) left live" % (self.project, len(new)),
-                          self.handles.mask("\n".join(lines) + "\n")):
+        text = self.handles.mask(("\n".join(lines) + "\n")[:MAIL_MAX])
+        text = "\n".join(_MAIL_UNSAFE_RE.sub(" ", x) for x in text.split("\n"))
+        subject = _MAIL_UNSAFE_RE.sub(" ", "Workbench recheck-watch %s: %d resource(s) left live"
+                                      % (self.project, len(new)))
+        if not self._mail(subject, text):
             self.say("%d resource(s) left live: mail not sent, tried again next time" % len(new))
             return
         for t in new:
@@ -606,7 +650,7 @@ class Watch:
         for t in targets:
             self.delete(t)
             self.record(t)
-            name = (t.row or {}).get("handle") or t.handle
+            name = t.handle         # the sweep's, or the row's when record took it (it reads as a handle then)
             if t.state == "deleted":
                 self.say("%s (%s) on %s: deleted and proven gone (%s)" % (name, t.kind, t.tenant, t.proof))
                 if self.marks.left.pop((t.tenant, t.kind, id_mark(t.rid)), None) is not None:

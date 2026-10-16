@@ -48,7 +48,10 @@ takes it out of the answer and forgets it, so it is never printed, never in the 
 The flavor deny list `recipes/DENY.txt` (one pattern per line: the GPU families p, pi, g, ai and kp, every size above
 2xlarge, physical and bare-metal flavors, database sizes from large.8) refuses a recipe whose parameter defaults,
 choices, vars or flavor fields of a create body match a line and a run whose parameter matches one, before any call;
-the refusal names the line number, never the value. `capped` cuts a recipe's lifetime to 30 minutes for a recheck run
+the refusal names the line number, never the value. A value that is put together from pieces (`p2s.${size}`) passes
+that reading, so the run judges the expanded vars before its first call and the expanded body of every call before
+the send (`Run._call` stops the run on a hit; review of 2026-10-16, finding R4). `capped` cuts a recipe's lifetime
+to 30 minutes for a recheck run
 (`run(..., cap_minutes=30)`): the guard's lifetime or 30, whichever is less, the time budget shrinking with it.
 
 A recipe whose create bodies name an EVS disk type (`volumetype` or `volume_type`, such as the system disk of a
@@ -209,9 +212,28 @@ def denied(value, patterns: list[tuple[int, re.Pattern]] | None = None) -> int |
     return None
 
 
+def _flavor_hit(obj, patterns: list[tuple[int, re.Pattern]], key: str = "") -> int | None:
+    """The line of the deny list that the first flavor field of `obj` matches, at any depth (a field whose key names
+    a flavor, a spec code, an instance type, a node size or a resource spec); None when none does."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            n = _flavor_hit(v, patterns, str(k))
+            if n:
+                return n
+        return None
+    if isinstance(obj, list):
+        for v in obj:
+            n = _flavor_hit(v, patterns, key)
+            if n:
+                return n
+        return None
+    return denied(obj, patterns) if _FLAVOR_KEY_RE.search(key) else None
+
+
 def _deny_check(r: dict) -> None:
     """Refuse a recipe that carries a denied flavor: a parameter default, a value of its choices, a var or a flavor
-    field of a call body. The message names where and the line of the list, never the value."""
+    field of a call body. The message names where and the line of the list, never the value. A value that holds
+    `${` is judged here as it stands; the run judges it again once expanded (`Run.__init__`, `Run._call`)."""
     patterns = deny_patterns()
 
     def refuse(where: str, n: int):
@@ -231,20 +253,10 @@ def _deny_check(r: dict) -> None:
         if n:
             refuse("var %s" % k, n)
 
-    def walk(obj, key: str, where: str) -> None:
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                walk(v, str(k), where)
-        elif isinstance(obj, list):
-            for v in obj:
-                walk(v, key, where)
-        elif _FLAVOR_KEY_RE.search(key):
-            n = denied(obj, patterns)
-            if n:
-                refuse("a flavor field of %s" % where, n)
-
     for s in r["steps"]:
-        walk((s.get("call") or {}).get("body"), "", "step %s" % s["id"])
+        n = _flavor_hit((s.get("call") or {}).get("body"), patterns)
+        if n:
+            refuse("a flavor field of step %s" % s["id"], n)
 
 
 def capped(r: dict, minutes: int = RECHECK_LIFETIME) -> dict:
@@ -744,6 +756,18 @@ class Run:
             self.env.update((p.get("choices") or {}).get(params[k], {}))
         for k, v in (recipe.get("vars") or {}).items():
             self.env[k] = v
+        # the cost guard over the expanded values: a var put together from pieces is judged whole here, the body of
+        # every call in _call before the send. Raises LabError before any call.
+        self.deny = deny_patterns()
+        for k, v in (recipe.get("vars") or {}).items():
+            try:
+                value = expand(v, self.env, loose=True)
+            except Stop:
+                continue                # a value that refers to itself stops the run at its first use
+            n = denied(value, self.deny)
+            if n:
+                raise LabError("cost guard: var %s expands to a value that matches line %d of recipes/DENY.txt (a "
+                               "denied flavor)" % (k, n))
         self.calls: list[CallRecord] = []
         self.checks: list[tuple[dict, str, str]] = []      # (check, got, passed|failed|not run)
         self.made: list[Resource] = []
@@ -771,6 +795,10 @@ class Run:
         if timed and phase == "run" and self.deadline and self.clock() > self.deadline:
             raise Stop("the time budget of %d minutes ran out" % self.r["budget"]["minutes"])
         req = self._req(call, role)
+        n = _flavor_hit(req.get("body"), self.deny)
+        if n:
+            raise Stop("cost guard: a flavor field of the call of %s matches line %d of recipes/DENY.txt (a denied "
+                       "flavor); nothing was sent" % (step, n))
         try:
             answer = self.send(req)
         except Exception as exc:                         # KeysError and the like: no answer at all
@@ -1531,7 +1559,9 @@ def list_lines() -> list[str]:
 
 def project_folder(code: str) -> Path:
     """The folder of an active project of the kind project that may reach a tenant; refused otherwise. Where this
-    user can read the owner's grants, the grant must be there too."""
+    user can read the owner's grants, the grant must be there too. The folder is `<projects root>/<code>`: the path
+    column of the register is in the shared tree a session writes, so a row whose path is another folder is refused
+    and never followed (review of 2026-10-16, finding R5)."""
     from awb import codes, config, grants, projects, review
 
     if not codes.is_project_code(code or ""):
@@ -1550,7 +1580,13 @@ def project_folder(code: str) -> Path:
     if grants.readable(p) and not grants.granted(p, code):
         raise LabError("%s has no grant of the owner: he runs awb projects kind %s project in his own terminal"
                        % (code, code))
-    folder = Path(row.path)
+    folder = p.projects_root / code
+    try:
+        same = not folder.is_symlink() and Path(row.path).resolve() == folder.resolve()
+    except OSError:
+        same = False
+    if not same:
+        raise LabError("the path of %s in the project register is not its folder under the projects root" % code)
     if not (folder / "SCOPE.md").is_file():
         raise LabError("the folder of %s has no SCOPE.md" % code)
     here = review.find_project()
@@ -1574,14 +1610,14 @@ def run(name: str, project: str, tenant: str, given: list[str], *, send=None, cl
             raise LabError("a tenant alias reads like test-1")
         folder = project_folder(project)
         handles = sweep.Handles(sweep.handles_path(config.paths()))
+        job = Run(r, params, project, tenant, folder, handles, send=send or _send_default, clock=clock, sleep=sleep,
+                  now=now, out=out, err=err)
     except (LabError, sweep.SweepError) as e:
         err("awb lab: %s" % e)
         return EXIT_STOPPED
     except Exception as e:      # an OSError of the host and the like: one line and stopped, never a traceback
         err("awb lab: the preflight failed before any call (%s); nothing was created" % type(e).__name__)
         return EXIT_STOPPED
-    job = Run(r, params, project, tenant, folder, handles, send=send or _send_default, clock=clock, sleep=sleep,
-              now=now, out=out, err=err)
     refusal = job.probe()
     if refusal is not None:
         err("awb lab: the grant check through the key service failed: %s" % refusal)

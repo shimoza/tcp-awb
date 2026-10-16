@@ -12,8 +12,10 @@ The steps, each a line of the run's RESULT.md:
 1. Pick: the expired entries (`kb.expired`) with a check block of the tier (default read), oldest expiry first;
    `--id` narrows them to the ids given. An entry without a block, with another tier or whose block is a decision
    tier or needs what the host cannot give goes to the lists "no block", "other tier" and "for the owner" and is not
-   touched; an id given that has not expired goes to "not expired". `--dry-run` stops here and prints the calls or
-   the recipe and its parameters of every entry it would check.
+   touched; so does an entry whose grade is not live: a run checks live facts again and never raises a grade, so a
+   statement of the grade said, docs or contract with a check block waits for the owner (review of 2026-10-16,
+   finding R3). An id given that has not expired goes to "not expired". `--dry-run` stops here and prints the calls
+   or the recipe and its parameters of every entry it would check.
 2. Inventory before, for a write run: `sweep.inventory` over the sources the key service can list (every source of
    the sweep and the named sources, but the ELB and NAT v2.0 listings, which need a header the key service does not
    send), with the read key, to inventory-before.txt. A listing that cannot be read stops the run before any create.
@@ -28,8 +30,9 @@ The steps, each a line of the run's RESULT.md:
    further entry is skipped.
 5. Inventory after: the same listing. Digests that differ end the run with "inventory differs: TYPE +n/-n" (counts,
    never ids), exit 4 and no write-back of a write-tier entry.
-6. Write back through the checks of the knowledge base: confirmed without an event is `kb.recheck` (grade live, the
-   evidence path as the source, for a negative the calls and the control as the tried texts of the new check);
+6. Write back through the checks of the knowledge base: confirmed without an event is `kb.recheck` (the entry's own
+   grade, never a higher one, the evidence path as the source, for a negative the calls and the control as the tried
+   texts of the new check);
    confirmed or refuted with an event is `kb.amend` with one more line "On DATE the state is: ..." (the confirms or
    the refutes line) and the run's date as the check date, the oldest such line dropped when there are three already;
    refuted or undecided without an event writes nothing: the entry stays expired and the result lists it (D2).
@@ -105,7 +108,8 @@ class Pick:
 
 
 def pick(tier: str, ids=(), *, where=None, today: datetime.date | None = None) -> Pick:
-    """Step 1: the expired entries sorted into the run and the lists that are not touched. An id that is not in the
+    """Step 1: the expired entries sorted into the run and the lists that are not touched. An entry whose grade is
+    not live goes to the owner's list whatever its block says: a run never raises a grade. An id that is not in the
     knowledge base raises KBError."""
     today = today or datetime.date.today()
     expired = kb.expired(where, today)
@@ -121,7 +125,7 @@ def pick(tier: str, ids=(), *, where=None, today: datetime.date | None = None) -
         b = e.block
         if not b:
             out.no_block.append(e)
-        elif b.get("tier") == "decision" or b.get("needs", "none") != "none":
+        elif b.get("tier") == "decision" or b.get("needs", "none") != "none" or e.grade != "live":
             out.owner.append(e)
         elif b.get("tier") != tier:
             out.other_tier.append(e)
@@ -165,12 +169,20 @@ def dry_run_lines(p: Pick, tier: str) -> list[str]:
     return out + list_lines(p)
 
 
+def owner_reason(e: kb.Entry) -> str:
+    """Why an entry is the owner's: what its block needs, else its grade (a run checks live facts only)."""
+    b = e.block
+    if b.get("tier") == "decision" or b.get("needs", "none") != "none":
+        return "needs %s" % b.get("needs", "none")
+    return "grade %s, not live: a run never raises a grade" % e.grade
+
+
 def list_lines(p: Pick) -> list[str]:
     out = ["checked: %d" % len(p.run)]
     for label, entries in (("no block", p.no_block), ("other tier", p.other_tier)):
         out.append("%s: %d%s" % (label, len(entries), (" (%s)" % " ".join(e.id for e in entries)) if entries else ""))
     out.append("for the owner: %d" % len(p.owner))
-    out += ["  %s (%s): needs %s" % (e.id, e.block.get("tier"), e.block.get("needs", "none")) for e in p.owner]
+    out += ["  %s (%s): %s" % (e.id, e.block.get("tier"), owner_reason(e)) for e in p.owner]
     if p.not_expired:
         out.append("not expired, not checked: %s" % " ".join(p.not_expired))
     return out
@@ -439,13 +451,13 @@ class Recheck:
             name, given = recipe_call(e.block["calls"])
             r = lab.capped(lab.load(lab.find(name)))
             params = lab.params_of(r, given)
+            job = lab.Run(r, params, self.project, self.tenant, self.folder, self.handles, send=self.send,
+                          clock=self.clock, sleep=self.sleep, out=lambda line: None, err=lambda line: None)
         except (RecheckError, lab.LabError) as exc:
             o.why = "refused before the first call: %s" % exc
             path.write_text("# Recheck %s\n\n- verdict: undecided (%s)\n" % (e.id, o.why), encoding="utf-8")
             o.file = self.rel(path)
             return o, lab.EXIT_STOPPED
-        job = lab.Run(r, params, self.project, self.tenant, self.folder, self.handles, send=self.send,
-                      clock=self.clock, sleep=self.sleep, out=lambda line: None, err=lambda line: None)
         refusal = job.probe() or job.missing_secret() or job.disk_check()
         if refusal is not None:
             o.why = "refused before the first call: %s" % _clean_text(refusal, self.handles)
@@ -472,6 +484,9 @@ class Recheck:
     # ----------------------------------------------------------------- step 6
 
     def write_back(self, o: Outcome, run_dir: str) -> None:
+        """Step 6. A confirmed entry keeps its own grade: the run never raises one (a planted statement of the grade
+        said must not come out of a Sunday run as live) and `pick` lists an entry whose grade is not live for the
+        owner before any call."""
         e, b = o.entry, o.entry.block
         try:
             if b.get("event") and o.verdict in ("confirmed", "refuted"):
@@ -484,9 +499,9 @@ class Recheck:
                 if kb.is_negative(e.statement):
                     tried = ("check calls %s" % b["calls"].replace(";", ","),
                              "check control %s" % b["control"].replace(";", ","))
-                kb.recheck(e.id, grade="live", source="recheck run, %s/%s.md" % (run_dir, e.id), tried=tried,
+                kb.recheck(e.id, grade=e.grade, source="recheck run, %s/%s.md" % (run_dir, e.id), tried=tried,
                            checked=self.today, where=self.where, today=self.today)
-                o.written = "rechecked, grade live"
+                o.written = "rechecked, grade %s kept" % e.grade
             else:
                 o.written = "stays expired"
         except kb.Refused as ref:
