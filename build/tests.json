@@ -7307,8 +7307,36 @@
    "name": "deploy: the modules of the intake package restart what awb/intake.py restarts, awb/wipe.py is in no closure",
    "run": ".venv/bin/pytest tests/test_deploy.py::test_the_intake_package_restarts_what_the_intake_restarted",
    "status": "passing"
+  },
+  {
+   "id": "z3-generated-docs-1",
+   "phase": "z3-generated-docs",
+   "name": "docs: COMMANDS.md and the three hook files equal what tools/gen_docs.py generates",
+   "run": ".venv/bin/pytest tests/test_generated_docs.py::test_committed_file_equals_the_generated_one",
+   "status": "passing"
+  },
+  {
+   "id": "z3-generated-docs-2",
+   "phase": "z3-generated-docs",
+   "name": "docs: the generator check lists nothing out of date",
+   "run": ".venv/bin/pytest tests/test_generated_docs.py::test_generator_check_finds_nothing_stale",
+   "status": "passing"
+  },
+  {
+   "id": "z3-generated-docs-3",
+   "phase": "z3-generated-docs",
+   "name": "docs: the COMMANDS.md reference names every command",
+   "run": ".venv/bin/pytest tests/test_generated_docs.py::test_commands_reference_names_every_command",
+   "status": "passing"
+  },
+  {
+   "id": "z3-generated-docs-4",
+   "phase": "z3-generated-docs",
+   "name": "hooks: the three files are hooks.client_settings, the work user's with its deny list",
+   "run": ".venv/bin/pytest tests/test_generated_docs.py::test_hook_files_are_the_client_settings_and_the_work_user_denies_the_rest",
+   "status": "passing"
   }
  ],
- "total_tests": 1044,
+ "total_tests": 1048,
  "checked": "2026-10-16"
 }

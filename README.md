@@ -272,7 +272,12 @@ well: every hook would run twice.
 
 ## The main commands
 
-The full list, with every option and who runs what, is in `COMMANDS.md`.
+The full list, with every option and who runs what, is in `COMMANDS.md`. That file and the three client hook files
+(`plugin/hooks/hooks.json`, `seal/work-claude/settings.json`, `seal/work-claude/managed-settings.json`) are
+generated: `COMMANDS.md` is `docs/commands-guide.md` followed by a reference taken from the argparse parsers, the hook
+files are `hooks.client_settings`. After a change to a parser, a help text, the guide or the hook list run
+`python tools/gen_docs.py --write`; `python tools/gen_docs.py` alone lists what is out of date and exits 1, and
+`tests/test_generated_docs.py` fails while a committed file differs from the generated one.
 
 | task | command | what you get |
 |---|---|---|
@@ -738,7 +743,9 @@ The agent's free text stays out of your sessions: add one line to the `deny` lis
 | `build/` | `tests.json`, every test with its status; the queue of the build runner lies in `build/queue/` and stays out of git |
 | `docs/api/` | the contract of the web API (`awb api check`) |
 | `CLAUDE.md` | the rules for a Claude Code session in this repository |
-| `COMMANDS.md` | every `awb` command by who runs it |
+| `COMMANDS.md` | every `awb` command by who runs it; generated, do not edit (see below) |
+| `docs/commands-guide.md` | the hand-written text of `COMMANDS.md` |
+| `tools/` | `gen_docs.py`, the generator of `COMMANDS.md` and the three client hook files |
 | `INTERFACES.md` | the interface of every module |
 | `CHANGELOG.md` | what changed, one entry per week |
 
