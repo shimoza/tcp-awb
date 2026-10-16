@@ -81,6 +81,7 @@ class Project:
     state: str
     created: str
     folder_note: str = field(default="", compare=False, repr=False)   # what spawn did in the owner bucket
+    fingerprint_note: str = field(default="", compare=False, repr=False)   # what close did with the fingerprint
 
 
 class ProjectError(Exception):
@@ -708,16 +709,36 @@ def close(p: _config.Paths, code: str, force: bool = False) -> Project:
             if items or live:
                 raise ProjectError("project %s has %d open item(s) in OPEN.md and %d live resource(s) in "
                                    "RESOURCES.md; settle them or close with --force" % (code, items, live))
+    done = None
     with _locked(p):
         rows = load(p)
         for i, pr in enumerate(rows):
             if pr.code == code:
-                if pr.state in ("closed", "deleted"):
+                if pr.state == "deleted":
                     return pr
-                rows[i] = _replace(pr, state="closed")
-                _save(p, rows)
-                return rows[i]
-    raise ProjectError("project %s is not registered" % code)
+                if pr.state != "closed":
+                    rows[i] = _replace(pr, state="closed")
+                    _save(p, rows)
+                done = rows[i]
+                break
+    if done is None:
+        raise ProjectError("project %s is not registered" % code)
+    done.fingerprint_note = write_fingerprint(p, done)
+    return done
+
+
+def write_fingerprint(p: _config.Paths, project: Project) -> str:
+    """Write the fingerprint of a closed project's deliverables to the shared side, so that the owner's send gate
+    can check a file against them when the owner cannot read the folder (the work user's umask gives it mode 700).
+    Never refuses: the line says what was done."""
+    from awb import review as _review
+
+    try:
+        n = _review.write_fingerprint(Path(project.path), _review.fingerprint_path(p, project.code))
+    except Exception:          # never a stop: the gate refuses for a closed project it cannot read without one
+        return ("fingerprint not written: this user cannot read the deliverables of %s or write the shared side; "
+                "run awb close %s as the work user" % (project.code, project.code))
+    return "fingerprint of %d deliverable(s) written" % n
 
 
 def set_kind(p: _config.Paths, code: str, kind: str) -> tuple[Project, str]:

@@ -272,10 +272,12 @@ def _cmd_close(args, p: config.Paths) -> int:
     live = projects.live_resources(before.path) if before else 0
     pr = projects.close(p, args.code, force=args.force)
     if before is not None and before.state == "closed":
-        print("%s was closed already" % pr.code)
+        print("%s was closed already%s" % (pr.code, "; " + pr.fingerprint_note if pr.fingerprint_note else ""))
         return EXIT_OK
     left = " with %d open item(s) and %d live resource(s) left" % (items, live) if (items or live) else ""
     print("closed %s%s" % (pr.code, left))
+    if pr.fingerprint_note:
+        print(pr.fingerprint_note)
     try:
         projects.record(p, pr, "Closed %s%s" % (pr.code, left))
     except ledger.LedgerError as err:

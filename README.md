@@ -289,7 +289,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | start work in one owner command | `awb start project --goal "..." --customer CUST-XXXX` (or `new`, or no customer; `query` the same) | in your own terminal: a new customer's code is issued and its written forms are asked at the prompt as `awb import` asks (never an argument, so never in the shell history), `awb spawn` runs as the work user through `sudo -n`, your grant (`awb projects kind`) is written, what lies in the project's `in/` folder is imported; it ends with `open: awb projects open tcp-xxxx` |
 | switch | `awb projects kind tcp-xxxx project` | a query that needs a live test becomes a project (or back) |
 | see the projects | `awb projects list` | every project with its goal and the session that holds it |
-| finish a project | `awb close tcp-xxxx`, then `awb projects delete tcp-xxxx` | close waits for open items and live resources; delete removes the folder and keeps the code |
+| finish a project | `awb close tcp-xxxx`, then `awb projects delete tcp-xxxx` | close waits for open items and live resources and writes the fingerprint of the deliverables to the shared side; delete removes the folder and keeps the code |
 | take a file | `awb inbox take the pdf` | the file you described, from either inbox, into the project |
 | look up a fact | `awb kb find "ecs flavor eu-nl"`, `awb kb show KB-XXXX` | ranked facts with grade, source and check date; `show` also prints how the fact is checked again (its check block) |
 | check facts again | `awb kb recheck-run --tier read --tenant ALIAS` (`--dry-run` first; without `--tenant` the tenant `recheck_tenant` of the host file names); the read tier also runs by itself every Sunday at 02:30 UTC as the work user (`awb-kb-recheck.timer`, on the tenant of `recheck_tenant`) | the expired entries whose check block a run can send, checked on the test tenant and written back: confirmed ones are fresh again, the rest stays expired and is listed in the run's RESULT.md |
@@ -550,7 +550,9 @@ customer data out of the model as far as it can:
   cannot follow), so a path a program builds at run time still gets past it; the guard keeps an honest session in its
   lane and is no fence against a hostile one.
 - A gate checks every commit for names, secrets, home paths and the owner's blocklist. A send gate lets only the
-  exact reviewed version of a deliverable leave.
+  exact reviewed version of a deliverable leave. It refuses a file that carries a deliverable of another project;
+  for a project folder the owner cannot read it uses the fingerprint `awb close` wrote (sha256 and salted word
+  hashes, no text) and refuses when there is none, naming the project code.
 
 These checks are a safeguard, not a guarantee. The architect stays responsible for what goes into a session. Give
 the model only technical tasks and keep them simple: a detailed description of a customer's project carries metadata

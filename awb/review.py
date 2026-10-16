@@ -78,6 +78,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
 import tempfile
 from collections import Counter
@@ -1522,6 +1523,218 @@ def _match_deliverable(f: Path, digest: str, project: Path) -> tuple[str | None,
     return None, False
 
 
+# --------------------------------------------------------------------------- the fingerprint of a closed project
+
+FINGERPRINTS = "fingerprints"
+FINGERPRINT_VERSION = 1
+_FP_MAX_SUBSTRINGS = 200_000
+"""A deliverable whose single-word parts would need more hashes than this gets an incomplete fingerprint, which
+the send gate does not use (it refuses)."""
+
+
+def fingerprint_path(p, code: str) -> Path:
+    """Where the fingerprint of project `code` lives: on the shared side, which the owner reads."""
+    return Path(p.shared) / FINGERPRINTS / ("%s.json" % code)
+
+
+def _readable_tree(project: Path) -> None:
+    """Raise OSError when a folder under the project's deliverables/ or reviews/ or a deliverable cannot be
+    read. A missing deliverables/ or reviews/ is no error. pathlib's glob skips a folder it cannot list, so the
+    walk here is the one that notices."""
+    def fail(err: OSError) -> None:
+        raise err
+
+    for sub in (DELIVERABLES, REVIEWS):
+        top = project / sub
+        try:
+            if not stat.S_ISDIR(os.stat(top).st_mode):     # status() reads no deliverable there either
+                continue
+        except FileNotFoundError:
+            continue
+        for folder, _dirs, files in os.walk(top, onerror=fail):
+            if sub != DELIVERABLES:
+                continue
+            for name in files:
+                try:
+                    st = os.stat(os.path.join(folder, name))
+                except FileNotFoundError:          # a broken link: status() leaves it out too
+                    continue
+                if stat.S_ISREG(st.st_mode):
+                    with open(os.path.join(folder, name), "rb"):
+                        pass
+
+
+def _fp_hash(salt: str, text: str) -> str:
+    return hashlib.sha256((salt + "\0" + text).encode("utf-8", "surrogatepass")).hexdigest()[:16]
+
+
+def _part_min(chars: int) -> int:
+    """The fewest characters a file needs to be a part of a deliverable of `chars` characters (_same_text)."""
+    n = int(_TEXT_PART_SHARE * chars)
+    while n < _TEXT_PART_SHARE * chars:
+        n += 1
+    return n
+
+
+def _fp_of_words(salt: str, words: list[str]) -> dict:
+    """The hashes _same_text needs of a deliverable's words, no text: a word table (length, hash, hashes of its
+    prefixes and suffixes), the words as indexes into it, the length of the joined text and the hashes of every
+    single-word part long enough to be a part of the deliverable."""
+    index: dict[str, int] = {}
+    vocab: list[list] = []
+    seq: list[int] = []
+    for w in words:
+        if w not in index:
+            index[w] = len(vocab)
+            vocab.append([len(w), _fp_hash(salt, w), [_fp_hash(salt, w[:k]) for k in range(1, len(w))],
+                          [_fp_hash(salt, w[-k:]) for k in range(1, len(w))]])
+        seq.append(index[w])
+    chars = len(" ".join(words))
+    least = max(_part_min(chars), 1)
+    sub: set[str] | None = set()
+    for w in index:
+        if len(w) < least:
+            continue
+        if len(sub) + (len(w) - least + 1) * (len(w) - least + 2) // 2 > _FP_MAX_SUBSTRINGS:
+            sub = None
+            break
+        for i in range(len(w) - least + 1):
+            for j in range(i + least, len(w) + 1):
+                sub.add(_fp_hash(salt, w[i:j]))
+    return {"chars": chars, "words": seq, "vocab": vocab, "sub": sorted(sub) if sub is not None else None}
+
+
+def fingerprint(project: Path, salt: str | None = None) -> dict:
+    """The fingerprint of a project's deliverables, read strictly: the sha256 of each deliverable and the hashed
+    words of its text, with a random salt. It carries no file name and no text. Raises OSError when anything under
+    deliverables/ or reviews/ cannot be read."""
+    project = Path(os.path.realpath(project))
+    _readable_tree(project)
+    salt = salt or os.urandom(16).hex()
+    seen: set[str] = set()
+    rows = []
+    for _rel, real, _state in _deliverables_of(project):
+        digest = sha256_file(real)
+        if digest in seen:
+            continue
+        seen.add(digest)
+        rows.append({"sha256": digest, **_fp_of_words(salt, _words(_text_of(real)))})
+    return {"version": FINGERPRINT_VERSION, "salt": salt, "deliverables": rows}
+
+
+def write_fingerprint(project: Path, dest: Path) -> int:
+    """Write the fingerprint of `project` to `dest` (mode 640, replaced whole); the number of deliverables.
+    Raises OSError when the project cannot be read or `dest` cannot be written."""
+    data = fingerprint(project)
+    dest = Path(dest)
+    config.make_dir(dest.parent, 0o750, shared=True)
+    fd, tmp = tempfile.mkstemp(prefix=".fp-", dir=str(dest.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            os.fchmod(fh.fileno(), 0o640)
+            json.dump(data, fh, separators=(",", ":"))
+        os.replace(tmp, dest)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return len(data["deliverables"])
+
+
+def _load_fingerprint(path: Path) -> dict | None:
+    """A fingerprint the gate can use, else None (missing, unreadable, malformed, another version, incomplete)."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("version") != FINGERPRINT_VERSION or not isinstance(data.get("salt"), str):
+        return None
+    rows = data.get("deliverables")
+    if not isinstance(rows, list):
+        return None
+    for row in rows:
+        try:
+            ok = (isinstance(row["sha256"], str) and isinstance(row["chars"], int) and row["sub"] is not None
+                  and all(isinstance(i, int) and 0 <= i < len(row["vocab"]) for i in row["words"])
+                  and all(len(v) == 4 and len(v[2]) == len(v[3]) == max(v[0] - 1, 0) for v in row["vocab"]))
+        except (KeyError, TypeError):
+            ok = False
+        if not ok:
+            return None
+    return data
+
+
+def _fp_contains(outer: list, inner_len: int, inner_at, outer_word, edge) -> bool:
+    """Whether the joined words `inner` lie in the joined words `outer`, as `d in f` on the joined texts: the
+    first inner word a suffix of an outer word, the middle words equal, the last a prefix. `inner_at(k)` gives
+    the hash of inner word k, `outer_word(i)` the outer word at i, `edge(i, k, kind)` the hash of the suffix or
+    prefix of outer word i as long as inner word k (None when it is shorter)."""
+    n = inner_len
+    for i in range(len(outer) - n + 1):
+        if edge(i, 0, "suf") != inner_at(0):
+            continue
+        if all(outer_word(i + k) == inner_at(k) for k in range(1, n - 1)) and edge(i + n - 1, n - 1, "pre") == inner_at(n - 1):
+            return True
+    return False
+
+
+def _fp_same_text(file_words: list[str], salt: str, row: dict) -> bool:
+    """_same_text(file_words, the deliverable's words) through the deliverable's fingerprint: the same answer."""
+    seq, vocab, chars = row["words"], row["vocab"], row["chars"]
+    if not file_words or not seq:
+        return False
+    fh = [_fp_hash(salt, w) for w in file_words]
+    dh = [vocab[i][1] for i in seq]
+    # the deliverable in the file
+    if len(seq) == 1:
+        size, want = vocab[seq[0]][0], dh[0]
+        if any(_fp_hash(salt, w[i:i + size]) == want for w in set(file_words) for i in range(len(w) - size + 1)):
+            return True
+    else:
+        def file_edge(i, k, kind):
+            w, size = file_words[i], vocab[seq[k]][0]
+            if len(w) < size:
+                return None
+            return _fp_hash(salt, w[-size:] if kind == "suf" else w[:size])
+
+        if _fp_contains(fh, len(seq), lambda k: dh[k], lambda i: fh[i], file_edge):
+            return True
+    # the file in the deliverable, as a part worth _TEXT_PART_SHARE
+    if len(" ".join(file_words)) >= _TEXT_PART_SHARE * chars:
+        if len(file_words) == 1:
+            if fh[0] in set(row["sub"]):
+                return True
+        else:
+            def own_edge(i, k, kind):
+                size, (n, full, pre, suf) = len(file_words[k]), vocab[seq[i]]
+                if n < size:
+                    return None
+                return full if n == size else (suf if kind == "suf" else pre)[size - 1]
+
+            if _fp_contains(dh, len(file_words), lambda k: fh[k], lambda i: dh[i], own_edge):
+                return True
+    if len(file_words) > _MAX_MATCH_WORDS or len(seq) > _MAX_MATCH_WORDS:
+        return False
+    import difflib
+
+    known = {v[1]: i for i, v in enumerate(vocab)}
+    other: dict[str, int] = {}
+    tokens = [known[h] if h in known else -1 - other.setdefault(h, len(other)) for h in fh]
+    return difflib.SequenceMatcher(None, tokens, seq, autojunk=False).ratio() >= _TEXT_SIMILARITY
+
+
+def _fp_carries(fp: dict, digest: str, file_words) -> bool:
+    """The file is a deliverable of the fingerprinted project: by bytes, then by text (`file_words()` gives the
+    file's words)."""
+    rows = fp["deliverables"]
+    if any(row["sha256"] == digest for row in rows):
+        return True
+    words = file_words()
+    return any(_fp_same_text(words, fp["salt"], row) for row in rows)
+
+
 def _request_lens_for(folder: Path, rel: str) -> bool:
     """A request check ran for this deliverable: a lens file of kind request whose deliverable field, when it has
     one, names this deliverable and not another."""
@@ -1581,18 +1794,26 @@ def send_check(project: Path, file: Path, for_customer: bool, register_path=None
     if digest_out is not None:
         digest_out.append(digest)
     others: list[Path] = []
+    registered: dict[Path, tuple[str, str]] = {}
     if workbench is not None:
         # every registered project and every project folder under the projects root
         found: set[Path] = set()
         try:
             from awb import projects as _projects
 
-            found.update(Path(os.path.realpath(pr.path)) for pr in _projects.load(workbench))
+            for pr in _projects.load(workbench):
+                registered[Path(os.path.realpath(pr.path))] = (pr.code, pr.state)
+            found.update(registered)
         except Exception:
             pass
         try:
-            found.update(Path(os.path.realpath(d)) for d in Path(workbench.projects_root).glob("tcp-*")
-                         if (d / DELIVERABLES).is_dir())
+            for d in Path(workbench.projects_root).glob("tcp-*"):
+                try:
+                    if (d / DELIVERABLES).is_dir():
+                        found.add(Path(os.path.realpath(d)))
+                except OSError:        # a folder the owner cannot look into: a project all the same
+                    if codes.is_project_code(d.name):
+                        found.add(Path(os.path.realpath(d)))
         except OSError:
             pass
         others = sorted(d for d in found if d != project)
@@ -1609,9 +1830,30 @@ def send_check(project: Path, file: Path, for_customer: bool, register_path=None
         return SEND_REFUSE, "the name check did not run, nothing leaves unchecked"
     rel, edited = _match_deliverable(f, digest, project)
     if rel is None:
+        words: list[list[str]] = []
+
+        def file_words() -> list[str]:
+            if not words:
+                words.append(_words(_text_of(f)))
+            return words[0]
+
         for root in others:
-            other_rel, _ = _match_deliverable(f, digest, root)
-            if other_rel is not None:
+            try:
+                _readable_tree(root)
+                carried = _match_deliverable(f, digest, root)[0] is not None
+            except Exception:
+                # a folder the owner cannot read: a closed project answers through its fingerprint, anything
+                # else refuses (never a pass, never a traceback)
+                code, state = registered.get(root, (root.name, ""))
+                fp = _load_fingerprint(fingerprint_path(workbench, code)) if state == "closed" else None
+                if fp is None and state == "closed":
+                    return SEND_REFUSE, ("project %s cannot be read here and has no usable fingerprint: run awb "
+                                         "close %s as the work user, nothing leaves unchecked" % (code, code))
+                if fp is None:
+                    return SEND_REFUSE, ("project %s cannot be read here: let the owner read its deliverables and "
+                                         "reviews, nothing leaves unchecked" % code)
+                carried = _fp_carries(fp, digest, file_words)
+            if carried:
                 return SEND_REFUSE, "the file carries the text of a deliverable of another project"
         try:
             names, other = _content_hits(f, register_path)
