@@ -1653,10 +1653,8 @@ def send_check(project: Path, file: Path, for_customer: bool, register_path=None
 def find_project(start: Path | None = None) -> Path:
     """The nearest folder at or above `start` (default: the working folder) with a SCOPE.md, else `start`."""
     here = Path(os.path.abspath(start or Path.cwd()))
-    for folder in (here, *here.parents):
-        if (folder / "SCOPE.md").is_file():
-            return folder
-    return here
+    root = config.scope_root(here, strict=True)
+    return root if root is not None else here
 
 
 # --------------------------------------------------------------------------- command line

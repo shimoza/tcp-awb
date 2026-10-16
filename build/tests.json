@@ -7076,8 +7076,50 @@
    "name": "board: the vocabulary of the build line covers the fixed phrases of every part of the runner",
    "run": ".venv/bin/pytest tests/test_board.py::test_the_vocabulary_of_the_line_covers_every_part_of_the_runner",
    "status": "passing"
+  },
+  {
+   "id": "B-025-1",
+   "phase": "B-025",
+   "name": "deploy: vault_client, handover and keys_exchange restart what vault.py and xchg.py restarted; none is command only",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_modules_of_step_7_restart_what_their_old_module_restarted",
+   "status": "passing"
+  },
+  {
+   "id": "B-025-2",
+   "phase": "B-025",
+   "name": "vault: vault.py is the door to its client and its hand-over; a name set on it reaches the check and the key service and the undo puts it back",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_the_vault_is_the_door_to_its_client_and_its_hand_over",
+   "status": "passing"
+  },
+  {
+   "id": "B-025-3",
+   "phase": "B-025",
+   "name": "vault: no passphrase, tenants or digest in a print, a log line, an argv or an environment of the client and the hand-over",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_the_module_text_promise_holds_in_the_parts_of_the_vault",
+   "status": "passing"
+  },
+  {
+   "id": "B-025-4",
+   "phase": "B-025",
+   "name": "xchg: xchg.py is the door to the service side in keys_exchange, whichever module loads first",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_the_exchange_is_the_door_to_its_service_side",
+   "status": "passing"
+  },
+  {
+   "id": "B-025-5",
+   "phase": "B-025",
+   "name": "ui: the ui watch and the build runner send their mail through the one keys.send_mail",
+   "run": ".venv/bin/pytest tests/test_ui.py::test_one_mail_client_for_the_ui_watch_and_the_build_runner",
+   "status": "passing"
+  },
+  {
+   "id": "B-025-6",
+   "phase": "B-025",
+   "name": "hooks: the four project-root finders walk through config.scope_root and keep their own edges",
+   "run": ".venv/bin/pytest tests/test_hooks.py::test_one_walk_finds_the_project_root_for_the_four_finders",
+   "status": "passing"
   }
  ],
- "total_tests": 1011,
+ "total_tests": 1017,
  "checked": "2026-10-16"
 }

@@ -1418,3 +1418,79 @@ def test_show_finds_the_private_report_of_a_project_without_a_customer(home):
     report.write_text("r", encoding="utf-8")
     assert vault.newest_report(home, "tcp-q7m4") == report
     assert vault.newest_report(home) == report
+
+
+def test_the_vault_is_the_door_to_its_client_and_its_hand_over(monkeypatch, tmp_path):
+    """F1 step 7: the client of the vault daemon is awb/vault_client.py, the sockets of a daemon and the hand-over
+    are awb/handover.py; awb/vault.py stays the door to both. Every old name is the part's object; a stand-in set on
+    vault.check_remote is what the name check calls (check.py imports the client alone) and one on
+    vault.HANDOVER_DEADLINE is what the key service reads (keys.py imports the hand-over alone); the undo puts both
+    back. The client and the hand-over load nothing of the daemon, the check or the register. Planted: a stand-in
+    client that answers the rate limit makes the check refuse with the rate limit."""
+    from awb import handover, vault_client
+
+    assert vault.check_remote is vault_client.check_remote and vault.admin_call is vault_client.admin_call
+    assert vault.VaultError is vault_client.VaultError and vault.SINCE_FORMAT is vault_client.SINCE_FORMAT
+    assert vault.hand_over is handover.hand_over and vault._Pair is handover._Pair and vault._bind is handover._bind
+    assert vault.Daemon.__module__ == "awb.vault" and vault._takeover_command.__module__ == "awb.vault"
+    hit = [{"start": 0, "length": 3, "cls": "name"}]
+    real_check, real_deadline = vault_client.check_remote, handover.HANDOVER_DEADLINE
+    with monkeypatch.context() as m:
+        m.setattr(vault, "check_remote", lambda text, sock, timeout=None: hit)
+        m.setattr(vault, "HANDOVER_DEADLINE", 1.5)
+        assert check.RemoteCheck(tmp_path / "check.sock").scan("abc") == hit
+        assert handover.HANDOVER_DEADLINE == 1.5
+
+        def rate(text, sock, timeout=None):
+            raise vault.VaultRateLimited("rate limit of the vault daemon reached")
+
+        m.setattr(vault, "check_remote", rate)
+        with pytest.raises(check.CheckRateLimited):
+            check.RemoteCheck(tmp_path / "check.sock").scan("abc")
+    assert vault_client.check_remote is real_check is vault.check_remote
+    assert handover.HANDOVER_DEADLINE == real_deadline == vault.HANDOVER_DEADLINE
+    for rel in ("awb/check.py", "awb/register.py", "awb/tcp/keys.py"):
+        assert "from awb import vault\n" not in (ROOT / rel).read_text(encoding="utf-8"), rel
+    code = ("import sys; sys.path.insert(0, %r); import awb.vault_client, awb.handover; "
+            "print(sorted(m for m in ('awb.vault', 'awb.check', 'awb.register') if m in sys.modules))" % str(ROOT))
+    res = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0 and res.stdout.strip() == "[]", res.stderr
+
+
+def _text_promise_problems(source: str) -> list[str]:
+    """The walk of test_the_module_text_promise_still_holds as a list: a passphrase, the tenants or the digest in a
+    print, a log line, an argv, an environment or a notice to systemd."""
+    import ast
+
+    banned = {"pw", "passphrase", "_passphrase", "tenants", "digest", "line", "secrets"}
+    out = []
+    for node in ast.walk(ast.parse(source)):
+        reach = []
+        if isinstance(node, ast.Call):
+            f = node.func
+            name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else ""
+            if name in ("print", "_log", "Popen", "_takeover_command", "putenv", "sd_notify") or (
+                    name == "write" and re.search(r"std(err|out)", ast.dump(f))):
+                reach = node.args + [k.value for k in node.keywords if k.arg not in ("pass_fds", "input")]
+        elif isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Subscript) and "environ" in ast.dump(t.value) for t in node.targets):
+            reach = [node.value]
+        elif isinstance(node, ast.FunctionDef) and node.name in ("_takeover_command",):
+            reach = [r.value for r in ast.walk(node) if isinstance(r, ast.Return)]
+        for r in reach:
+            for n in ast.walk(r):
+                word = n.id if isinstance(n, ast.Name) else n.attr if isinstance(n, ast.Attribute) else None
+                if word in banned:
+                    out.append("%d carries %s" % (node.lineno, word))
+    return out
+
+
+def test_the_module_text_promise_holds_in_the_parts_of_the_vault():
+    """F1 step 7: the hand-over (its Popen, its notices to systemd) and the client moved out of awb/vault.py, which
+    is all of the vault that test_the_module_text_promise_still_holds reads. The same promise for the two parts.
+    Planted: a print of the passphrase added to the hand-over is found."""
+    for rel in ("awb/handover.py", "awb/vault_client.py"):
+        assert _text_promise_problems((ROOT / rel).read_text(encoding="utf-8")) == [], rel
+    text = (ROOT / "awb" / "handover.py").read_text(encoding="utf-8")
+    planted = text + "\n\ndef _leak(passphrase):\n    print(passphrase)\n"
+    assert _text_promise_problems(planted) == ["%d carries passphrase" % (text.count("\n") + 4)]

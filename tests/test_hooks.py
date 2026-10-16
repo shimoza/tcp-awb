@@ -1254,3 +1254,45 @@ def test_the_old_module_is_the_door_to_its_parts(monkeypatch):
     new = object()
     door.shared, door.own = new, new
     assert part.shared is new and later.shared is new and part.own is other
+
+
+def test_one_walk_finds_the_project_root_for_the_four_finders(tmp_path, monkeypatch):
+    """F1 step 7: the hooks, awb review, awb pricebook and awb write translate find a project's root through one
+    walk, config.scope_root, and keep their own edges: without a SCOPE.md awb review answers the folder it started
+    in and the others None; the hooks read at most 40 folders above the start, the commands every one; translate
+    starts at the folder of the file. Planted: a folder that cannot be read ends the walk of the hooks and of
+    translate with None, while awb review and awb pricebook raise as before."""
+    from awb import review, toolguard, translate
+    from awb.tcp import pricebook
+
+    root = tmp_path / "tcp-q7m4"
+    deep = root / "a" / "b"
+    deep.mkdir(parents=True)
+    (root / "SCOPE.md").write_text("scope\n", encoding="utf-8")
+    draft = deep / "draft.md"
+    draft.write_text("x\n", encoding="utf-8")
+    assert hooks.project_root is toolguard.project_root
+    assert hooks.project_root(str(draft)) == hooks.project_root(deep) == config.scope_root(deep) == root
+    assert review.find_project(deep) == pricebook.find_project(deep) == translate._project_root(draft) == root
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    assert review.find_project(bare) == bare and pricebook.find_project(bare) is None
+    assert translate._project_root(bare / "x.md") is None and hooks.project_root(str(bare)) is None
+    far = root.joinpath(*["d"] * 41)
+    far.mkdir(parents=True)
+    assert hooks.project_root(str(far)) is None and config.scope_root(far, depth=40) is None
+    assert review.find_project(far) == pricebook.find_project(far) == config.scope_root(far, depth=41) == root
+    monkeypatch.chdir(root / "a")
+    assert hooks.project_root("b/draft.md") == root and review.find_project() == root
+    real = Path.is_file
+
+    def is_file(self):
+        if self.parent == deep:
+            raise PermissionError(13, "planted")
+        return real(self)
+
+    monkeypatch.setattr(Path, "is_file", is_file)
+    assert hooks.project_root(str(draft)) is None and translate._project_root(draft) is None
+    for finder in (review.find_project, pricebook.find_project):
+        with pytest.raises(PermissionError):
+            finder(deep)

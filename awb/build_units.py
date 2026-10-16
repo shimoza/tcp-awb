@@ -247,17 +247,15 @@ def build_root() -> Path:
 
 
 def send_mail(subject: str, message: str) -> bool:
-    """A mail through the key service's notify (the admin socket admits the owner's uid). True when it was sent. The
-    core reaches the platform package through the deploy's client of the key service, never by an import."""
+    """A mail through the key service's notify (keys.send_mail). True when it was sent. The core reaches the
+    platform package through the deploy's client of the key service, never by an import."""
     from awb import deploy
 
     keys = deploy.owner_keys()
     try:
-        answer = keys.request(keys.admin_socket(), {"op": "notify", "subject": subject, "message": message},
-                              timeout=60)
-    except (OSError, ValueError):
+        return keys.send_mail(subject, message) == "sent"
+    except ValueError:
         return False
-    return bool(answer.get("ok") and answer.get("sent"))
 
 
 # --------------------------------------------------------------------------- the units

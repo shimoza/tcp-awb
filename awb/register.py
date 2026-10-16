@@ -136,17 +136,17 @@ def _admin_socket_for(path: Path) -> Path:
 
 def _vault_call(path: Path, op: str, **fields) -> dict:
     """One admin request for the register at `path`. Every failure is a RegisterError without a value."""
-    from awb import vault
+    from awb import vault_client
 
     try:
-        return vault.admin_call(op, _admin_socket_for(path), **fields)
-    except vault.VaultLocked:
+        return vault_client.admin_call(op, _admin_socket_for(path), **fields)
+    except vault_client.VaultLocked:
         raise RegisterError("register is encrypted and the vault is locked; run awb vault unlock") from None
-    except vault.VaultUnavailable:
+    except vault_client.VaultUnavailable:
         raise RegisterError("register is encrypted and the vault daemon is not available") from None
-    except vault.VaultBusy:
+    except vault_client.VaultBusy:
         raise RegisterBusy("the vault daemon is reloading, try again") from None
-    except vault.VaultError as err:
+    except vault_client.VaultError as err:
         raise RegisterError("register refused by the vault daemon: %s" % err) from None
 
 

@@ -305,3 +305,23 @@ def ensure_layout(p: Paths) -> Paths:
         os.chmod(d, 0o700)
     p.projects_root.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def scope_root(start: Path, *, depth: int | None = None, strict: bool = False) -> Path | None:
+    """The nearest folder at or above `start` with a SCOPE.md: the root of a project. None when there is none.
+
+    The one walk of the project-root finders (F1 step 7: the hooks, awb review, awb pricebook, awb write translate).
+    `start` is read as given; each finder makes it absolute its own way. `depth` caps the folders above `start` that
+    are read. A folder that cannot be read ends the walk with None, or raises the OSError when `strict`."""
+    here = Path(start)
+    for n, folder in enumerate([here, *here.parents]):
+        if depth is not None and n > depth:
+            break
+        try:
+            if (folder / "SCOPE.md").is_file():
+                return folder
+        except OSError:
+            if strict:
+                raise
+            return None
+    return None

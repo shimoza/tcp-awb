@@ -46,15 +46,7 @@ def project_root(start: str | os.PathLike | None) -> Path | None:
         here = Path.cwd() / here
     if not here.is_dir():
         here = here.parent
-    for n, folder in enumerate([here, *here.parents]):
-        if n > _SCOPE_MAX_DEPTH:
-            break
-        try:
-            if (folder / "SCOPE.md").is_file():
-                return folder
-        except OSError:
-            return None
-    return None
+    return config.scope_root(here, depth=_SCOPE_MAX_DEPTH)
 
 
 # --------------------------------------------------------------------------- pre-tool: a session stays in its project

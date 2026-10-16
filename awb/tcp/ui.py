@@ -281,18 +281,11 @@ def write_note(row: dict) -> Path:
 
 
 def send_mail(subject: str, message: str) -> str:
-    """A mail through the SMN topic of keys.conf, sent by the key service. Returns a word for the log."""
+    """A mail through the SMN topic of keys.conf, sent by the key service (keys.send_mail). Returns a word for the
+    log."""
     from awb.tcp import keys
 
-    try:
-        answer = keys.request(keys.admin_socket(), {"op": "notify", "subject": subject, "message": message},
-                              timeout=60)
-    except OSError:
-        return "not sent: the key service is not reachable"
-    if not answer.get("ok"):
-        return "not sent: the key service refused (%s)" % ("deploy the notify operation" if answer.get("error")
-                                                          == "unknown operation" else "refused")
-    return "sent" if answer.get("sent") else "not sent: no notify_topic or no lab key of bucket_tenant"
+    return keys.send_mail(subject, message)
 
 
 def mail_for(row: dict) -> tuple[str, str]:

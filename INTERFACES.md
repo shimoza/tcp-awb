@@ -491,6 +491,14 @@ Daemon `awb vault serve` (run by systemd as the owner; in tests in a thread with
 
 Client `vault.check_remote(text: str, sock: Path) -> list[dict]` raises `VaultLocked` or `VaultUnavailable`.
 
+Since F1 step 7 the client is `awb/vault_client.py` (the errors, `since_or_none`, `SINCE_FORMAT`, `check_remote`,
+`ping`, `ping_state`, `locked_line`, `admin_call` and the limits of the wire) and the sockets of a daemon with the
+hand-over are `awb/handover.py` (`_bind`, `_adopt`, `_inherited`, `_peer_uid`, `_Pair`, `hand_over`, `sd_notify`,
+`no_dump`, `release_path`, `HANDOVER_DEADLINE`, `RELOAD_CLIENT_TIMEOUT`). `check.py` and `register.py` import the
+client alone, the key service the hand-over alone. `awb/vault.py` keeps the encryption, the daemon and the commands
+and is the door to both (`awb/parts.py`): every name still answers as `vault.NAME` and a name set there reaches the
+part that holds it.
+
 Integration (change these existing modules, keep every existing test green):
 
 - `check.check_text(text, register_path)`: if the register file is readable, work locally as now; else if
@@ -555,6 +563,12 @@ codes `OK`, `ERROR`, `BLOCK`, `project_root` and `_sealed`, which the guard need
 `awb/receipt.py` (`receipt`, `GUARDS`, `_start_receipt`, `refused_today`, `refused_line`, `keys_call`).
 `awb/hooks.py` keeps the hooks and `main` and is the door to both (`awb/parts.py`): every name still answers as
 `hooks.NAME` and a name set there reaches the part that holds it.
+
+Since F1 step 7 the four project-root finders walk through one function, `config.scope_root(start, *, depth=None,
+strict=False) -> Path | None` (the nearest folder at or above `start` with a SCOPE.md). Each keeps its own edges:
+`project_root` of the hooks reads at most 40 folders and answers None on a folder it cannot read;
+`review.find_project` answers the start without a SCOPE.md; `pricebook.find_project` resolves links first; the
+translate prompt starts at the folder of the file. `review` and `pricebook` raise on a folder they cannot read.
 
 - `prompt` (UserPromptSubmit): check the prompt text through `check.check_text` (remote when the register is not
   readable). A hit: exit 2, stderr "the prompt carries a registered name (N hits). Register new names with `awb
@@ -1086,6 +1100,10 @@ phase), `next_phase(state)`, `done(project, name) -> list[str]` (the gate; empty
 `awb/tcp/keys.py`: `store_entries(root=None)`, `collect(entries, reader)`, `Service(admin_path, call_path,
 endpoint=None, paths_fn=config.paths, log_dir=None)` with `start()`, `stop()`, `serve_forever()`;
 `fill(body, secrets)`, `request(sock, obj)`, `unlock(sock=None, entries=None, reader=pass_reader)`, `main(argv)`.
+`send_mail(subject, message) -> str` (F1 step 7) is the one notify request of the owner's processes: it answers
+"sent" or "not sent: " and why; `ui.send_mail` and the build runner's `build_units.send_mail` (True when sent) go
+through it. The service side of the exchange is `awb/tcp/keys_exchange.py` (`Context`, `serve_*`, `authorise_put`,
+`put_problems`, `hold_line`); `awb/tcp/xchg.py` keeps the session side and the owner's settings and is its door.
 Admin socket ops: ping, status, load, lock, reload (T2: the vault daemon's hand-over; the line also carries `tenants`,
 `settings` and `digest`, a sha256 over their canonical JSON; the child answers its summary and the digest of what it
 holds, the parent compares both before `go`; the digest stays on the pair; `load` and `lock` answer `busy` during

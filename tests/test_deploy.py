@@ -212,6 +212,31 @@ def test_the_split_modules_restart_what_their_old_module_restarted():
     assert problems(planted) == ["no unit: awb/build_selftest.py"]
 
 
+@pytest.mark.long   # it maps the whole awb tree twice: the size is the proof
+def test_the_modules_of_step_7_restart_what_their_old_module_restarted():
+    """F1 step 7: awb/vault.py went into vault, vault_client and handover, awb/tcp/xchg.py into xchg and
+    keys_exchange. The import map over the package finds the three new modules, none of them in COMMAND_ONLY (a unit
+    reaches each); a change of one restarts the units a change of its old module restarts, the key service among
+    them. Planted: without the import at the end of xchg.py and the key service's own imports, keys_exchange is in
+    no closure, nor awb/bucket.py, which the package reaches through the service side alone."""
+    tree = deploy.DirTree(REPO)
+    um = deploy.unit_map(tree)
+    split = {"awb/vault.py": ("awb/vault_client.py", "awb/handover.py"),
+             "awb/tcp/xchg.py": ("awb/tcp/keys_exchange.py",)}
+    for old, new in split.items():
+        want = set(um.effects([old]).units)
+        assert {"awb-vaultd.service", "awb-keyd.service"} <= want, old
+        for rel in new:
+            assert rel in um.reached and rel not in deploy.COMMAND_ONLY, rel
+            assert set(um.effects([rel]).units) == want, rel
+    xchg_text, keys_text = tree.read("awb/tcp/xchg.py"), tree.read("awb/tcp/keys.py")
+    assert xchg_text.count("from awb.tcp import keys_exchange") == 1
+    planted = _Changed(REPO, {
+        "awb/tcp/xchg.py": xchg_text.replace("from awb.tcp import keys_exchange", "pass"),
+        "awb/tcp/keys.py": keys_text.replace("from awb.tcp import keys_exchange", "from awb.tcp import xchg")})
+    assert problems(planted) == ["no unit: awb/bucket.py", "no unit: awb/tcp/keys_exchange.py"]
+
+
 def test_the_map_from_changed_files_with_the_held_sockets_of_the_gateway_and_the_tenants(tmp_path):
     """Replaces test_the_map_from_changed_files_with_the_held_sockets (finding 14 of the review of 2026-10-10: the
     tenant service holds its owner socket unit too, Sockets=), which replaced test_the_map_from_changed_files (T9

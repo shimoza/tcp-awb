@@ -163,6 +163,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The vault, the exchange, the project-root finders and the owner mail in fewer places (B-025, step 7 of the F1
+  plan), with no change of behaviour: the client of the vault daemon is `awb/vault_client.py` and the sockets and
+  the hand-over the key service shares are `awb/handover.py`; the service side of the exchange is
+  `awb/tcp/keys_exchange.py`. Every old name still answers through `awb/vault.py` and `awb/tcp/xchg.py`. The hooks,
+  `awb review`, `awb pricebook` and `awb write translate` find a project's root through one walk
+  (`config.scope_root`); `awb ui watch` and the build runner send their mail through one `keys.send_mail`.
+  `awb deploy` restarts for each new module what it restarted for its old one.
+
 - The build runner and the client hooks in smaller modules (B-024, step 6 of the F1 plan), with no change of
   behaviour: `awb/buildrun.py` keeps the runner and its commands; its parts are `awb/build_units.py` (the host
   and the units), `awb/build_unit_side.py` (what runs in the units as the build user), `awb/build_checks.py` (the

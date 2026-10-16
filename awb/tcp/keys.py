@@ -5,7 +5,7 @@ The service (`awb keys serve`, a systemd service of the owner like the vault dae
 only. The owner loads them from his password store after every start (`awb keys unlock`); a restart forgets them.
 A reload (`awb keys reload`, what `awb deploy` runs after a code update) keeps them: the service starts
 `awb keys serve --takeover FD` itself and hands the tenants and settings to it as one line on an anonymous socket
-pair, with a sha256 over both that the new process must give back before it serves (awb/vault.py, hand_over).
+pair, with a sha256 over both that the new process must give back before it serves (awb/handover.py, hand_over).
 A working session never reads a key: it sends its call to the service, which checks it, fills in what it may,
 signs it, sends it to the TCP API and answers with every secret taken out. A call to obs is signed the OBS way
 (awb/obs.py, path `/BUCKET[/KEY]`, `/` lists the buckets), every other service the way of the API gateway
@@ -264,16 +264,16 @@ class Service:
     def start(self, inherited: dict | None = None, accept: bool = True) -> None:
         """Bind both sockets and serve. `inherited` ({True: admin, False: call} listening sockets of the service
         before) skips the bind; `accept=False` waits for accept_now() (the go of a hand-over)."""
-        from awb import vault
+        from awb import handover
 
         if self._servers:
             return
         for path, mode, folder, admin in ((self.admin_path, 0o600, 0o700, True), (self.call_path, 0o660, None, False)):
             if inherited is None:
-                srv, ident = vault._bind(path, mode, folder)
+                srv, ident = handover._bind(path, mode, folder)
             else:
                 srv = inherited[admin]
-                ident = vault._adopt(srv, path)
+                ident = handover._adopt(srv, path)
             self._servers.append((srv, path, ident))
             self._threads.append(threading.Thread(target=self._accept, args=(srv, admin), daemon=True,
                                                   name="awb-keys"))
@@ -360,7 +360,7 @@ class Service:
         self._paused.clear()
 
     def _accept(self, srv: socket.socket, admin: bool) -> None:
-        from awb import vault
+        from awb import handover
 
         key = "admin" if admin else "call"
         while not self.stopping.is_set():
@@ -384,7 +384,7 @@ class Service:
                     continue
                 self._open += 1
             try:
-                uid = vault._peer_uid(conn)
+                uid = handover._peer_uid(conn)
             except OSError:
                 self._done(conn)
                 continue
@@ -466,21 +466,21 @@ class Service:
             self._done(conn)
 
     def _xchg(self):
-        from awb.tcp import xchg
+        from awb.tcp import keys_exchange
 
-        return xchg.Context(self.settings, self._lab_keys, self._obs_client, self.paths_fn, self._project_row,
+        return keys_exchange.Context(self.settings, self._lab_keys, self._obs_client, self.paths_fn, self._project_row,
                             self._notify)
 
     def _put_refusal(self, req: dict, uid: int) -> str | None:
         """Why a put is refused before its bytes are read (F8), or None; a refusal is logged like any exchange
         call."""
-        from awb.tcp import xchg
+        from awb.tcp import keys_exchange
 
         if not self.tenants:
             return "the key service is locked: the owner runs awb keys unlock"
         try:
-            xchg.authorise_put(self._xchg(), req)
-        except xchg.XchgError as err:
+            keys_exchange.authorise_put(self._xchg(), req)
+        except keys_exchange.XchgError as err:
             project = req.get("project")
             self._log(uid, self.settings.get("bucket_tenant") or "-", "lab", "PUT", "obs",
                       self.settings.get("region") or "eu-de", "refused",
@@ -496,9 +496,9 @@ class Service:
             raise KeysError("a put names its length")
         if length > limit:
             raise KeysError("the file is larger than the limit of keys.conf (max_mb)")
-        from awb.tcp import xchg
+        from awb.tcp import keys_exchange
 
-        fd, name = tempfile.mkstemp(prefix="awb-put-", dir=xchg._tmp_dir(self._xchg()))
+        fd, name = tempfile.mkstemp(prefix="awb-put-", dir=keys_exchange._tmp_dir(self._xchg()))
         got = 0
         with os.fdopen(fd, "wb") as out:
             data = bytes(head[:length])
@@ -568,13 +568,13 @@ class Service:
     def _admin(self, req: dict, uid: int) -> dict:
         if uid != os.getuid():
             return {"ok": False, "error": "refused"}
-        from awb import vault
+        from awb import handover
 
         op = req.get("op")
         if op == "ping":
-            return {"ok": True, "ops": list(ADMIN_OPS), "release": vault.release_path()}
+            return {"ok": True, "ops": list(ADMIN_OPS), "release": handover.release_path()}
         if op == "status":
-            return {"ok": True, "tenants": self._summary(), "ops": list(ADMIN_OPS), "release": vault.release_path(),
+            return {"ok": True, "tenants": self._summary(), "ops": list(ADMIN_OPS), "release": handover.release_path(),
                     "pid": os.getpid()}
         if op == "lock":
             with self.lock:
@@ -604,9 +604,9 @@ class Service:
     def _reload(self) -> dict:
         """Hand the service to a new process of the installed code (design 8.4): the same order as the vault
         daemon's, plus the summary and the digest of the child compared before go."""
-        from awb import vault
+        from awb import handover
 
-        deadline = time.monotonic() + vault.HANDOVER_DEADLINE
+        deadline = time.monotonic() + handover.HANDOVER_DEADLINE
         if not self._reload_lock.acquire(blocking=False):
             return {"ok": False, "error": "busy"}
         try:
@@ -626,7 +626,7 @@ class Service:
                     return "other values"
                 return None
 
-            reply, word = vault.hand_over(self, _takeover_command, (admin.fileno(), call.fileno()), line, deadline,
+            reply, word = handover.hand_over(self, _takeover_command, (admin.fileno(), call.fileno()), line, deadline,
                                           check)
             line = tenants = settings = None
             if reply is None:
@@ -690,7 +690,7 @@ class Service:
         return {"ok": False, "error": "unknown operation"}
 
     def _exchange(self, op: str, req: dict, uid: int, upload: Path | None):
-        from awb.tcp import xchg
+        from awb.tcp import keys_exchange
 
         if not self.tenants:
             return {"ok": False, "kind": "locked", "error": "the key service is locked: the owner runs awb keys unlock"}
@@ -698,25 +698,25 @@ class Service:
         status, stream = "ok", None
         try:
             if op == "obs":
-                answer, stream = xchg.serve_obs(ctx, req, upload)
+                answer, stream = keys_exchange.serve_obs(ctx, req, upload)
             elif op == "owner_has":
-                answer = xchg.serve_owner_has(ctx, req)
+                answer = keys_exchange.serve_owner_has(ctx, req)
             elif op == "take_lab":
-                answer, stream = xchg.serve_take_lab(ctx, req)
+                answer, stream = keys_exchange.serve_take_lab(ctx, req)
                 status = answer.get("state", "ok")
             elif op == "inbox_find":
-                answer = xchg.serve_inbox_find(ctx, req)
+                answer = keys_exchange.serve_inbox_find(ctx, req)
             elif op == "owner_folder":
-                answer = xchg.serve_owner_folder(ctx, req)
+                answer = keys_exchange.serve_owner_folder(ctx, req)
             elif op == "web_put_in":
-                answer = xchg.serve_web_put_in(ctx, req, upload)
+                answer = keys_exchange.serve_web_put_in(ctx, req, upload)
             elif op == "web_read":
-                answer, stream = xchg.serve_web_read(ctx, req)
+                answer, stream = keys_exchange.serve_web_read(ctx, req)
                 status = "ok" if answer.get("ok") else answer.get("kind", "refused")
             else:
-                answer = xchg.serve_take_owner(ctx, req)
+                answer = keys_exchange.serve_take_owner(ctx, req)
                 status = answer.get("state", "ok")
-        except (xchg.XchgError, obs.OBSError) as err:
+        except (keys_exchange.XchgError, obs.OBSError) as err:
             answer, status = {"ok": False, "error": str(err)}, "refused"
         except Exception as err:
             answer, status = {"ok": False, "error": "the exchange failed (%s)" % type(err).__name__}, "failed"
@@ -994,11 +994,11 @@ def _hold(svc: Service, line: dict) -> None:
 def _take_over(fd: int, endpoint: str | None) -> Service | None:
     """The child's side of a reload (design 8.4): takes the two listening sockets and what the service before
     held, answers the summary and the digest over what it holds, starts accepting on go. None on a failure."""
-    from awb import vault
+    from awb import handover
 
-    deadline = time.monotonic() + vault.HANDOVER_DEADLINE
+    deadline = time.monotonic() + handover.HANDOVER_DEADLINE
     try:
-        pair = vault._Pair(socket.socket(fileno=fd))
+        pair = handover._Pair(socket.socket(fileno=fd))
     except (OSError, ValueError):
         return None
     line = pair.read(deadline)
@@ -1010,7 +1010,7 @@ def _take_over(fd: int, endpoint: str | None) -> Service | None:
             pair.send({"ok": False, "error": "failed"})
             return None
         try:
-            servers = {True: vault._inherited(line.get("admin_fd")), False: vault._inherited(line.get("call_fd"))}
+            servers = {True: handover._inherited(line.get("admin_fd")), False: handover._inherited(line.get("call_fd"))}
             svc = Service(Path(line["admin_path"]), Path(line["call_path"]), endpoint=endpoint)
         except (OSError, ValueError, TypeError, KeyError):
             pair.send({"ok": False, "error": "failed"})
@@ -1019,7 +1019,7 @@ def _take_over(fd: int, endpoint: str | None) -> Service | None:
         _hold(svc, line)
         with svc.lock:
             digest = _digest(svc.tenants, svc.settings)
-        if not pair.send({"ok": True, "pid": os.getpid(), "release": vault.release_path(),
+        if not pair.send({"ok": True, "pid": os.getpid(), "release": handover.release_path(),
                           "tenants": svc._summary(), "digest": digest}):
             return None
         digest = None
@@ -1041,7 +1041,7 @@ def _take_over(fd: int, endpoint: str | None) -> Service | None:
             pair.close()
     pair.wait_end(deadline)
     pair.close()
-    vault.sd_notify("READY=1")
+    handover.sd_notify("READY=1")
     return svc
 
 
@@ -1113,6 +1113,20 @@ def request(sock: Path, obj: dict, timeout: float = CALL_TIMEOUT + 10, *, upload
         s.close()
 
 
+def send_mail(subject: str, message: str) -> str:
+    """A mail through the SMN topic of keys.conf, sent by the key service's notify (the admin socket admits the
+    owner's uid). Returns a word for the log: "sent", or "not sent" and why. The one mail client of the owner's
+    processes: awb ui watch and the build runner (F1 step 7)."""
+    try:
+        answer = request(admin_socket(), {"op": "notify", "subject": subject, "message": message}, timeout=60)
+    except OSError:
+        return "not sent: the key service is not reachable"
+    if not answer.get("ok"):
+        return "not sent: the key service refused (%s)" % ("deploy the notify operation" if answer.get("error")
+                                                          == "unknown operation" else "refused")
+    return "sent" if answer.get("sent") else "not sent: no notify_topic or no lab key of bucket_tenant"
+
+
 def unlock(sock: Path | None = None, entries: list[str] | None = None, reader=pass_reader,
            settings: dict | None = None) -> dict:
     """Load every tenant of the password store into the service. Returns the summary (aliases, roles, secret
@@ -1158,9 +1172,9 @@ def main(argv: list[str] | None = None) -> int:
             if config.is_work_user():
                 print("awb keys: the service runs as the owner", file=sys.stderr)
                 return 2
-            from awb import vault
+            from awb import handover
 
-            vault.no_dump()
+            handover.no_dump()
             endpoint = os.environ.get("AWB_CLOUD_ENDPOINT") or None
             if args.takeover is not None:
                 svc = _take_over(args.takeover, endpoint)
@@ -1169,7 +1183,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 svc = Service(admin_socket(), call_socket(), endpoint=endpoint)
                 svc.start()
-                vault.sd_notify("READY=1")
+                handover.sd_notify("READY=1")
             svc.serve_forever()
             return 0
         if args.command in ("unlock", "lock", "reload") and config.is_work_user():
@@ -1180,9 +1194,9 @@ def main(argv: list[str] | None = None) -> int:
             _print_summary(summary)
             return 0
         if args.command == "reload":
-            from awb import vault
+            from awb import handover
 
-            answer = request(admin_socket(), {"op": "reload"}, timeout=vault.RELOAD_CLIENT_TIMEOUT)
+            answer = request(admin_socket(), {"op": "reload"}, timeout=handover.RELOAD_CLIENT_TIMEOUT)
             if not answer.get("ok"):
                 detail = answer.get("detail")
                 print("awb keys: %s%s" % (answer.get("error"), ": %s" % detail if isinstance(detail, str) else ""),

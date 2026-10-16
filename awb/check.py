@@ -28,7 +28,7 @@ registered form, else "file N" (N counts the arguments). It exits 2 when there i
 Where the names come from. A readable register is used here, as it always was; a folder that is readable but
 holds no register at all (neither register.tsv nor register.tsv.gpg) is an empty register. In every other
 case (no register path, a register this user cannot read, an encrypted register) the check goes to the vault
-daemon over the check socket (`config.paths().check_socket`, `awb.vault.check_remote`). When that fails too,
+daemon over the check socket (`config.paths().check_socket`, `awb.vault_client.check_remote`). When that fails too,
 `CheckUnavailable` is raised: the check fails closed and never calls a text clean that it could not check.
 The command line then exits 2 with "name check unavailable: vault locked" or "...: no vault daemon" and
 prints no hit list at all.
@@ -146,30 +146,30 @@ class RemoteCheck:
 
     def ping(self) -> str:
         """The daemon's state. Raises CheckUnavailable when there is no daemon or the vault is locked."""
-        from awb import vault
+        from awb import vault_client
 
         try:
-            state = vault.ping(self.sock)
-        except vault.VaultRateLimited as err:
+            state = vault_client.ping(self.sock)
+        except vault_client.VaultRateLimited as err:
             raise CheckRateLimited(_reason(err)) from None
-        except vault.VaultError as err:
+        except vault_client.VaultError as err:
             raise CheckUnavailable(_reason(err)) from None
         if state == "locked":
             raise CheckUnavailable("name check unavailable: vault locked")
         return state
 
     def scan(self, text: str) -> list[dict]:
-        from awb import vault
+        from awb import vault_client
 
         deadline = time.monotonic() + self.rate_wait
         while True:
             try:
-                return vault.check_remote(text, self.sock)
-            except vault.VaultRateLimited as err:
+                return vault_client.check_remote(text, self.sock)
+            except vault_client.VaultRateLimited as err:
                 if time.monotonic() + 1.0 > deadline:
                     raise CheckRateLimited(_reason(err)) from None
                 time.sleep(1.0)
-            except vault.VaultError as err:
+            except vault_client.VaultError as err:
                 raise CheckUnavailable(_reason(err), since=getattr(err, "since", None)) from None
 
     def name_spans(self, text: str) -> list[Span]:
@@ -178,11 +178,11 @@ class RemoteCheck:
 
 
 def _reason(err: Exception) -> str:
-    from awb import vault
+    from awb import vault_client
 
-    if isinstance(err, vault.VaultLocked):
+    if isinstance(err, vault_client.VaultLocked):
         return "name check unavailable: vault locked"
-    if isinstance(err, vault.VaultRateLimited):
+    if isinstance(err, vault_client.VaultRateLimited):
         return "name check unavailable: rate limit of the vault daemon, try again in a minute"
     return "name check unavailable: %s" % err
 

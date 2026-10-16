@@ -977,3 +977,33 @@ def test_rg_a_vault_the_caller_cannot_open_makes_the_grants_unreadable_and_the_c
     assert code == 0, err
     assert "every tcp- folder under %s is a registered project" % home.projects_root in out
     assert "the owner's grants are not readable here" in out and "Traceback" not in out + err
+
+
+def test_the_exchange_is_the_door_to_its_service_side(monkeypatch):
+    """F1 step 7: the service side of the exchange is awb/tcp/keys_exchange.py, which the key service calls;
+    awb/tcp/xchg.py keeps the session side and the owner's settings and stays the door. Old names are the service
+    side's objects and the session side reaches from_in, hold_line and put_id, whichever of the two modules loads
+    first; a stand-in set on xchg.check_problems is what the service's put check calls and the undo puts it back.
+    keys.py names no service function through xchg."""
+    import subprocess
+    import sys
+
+    from awb.tcp import keys_exchange
+
+    assert xchg.serve_obs is keys_exchange.serve_obs and xchg.Context is keys_exchange.Context
+    assert xchg.hold_line is keys_exchange.hold_line and keys_exchange.match is xchg.match
+    real = xchg.check_problems
+    with monkeypatch.context() as m:
+        m.setattr(xchg, "check_problems", lambda *a, **k: ["planted"])
+        assert keys_exchange.check_problems(Path("x.md")) == ["planted"]
+    assert keys_exchange.check_problems is real is xchg.check_problems
+    root = Path(__file__).resolve().parent.parent
+    for first, second in (("keys_exchange", "xchg"), ("xchg", "keys_exchange")):
+        code = ("import sys; sys.path.insert(0, %r); import awb.tcp.%s; import awb.tcp.%s; "
+                "from awb.tcp import keys_exchange as k, xchg as x; "
+                "print(x.serve_take_owner is k.serve_take_owner, x.put_id is k.put_id, x.from_in is k.from_in, "
+                "k.valid_name is x.valid_name)" % (str(root), first, second))
+        res = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, timeout=60)
+        assert res.stdout.split() == ["True"] * 4, (first, res.stderr)
+    text = (root / "awb" / "tcp" / "keys.py").read_text(encoding="utf-8")
+    assert "xchg.serve_" not in text and "xchg.Context" not in text and "keys_exchange.serve_obs" in text

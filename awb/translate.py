@@ -36,7 +36,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from awb import writing
+from awb import config, writing
 
 EXIT_OK = 0
 EXIT_REFUSED = 1
@@ -88,13 +88,7 @@ def target_path(path: Path, lang: str) -> Path:
 
 
 def _project_root(path: Path) -> Path | None:
-    for folder in [path.parent, *path.parent.parents]:
-        try:
-            if (folder / "SCOPE.md").is_file():
-                return folder
-        except OSError:
-            return None
-    return None
+    return config.scope_root(path.parent)
 
 
 def prompt_folder(path: Path) -> Path:

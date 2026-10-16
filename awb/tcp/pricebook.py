@@ -72,7 +72,7 @@ from decimal import Decimal, DecimalException
 from pathlib import Path
 from typing import Callable
 
-from awb import calc, jobs, offered, xlsxlite
+from awb import calc, config, jobs, offered, xlsxlite
 from awb.tcp import price
 
 LANGS = ("en", "de")
@@ -1150,11 +1150,7 @@ def _change_text(ch: Change, lang: str) -> str:
 
 
 def find_project(start: Path) -> Path | None:
-    here = Path(start).resolve()
-    for folder in (here, *here.parents):
-        if (folder / "SCOPE.md").is_file():
-            return folder
-    return None
+    return config.scope_root(Path(start).resolve(), strict=True)
 
 
 def record_totals(project: Path, priced: list[Priced], monthly: Decimal, yearly: Decimal) -> list[str]:

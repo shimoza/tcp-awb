@@ -279,3 +279,26 @@ def test_the_key_service_sends_an_owner_mail_through_its_notify_operation(home, 
         assert notes == [("Workbench: UI run ui-1 completed", "UI run ui-1 ended.")]
         bad = keys.request(s.admin_path, {"op": "notify", "subject": "x", "message": "y" * (keys.NOTIFY_MAX + 1)})
         assert bad["ok"] is False and len(notes) == 1
+
+
+def test_one_mail_client_for_the_ui_watch_and_the_build_runner(home, tmp_path, monkeypatch):
+    """F1 step 7: awb ui watch and the build runner send their mail through keys.send_mail, the one notify request.
+    Through a key service a sent mail is the word "sent" for the watch and True for the runner. Planted: a service
+    that sent nothing (no topic) gives its word and False; an older service without notify gives the word that
+    names the deploy and False."""
+    from awb import build_units
+
+    with _service(tmp_path) as (s, notes):
+        monkeypatch.setenv(keys.ADMIN_SOCKET_ENV, str(s.admin_path))
+        assert ui.send_mail("Workbench: UI run ui-1 completed", "UI run ui-1 ended.") == "sent"
+        assert build_units.send_mail("Workbench build B-1: green", "B-1 ended.\n") is True
+        assert notes == [("Workbench: UI run ui-1 completed", "UI run ui-1 ended."),
+                         ("Workbench build B-1: green", "B-1 ended.\n")]
+        s._notify = lambda subject, message: False
+        assert ui.send_mail("s", "m") == "not sent: no notify_topic or no lab key of bucket_tenant"
+        assert build_units.send_mail("s", "m") is False
+    ops = []
+    monkeypatch.setattr(keys, "request", lambda sock, obj, timeout=None: ops.append(obj["op"]) or {
+        "ok": False, "error": "unknown operation"})
+    assert ui.send_mail("s", "m") == "not sent: the key service refused (deploy the notify operation)"
+    assert build_units.send_mail("s", "m") is False and ops == ["notify", "notify"]
