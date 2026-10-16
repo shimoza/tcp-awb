@@ -1150,7 +1150,12 @@ importing it (`TASK_ID_RE`, `TASK_DEPLOYABLE`: `done`, `green`, `held: push refu
 `build_root(host)`, `main_git(host)`, `build_runs(host)` (`AWB_BUILD_ROOT`, `AWB_BUILD_RUNS` as the build module),
 `pull_line(host)`. `owner_plan` refuses for every deploy a deployed commit (with a journal: the release `src`
 points at, else the journal's target) unknown to the repository and, unless `--to` or `--rollback`, a target that
-does not descend from it. The root path imports neither
+does not descend from it. The gate (threat model G2): the plan child runs `owner_gated_plan(opts, repo, host,
+show=False)`, which is `owner_plan` followed by `Host.gate` (None: `owner_gate(repo, deployed, target,
+register_path=None) -> verdict`, the commit gate over `gate.range_commits(repo, deployed, target)` with
+`gate.scan_commits`); the verdict (`from`, `to`, `commits`, `findings` as (commit, class, `message` or `file`,
+count)) becomes a note of the plan (`gate_note`) and a finding is Refused with `gate_refusal` (commit and class,
+never a value), as is a gate that cannot run. The root path imports neither
 `getpass` nor `socket` nor `awb.vault` nor `awb.tcp.keys`: every function that does is named `owner_*`.
 
 - Units: `templates(tree) -> {unit: {"kind", "files", "dropins"}}` from `seal/*.service`, `seal/web/*.service`,

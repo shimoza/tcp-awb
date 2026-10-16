@@ -49,6 +49,12 @@ his copy is not on `main` or his `main` has commits main.git lacks; the target i
 as green in runs/<ID>/<n>/commit, which must be on that `main`. The run records are read here without importing
 awb.build, so a change of the runner's module restarts no unit that imports this one.
 
+The gate (threat model G2): before a release is installed the owner's plan child runs the commit gate (`awb gate`,
+the same checks a commit and a push get: every file of every commit, the author, the committer and the message) over
+the commits from the deployed release to the target, the whole history when no release is deployed. One finding
+refuses the plan with the commit and the class and never a value, so root installs nothing; a gate that cannot run
+(no register, git failed) refuses too. The verdict is a note of the plan (`# gate: ...`), so the dry run shows it.
+
 The journal /opt/tcp-awb/DEPLOYED (root, 644) is written `running` before anything changes, updated after every
 step and marked `done` at the end; a run that dies leaves its units pending for the next one.
 
@@ -213,6 +219,8 @@ class Host:
     bin: str = BIN
     daemons: Callable | None = None      # owner side: the states of the two daemons (tests give a stand-in)
     build_root: Path | None = None       # None: config.build_root() (the self-build's folder)
+    gate: Callable | None = None         # owner side: the gate over deployed..target, None: owner_gate (tests give
+    #                                      a stand-in)
 
     @property
     def units_dir(self) -> Path:
@@ -1201,6 +1209,76 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
         "build_restart_wanted": build_wanted,
         "build_busy": active_task_units(run),
     }
+
+
+# --------------------------------------------------------------------------- the gate over deployed..target (G2)
+
+
+def owner_gate(repo: Path, deployed: str | None, target: str, register_path: Path | None = None) -> dict:
+    """The commit gate over the commits the deploy would make root code: deployed..target, or every commit the
+    target reaches when no release is deployed. The register is the vault's unless a path is given (tests). The
+    verdict: `from`, `to`, `commits` (the count) and `findings`, a list of (commit id, class, where, count) with
+    `where` "message" (the author, the committer or the message) or "file". A value never leaves the gate; a
+    gate that cannot run is Refused."""
+    from awb import check, gate, register
+
+    if register_path is None:
+        register_path = config.paths().register
+    try:
+        if check.register_source(Path(register_path))[0] == check.MISSING:
+            raise Refused("the gate finds no register, names cannot be checked: nothing was changed")
+        matcher = gate._load_matcher(register_path, rate_wait=gate.RATE_WAIT)
+        if isinstance(matcher, check.RemoteCheck):
+            matcher.ping()
+        commits = gate.range_commits(repo, deployed, target)
+        findings = gate.scan_commits(repo, commits, matcher)
+    except (gate.GateError, register.RegisterError) as err:   # check.CheckUnavailable is a RegisterError
+        raise Refused("the gate could not run (%s): nothing was changed" % err) from None
+    counts: dict[tuple[str, str, str], int] = {}
+    for f in findings:
+        if f.file.startswith("commit "):
+            commit, where = f.file[len("commit "):], "message"
+        else:
+            commit, where = f.file.split(":", 1)[0], "file"
+        key = (commit, f.cls, where)
+        counts[key] = counts.get(key, 0) + 1
+    return {"from": deployed, "to": target, "commits": len(commits),
+            "findings": [(c, cls, where, n) for (c, cls, where), n in sorted(counts.items())]}
+
+
+def gate_note(verdict: dict) -> str:
+    """The one line of the plan that carries the verdict, printed as a note."""
+    span = "%s..%s" % (short(verdict["from"]), short(verdict["to"])) if verdict["from"] else \
+        "up to %s (no deployed commit: the whole history)" % short(verdict["to"])
+    n = verdict["commits"]
+    found = sum(x[3] for x in verdict["findings"])
+    result = "clean" if not found else "%d finding%s" % (found, "" if found == 1 else "s")
+    return "gate: %d commit%s %s, %s" % (n, "" if n == 1 else "s", span, result)
+
+
+def gate_refusal(verdict: dict) -> str:
+    """The refusal: the commit and the class of every finding, a count, never a value or a path."""
+    by_commit: dict[str, list[str]] = {}
+    for commit, cls, where, n in sorted(verdict["findings"]):
+        by_commit.setdefault(commit, []).append("%s%s x%d" % (cls, " in the message" if where == "message" else "", n))
+    return "the gate refuses the target %s: %s; nothing was changed" % (
+        short(verdict["to"]), "; ".join("commit %s: %s" % (c[:7], ", ".join(w)) for c, w in by_commit.items()))
+
+
+def owner_gated_plan(opts: Options, repo: Path, host: Host, show: bool = False) -> dict:
+    """The plan with the gate's verdict as a note, or Refused with the commit and the class of every finding. With
+    `show` (the dry run as the owner) the plan is printed before the refusal; the plan child of root prints
+    nothing, root shows its refusal."""
+    plan = owner_plan(opts, repo, host)
+    run_gate = host.gate if host.gate is not None else owner_gate
+    verdict = run_gate(repo, plan["deployed"], plan["target"])
+    plan["notes"].append(gate_note(verdict))
+    if verdict["findings"]:
+        if show:
+            for line in plan_lines(plan, True):
+                say(line)
+        raise Refused(gate_refusal(verdict))
+    return plan
 
 
 def can_open(path: str) -> bool:
@@ -2276,11 +2354,11 @@ def _owner_main(argv: list[str], host: Host, opts: Options | None = None) -> int
     try:
         if cmd == "plan":
             o = opts or _parse_plan_args(argv[1:])
-            print(json.dumps(owner_plan(o, _repo_root(repo), host), sort_keys=True))
+            print(json.dumps(owner_gated_plan(o, _repo_root(repo), host), sort_keys=True))
             return 0
         if cmd == "dry-run":
             o = opts or Options(dry_run=True)
-            plan = owner_plan(o, _repo_root(repo), host)
+            plan = owner_gated_plan(o, _repo_root(repo), host, show=True)
             allowed = set(templates(_SealTree(Path(os.path.realpath(host.module_file)).parents[1])))
             plan = validate_plan(plan, allowed or {u["unit"] for u in plan["units"]})
             for line in plan_lines(plan, True):
