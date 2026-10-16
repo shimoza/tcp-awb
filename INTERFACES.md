@@ -998,7 +998,8 @@ Recorded here so that the next builder works against them. Each module keeps `ma
 - `awb/bucket.py`: `IN`, `OUT`, `PULLED`, `BucketError`, `settings()`, `client()`, `months(c)`, `project_folders(c)`,
   `find_folder(c, code)`, `ensure_folder(c, project) -> (folder, created)`, `sync(p, c) -> lines`, `pulled(p)`,
   `pull(p, c, code, again=False) -> dict`, `put(p, c, code, file, replace=False, reveal=False) -> (key, stats)`,
-  `move(p, c, old, code) -> dict`, `main(argv)`. Refused as the work user.
+  `move(p, c, old, code) -> dict`, `main(argv)`, `ORIGINALS`, `owner_terminal(what)`. Refused as the work user;
+  `pull`, `move` and `KeyServiceClient.get` of a key under in/ refused inside an assistant session (review R6).
 - `awb/reveal.py`: `RevealError`, `display_forms(entries)`, `reveal_text(text, entries) -> (text, stats)`,
   `session_places(p)`, `owner_side()`, `write_named(text, out, p, replace=False) -> stats`, `main(argv)`.
 - `cli.DELEGATED` carries `bucket` and `reveal`.

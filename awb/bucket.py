@@ -14,7 +14,10 @@ created. The project code is the fixed point: a drifted folder is renamed in the
 Owner side only. The bucket takes the owner's IAM user alone, and that key stays in the key service: every call
 goes through its admin socket (`awb keys unlock` loads it; F1 step 11). There is no bucket key in the environment or
 in the host file. A working session must never see an original before the intake: as the work user of a sealed host
-every command refuses. `pull` and `put --reveal` read the vault, so he runs them in his own shell.
+every command refuses, and inside an assistant session of the owner's own uid `pull` and `move` refuse and the
+client gives no file of `in/` (review R6: the key service cannot tell the peer's session, so the check stays on the
+client as it does for `awb import`, `awb fetch` and `awb vault show`). `pull` and `put --reveal` read the vault, so
+he runs them in his own shell.
 
 The key service takes list, get and put only, inside the folders of the layout (awb/bucket_layout.py). `move` needs
 a copy and a delete and stops with a line saying so. A locked or stopped key service stops every command with one
@@ -39,8 +42,12 @@ from awb import config, obs
 from awb.bucket_layout import IN, MONTH, OUT, OWNER_BUCKET, REGION, folder_of
 
 PULLED = "bucket-pulled.tsv"
+ORIGINALS = ("pull", "move")
+"""The commands that reach the originals of in/ (`move` carries a whole folder): the owner's own terminal only.
+The fetch of `awb import` is refused by `awb import` itself, and the client gives no file of in/ to a session."""
 _MONTH_RE = re.compile(MONTH + "/")
 _UNSAFE_RE = re.compile(r"[\x00-\x1f/\\\x7f]")
+_IN_SEGMENT = IN.rstrip("/")
 
 
 class BucketError(Exception):
@@ -60,6 +67,21 @@ def settings() -> dict[str, str | None]:
     if config.is_work_user():
         raise BucketError("the bucket is the owner's: run awb bucket in your own shell")
     return {"bucket": OWNER_BUCKET, "region": REGION}
+
+
+def owner_terminal(what: str) -> None:
+    """`pull` and `move` and a get of a file of in/ reach the originals: refused inside an assistant session, as
+    `awb import` and `awb fetch` are (review R6). The uid alone is not enough: the steering session runs as the
+    owner."""
+    from awb import vault
+
+    if vault.in_assistant_session():
+        raise BucketError("%s never runs inside an assistant session; run it in your own terminal" % what)
+
+
+def _is_original(key) -> bool:
+    """A key under an in/ folder: `<month>/<code>/in/<file>` and any other key with an in/ segment."""
+    return isinstance(key, str) and _IN_SEGMENT in key.split("/")[:-1]
 
 
 class KeyServiceClient:
@@ -140,6 +162,8 @@ class KeyServiceClient:
         return None
 
     def get(self, key: str, to: Path, if_match: str | None = None) -> Path:
+        if _is_original(key):
+            owner_terminal("a get of a file of in/")       # before the socket: an original never reaches a session
         self._ask({"op": "bucket_get", "key": key}, download=Path(to))
         return Path(to)
 
@@ -393,7 +417,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("sync", help="the folders of every active project; folders that match no project")
     s = sub.add_parser("folder", help="the folder of one project, created when missing")
     s.add_argument("code")
-    s = sub.add_parser("pull", help="new files of in/ into the vault inbox, then the intake (your own shell)")
+    s = sub.add_parser("pull", help="new files of in/ into the vault inbox, then the intake (your own terminal, "
+                                    "never an assistant session)")
     s.add_argument("code")
     s.add_argument("--again", action="store_true", help="take files again that were downloaded before")
     s = sub.add_parser("put", help="a file into out/")
@@ -401,7 +426,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("file", type=Path)
     s.add_argument("--replace", action="store_true", help="overwrite a file of the same name in out/")
     s.add_argument("--reveal", action="store_true", help="put the real names back first (your own shell)")
-    s = sub.add_parser("move", help="rename a drifted folder to <month>/<code>/")
+    s = sub.add_parser("move", help="rename a drifted folder to <month>/<code>/ (your own terminal, never an "
+                                    "assistant session)")
     s.add_argument("folder")
     s.add_argument("code")
     try:
@@ -415,6 +441,8 @@ def main(argv: list[str] | None = None) -> int:
     from awb import reveal as _reveal
     try:
         p = config.paths()
+        if args.command in ORIGINALS:
+            owner_terminal("awb bucket %s" % args.command)      # before the key service is asked anything
         c = client()
         if args.command == "sync":
             for line in sync(p, c):
