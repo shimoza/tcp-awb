@@ -7475,8 +7475,36 @@
    "name": "bucket: bucket move stops before it changes anything",
    "run": ".venv/bin/pytest tests/test_bucket_keys.py::test_move_stops_before_it_changes_anything",
    "status": "passing"
+  },
+  {
+   "id": "fix-send-check-unreadable-1",
+   "phase": "fix-send-check-unreadable",
+   "name": "the fingerprint matches words as _same_text does: whole, part, changed copy, mid-word edges",
+   "run": ".venv/bin/pytest tests/test_send_unreadable.py::test_the_fingerprint_matches_words_as_the_text_does",
+   "status": "passing"
+  },
+  {
+   "id": "fix-send-check-unreadable-2",
+   "phase": "fix-send-check-unreadable",
+   "name": "send gate: a closed project it cannot read answers through its fingerprint with the same verdict; no fingerprint refuses with the code",
+   "run": ".venv/bin/pytest tests/test_send_unreadable.py::test_a_closed_project_answers_through_its_fingerprint_with_the_same_verdict",
+   "status": "passing"
+  },
+  {
+   "id": "fix-send-check-unreadable-3",
+   "phase": "fix-send-check-unreadable",
+   "name": "send gate: a project folder of mode 000 refuses with its code in one line, never a traceback or a pass",
+   "run": ".venv/bin/pytest tests/test_send_unreadable.py::test_a_folder_of_mode_000_refuses_with_its_code",
+   "status": "passing"
+  },
+  {
+   "id": "fix-send-check-unreadable-4",
+   "phase": "fix-send-check-unreadable",
+   "name": "close: a fingerprint it cannot write is named with what to do, the close still happens",
+   "run": ".venv/bin/pytest tests/test_send_unreadable.py::test_close_says_when_it_cannot_write_the_fingerprint",
+   "status": "passing"
   }
  ],
- "total_tests": 1068,
+ "total_tests": 1072,
  "checked": "2026-10-16"
 }

@@ -316,6 +316,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- The send gate of `awb bucket put` no longer stops with a traceback when the owner cannot read the folder of
+  another project (mode 700 from the work user's umask). It refuses with one line that names the project code and
+  what to do, never a pass; a folder it cannot list under the projects root counts as a project. `awb close` writes
+  a fingerprint of the deliverables to `<shared>/fingerprints/<code>.json` (sha256 and salted word hashes, no name
+  and no text) and the gate checks a file against it for a closed project it cannot read, with the same verdict as
+  reading the files.
 - `awb kb recheck-run` without `--tenant` takes the tenant from `recheck_tenant` of the host file (B-018, FK9 fix):
   the weekly unit `awb-kb-recheck.service` named the tenant alias of the tests and would have stopped on the host
   every Sunday. The unit now names no tenant; `--tenant` still wins; with neither the run stops with one line that
