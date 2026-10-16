@@ -70,8 +70,8 @@ from awb import build, build_probe, config, parts  # noqa: F401 (build_probe: re
 from awb.build_checks import (BUNDLE_MAX, CHECK_WAIT, TAIL_LINES, GitFailed, Stop, _fail, _json, _matcher,
                               _plain_path, check_answer, check_books, check_branch_commits, check_client,
                               check_commits, check_gate, check_hollow, check_identity, check_onto_main, check_outdir,
-                              check_own, check_paths, check_suite, check_task, check_unit, clean, commit_fields,
-                              diff_entries, ensure_main, fetch_bundle, fetch_ref, git, handover, is_ancestor,
+                              check_own, check_paths, check_protected, check_suite, check_task, check_unit, clean,
+                              commit_fields, ensure_main, fetch_bundle, fetch_ref, git, handover, is_ancestor,
                               oversized, owner_identity, parse_result, resolve_ref, rev, roll_week, scan_commits,
                               unit_run)
 from awb.build_unit_side import MODELS, SHA_RE, UUID_RE, handin
@@ -667,7 +667,7 @@ class Runner:
             check_branch_commits(h, ctx)
             check_onto_main(h, ctx)
             check_gate(h, ctx, owner_identity(h))
-            ctx.entries = [(p, o, n) for p, o, n, _ in diff_entries(h, ctx.start, ctx.tip) if _plain_path(p)]
+            check_protected(h, ctx, (_text(ctx.folder / ALLOW_PROTECTED) or "").strip() == "yes")
             if not check_outdir(h, ctx):
                 ctx.lines.append("- the out folder of the suite unit could not be made")
                 raise Stop("held: prepare")
@@ -1197,11 +1197,17 @@ def nudge_main() -> int:
 
 # --------------------------------------------------------------------------- the commands
 
-def check_main(ref: str, host: Host | None = None) -> int:
+ALLOW_PROTECTED = "allow-protected"
+"""The file of a check's run folder that `--allow-protected` writes (R2): check 7 then passes a change of a path in
+`build_checks.PROTECTED` and names it; without the file such a change is `red: protected path`."""
+
+
+def check_main(ref: str, host: Host | None = None, allow_protected: bool = False) -> int:
     """`awb build check REF` (F2 G1): REF of the owner's working copy into the quarantine of main.git, then the checks
     of a task on it (check_branch) through the runner's lock: at once when no runner holds it, else the runner takes
     it between two tasks and this waits. The state line and the check lines; exit 0 for `passed`, else 1. It never
-    merges, pushes or deploys and starts no model session."""
+    merges, pushes or deploys and starts no model session. `allow_protected` lets the branch change a protected path
+    (R2), which the owner reads first."""
     if config.is_work_user() or config.is_build_user():
         print("awb build: the check of a branch is the owner's", file=sys.stderr)
         return 2
@@ -1222,6 +1228,8 @@ def check_main(ref: str, host: Host | None = None) -> int:
         print("awb build: the check cannot start (%s)" % type(err).__name__, file=sys.stderr)
         return 2
     _write(run.folder / "head", commit + "\n")
+    if allow_protected:
+        _write(run.folder / ALLOW_PROTECTED, "yes\n")
     runner = Runner(h)
     if not fetch_ref(h, runner._check_ctx(run), commit):
         ctx = runner._check_ctx(run)

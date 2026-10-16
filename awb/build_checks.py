@@ -404,6 +404,32 @@ def check_paths(host: Host, ctx: Ctx) -> None:
     _ok(ctx, 7, "%d file(s)" % len(raw))
 
 
+def protected(path: str) -> bool:
+    return any(path == p or (p.endswith("/") and path.startswith(p)) for p in build.PROTECTED)
+
+
+def check_protected(host: Host, ctx: Ctx, allowed: bool) -> None:
+    """Check 7 for a branch from outside: check_paths with the list inverted. A link or a submodule is refused as
+    for a task; a path in build.PROTECTED is `red: protected path` unless the owner gave `--allow-protected` after
+    he read the diff of those paths, then the line names them. A branch that touches no protected path gets no
+    line: its log stays the four lines of checks 4, 6, 9 and 10."""
+    raw = diff_entries(host, ctx.start, ctx.tip)
+    hit = []
+    for path, old, new, _ in raw:
+        if not _plain_path(path):
+            raise _fail(ctx, 7, "red: outside paths")
+        if new in ("120000", "160000") or old in ("160000",):
+            raise _fail(ctx, 7, "red: link or submodule")
+        if protected(path):
+            hit.append(path)
+    if hit and not allowed:
+        ctx.lines.append("- protected: %s (awb pr take N --allow-protected after you read their diff)" % " ".join(hit))
+        raise _fail(ctx, 7, "red: protected path")
+    ctx.entries = [(p, o, n) for p, o, n, _ in raw]
+    if hit:
+        _ok(ctx, 7, "protected by --allow-protected: %s" % " ".join(hit))
+
+
 def show(host: Host, commit: str, path: str) -> bytes | None:
     r = git(host, "cat-file", "blob", "%s:%s" % (commit, path), check=False)
     return r.stdout if r.returncode == 0 else None

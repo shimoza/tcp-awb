@@ -641,7 +641,8 @@ awb build widen B-012 --tests-replaced SB1-20   # into the run's task.md, which 
 awb build stop               # the runner ends after the current task
 awb build nudge              # a mail with your next commands for a task asked, red or held for 15 minutes
 awb build check pr-12        # a branch from outside: the gate and the suite as awb-build, nothing merged
-awb pr take 12               # fetch, rebase onto main, the check, merge --no-ff, push, close
+awb build check pr-12 --allow-protected   # the same, a change of seal/, plugin/hooks/, rules/ ... let through
+awb pr take 12               # gh says it is yours; fetch, rebase onto main, the check, merge --no-ff, push, close
 ```
 
 `model` (opus, sonnet, fable; opus), `effort` (low, medium, high; medium), `budget` (USD, 1 to 100; 10) and `clock`
@@ -713,12 +714,17 @@ as `awb-build` in the task's suite unit. When `main` moved past the branch's mer
 it never runs beside a task: with no runner it runs at once, else it waits until the runner takes it before its
 next task. No model session runs and nothing is merged, pushed or deployed. It prints the state (`passed` or the
 first failure, as `red: gate name` or `red: tests lost`) and the check lines, exits 0 only for `passed` and keeps
-`runs/C-001/1/result.md`; `awb build list` and the board show the newest three checks. Merging stays your step.
-`awb pr take N` does it in one command: it fetches pull request N, rebases it onto your `main` in a temporary
-worktree (a conflict in `build/tests.json` merged by id, one in `CHANGELOG.md` by week, any other one stops it),
-runs `awb build check` on the result and only when that passed merges it with `--no-ff`, pushes `main` to origin
-and to `main.git` of the build and closes the pull request with a comment that names the merge commit (with gh).
-On a failure `main` stays as it was. It never deploys; `awb pr take N --dry-run` prints the steps.
+`runs/C-001/1/result.md`; `awb build list` and the board show the newest three checks. A branch that changes
+`seal/`, `plugin/hooks/`, `rules/`, `.claude/`, `CLAUDE.md` or `CLAUDE.local.md` is `red: protected path` before
+any code runs, with a line that names the paths: read their diff, then `awb build check REF --allow-protected` lets
+them through and the check line names them. Merging stays your step.
+`awb pr take N` does it in one command: it asks gh whose pull request it is and refuses one from a fork or by an
+account other than the repository's owner (and refuses without gh), fetches pull request N, rebases it onto your
+`main` in a temporary worktree (a conflict in `build/tests.json` merged by id, one in `CHANGELOG.md` by week, any
+other one stops it), runs `awb build check` on the result (`--allow-protected` is passed on) and only when that
+passed merges it with `--no-ff`, pushes `main` to origin and to `main.git` of the build and closes the pull request
+with a comment that names the merge commit. On a failure `main` stays as it was. It never deploys;
+`awb pr take N --dry-run` prints the steps.
 
 What the build side does not prove (the accepted limits of `presentations/self-build/THREAT-MODEL.md`, section 6):
 

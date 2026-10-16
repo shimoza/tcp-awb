@@ -7748,8 +7748,57 @@
    "name": "eval Q32 expects the revision of the dataset under test",
    "run": ".venv/bin/pytest tests/test_dataset_polish.py::test_q32_expects_the_revision_of_the_dataset_under_test",
    "status": "passing"
+  },
+  {
+   "id": "fix-r1-r2-pr-take-and-branch-paths-1",
+   "phase": "fix-r1-r2-pr-take-and-branch-paths",
+   "name": "pr take: a pull request of the owner from a branch of the repository is taken after gh said so",
+   "run": ".venv/bin/pytest tests/test_pr_take.py::test_a_pull_request_of_the_owner_from_a_branch_of_the_repository_is_taken_after_gh_said_so",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r1-r2-pr-take-and-branch-paths-2",
+   "phase": "fix-r1-r2-pr-take-and-branch-paths",
+   "name": "pr take: a fork, another author or another head owner is refused before the fetch, the login never printed",
+   "run": ".venv/bin/pytest tests/test_pr_take.py::test_a_fork_or_another_account_is_refused_before_the_fetch",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r1-r2-pr-take-and-branch-paths-3",
+   "phase": "fix-r1-r2-pr-take-and-branch-paths",
+   "name": "pr take: without gh or with a gh that gives no JSON the take is refused before the fetch",
+   "run": ".venv/bin/pytest tests/test_pr_take.py::test_without_gh_or_with_a_gh_that_gives_no_json_the_take_is_refused_before_the_fetch",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r1-r2-pr-take-and-branch-paths-4",
+   "phase": "fix-r1-r2-pr-take-and-branch-paths",
+   "name": "pr take: --allow-protected reaches the check and the dry run names it",
+   "run": ".venv/bin/pytest tests/test_pr_take.py::test_allow_protected_reaches_the_check_and_the_dry_run_names_it",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r1-r2-pr-take-and-branch-paths-5",
+   "phase": "fix-r1-r2-pr-take-and-branch-paths",
+   "name": "build check: a branch that changes seal/, plugin/hooks/, rules/ or CLAUDE.md is red: protected path before any code runs",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_branch_that_changes_a_protected_path_is_red_before_any_code_runs",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r1-r2-pr-take-and-branch-paths-6",
+   "phase": "fix-r1-r2-pr-take-and-branch-paths",
+   "name": "build check: --allow-protected lets a branch change a protected path and the check line names it",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_allow_protected_lets_a_branch_change_a_protected_path_and_the_line_names_it",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r1-r2-pr-take-and-branch-paths-7",
+   "phase": "fix-r1-r2-pr-take-and-branch-paths",
+   "name": "build check: the command passes --allow-protected to the runner only when given",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_awb_build_check_passes_allow_protected_to_the_runner_only_when_given",
+   "status": "passing"
   }
  ],
- "total_tests": 1107,
+ "total_tests": 1114,
  "checked": "2026-10-17"
 }
