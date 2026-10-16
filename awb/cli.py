@@ -270,7 +270,13 @@ def _cmd_close(args, p: config.Paths) -> int:
             return _err(why)
     items = projects.open_items(before.path) if before else 0
     live = projects.live_resources(before.path) if before else 0
-    pr = projects.close(p, args.code, force=args.force)
+    try:
+        pr = projects.close(p, args.code, force=args.force)
+    except projects.ProjectError:
+        if before is not None and before.state == "active" and not args.force:
+            for line in projects.open_item_lines(before.path) + projects.live_resource_lines(before.path):
+                print(line, file=sys.stderr)
+        raise
     if before is not None and before.state == "closed":
         print("%s was closed already" % pr.code)
         return EXIT_OK

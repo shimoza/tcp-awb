@@ -1145,6 +1145,11 @@ def hook_stop(data: dict) -> int:
             # the refusal names the field and the counts, never a value
             draft_msg = ("the ledger refused the draft of this session's commits (%s): add the entry yourself with "
                          "awb ledger add, in plain words" % exc)
+    try:
+        from awb import projects
+        projects.mail_owner_commands(config.paths(), root)
+    except Exception:
+        pass                                # a mail that fails is tried at the next stop
     harvest_msg = None
     try:
         from awb import harvest

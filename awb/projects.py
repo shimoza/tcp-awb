@@ -669,15 +669,15 @@ def open_items(folder: Path) -> int:
     return sum(1 for line in text.splitlines() if line.startswith("- "))
 
 
-def live_resources(folder: Path) -> int:
-    """Rows of the table in RESOURCES.md whose state is live or has no state that says otherwise (creating
-    counts: a lab create that never finished may have made its resource)."""
+def _live_rows(folder: Path) -> list[dict[str, str]]:
+    """The rows of the table in RESOURCES.md whose state is live or has no state that says otherwise (creating
+    counts: a lab create that never finished may have made its resource), each as column -> cell."""
     try:
         text = (Path(folder) / "RESOURCES.md").read_text(encoding="utf-8")
     except OSError:
-        return 0
+        return []
     head: list[str] | None = None
-    live = 0
+    live: list[dict[str, str]] = []
     for line in text.splitlines():
         cells = [c.strip().lower() for c in line.strip().strip("|").split("|")] if line.strip().startswith("|") else None
         if cells is None:
@@ -688,12 +688,100 @@ def live_resources(folder: Path) -> int:
         if all(set(c) <= set("-: ") for c in cells):
             continue
         if len(cells) == len(head):
-            state = dict(zip(head, cells)).get("state", "")
+            row = dict(zip(head, cells))
+            state = row.get("state", "")
         else:                   # a row of another width (a table of before the handle column): its state word
             state = next((c for c in cells if c in RESOURCE_STATES), "")
+            row = {"handle": cells[0], "state": state}
         if state not in ("deleted", "kept", "not created"):
-            live += 1
+            live.append(row)
     return live
+
+
+def live_resources(folder: Path) -> int:
+    """The count of live rows of RESOURCES.md (see _live_rows)."""
+    return len(_live_rows(folder))
+
+
+ITEM_COMMAND = re.compile(r"`(awb [^`]+)`|\b(awb [a-z][^;,()`]*)")
+LIVE_COMMAND = "awb cloud sweep"
+"""The command that lists a live resource by handle; the row is marked deleted or kept in RESOURCES.md after."""
+
+
+def item_command(item: str) -> str | None:
+    """The `awb ...` command an item of OPEN.md names for the owner: the first one in backticks or else the run of
+    words after a bare `awb WORD`. Only fixed characters pass, so a mail carries no free text."""
+    m = ITEM_COMMAND.search(item)
+    if not m:
+        return None
+    cmd = " ".join((m.group(1) or m.group(2)).split()).rstrip(".:")
+    return cmd if re.fullmatch(r"awb [a-z][a-z-]*( [A-Za-z0-9._:/=@-]+)*", cmd) else None
+
+
+def open_item_lines(folder: Path) -> list[str]:
+    """The open items of OPEN.md, one line each; the command an item names is added as `(run: ...)`."""
+    try:
+        text = (Path(folder) / "OPEN.md").read_text(encoding="utf-8")
+    except OSError:
+        return []
+    out = []
+    for line in text.splitlines():
+        if line.startswith("- "):
+            item = " ".join(line[2:].split())
+            cmd = item_command(item)
+            out.append("open: %s%s" % (item, " (run: %s)" % cmd if cmd else ""))
+    return out
+
+
+def live_resource_lines(folder: Path) -> list[str]:
+    """The live rows of RESOURCES.md, one line each: handle, type, state and the command that lists it. Never the
+    platform id."""
+    return ["live: %s (%s, %s) (run: %s)" % (r.get("handle") or "-", r.get("type") or "-", r.get("state") or "-",
+                                             LIVE_COMMAND) for r in _live_rows(folder)]
+
+
+def mail_owner_commands(p: _config.Paths, folder: Path, send=None) -> int:
+    """P8 of F3: one mail through the key service's notify for every owner item of OPEN.md that names a command
+    for him, once per item. The body is the project code, the item and the command; the item passed the commit
+    gate. The mark (a hash of the item) is written only when the mail was sent, in `<code>.mailed` beside the
+    ledger drafts, so a mail that failed is tried at the next stop. Returns the count sent."""
+    import hashlib
+
+    code = Path(folder).name
+    try:
+        text = (Path(folder) / "OPEN.md").read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    mark = p.ledger / ".drafts" / (code + ".mailed")
+    try:
+        done = set(mark.read_text(encoding="utf-8").split())
+    except OSError:
+        done = set()
+    if send is None:
+        import importlib
+
+        keys = importlib.import_module("awb.tcp.keys")      # the core reaches the platform package this way
+
+        def send(subject: str, message: str) -> bool:
+            return keys.send_mail(subject, message) == "sent"
+    sent = 0
+    for item in _owner_items(text):
+        cmd = item_command(item)
+        key = hashlib.sha256(item.encode("utf-8")).hexdigest()[:16]
+        if cmd is None or key in done:
+            continue
+        body = "Project %s waits on you. Item: %s\nAs the owner in your terminal:\n%s\n" % (code, item, cmd)
+        try:
+            ok = bool(send("Workbench %s: a command waits on you" % code, body))
+        except Exception:
+            ok = False
+        if ok:
+            done.add(key)
+            sent += 1
+    if sent:
+        mark.parent.mkdir(parents=True, exist_ok=True)
+        mark.write_text("\n".join(sorted(done)) + "\n", encoding="utf-8")
+    return sent
 
 
 def close(p: _config.Paths, code: str, force: bool = False) -> Project:

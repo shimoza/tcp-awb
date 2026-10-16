@@ -7,6 +7,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- Two small steps of the architect journey (F3, P8 and P13). The stop hook sends one mail through the key service's notify (`keys.send_mail`, as `awb build nudge` does) for every owner item of OPEN.md that names an `awb` command, once per item: the project code, the item and the command, never a name (`projects.mail_owner_commands`, the mark in `<code>.mailed` beside the ledger drafts, written only when the mail was sent). `awb close` prints the open items of OPEN.md and the live rows of RESOURCES.md, codes only, each with its command, when it refuses.
 - The reader service answers `GET /api/kb?q=`, `/api/price?service=` and `/api/usage` (Z3 step 10, server part,
   `awb/tcp/web/reader_api.py`): the knowledge base with the name check of today's register, the price records of one
   service and the TCP API calls of the month by day, as JSON with codes and counts only. The gateway forwards them
