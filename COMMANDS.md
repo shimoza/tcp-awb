@@ -69,10 +69,10 @@ project was created. A drifted folder is renamed in the bucket, never the projec
 |---|---|
 | `awb bucket sync` | create the folders of every active project; report folders that match no project (count per month, no name) |
 | `awb bucket folder CODE` | the folder of one project, created when missing |
-| `awb bucket pull CODE` | new files of `in/` into the vault inbox, then the intake for the project's customer (for a project without one under the project code), in wipe mode; it prints the values wiped per class. A file is taken once (`--again` takes it again). `awb import CODE` does the same and more. Your own shell |
+| `awb bucket pull CODE` | new files of `in/` into the vault inbox, then the intake for the project's customer (for a project without one under the project code), in wipe mode; it prints the values wiped per class. A file is taken once (`--again` takes it again). `awb import CODE` does the same and more. Your own terminal, never an assistant session: the client gives no file of `in/` to one |
 | `awb bucket put CODE FILE` | FILE into `out/`; `--replace` overwrites, `--reveal` puts the real names back first (your own shell). The send gate runs first: for a project with a customer or partner it refuses a deliverable without a valid review at tier 3 (or a tier he lowered) and a tier 3 review without the request check; an internal file leaves with a warning |
 | `awb dataset put [--out DIR] [--date D] [--replace] [--github \| --github-only]` | the zip, the how-to PDF and the manifest of the newest built dataset (or the one of `--date`) into `datasets/tcp-facts/<date>/` of the bucket (`--out` names the folder that holds the built datasets, default `~/tcp-shared/datasets`) and the date into `datasets/tcp-facts/LATEST`. `--github` also copies facts.md, facts.jsonl, services.md, topics/ and prices/ into the root of github.com/shimoza/tcp-facts through a clone under `~/tcp-shared/datasets/tcp-facts.git` (made on first use with gh), commits them as the GitHub account, tags the date and makes a release of it with the zip, HOW-TO.pdf and MANIFEST.json, the counts as notes. Every git call on the clone carries `-c safe.directory=<the clone>` (that path only), so you put from a clone the work user owns without a global git setting; the owner's commit identity, an old author setting or a registered name in any file refuses it, and a date already tagged needs `--replace`. `--github-only` does the GitHub part alone, without the bucket and without the key service. Your own shell, it goes through the key service (unlocked; not with `--github-only`) and takes your gh login |
-| `awb bucket move <YYYY-MM>/<NAME>/ CODE` | rename a drifted folder: copy inside the object storage, compare names and sizes, then delete the old objects. Through the key service it stops at once with a line saying so, because the service offers list, get and put only: rename the folder in the object storage console |
+| `awb bucket move <YYYY-MM>/<NAME>/ CODE` | rename a drifted folder: copy inside the object storage, compare names and sizes, then delete the old objects. Through the key service it stops at once with a line saying so, because the service offers list, get and put only: rename the folder in the object storage console. Your own terminal, never an assistant session |
 
 These commands hold no bucket key. They call the admin socket of the key service (`awb keys unlock` loads the lab
 key of `bucket_tenant` in keys.conf; the bucket is `owner_bucket` there). A locked or stopped service stops them with
@@ -912,7 +912,7 @@ the folder of one project, created when missing
 
 ### `awb bucket pull CODE [--again]`
 
-new files of in/ into the vault inbox, then the intake (your own shell)
+new files of in/ into the vault inbox, then the intake (your own terminal, never an assistant session)
 - `CODE`
 - `--again`: take files again that were downloaded before
 
@@ -926,7 +926,7 @@ a file into out/
 
 ### `awb bucket move FOLDER CODE`
 
-rename a drifted folder to <month>/<code>/
+rename a drifted folder to <month>/<code>/ (your own terminal, never an assistant session)
 - `FOLDER`
 - `CODE`
 

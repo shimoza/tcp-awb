@@ -79,7 +79,9 @@ kinds and both limits for every side. The owner's own commands (`awb bucket`, `a
 the owner bucket through the admin socket of the key service (list, get and put inside these folders, the same limit
 and the owner's user id only); there is no bucket key in the environment, and a locked or stopped service stops
 them with one line that names `awb keys unlock`. `awb bucket move` needs a copy and a delete that the service does
-not offer, so it stops with a line saying so. The project code is the one identifier: a customer code exists
+not offer, so it stops with a line saying so. `awb bucket pull` and `awb bucket move` never run inside an assistant
+session, and the client gives no file of `in/` to one, whatever the uid: an original reaches the owner's own
+terminal only, as with `awb import` and `awb fetch`. The project code is the one identifier: a customer code exists
 only when a customer is registered. A project without one is normal. A file of the owner inbox goes to the
 project's customer. The key service checks every file of the lab inbox before the session gets it.
 

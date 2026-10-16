@@ -7601,8 +7601,36 @@
    "name": "recheck-watch: the leftover mail carries the sweep's handle and kind and no text of a row, printable ASCII (R7)",
    "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_the_mail_carries_the_sweeps_handle_and_kind_and_no_text_of_a_row",
    "status": "passing"
+  },
+  {
+   "id": "fix-r6-bucket-session-guard-1",
+   "phase": "fix-r6-bucket-session-guard",
+   "name": "bucket: pull and move refuse inside an assistant session before the key service is asked",
+   "run": ".venv/bin/pytest tests/test_bucket_session.py::test_pull_and_move_refuse_inside_a_session_before_the_key_service",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r6-bucket-session-guard-2",
+   "phase": "fix-r6-bucket-session-guard",
+   "name": "bucket: a get of a file of in/ refuses inside a session even when called directly",
+   "run": ".venv/bin/pytest tests/test_bucket_session.py::test_a_get_of_a_file_of_in_refuses_inside_a_session_even_when_called_directly",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r6-bucket-session-guard-3",
+   "phase": "fix-r6-bucket-session-guard",
+   "name": "bucket: the session check comes before the socket and reads the in/ segment only",
+   "run": ".venv/bin/pytest tests/test_bucket_session.py::test_the_session_check_comes_before_the_socket",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r6-bucket-session-guard-4",
+   "phase": "fix-r6-bucket-session-guard",
+   "name": "bucket: the same fetch runs in the owner's own terminal",
+   "run": ".venv/bin/pytest tests/test_bucket_session.py::test_the_same_fetch_runs_in_the_owners_own_terminal",
+   "status": "passing"
   }
  ],
- "total_tests": 1086,
+ "total_tests": 1090,
  "checked": "2026-10-16"
 }
