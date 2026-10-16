@@ -9,9 +9,10 @@ import re
 import stat
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from awb import check, codes, config, projects, review, vault, normalize
 from awb import status as recorded
+from awb.tcp.web import reader_api
 
 FILES = ('SCOPE.md', 'STATE.md', 'OPEN.md', 'RESOURCES.md')
 LIMIT = 256 * 1024
@@ -240,7 +241,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command!='HEAD':self.wfile.write(raw)
     def do_GET(self):
-        path=urlsplit(self.path).path
+        url=urlsplit(self.path)
+        path=url.path
+        if path in reader_api.ROUTES:
+            query={k:v[0] for k,v in parse_qs(url.query,keep_blank_values=True).items()}
+            try:status,data=reader_api.ROUTES[path](config.paths(),query)
+            except Exception:status,data=503,{'error':'The answer could not be built. Try again shortly.'}
+            self.reply(status,data);return
         if path!='/api/board' and not re.fullmatch(r'/api/projects(?:/'+codes.TCP_PROJECT_WIDE+r')?',path):
             self.reply(404,{'error':'No such project endpoint.'});return
         try:

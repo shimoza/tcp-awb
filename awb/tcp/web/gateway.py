@@ -1102,7 +1102,7 @@ class Gateway(BaseHTTPRequestHandler):
             return ('tcp', s.ask_port if path == '/ask' else s.portal_port)
         if path == '/api/tenants':
             return ('tcp', s.tenants_port)
-        if re.fullmatch(r'/api/projects(?:/tcp-[a-z0-9]{4})?', path) or path == '/api/board':
+        if re.fullmatch(r'/api/projects(?:/tcp-[a-z0-9]{4})?', path) or path in ('/api/board', '/api/kb', '/api/price', '/api/usage'):
             if path == '/api/projects' and self.command == 'POST':
                 return ('unix', s.project_socket)
             return ('tcp', s.projects_port)
