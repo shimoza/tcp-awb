@@ -488,6 +488,7 @@ FILES = [
 
 # ---------------------------------------------------------------------------------------------------- schemas
 
+ANSWER_FAILED = "The answer could not be built. Try again shortly."
 KB_ANSWER = {"source": "AWB knowledge base", "fetched_at": "2026-10-16T09:30:00.120034+00:00",
              "query": "cold storage", "withheld": 0,
              "facts": [{"id": "KB-Q7M4", "statement": "The cold storage class is billed per GB and month.",
@@ -613,7 +614,7 @@ def _schemas() -> dict:
             "board_redacted": boolean("true when the data check withheld a part of a waiting-on or open item."),
         }), description="One active project on the board: the summary of the list and what management reads."),
         "KbFact": obj({
-            "id": string("The entry id, KB- and four characters.", pattern="^KB-[A-Z0-9]{4}$"),
+            "id": string("The entry id, KB- and four characters.", pattern="^%s$" % codes.KB_WIDE),
             "statement": string("The checked statement."),
             "grade": string("How it is known.", enum=["live", "contract", "docs", "said", "assumed"]),
             "class": string("The class of the fact, for example stable."),
@@ -1280,7 +1281,7 @@ def _reference_paths() -> dict:
                 "200": answer("The facts, best match first.", ref("KbAnswer"), {"one-fact": KB_ANSWER}),
                 "400": refusal("No words to search for.", "Give the words to search for in q."),
                 "503": refusal("The name check cannot run, so no fact is shown.",
-                               "The name check cannot run, so no fact is shown."),
+                               "The name check cannot run, so no fact is shown.", ANSWER_FAILED),
             }, description="The answer of the old /kb page as JSON: retired entries are left out, every entry "
                            "passes the name check of today's register and a name registered after its add is "
                            "counted in withheld and never shown. Reads the knowledge base only.",
@@ -1293,7 +1294,7 @@ def _reference_paths() -> dict:
                 "400": refusal("The service is missing or does not read like ecs or rds.",
                                "A service name reads like ecs or rds."),
                 "503": refusal("The price API gave no usable answer.",
-                               "The price API gave no usable answer for this service right now."),
+                               "The price API gave no usable answer for this service right now.", ANSWER_FAILED),
             }, description="The answer of the old /price page as JSON, from the public price API at the moment of "
                            "the request. An unknown region reads as eu-de.",
                 parameters=[query("service", "A service such as ecs, evs, rds or cce.", True),
@@ -1306,7 +1307,7 @@ def _reference_paths() -> dict:
         "/api/usage": {
             "get": operation("getApiUsage", "reference", "The calls to the TCP API this month, by day.", {
                 "200": answer("The days.", ref("UsageAnswer"), {"two-days": USAGE_ANSWER}),
-                "503": refusal("The usage record cannot be read.", "The usage record is unavailable."),
+                "503": refusal("The usage record cannot be read.", "The usage record is unavailable.", ANSWER_FAILED),
             }, description="The API usage lines of the old /tenants page as JSON: counts per day and per service "
                            "from the Workbench's own record of its calls. No tenant alias, no path, no id.",
                 state="repository"),

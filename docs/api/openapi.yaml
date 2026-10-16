@@ -1977,6 +1977,9 @@ paths:
                 the-name-check-cannot-run:
                   value:
                     error: The name check cannot run, so no fact is shown.
+                the-answer-could-not-be:
+                  value:
+                    error: The answer could not be built. Try again shortly.
       x-awb-state: repository
   /api/price:
     get:
@@ -2086,6 +2089,9 @@ paths:
                 the-price-api-gave-no:
                   value:
                     error: The price API gave no usable answer for this service right now.
+                the-answer-could-not-be:
+                  value:
+                    error: The answer could not be built. Try again shortly.
       x-awb-state: repository
   /api/usage:
     get:
@@ -2162,6 +2168,9 @@ paths:
                 the-usage-record-is-unavailable:
                   value:
                     error: The usage record is unavailable.
+                the-answer-could-not-be:
+                  value:
+                    error: The answer could not be built. Try again shortly.
       x-awb-state: repository
   "/api/projects/{code}/materials":
     get:
