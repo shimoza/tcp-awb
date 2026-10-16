@@ -20,7 +20,8 @@ The password store layout, one tenant per alias (the alias of `awb tenant add`):
 
 Two sockets, one JSON object per line and one answer per connection:
 
-    admin  <vault>/keys-admin.sock, mode 600, the owner only     ping, status, load, lock, reload
+    admin  <vault>/keys-admin.sock, mode 600, the owner only     ping, status, load, lock, reload, notify,
+                                                                bucket_list, bucket_get, bucket_put
     call   /run/awb-keys/cloud.sock, mode 660, group awb         ping, tenants, call
 
 A call names the tenant, the role (read or lab), the method, the service, the path (with {project_id} when
@@ -98,9 +99,9 @@ _RANDOM_SPECIAL = "!@%^-_=+"
 """The special characters a drawn password takes: those both the ECS and the RDS password rules allow."""
 LEAVE_WAIT = 70.0
 """Seconds a handed-over service waits for its calls in flight (a cloud call takes at most 60) before it exits."""
-ADMIN_OPS = ("load", "lock", "notify", "ping", "reload", "status")
+ADMIN_OPS = ("bucket_get", "bucket_list", "bucket_put", "load", "lock", "notify", "ping", "reload", "status")
 EXCHANGE_METHODS = ("GET", "HEAD", "PUT", "DELETE", "LIST", "COPY", "MONTHS", "OBS", "OWNER_HAS", "TAKE_OWNER", "INBOX_FIND",
-                    "WEB_READ", "TAKE_LAB", "OWNER_FOLDER", "WEB_PUT_IN")
+                    "WEB_READ", "TAKE_LAB", "OWNER_FOLDER", "WEB_PUT_IN", "BUCKET_GET", "BUCKET_LIST", "BUCKET_PUT")
 NOTIFY_MAX = 4000      # characters of an owner mail through the admin socket (awb ui watch --mail)
 CONSOLE_USER = "awb-console"
 """The system user of the console's tenant inventory (F2, his decision of 2026-10-04): it alone reads a test tenant
@@ -434,8 +435,18 @@ class Service:
                                           "error": "refused"})
                         return
                     upload = self._receive(conn, buf[buf.index(b"\n") + 1:], req)
+                if admin and req.get("op") == "bucket_put":
+                    # the owner's CLI: authorised before a byte of the upload is stored, like any other put
+                    refusal = self._bucket_refusal(req, uid, put=True)
+                    if refusal:
+                        self._send(conn, {"ok": False, "kind": "refused" if self.tenants else "locked",
+                                          "error": refusal})
+                        return
+                    upload = self._receive(conn, buf[buf.index(b"\n") + 1:], req)
                 if admin:
-                    answer = self._admin(req, uid)
+                    answer = self._admin(req, uid, upload)
+                    if isinstance(answer, tuple):
+                        answer, stream = answer
                 else:
                     answer = self._call_socket(req, uid, upload)
                     if isinstance(answer, tuple):
@@ -565,12 +576,14 @@ class Service:
         conn.sendall(json.dumps(answer, ensure_ascii=False).encode("utf-8") + b"\n")
 
     # the admin socket
-    def _admin(self, req: dict, uid: int) -> dict:
+    def _admin(self, req: dict, uid: int, upload: Path | None = None):
         if uid != os.getuid():
             return {"ok": False, "error": "refused"}
         from awb import handover
 
         op = req.get("op")
+        if op in ("bucket_list", "bucket_get", "bucket_put"):
+            return self._bucket(op, req, uid, upload)
         if op == "ping":
             return {"ok": True, "ops": list(ADMIN_OPS), "release": handover.release_path()}
         if op == "status":
@@ -600,6 +613,32 @@ class Service:
                 return {"ok": False, "error": "notify needs a subject and a message of at most %d" % NOTIFY_MAX}
             return {"ok": True, "sent": self._notify(subject, message)}
         return {"ok": False, "error": "unknown operation"}
+
+    def _bucket_refusal(self, req: dict, uid: int, put: bool = False) -> str | None:
+        """Why a call of the owner's CLI to the owner bucket is refused before its upload is read, or None."""
+        from awb.tcp import keys_exchange
+
+        if uid != os.getuid():
+            return "refused"
+        if not self.tenants:
+            return "the key service is locked: the owner runs awb keys unlock"
+        return keys_exchange.owner_put_refusal(self._xchg(), req) if put else None
+
+    def _bucket(self, op: str, req: dict, uid: int, upload: Path | None):
+        """`bucket_list`, `bucket_get`, `bucket_put`: the owner's CLI at the owner bucket, logged like an exchange
+        call."""
+        from awb.tcp import keys_exchange
+
+        if not self.tenants:
+            return {"ok": False, "kind": "locked", "error": "the key service is locked: the owner runs awb keys unlock"}
+        try:
+            answer, stream = keys_exchange.serve_bucket(self._xchg(), req, upload)
+        except Exception as err:
+            answer, stream = {"ok": False, "error": "the bucket call failed (%s)" % type(err).__name__}, None
+        self._log(uid, self.settings.get("bucket_tenant") or "-", "lab", op.upper(), op,
+                  self.settings.get("region") or "eu-de", "ok" if answer.get("ok") else str(answer.get("kind") or "refused"),
+                  "-")
+        return (answer, stream) if stream is not None else answer
 
     def _reload(self) -> dict:
         """Hand the service to a new process of the installed code (design 8.4): the same order as the vault

@@ -11,21 +11,24 @@ and `out/` for results (his decisions of 2026-09-24).
 A folder is looked for under every month and used where it is. A new one goes under the month the project was
 created. The project code is the fixed point: a drifted folder is renamed in the bucket, never the project.
 
-Owner side only. The bucket takes the owner's IAM user alone. A working session must never see an original before
-the intake: as the work user of a sealed host every command refuses. `pull` and `put --reveal` read the
-vault, so he runs them in his own shell.
+Owner side only. The bucket takes the owner's IAM user alone, and that key stays in the key service: every call
+goes through its admin socket (`awb keys unlock` loads it; F1 step 11). There is no bucket key in the environment or
+in the host file. A working session must never see an original before the intake: as the work user of a sealed host
+every command refuses. `pull` and `put --reveal` read the vault, so he runs them in his own shell.
 
-Settings, from the environment or the host file: AWB_BUCKET / bucket (default awb), AWB_BUCKET_REGION /
-bucket_region (default eu-de), AWB_BUCKET_KEYS / bucket_keys (pass:<entry of the password store>, required).
-AWB_BUCKET_ENDPOINT points at a stand-in (tests). Output carries codes, months, counts and sizes, never the name
-of a file of in/ and never the name of a folder that matches no project.
+The key service takes list, get and put only, inside the folders of the layout (awb/bucket_layout.py). `move` needs
+a copy and a delete and stops with a line saying so. A locked or stopped key service stops every command with one
+line that names `awb keys unlock`. Output carries codes, months, counts and sizes, never the name of a file of in/
+and never the name of a folder that matches no project.
 """
 from __future__ import annotations
 
+import json
 import mimetypes
 import os
 import shutil
 import re
+import socket
 import sys
 import tempfile
 from collections import Counter
@@ -47,34 +50,128 @@ class BucketError(Exception):
 # --------------------------------------------------------------------------- settings and client
 
 
+ADMIN_SOCKET_ENV = "AWB_KEYS_ADMIN"
+TIMEOUT = 190
+MAX_ANSWER = 8 * 1024 * 1024
+LOCKED_LINE = "the key service is locked or not running: the owner runs awb keys unlock"
+
+
 def settings() -> dict[str, str | None]:
     if config.is_work_user():
         raise BucketError("the bucket is the owner's: run awb bucket in your own shell")
-    conf = config.host_conf()
-
-    def get(env: str, key: str, default: str | None) -> str | None:
-        return os.environ.get(env) or conf.get(key) or default
-
-    return {"bucket": get("AWB_BUCKET", "bucket", OWNER_BUCKET),
-            "region": get("AWB_BUCKET_REGION", "bucket_region", REGION),
-            "keys": get("AWB_BUCKET_KEYS", "bucket_keys", None), "endpoint": os.environ.get("AWB_BUCKET_ENDPOINT")}
+    return {"bucket": OWNER_BUCKET, "region": REGION}
 
 
-def client() -> obs.Client:
-    s = settings()
-    if not s["keys"]:
-        raise BucketError("no key setting: set AWB_BUCKET_KEYS=pass:<entry of your password store>")
-    return obs.Client(s["bucket"], obs.keys_from_reference(s["keys"]), s["region"], endpoint=s["endpoint"])
+class KeyServiceClient:
+    """The calls of `obs.Client` that the owner's commands use, answered by the key service on its admin socket:
+    list, head (a list of the one key), get, put_bytes and put_file. `copy` and `delete` are not offered."""
+
+    can_copy = False
+
+    def __init__(self, sock: Path | None = None):
+        self.sock = sock
+
+    def _ask(self, req: dict, *, upload: Path | None = None, download: Path | None = None) -> dict:
+        """One request line on the admin socket, the bytes of a put after it and the bytes of a get after the answer
+        (the wire of awb.tcp.keys.request, written out here: the core imports no awb.tcp)."""
+        sock = self.sock or Path(os.environ.get(ADMIN_SOCKET_ENV) or config.paths().vault / "keys-admin.sock")
+        if upload is not None:
+            req = dict(req, length=upload.stat().st_size)
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(TIMEOUT)
+        try:
+            s.connect(str(sock))
+            s.sendall(json.dumps(req).encode("utf-8") + b"\n")
+            if upload is not None:
+                try:
+                    with open(upload, "rb") as fh:
+                        while chunk := fh.read(1 << 16):
+                            s.sendall(chunk)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass            # the service refused before the bytes were all sent: its answer is waiting
+            buf = bytearray()
+            while b"\n" not in buf:
+                chunk = s.recv(1 << 16)
+                if not chunk:
+                    break
+                buf += chunk
+                if len(buf) > MAX_ANSWER and b"\n" not in buf:
+                    raise BucketError("the answer of the key service is too large")
+            head, _, rest = bytes(buf).partition(b"\n")
+            try:
+                answer = json.loads(head)
+            except ValueError:
+                raise BucketError("the key service gave no readable answer") from None
+            length = answer.get("length") if isinstance(answer, dict) else None
+            if download is not None and isinstance(length, int):
+                with open(download, "wb") as out:
+                    out.write(rest[:length])
+                    got = min(len(rest), length)
+                    while got < length:
+                        chunk = s.recv(min(1 << 16, length - got))
+                        if not chunk:
+                            raise BucketError("the file from the key service ended early")
+                        out.write(chunk)
+                        got += len(chunk)
+        except (FileNotFoundError, ConnectionRefusedError, PermissionError):
+            raise BucketError(LOCKED_LINE) from None
+        except (OSError, socket.timeout) as err:
+            raise BucketError("no answer from the key service (%s)" % type(err).__name__) from None
+        finally:
+            s.close()
+        if not isinstance(answer, dict):
+            raise BucketError("the key service gave no readable answer")
+        if answer.get("ok"):
+            return answer
+        if answer.get("kind") == "locked" or "locked" in str(answer.get("error")):
+            raise BucketError(LOCKED_LINE)
+        if answer.get("kind") == "http":
+            raise obs.OBSError(str(answer.get("error")), int(answer.get("status") or 0))
+        raise BucketError("the key service: %s" % (answer.get("error") or "no answer"))
+
+    def list(self, prefix: str = "", delimiter: str = "", page: int = 0) -> obs.Listing:
+        a = self._ask({"op": "bucket_list", "prefix": prefix, "delimiter": delimiter})
+        return obs.Listing([(k, int(n), e) for k, n, e in a["objects"]], list(a["prefixes"]), dict(a["modified"]))
+
+    def head(self, key: str) -> dict | None:
+        for k, size, etag in self.list(key).objects:
+            if k == key:
+                return {"ETag": '"%s"' % etag, "Content-Length": str(size)}
+        return None
+
+    def get(self, key: str, to: Path, if_match: str | None = None) -> Path:
+        self._ask({"op": "bucket_get", "key": key}, download=Path(to))
+        return Path(to)
+
+    def put_file(self, key: str, path: Path, content_type: str = "application/octet-stream") -> None:
+        self._ask({"op": "bucket_put", "key": key, "content_type": content_type}, upload=Path(path))
+
+    def put_bytes(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "put"
+            f.write_bytes(data)
+            self.put_file(key, f, content_type)
+
+    def copy(self, source: str, target: str) -> None:
+        raise BucketError("the key service has no copy: move a folder in the object storage console")
+
+    def delete(self, key: str) -> None:
+        raise BucketError("the key service has no delete: move a folder in the object storage console")
+
+
+def client() -> KeyServiceClient:
+    settings()      # the work user is refused here
+    return KeyServiceClient()
 
 
 # --------------------------------------------------------------------------- the layout
 
 
-def months(c: obs.Client) -> list[str]:
+def months(c) -> list[str]:
     return [m for m in c.list("", "/").prefixes if _MONTH_RE.fullmatch(m)]
 
 
-def project_folders(c: obs.Client) -> list[tuple[str, str]]:
+def project_folders(c) -> list[tuple[str, str]]:
     """(month folder, name) of every folder one level below a month."""
     out = []
     for month in months(c):
@@ -83,7 +180,7 @@ def project_folders(c: obs.Client) -> list[tuple[str, str]]:
     return out
 
 
-def find_folder(c: obs.Client, code: str) -> str | None:
+def find_folder(c, code: str) -> str | None:
     """The folder of a project under any month, None when there is none. Refused when two months hold one."""
     found = [month + code + "/" for month, name in project_folders(c) if name == code]
     if len(found) > 1:
@@ -259,6 +356,8 @@ def move(p: config.Paths, c: obs.Client, old: str, code: str) -> dict:
     """Move a folder whose name drifted to `<its month>/<code>/`: copy every object inside the object storage,
     compare names and sizes, then delete the old objects. Nothing is deleted when the comparison fails."""
     _project(p, code)
+    if not getattr(c, "can_copy", True):
+        raise BucketError("the key service has no copy and no delete: move the folder in the object storage console")
     if not (_MONTH_RE.match(old or "") and old.endswith("/") and old.count("/") == 2):
         raise BucketError("give the folder as <YYYY-MM>/<name>/")
     target = folder_of(old[:7], code)

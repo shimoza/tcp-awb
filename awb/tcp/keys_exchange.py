@@ -705,6 +705,110 @@ def serve_web_read(ctx: Context, req: dict) -> tuple[dict, Path | None]:
         return _web_refusal("too_large", str(err))
 
 
+# The owner's CLI (`awb bucket`, `awb import`, `awb dataset put`) reaches the owner bucket through the admin socket
+# (F1 step 11): three calls, list, get and put, each inside the folders of the layout of awb/bucket_layout.py.
+_OWNER_PROJECT = "^" + bucket_layout.MONTH + "/(" + codes.TCP_PROJECT + ")/"
+_OWNER_MONTH_RE = re.compile("^" + bucket_layout.MONTH + "/$")
+_OWNER_FOLDER_RE = re.compile(_OWNER_PROJECT)
+_OWNER_LATEST = bucket_layout.DATASET_PREFIX + "LATEST"
+_OWNER_DATASET_RE = re.compile("^" + re.escape(bucket_layout.DATASET_PREFIX) + r"(?:\d{4}-\d{2}-\d{2}/)?[^/]+$")
+
+
+def _owner_plain(path) -> bool:
+    return isinstance(path, str) and not path.startswith("/") and "//" not in path and \
+        ".." not in path.split("/") and not any(ord(c) < 32 or ord(c) == 127 for c in path)
+
+
+def owner_list_ok(ctx: Context, prefix, delimiter) -> bool:
+    """A listing of the top, of a month, or of anything inside the folder of an active project or the dataset."""
+    if not _owner_plain(prefix) or delimiter not in ("", "/"):
+        return False
+    if prefix == "" or _OWNER_MONTH_RE.match(prefix):
+        return delimiter == "/"
+    if prefix.startswith(bucket_layout.DATASET_PREFIX):
+        return True
+    m = _OWNER_FOLDER_RE.match(prefix)
+    return bool(m) and ctx.active_project(m.group(1)) is not None
+
+
+def owner_key_ok(ctx: Context, key, method: str) -> bool:
+    """The keys of the owner bucket the owner's CLI may touch. GET: a file of a project's in/. PUT: the folder
+    marks (an empty put), a file of out/ and the dataset files; the project is active."""
+    if not _owner_plain(key) or not key or key.endswith("/") and method == "GET":
+        return False
+    if method == "PUT" and _OWNER_DATASET_RE.match(key):
+        return True
+    m = _OWNER_FOLDER_RE.match(key)
+    if not m or ctx.active_project(m.group(1)) is None:
+        return False
+    rest = key[m.end():]
+    if method == "GET":
+        return rest.startswith(bucket_layout.IN) and len(rest) > len(bucket_layout.IN)
+    if rest in ("", bucket_layout.IN, bucket_layout.OUT):
+        return True
+    return rest.startswith(bucket_layout.OUT) and len(rest) > len(bucket_layout.OUT) and "/" not in rest[len(bucket_layout.OUT):]
+
+
+def owner_put_refusal(ctx: Context, req: dict) -> str | None:
+    """Why a bucket_put is refused before its bytes are read, or None."""
+    if not owner_key_ok(ctx, req.get("key"), "PUT"):
+        return "a put is allowed into the out/ folder of an active project and the dataset folder only"
+    length = req.get("length")
+    if not isinstance(length, int) or isinstance(length, bool) or length < 0:
+        return "a put names its length"
+    if req["key"].endswith("/") and length:
+        return "a folder mark is empty"
+    return None
+
+
+def serve_bucket(ctx: Context, req: dict, upload: Path | None) -> tuple[dict, Path | None]:
+    """The owner's CLI: `bucket_list`, `bucket_get`, `bucket_put` on the owner bucket (the admin socket checks the
+    peer). OBS GET, PUT and LIST only; the upload limit is max_mb of keys.conf."""
+    from awb import obs
+
+    op = req.get("op")
+    try:
+        c = ctx.client("owner")
+    except XchgError as err:
+        return {"ok": False, "kind": "setup", "error": str(err)}, None
+    try:
+        if op == "bucket_list":
+            prefix, delimiter = req.get("prefix"), req.get("delimiter") or ""
+            if not owner_list_ok(ctx, prefix, delimiter):
+                return {"ok": False, "kind": "refused", "error": "refused"}, None
+            listing = c.list(prefix, delimiter)
+            return {"ok": True, "objects": [list(o) for o in listing.objects], "prefixes": list(listing.prefixes),
+                    "modified": dict(listing.modified)}, None
+        key = req.get("key")
+        if not owner_key_ok(ctx, key, "GET" if op == "bucket_get" else "PUT"):
+            return {"ok": False, "kind": "refused", "error": "refused"}, None
+        if op == "bucket_get":
+            head = c.head(key)
+            if head is None:
+                return {"ok": False, "kind": "http", "status": 404, "error": "HTTP 404"}, None
+            if int(head.get("Content-Length", 0) or 0) > ctx.max_bytes():
+                return {"ok": False, "kind": "too_large", "error": "the object is larger than the limit"}, None
+            tmp = Path(tempfile.mkstemp(prefix="awb-bucket-", dir=_tmp_dir(ctx))[1])
+            try:
+                c.get(key, tmp)
+                if tmp.stat().st_size > ctx.max_bytes():
+                    raise XchgError("the object grew past the limit")
+            except BaseException:
+                tmp.unlink(missing_ok=True)
+                raise
+            return {"ok": True, "etag": str(head.get("ETag", "")).strip('"'), "size": tmp.stat().st_size}, tmp
+        if upload is None:
+            return {"ok": False, "kind": "refused", "error": "a put carries its bytes"}, None
+        ctype = req.get("content_type")
+        ctype = ctype if isinstance(ctype, str) and re.fullmatch(r"[a-z0-9.+/-]{1,100}", ctype) else "application/octet-stream"
+        c.put_file(key, upload, ctype)
+        return {"ok": True, "size": upload.stat().st_size}, None
+    except obs.OBSError as err:
+        return {"ok": False, "kind": "http", "status": err.status, "error": str(err)}, None
+    except XchgError as err:
+        return {"ok": False, "kind": "too_large", "error": str(err)}, None
+
+
 # xchg.py imports this module at its end and its session side calls from_in, hold_line and put_id. Whichever of the
 # two loads first, the join runs once both hold their names.
 parts.join("awb.tcp.xchg", __name__)
