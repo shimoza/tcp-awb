@@ -7,6 +7,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- The deploy gate (threat model G2, `awb/deploy.py`): before a release is installed, the owner's plan child runs the
+  commit gate (`awb gate`, the same checks a commit and a push get) over the commits from the deployed release to the
+  target, the whole history when no release is deployed, and refuses on any finding with the commit and the class
+  and never a value, so root installs nothing. A gate that cannot run (no register, git failed) refuses too. The
+  verdict is a note of the plan, so `awb deploy --dry-run` shows `# gate: N commits a..b, clean` and a dry run of a
+  refused target prints the plan, the refusal and no step, exit 2. `gate.range_commits` and `gate.scan_commits`
+  (the commit part of the push scan, unchanged) are the pieces the deploy uses. The suite in the build unit and
+  the diff question of the threat model's row are left open.
 - The reader service answers `GET /api/kb?q=`, `/api/price?service=` and `/api/usage` (Z3 step 10, server part,
   `awb/tcp/web/reader_api.py`): the knowledge base with the name check of today's register, the price records of one
   service and the TCP API calls of the month by day, as JSON with codes and counts only. The gateway forwards them

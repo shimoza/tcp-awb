@@ -7475,8 +7475,43 @@
    "name": "bucket: bucket move stops before it changes anything",
    "run": ".venv/bin/pytest tests/test_bucket_keys.py::test_move_stops_before_it_changes_anything",
    "status": "passing"
+  },
+  {
+   "id": "f2-g2-deploy-gate-1",
+   "phase": "f2-g2-deploy-gate",
+   "name": "deploy gate: the gate scans deployed..target, the whole history without a deployed commit, and the verdict names commit and class only",
+   "run": ".venv/bin/pytest tests/test_deploy_gate.py::test_the_gate_scans_the_range_and_names_commit_and_class_only",
+   "status": "passing"
+  },
+  {
+   "id": "f2-g2-deploy-gate-2",
+   "phase": "f2-g2-deploy-gate",
+   "name": "deploy gate: a gate that cannot run (no register, no such commit) refuses",
+   "run": ".venv/bin/pytest tests/test_deploy_gate.py::test_a_gate_that_cannot_run_refuses",
+   "status": "passing"
+  },
+  {
+   "id": "f2-g2-deploy-gate-3",
+   "phase": "f2-g2-deploy-gate",
+   "name": "deploy gate: the clean verdict is a note of the plan that root validates; a finding refuses the plan and the dry run prints no step",
+   "run": ".venv/bin/pytest tests/test_deploy_gate.py::test_the_plan_carries_the_verdict_and_a_finding_refuses_it",
+   "status": "passing"
+  },
+  {
+   "id": "f2-g2-deploy-gate-4",
+   "phase": "f2-g2-deploy-gate",
+   "name": "deploy gate: without a working gate the plan child refuses instead of handing root a plan",
+   "run": ".venv/bin/pytest tests/test_deploy_gate.py::test_without_a_working_gate_the_plan_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "f2-g2-deploy-gate-5",
+   "phase": "f2-g2-deploy-gate",
+   "name": "deploy gate: root shows the plan child's refusal and installs nothing, with and without --dry-run",
+   "run": ".venv/bin/pytest tests/test_deploy_gate.py::test_root_installs_nothing_when_the_gate_refuses_the_plan",
+   "status": "passing"
   }
  ],
- "total_tests": 1068,
+ "total_tests": 1073,
  "checked": "2026-10-16"
 }

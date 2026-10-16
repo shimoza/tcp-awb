@@ -130,6 +130,9 @@ awb deploy --dry-run    # the plan, nothing runs
 sudo awb deploy
 ```
 
+Before anything is installed the plan runs the commit gate over every commit between the live release and the
+target (the same checks a commit gets) and refuses on a finding, naming the commit and the class only; the dry run
+shows the verdict as `# gate: ...`.
 The deploy installs the commit as a release of its own and restarts only what the change touched. The name check
 and the key service move to the new code without a lock, so no session stops and no key is loaded again. Changed
 rules reach every project and every running session. The run ends with the status of each service. A daemon
