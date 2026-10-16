@@ -380,7 +380,8 @@ def _check_customer(customer, register_path: Path, p: _config.Paths | None = Non
 
 # --- the skeleton -------------------------------------------------------------------------------------------
 
-def _scope(code: str, kind: str, customer: str, tags: list[str], goal: str, created: str) -> str:
+def _scope(code: str, kind: str, customer: str, tags: list[str], goal: str, created: str,
+           tenant: str | None = None) -> str:
     return (
         "# Scope of %s\n\n"
         "- code: %s\n"
@@ -391,7 +392,8 @@ def _scope(code: str, kind: str, customer: str, tags: list[str], goal: str, crea
         "- goal: %s\n"
         "- created: %s\n"
         "- mode: sealed\n"
-    ) % (code, code, kind, customer, PLATFORM, ", ".join(tags) if tags else "none", goal, created)
+    ) % (code, code, kind, customer, PLATFORM, ", ".join(tags) if tags else "none", goal, created) + (
+        "- tenant: %s\n" % tenant if tenant else "")
 
 
 def _state(code: str) -> str:
@@ -520,7 +522,8 @@ _known_tags = known_tags         # kept for the web adapters still deployed outs
 
 
 def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register_path: Path,
-          tags: list[str] = (), from_outbox: bool = False, code: str | None = None) -> Project:
+          tags: list[str] = (), from_outbox: bool = False, code: str | None = None,
+          tenant: str | None = None) -> Project:
     """Create, commit and register a sealed tcp- project. Refuses before anything is written. Tags come from
     rules/tags.txt (T-03). With `from_outbox` the sanitised copies waiting in the outbox of the customer move into
     input/ and go into the first commit (T-14). `code` takes a code reserved before (the web creation keeps it
@@ -528,6 +531,8 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
     kind = LEGACY_KINDS.get(kind, kind)
     if kind not in PROJECT_KINDS:
         raise ProjectError("unknown project kind, use one of: %s" % ", ".join(PROJECT_KINDS))
+    if tenant is not None and not (tenant_access(kind) and re.fullmatch(r"[a-z][a-z0-9-]{1,30}", tenant)):
+        raise ProjectError("a tenant alias reads like test-1 and belongs to a project, not a query")
     goal = _clean_goal(goal)
     tags = _clean_tags(tags)
     _word_checks(goal, "goal")
@@ -581,7 +586,7 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
             raise ProjectError("the projects root cannot be written to the project register")
         created = date.today().isoformat()
         files = {
-            "SCOPE.md": _scope(code, kind, customer, tags, goal, created),
+            "SCOPE.md": _scope(code, kind, customer, tags, goal, created, tenant),
             "STATE.md": _state(code),
             "OPEN.md": _open(code),
             "RESOURCES.md": _resources(code),
