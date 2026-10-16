@@ -1226,3 +1226,40 @@ def test_verify_refuses_a_hand_written_block_without_a_recipe_or_a_control(home,
     e.path.write_text(text + "--- check\ntier: none\nneeds: the console form\ncontrol: the form shows the field\n",
                       "utf-8")
     assert kb.verify([e.path]) == []
+
+
+# --------------------------------------------------------------------------- the tests of a read tier (review of 2026-10-16, finding R3)
+
+BLOCK_READ_TESTS = ("tier: read\n"
+                    "calls: GET ecs /v1/{project_id}/cloudservers/flavors\n"
+                    "confirms: flavors[name=s9.medium.1].os-extra_specs.cond:operation:az has eu-de-01(normal)\n"
+                    "refutes: flavors[name=s9.medium.1].os-extra_specs.cond:operation:az lacks eu-de-01(normal)\n"
+                    "control: flavors[name=s2.medium.1].os-extra_specs.cond:operation:az has sellout\n"
+                    "needs: none\n")
+
+
+def test_a_read_block_that_tests_status_alone_or_whose_control_is_the_confirm_is_refused(home, recipes):
+    """A planted block with `confirms: status is 200`, `refutes: status is 500` and `control: status is 200` passes
+    the form check and any 2xx would confirm it: `block_problems` names each line and `how` refuses the block; the
+    messages carry no value. A control that is the confirms line under another call number is the same test. A
+    write tier's lines are prose that the recipe's checks decide, so the rule does not read them."""
+    assert kb.block_problems(kb.parse_block(BLOCK_READ_TESTS.splitlines())) == []
+    lines = {k: next(x for x in BLOCK_READ_TESTS.splitlines() if x.startswith(k + ":"))
+             for k in ("confirms", "refutes", "control")}
+    planted = (BLOCK_READ_TESTS.replace(lines["confirms"], "confirms: status is 200")
+               .replace(lines["refutes"], "refutes: status is 500").replace(lines["control"], "control: status is 200"))
+    problems = kb.block_problems(kb.parse_block(planted.splitlines()))
+    assert [p.split(":")[0] for p in problems] == ["the confirms line of a read tier tests status alone",
+                                                   "the refutes line of a read tier tests status alone",
+                                                   "the control line of a read tier tests status alone",
+                                                   "the confirms line equals the control line"]
+    assert "200" not in " ".join(problems) and "500" not in " ".join(problems)
+    same = BLOCK_READ_TESTS.replace(lines["control"], "control: 1:" + lines["confirms"].split(": ", 1)[1])
+    assert kb.block_problems(kb.parse_block(same.splitlines())) == [
+        "the confirms line equals the control line: a control that is the confirm cannot tell a confirm from a refute"]
+    e = new(S_FLAVOR)
+    with pytest.raises(kb.Refused) as info:
+        kb.how(e.id, planted)
+    assert any("tests status alone" in r for r in info.value.reasons)
+    assert kb.get(e.id).check == ()
+    assert kb.block_problems(kb.parse_block(BLOCK_WRITE.splitlines())) == []

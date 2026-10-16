@@ -7538,8 +7538,71 @@
    "name": "deploy gate: root shows the plan child's refusal and installs nothing, with and without --dry-run",
    "run": ".venv/bin/pytest tests/test_deploy_gate.py::test_root_installs_nothing_when_the_gate_refuses_the_plan",
    "status": "passing"
+  },
+  {
+   "id": "fix-r3-r4-r5-r7-r8-recheck-1",
+   "phase": "fix-r3-r4-r5-r7-r8-recheck",
+   "name": "recheck: an entry whose grade is not live is the owner's and no call is made (R3)",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_an_entry_whose_grade_is_not_live_is_the_owners_and_no_call_is_made",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r3-r4-r5-r7-r8-recheck-2",
+   "phase": "fix-r3-r4-r5-r7-r8-recheck",
+   "name": "recheck: the write-back keeps the grade of a confirmed entry, never live (R3)",
+   "run": ".venv/bin/pytest tests/test_recheck.py::test_the_write_back_keeps_the_grade_of_a_confirmed_entry",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r3-r4-r5-r7-r8-recheck-3",
+   "phase": "fix-r3-r4-r5-r7-r8-recheck",
+   "name": "kb: a read block that tests status alone or whose control is the confirm is refused (R3)",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_a_read_block_that_tests_status_alone_or_whose_control_is_the_confirm_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r3-r4-r5-r7-r8-recheck-4",
+   "phase": "fix-r3-r4-r5-r7-r8-recheck",
+   "name": "lab: a denied flavor put together from pieces is refused before any call (R4)",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_denied_flavor_put_together_from_pieces_is_refused_before_any_call",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r3-r4-r5-r7-r8-recheck-5",
+   "phase": "fix-r3-r4-r5-r7-r8-recheck",
+   "name": "lab: the expanded body of a call is judged against the deny list before the send (R4)",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_the_expanded_body_of_a_call_is_judged_before_the_send",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r3-r4-r5-r7-r8-recheck-6",
+   "phase": "fix-r3-r4-r5-r7-r8-recheck",
+   "name": "lab: a register row whose path is another folder is refused before any call (R5)",
+   "run": ".venv/bin/pytest tests/test_lab.py::test_a_register_row_whose_path_is_another_folder_is_refused_before_any_call",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r3-r4-r5-r7-r8-recheck-7",
+   "phase": "fix-r3-r4-r5-r7-r8-recheck",
+   "name": "recheck-watch: a row whose path is another folder is not followed, the rows go to the owner's state folder (R5)",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_a_row_whose_path_is_another_folder_is_not_followed",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r3-r4-r5-r7-r8-recheck-8",
+   "phase": "fix-r3-r4-r5-r7-r8-recheck",
+   "name": "recheck-watch: a project folder that is a link is not followed (R5)",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_a_project_folder_that_is_a_link_is_not_followed",
+   "status": "passing"
+  },
+  {
+   "id": "fix-r3-r4-r5-r7-r8-recheck-9",
+   "phase": "fix-r3-r4-r5-r7-r8-recheck",
+   "name": "recheck-watch: the leftover mail carries the sweep's handle and kind and no text of a row, printable ASCII (R7)",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_the_mail_carries_the_sweeps_handle_and_kind_and_no_text_of_a_row",
+   "status": "passing"
   }
  ],
- "total_tests": 1077,
+ "total_tests": 1086,
  "checked": "2026-10-16"
 }
