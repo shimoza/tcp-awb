@@ -73,6 +73,9 @@ The intake, `awb gate` and every other path of customer material keep the plain 
     awb kb expired
     awb kb index
     awb kb export --out FILE [--scope S] [--grade G]... [--tag T]... [--include-expired] [--force]
+    awb kb review [--out DIR] [--date D]       the facts of the built dataset added or amended since the last
+                                               release, with source and grade; writes the mark `awb dataset put`
+                                               needs (awb/tcp/kbreview.py, G6 of the threat model)
 
 Exit codes: 0 ok, 1 refused (add, amend, retire) or expired entries found (expired), 2 usage or error.
 """
@@ -1702,6 +1705,19 @@ def _cmd_export(args, today: date) -> int:
     return 0
 
 
+def _cmd_review(args, today: date) -> int:
+    from awb.tcp import kbreview
+
+    try:
+        lines = kbreview.review(config.paths(), out=args.out, day=args.date)
+    except kbreview.ReviewError as err:
+        print("awb kb review: %s" % err, file=sys.stderr)
+        return 2
+    for line in lines:
+        print(line)
+    return 0
+
+
 def _cmd_expired(args, today: date) -> int:
     old = expired(today=today)
     if not old:
@@ -1812,6 +1828,13 @@ def _parser():
     s.add_argument("--include-expired", action="store_true", help="also entries past their expiry, marked expired")
     s.add_argument("--force", action="store_true", help="replace an existing output file")
     s.set_defaults(func=_cmd_export)
+
+    s = sub.add_parser("review", help="the facts of the built dataset added or amended since the last release, "
+                                      "with source and grade; the mark awb dataset put needs")
+    s.add_argument("--out", type=Path, default=None, help="where the built datasets are (default: <shared>/datasets)")
+    s.add_argument("--date", default=None, help="the dataset of that date (default: the newest)")
+    s.set_defaults(func=_cmd_review)
+
     s = sub.add_parser("index", help="write INDEX.md again")
     s.set_defaults(func=_cmd_index)
 
