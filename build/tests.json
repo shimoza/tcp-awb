@@ -7629,8 +7629,43 @@
    "name": "bucket: the same fetch runs in the owner's own terminal",
    "run": ".venv/bin/pytest tests/test_bucket_session.py::test_the_same_fetch_runs_in_the_owners_own_terminal",
    "status": "passing"
+  },
+  {
+   "id": "f3-owner-mail-and-close-1",
+   "phase": "f3-owner-mail-and-close",
+   "name": "owner mail and close: an owner item with a command is mailed once",
+   "run": ".venv/bin/pytest tests/test_owner_mail_and_close.py::test_an_owner_item_with_a_command_is_mailed_once",
+   "status": "passing"
+  },
+  {
+   "id": "f3-owner-mail-and-close-2",
+   "phase": "f3-owner-mail-and-close",
+   "name": "owner mail and close: a failed mail is tried again and a new item is mailed",
+   "run": ".venv/bin/pytest tests/test_owner_mail_and_close.py::test_a_mail_that_failed_is_tried_again_and_a_new_item_is_mailed",
+   "status": "passing"
+  },
+  {
+   "id": "f3-owner-mail-and-close-3",
+   "phase": "f3-owner-mail-and-close",
+   "name": "owner mail and close: an item without a clean command is not mailed",
+   "run": ".venv/bin/pytest tests/test_owner_mail_and_close.py::test_an_item_without_a_clean_command_is_not_mailed",
+   "status": "passing"
+  },
+  {
+   "id": "f3-owner-mail-and-close-4",
+   "phase": "f3-owner-mail-and-close",
+   "name": "owner mail and close: the stop hook sends the mail",
+   "run": ".venv/bin/pytest tests/test_owner_mail_and_close.py::test_the_stop_hook_sends_the_mail",
+   "status": "passing"
+  },
+  {
+   "id": "f3-owner-mail-and-close-5",
+   "phase": "f3-owner-mail-and-close",
+   "name": "owner mail and close: close lists the open items and live rows when it refuses",
+   "run": ".venv/bin/pytest tests/test_owner_mail_and_close.py::test_close_lists_the_open_items_and_live_rows_when_it_refuses",
+   "status": "passing"
   }
  ],
- "total_tests": 1090,
+ "total_tests": 1095,
  "checked": "2026-10-16"
 }
