@@ -143,7 +143,7 @@ def test_the_command_line_end_to_end(home, fake, project, tmp_path, monkeypatch,
     """Since Z3 step 11 the command line reaches the bucket through the key service alone (tests/test_bucket_keys.py
     runs it end to end against a real key service); without one it stops with the unlock line and reads no key
     setting (his word P31)."""
-    monkeypatch.setenv("AWB_KEYS_ADMIN", str(tmp_path / "no-such-keys-admin.sock"))
+    monkeypatch.delenv("AWB_KEYS_ADMIN", raising=False)  # the test home has no key service socket
     monkeypatch.setenv("AWB_BUCKET_KEYS", "pass:cloud/owner")
     assert cli.main(["bucket", "folder", project.code]) == 2
     assert bucket.LOCKED_LINE in capsys.readouterr().err

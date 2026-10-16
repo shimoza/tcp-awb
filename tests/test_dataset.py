@@ -274,7 +274,7 @@ def test_put_sends_the_zip_the_pdf_and_the_manifest_and_marks_the_latest(home, f
             dataset.put(fake.client(), built.folder)
         assert dataset.put(fake.client(), built.folder, replace=True) == keys
         # the command finds the newest build and needs the key service (Z3 step 11, his word P31)
-        monkeypatch.setenv("AWB_KEYS_ADMIN", str(tmp_path / "no-such-keys-admin.sock"))
+        monkeypatch.delenv("AWB_KEYS_ADMIN", raising=False)  # the test home has no key service socket
         assert cli.main(["dataset", "put", "--out", str(tmp_path / "ds")]) == 1
         assert "the key service is locked or not running" in capsys.readouterr().err
         assert cli.main(["dataset", "put", "--out", str(tmp_path / "none")]) == 1
