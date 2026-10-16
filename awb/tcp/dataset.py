@@ -9,7 +9,7 @@ files any assistant reads, built in one command so that a fresh copy appears wit
                                                           --github also puts the files and README.md into the
                                                           root of the public repository, tags the date and makes
                                                           a release of it; --github-only does that without the
-                                                          bucket and asks for no bucket key
+                                                          bucket and does not call the key service
 
 What the folder holds: README.md and PROMPT.md (how to use it, the one-line prompt), HOW-TO.pdf (the same for
 people who read PDF), facts.md (every fact on one line, grouped by topic, small enough for one chat), topics/<tag>.md
@@ -57,7 +57,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from awb import bucket, config, gate, kb, obs, offered, register
+from awb import bucket, bucket_layout, config, gate, kb, obs, offered, register
 from awb.tcp import price
 
 NAME = "TCP Facts"
@@ -76,7 +76,7 @@ DOCS_LICENCE = "Apache License 2.0"
 _MIRROR_SOURCE_RE = re.compile(r"\b(?:docs|documentation) mirror\b", re.I)   # a source line in the docs mirror
 SOURCE_ATTRIBUTION = ("The documentation facts draw on the repositories of github.com/%s, licensed under the %s "
                       "(www.apache.org/licenses/LICENSE-2.0)." % (DOCS_ORG, DOCS_LICENCE))
-BUCKET_PREFIX = "datasets/%s/" % SLUG
+BUCKET_PREFIX = bucket_layout.DATASET_PREFIX
 PRICE_COLUMNS = (("id", "id"), ("service", "productId"), ("product", "productName"), ("flavor", "opiFlavour"),
                  ("os", "osUnit"), ("vcpu", "vCpu"), ("ram", "ram"), ("unit", "unit"), ("currency", "currency"),
                  ("payg", "priceAmount"), ("reserved_12m", "R12"), ("reserved_24m", "R24"), ("reserved_36m", "R36"),

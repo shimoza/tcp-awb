@@ -75,7 +75,11 @@ words which one you mean ("the pdf", "the newest", a part of its name). The sess
 Every project also has its own folder `<YYYY-MM>/<code>/in/` in the owner bucket. `awb spawn` makes it through
 the key service. The console puts files there, each of at most 25 MiB and of a kind the console reads; the key
 service moves at most `max_mb` of keys.conf (default 100) in one object. `awb/bucket_layout.py` sets the folders, the
-kinds and both limits for every side. The project code is the one identifier: a customer code exists
+kinds and both limits for every side. The owner's own commands (`awb bucket`, `awb import`, `awb dataset put`) reach
+the owner bucket through the admin socket of the key service (list, get and put inside these folders, the same limit
+and the owner's user id only); there is no bucket key in the environment, and a locked or stopped service stops
+them with one line that names `awb keys unlock`. `awb bucket move` needs a copy and a delete that the service does
+not offer, so it stops with a line saying so. The project code is the one identifier: a customer code exists
 only when a customer is registered. A project without one is normal. A file of the owner inbox goes to the
 project's customer. The key service checks every file of the lab inbox before the session gets it.
 
@@ -429,7 +433,7 @@ as the GitHub account, tags the date and makes a release of it with the zip, the
 scanned for a person and a registered name first, and a hit refuses the put.
 Every git call on the clone (`~/tcp-shared/datasets/tcp-facts.git`, owned by the work user) names that path in
 `-c safe.directory=`, so your put passes git's ownership check without a global git setting.
-`--github-only` does the GitHub part alone, without the bucket and without asking for its key.
+`--github-only` does the GitHub part alone, without the bucket and without calling the key service.
 The release notes say what is new since the previous release: the facts added, amended (same id, changed statement
 or source) and retired, compared by id with the `facts.jsonl` of the previous release tag in the local clone, and the
 requirement areas and service sections the added facts touch. The first release has no such part.

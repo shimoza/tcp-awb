@@ -7426,8 +7426,57 @@
    "name": "reader api: the contract lists the three routes as repository state",
    "run": ".venv/bin/pytest tests/test_web_reader_api.py::test_the_contract_lists_the_three_routes",
    "status": "passing"
+  },
+  {
+   "id": "z3-bucket-through-keys-1",
+   "phase": "z3-bucket-through-keys",
+   "name": "bucket: bucket and folder, put and replace, pull through the key service (no key in the environment)",
+   "run": ".venv/bin/pytest tests/test_bucket_keys.py::test_folder_put_list_and_pull_run_through_the_key_service",
+   "status": "passing"
+  },
+  {
+   "id": "z3-bucket-through-keys-2",
+   "phase": "z3-bucket-through-keys",
+   "name": "bucket: a locked key service stops with one line that names awb keys unlock",
+   "run": ".venv/bin/pytest tests/test_bucket_keys.py::test_a_locked_key_service_stops_with_one_line_that_names_unlock",
+   "status": "passing"
+  },
+  {
+   "id": "z3-bucket-through-keys-3",
+   "phase": "z3-bucket-through-keys",
+   "name": "bucket: a missing key service gives the same line, a key in the environment does not help",
+   "run": ".venv/bin/pytest tests/test_bucket_keys.py::test_a_missing_key_service_stops_with_the_same_line_and_no_key_in_the_environment_helps",
+   "status": "passing"
+  },
+  {
+   "id": "z3-bucket-through-keys-4",
+   "phase": "z3-bucket-through-keys",
+   "name": "bucket: the key service keeps the bucket layout and the upload limit on the admin calls",
+   "run": ".venv/bin/pytest tests/test_bucket_keys.py::test_the_key_service_keeps_the_layout_and_the_limit",
+   "status": "passing"
+  },
+  {
+   "id": "z3-bucket-through-keys-5",
+   "phase": "z3-bucket-through-keys",
+   "name": "bucket: another user and the call socket get nothing from the bucket calls",
+   "run": ".venv/bin/pytest tests/test_bucket_keys.py::test_other_users_and_the_call_socket_get_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "z3-bucket-through-keys-6",
+   "phase": "z3-bucket-through-keys",
+   "name": "bucket: the dataset files go through the key service",
+   "run": ".venv/bin/pytest tests/test_bucket_keys.py::test_dataset_files_go_through_the_key_service",
+   "status": "passing"
+  },
+  {
+   "id": "z3-bucket-through-keys-7",
+   "phase": "z3-bucket-through-keys",
+   "name": "bucket: bucket move stops before it changes anything",
+   "run": ".venv/bin/pytest tests/test_bucket_keys.py::test_move_stops_before_it_changes_anything",
+   "status": "passing"
   }
  ],
- "total_tests": 1061,
+ "total_tests": 1068,
  "checked": "2026-10-16"
 }
