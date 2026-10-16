@@ -121,7 +121,8 @@ def calls(shared: Path, month: str) -> list[dict]:
     return out
 
 
-def usage_lines(shared: Path, month: str) -> list[str]:
+def usage_days(shared: Path, month: str) -> dict[str, dict]:
+    """The calls of a month by day: calls, 429, errors, seconds waited and the calls by service."""
     days: dict[str, dict] = {}
     for c in calls(shared, month):
         d = days.setdefault(c.get("t", "")[:10], {"calls": 0, "429": 0, "errors": 0, "waited": 0.0, "services": {}})
@@ -134,6 +135,11 @@ def usage_lines(shared: Path, month: str) -> list[str]:
             d["errors"] += 1
         svc = c.get("service", "?")
         d["services"][svc] = d["services"].get(svc, 0) + 1
+    return days
+
+
+def usage_lines(shared: Path, month: str) -> list[str]:
+    days = usage_days(shared, month)
     if not days:
         return ["%s: no call to the TCP API recorded" % month]
     out = ["%-10s  %5s  %4s  %6s  %7s  %s" % ("day", "calls", "429", "errors", "waited", "by service")]

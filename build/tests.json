@@ -7335,8 +7335,99 @@
    "name": "hooks: the three files are hooks.client_settings, the work user's with its deny list",
    "run": ".venv/bin/pytest tests/test_generated_docs.py::test_hook_files_are_the_client_settings_and_the_work_user_denies_the_rest",
    "status": "passing"
+  },
+  {
+   "id": "z3-reader-api-1",
+   "phase": "z3-reader-api",
+   "name": "reader api: /api/kb finds a fact with its grade and fits the contract",
+   "run": ".venv/bin/pytest tests/test_web_reader_api.py::test_kb_finds_a_fact_with_its_grade",
+   "status": "passing"
+  },
+  {
+   "id": "z3-reader-api-2",
+   "phase": "z3-reader-api",
+   "name": "reader api: /api/kb gives the facts the portal page gives",
+   "run": ".venv/bin/pytest tests/test_web_reader_api.py::test_kb_gives_what_the_portal_page_gives",
+   "status": "passing"
+  },
+  {
+   "id": "z3-reader-api-3",
+   "phase": "z3-reader-api",
+   "name": "reader api: /api/kb needs words and cuts them at 200 characters",
+   "run": ".venv/bin/pytest tests/test_web_reader_api.py::test_kb_needs_words_and_cuts_them",
+   "status": "passing"
+  },
+  {
+   "id": "z3-reader-api-4",
+   "phase": "z3-reader-api",
+   "name": "reader api: /api/kb withholds a late-registered form, and without the name check shows nothing",
+   "run": ".venv/bin/pytest tests/test_web_reader_api.py::test_kb_withholds_a_form_registered_after_the_add_and_without_the_check_shows_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "z3-reader-api-5",
+   "phase": "z3-reader-api",
+   "name": "reader api: /api/kb leaves out a retired entry",
+   "run": ".venv/bin/pytest tests/test_web_reader_api.py::test_kb_leaves_out_a_retired_entry",
+   "status": "passing"
+  },
+  {
+   "id": "z3-reader-api-6",
+   "phase": "z3-reader-api",
+   "name": "reader api: /api/price gives the records, no name, fits the contract",
+   "run": ".venv/bin/pytest tests/test_web_reader_api.py::test_price_gives_the_records_of_the_price_api",
+   "status": "passing"
+  },
+  {
+   "id": "z3-reader-api-7",
+   "phase": "z3-reader-api",
+   "name": "reader api: /api/price cuts at 60 and reads an unknown region as eu-de",
+   "run": ".venv/bin/pytest tests/test_web_reader_api.py::test_price_cuts_at_sixty_and_an_unknown_region_reads_as_the_first",
+   "status": "passing"
+  },
+  {
+   "id": "z3-reader-api-8",
+   "phase": "z3-reader-api",
+   "name": "reader api: /api/price refuses a bad service and answers 503 when the API gives nothing",
+   "run": ".venv/bin/pytest tests/test_web_reader_api.py::test_price_refuses_a_bad_service_and_says_so_when_the_api_gives_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "z3-reader-api-9",
+   "phase": "z3-reader-api",
+   "name": "reader api: /api/usage counts the calls by day and service, no tenant alias",
+   "run": ".venv/bin/pytest tests/test_web_reader_api.py::test_usage_counts_the_calls_of_the_month_by_day",
+   "status": "passing"
+  },
+  {
+   "id": "z3-reader-api-10",
+   "phase": "z3-reader-api",
+   "name": "reader api: /api/usage without a record is empty, not an error",
+   "run": ".venv/bin/pytest tests/test_web_reader_api.py::test_usage_without_a_record_is_empty_not_an_error",
+   "status": "passing"
+  },
+  {
+   "id": "z3-reader-api-11",
+   "phase": "z3-reader-api",
+   "name": "reader api: /api/usage gives the counts of the portal lines",
+   "run": ".venv/bin/pytest tests/test_web_reader_api.py::test_usage_gives_the_counts_of_the_portal_lines",
+   "status": "passing"
+  },
+  {
+   "id": "z3-reader-api-12",
+   "phase": "z3-reader-api",
+   "name": "reader api: the routes are read only and an unknown path stays 404",
+   "run": ".venv/bin/pytest tests/test_web_reader_api.py::test_the_routes_are_read_only_and_the_old_paths_stay_as_they_were",
+   "status": "passing"
+  },
+  {
+   "id": "z3-reader-api-13",
+   "phase": "z3-reader-api",
+   "name": "reader api: the contract lists the three routes as repository state",
+   "run": ".venv/bin/pytest tests/test_web_reader_api.py::test_the_contract_lists_the_three_routes",
+   "status": "passing"
   }
  ],
- "total_tests": 1048,
+ "total_tests": 1061,
  "checked": "2026-10-16"
 }

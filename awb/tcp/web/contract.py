@@ -488,6 +488,23 @@ FILES = [
 
 # ---------------------------------------------------------------------------------------------------- schemas
 
+KB_ANSWER = {"source": "AWB knowledge base", "fetched_at": "2026-10-16T09:30:00.120034+00:00",
+             "query": "cold storage", "withheld": 0,
+             "facts": [{"id": "KB-Q7M4", "statement": "The cold storage class is billed per GB and month.",
+                        "grade": "live", "class": "stable", "checked": "2026-10-04", "expires": "2027-04-04",
+                        "expired": False}]}
+PRICE_ANSWER = {"source": "price API, fetched 2026-10-16 09:31 UTC", "service": "ecs", "region": "eu-de",
+                "terms": ["PAYG", "R12", "R36"], "total": 1, "truncated": False,
+                "records": [{"flavor": "s3.large.2", "name": "General computing", "os": "Linux", "unit": "h",
+                             "currency": "EUR", "prices": {"PAYG": "0.0500", "R12": None, "R36": "20.00"}}]}
+USAGE_ANSWER = {"source": "calls to the TCP API", "month": "2026-10",
+                "days": [{"day": "2026-10-15", "calls": 41, "throttled": 0, "errors": 1, "waited_seconds": 10.2,
+                          "services": [{"service": "ecs", "calls": 30}, {"service": "evs", "calls": 11}]},
+                         {"day": "2026-10-16", "calls": 12, "throttled": 2, "errors": 0, "waited_seconds": 3.1,
+                          "services": [{"service": "ecs", "calls": 12}]}],
+                "total": {"calls": 53, "throttled": 2, "errors": 1}}
+
+
 def _schemas() -> dict:
     summary = {
         "code": ref("ProjectCode"),
@@ -595,6 +612,62 @@ def _schemas() -> dict:
             }),
             "board_redacted": boolean("true when the data check withheld a part of a waiting-on or open item."),
         }), description="One active project on the board: the summary of the list and what management reads."),
+        "KbFact": obj({
+            "id": string("The entry id, KB- and four characters.", pattern="^KB-[A-Z0-9]{4}$"),
+            "statement": string("The checked statement."),
+            "grade": string("How it is known.", enum=["live", "contract", "docs", "said", "assumed"]),
+            "class": string("The class of the fact, for example stable."),
+            "checked": string("The date it was checked.", format="date"),
+            "expires": string("The date it stops being safe to rely on, null without one.", nullable=True),
+            "expired": boolean("true when expires is before today."),
+        }, description="One fact of the knowledge base."),
+        "KbAnswer": obj({
+            "source": string(enum=["AWB knowledge base"]),
+            "fetched_at": string("When the answer was put together.", format="date-time"),
+            "query": string("The words searched for, cut to 200 characters."),
+            "withheld": integer("Facts left out because a name registered after their add stands in them."),
+            "facts": array(ref("KbFact"), "At most 30 facts that are not retired, best match first."),
+        }, description="The facts that carry the words searched for."),
+        "PriceRecord": obj({
+            "flavor": string("The flavor, empty for a product without one."),
+            "name": string("The product name."),
+            "os": string("The OS unit, empty without one."),
+            "unit": string("The unit the price is for, for example h or GB/month."),
+            "currency": string("The currency of the amounts."),
+            "prices": obj({
+                "PAYG": string("Pay as you go.", nullable=True),
+                "R12": string("Reserved for 12 months.", nullable=True),
+                "R36": string("Reserved for 36 months.", nullable=True),
+            }, description="Each amount as a decimal text, null when the price API gives none."),
+        }, description="One price record."),
+        "PriceAnswer": obj({
+            "source": string("Where the prices come from and when they were fetched."),
+            "service": string("The service asked for."),
+            "region": string("The region asked for.", enum=["eu-de", "eu-nl", "eu-ch2"]),
+            "terms": array(string(), "The price terms of each record."),
+            "total": integer("The records that fit the flavor and the part of the name."),
+            "truncated": boolean("true when more than 60 records fit and only the first 60 are returned."),
+            "records": array(ref("PriceRecord"), "At most 60 records."),
+        }, description="The price records of one service, from the public price API at the moment of the request."),
+        "UsageDay": obj({
+            "day": string("The day.", format="date"),
+            "calls": integer("Calls to the TCP API."),
+            "throttled": integer("Calls the API answered with 429."),
+            "errors": integer("Calls without an answer or with a 5xx status."),
+            "waited_seconds": number("Seconds the Workbench waited between calls."),
+            "services": array(obj({"service": string("The service name, for example ecs."),
+                                   "calls": integer("Calls to it.")}), "Calls by service, by name."),
+        }, description="The calls to the TCP API of one day."),
+        "UsageAnswer": obj({
+            "source": string(enum=["calls to the TCP API"]),
+            "month": string("The month, the current one.", pattern="^[0-9]{4}-[0-9]{2}$"),
+            "days": array(ref("UsageDay"), "Days with a call, oldest first. Empty when none was recorded."),
+            "total": obj({
+                "calls": integer("Calls of the month."),
+                "throttled": integer("Calls answered with 429."),
+                "errors": integer("Calls without an answer or with a 5xx status."),
+            }),
+        }, description="What the Workbench sent to the TCP API this month, counted from its own record."),
         "Board": obj({
             "source": string(enum=["AWB project register"]),
             "generated_at": string("When the board was put together.", format="date-time"),
@@ -1196,6 +1269,51 @@ def _tenant_paths() -> dict:
     }
 
 
+def _reference_paths() -> dict:
+    def query(name, description, required=False, **schema):
+        return {"name": name, "in": "query", "required": required, "description": description,
+                "schema": dict({"type": "string"}, **schema)}
+
+    return {
+        "/api/kb": {
+            "get": operation("searchKnowledge", "reference", "The checked facts that carry the words searched for.", {
+                "200": answer("The facts, best match first.", ref("KbAnswer"), {"one-fact": KB_ANSWER}),
+                "400": refusal("No words to search for.", "Give the words to search for in q."),
+                "503": refusal("The name check cannot run, so no fact is shown.",
+                               "The name check cannot run, so no fact is shown."),
+            }, description="The answer of the old /kb page as JSON: retired entries are left out, every entry "
+                           "passes the name check of today's register and a name registered after its add is "
+                           "counted in withheld and never shown. Reads the knowledge base only.",
+                parameters=[query("q", "The words to search for, cut to 200 characters.", True)],
+                state="repository"),
+        },
+        "/api/price": {
+            "get": operation("lookUpPrice", "reference", "The price records of one service.", {
+                "200": answer("The records.", ref("PriceAnswer"), {"one-record": PRICE_ANSWER}),
+                "400": refusal("The service is missing or does not read like ecs or rds.",
+                               "A service name reads like ecs or rds."),
+                "503": refusal("The price API gave no usable answer.",
+                               "The price API gave no usable answer for this service right now."),
+            }, description="The answer of the old /price page as JSON, from the public price API at the moment of "
+                           "the request. An unknown region reads as eu-de.",
+                parameters=[query("service", "A service such as ecs, evs, rds or cce.", True),
+                            query("flavor", "The flavor, exact, in any case."),
+                            query("grep", "A part of the id, the flavor or the name."),
+                            query("region", "The region, eu-de when left out or unknown.",
+                                  enum=["eu-de", "eu-nl", "eu-ch2"])],
+                state="repository"),
+        },
+        "/api/usage": {
+            "get": operation("getApiUsage", "reference", "The calls to the TCP API this month, by day.", {
+                "200": answer("The days.", ref("UsageAnswer"), {"two-days": USAGE_ANSWER}),
+                "503": refusal("The usage record cannot be read.", "The usage record is unavailable."),
+            }, description="The API usage lines of the old /tenants page as JSON: counts per day and per service "
+                           "from the Workbench's own record of its calls. No tenant alias, no path, no id.",
+                state="repository"),
+        },
+    }
+
+
 def _material_paths() -> dict:
     return {
         "/api/projects/{code}/materials": {
@@ -1547,7 +1665,8 @@ def _owner_only(paths: dict) -> None:
 def build() -> dict:
     """The whole document."""
     paths: dict = {}
-    for part in (_session_paths, _page_paths, _project_paths, _customer_paths, _tenant_paths, _material_paths,
+    for part in (_session_paths, _page_paths, _project_paths, _customer_paths, _tenant_paths, _reference_paths,
+                 _material_paths,
                  _chat_paths, _ask_api_paths, _owner_paths):
         paths.update(part())
     _owner_only(paths)
@@ -1565,6 +1684,7 @@ def build() -> dict:
             {"name": "projects", "description": "The project register, read and create."},
             {"name": "customers", "description": "The customer register. Owner only: it carries names."},
             {"name": "tenants", "description": "The test tenants, read only."},
+            {"name": "reference", "description": "The knowledge base, the prices and the API usage, read only."},
             {"name": "materials", "description": "Inputs from the buckets, copied into a project."},
             {"name": "ask", "description": "One general question, answered from checked sources only."},
             {"name": "chat", "description": "Questions about a project, answered from checked sources only."},

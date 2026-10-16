@@ -7,6 +7,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- The reader service answers `GET /api/kb?q=`, `/api/price?service=` and `/api/usage` (Z3 step 10, server part,
+  `awb/tcp/web/reader_api.py`): the knowledge base with the name check of today's register, the price records of one
+  service and the TCP API calls of the month by day, as JSON with codes and counts only. The gateway forwards them
+  to the reader service and they are in the contract (`docs/api/openapi.yaml`, state repository). The portal and
+  the console pages are unchanged: the pages follow through the UI queue and the portal goes after the owner has
+  seen them. `throttle.usage_days` is the count that `usage_lines` and the new route share.
 - `COMMANDS.md` and the three client hook files are generated (Z3 step 12, `tools/gen_docs.py`): `COMMANDS.md` is the
   hand-written `docs/commands-guide.md` followed by a reference of every command and option taken from the argparse
   parsers, and `plugin/hooks/hooks.json`, `seal/work-claude/settings.json` and `seal/work-claude/managed-settings.json`
