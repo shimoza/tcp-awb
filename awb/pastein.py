@@ -1,8 +1,8 @@
 """`awb import CODE --paste [--kind mail|transcript|table]`: pasted text through the intake (owner side).
 
 Material that arrives as text he copies from a mail client, a meeting tool or a spreadsheet has the same one door as
-a file. The text is read from standard input, never echoed and run through the engine of the intake in wipe mode
-(`awb.intake`): the project's customer forms become its code and every other person, company, place, mail address
+a file. The text is read from standard input, never echoed and run through the intake in wipe mode
+(`intake.run_text`): the project's customer forms become its code and every other person, company, place, mail address
 and phone becomes a token. The sanitised copy goes where an imported file goes, to the outbox under the customer
 code (the project code for a project without a customer), where the next prompt of a session tells of it.
 
@@ -35,11 +35,10 @@ import io
 import os
 import re
 from collections import Counter
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
-from awb import config, intake, register, wipe
-from awb import report as _report
+from awb import config, intake, wipe
 from awb.matcher import Span
 
 KINDS = ("mail", "transcript", "table")
@@ -595,45 +594,41 @@ def _write_copy(outdir: Path, word: str, ext: str, day: str, first: int, text: s
         return path
 
 
-def _wiped(counts: Counter) -> Counter:
-    return Counter({wipe.TOKEN_TEXT[cls]: n for cls, n in counts.items() if cls in wipe.WIPE_CLASSES and n})
-
-
 def run(p: config.Paths, customer: str, text: str, kind: str | None = None, *, input_dir: Path | None = None,
         today: date | None = None) -> intake.IntakeResult:
     """Take one paste in for `customer` (a CUST code or the code of a project without a customer). `input_dir` is
     the input/ folder of the project, so that the number of the copy is free there too. Raises PasteRefused for a
     secret or a text that is not a table, PasteHeld when the final check withholds the paste (nothing is written),
-    intake.IntakeError when the intake cannot run."""
-    from awb import vault
-
+    intake.IntakeError when the intake cannot run. The run is `intake.run_text`; what is the paste's own is here:
+    the secret check, the table, the speakers, the filler, the mail blocks and the name of the copy."""
     if kind not in NAMES:
         raise PasteRefused("a kind is mail, transcript or table")
-    failed = intake.selftest()
-    if failed:
-        raise intake.IntakeError("the intake failed its self-test and takes nothing in: %s" % "; ".join(failed))
-    findings = secret_findings(text)
-    if findings:
-        raise PasteRefused(secret_message(findings))
-    rows = parse_table(text) if kind == "table" else None
-
-    config.ensure_layout(p)
     word, ext = NAMES[kind]
     day = (today or date.today()).isoformat()
-    try:
-        with vault.vault_lock(p):
-            return _run(p, customer, text, kind, rows, word, ext, day, input_dir)
-    except vault.VaultError as err:
-        raise intake.IntakeError(str(err)) from None
+
+    def screen(text: str) -> list[list[str]] | None:
+        findings = secret_findings(text)
+        if findings:
+            raise PasteRefused(secret_message(findings))
+        return parse_table(text) if kind == "table" else None
+
+    def shape(engine: intake._Engine, rows: list[list[str]] | None):
+        return _shape(engine, text, kind, rows)
+
+    def write(outdir: Path, body: str) -> Path:
+        folders = [outdir] + ([input_dir] if input_dir is not None else [])
+        return _write_copy(outdir, word, ext, day, _next_number(word, ext, day, folders), body)
+
+    def held(found: str) -> PasteHeld:
+        return PasteHeld("the final check withheld the paste (%s left in the sanitised text): nothing was written"
+                         % found)
+
+    return intake.run_text(text, customer, p, shape, write, label="paste (%s)" % (kind or "text"),
+                           kind="paste-%s" % (kind or "text"), screen=screen, held=held)
 
 
-def _run(p, customer, text, kind, rows, word, ext, day, input_dir) -> intake.IntakeResult:
-    encrypted = intake.vault_encrypted(p)
-    entries = register.load(p.register)
-    cust, is_new = intake._resolve_customer(customer, entries, p)
-    engine = intake._Engine(entries)
-    engine.keep = tuple(intake.load_keep(p))
-    now = datetime.now()
+def _shape(engine: intake._Engine, text: str, kind: str | None, rows: list[list[str]] | None):
+    """The paste on the engine of the run: (body, the text a reader sees of a table or None, counts, notes, size)."""
     notes: list[str] = []
     counts: Counter = Counter()
 
@@ -644,62 +639,24 @@ def _run(p, customer, text, kind, rows, word, ext, day, input_dir) -> intake.Int
         view = table_view(out_rows)
         if whole:
             notes.append("%d column(s) wiped as a whole" % whole)
-        hits = engine.leaks(body, candidates=False) + engine.leaks(view, candidates=False) \
-            + intake._body_hits(engine, view)
-        shown = "%d rows, %d columns" % (len(out_rows), len(out_rows[0]))
-    else:
-        raw = text
-        spoken = 0
-        if kind == "transcript":
-            raw, spoken = tokenize_speakers(engine, raw)
-            raw, dropped = drop_filler(raw)
-            if spoken:
-                notes.append("%d speaker label(s) replaced" % spoken)
-            if dropped:
-                notes.append("%d filler line(s) dropped" % dropped)
-        engine.detect("paste detect", raw)
-        body, found = engine.sanitize(raw, "paste output")
-        counts.update(found)
-        if kind in (None, "mail"):
-            body, blocks = collapse_mail(body)
-            if blocks["signature"]:
-                notes.append("%d signature block(s) wiped as a whole" % blocks["signature"])
-            if blocks["header"]:
-                notes.append("%d mail header(s) wiped as a whole" % blocks["header"])
-        body = body.rstrip("\n") + "\n"
-        hits = engine.leaks(body, candidates=False) + intake._body_hits(engine, body)
-        shown = "%d lines" % body.count("\n")
-
-    if hits:
-        raise PasteHeld("the final check withheld the paste (%s left in the sanitised text): nothing was written"
-                        % _report.counts_text(Counter(h.cls for h in hits)))
-
-    outdir = p.outbox / cust
-    folders = [outdir] + ([input_dir] if input_dir is not None else [])
-    out = _write_copy(outdir, word, ext, day, _next_number(word, ext, day, folders), body)
-    stem = out.name
-    rec = _report.Run(date=now.date().isoformat(), time=now.strftime("%H:%M:%S"), customer=cust, new_customer=is_new,
-                      register_forms=engine.forms)
-    fr = _report.FileRecord(file_id=stem, original_name="paste (%s)" % (kind or "text"), kind="paste-%s" % (kind or "text"),
-                            state="ok")
-    part = _report.Part(part_id=stem, label=fr.original_name, kind=fr.kind, state="ok", notes=list(notes),
-                        public_notes=list(notes), meta={"size": shown})
-    part.counts.update(counts)
-    fr.parts.append(part)
-    fr.output = out
-    rec.files.append(fr)
-    rec.hits = list(engine.hits.values())
-    rec.learned = engine.learned_forms()
-    try:
-        public_written = _report.write_public(p.outbox / cust / _report.PUBLIC_NAME, intake._public_text(rec, engine))
-        private_path = p.private_reports / cust / ("%s.md" % now.strftime("%Y-%m-%d-%H%M%S"))
-        private_written, unsealed = intake._write_private_report(p, private_path, rec, encrypted)
-    except intake._Undo:
-        out.unlink(missing_ok=True)
-        raise intake.IntakeError(intake.UNDONE) from None
-    except BaseException:
-        out.unlink(missing_ok=True)
-        raise
-    return intake.IntakeResult(customer=cust, outputs=[out], public_report=public_written,
-                               private_report=private_written, states={stem: "ok"}, unsealed=unsealed,
-                               wiped=_wiped(counts))
+        return body, view, counts, notes, "%d rows, %d columns" % (len(out_rows), len(out_rows[0]))
+    raw = text
+    spoken = 0
+    if kind == "transcript":
+        raw, spoken = tokenize_speakers(engine, raw)
+        raw, dropped = drop_filler(raw)
+        if spoken:
+            notes.append("%d speaker label(s) replaced" % spoken)
+        if dropped:
+            notes.append("%d filler line(s) dropped" % dropped)
+    engine.detect("paste detect", raw)
+    body, found = engine.sanitize(raw, "paste output")
+    counts.update(found)
+    if kind in (None, "mail"):
+        body, blocks = collapse_mail(body)
+        if blocks["signature"]:
+            notes.append("%d signature block(s) wiped as a whole" % blocks["signature"])
+        if blocks["header"]:
+            notes.append("%d mail header(s) wiped as a whole" % blocks["header"])
+    body = body.rstrip("\n") + "\n"
+    return body, None, counts, notes, "%d lines" % body.count("\n")

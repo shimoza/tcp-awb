@@ -7216,8 +7216,99 @@
    "name": "bucket layout: awb/bucket_layout.py imports no module of awb",
    "run": ".venv/bin/pytest tests/test_bucket_layout.py::test_the_layout_needs_no_module_of_awb",
    "status": "passing"
+  },
+  {
+   "id": "B-027-1",
+   "phase": "B-027",
+   "name": "intake package: awb.wipe is the package awb/intake/wipe/ itself, every name of a family answers through it",
+   "run": ".venv/bin/pytest tests/test_intake_package.py::test_the_old_path_of_the_wipe_rules_is_the_package_itself",
+   "status": "passing"
+  },
+  {
+   "id": "B-027-2",
+   "phase": "B-027",
+   "name": "intake package: every name of the engine and the keep list answers through awb.intake",
+   "run": ".venv/bin/pytest tests/test_intake_package.py::test_every_part_of_the_intake_answers_through_the_old_module",
+   "status": "passing"
+  },
+  {
+   "id": "B-027-3",
+   "phase": "B-027",
+   "name": "intake package: the classes of the parts name the old module (repr, the self-test cache of the suite)",
+   "run": ".venv/bin/pytest tests/test_intake_package.py::test_the_classes_of_the_parts_name_the_old_module",
+   "status": "passing"
+  },
+  {
+   "id": "B-027-4",
+   "phase": "B-027",
+   "name": "intake package: a name set on awb.wipe reaches the family that reads it, the undo puts it back",
+   "run": ".venv/bin/pytest tests/test_intake_package.py::test_a_name_set_on_the_door_reaches_the_family_that_reads_it",
+   "status": "passing"
+  },
+  {
+   "id": "B-027-5",
+   "phase": "B-027",
+   "name": "intake package: the words of a bound run reach the lexicon and the learned forms, no family holds a copy",
+   "run": ".venv/bin/pytest tests/test_intake_package.py::test_the_words_of_a_bound_run_reach_every_family",
+   "status": "passing"
+  },
+  {
+   "id": "B-027-6",
+   "phase": "B-027",
+   "name": "intake package: awb.wipe, awb.intake or a family imported first give one package and a passing self-test",
+   "run": ".venv/bin/pytest tests/test_intake_package.py::test_any_first_import_gives_the_one_package_and_a_passing_self_test",
+   "status": "passing"
+  },
+  {
+   "id": "B-027-7",
+   "phase": "B-027",
+   "name": "intake package: no module of the package imports the old path awb.wipe",
+   "run": ".venv/bin/pytest tests/test_intake_package.py::test_the_package_never_imports_the_old_path",
+   "status": "passing"
+  },
+  {
+   "id": "B-027-8",
+   "phase": "B-027",
+   "name": "run_text: one text in with the copy and the two reports of a file, codes and tokens only",
+   "run": ".venv/bin/pytest tests/test_intake_package.py::test_run_text_takes_one_text_with_the_reports_of_a_file",
+   "status": "passing"
+  },
+  {
+   "id": "B-027-9",
+   "phase": "B-027",
+   "name": "run_text: the final check writes nothing and raises the door's held, else an IntakeError",
+   "run": ".venv/bin/pytest tests/test_intake_package.py::test_run_text_writes_nothing_when_the_final_check_finds_something",
+   "status": "passing"
+  },
+  {
+   "id": "B-027-10",
+   "phase": "B-027",
+   "name": "run_text: the door's screen refuses before the register is read",
+   "run": ".venv/bin/pytest tests/test_intake_package.py::test_the_screen_refuses_before_the_register_is_read",
+   "status": "passing"
+  },
+  {
+   "id": "B-027-11",
+   "phase": "B-027",
+   "name": "run_text: a failed report takes the copy back",
+   "run": ".venv/bin/pytest tests/test_intake_package.py::test_a_failed_report_takes_the_copy_back",
+   "status": "passing"
+  },
+  {
+   "id": "B-027-12",
+   "phase": "B-027",
+   "name": "run_text: the paste door names no private name of the run and runs through run_text",
+   "run": ".venv/bin/pytest tests/test_intake_package.py::test_the_paste_door_reaches_no_private_name_of_the_run",
+   "status": "passing"
+  },
+  {
+   "id": "B-027-13",
+   "phase": "B-027",
+   "name": "deploy: the modules of the intake package restart what awb/intake.py restarts, awb/wipe.py is in no closure",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_the_intake_package_restarts_what_the_intake_restarted",
+   "status": "passing"
   }
  ],
- "total_tests": 1031,
+ "total_tests": 1044,
  "checked": "2026-10-16"
 }

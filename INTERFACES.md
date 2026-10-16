@@ -170,7 +170,21 @@ class IntakeResult:
 
 def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = False, edit=None, confirm=None,
         redo: dict | None = None) -> IntakeResult
+def run_text(text: str, customer: str, p: config.Paths, shape, write, *, label: str, kind: str, screen=None,
+             held=None) -> IntakeResult
 ```
+
+The intake is a package (F1 step 8): `awb/intake.py` holds the run and is the door to its parts in `awb/intake/`,
+`engine.py` (`_Engine`, `IntakeError`, the candidates, `_body_hits`), `keep.py` (the keep list) and `wipe/` (the
+candidate rules by family). Every name of a part answers through `awb.intake` (`awb/parts.py`; `parts.join(...,
+classes=True)` also gives a class of a part the old module as its `__module__`, as before the split).
+
+`run_text` takes one text the way `run` takes one file without an original (the paste door, `awb/pastein.py`): the
+self-test, `screen(text)` (the door's refusals; it returns what `shape` takes), the vault lock, the customer, an
+engine with the register and the keep list, `shape(engine, screened) -> (body, reader, counts, notes, size)` (the
+copy, the text a reader sees of it or None, the replacements per class, the notes, the size), the final check over
+the copy and the reader's text (`held(classes)` is raised, nothing written), `write(outdir, body) -> Path`, the two
+reports; a failure of the reports removes the copy. No `intake_counts`.
 
 Steps, in this order (wipe mode, T4 of 2026-10-08):
 
@@ -180,7 +194,7 @@ Steps, in this order (wipe mode, T4 of 2026-10-08):
 3. Every file gets a file id `F-<4 base32>` (with `redo` the file id it had); the ORIGINAL FILE NAME is treated as
    text: it is scanned, teaches no form and never names an output.
 4. `extract` (archives and mail attachments recursively, calendar lines unfolded). Detection per extraction: the
-   matcher and `find_structured` record their hits; the candidate rules of `awb/wipe.py` run and the run learns
+   matcher and `find_structured` record their hits; the candidate rules of `awb/intake/wipe/` run and the run learns
    the forms of every person and company they find (`wipe.learn`). No stop. With `review` the run first stops once
    (`_review_stop`: a private report with the candidates, nothing written), `candidates.review` sorts them, then the
    run goes on with the register and the keep list of after the review.
@@ -1176,8 +1190,12 @@ does not descend from it. The root path imports neither
 
 ## Wipe mode and `awb import` (T4, 2026-10-08)
 
-- `awb/wipe.py`: the candidate rules (the rules of the first release and the rules of DESIGN.md section 2 of the
-  design in presentations/names, which stays outside the repository) and the forms a run learns.
+- `awb/intake/wipe/` (the old path `awb.wipe` is the same module, `awb/wipe.py`): the candidate rules (the rules of
+  the first release and the rules of DESIGN.md section 2 of the design in presentations/names, which stays outside the
+  repository) and the forms a run learns, one module per family (F1 step 8): `basic` (the rules of the first
+  release), `lexicon` (the word lists), `proposed` (the rules of proposed mode and `PROPOSED_RULES`), `learned` (the
+  learned forms) and `runstate` (the vocabulary, `WipeState`, `bind` and the interface below). Every name answers
+  through the package.
   `WipeSpan(start, end, cls, rule)`, classes `person`, `company`, `place`, `unknown` (token word `name`).
   `WipeState(keep)` per engine: `tokens`, `numbers`, `learned` (`_Learned`), `run_exempt` (the words under product
   labels), `keep`, `sources`. `bind(state)`, `candidate_spans(state, text, known) -> list[Span]` (the rule label in
@@ -1205,8 +1223,8 @@ does not descend from it. The root path imports neither
   without the intake.
 - `awb/pastein.py` (`awb import CODE --paste`, 2026-10-12): `read_text(data) -> str` (UTF-8, `\n`, not empty, at most
   `MAX_BYTES`), `secret_findings(text) -> [(class, line)]` (the gate's classes `secret`, `private-key` and `token`),
-  `run(p, customer, text, kind=None, *, input_dir=None, today=None) -> IntakeResult` (kind `mail`, `transcript`, `table`
-  or none; one copy in `<outbox>/<customer>/`, named `NAMES[kind]`, `<word>-<date>-<n><suffix>`, the number free in the
+  `run(p, customer, text, kind=None, *, input_dir=None, today=None) -> IntakeResult` (through `intake.run_text`; kind
+  `mail`, `transcript`, `table` or none; one copy in `<outbox>/<customer>/`, named `NAMES[kind]`, `<word>-<date>-<n><suffix>`, the number free in the
   outbox and in `input_dir`; the public and the private report as for a file, no original, no `intake_counts`),
   `collapse_mail(text) -> (text, Counter)`, `tokenize_speakers(engine, text)`, `drop_filler(text)`, `column_classes(header)`,
   `parse_table(text)`, `sanitize_table(engine, rows)`; `PasteRefused` (a secret with class and line, an empty or oversize

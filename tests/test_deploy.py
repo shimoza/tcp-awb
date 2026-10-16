@@ -237,6 +237,30 @@ def test_the_modules_of_step_7_restart_what_their_old_module_restarted():
     assert problems(planted) == ["no unit: awb/bucket.py", "no unit: awb/tcp/keys_exchange.py"]
 
 
+@pytest.mark.long   # it maps the whole awb tree twice: the size is the proof
+def test_the_intake_package_restarts_what_the_intake_restarted():
+    """F1 step 8: awb/intake.py is the door to awb/intake/ (engine, keep and the wipe rules by family). The import
+    map finds every module of the package, none of them in COMMAND_ONLY; a change of one restarts what a change of
+    awb/intake.py restarts. awb/wipe.py, the old path, is in COMMAND_ONLY and in no closure. Planted: the intake
+    importing the old path again lists it as imported."""
+    tree = deploy.DirTree(REPO)
+    um = deploy.unit_map(tree)
+    want = set(um.effects(["awb/intake.py"]).units)
+    assert want
+    new = sorted(f for f in um.imap.files if f.startswith("awb/intake/"))
+    assert len(new) == 8, new
+    for rel in new:
+        assert rel in um.reached and rel not in deploy.COMMAND_ONLY, rel
+        assert set(um.effects([rel]).units) == want, rel
+    assert "awb/wipe.py" in deploy.COMMAND_ONLY and "awb/wipe.py" not in um.reached
+    assert not set(um.effects(["awb/wipe.py"]).units)
+    text = tree.read("awb/intake.py")
+    assert text.count("\nfrom awb.intake import wipe  # noqa: E402\n") == 1
+    planted = _Changed(REPO, {"awb/intake.py": text.replace("\nfrom awb.intake import wipe  # noqa: E402\n",
+                                                            "\nfrom awb import wipe  # noqa: E402\n")})
+    assert problems(planted) == ["listed but imported: awb/wipe.py"]
+
+
 def test_the_map_from_changed_files_with_the_held_sockets_of_the_gateway_and_the_tenants(tmp_path):
     """Replaces test_the_map_from_changed_files_with_the_held_sockets (finding 14 of the review of 2026-10-10: the
     tenant service holds its owner socket unit too, Sockets=), which replaced test_the_map_from_changed_files (T9

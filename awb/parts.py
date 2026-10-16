@@ -1,4 +1,4 @@
-"""A module split into parts stays the door to them (F1 step 6: awb/buildrun.py and awb/hooks.py).
+"""A module split into parts stays the door to them (F1 step 6: buildrun.py and hooks.py; step 8: the intake).
 
 `join(name, *parts)` gives the old module every name of its loaded parts that it does not bind itself, so an old
 import path (`from awb.hooks import guard`, `buildrun.Host`) keeps working. It also makes a name set on the old
@@ -28,8 +28,10 @@ class _Door(types.ModuleType):
         super().__setattr__(name, value)
 
 
-def join(name: str, *parts: str) -> None:
-    """Make the module `name` the door to the modules `parts` (full names)."""
+def join(name: str, *parts: str, classes: bool = False) -> None:
+    """Make the module `name` the door to the modules `parts` (full names). With `classes` a class of a part names
+    `name` as its module, as it did before the split (F1 step 8: its repr, its pickle path and a look over the classes
+    of the old module stay as they were)."""
     module = sys.modules[name]
     known = module.__dict__.get("_parts_", ())
     module.__dict__["_parts_"] = known + tuple(p for p in parts if p not in known)
@@ -38,4 +40,6 @@ def join(name: str, *parts: str) -> None:
         for key, value in (vars(loaded).items() if loaded is not None else ()):
             if not key.startswith("__"):
                 module.__dict__.setdefault(key, value)
+                if classes and isinstance(value, type) and value.__module__ == part:
+                    value.__module__ = name
     module.__class__ = _Door

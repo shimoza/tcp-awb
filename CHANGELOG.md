@@ -163,6 +163,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The intake as a package with the wipe rules by family (B-027, step 8 of the F1 plan), with no change of what it
+  wipes, masks, holds or refuses: `awb/intake.py` keeps the run and is the door to `awb/intake/engine.py` (detection,
+  tokens and replacement), `awb/intake/keep.py` (the keep list) and `awb/intake/wipe/`, the candidate rules in five
+  families (`basic`, `lexicon`, `proposed`, `learned`, `runstate`). `awb.wipe` is that package under its old name and
+  every old name of the intake still answers. The paste door (`awb import --paste`) runs through the new public
+  `intake.run_text` and no longer drives the intake through its private names.
+
 - The bucket layout and the owner routes in one place each (B-026, step 9 of the F1 plan), with no change of
   behaviour: `awb/bucket_layout.py` sets the folder `<YYYY-MM>/<code>/in/`, the default bucket and region, the 25
   MiB of the console's upload, the default 100 of `max_mb` and the suffix lists. `awb bucket`, the key service, the
