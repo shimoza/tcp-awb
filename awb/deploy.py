@@ -132,6 +132,8 @@ DYNAMIC: dict[tuple[str, str], object] = {
     ("awb/deploy.py", "owner_keys"): ("awb.tcp.keys",),
     ("awb/projects.py", "mail_owner_commands"): ("awb.tcp.keys",),
     ("awb/translate.py", "_ask_module"): ("awb.tcp.ask",),
+    # awb voice learn DRAFT - is the owner's command: it loads the paste door of the intake by name and no unit runs it
+    ("awb/writing.py", "learn_owner"): (),
 }
 
 # Modules no unit imports: they run as a command and in no daemon, so a change of one restarts nothing.

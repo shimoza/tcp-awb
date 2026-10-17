@@ -2116,9 +2116,12 @@ def learn_owner(draft: Path, project: str | None = None, p: config.Paths | None 
     """`awb voice learn DRAFT -`: the sent text on standard input, wiped by `intake.run_text` for the customer of
     the project, is the sent text of `learn`. The original is never written. Raises Refused for a secret or a text
     the final check withholds, WritingError for the rest."""
-    from awb import codes, intake, pastein, projects, vault
-    from awb import importcmd
+    import importlib
 
+    from awb import codes, intake, projects, vault
+    # by name: only this owner command uses them and no unit runs it (awb/deploy.py DYNAMIC)
+    importcmd = importlib.import_module("awb.importcmd")
+    pastein = importlib.import_module("awb.pastein")
     stdin = stdin if stdin is not None else sys.stdin
     if config.is_work_user():
         raise Held(HOLD_WORK_USER)
