@@ -5,6 +5,8 @@
 
 Without ANTHROPIC_API_KEY it does nothing and says so. It writes DIR/answers-with-facts.jsonl and
 DIR/answers-without-facts.jsonl (default DIR: the current directory) and then you grade each with score.py.
+A question marked expected_from revision takes the revision of the dataset folder of facts.md; the questions as asked
+are written to DIR/questions.jsonl (give it to score.py with --questions).
 Standard library only.
 """
 from __future__ import annotations
@@ -12,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -40,6 +43,29 @@ def ask(key: str, model: str, system: list[dict], question: str) -> str:
     return "".join(b.get("text", "") for b in data.get("content", []))
 
 
+def revision_of(folder: Path) -> str | None:
+    """The revision line of the dataset folder: services.md first, then MANIFEST.json."""
+    try:
+        m = re.search(r"revision (\d\d\.\d\d\.\d{4})", (folder / "services.md").read_text(encoding="utf-8"))
+        if m:
+            return m.group(1)
+    except OSError:
+        pass
+    try:
+        return json.loads((folder / "MANIFEST.json").read_text(encoding="utf-8")).get("service_description")
+    except (OSError, ValueError):
+        return None
+
+
+def fill_revision(questions: list[dict], revision: str | None) -> list[dict]:
+    """A question marked expected_from revision takes the revision of the dataset under test as its answer."""
+    if revision:
+        for q in questions:
+            if q.get("expected_from") == "revision":
+                q["expected"], q["grading"] = [revision], {**q["grading"], "items": [revision]}
+    return questions
+
+
 def question_text(q: dict) -> str:
     return "%s\n(Answer form: %s.)" % (q["question"], q["answer_form"])
 
@@ -59,6 +85,7 @@ def main(argv=None) -> int:
     if not args.facts or not args.facts.is_file():
         raise SystemExit("--facts must name the facts.md of the release")
     questions = [json.loads(l) for l in args.questions.read_text(encoding="utf-8").splitlines() if l.strip()]
+    questions = fill_revision(questions, revision_of(args.facts.parent))
     if args.limit:
         questions = questions[:args.limit]
     # the facts go first in the system block and are cached: they are the same for all questions
@@ -66,6 +93,8 @@ def main(argv=None) -> int:
                    "cache_control": {"type": "ephemeral"}}]
     without_facts = [{"type": "text", "text": SYSTEM_WITHOUT}]
     args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / "questions.jsonl").write_text("".join(json.dumps(q, ensure_ascii=False) + "\n" for q in questions),
+                                              encoding="utf-8")
     for name, system in (("answers-with-facts.jsonl", with_facts), ("answers-without-facts.jsonl", without_facts)):
         with open(args.out / name, "w", encoding="utf-8") as f:
             for q in questions:

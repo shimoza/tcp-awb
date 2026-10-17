@@ -7720,8 +7720,36 @@
    "name": "gateway slots: a signed-in request keeps the 20 second timeout: its late body is served, an unauthenticated one reads with the short timeout",
    "run": ".venv/bin/pytest tests/test_web_gateway_slots.py::test_a_signed_in_request_keeps_the_authenticated_timeout",
    "status": "passing"
+  },
+  {
+   "id": "n11-dataset-polish-1",
+   "phase": "n11-dataset-polish",
+   "name": "manifest license is the SPDX id CC-BY-4.0",
+   "run": ".venv/bin/pytest tests/test_dataset_polish.py::test_the_manifest_licence_is_the_spdx_id",
+   "status": "passing"
+  },
+  {
+   "id": "n11-dataset-polish-2",
+   "phase": "n11-dataset-polish",
+   "name": "bundle holds icon.png and the manifest icon names it",
+   "run": ".venv/bin/pytest tests/test_dataset_polish.py::test_the_bundle_holds_the_icon_and_the_manifest_names_it",
+   "status": "passing"
+  },
+  {
+   "id": "n11-dataset-polish-3",
+   "phase": "n11-dataset-polish",
+   "name": "icon is a deterministic 64 by 64 PNG",
+   "run": ".venv/bin/pytest tests/test_dataset_polish.py::test_the_icon_is_a_64_by_64_png_with_the_same_bytes_every_time",
+   "status": "passing"
+  },
+  {
+   "id": "n11-dataset-polish-4",
+   "phase": "n11-dataset-polish",
+   "name": "eval Q32 expects the revision of the dataset under test",
+   "run": ".venv/bin/pytest tests/test_dataset_polish.py::test_q32_expects_the_revision_of_the_dataset_under_test",
+   "status": "passing"
   }
  ],
- "total_tests": 1103,
+ "total_tests": 1107,
  "checked": "2026-10-17"
 }
