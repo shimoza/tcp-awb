@@ -50,10 +50,12 @@ import random
 import re
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import textwrap
 import zipfile
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -66,6 +68,7 @@ REGIONS = ("eu-de", "eu-nl")            # eu-ch2 is the Swiss offering, not a re
 BEST_BEFORE_DAYS = 30                   # the re-check period of an availability fact
 OLD_AFTER_DAYS = 90
 LICENCE = "CC BY 4.0"
+MCPB_LICENCE = "CC-BY-4.0"                           # the SPDX id the manifest asks for
 GITHUB_REPO = "shimoza/tcp-facts"
 COMPILED_BY = "TCP Facts, github.com/%s" % GITHUB_REPO    # the dataset and its address, never a person
 CREDIT = ("Compiled from public sources and live checks. Licence %s: name the dataset and its address when you "
@@ -106,6 +109,7 @@ MCPB_TOOLS = (("tcp_facts_search", "The checked facts ranked by word overlap, fi
               ("tcp_service_check", "Offered or not, from the service description"),
               ("tcp_price_find", "Price rows of eu-de or eu-nl from the snapshot"),
               ("tcp_calculate", "Exact decimal arithmetic with hours as the unit"))
+MCPB_ICON = "icon.png"                               # the icon field of the manifest names it
 MCPB_SKIP = ("MANIFEST.json", "HOW-TO.pdf")          # MANIFEST.json would clash with manifest.json on a case-blind disk
 
 
@@ -817,7 +821,8 @@ def mcpb_manifest(day: str, best_before: str, facts: int) -> dict:
                                 "exact arithmetic. No network without a live price request, nothing written."
                                 % (NAME, day),
             "author": {"name": NAME}, "repository": {"type": "git", "url": "https://github.com/%s.git" % GITHUB_REPO},
-            "homepage": "https://github.com/%s" % GITHUB_REPO, "license": LICENCE,
+            "homepage": "https://github.com/%s" % GITHUB_REPO, "license": MCPB_LICENCE,
+            "icon": MCPB_ICON,
             "server": {"type": "python", "entry_point": MCP_FILE,
                        "mcp_config": {**entry, "platform_overrides": {"win32": {"command": "python",
                                                                                  "args": entry["args"]}}}},
@@ -826,11 +831,23 @@ def mcpb_manifest(day: str, best_before: str, facts: int) -> dict:
             "compatibility": {"platforms": ["darwin", "win32", "linux"], "runtimes": {"python": ">=3.10"}}}
 
 
+def icon_png() -> bytes:
+    """64 by 64 PNG, two flat colours (a light disc on a dark square), deterministic bytes."""
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    dark, light = b"\x1f\x3a\x5f", b"\xf2\xb7\x05"
+    rows = b"".join(b"\x00" + b"".join(light if (x - 31.5) ** 2 + (y - 31.5) ** 2 <= 20 ** 2 else dark
+                                       for x in range(64)) for y in range(64))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 64, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b""))
+
+
 def pack_mcpb(root: Path, day: str, best_before: str, facts: int) -> Path:
     """tcp-facts-<date>.mcpb beside the folder: a zip with manifest.json, the server and the data files."""
     path = root.parent / (root.name + ".mcpb")
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("manifest.json", json.dumps(mcpb_manifest(day, best_before, facts), indent=2) + "\n")
+        z.writestr(MCPB_ICON, icon_png())
         for x in sorted(root.rglob("*")):
             if x.is_file() and x.name not in MCPB_SKIP:
                 z.write(x, x.relative_to(root).as_posix())
