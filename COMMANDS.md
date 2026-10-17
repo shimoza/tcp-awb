@@ -9,6 +9,24 @@ Two sides. The owner side holds the register of names and the originals and is r
 work side is what Workbench sessions (and you) run inside `tcp-` projects. A name is only ever typed on the owner
 side.
 
+## The doors
+
+Customer material has one door per kind. The window is where you type: your own terminal as the owner, or the
+session of the project.
+
+| the material | the command | the window | what comes out |
+|---|---|---|---|
+| a file from a mail | `awb import tcp-xxxx FILE` | your own terminal | a copy in `~/tcp-shared/outbox/CUST-XXXX/` (for a project without a customer `~/tcp-shared/outbox/tcp-xxxx/`) named by the vault's file id and the suffix; the customer as its code, every other person, company, place and name as a token (`[person 1]`, `[company 1]`, `[place 1]`, `[name 1]`) |
+| a mail text | `pbpaste \| awb import tcp-xxxx --paste --kind mail` | your own terminal | `mail-<date>-<n>.md`; signature and quoted headers wiped to `[signature]` and `[mail header] from [person 2] to [person 1]`; person, company, place, mail address and phone as tokens; a secret refuses the whole paste |
+| a meeting transcript | `pbpaste \| awb import tcp-xxxx --paste --kind transcript` | your own terminal | `transcript-<date>-<n>.md`; each speaker `[person 1]`, `[person 2]`; the filler lines of the meeting tool dropped |
+| a spreadsheet | `awb import tcp-xxxx FILE`, or for text copied from it `pbpaste \| awb import tcp-xxxx --paste --kind table` | your own terminal | for a file as above; for a paste `table-<date>-<n>.csv` with a column of people, mail addresses, phones, companies or places wiped as a whole column |
+| a vendor image or a screenshot | `awb inbox take WORDS...` from the lab inbox | the session | the file itself after the name check, in `input/` and the project's `in/`; a picture in customer material is not copied, it stays held (`awb images`) |
+| a file of the lab without customer content | `awb inbox take WORDS...` from the lab inbox | the session | the file itself after the name check; a registered name holds it |
+| a customer file already in the project's `in/` folder of the bucket | `awb import tcp-xxxx` (all new files of `in/`), or `awb inbox take WORDS...` | your own terminal, or the session | as for a file from a mail; the session gets the sanitised copies of your intake in wipe mode, never the original |
+
+`awb bucket pull CODE` (new files of `in/` into the vault inbox, then the intake) is a part of `awb import`.
+`awb intake` (the wipe alone, over the vault inbox or the FILE arguments) is a part of `awb import`. Nobody runs either by hand.
+
 ## Owner side (your own shell, never through a session)
 
 | command | what it does |
