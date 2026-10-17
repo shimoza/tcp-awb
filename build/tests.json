@@ -7685,8 +7685,43 @@
    "name": "tests: a module fixture that reaches the vault root and catches the refusal errors the first test at its setup (T4)",
    "run": ".venv/bin/pytest tests/test_vault_guard.py::test_a_module_fixture_that_reaches_the_vault_fails_the_first_test",
    "status": "passing"
+  },
+  {
+   "id": "n8-gateway-slow-body-1",
+   "phase": "n8-gateway-slow-body",
+   "name": "gateway slots: 5 open unauthenticated requests of one address key hold 4 slots, the fifth answers 429 at once before its body, logged counted",
+   "run": ".venv/bin/pytest tests/test_web_gateway_slots.py::test_five_open_requests_from_one_address_key_hold_four_slots",
+   "status": "passing"
+  },
+  {
+   "id": "n8-gateway-slow-body-2",
+   "phase": "n8-gateway-slow-body",
+   "name": "gateway slots: the cap is per address key: another /64 and an IPv4 address are served while one key holds its four",
+   "run": ".venv/bin/pytest tests/test_web_gateway_slots.py::test_another_address_key_is_served_while_one_holds_its_four",
+   "status": "passing"
+  },
+  {
+   "id": "n8-gateway-slow-body-3",
+   "phase": "n8-gateway-slow-body",
+   "name": "gateway slots: an unauthenticated body that never completes is cut at the 5 second timeout with 408 (patched small), the slot freed, one counted line without the body",
+   "run": ".venv/bin/pytest tests/test_web_gateway_slots.py::test_a_body_that_never_completes_is_cut_at_the_timeout",
+   "status": "passing"
+  },
+  {
+   "id": "n8-gateway-slow-body-4",
+   "phase": "n8-gateway-slow-body",
+   "name": "gateway slots: headers that never complete are cut at the timeout, the connection closed and one counted line written for the peer",
+   "run": ".venv/bin/pytest tests/test_web_gateway_slots.py::test_headers_that_never_complete_are_cut_at_the_timeout",
+   "status": "passing"
+  },
+  {
+   "id": "n8-gateway-slow-body-5",
+   "phase": "n8-gateway-slow-body",
+   "name": "gateway slots: a signed-in request keeps the 20 second timeout: its late body is served, an unauthenticated one reads with the short timeout",
+   "run": ".venv/bin/pytest tests/test_web_gateway_slots.py::test_a_signed_in_request_keeps_the_authenticated_timeout",
+   "status": "passing"
   }
  ],
- "total_tests": 1098,
+ "total_tests": 1103,
  "checked": "2026-10-17"
 }

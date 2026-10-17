@@ -56,7 +56,8 @@ SITE_WINDOW = 3600
 COOLDOWN_TEXT = 'Too many failed sign-ins. Try again later.'
 BUSY_TEXT = 'The sign-in is busy. Try again in a moment.'
 LOG_MAX = 2*1024*1024
-REFUSED = ('limited', 'cooldown', 'site-cap', 'owner-limited', 'owner-delayed')   # cheap tries, logged counted
+REFUSED = ('limited', 'cooldown', 'site-cap', 'owner-limited', 'owner-delayed',   # cheap tries, logged counted
+           'slots', 'slow')                                                        # a slot refused, a timeout
 REFUSED_WINDOW = 60         # one line per address key and result within this many seconds, the rest counted
 SEVERAL = '(several logins)'
 WAITS_KEPT = 2048           # logins kept in the state file of the waits, the newest first
@@ -270,6 +271,9 @@ Account = namedtuple('Account', 'salt hash rounds level totp generation')
 LEVELS = ('reader', 'owner')
 SLOT_WAIT = 3.0             # a sign-in waits this long for a free pbkdf2 slot, then answers busy (never counted)
 UNAUTHENTICATED = 64        # requests without a session at once
+PER_ADDRESS = 4             # of them per address key; the next answers 429 before a byte of its body is read
+UNAUTHENTICATED_TIMEOUT = 5  # seconds for the headers of any request and the body of one without a session
+AUTHENTICATED_TIMEOUT = 20   # seconds for the body of a request with a session
 SESSIONS_PER_USER = 5
 SESSION_TABLE = 128
 READER_TTL = 8*3600
@@ -320,6 +324,8 @@ class Auth:
         self.cache_key = secrets.token_bytes(32)
         self.slots = threading.BoundedSemaphore(4)
         self.unauthenticated = threading.BoundedSemaphore(UNAUTHENTICATED)
+        self.holds = {}                 # address key -> its requests without a session in flight (hold)
+        self.holds_lock = threading.Lock()
         self.used_csrf = OrderedDict()
         self.sessions = OrderedDict()
         self.owners = {}
@@ -532,6 +538,39 @@ class Auth:
         except (ValueError, UnicodeError):
             return 401
         return {'ok': 200, 'fail': 401}.get(self.sign_in(login, password, client), 429)
+
+    def hold(self, client):
+        """A slot for a request without a session, taken after its headers and before its body: '' when taken,
+        'slots' when its address key (address_key) already holds PER_ADDRESS of them (logged counted, one line per
+        key and minute, as the refused tries are) or 'busy' when all UNAUTHENTICATED are held. A slow body of one
+        address key can thus hold four slots, never the site (n8). release_hold gives the slot back."""
+        key = address_key(client)
+        with self.holds_lock:
+            if self.holds.get(key, 0) >= PER_ADDRESS:
+                result = 'slots'
+            elif not self.unauthenticated.acquire(blocking=False):
+                result = 'busy'
+            else:
+                self.holds[key] = self.holds.get(key, 0) + 1
+                return ''
+        if result == 'slots':
+            self.log(self.clock(), NOT_A_LOGIN, 'slots', key)
+        return result
+
+    def release_hold(self, client):
+        key = address_key(client)
+        with self.holds_lock:
+            left = self.holds.get(key, 0) - 1
+            if left > 0:
+                self.holds[key] = left
+            else:
+                self.holds.pop(key, None)
+        self.unauthenticated.release()
+
+    def timed_out(self, client):
+        """A request whose headers or body did not arrive within its timeout: logged counted by address key, as a
+        refused try is, never with a byte of what arrived."""
+        self.log(self.clock(), NOT_A_LOGIN, 'slow', address_key(client))
 
     def status(self):
         """For awb web status: the sign-ins of the last day by result and the waits that hold now."""
@@ -840,7 +879,9 @@ class Gateway(BaseHTTPRequestHandler):
 
     def setup(self):
         super().setup()
-        self.connection.settimeout(20)
+        # the session is known only after the headers, so every request reads them within the short timeout; a
+        # request with a session gets AUTHENTICATED_TIMEOUT for its body in dispatch (n8)
+        self.connection.settimeout(UNAUTHENTICATED_TIMEOUT)
 
     def reply(self, status, body=b'', headers=None):
         self.close_connection = True
@@ -902,6 +943,9 @@ class Gateway(BaseHTTPRequestHandler):
             if len(data) != length:
                 raise ValueError()
             return parse_qs(data.decode('utf-8'), max_num_fields=10)
+        except socket.timeout:
+            self.timed_out()
+            return None
         except (OSError, ValueError, UnicodeError):
             self.reply(400, b'Invalid form.\n')
             return None
@@ -924,13 +968,24 @@ class Gateway(BaseHTTPRequestHandler):
             return None
         try:
             body = self.rfile.read(length)
-        except (socket.timeout, OSError):
+        except socket.timeout:
+            self.timed_out()
+            return None
+        except OSError:
             self.reply(408, b'Request timed out.\n')
             return None
         if len(body) != length:
             self.reply(400, b'Incomplete request.\n')
             return None
         return body
+
+    def timed_out(self, reply=True):
+        """The body (`reply`: 408) or the headers of a request did not arrive within the timeout of the
+        connection: one counted log line for the address key, never a byte of what arrived (n8)."""
+        self.refusal = 'slow'
+        self.server.auth.timed_out(self.client_key())
+        if reply:
+            self.reply(408, b'Request timed out.\n')
 
     def dispatch(self):
         self.refusal, self.level, self.host_label = '', '-', 'main'
@@ -947,15 +1002,21 @@ class Gateway(BaseHTTPRequestHandler):
             signed_in = self.user is not None
         if signed_in:
             self.level = 'owner' if owner_side else self.user[1]
+            self.connection.settimeout(AUTHENTICATED_TIMEOUT)
             return self.owner_route(session) if owner_side else self.route(session)
-        if not self.server.auth.unauthenticated.acquire(blocking=False):
-            self.refusal = 'busy'
-            self.reply(503, b'The site is busy. Try again in a moment.\n', {'Retry-After': '5'})
+        peer = self.client_key()
+        refused = self.server.auth.hold(peer)
+        if refused:
+            # before a byte of the body: the address key holds PER_ADDRESS slots already (429) or the site holds
+            # all UNAUTHENTICATED (503); the owner host's own limiter is not touched
+            self.refusal = refused
+            self.reply(429 if refused == 'slots' else 503, b'The site is busy. Try again in a moment.\n',
+                       {'Retry-After': '5'})
             return
         try:
             return self.owner_route(session) if owner_side else self.route(session)
         finally:
-            self.server.auth.unauthenticated.release()
+            self.server.auth.release_hold(peer)
 
     def client_key(self):
         """The client address for the limiter: CF-Connecting-IP only on a listener whose one peer is the tunnel's
@@ -965,7 +1026,8 @@ class Gateway(BaseHTTPRequestHandler):
             fallback = str(self.client_address[0])
         else:
             fallback = 'local'
-        if getattr(self.server, 'peer', None) is None:
+        if getattr(self.server, 'peer', None) is None or getattr(self, 'headers', None) is None:
+            # no headers yet: they did not arrive within the timeout and the peer is all there is
             return fallback[:100]
         return self.headers.get('CF-Connecting-IP', fallback)[:100]
 
@@ -1284,12 +1346,20 @@ class Gateway(BaseHTTPRequestHandler):
 
     do_GET = do_HEAD = do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = dispatch
 
+    def log_error(self, fmt, *args):
+        # the request line or the headers did not arrive within the timeout (handle_one_request closes the
+        # connection): counted in the sign-in log by address key, one access line with 408 and no answer
+        if fmt.startswith('Request timed out'):
+            self.timed_out(reply=False)
+            args = ('-', 408)
+        self.log_message(fmt, *args)
+
     def log_message(self, fmt, *args):
         # No question text, credentials, query strings, addresses, user names or backend data in access logs: the
         # method, the status, the host (main or owner), the level and one word on a refusal.
         status = str(args[1]) if len(args) > 1 else '-'
-        print(self.command, status, getattr(self, 'host_label', 'main'), getattr(self, 'level', '-'),
-              getattr(self, 'refusal', '') or '-', flush=True)
+        print(getattr(self, 'command', None) or '-', status, getattr(self, 'host_label', 'main'),
+              getattr(self, 'level', '-'), getattr(self, 'refusal', '') or '-', flush=True)
 
 
 def _configure(server, auth, index, portal_port, ask_port, projects_port, tenants_port, domain):

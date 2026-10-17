@@ -190,7 +190,11 @@ DESCRIPTION = "\n".join((
     "- Any path: a wrong host gets 400 Invalid host., a target that is not a path 400 Invalid request target.,",
     "  an unknown path 404 Not found. and a method other than GET, HEAD or POST 405 Method not allowed., each as",
     "  one line of text/html (info.x-awb-texts). Without a session, when 64 requests without a session are already",
-    "  open, any path gets 503 The site is busy. Try again in a moment. with Retry-After: 5.",
+    "  open, any path gets 503 The site is busy. Try again in a moment. with Retry-After: 5; when 4 of them from the",
+    "  same address (the /64 of an IPv6 address) are already open, any path gets 429 with the same text and",
+    "  Retry-After: 5, before a byte of the body is read. The headers of any request and the body of a request",
+    "  without a session must arrive within 5 seconds (408 Request timed out. for a body, the connection closed",
+    "  for headers); a request with a session has 20 seconds for its body.",
     "",
     "The gateway also serves the older server-rendered pages /kb, /price, /projects, /reviews, /tenants, /health",
     "and /portal. They are HTML, the console does not call them and they are not part of this contract.",
@@ -1028,11 +1032,15 @@ def _session_paths() -> dict:
                 "429": answer("Eight failed attempts from one address (the /64 of an IPv6 address) within a minute or "
                               "a sign-in of that address still running, or a cooldown: the login "
                               "failed 5 times within 15 minutes (it waits 15 minutes, doubled for each further "
-                              "series up to 24 hours), or the site had 30 failures within the hour.", page,
+                              "series up to 24 hours), or the site had 30 failures within the hour. Or the "
+                              "per-address slot cap: 4 requests without a session from that address are still "
+                              "open, answered before a byte of the body is read with the busy text of "
+                              "info.x-awb-texts and Retry-After: 5.", page,
                               {"page": sign_in.replace("<form", "<p role=\"alert\" class=\"error\">Too many "
                                                        "attempts. Try again in one minute.</p><form"),
                                "cooldown": sign_in.replace("<form", "<p role=\"alert\" class=\"error\">Too many "
-                                                           "failed sign-ins. Try again later.</p><form")},
+                                                           "failed sign-ins. Try again later.</p><form"),
+                               "slots": "The site is busy. Try again in a moment.\n"},
                               media="text/html"),
                 "400": gateway("The form cannot be read.", "A single content length is required.", "Invalid form."),
                 "413": gateway("The form is larger than 16384 bytes.", "Request is too large."),

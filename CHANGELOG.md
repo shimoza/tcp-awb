@@ -478,6 +478,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   tell the peer's session, so the check stays on the client. `sync`, `folder` and `put` are as they were.
   `tests/test_bucket_session.py`.
 
+- The web gateway no longer starves on slow bodies (n8, `awb/tcp/web/gateway.py`): a request without a session holds
+  at most 4 of the 64 unauthenticated slots per address key (the /64 of an IPv6 address, an IPv4 address whole), the
+  fifth answers 429 with the busy text before a byte of its body is read; the headers of any request and the body of
+  a request without a session must arrive within 5 seconds (408, the connection closed for headers), a signed-in
+  request keeps 20 seconds for its body. A refusal and a timeout are logged counted in the sign-in log as the
+  refused tries are (`slots`, `slow`), one line per address key and minute, never the body. The owner host's own
+  limiter is untouched. The contract (`docs/api/openapi.yaml`) says so.
+
 - The work user can no longer persist past a session through its ssh keys or its crontab (F2 threat model, gap G3).
   `seal/setup.sh` copies the owner's keys to `/etc/ssh/authorized_keys/awb` (root, 644), writes the sshd drop-in
   `/etc/ssh/sshd_config.d/awb-work-user.conf` that points the work user alone at that file, checks it with `sshd -t`
