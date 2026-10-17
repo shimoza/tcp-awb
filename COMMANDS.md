@@ -45,7 +45,8 @@ session of the project.
 | `awb import tcp-xxxx --paste` (no kind) | plain text: the copy is `paste-<date>-<n>.md`, signatures and quoted headers are wiped as for a mail, nothing else is added |
 | `awb register keep "phrase"` | a term that was wiped by mistake is never wiped again, in any customer's material (then `awb import --redo`) |
 | `awb register keep --list` | the kept phrases (vault side only) |
-| `awb register add CUST-XXXX CUST "full company name"` | register one written form of a code; add every short form too. `-` reads the form from standard input; `awb import` asks for the forms of a new customer itself |
+| `awb register add CUST-XXXX CUST "full company name" "short name" ...` | register one or more written forms of a code in one call (one bad form and nothing is added); add every short form too. `-` alone reads the forms from standard input, one per line; `awb import` asks for the forms of a new customer itself |
+| `awb register find words of a form` | the code and the kind of the entry whose form is these words, exact after the folding of the matcher (case, umlauts, whitespace), or `no code`; owner's own terminal only: refused with one fixed line in a pipe, as the work user and inside an assistant session, as `awb vault show` is. It never prints a form, a near miss or a count |
 | `awb register new CUST` or `PART` | print a fresh code; `PERS`, `ORG` and `SITE` codes come from `--review` only |
 | `awb register list` | codes, kinds and counts of forms, no names |
 | `awb register list --forms` | the same with the written forms (vault side only) |
@@ -520,12 +521,17 @@ take customer material in: sanitised copies to the outbox
 - `--customer CODE|new`: a CUST code or new
 - `--review`: stop once on the candidates and review them in an editor
 
-### `awb register add CODE KIND FORM`
+### `awb register add CODE KIND FORM...`
 
-add one written form to a code
+add one or more written forms to a code
 - `CODE`
 - `KIND`
-- `FORM`: the written form or - to read it from standard input
+- `FORM...`: the written forms, or - alone to read them from standard input, one per line
+
+### `awb register find WORD...`
+
+print the code and the kind of the entry whose form is these words, or "no code" (owner's terminal only: refused in a pipe, as the work user and inside an assistant session)
+- `WORD...`: the written form, as words
 
 ### `awb register new KIND`
 

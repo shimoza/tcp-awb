@@ -315,7 +315,10 @@ CLI `awb spawn KIND --goal TEXT [--customer CODE] [--tag T]...`, `awb projects l
 
 ## `awb/cli.py`
 
-`awb init`, `awb intake [--customer CODE|new] [--review] FILE...`, `awb register add CODE KIND FORM`,
+`awb init`, `awb intake [--customer CODE|new] [--review] FILE...`, `awb register add CODE KIND FORM...` (several
+forms in one write; `-` reads them from standard input), `awb register find WORD...` (the code and the kind of the
+entry whose form is these words or `no code`; the owner's terminal only, refused in a pipe, as the work user and in an
+assistant session),
 `awb register new CUST|PART` (prints a fresh code; PERS, ORG and SITE are refused with a line that names `--review`),
 `awb register list` (codes, kinds, counts of forms; the forms themselves only with `--forms`, this is the vault side),
 `awb register retire CODE`, `awb check`, `awb gate`, `awb spawn`, `awb projects list`, `awb import` and `awb words`
