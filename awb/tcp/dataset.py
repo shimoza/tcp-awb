@@ -70,10 +70,10 @@ import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from awb import bucket, bucket_layout, config, gate, kb, obs, offered, register
-from awb.tcp import kbreview, price
-from awb.tcp.kbreview import (changes, datasets_dir, latest, read_facts, record_release, released, released_path,  # noqa: F401
-                              require_review, review, review_path)
+from awb import bucket, bucket_layout, config, gate, kb, kbreview, obs, offered, register
+from awb.kbreview import (changes, datasets_dir, latest, read_facts, record_release, released, released_path,  # noqa: F401
+                          require_review, review, review_path)
+from awb.tcp import price
 
 NAME = "TCP Facts"
 SLUG = kbreview.SLUG

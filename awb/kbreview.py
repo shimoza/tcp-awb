@@ -9,8 +9,8 @@
 successful put writes RELEASED.jsonl beside the folders: the facts.jsonl of that release, its first line the date,
 the facts the next review compares with. Before the first release every fact is listed as added.
 
-This module is the work user's side of it (awb kb runs in every session and under the kb units), so it imports
-nothing of the dataset command: dataset.py imports it. The lines are codes only: the facts of a built folder are
+This module is the work user's side of it (awb kb runs in every session and under the kb units) and part of the
+core, so it imports nothing of the dataset command or the platform package: dataset.py imports it. The lines are codes only: the facts of a built folder are
 name checked by the export and tenant free by the build.
 """
 from __future__ import annotations

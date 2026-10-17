@@ -15,7 +15,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   refused target prints the plan, the refusal and no step, exit 2. `gate.range_commits` and `gate.scan_commits`
   (the commit part of the push scan, unchanged) are the pieces the deploy uses. The suite in the build unit and
   the diff question of the threat model's row are left open.
-- `awb kb review [--out DIR] [--date D]` (gap G6 of the threat model F2, `awb/tcp/kbreview.py`): the facts of the
+- `awb kb review [--out DIR] [--date D]` (gap G6 of the threat model F2, `awb/kbreview.py`): the facts of the
   newest built dataset (or the one of `--date`) added, amended (statement, source or grade) or retired since the last
   release, each with id, grade, check date, source and statement, codes only, compared with `RELEASED.jsonl` beside
   the folders (the `facts.jsonl` of the last release, which every successful `awb dataset put` writes). It writes
