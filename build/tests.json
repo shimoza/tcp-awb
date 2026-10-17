@@ -7748,8 +7748,78 @@
    "name": "eval Q32 expects the revision of the dataset under test",
    "run": ".venv/bin/pytest tests/test_dataset_polish.py::test_q32_expects_the_revision_of_the_dataset_under_test",
    "status": "passing"
+  },
+  {
+   "id": "f2-g6-g10-review-and-readers-1",
+   "phase": "f2-g6-g10-review-and-readers",
+   "name": "kb review: an unreviewed build is refused by the put in one line that names the command; a hand-made mark of other facts does not pass",
+   "run": ".venv/bin/pytest tests/test_kb_review.py::test_put_refuses_an_unreviewed_build_in_one_line_that_names_the_command",
+   "status": "passing"
+  },
+  {
+   "id": "f2-g6-g10-review-and-readers-2",
+   "phase": "f2-g6-g10-review-and-readers",
+   "name": "kb review: the first review lists every fact with source and grade, codes only, writes the mark and the put releases and records RELEASED.jsonl",
+   "run": ".venv/bin/pytest tests/test_kb_review.py::test_the_first_review_lists_every_fact_with_source_and_grade_and_lets_the_put_release",
+   "status": "passing"
+  },
+  {
+   "id": "f2-g6-g10-review-and-readers-3",
+   "phase": "f2-g6-g10-review-and-readers",
+   "name": "kb review: the next review lists only the facts added, amended (statement) and rechecked (source, grade) since the release",
+   "run": ".venv/bin/pytest tests/test_kb_review.py::test_the_next_review_lists_only_what_changed_since_the_release",
+   "status": "passing"
+  },
+  {
+   "id": "f2-g6-g10-review-and-readers-4",
+   "phase": "f2-g6-g10-review-and-readers",
+   "name": "kb review: a build after the review or a release in between makes the mark stale",
+   "run": ".venv/bin/pytest tests/test_kb_review.py::test_a_build_after_the_review_or_a_release_in_between_makes_the_mark_stale",
+   "status": "passing"
+  },
+  {
+   "id": "f2-g6-g10-review-and-readers-5",
+   "phase": "f2-g6-g10-review-and-readers",
+   "name": "kb review: refused without a build; the mark lies beside the folder and never in the zip or the manifest",
+   "run": ".venv/bin/pytest tests/test_kb_review.py::test_the_review_refuses_without_a_build_and_the_mark_stays_out_of_the_zip",
+   "status": "passing"
+  },
+  {
+   "id": "f2-g6-g10-review-and-readers-6",
+   "phase": "f2-g6-g10-review-and-readers",
+   "name": "gateway readers: a reader with a list opens the listed project alone, 404 for another one and its chat, the lists cut to the listed codes",
+   "run": ".venv/bin/pytest tests/test_web_readers.py::test_a_reader_with_a_list_opens_the_listed_project_alone",
+   "status": "passing"
+  },
+  {
+   "id": "f2-g6-g10-review-and-readers-7",
+   "phase": "f2-g6-g10-review-and-readers",
+   "name": "gateway readers: a reader without a list and the single login see every project as before",
+   "run": ".venv/bin/pytest tests/test_web_readers.py::test_a_reader_without_a_list_sees_every_project_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "f2-g6-g10-review-and-readers-8",
+   "phase": "f2-g6-g10-review-and-readers",
+   "name": "gateway readers: the list follows the file on an open session, a reset keeps it, no code clears it, a bad code is refused",
+   "run": ".venv/bin/pytest tests/test_web_readers.py::test_the_list_follows_the_file_a_reset_keeps_it_and_no_code_clears_it",
+   "status": "passing"
+  },
+  {
+   "id": "f2-g6-g10-review-and-readers-9",
+   "phase": "f2-g6-g10-review-and-readers",
+   "name": "gateway readers: a hand-edited list that is not a list of codes keeps the login out",
+   "run": ".venv/bin/pytest tests/test_web_readers.py::test_a_hand_edited_list_that_is_not_a_list_of_codes_keeps_the_login_out",
+   "status": "passing"
+  },
+  {
+   "id": "f2-g6-g10-review-and-readers-10",
+   "phase": "f2-g6-g10-review-and-readers",
+   "name": "web user: projects sets, shows and clears the list; codes with another action are refused",
+   "run": ".venv/bin/pytest tests/test_web_readers.py::test_the_user_command_sets_shows_and_clears_the_list",
+   "status": "passing"
   }
  ],
- "total_tests": 1107,
+ "total_tests": 1117,
  "checked": "2026-10-17"
 }
