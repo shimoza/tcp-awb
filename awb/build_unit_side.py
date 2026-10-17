@@ -35,6 +35,15 @@ LOGIN_IN_HOME = ".claude/.credentials.json"
 <build_root>/home/.claude/; the prepare unit copies it into the task home (600) and the clean unit removes it with
 the home, after a newer token of the task went back. The owner never reads it and it never enters runs/."""
 LOGIN_MAX = 64 << 10
+LOGIN_ACCOUNT = "subscriptionType"
+"""The field of the login (`claudeAiOauth`) that names what the login belongs to, the only one of that kind in the
+file (review of 2026-10-13, B7): a login of the task goes back to the build user's home only when it names the same
+value as the login there, and a login without the field never does. A task that writes a login of its own, with a
+far-future expiresAt, keeps the build user's login where it was."""
+LOGIN_KEPT = 6
+"""Exit of the clean unit when a login of the task was not copied back for its account (the home went all the same);
+the runner puts LOGIN_KEPT_LINE into the run's result."""
+LOGIN_KEPT_LINE = "- login: the task's login names another account or none and was not copied back; the build user's stays"
 MODELS = ("login", "key")
 FAULT_SECONDS = 600         # every thread's stack when one test takes ten minutes
 RERUN_MAX = 20              # A7: more failed nodes than this get no rerun, a broad failure is no flake
@@ -161,19 +170,34 @@ def _login_expiry(data: bytes | None) -> float | None:
     return float(exp)
 
 
-def _login_back(r: Path, home: Path) -> None:
+def _login_account(data: bytes | None) -> str | None:
+    """LOGIN_ACCOUNT of a login file in the login's shape, a string with something in it; None otherwise."""
+    if _login_expiry(data) is None:
+        return None
+    account = json.loads(data.decode("utf-8"))["claudeAiOauth"].get(LOGIN_ACCOUNT)
+    return account if isinstance(account, str) and account.strip() else None
+
+
+def _login_back(r: Path, home: Path) -> bool:
     """A token the task's client refreshed goes back to the build user's own home before the task home goes: only
-    over a login that is there, only in the login's shape and only when it expires later than the one there. The
-    refresh may rotate the refresh token, so the next task would otherwise start from a spent one."""
+    over a login that is there, only in the login's shape, only when it names the same LOGIN_ACCOUNT as the one
+    there (B7) and only when it expires later. The refresh may rotate the refresh token, so the next task would
+    otherwise start from a spent one. False when a login of the task was there and not copied for its account (it
+    names another or none): the build user's login stays and the caller says so. True otherwise."""
     persistent = r / "home"
     new = _read_login(home)
     old = _read_login(persistent)
     exp_new, exp_old = _login_expiry(new), _login_expiry(old)
-    if new is None or exp_new is None or exp_old is None or exp_new <= exp_old:
-        return
+    if new is None or exp_new is None or exp_old is None:
+        return True
+    account = _login_account(new)
+    if account is None or account != _login_account(old):
+        return False
+    if exp_new <= exp_old:
+        return True
     d = persistent / os.path.dirname(LOGIN_IN_HOME)
     if d.is_symlink() or not d.is_dir():
-        return
+        return True
     tmp = d / (".credentials.awb-%d" % os.getpid())
     with contextlib.suppress(FileNotFoundError):
         os.unlink(tmp)
@@ -187,6 +211,7 @@ def _login_back(r: Path, home: Path) -> None:
     finally:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp)
+    return True
 
 
 def unit_prepare(root: str, tid: str, n: str, hooks: str, fin, resume: str | None = None,
@@ -372,19 +397,21 @@ def unit_suite(root: str, tid: str, n: str, mode: str, python: str, tokens: list
 def unit_clean(root: str, tid: str, n: str, what: str, model: str = "key") -> int:
     """`key`: the model key and the login out of the task home; `home`: the task home; `all`: the home, the clone
     and the out folder. rmtree follows no link. With `model` login a token the task refreshed goes back to the build
-    user's own home first (_login_back)."""
+    user's own home first (_login_back); exit LOGIN_KEPT when a login of the task was not copied for its account. With
+    `model` key nothing goes back: the task had no login to refresh."""
     r, clone, out, home = _helper_places(root, tid, n)
     targets = [home] if what == "home" else [home, clone, out] if what == "all" else []
     if (what != "key" and not targets) or model not in MODELS:
         return 2
+    rc = 0
     if model == "login" and home.is_dir() and not home.is_symlink():
         with contextlib.suppress(OSError):
-            _login_back(r, home)
+            rc = 0 if _login_back(r, home) else LOGIN_KEPT
     if what == "key":
         for rel in (KEY_IN_HOME, LOGIN_IN_HOME):
             with contextlib.suppress(FileNotFoundError, NotADirectoryError):
                 os.unlink(home / rel)
-        return 0
+        return rc
     for t in targets:
         if os.path.islink(t):
             os.unlink(t)
@@ -394,7 +421,7 @@ def unit_clean(root: str, tid: str, n: str, what: str, model: str = "key") -> in
                     with contextlib.suppress(OSError):
                         os.chmod(os.path.join(folder, d), 0o700)
             shutil.rmtree(t, ignore_errors=True)
-    return 0
+    return rc
 
 
 def unit_outdir(root: str, tid: str, n: str) -> int:

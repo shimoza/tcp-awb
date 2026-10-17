@@ -511,6 +511,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   --allow-protected` let them through, for the owner who read the diff of those paths first; the check line then
   names them. A link or a submodule in a branch is refused as it is in a task.
 
+- Every unit of a build task gets `PrivateIPC=yes`, a `/dev/shm` of its own (`TemporaryFileSystem=/dev/shm:size=64M`)
+  and `/dev/mqueue` inaccessible, so nothing a task leaves in shared memory outlives it or reaches the next task;
+  `seal/verify.sh` runs its probe units with the same properties and checks that a unit sees an empty `/dev/shm` of
+  at most 64 MB and no `/dev/mqueue`. The clean unit copies a login the task refreshed back to the build user's home
+  only when it names the same `subscriptionType` as the login there; one that names another or none stays in the
+  task home and `result.md` says so in one line; with `build_model = key` nothing goes back (review of 2026-10-13,
+  findings B5 and B7).
+
 - The work user can no longer persist past a session through its ssh keys or its crontab (F2 threat model, gap G3).
   `seal/setup.sh` copies the owner's keys to `/etc/ssh/authorized_keys/awb` (root, 644), writes the sshd drop-in
   `/etc/ssh/sshd_config.d/awb-work-user.conf` that points the work user alone at that file, checks it with `sshd -t`

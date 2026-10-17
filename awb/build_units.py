@@ -67,6 +67,12 @@ SMALL_MAX = 1 << 20
 CPU_QUOTA = "200%"
 MEMORY_MAX = "6G"
 TASKS_MAX = 512
+SHM_FS = "/dev/shm:size=64M"
+"""Every unit's own /dev/shm (review of 2026-10-13, B5): a tmpfs of its own that goes with the unit, capped, with
+PrivateIPC=yes for the System V and POSIX objects and /dev/mqueue inaccessible. Nothing a task leaves there outlives
+it or reaches the next task."""
+UNIT_HIDDEN = ("/etc/awb", "/dev/mqueue")
+"""InaccessiblePaths of every unit, before the clones, homes and records of the other tasks."""
 
 UNIT_RE = re.compile(r"awb-task-(?:probe|[BC]-[0-9]{3,4}(?:-(?:prep|hand|suite))?)")
 """Every unit name the runner starts, stops or resets: the fixed forms, nothing from the agent's side."""
@@ -329,10 +335,10 @@ class SystemdUnits(Units):
         out += ["--setenv=%s=%s" % (k, v) for k, v in sorted(spec.env.items())]
         props = ["RuntimeMaxSec=%d" % max(1, math.ceil(spec.seconds)), "CPUQuota=%s" % CPU_QUOTA,
                  "MemoryMax=%s" % MEMORY_MAX, "TasksMax=%d" % TASKS_MAX, "ProtectSystem=strict", "ProtectHome=yes",
-                 "PrivateTmp=yes", "NoNewPrivileges=yes"]
+                 "PrivateTmp=yes", "PrivateIPC=yes", "TemporaryFileSystem=%s" % SHM_FS, "NoNewPrivileges=yes"]
         if spec.rw:
             props.append("ReadWritePaths=%s" % " ".join(spec.rw))
-        props.append("InaccessiblePaths=%s" % " ".join(["-/etc/awb"] + ["-" + p for p in spec.hidden]))
+        props.append("InaccessiblePaths=%s" % " ".join(["-" + p for p in (*UNIT_HIDDEN, *spec.hidden)]))
         props += ["BindReadOnlyPaths=%s:%s" % pair for pair in spec.binds]
         if spec.netns:
             props.append("PrivateNetwork=yes")

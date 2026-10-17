@@ -7888,8 +7888,29 @@
    "name": "awb alone: no answer, none, work side",
    "run": ".venv/bin/pytest tests/test_f3_unlock_and_status.py::test_awb_alone_says_no_answer_and_none_and_names_the_work_side",
    "status": "passing"
+  },
+  {
+   "id": "n10-build-units-ipc-1",
+   "phase": "n10-build-units-ipc",
+   "name": "build units, B5: every unit of a task carries PrivateIPC=yes, a TemporaryFileSystem of its own over /dev/shm (64M) and /dev/mqueue inaccessible; the probe units of verify.sh carry the same and verify.sh checks what a unit sees in /dev/shm",
+   "run": ".venv/bin/pytest tests/test_build_units_ipc.py::test_every_task_unit_has_private_ipc_and_its_own_shm_and_no_mqueue",
+   "status": "passing"
+  },
+  {
+   "id": "n10-build-units-ipc-2",
+   "phase": "n10-build-units-ipc",
+   "name": "build units, B7: the clean unit copies a login of the task back only with the same subscriptionType and a later expiry; another account, no field or an earlier expiry never; in key mode nothing is copied; a refused copy is the exit LOGIN_KEPT",
+   "run": ".venv/bin/pytest tests/test_build_units_ipc.py::test_a_login_goes_back_only_with_the_same_account_and_a_later_expiry",
+   "status": "passing"
+  },
+  {
+   "id": "n10-build-units-ipc-3",
+   "phase": "n10-build-units-ipc",
+   "name": "build runner, B7: a refreshed login of the same account goes back and the result says nothing; one without the field stays and result.md and checks.log carry the one fixed line, never the token; in key mode the clean unit runs without login",
+   "run": ".venv/bin/pytest tests/test_build_units_ipc.py::test_a_refused_copy_is_one_line_of_the_result_and_a_refreshed_login_of_the_same_account_goes_back",
+   "status": "passing"
   }
  ],
- "total_tests": 1127,
+ "total_tests": 1130,
  "checked": "2026-10-17"
 }
