@@ -10,7 +10,7 @@ documentation publishes no number for it. So the Workbench never sends a burst a
   MAX_RETRY_AFTER; the client waits that long before it tries again.
 - `log_call(...)` and `usage_lines(...)`: one line per call to the tenant API in
   `<shared>/tenants/calls-YYYY-MM.jsonl` (time, tenant alias, service, region, method, status, seconds waited),
-  never a path, an id or a body; `awb cloud usage` and the portal's tenant page count them per day and show every 429.
+  never a path, an id or a body; `awb cloud usage` and `GET /api/usage` count them per day and show every 429.
 """
 from __future__ import annotations
 

@@ -1,8 +1,9 @@
 """The knowledge base, the price lookup and the API usage of the reader service as JSON (step 10 of the F1 plan).
 
-The same answers the portal gives (awb/tcp/portal.py): the same limits, the same name check on every fact, the same
-price records and the same day counts. Codes, counts and the checked text of a fact; never a name. Each function
-returns (status, data) and reads only what the portal reads.
+The answers the old portal pages gave (awb/tcp/portal.py, removed on 2026-10-17): the same limits, the same name
+check on every fact, the same price records and the same day counts. Codes, counts and the checked text of a fact;
+never a name. Each function returns (status, data) and reads only the knowledge base, the price API and the usage
+record.
 """
 import datetime
 import re

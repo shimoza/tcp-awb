@@ -350,6 +350,20 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   `financial-dashboard`, `consulting`, `marketplace`, `alert-service`, `das` and `cloud-connect`. `awb kb add`,
   `awb ledger add` and `awb spawn` take them now. A test fails when a service of the list has no tag.
 
+### Removed
+
+- The read-only portal (Z3 step 10, the last part): `awb portal serve`, `awb/tcp/portal.py`, `awb-portal.service`
+  and its drop-in `seal/web/awb-portal.service.d/90-awb-web.conf`, the gateway's forward of `/kb`, `/price`,
+  `/projects`, `/reviews`, `/tenants`, `/health` and `/portal` (they answer 404 now; `/ask` stays) and
+  `tests/test_portal.py`. The console shows the knowledge base, the price lookup and the usage on `/api/kb`,
+  `/api/price` and `/api/usage`, which the contract (`docs/api/openapi.yaml`) now carries as deployed; the sign-in's
+  `next` is `/` or `/ask`. `seal/setup.sh` (a seal and `--update`) stops and disables a left-over
+  `awb-portal.service` and removes its unit file and drop-in folder, idempotent; `seal/verify.sh` proves the unit
+  not found. The Ask page keeps the page template in `awb/tcp/ask.py`, with links to the console and to Ask. Not in
+  the console yet: the tenant page's snapshot of what runs and ran per tenant (`awb tenant` prints it) and the
+  portal's `/health` with `locked since` and the refused starts of today (`awb board`, `awb vault status` and the
+  503 of `/api/board` carry them).
+
 ### Fixed
 
 - The MCP Bundle of the dataset names its licence as the SPDX id `CC-BY-4.0` and carries `icon.png` (64 by 64, drawn with the

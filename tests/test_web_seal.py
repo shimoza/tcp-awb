@@ -204,7 +204,7 @@ def test_the_rollback_puts_back_what_the_switch_replaced_and_lifts_the_fence(tmp
     calls = log.read_text().splitlines()
     assert "systemctl disable --now awb-console-tenants.service" in calls
     assert "nft delete table inet awb_tunnel_fence" in calls
-    assert calls[-2:] == ["systemctl restart awb-portal.service awb-ask.service awb-console-data.service awb-web.service",
+    assert calls[-2:] == ["systemctl restart awb-ask.service awb-console-data.service awb-web.service",
                           "systemctl restart cloudflared.service"]
 
 
@@ -245,7 +245,7 @@ def test_install_sh_only_restarts_the_named_units_with_the_front(tmp_path):
 WEB_UNITS = ["awb-ask.service.d/95-project-chat.conf", "awb-console-data.service", "awb-console-tenants.service",
              "awb-customers.service", "awb-customers.socket", "awb-materials.service", "awb-materials.socket",
              "awb-owner-actions.service", "awb-owner-actions.socket", "awb-owner-status.service",
-             "awb-owner-status.timer", "awb-portal.service.d/90-awb-web.conf", "awb-project-create.service",
+             "awb-owner-status.timer", "awb-project-create.service",
              "awb-project-create.socket", "awb-web-publish.service", "awb-web-publish.socket",
              "awb-web-status.socket", "awb-web.service", "awb-web.socket"]
 
@@ -324,7 +324,7 @@ def test_the_switch_script_renders_backs_up_retires_and_restarts_in_order_with_t
                     "awb-owner-actions.socket awb-web-publish.socket awb-web.socket awb-web-status.socket "
                     "awb-console-tenants.socket",
                     "systemctl start awb-owner-status.service",
-                    "systemctl restart awb-portal.service awb-ask.service awb-console-data.service",
+                    "systemctl restart awb-ask.service awb-console-data.service",
                     "systemctl enable --now awb-console-tenants.service",
                     "systemctl restart awb-console-tenants.service awb-web.service",
                     "systemctl restart cloudflared.service"]

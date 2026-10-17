@@ -194,7 +194,6 @@ This is an excerpt of the output of `seal/setup.sh --dry-run` in a sandbox with 
 + systemctl enable --now awb-ask.service
 + systemctl enable --now awb-egress.service
 + systemctl enable --now awb-keyd.service
-+ systemctl enable --now awb-portal.service
 + systemctl enable --now awb-vaultd.service
 + systemctl enable --now awb-egress.timer
 + /usr/local/bin/awb egress load
@@ -255,7 +254,6 @@ Units in `/etc/systemd/system/`:
 | `awb-vaultd.service` | the owner, group awb | enabled and started. It is locked until you run `awb vault unlock`. |
 | `awb-keyd.service` | the owner, group awb | enabled and started. It holds no key until you run `awb keys unlock`. |
 | `awb-ask.service` | `awb-ask` | enabled and started. It waits for its key file. |
-| `awb-portal.service` | the work user | enabled and started |
 | `awb-egress.service` and `awb-egress.timer` | root | loaded at boot and every 5 minutes |
 | `awb-buildd.service` | the owner, group awb | installed, not enabled |
 | `awb-task-failed@.service` | the owner, group awb | installed, a template for failed build tasks |
@@ -312,9 +310,9 @@ This deploys the release that was live before the current one (the `previous` en
 
 The repository has no uninstall script. The steps below are the reverse of `setup.sh`, in the order that is safe. Check each one against your host before you run it. Not run here.
 
-1. Stop and disable the units: `awb-egress.timer`, `awb-egress.service`, `awb-buildd.service`, `awb-ask.service`, `awb-portal.service`, `awb-keyd.service` and `awb-vaultd.service`. Remove their files from `/etc/systemd/system/`, remove `awb-task-failed@.service` and run `systemctl daemon-reload`.
+1. Stop and disable the units: `awb-egress.timer`, `awb-egress.service`, `awb-buildd.service`, `awb-ask.service`, `awb-keyd.service` and `awb-vaultd.service` (and `awb-portal.service` on a host sealed before 2026-10-17, if `setup.sh --update` has not removed it yet). Remove their files from `/etc/systemd/system/`, remove `awb-task-failed@.service` and run `systemctl daemon-reload`.
 2. Remove the egress table: `nft delete table inet awb_egress`.
-3. If you installed the web console, stop and disable the units of `seal/web/` (the `.service`, `.socket` and `.timer` files and the drop-in folders `awb-ask.service.d` and `awb-portal.service.d`) and remove them from `/etc/systemd/system/` with their `.before-switch` and `.off` copies. Remove `cloudflared.service.d/50-awb-fence.conf`, run `nft delete table inet awb_tunnel_fence` and remove `/srv/awb-web`.
+3. If you installed the web console, stop and disable the units of `seal/web/` (the `.service`, `.socket` and `.timer` files and the drop-in folder `awb-ask.service.d`) and remove them from `/etc/systemd/system/` with their `.before-switch` and `.off` copies. Remove `cloudflared.service.d/50-awb-fence.conf`, run `nft delete table inet awb_tunnel_fence` and remove `/srv/awb-web`.
 4. Take the immutable flag off the client files with `chattr -i` (the files in `<work-home>/.claude`, `<work-home>/.gitconfig` and for the build side `/srv/awb-build/home-template` with its `.claude` folder) before you delete them.
 5. Unmount `/srv/awb-build`, remove its line from `/etc/fstab` and delete `/var/lib/awb-build.img`. Unmount the mirrors under `/srv/tcp-mirrors` and remove their lines too.
 6. Remove `/opt/tcp-awb`, `/opt/claude-build`, `/usr/local/bin/awb`, `/etc/awb`, `/etc/claude-code/managed-settings.d/awb-workbench.json`, `/etc/needrestart/conf.d/awb.conf` and `/var/lib/awb-egress`.

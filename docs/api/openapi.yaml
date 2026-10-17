@@ -39,8 +39,10 @@ info:
       without a session must arrive within 5 seconds (408 Request timed out. for a body, the connection closed
       for headers); a request with a session has 20 seconds for its body.
 
-    The gateway also serves the older server-rendered pages /kb, /price, /projects, /reviews, /tenants, /health
-    and /portal. They are HTML, the console does not call them and they are not part of this contract.
+    The gateway also serves the server-rendered Ask page /ask. It is HTML, the console does not call it and it is
+    not part of this contract. The portal's pages /kb, /price, /projects, /reviews, /tenants and /health went
+    with the portal on 2026-10-17: the console reads /api/kb, /api/price, /api/usage, /api/projects, /api/board
+    and /api/tenants instead.
 
     The owner host (T9 step 2, repository): a second host name, owner_host of /etc/awb/paths.conf, served by the
     same gateway with its own exact Origin. Its sign-in is /login there with the username, the password and a
@@ -157,13 +159,6 @@ paths:
                   description: Where to go after the sign-in.
                   enum:
                     - /
-                    - /kb
-                    - /price
-                    - /projects
-                    - /reviews
-                    - /tenants
-                    - /health
-                    - /portal
                     - /ask
               required:
                 - csrf
@@ -1987,7 +1982,7 @@ paths:
                 the-answer-could-not-be:
                   value:
                     error: The answer could not be built. Try again shortly.
-      x-awb-state: repository
+      x-awb-state: deployed
   /api/price:
     get:
       operationId: lookUpPrice
@@ -2099,7 +2094,7 @@ paths:
                 the-answer-could-not-be:
                   value:
                     error: The answer could not be built. Try again shortly.
-      x-awb-state: repository
+      x-awb-state: deployed
   /api/usage:
     get:
       operationId: getApiUsage
@@ -2178,7 +2173,7 @@ paths:
                 the-answer-could-not-be:
                   value:
                     error: The answer could not be built. Try again shortly.
-      x-awb-state: repository
+      x-awb-state: deployed
   "/api/projects/{code}/materials":
     get:
       operationId: listMaterials

@@ -4,7 +4,7 @@
                                   of the repository) and print the two paths
     awb board show                the same as Markdown on the terminal
 
-The same data as GET /api/board of the portal (awb/tcp/web/projects_api.py, board()): the recorded status of each
+The same data as GET /api/board of the console (awb/tcp/web/projects_api.py, board()): the recorded status of each
 active project (the Status: and Next: lines of STATE.md) with its time and the commits newer than it, what the
 project waits on, its first open items, its deliverables by review state and its live resources. A project whose
 status lags behind its commits or has no status line yet is marked, never updated: the session of the project does
