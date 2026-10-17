@@ -772,11 +772,23 @@ EOF
     run_if_present "$CONF_DIR/blocklist.txt" chmod 640 "$CONF_DIR/blocklist.txt"
 }
 
+retire_portal_unit() {
+    # The portal went on 2026-10-17 (F1 step 10): the console reads /api/kb, /api/price and /api/usage instead. A
+    # host sealed before keeps awb-portal.service and the drop-in folder of its web port: the unit is stopped and
+    # disabled, then both are removed, each step only while its file is there. Idempotent: nothing runs once they
+    # are gone.
+    local unit="$UNITS_DIR/awb-portal.service"
+    info "the portal unit of a host sealed before 2026-10-17 goes: stopped, disabled, its unit file and drop-in folder removed"
+    run_if_present "$unit" systemctl disable --now awb-portal.service
+    run_if_present "$unit" rm -f -- "$unit"
+    run_if_present "$unit.d" rm -rf -- "$unit.d"
+}
+
 step_units() {
     local f name
     info "the units of seal/*.service, rendered with the owner: the vault daemon and the key service run as the owner"
-    info "with the group $WORK_GROUP, the Ask page as awb-ask (its key file stays the owner's step), the portal as"
-    info "the work user. A running unit is left running: sudo awb deploy restarts what changed"
+    info "with the group $WORK_GROUP, the Ask page as awb-ask (its key file stays the owner's step)."
+    info "A running unit is left running: sudo awb deploy restarts what changed"
     info "The vault locks on a stop, a crash or a reboot. awb vault reload (what awb deploy uses after a code update)"
     info "hands the passphrase to the new process over a private socket pair and keeps it unlocked"
     for f in "$seal_dir"/*.service "$seal_dir"/*.timer; do
@@ -786,6 +798,7 @@ step_units() {
     [ "$units_only" -eq 1 ] || build_failed_unit
     [ "$units_only" -eq 1 ] || build_nudge_unit
     [ "$units_only" -eq 1 ] || recheck_watch_unit
+    retire_portal_unit
     run systemctl daemon-reload
     [ "$units_only" -eq 0 ] || return 0
     for f in "$seal_dir"/*.service "$seal_dir"/*.timer; do

@@ -661,7 +661,7 @@
   {
    "id": "T3-13",
    "phase": "T3",
-   "name": "test_board_and_health_open_with_locked_since: awb board show and write, the portal's /health and the 503 of /api/board open with locked since while the daemon answers locked, never while unlocked",
+   "name": "test_board_and_health_open_with_locked_since: awb board show and write and the 503 of /api/board open with locked since while the daemon answers locked, never while unlocked (the portal's /health went with the portal, z3-remove-portal)",
    "run": ".venv/bin/pytest tests/test_board.py::test_board_and_health_open_with_locked_since",
    "status": "passing"
   },
@@ -2110,8 +2110,8 @@
   {
    "id": "TM0-6",
    "phase": "TM0",
-   "name": "the portal /kb page and the Ask kb_find tool screen every entry with kb.screen; a form registered after the add is withheld, no check means nothing shown",
-   "run": ".venv/bin/pytest tests/test_portal.py tests/test_ask.py -k registered_after_the_add",
+   "name": "the Ask kb_find tool screens every entry with kb.screen; a form registered after the add is withheld, no check means nothing shown (the portal /kb page went with the portal, z3-remove-portal)",
+   "run": ".venv/bin/pytest tests/test_ask.py -k registered_after_the_add",
    "status": "passing"
   },
   {
@@ -7888,8 +7888,50 @@
    "name": "awb alone: no answer, none, work side",
    "run": ".venv/bin/pytest tests/test_f3_unlock_and_status.py::test_awb_alone_says_no_answer_and_none_and_names_the_work_side",
    "status": "passing"
+  },
+  {
+   "id": "z3-remove-portal-1",
+   "phase": "z3-remove-portal",
+   "name": "the gateway forwards /ask alone to a server-rendered page; /kb, /price, /projects, /reviews, /tenants, /health and /portal are 404 with a session and the sign-in still redirects without one; next after the sign-in is / or /ask",
+   "run": ".venv/bin/pytest tests/test_web_gateway.py tests/test_web_owner_api.py tests/test_board.py::test_the_gateway_sends_the_board_to_the_projects_service",
+   "status": "passing"
+  },
+  {
+   "id": "z3-remove-portal-2",
+   "phase": "z3-remove-portal",
+   "name": "the Ask page carries its own template, headers and escaping; nothing imports awb.tcp.portal",
+   "run": ".venv/bin/pytest tests/test_ask.py tests/test_deploy.py",
+   "status": "passing"
+  },
+  {
+   "id": "z3-remove-portal-3",
+   "phase": "z3-remove-portal",
+   "name": "the contract: /api/kb, /api/price and /api/usage are deployed, the sign-in's next is / or /ask, the description names the Ask page alone; docs/api/openapi.yaml equals the contract (awb api check)",
+   "run": ".venv/bin/pytest tests/test_web_contract.py tests/test_web_reader_api.py",
+   "status": "passing"
+  },
+  {
+   "id": "z3-remove-portal-4",
+   "phase": "z3-remove-portal",
+   "name": "seal: setup.sh removes awb-portal.service and its drop-in folder when present (a seal and an update, before daemon-reload), writes no such unit, verify.sh proves it not found; install.sh and awb-web.service name the Ask page and the console data alone; awb-egress.service orders before the console data",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_setup_removes_the_portal_unit_of_before_and_verify_proves_it_gone tests/test_web_seal.py tests/test_egress.py",
+   "status": "passing"
+  },
+  {
+   "id": "z3-remove-portal-5",
+   "phase": "z3-remove-portal",
+   "name": "the board and the receipt without the portal: awb board and /api/board open with locked since and carry the refused starts",
+   "run": ".venv/bin/pytest tests/test_board.py::test_board_and_health_open_with_locked_since tests/test_receipt.py::test_board_and_health_carry_the_refused_starts_of_today",
+   "status": "passing"
+  },
+  {
+   "id": "z3-remove-portal-6",
+   "phase": "z3-remove-portal",
+   "name": "COMMANDS.md without awb portal equals the generated one; the test files carry fixture names only",
+   "run": ".venv/bin/pytest tests/test_generated_docs.py tests/test_self_clean.py",
+   "status": "passing"
   }
  ],
- "total_tests": 1127,
+ "total_tests": 1133,
  "checked": "2026-10-17"
 }

@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from awb import kb
-from awb.tcp import portal, price, throttle
+from awb.tcp import price, throttle
 from awb.tcp.web import contract, projects_api, reader_api
 from tests import fixtures
 
@@ -51,12 +51,6 @@ def test_kb_finds_a_fact_with_its_grade(served):
     assert data["facts"][0]["expired"] is False
     fits("KbAnswer", data)
     assert get(served, "/api/kb?q=nothingmatcheszzz")[1]["facts"] == []
-
-
-def test_kb_gives_what_the_portal_page_gives(served, home):
-    data = get(served, "/api/kb?q=cluster+flavors")[1]
-    page = portal.knowledge(home, {"q": "cluster flavors"})
-    assert all(f["statement"] in page and f["id"] in page for f in data["facts"]) and len(data["facts"]) == 1
 
 
 def test_kb_needs_words_and_cuts_them(served):
@@ -181,5 +175,5 @@ def test_the_routes_are_read_only_and_the_old_paths_stay_as_they_were(served):
 def test_the_contract_lists_the_three_routes():
     ops = {p: op for m, p, op in contract.operations(DOC)}
     for path in reader_api.ROUTES:
-        assert ops[path]["x-awb-state"] == "repository" and ops[path]["tags"] == ["reference"]
+        assert ops[path]["x-awb-state"] == "deployed" and ops[path]["tags"] == ["reference"]
     assert contract.check(DOC) == []

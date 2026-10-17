@@ -654,7 +654,7 @@ def test_the_units_load_at_boot_before_the_logins_and_every_five_minutes():
     for line in ("Type=oneshot", "ExecStart=/usr/local/bin/awb egress load", "WantedBy=multi-user.target"):
         assert line in unit.splitlines(), line
     before = re.search(r"(?m)^Before=(.*)$", unit).group(1).split()
-    assert {"systemd-user-sessions.service", "cron.service", "awb-portal.service"} <= set(before)
+    assert {"systemd-user-sessions.service", "cron.service", "awb-console-data.service"} <= set(before)
     assert not re.search(r"(?m)^User=", unit)
     timer = (SEAL / "awb-egress.timer").read_text(encoding="utf-8").splitlines()
     for line in ("OnUnitActiveSec=5min", "Unit=awb-egress.service", "WantedBy=timers.target"):

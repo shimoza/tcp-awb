@@ -7,7 +7,7 @@
 Description=Architect Workbench egress filter of the work user
 Wants=network-online.target nss-lookup.target
 After=network-online.target nss-lookup.target
-Before=systemd-user-sessions.service cron.service awb-portal.service awb-console-data.service awb-project-create.service
+Before=systemd-user-sessions.service cron.service awb-console-data.service awb-project-create.service
 
 [Service]
 Type=oneshot

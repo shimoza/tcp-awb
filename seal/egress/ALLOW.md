@@ -1,6 +1,6 @@
 # The allow list of the work user
 
-What the work user (`awb`, every working session, the portal, the console data and the project creation service)
+What the work user (`awb`, every working session, the console data and the project creation service)
 may reach on the network. `awb egress load` (root) reads the rows in backticks from this file, resolves the host
 names and puts their addresses into the sets of `work-egress.nft`. Every other new connection of the work user is
 counted by class and, in the mode enforce, refused. Measured on 2026-10-11 on the sealed host; how is at the end.
@@ -19,7 +19,7 @@ counted by class and, in the mode enforce, refused. Measured on 2026-10-11 on th
 
 Allowed without a row, because they never leave the host:
 
-- loopback (`lo`): the resolver `127.0.0.53` (the work user's only DNS), the portal, the console data and every other
+- loopback (`lo`): the resolver `127.0.0.53` (the work user's only DNS), the console data and every other
   local service. The tunnel's fence keeps its own user off loopback; the work user keeps it.
 - Unix sockets, which nftables does not see: the name check (`/run/awb/check.sock`), the key service
   (`/run/awb-keys/cloud.sock`), the console sockets of the web side.
@@ -102,8 +102,8 @@ First match wins, in this order. `awb egress status` shows the counts of the las
   work user's install: native, version 2.1.296, no plugin installed, the official marketplace known, `autoUpdates` off.
 - The crontab of the work user: `claude update` at 01:35 and the commit of the knowledge base at 01:40 (no remote).
   Since F2 G3 both run from root owned timers as the work user (`seal/work-jobs/`) and the work user has no crontab.
-- The projects of the work user: no git remote. The units that run as the work user (`awb-portal`,
-  `awb-console-data`, `awb-project-create`): loopback and Unix sockets only.
+- The projects of the work user: no git remote. The units that run as the work user (`awb-console-data`,
+  `awb-project-create`): loopback and Unix sockets only.
 - `/etc/resolv.conf`: the stub `127.0.0.53`. The time: systemd-timesyncd.
 
 ## Limits

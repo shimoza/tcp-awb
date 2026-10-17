@@ -7,7 +7,7 @@ STATE.md opens with two lines under its title, one sentence each, codes only:
 
 The session updates them, with the rest of STATE.md and OPEN.md, after every step that changes the status, in the
 same commit as the work. The stop hook holds a reply while the project has commits newer than STATE.md or the two
-lines are missing; the portal shows them in the project list and on the project page, with the date of STATE.md
+lines are missing; the console shows them in the project list and on the project page, with the date of STATE.md
 and the commits that came after it.
 """
 from __future__ import annotations
@@ -85,7 +85,7 @@ def reminder(root: Path) -> str | None:
                      "done and what comes next" % late)
     if rec.summary is None or rec.next is None:
         parts.append("STATE.md needs the two lines Status: and Next: right under its title, one sentence each, "
-                     "codes only: the portal shows them as the status of the project")
+                     "codes only: the console shows them as the status of the project")
     if not parts:
         return None
     return "; ".join(parts) + "; then commit."

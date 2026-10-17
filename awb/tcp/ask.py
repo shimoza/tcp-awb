@@ -21,6 +21,7 @@ Runtime code is the standard library: the Messages API is called over HTTPS with
 from __future__ import annotations
 
 import datetime
+import html
 import json
 import os
 import sys
@@ -32,7 +33,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from awb import config
-from awb.tcp import portal
 
 API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
@@ -263,11 +263,45 @@ def ask(question: str, p: config.Paths | None = None, key: str | None = None, se
 
 # --------------------------------------------------------------------------- the page
 
+# The page template of the old portal (awb/tcp/portal.py, removed in F1 step 10) lives on here: the Ask page is
+# the one server-rendered page left. Every value that reaches it is HTML-escaped.
+HEADERS = {
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "
+                               "base-uri 'none'; frame-ancestors 'none'",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store",
+}
+
+_CSS = """
+body{font-family:Calibri,Arial,sans-serif;margin:0;color:#1B2430;background:#fff}
+header{background:#1B2430;color:#fff;padding:14px 24px}
+header a{color:#fff;margin-right:18px;text-decoration:none}
+header b{color:#E20074;margin-right:28px}
+main{padding:20px 24px;max-width:1100px}
+input,select,textarea{font:inherit;padding:6px 8px;border:1px solid #c5ccd5;border-radius:4px}
+button{font:inherit;padding:6px 14px;border:0;border-radius:4px;background:#E20074;color:#fff}
+.muted{color:#5B6878;font-size:90%}.expired{color:#b00020}
+"""
+
+
+def _e(value) -> str:
+    return html.escape("" if value is None else str(value), quote=True)
+
+
+def page(title: str, body: str) -> str:
+    """A whole page: the header with the links to the console and to Ask, the title and the body."""
+    nav = '<header><b>Architect Workbench</b><a href="/">Console</a><a href="/ask">Ask</a></header>'
+    return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>%s</title>'
+            '<meta name="viewport" content="width=device-width, initial-scale=1"><style>%s</style></head>'
+            '<body>%s<main><h1>%s</h1>%s</main></body></html>' % (_e(title), _CSS, nav, _e(title), body))
+
 
 def _form(question: str = "") -> str:
     return ('<form method="post" action="/ask"><textarea name="q" rows="4" cols="90" maxlength="%d" '
             'placeholder="for example: which CCE node flavors are there in eu-de, and what does s3.large.2 cost per '
-            'hour?">%s</textarea><br><button>Ask</button></form>' % (MAX_QUESTION, portal._e(question)))
+            'hour?">%s</textarea><br><button>Ask</button></form>' % (MAX_QUESTION, _e(question)))
 
 
 def ask_page(answer: dict | None = None, question: str = "", error: str = "") -> str:
@@ -276,12 +310,12 @@ def ask_page(answer: dict | None = None, question: str = "", error: str = "") ->
             'entry of every fact. No customer data: a registered name is stopped before anything is sent.</p>'
             + _form(question))
     if error:
-        body += '<p class="expired">%s</p>' % portal._e(error)
+        body += '<p class="expired">%s</p>' % _e(error)
     if answer:
         body += ('<h2>Answer</h2><div style="white-space:pre-wrap">%s</div><p class="muted">sources used: %s</p>'
-                 % (portal._e(answer["answer"]), portal._e(", ".join(sorted(set(answer["tools"]))) or "none")))
+                 % (_e(answer["answer"]), _e(", ".join(sorted(set(answer["tools"]))) or "none")))
     body += '<p class="muted">%d questions left today</p>' % max(left_q, 0)
-    return portal.page("Ask", body)
+    return page("Ask", body)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -295,25 +329,25 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
-        for k, v in portal.HEADERS.items():
+        for k, v in HEADERS.items():
             self.send_header(k, v)
         self.end_headers()
         self.wfile.write(data)
 
     def do_GET(self):
         if urllib.parse.urlsplit(self.path).path != "/ask":
-            self._send(404, portal.page("Not found", "<p>No such page.</p>"))
+            self._send(404, page("Not found", "<p>No such page.</p>"))
             return
         self._send(200, ask_page())
 
     def do_POST(self):
         if urllib.parse.urlsplit(self.path).path != "/ask":
-            self._send(404, portal.page("Not found", "<p>No such page.</p>"))
+            self._send(404, page("Not found", "<p>No such page.</p>"))
             return
         origin = self.headers.get("Origin")
         host = self.headers.get("Host", "")
         if origin and urllib.parse.urlsplit(origin).netloc != host:
-            self._send(403, portal.page("Not allowed", "<p>A question comes from this page only.</p>"))
+            self._send(403, page("Not allowed", "<p>A question comes from this page only.</p>"))
             return
         try:
             length = min(int(self.headers.get("Content-Length") or 0), 8 * MAX_QUESTION)
