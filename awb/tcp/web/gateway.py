@@ -267,8 +267,12 @@ def replay(entries):
     return limiter
 
 
-Account = namedtuple('Account', 'salt hash rounds level totp generation')
+# projects: the codes a reader may open (`awb web user projects`); empty means every project, as before the list
+Account = namedtuple('Account', 'salt hash rounds level totp generation projects', defaults=((),))
 LEVELS = ('reader', 'owner')
+PROJECT_CODE = re.compile(r'tcp-[a-z0-9]{4}')
+PROJECT_PATH = re.compile(r'/api/projects/(tcp-[a-z0-9]{4})(?:/|$)')     # every route of one project
+PROJECT_LISTS = ('/api/projects', '/api/board')                           # the routes that list projects by code
 SLOT_WAIT = 3.0             # a sign-in waits this long for a free pbkdf2 slot, then answers busy (never counted)
 UNAUTHENTICATED = 64        # requests without a session at once
 PER_ADDRESS = 4             # of them per address key; the next answers 429 before a byte of its body is read
@@ -374,10 +378,15 @@ class Auth:
             users = {}
             for login, u in data['users'].items():
                 level = u.get('level', 'reader')
+                projects = u.get('projects') or []
                 if not LOGIN_RE.fullmatch(login) or level not in LEVELS:
                     continue
+                if not isinstance(projects, list) or not all(isinstance(c, str) and PROJECT_CODE.fullmatch(c)
+                                                             for c in projects):
+                    continue        # a project list that is not a list of codes: the login stays out, like a bad level
                 users[login] = Account(bytes.fromhex(u['salt']), bytes.fromhex(u['hash']), int(u['rounds']), level,
-                                       u.get('totp') if level == 'owner' else None, int(u.get('generation', 0)))
+                                       u.get('totp') if level == 'owner' else None, int(u.get('generation', 0)),
+                                       tuple(projects))
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             print('AWB gateway: the users file cannot be read; nobody signs in', flush=True)
             users = {}
@@ -654,6 +663,12 @@ class Auth:
     def session_valid(self, token):
         return self.session_user(token) is not None
 
+    def projects_of(self, login):
+        """The codes the login may open, read from the users file as it is now; () for every project (an empty or
+        missing list, the single login)."""
+        account = self.accounts()[1].get(login) if login else None
+        return account.projects if account else ()
+
     # ------------------------------------------------------------------------------------- the owner level
 
     def load_used(self, now):
@@ -849,6 +864,17 @@ OWNER_ONLY_TEXT = b'{"error":"Owner only."}'
 OWNER_POSTS = tuple(path for method, path, _, _ in OWNER_ROUTES if method == 'POST')
 
 
+def restrict(answer, only):
+    """The JSON answer as bytes, its `projects` rows cut to the codes in `only` when `only` is given. A row without
+    a code of the list is dropped, so a reader with a list never sees another code."""
+    if only:
+        rows = answer.get('projects')
+        if not isinstance(rows, list):
+            raise ValueError('no project rows')
+        answer = {**answer, 'projects': [r for r in rows if isinstance(r, dict) and r.get('code') in only]}
+    return json.dumps(answer).encode()
+
+
 def owner_route_of(method, path):
     """(socket attribute, query goes along) of an owner route; None for any other. A HEAD is the GET."""
     method = 'GET' if method == 'HEAD' else method
@@ -989,7 +1015,7 @@ class Gateway(BaseHTTPRequestHandler):
 
     def dispatch(self):
         self.refusal, self.level, self.host_label = '', '-', 'main'
-        self.user = self.owner_login = None
+        self.user = self.owner_login = self.only = None
         owner_side = bool(self.server.owner_host) and self.headers.get('Host', '').lower() == self.server.owner_host
         if owner_side:
             self.host_label = 'owner'
@@ -1123,6 +1149,13 @@ class Gateway(BaseHTTPRequestHandler):
             self.refusal = 'level'
             self.reply(403, OWNER_ONLY_TEXT, {'Content-Type': 'application/json; charset=utf-8'})
             return
+        # G10: a reader with a project list opens the listed codes alone; a route of another project is not there
+        allowed = self.server.auth.projects_of(self.user[0])
+        one = PROJECT_PATH.match(path)
+        if allowed and one and one.group(1) not in allowed:
+            self.refusal = 'project'
+            self.reply(404, b'Not found.\n')
+            return
         if self.command == 'POST':
             # Cookie sessions require the exact HTTPS origin for submitted questions.
             is_chat = bool(re.fullmatch(r'/api/projects/tcp-[a-z0-9]{4}/chat', path)) or path == '/api/ask'
@@ -1155,6 +1188,7 @@ class Gateway(BaseHTTPRequestHandler):
         if backend is None:
             self.reply(404, b'Not found.\n')
             return
+        self.only = allowed if allowed and path in PROJECT_LISTS else None
         self.forward(backend, self.path, body)
 
     def backend(self, path, reader_pages=False):
@@ -1180,8 +1214,10 @@ class Gateway(BaseHTTPRequestHandler):
 
     def forward(self, backend, target, body, extra=None):
         """Hand the request to its backend and its answer back. Never forwards Authorization, cookies or a forwarding
-        header of the client; adds the level and a fresh request id."""
+        header of the client; adds the level and a fresh request id. `self.only` (codes, set by a reader route)
+        keeps of a JSON answer's `projects` rows those whose code is listed (G10)."""
         kind, where = backend
+        only = getattr(self, 'only', None)
         forwarded = {'Host': self.server.domain, 'X-Forwarded-Proto': 'https', 'X-AWB-Level': self.level,
                      'X-AWB-Request': secrets.token_hex(16)}
         if self.command == 'POST':
@@ -1200,10 +1236,10 @@ class Gateway(BaseHTTPRequestHandler):
             if len(data) > MAX_RESPONSE:
                 self.reply(502, b'The response was too large.\n')
                 return
-            if extra and response.status == 200:
+            if (extra or only) and response.status == 200:
                 try:
-                    data = json.dumps({**json.loads(data), **extra}).encode()
-                except (ValueError, TypeError):
+                    data = restrict({**json.loads(data), **(extra or {})}, only)
+                except (ValueError, TypeError, AttributeError):
                     self.reply(502, b'The AWB service is temporarily unavailable.\n')
                     return
             permitted = {'content-type', 'content-security-policy', 'allow'}

@@ -319,7 +319,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | the status | `awb board show`, `awb board write` | the status of every active project on one page |
 | bring a commit live | `sudo awb deploy` | the new release, only the changed services restarted, the status at the end |
 | publish the console page | `sudo awb web publish --from-queue ID` | the checked page of a UI run live, the old one kept as a backup |
-| a login for the console | `sudo awb web user add LOGIN [--level owner]` | a random password, shown once (an owner entry also gets a TOTP key for his phone); `reset`, `remove`, `list`; `sudo awb web status` shows failed sign-ins and waits |
+| a login for the console | `sudo awb web user add LOGIN [--level owner]` | a random password, shown once (an owner entry also gets a TOTP key for his phone); `reset`, `remove`, `list`; `projects LOGIN CODE...` limits a reader to those project codes (no list: every project); `sudo awb web status` shows failed sign-ins and waits |
 | the owner host name | `sudo awb web host HOST` | once: the host name of the owner level, kept in `/etc/awb/paths.conf` |
 | the owner level's status | `awb owner status` | what the owner page shows: vault, key service, release, page, UI runs (with each run's summary after the name check, for `GET /api/ui-runs`), intake counts; a timer writes it every minute |
 | hand a UI task to Codex | `awb ui submit presentations/ui-tasks/ID.txt`, `awb ui status` | the task checked and queued; a result note in `presentations/ui-tasks/` when the run ends |
@@ -435,6 +435,13 @@ repositories of the GitHub organisation opentelekomcloud-docs (Apache License 2.
 licence section), that the documentation website is not crawled, that no community portal or internal
 documentation is used and that the live checks ran on the compiler's own test tenants.
 Its README and PROMPT.md carry the section "MCP clients" with the configurations of the next part, HOW-TO.pdf the same.
+Before a release the owner reads what changed: `awb kb review` lists every fact of the built folder that was added,
+amended (statement, source or grade) or retired since the last release, with its id, grade, check date, source and
+statement, compared with `RELEASED.jsonl` beside the folders (the `facts.jsonl` of the last release, written by every
+put). It writes `tcp-facts-<date>.review.json` beside the folder. `awb dataset put` refuses a folder without
+that mark, with a mark of other facts (a build after the review) or of another release, in one line that names the
+command. So a fact a session planted with a fabricated source is read by a person before it reaches the public
+dataset (G6 of the threat model).
 `awb dataset put` sends the zip, the PDF and the manifest into the owner's bucket. With `--github` it also puts the
 files and the build's README.md into the root of the public repository
 [shimoza/tcp-facts](https://github.com/shimoza/tcp-facts), so the root README is never written by hand; LICENSE
