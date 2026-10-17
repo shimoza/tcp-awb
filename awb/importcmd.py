@@ -97,9 +97,9 @@ def ask_forms(p: config.Paths, customer: str, read=None, tty=None, allow_none: b
         raise ImportRefused("%s has no form in the register: run awb import in your own terminal, it asks for the "
                            "written forms" % customer)
     read = read or (lambda: sys.stdin.readline())
-    _say("%s has no form in the register yet. Type its written forms, one per line (the full name, the short "
-         "name, an acronym ...); an empty line ends.%s" % (customer, " An empty first line issues it without a form."
-                                                           if allow_none else ""))
+    _say("%s has no form in the register yet. Type its written forms in German, in English and in Russian, one per "
+         "line: the full name, the short name, an acronym, the Cyrillic spelling; an empty line ends.%s"
+         % (customer, " An empty first line issues it without a form." if allow_none else ""))
     added = 0
     while True:
         line = read()

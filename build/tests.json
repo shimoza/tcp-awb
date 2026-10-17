@@ -7909,8 +7909,50 @@
    "name": "build runner, B7: a refreshed login of the same account goes back and the result says nothing; one without the field stays and result.md and checks.log carry the one fixed line, never the token; in key mode the clean unit runs without login",
    "run": ".venv/bin/pytest tests/test_build_units_ipc.py::test_a_refused_copy_is_one_line_of_the_result_and_a_refreshed_login_of_the_same_account_goes_back",
    "status": "passing"
+  },
+  {
+   "id": "n7-register-forms-1",
+   "phase": "n7-register-forms",
+   "name": "register add with three forms registers three, one bad form and nothing is added",
+   "run": ".venv/bin/pytest tests/test_register.py::test_add_with_three_forms_registers_three",
+   "status": "passing"
+  },
+  {
+   "id": "n7-register-forms-2",
+   "phase": "n7-register-forms",
+   "name": "register add with - reads three lines from standard input and registers three",
+   "run": ".venv/bin/pytest tests/test_register.py::test_add_with_a_dash_reads_three_lines_from_standard_input",
+   "status": "passing"
+  },
+  {
+   "id": "n7-register-forms-3",
+   "phase": "n7-register-forms",
+   "name": "register find of a registered form prints its code and kind, exact after the folding of the matcher",
+   "run": ".venv/bin/pytest tests/test_register.py::test_find_of_a_registered_form_prints_its_code",
+   "status": "passing"
+  },
+  {
+   "id": "n7-register-forms-4",
+   "phase": "n7-register-forms",
+   "name": "register find of the control name prints no code",
+   "run": ".venv/bin/pytest tests/test_register.py::test_find_of_the_control_name_prints_no_code",
+   "status": "passing"
+  },
+  {
+   "id": "n7-register-forms-5",
+   "phase": "n7-register-forms",
+   "name": "register find in a pipe or an assistant session is refused with the fixed line and prints nothing else",
+   "run": ".venv/bin/pytest tests/test_register.py::test_find_in_a_pipe_is_refused_with_the_fixed_line",
+   "status": "passing"
+  },
+  {
+   "id": "n7-register-forms-6",
+   "phase": "n7-register-forms",
+   "name": "register find as the work user is refused",
+   "run": ".venv/bin/pytest tests/test_register.py::test_find_as_the_work_user_is_refused",
+   "status": "passing"
   }
  ],
- "total_tests": 1130,
+ "total_tests": 1136,
  "checked": "2026-10-17"
 }
