@@ -75,7 +75,7 @@ The intake, `awb gate` and every other path of customer material keep the plain 
     awb kb export --out FILE [--scope S] [--grade G]... [--tag T]... [--include-expired] [--force]
     awb kb review [--out DIR] [--date D]       the facts of the built dataset added or amended since the last
                                                release, with source and grade; writes the mark `awb dataset put`
-                                               needs (awb/tcp/kbreview.py, G6 of the threat model)
+                                               needs (awb/kbreview.py, G6 of the threat model)
 
 Exit codes: 0 ok, 1 refused (add, amend, retire) or expired entries found (expired), 2 usage or error.
 """
@@ -1706,7 +1706,7 @@ def _cmd_export(args, today: date) -> int:
 
 
 def _cmd_review(args, today: date) -> int:
-    from awb.tcp import kbreview
+    from awb import kbreview
 
     try:
         lines = kbreview.review(config.paths(), out=args.out, day=args.date)

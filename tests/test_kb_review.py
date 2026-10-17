@@ -10,7 +10,8 @@ from datetime import timedelta
 import pytest
 
 from awb import cli
-from awb.tcp import dataset, kbreview
+from awb import kbreview
+from awb.tcp import dataset
 from tests.obs_fake import FakeOBS
 from tests.test_dataset import S_ECS, S_IAM, S_OBS, TODAY, facts, live, new  # noqa: F401
 
