@@ -576,9 +576,10 @@ def test_the_real_spawn_is_one_fixed_form_and_the_suite_unit_has_its_own_loopbac
         "--setenv=HOME=/srv/awb-build/home/B-012-1", "--setenv=DISABLE_AUTOUPDATER=1",
         "--property=RuntimeMaxSec=5400", "--property=CPUQuota=200%", "--property=MemoryMax=6G",
         "--property=TasksMax=512", "--property=ProtectSystem=strict", "--property=ProtectHome=yes",
-        "--property=PrivateTmp=yes", "--property=NoNewPrivileges=yes",
+        "--property=PrivateTmp=yes", "--property=PrivateIPC=yes", "--property=TemporaryFileSystem=/dev/shm:size=64M",
+        "--property=NoNewPrivileges=yes",
         "--property=ReadWritePaths=/srv/awb-build/wt/B-012-1 /srv/awb-build/home/B-012-1",
-        "--property=InaccessiblePaths=-/etc/awb -/srv/awb-build/runs -/srv/awb-build/wt/B-011-1",
+        "--property=InaccessiblePaths=-/etc/awb -/dev/mqueue -/srv/awb-build/runs -/srv/awb-build/wt/B-011-1",
         "--property=BindReadOnlyPaths=/srv/awb-build/home-template/.gitconfig:/srv/awb-build/home/B-012-1/.gitconfig",
         "--property=IPAddressDeny=any", "--property=IPAddressAllow=127.0.0.53 192.0.2.10",
         "--property=OnFailure=awb-task-failed@awb-task-B-012.service",
@@ -771,7 +772,8 @@ def plant_login(w, token: str = TOKEN, expires: int = 1_900_000_000_000) -> Path
     d.mkdir(mode=0o700, exist_ok=True)
     f = d / ".credentials.json"
     f.write_text(json.dumps({"claudeAiOauth": {"accessToken": token, "refreshToken": token + "-r",
-                                               "expiresAt": expires, "scopes": ["user:inference"]}}))
+                                               "expiresAt": expires, "scopes": ["user:inference"],
+                                               "subscriptionType": "max"}}))
     f.chmod(0o600)
     return f
 
@@ -902,22 +904,25 @@ def test_login_mode_a_refreshed_token_goes_back_and_nothing_else_does(world, tmp
     good = login.read_bytes()
     exp = back["expiresAt"]
     for content, link in ((json.dumps({"claudeAiOauth": {"accessToken": "x", "refreshToken": "y",
-                                                         "expiresAt": exp - 1}}), False),
+                                                         "expiresAt": exp - 1, "subscriptionType": "max"}}), False),
                           (json.dumps({"other": {"expiresAt": exp + 9}}), False),
-                          (json.dumps({"claudeAiOauth": {"accessToken": "x", "expiresAt": exp + 9}}), False),
+                          (json.dumps({"claudeAiOauth": {"accessToken": "x", "expiresAt": exp + 9,
+                                                         "subscriptionType": "max"}}), False),
                           ("not json", False),
                           (json.dumps({"claudeAiOauth": {"accessToken": "x", "refreshToken": "y",
-                                                         "expiresAt": exp + 9}}), True)):
+                                                         "expiresAt": exp + 9, "subscriptionType": "max"}}), True)):
         task_home(content, link)
         assert buildrun.unit_clean(str(root), "B-900", "1", "home", "login") == 0
         assert login.read_bytes() == good and not home.exists()
     # key mode never sends anything back
-    task_home(json.dumps({"claudeAiOauth": {"accessToken": "x", "refreshToken": "y", "expiresAt": exp + 9}}))
+    task_home(json.dumps({"claudeAiOauth": {"accessToken": "x", "refreshToken": "y", "expiresAt": exp + 9,
+                                            "subscriptionType": "max"}}))
     assert buildrun.unit_clean(str(root), "B-900", "1", "home") == 0
     assert login.read_bytes() == good
     # no login there: none is made
     login.unlink()
-    task_home(json.dumps({"claudeAiOauth": {"accessToken": "x", "refreshToken": "y", "expiresAt": exp + 9}}))
+    task_home(json.dumps({"claudeAiOauth": {"accessToken": "x", "refreshToken": "y", "expiresAt": exp + 9,
+                                            "subscriptionType": "max"}}))
     assert buildrun.unit_clean(str(root), "B-900", "1", "home", "login") == 0
     assert not login.exists()
 

@@ -127,6 +127,7 @@ def test_a_refused_copy_is_one_line_of_the_result_and_a_refreshed_login_of_the_s
     nowhere(world, run, TOKEN)
     # a login without the field, refreshed by the task: not copied, said once
     login = plant_login(world)
+    login.write_text(login_json(None, 1_900_000_000_000, TOKEN))
     before = login.read_bytes()
     run = world.run("refresh", extra=cred(login))
     assert run.state == "done"
