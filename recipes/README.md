@@ -196,6 +196,11 @@ dry run, the list and the evidence show these notes, so the first live run says 
 | `ecs-flavor-boot` | does an ECS of any flavor the deny list leaves (up to 2xlarge, the s9 family too) boot in an AZ whose `cond:operation:az` says normal and read ACTIVE with that flavor and AZ; the console read is reported, not failed | 4 resources, 30 minutes |
 | `smn-http-confirm` | does an HTTP subscription of an SMN topic get a SubscriptionConfirmation with a subscribe_url on the console host and does a plain GET of it confirm the subscription (status 1) | 7 resources, 30 minutes |
 | `rds-create-refusal` | does RDS for SQL Server refuse a collation under test as it refuses the invented control `Awb_No_Such_Collation_CI_AS` (HTTP 500), with nothing made | 5 resources, 30 minutes |
+| `eip-bandwidth-adjust` | does an EIP with a bandwidth of 5 Mbit/s read 10 Mbit/s after the bandwidth is raised with `PUT /v1/{project_id}/bandwidths/ID` | 1 resource, 15 minutes |
+| `evs-snapshot-restore` | does a snapshot of a 10 GB SAS disk make a second disk that becomes available with the same size | 3 resources, 30 minutes |
+| `nat-snat-egress` | does a NAT gateway take an SNAT rule for the network of a new subnet with an EIP and read the rule back | 5 resources, 30 minutes |
+| `obs-lifecycle-rule` | does an OBS bucket take a lifecycle rule that expires objects after one day and read the rule back | 1 resource, 15 minutes |
+| `dns-private-zone` | does a private DNS zone bound to a new VPC take an A record and read it back | 3 resources, 20 minutes |
 
 `elb-health` lets the port in from `100.125.0.0/16` (the parameter `hc_source`), the address range the health checks
 of a shared ELB are said to come from; that range is to confirm live. Its first live run on 2026-10-12 left the member
@@ -232,3 +237,18 @@ create with HTTP 400 InvalidArgument, when the key service still signed OBS the 
 confirm live: the create in the default region without a location body, the policy as JSON with the OBS form of
 Principal and Action and the 403 of the denied action. Its bucket is named after the project, the only kind of
 bucket the key service writes to.
+
+The five recipes of the task n13 (`eip-bandwidth-adjust`, `evs-snapshot-restore`, `nat-snat-egress`,
+`obs-lifecycle-rule`, `dns-private-zone`) are tested on fake answers only; every shape they call that the repository
+did not call before says "to confirm live" in its note, with the page of the public documentation it comes from:
+
+- The bandwidth update `PUT /v1/{project_id}/bandwidths/ID` (OTC Elastic IP API reference, Updating a Bandwidth).
+- The EVS snapshot calls under `/v3/{project_id}/snapshots` (OTC EVS API reference, Creating an EVS Snapshot). The
+  disk from the snapshot is `POST /v2/{project_id}/volumes` with `snapshot_id`, the call of the lease check.
+- The SNAT rule calls `/v2.0/snat_rules` (OTC NAT Gateway API reference, Creating an SNAT Rule). The API wants an EIP
+  in `floating_ip_id`, so `nat-snat-egress` makes one of 1 Mbit/s and its teardown releases it.
+- The record set calls under `/v2/zones/ID/recordsets` (OTC DNS API reference, Creating a Record Set).
+- The OBS lifecycle `PUT /BUCKET?lifecycle` (OTC OBS API reference, PUT Bucket lifecycle) takes XML and a `Content-MD5`
+  header; the key service sends every body as JSON. `obs-lifecycle-rule` sends the JSON form and is likely to be
+  refused live until the key service can send an XML body. Its read back checks the status 200 only, because a check
+  reads JSON answers.

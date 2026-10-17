@@ -1,0 +1,270 @@
+{
+  "name": "dns-private-zone",
+  "question": "Does a private DNS zone in ${region} bound to a new VPC take an A record and read the record back?",
+  "about": "A VPC, a private zone named after the project and bound to the VPC, an A record in the zone and the record read back by its id. Teardown in reverse: the record, the zone, the VPC.",
+  "params": {
+    "region": {
+      "default": "eu-de",
+      "pattern": "^eu-(de|nl)$"
+    },
+    "address": {
+      "default": "192.168.10.10",
+      "pattern": "^192\\.168\\.[0-9]{1,3}\\.[0-9]{1,3}$",
+      "help": "the address of the A record, in 192.168.0.0/16"
+    }
+  },
+  "budget": {
+    "minutes": 8,
+    "teardown_minutes": 6
+  },
+  "guard": {
+    "resources": 3,
+    "lifetime_minutes": 20
+  },
+  "steps": [
+    {
+      "id": "vpc",
+      "do": "create",
+      "says": "a VPC",
+      "call": {
+        "method": "POST",
+        "service": "vpc",
+        "path": "/v1/{project_id}/vpcs",
+        "body": {
+          "vpc": {
+            "name": "${name}",
+            "cidr": "192.168.0.0/16"
+          }
+        }
+      },
+      "id_field": "vpc.id",
+      "name": "${name}",
+      "find": {
+        "call": {
+          "method": "GET",
+          "service": "vpc",
+          "path": "/v1/{project_id}/vpcs",
+          "query": {
+            "limit": "100"
+          }
+        },
+        "list": "vpcs",
+        "field": "id",
+        "within": 60
+      },
+      "resource": {
+        "kind": "vpc",
+        "type": "vpc",
+        "cost": "none"
+      },
+      "tags": {
+        "method": "POST",
+        "service": "vpc",
+        "path": "/v2.0/{project_id}/vpcs/${id}/tags/action",
+        "body": {
+          "action": "create",
+          "tags": "${tags:kv}"
+        }
+      },
+      "confirm": "the tag call POST /v2.0/{project_id}/vpcs/ID/tags/action, as in ecs-boot-ssh"
+    },
+    {
+      "id": "zone",
+      "do": "create",
+      "says": "a private zone bound to the VPC",
+      "call": {
+        "method": "POST",
+        "service": "dns",
+        "path": "/v2/zones",
+        "body": {
+          "name": "${name}.example.",
+          "zone_type": "private",
+          "email": "hostmaster@example.com",
+          "description": "${project} lab",
+          "router": {
+            "router_id": "${vpc}",
+            "router_region": "${region}"
+          }
+        }
+      },
+      "id_field": "id",
+      "name": "${name}.example.",
+      "find": {
+        "call": {
+          "method": "GET",
+          "service": "dns",
+          "path": "/v2/zones",
+          "query": {
+            "type": "private",
+            "limit": "100"
+          }
+        },
+        "list": "zones",
+        "field": "id",
+        "within": 60
+      },
+      "resource": {
+        "kind": "zone",
+        "type": "dns private zone",
+        "cost": "none"
+      },
+      "tags": "name",
+      "confirm": "the create body is the one of the lease check plus email and description; the find GET /v2/zones with type private and the list under zones are to confirm live; the key service sends no X-Project-Id header, which the lease check sends"
+    },
+    {
+      "id": "zone-active",
+      "do": "wait",
+      "says": "the zone is ACTIVE",
+      "call": {
+        "method": "GET",
+        "service": "dns",
+        "path": "/v2/zones/${zone}"
+      },
+      "until": {
+        "field": "status",
+        "equals": "ACTIVE"
+      },
+      "fail_on": [
+        "ERROR"
+      ],
+      "within": 120,
+      "every": 5,
+      "confirm": "GET /v2/zones/ID and the field status"
+    },
+    {
+      "id": "record",
+      "do": "create",
+      "says": "an A record in the zone",
+      "call": {
+        "method": "POST",
+        "service": "dns",
+        "path": "/v2/zones/${zone}/recordsets",
+        "body": {
+          "name": "www.${name}.example.",
+          "type": "A",
+          "ttl": 300,
+          "records": [
+            "${address}"
+          ],
+          "description": "${project} lab"
+        }
+      },
+      "id_field": "id",
+      "name": "www.${name}.example.",
+      "find": {
+        "call": {
+          "method": "GET",
+          "service": "dns",
+          "path": "/v2/zones/${zone}/recordsets",
+          "query": {
+            "type": "A"
+          }
+        },
+        "list": "recordsets",
+        "field": "id",
+        "within": 60
+      },
+      "resource": {
+        "kind": "rec",
+        "type": "dns a record",
+        "cost": "none"
+      },
+      "tags": "name",
+      "confirm": "to confirm live: POST and GET /v2/zones/ID/recordsets with name, type, ttl and records are not called by the repository yet (OTC DNS API reference, Creating a Record Set); the record's name carries the project code"
+    },
+    {
+      "id": "read",
+      "do": "call",
+      "says": "read the record back",
+      "call": {
+        "method": "GET",
+        "service": "dns",
+        "path": "/v2/zones/${zone}/recordsets/${record}"
+      },
+      "confirm": "GET /v2/zones/ID/recordsets/ID and the field records.0"
+    }
+  ],
+  "checks": [
+    {
+      "id": "record-address",
+      "step": "read",
+      "says": "the record reads the address it was made with",
+      "field": "records.0",
+      "equals": "${address}"
+    },
+    {
+      "id": "record-type",
+      "step": "read",
+      "says": "the record is an A record",
+      "field": "type",
+      "equals": "A"
+    }
+  ],
+  "teardown": {
+    "vpc": {
+      "call": {
+        "method": "DELETE",
+        "service": "vpc",
+        "path": "/v1/{project_id}/vpcs/${id}"
+      },
+      "gone": {
+        "call": {
+          "method": "GET",
+          "service": "vpc",
+          "path": "/v1/{project_id}/vpcs/${id}"
+        },
+        "status": [
+          404
+        ],
+        "within": 300
+      },
+      "confirm": "a VPC delete may answer 409 VPC.0104 while its subnet is still going; the teardown repeats the delete until it is taken"
+    },
+    "zone": {
+      "call": {
+        "method": "DELETE",
+        "service": "dns",
+        "path": "/v2/zones/${id}"
+      },
+      "gone": {
+        "call": {
+          "method": "GET",
+          "service": "dns",
+          "path": "/v2/zones/${id}"
+        },
+        "status": [
+          404
+        ],
+        "within": 120
+      }
+    },
+    "record": {
+      "call": {
+        "method": "DELETE",
+        "service": "dns",
+        "path": "/v2/zones/${zone}/recordsets/${id}"
+      },
+      "gone": {
+        "call": {
+          "method": "GET",
+          "service": "dns",
+          "path": "/v2/zones/${zone}/recordsets/${id}"
+        },
+        "status": [
+          404
+        ],
+        "within": 60
+      },
+      "confirm": "to confirm live: DELETE /v2/zones/ID/recordsets/ID"
+    }
+  },
+  "kb": {
+    "scope": "tcp",
+    "tags": [
+      "dns",
+      "vpc"
+    ],
+    "class": "api",
+    "statement": "A private DNS zone in ${region} bound to a VPC takes an A record and returns its address on a read by id."
+  }
+}

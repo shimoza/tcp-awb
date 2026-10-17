@@ -62,6 +62,8 @@ goes on when the find proves nothing was made; the recipes `ecs-flavor-boot`, `s
 (`preflight`): `rds-create-refusal` reads the RDS storage types and stops with one line unless its `volume_type`
 (default CLOUDSSD) is normal in the AZ. A create step may name a `shape_error`: a 400 with an error code DBS.28xxxx
 stops the run as a recipe error and is never taken as the answer a check looks for.
+Five more recipes (`eip-bandwidth-adjust`, `evs-snapshot-restore`, `nat-snat-egress`, `obs-lifecycle-rule` and
+`dns-private-zone`) are tested on fake answers only; `recipes/README.md` lists the shapes still to confirm live.
 `awb lab list` shows the recipes and `awb lab dry-run` the calls a run would make. A resource it cannot delete stays
 in `RESOURCES.md` as live with the line to delete it.
 

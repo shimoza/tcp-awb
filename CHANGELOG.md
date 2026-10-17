@@ -7,6 +7,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- Five lab recipes, tested on fake answers only (task n13): `eip-bandwidth-adjust`, `evs-snapshot-restore`, `nat-snat-egress`, `obs-lifecycle-rule` and `dns-private-zone`. Shapes the repository did not call before are marked to confirm live in the recipe notes and in `recipes/README.md`.
+
 - The recipe `rds-create-refusal` after its live runs of 2026-10-17 on eu-de (two runs, nothing created): the default
   flavor is `rds.mssql.x1.large.2` (there are no `se` spec codes) and the volume type is the parameter `volume_type`
   with the default CLOUDSSD (ULTRAHIGH is unsupported in every eu-de AZ). The recipe format gets two small parts: a
