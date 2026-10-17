@@ -297,6 +297,11 @@ no test opens or connects to one (T3)."""
 
 
 def _vault_hit(path) -> str | None:
+    """The guarded place `path` reaches, or None. Both the path as given and its real path are compared: a link
+    planted before the test (into a temporary folder, say) that points at a vault root is refused like the root
+    itself (T5). `os.path.realpath` follows the links of the parents when the path does not exist yet, so a file
+    to be made under such a link is seen too; it reads link targets and nothing else (nothing inside a vault is
+    opened to decide)."""
     if isinstance(path, int) or path is None:
         return None
     try:
@@ -309,16 +314,21 @@ def _vault_hit(path) -> str | None:
         full = os.path.normpath(path if os.path.isabs(path) else os.path.join(os.getcwd(), path))
     except OSError:     # a working folder that is gone: a relative path then reaches nothing
         return None
-    if full in _REAL_VAULT_SOCKETS:
-        return "a socket of the real vault daemon"
-    if full.startswith(_HOST_SERVICE_PREFIX):
-        return "a socket of a service of the host"
-    for root in _REAL_VAULT_ROOTS:
-        if full == root or full.startswith(root + os.sep):
-            return "the real vault folder"
-    for root in _REAL_DATA_ROOTS:
-        if full == root or full.startswith(root + os.sep):
-            return "the real shared side or knowledge base"
+    try:
+        places = {full, os.path.realpath(full)}
+    except OSError:
+        places = {full}
+    for p in places:
+        if p in _REAL_VAULT_SOCKETS:
+            return "a socket of the real vault daemon"
+        if p.startswith(_HOST_SERVICE_PREFIX):
+            return "a socket of a service of the host"
+        for root in _REAL_VAULT_ROOTS:
+            if p == root or p.startswith(root + os.sep):
+                return "the real vault folder"
+        for root in _REAL_DATA_ROOTS:
+            if p == root or p.startswith(root + os.sep):
+                return "the real shared side or knowledge base"
     return None
 
 
@@ -380,20 +390,29 @@ def _vault_audit(event: str, args: tuple) -> None:
 
 
 sys.addaudithook(_vault_audit)
+_VAULT_GUARD["on"] = True
+"""The guard (the vault places, the host services and the network) is on from the import of this file, before any
+test module is imported and before any fixture runs: the import-time code of a test module and a fixture of module
+or session scope meet it as a test does (T4). Only the per-test part stays in the fixture below."""
 
 
 @pytest.fixture(autouse=True)
 def no_real_vault():
     """Every test runs with the guard on: a call that would open, list, change or connect to the host's real vault
     folder or a real vault socket is refused, and the test fails even when the code under test caught the refusal.
-    The guard covers this process; a child gets the test's AWB_* environment, which points elsewhere."""
+    A refusal recorded before the test (at the import of its module, in a fixture of a wider scope) errors the first
+    test that follows it at its setup, before it runs. The guard covers this process; a child gets the test's AWB_*
+    environment, which points elsewhere."""
+    earlier = sorted(set(_VAULT_GUARD["hits"]))
     _VAULT_GUARD["hits"] = []
-    _VAULT_GUARD["on"] = True
+    if earlier:
+        pytest.fail("a guarded place of the host was reached before the test (the import of its module or a fixture "
+                    "of a wider scope): %s" % "; ".join(earlier), pytrace=False)
     try:
         yield
     finally:
-        _VAULT_GUARD["on"] = False
-    hits = sorted(set(_VAULT_GUARD["hits"]))
+        hits = sorted(set(_VAULT_GUARD["hits"]))
+        _VAULT_GUARD["hits"] = []
     if hits:
         pytest.fail("the test reached a guarded place of the host: %s" % "; ".join(hits), pytrace=False)
 
