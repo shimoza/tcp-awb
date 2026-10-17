@@ -1,0 +1,432 @@
+{
+  "name": "nat-snat-egress",
+  "question": "Does a NAT gateway in ${region} take an SNAT rule for the network of a new subnet with an EIP and read the rule back?",
+  "about": "A VPC with a subnet, an EIP of 1 Mbit/s (the API wants an EIP in every SNAT rule), the smallest NAT gateway on the VPC and the subnet's network and an SNAT rule for that network with the EIP. The rule is read back by its id. Teardown runs in reverse: the rule, the gateway, the EIP, the subnet, the VPC.",
+  "params": {
+    "region": {
+      "default": "eu-de",
+      "pattern": "^eu-(de|nl)$"
+    },
+    "az": {
+      "default": "eu-de-01",
+      "pattern": "^eu-(de|nl)-0[1-3]$"
+    }
+  },
+  "vars": {
+    "cidr": "192.168.10.0/24",
+    "one": "1"
+  },
+  "budget": {
+    "minutes": 15,
+    "teardown_minutes": 10
+  },
+  "guard": {
+    "resources": 5,
+    "lifetime_minutes": 30
+  },
+  "steps": [
+    {
+      "id": "vpc",
+      "do": "create",
+      "says": "a VPC",
+      "call": {
+        "method": "POST",
+        "service": "vpc",
+        "path": "/v1/{project_id}/vpcs",
+        "body": {
+          "vpc": {
+            "name": "${name}",
+            "cidr": "192.168.0.0/16"
+          }
+        }
+      },
+      "id_field": "vpc.id",
+      "name": "${name}",
+      "find": {
+        "call": {
+          "method": "GET",
+          "service": "vpc",
+          "path": "/v1/{project_id}/vpcs",
+          "query": {
+            "limit": "100"
+          }
+        },
+        "list": "vpcs",
+        "field": "id",
+        "within": 60
+      },
+      "resource": {
+        "kind": "vpc",
+        "type": "vpc",
+        "cost": "none"
+      },
+      "tags": {
+        "method": "POST",
+        "service": "vpc",
+        "path": "/v2.0/{project_id}/vpcs/${id}/tags/action",
+        "body": {
+          "action": "create",
+          "tags": "${tags:kv}"
+        }
+      },
+      "confirm": "the tag call POST /v2.0/{project_id}/vpcs/ID/tags/action, as in ecs-boot-ssh"
+    },
+    {
+      "id": "subnet",
+      "do": "create",
+      "says": "a subnet in the VPC",
+      "call": {
+        "method": "POST",
+        "service": "vpc",
+        "path": "/v1/{project_id}/subnets",
+        "body": {
+          "subnet": {
+            "name": "${name}",
+            "cidr": "${cidr}",
+            "gateway_ip": "192.168.10.1",
+            "vpc_id": "${vpc}",
+            "availability_zone": "${az}",
+            "dhcp_enable": true,
+            "dnsList": [
+              "100.125.4.25",
+              "100.125.129.199"
+            ]
+          }
+        }
+      },
+      "id_field": "subnet.id",
+      "name": "${name}",
+      "find": {
+        "call": {
+          "method": "GET",
+          "service": "vpc",
+          "path": "/v1/{project_id}/subnets",
+          "query": {
+            "vpc_id": "${vpc}"
+          }
+        },
+        "list": "subnets",
+        "field": "id",
+        "within": 60
+      },
+      "resource": {
+        "kind": "sub",
+        "type": "vpc subnet",
+        "cost": "none"
+      },
+      "tags": "name",
+      "confirm": "the find GET /v1/{project_id}/subnets with the vpc_id filter, as in ecs-boot-ssh"
+    },
+    {
+      "id": "subnet-active",
+      "do": "wait",
+      "says": "the subnet is ACTIVE",
+      "call": {
+        "method": "GET",
+        "service": "vpc",
+        "path": "/v1/{project_id}/subnets/${subnet}"
+      },
+      "until": {
+        "field": "subnet.status",
+        "equals": "ACTIVE"
+      },
+      "fail_on": [
+        "ERROR"
+      ],
+      "within": 90,
+      "every": 5,
+      "save": {
+        "neutron_network": "subnet.neutron_network_id"
+      }
+    },
+    {
+      "id": "eip",
+      "do": "create",
+      "says": "an EIP with a dedicated bandwidth",
+      "call": {
+        "method": "POST",
+        "service": "vpc",
+        "path": "/v1/{project_id}/publicips",
+        "body": {
+          "publicip": {
+            "type": "5_bgp"
+          },
+          "bandwidth": {
+            "name": "${name}",
+            "size": "${int:one}",
+            "share_type": "PER",
+            "charge_mode": "traffic"
+          }
+        }
+      },
+      "id_field": "publicip.id",
+      "name": "${name}",
+      "find": {
+        "call": {
+          "method": "GET",
+          "service": "vpc",
+          "path": "/v1/{project_id}/bandwidths",
+          "query": {
+            "limit": "100"
+          }
+        },
+        "list": "bandwidths",
+        "field": "publicip_info.0.publicip_id",
+        "within": 60
+      },
+      "resource": {
+        "kind": "eip",
+        "type": "eip with its bandwidth",
+        "cost": "small"
+      },
+      "tags": {
+        "method": "POST",
+        "service": "vpc",
+        "path": "/v2.0/{project_id}/publicips/${id}/tags/action",
+        "body": {
+          "action": "create",
+          "tags": "${tags:kv}"
+        }
+      },
+      "confirm": "POST /v1/{project_id}/publicips with type 5_bgp and a dedicated bandwidth billed by traffic, the tag call and the find by the bandwidth name, all as in smn-http-confirm"
+    },
+    {
+      "id": "gw",
+      "do": "create",
+      "says": "the smallest NAT gateway",
+      "call": {
+        "method": "POST",
+        "service": "nat",
+        "path": "/v2.0/nat_gateways",
+        "body": {
+          "nat_gateway": {
+            "name": "${name}",
+            "description": "${project} lab",
+            "router_id": "${vpc}",
+            "internal_network_id": "${neutron_network}",
+            "spec": "1"
+          }
+        }
+      },
+      "id_field": "nat_gateway.id",
+      "name": "${name}",
+      "find": {
+        "call": {
+          "method": "GET",
+          "service": "nat",
+          "path": "/v2.0/nat_gateways",
+          "query": {
+            "name": "${name}"
+          }
+        },
+        "list": "nat_gateways",
+        "field": "id",
+        "within": 120
+      },
+      "resource": {
+        "kind": "nat",
+        "type": "nat gateway",
+        "cost": "medium"
+      },
+      "tags": "name",
+      "confirm": "the create body is the one of the lease check; the find GET /v2.0/nat_gateways with the name filter and the list under nat_gateways are to confirm live; the key service sends no X-Project-Id header, which the lease check sends"
+    },
+    {
+      "id": "gw-active",
+      "do": "wait",
+      "says": "the gateway is ACTIVE",
+      "call": {
+        "method": "GET",
+        "service": "nat",
+        "path": "/v2.0/nat_gateways/${gw}"
+      },
+      "until": {
+        "field": "nat_gateway.status",
+        "equals": "ACTIVE"
+      },
+      "fail_on": [
+        "ERROR"
+      ],
+      "within": 300,
+      "every": 10
+    },
+    {
+      "id": "snat",
+      "do": "create",
+      "says": "an SNAT rule for the subnet's network",
+      "call": {
+        "method": "POST",
+        "service": "nat",
+        "path": "/v2.0/snat_rules",
+        "body": {
+          "snat_rule": {
+            "nat_gateway_id": "${gw}",
+            "network_id": "${neutron_network}",
+            "floating_ip_id": "${eip}",
+            "description": "${name}"
+          }
+        }
+      },
+      "id_field": "snat_rule.id",
+      "name": "${name}",
+      "find": {
+        "call": {
+          "method": "GET",
+          "service": "nat",
+          "path": "/v2.0/snat_rules",
+          "query": {
+            "nat_gateway_id": "${gw}"
+          }
+        },
+        "list": "snat_rules",
+        "field": "id",
+        "by": "description",
+        "within": 60
+      },
+      "resource": {
+        "kind": "snat",
+        "type": "nat snat rule",
+        "cost": "none"
+      },
+      "tags": "name",
+      "confirm": "to confirm live: POST /v2.0/snat_rules with nat_gateway_id, network_id, floating_ip_id and description and the find GET /v2.0/snat_rules with the nat_gateway_id filter matched on the description, are not called by the repository yet (OTC NAT Gateway API reference, Creating an SNAT Rule); a rule has no name, so its description carries the name"
+    },
+    {
+      "id": "rule",
+      "do": "call",
+      "says": "read the rule back",
+      "call": {
+        "method": "GET",
+        "service": "nat",
+        "path": "/v2.0/snat_rules/${snat}"
+      },
+      "confirm": "GET /v2.0/snat_rules/ID and the fields snat_rule.status and snat_rule.floating_ip_id"
+    }
+  ],
+  "checks": [
+    {
+      "id": "gw-ok",
+      "step": "gw-active",
+      "says": "the gateway becomes ACTIVE",
+      "reached": true
+    },
+    {
+      "id": "rule-eip",
+      "step": "rule",
+      "says": "the rule reads the EIP it was made with",
+      "field": "snat_rule.floating_ip_id",
+      "equals": "${eip}"
+    },
+    {
+      "id": "rule-net",
+      "step": "rule",
+      "says": "the rule reads the network of the subnet",
+      "field": "snat_rule.network_id",
+      "equals": "${neutron_network}"
+    }
+  ],
+  "teardown": {
+    "vpc": {
+      "call": {
+        "method": "DELETE",
+        "service": "vpc",
+        "path": "/v1/{project_id}/vpcs/${id}"
+      },
+      "gone": {
+        "call": {
+          "method": "GET",
+          "service": "vpc",
+          "path": "/v1/{project_id}/vpcs/${id}"
+        },
+        "status": [
+          404
+        ],
+        "within": 300
+      },
+      "confirm": "a VPC delete may answer 409 VPC.0104 while its subnet is still going; the teardown repeats the delete until it is taken"
+    },
+    "subnet": {
+      "call": {
+        "method": "DELETE",
+        "service": "vpc",
+        "path": "/v1/{project_id}/vpcs/${vpc}/subnets/${id}"
+      },
+      "gone": {
+        "call": {
+          "method": "GET",
+          "service": "vpc",
+          "path": "/v1/{project_id}/subnets/${id}"
+        },
+        "status": [
+          404
+        ]
+      }
+    },
+    "eip": {
+      "call": {
+        "method": "DELETE",
+        "service": "vpc",
+        "path": "/v1/{project_id}/publicips/${id}"
+      },
+      "gone": {
+        "call": {
+          "method": "GET",
+          "service": "vpc",
+          "path": "/v1/{project_id}/publicips/${id}"
+        },
+        "status": [
+          404
+        ]
+      },
+      "confirm": "DELETE /v1/{project_id}/publicips/ID releases the EIP with its dedicated bandwidth, as in smn-http-confirm"
+    },
+    "gw": {
+      "call": {
+        "method": "DELETE",
+        "service": "nat",
+        "path": "/v2.0/nat_gateways/${id}"
+      },
+      "gone": {
+        "call": {
+          "method": "GET",
+          "service": "nat",
+          "path": "/v2.0/nat_gateways/${id}"
+        },
+        "status": [
+          404
+        ],
+        "within": 300
+      },
+      "confirm": "DELETE and GET /v2.0/nat_gateways/ID, as in the lease check; the gateway cannot be deleted while a rule is on it, so the rule goes first"
+    },
+    "snat": {
+      "call": {
+        "method": "DELETE",
+        "service": "nat",
+        "path": "/v2.0/snat_rules/${id}"
+      },
+      "gone": {
+        "call": {
+          "method": "GET",
+          "service": "nat",
+          "path": "/v2.0/snat_rules/${id}"
+        },
+        "status": [
+          404
+        ],
+        "within": 120
+      },
+      "confirm": "to confirm live: DELETE /v2.0/snat_rules/ID (the page also lists DELETE /v2.0/nat_gateways/GW/snat_rules/ID)"
+    }
+  },
+  "kb": {
+    "scope": "tcp",
+    "tags": [
+      "nat",
+      "eip",
+      "vpc"
+    ],
+    "class": "api",
+    "statement": "A NAT gateway in ${region} takes an SNAT rule for the network of a subnet of its VPC with an EIP and the rule reads that EIP and that network back."
+  }
+}

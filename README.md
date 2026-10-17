@@ -59,6 +59,8 @@ first and stops before any create when one is missing. A refused call keeps its 
 error message in the evidence. A create whose refusal a check expects (the 500 of an RDS collation it does not take)
 goes on when the find proves nothing was made; the recipes `ecs-flavor-boot`, `smn-http-confirm` and
 `rds-create-refusal` are the write-tier checks of the fact-check service.
+Five more recipes (`eip-bandwidth-adjust`, `evs-snapshot-restore`, `nat-snat-egress`, `obs-lifecycle-rule` and
+`dns-private-zone`) are tested on fake answers only; `recipes/README.md` lists the shapes still to confirm live.
 `awb lab list` shows the recipes and `awb lab dry-run` the calls a run would make. A resource it cannot delete stays
 in `RESOURCES.md` as live with the line to delete it.
 
