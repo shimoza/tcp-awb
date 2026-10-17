@@ -426,11 +426,14 @@ probe_ran=0
 
 probe() {
     # probe CMD...: CMD as the build user in a transient unit with the properties of a build task (DESIGN.md section 4):
-    # the system read only, no home, a private /tmp, no new privileges, /etc/awb inaccessible, no network but the
+    # the system read only, no home, a private /tmp, an IPC namespace and a /dev/shm of its own (64 MB) with
+    # /dev/mqueue inaccessible (B5), no new privileges, /etc/awb inaccessible, no network but the
     # model endpoint's addresses resolved now (no resolver: the stub of /etc/resolv.conf is the host itself), a hosts
     # file of loopback over /etc/hosts and a resolv.conf without a nameserver over /etc/resolv.conf (B4)
     systemd-run --quiet --wait --pipe --collect --uid="$BUILD_USER" --gid="$BUILD_USER" --setenv=HOME=/tmp \
         --property=ProtectSystem=strict --property=ProtectHome=yes --property=PrivateTmp=yes \
+        --property=PrivateIPC=yes --property=TemporaryFileSystem=/dev/shm:size=64M \
+        --property=InaccessiblePaths=-/dev/mqueue \
         --property=NoNewPrivileges=yes --property=InaccessiblePaths=/etc/awb --property=IPAddressDeny=any \
         --property="IPAddressAllow=$probe_allow" --property="BindReadOnlyPaths=$probe_names/hosts:/etc/hosts" \
         --property="BindReadOnlyPaths=$probe_names/resolv.conf:/etc/resolv.conf" --property=RuntimeMaxSec=60 \
@@ -483,7 +486,8 @@ build_dry() {
         "the probe unit cannot write under $OPT" \
         "the probe unit cannot write under runs/" "the probe unit cannot list runs/" \
         "the probe unit cannot list the work user's home" "the probe unit cannot read the host file" \
-        "the probe unit cannot connect to the check socket"
+        "the probe unit cannot connect to the check socket" \
+        "the probe unit sees an empty /dev/shm of at most 64 MB and no /dev/mqueue"
     net_probe
 }
 
@@ -544,7 +548,7 @@ build_model_check() {
 }
 
 build_checks() {
-    local entry out pin want t f ns addr
+    local entry out pin want t f ns addr what
     if [ "$dry_run" -eq 1 ]; then
         build_dry
         return 0
@@ -669,6 +673,13 @@ build_checks() {
     probe_denied "the probe unit cannot list the work user's home" ls -A -- "$work_home"
     probe_denied "the probe unit cannot read the host file" cat -- "$CONF_FILE"
     probe_denied "the probe unit cannot connect to the check socket" python3 -I -c "$CONNECT_PY" "$socket"
+    # B5: the unit's own /dev/shm is a fresh tmpfs of 64 MB and /dev/mqueue is out of reach
+    what="the probe unit sees an empty /dev/shm of at most 64 MB and no /dev/mqueue"
+    if [ "$probe_ran" -eq 0 ]; then
+        report 1 "$what (the probe unit did not run)"
+    else
+        allowed "$what" probe sh -c '[ -z "$(ls -A /dev/shm)" ] && [ "$(df -k --output=size /dev/shm | tail -n 1)" -le 65536 ] && ! ls /dev/mqueue >/dev/null 2>&1'
+    fi
     net_probe
 }
 

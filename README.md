@@ -598,7 +598,10 @@ suite's venv, a root owned home template), its client a pinned root owned copy i
 keeps every tool call inside its own clone (the venv may be read and its interpreter run, nothing else of
 `/srv/awb-build` passes). It runs on your subscription login, which you make once as yourself
 with `sudo -u awb-build -H /opt/claude-build/bin/claude login`; the runner copies it into each task's home and
-removes it with the home, and the tasks spend your shared quota. `build_model = key` in `/etc/awb/paths.conf` switches
+removes it with the home, and the tasks spend your shared quota. A token the task's client refreshed goes back to
+the build user's home only when it names the same `subscriptionType` as the login there and expires later; a login
+of the task that names another or none stays where it is and the run's `result.md` says so in one line (a task
+cannot replace your login with its own). `build_model = key` in `/etc/awb/paths.conf` switches
 to a copy of the Workbench's key (`/etc/awb/build-model.key`, yours alone, 400) in one line. The runner's unit `awb-buildd.service` is installed and not
 enabled yet; `sudo seal/verify.sh` proves the rest. `seal/README.md`, section "The build side", has the details.
 
@@ -663,7 +666,9 @@ The runner (`awb build serve`, the unit `awb-buildd.service`) takes the next tas
 answer never blocks the next one for them; `awb build add` warns when a block lists one. It runs as you, never as a model. It starts each
 task as `awb-build` in units of a fixed form: a fresh home from the root template with your login, a clone of
 `main` from a bundle, the headless session with the block's model, effort, budget and clock, then the hand-over of
-the branch as a bundle. The hand-over and the rebase units write only the task's clone and out folder, see no
+the branch as a bundle. Every unit has a private `/tmp`, an IPC namespace and a `/dev/shm` of its own (a tmpfs of
+64 MB that goes with the unit) and no `/dev/mqueue`, so nothing a task leaves in shared memory outlives it or reaches
+the next task. The hand-over and the rebase units write only the task's clone and out folder, see no
 other clone, home or login, have no network and refuse a clone whose git configuration could run a command of the
 session (`.git/commondir`, `config.worktree`, `info/attributes`, a key outside a fixed list). The runner judges
 the bundle in `main.git`, never the clone. When `main` moved since the session started, the branch is rebased onto

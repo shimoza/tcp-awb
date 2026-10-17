@@ -231,10 +231,11 @@ The build user `awb-build` and what it needs, set up by `setup.sh` (and `--updat
 `verify.sh` proves it as root: the owners and modes above, the image size and mount, the pin, the immutable
 template, then N1 to N5 of `presentations/self-build/THREAT-MODEL.md` as the build user (the vault, the host file,
 the blocklist, four sockets, `sudo -n true`, two homes and a push into `main.git` each fail) and, in a transient unit
-with the properties of a task (`ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `NoNewPrivileges`,
-`/etc/awb` inaccessible, `IPAddressDeny=any` with the resolver and the model endpoint allowed), the model endpoint
-connects while a TCP API host, GitHub, a write under `/opt` and `runs/`, a listing of `runs/` and of the work home
-fail. A probe of that unit counts only after the unit was shown to run as the build user.
+with the properties of a task (`ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `PrivateIPC`, a
+`/dev/shm` of its own of 64 MB, `NoNewPrivileges`, `/etc/awb` and `/dev/mqueue` inaccessible, `IPAddressDeny=any`
+with the resolver and the model endpoint allowed), the model endpoint connects while a TCP API host, GitHub, a write
+under `/opt` and `runs/`, a listing of `runs/` and of the work home fail, and the unit sees an empty `/dev/shm` of at
+most 64 MB and no `/dev/mqueue`. A probe of that unit counts only after the unit was shown to run as the build user.
 
 - The model credential of a build task (D-S7, changed 2026-10-11): `build_model` in the host file, `login` unless he
   wrote `key`. With `login` the build user runs on his subscription login, made once by him as the owner with
