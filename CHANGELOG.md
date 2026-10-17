@@ -467,6 +467,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   and security groups because their services take no tag at create and two tests of the watchdog require the name
   path; the pull request names the patch for the owner.
 
+- An assistant session of the owner's own uid gets no original from the bucket (attacker review, finding R6).
+  Since the bucket went through the key service (8f661e9) the rule rested on the uid alone: a hijacked steering
+  session could run `awb bucket pull CODE` while the service was unlocked. Now `awb bucket pull` and `awb bucket move`
+  refuse inside an assistant session with one line that names your own terminal, the check `awb import`, `awb fetch`
+  and `awb vault show` already make, and `KeyServiceClient.get` refuses a key under `in/` in a session before it
+  opens the socket (so `bucket.fetch` with the real client gives a session nothing either). The service side cannot
+  tell the peer's session, so the check stays on the client. `sync`, `folder` and `put` are as they were.
+  `tests/test_bucket_session.py`.
+
 - The work user can no longer persist past a session through its ssh keys or its crontab (F2 threat model, gap G3).
   `seal/setup.sh` copies the owner's keys to `/etc/ssh/authorized_keys/awb` (root, 644), writes the sshd drop-in
   `/etc/ssh/sshd_config.d/awb-work-user.conf` that points the work user alone at that file, checks it with `sshd -t`
