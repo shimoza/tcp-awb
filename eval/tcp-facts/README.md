@@ -59,6 +59,7 @@ python3 eval/tcp-facts/run.py --facts /tmp/tcp-facts/facts.md --out /tmp/eval-ou
 # 3. grade both files
 python3 eval/tcp-facts/score.py /tmp/eval-out/answers-without-facts.jsonl
 python3 eval/tcp-facts/score.py /tmp/eval-out/answers-with-facts.jsonl
+#   add --questions /tmp/eval-out/questions.jsonl to grade against the revision of that release (see Q32)
 ```
 
 Without `ANTHROPIC_API_KEY`, `run.py` prints that it did nothing and exits 0. `score.py` takes any file of lines
@@ -69,6 +70,10 @@ The score of the answers without the facts shows what the model knows alone and 
 dataset adds. Read the price category apart: a model without the snapshot has no way to know a 2026-10-08 price.
 
 ## Keeping it current
+
+Q32 (the revision of the service description) pins no date: it is marked `expected_from: revision` and `run.py` fills its
+expected value from `services.md` (else `MANIFEST.json`) next to the `facts.md` it is given, then writes the questions as
+asked to `questions.jsonl` in its output folder. The date in the file is the one of release 2026-10-12.
 
 The facts of the set are checked against the release when `questions.jsonl` is built: a fact id must exist and its
 statement must say what the expected answer says. When a new release changes or drops a fact, re-check that

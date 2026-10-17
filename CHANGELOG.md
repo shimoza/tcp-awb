@@ -316,6 +316,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- The MCP Bundle of the dataset names its licence as the SPDX id `CC-BY-4.0` and carries `icon.png` (64 by 64, drawn with the
+  standard library) named in the manifest's `icon` field. Q32 of the TCP Facts eval takes its expected date from the
+  revision of the dataset under test (`run.py`), so a new release needs no hand edit.
 - The send gate of `awb bucket put` no longer stops with a traceback when the owner cannot read the folder of
   another project (mode 700 from the work user's umask). It refuses with one line that names the project code and
   what to do, never a pass; a folder it cannot list under the projects root counts as a project. `awb close` writes

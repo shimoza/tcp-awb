@@ -460,7 +460,7 @@ when no fact covers it". The server reads no file outside its dataset folder (`-
 lies in), opens no connection without `--live`, writes nothing and reads no input line longer than 8 MiB (it answers a parse error and goes on). With `--live` it reads at most 32 MiB of the price API answer and uses the snapshot when the answer is longer.
 
 **Claude Desktop, one click.** Every build also writes `tcp-facts-<date>.mcpb` beside the zip: an MCP Bundle (a zip
-with a `manifest.json`, the server file and the data files of that build, written for manifest version 0.3). `awb
+with a `manifest.json`, an `icon.png`, the server file and the data files of that build, written for manifest version 0.3; the licence there is the SPDX id `CC-BY-4.0`). `awb
 dataset put --github` uploads it as a release asset next to the zip. Download it from the latest release and open it
 (double click, or drag it into Settings, Extensions). Claude Desktop shows the extension with its four tools; press
 Install. It needs Python 3.10 or newer on the machine. A new build is a new file: install it over the old one. The
