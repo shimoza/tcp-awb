@@ -1170,7 +1170,24 @@ def _scan_pushed(repo: Path, updates: list[tuple[str, str, str, str]], matcher: 
     for object_id, data in tags.items():
         label = "ref " + tag_candidates[object_id]
         out.extend(sorted({Finding(label, 0, f.cls) for f in _scan_text(label, _decode(data), matcher)}, key=_order))
-    commits = pushed_commits(top, updates, remote)
+    out.extend(scan_commits(top, pushed_commits(top, updates, remote), matcher))
+    return out
+
+
+def range_commits(repo: Path, old: str | None, new: str) -> list[str]:
+    """The commits `old..new` (what `new` has and `old` has not), newest first; without `old` every commit `new`
+    reaches. The deploy gates this range (threat model G2)."""
+    top = _toplevel(Path(repo))
+    out = _git(top, "rev-list", "%s..%s" % (old, new) if old else new)
+    return os.fsdecode(out).split()
+
+
+def scan_commits(repo: Path, commits: list[str], matcher: Matcher | None) -> list[Finding]:
+    """Scan a list of commits as a push is scanned: every file of every commit, as that commit has it, and the
+    author, the committer and the message of each ("commit <id>", line 0). The same checks a commit gets from
+    the commit and the push hooks; the deploy runs them over deployed..target."""
+    top = _toplevel(Path(repo))
+    out: list[Finding] = []
     owner = _owner_identity(top)
     for commit, text in _commit_texts(top, commits).items():
         label = "commit " + commit[:10]
