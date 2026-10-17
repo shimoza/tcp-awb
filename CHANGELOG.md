@@ -7,6 +7,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- Five lab recipes, tested on fake answers only (task n13): `eip-bandwidth-adjust`, `evs-snapshot-restore`, `nat-snat-egress`, `obs-lifecycle-rule` and `dns-private-zone`. Shapes the repository did not call before are marked to confirm live in the recipe notes and in `recipes/README.md`.
+
 - The deploy gate (threat model G2, `awb/deploy.py`): before a release is installed, the owner's plan child runs the
   commit gate (`awb gate`, the same checks a commit and a push get) over the commits from the deployed release to the
   target, the whole history when no release is deployed, and refuses on any finding with the commit and the class

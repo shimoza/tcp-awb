@@ -1,0 +1,178 @@
+{
+  "name": "eip-bandwidth-adjust",
+  "question": "Does an elastic IP in ${region} with a bandwidth of ${start_mbit} Mbit/s read ${target_mbit} Mbit/s after the bandwidth is raised with PUT /v1/{project_id}/bandwidths/ID?",
+  "about": "An EIP with its own bandwidth of 5 Mbit/s billed by traffic. The bandwidth id is read from the EIP, the size is read back (the control), the bandwidth is raised to 10 Mbit/s and read back once more. The EIP is released with its bandwidth and proven gone.",
+  "params": {
+    "region": {
+      "default": "eu-de",
+      "pattern": "^eu-(de|nl)$"
+    },
+    "start_mbit": {
+      "default": "5",
+      "pattern": "^[1-5]$",
+      "help": "the bandwidth the EIP is made with, at most 5 Mbit/s"
+    },
+    "target_mbit": {
+      "default": "10",
+      "pattern": "^([6-9]|10)$",
+      "help": "the bandwidth it is raised to, at most 10 Mbit/s"
+    }
+  },
+  "budget": {
+    "minutes": 6,
+    "teardown_minutes": 4
+  },
+  "guard": {
+    "resources": 1,
+    "lifetime_minutes": 15
+  },
+  "steps": [
+    {
+      "id": "eip",
+      "do": "create",
+      "says": "an EIP with a dedicated bandwidth",
+      "call": {
+        "method": "POST",
+        "service": "vpc",
+        "path": "/v1/{project_id}/publicips",
+        "body": {
+          "publicip": {
+            "type": "5_bgp"
+          },
+          "bandwidth": {
+            "name": "${name}",
+            "size": "${int:start_mbit}",
+            "share_type": "PER",
+            "charge_mode": "traffic"
+          }
+        }
+      },
+      "id_field": "publicip.id",
+      "name": "${name}",
+      "find": {
+        "call": {
+          "method": "GET",
+          "service": "vpc",
+          "path": "/v1/{project_id}/bandwidths",
+          "query": {
+            "limit": "100"
+          }
+        },
+        "list": "bandwidths",
+        "field": "publicip_info.0.publicip_id",
+        "within": 60
+      },
+      "resource": {
+        "kind": "eip",
+        "type": "eip with its bandwidth",
+        "cost": "small"
+      },
+      "tags": {
+        "method": "POST",
+        "service": "vpc",
+        "path": "/v2.0/{project_id}/publicips/${id}/tags/action",
+        "body": {
+          "action": "create",
+          "tags": "${tags:kv}"
+        }
+      },
+      "confirm": "POST /v1/{project_id}/publicips with type 5_bgp and a dedicated bandwidth billed by traffic, the tag call and the find by the bandwidth name, all as in smn-http-confirm"
+    },
+    {
+      "id": "ident",
+      "do": "call",
+      "says": "read the EIP and keep the id of its bandwidth",
+      "call": {
+        "method": "GET",
+        "service": "vpc",
+        "path": "/v1/{project_id}/publicips/${eip}"
+      },
+      "save": {
+        "bw_id": "publicip.bandwidth_id"
+      },
+      "confirm": "GET /v1/{project_id}/publicips/ID and the field publicip.bandwidth_id"
+    },
+    {
+      "id": "before",
+      "do": "call",
+      "says": "read the bandwidth before the change",
+      "call": {
+        "method": "GET",
+        "service": "vpc",
+        "path": "/v1/{project_id}/bandwidths/${bw_id}"
+      },
+      "confirm": "GET /v1/{project_id}/bandwidths/ID and the field bandwidth.size"
+    },
+    {
+      "id": "raise",
+      "do": "call",
+      "says": "raise the bandwidth",
+      "call": {
+        "method": "PUT",
+        "service": "vpc",
+        "path": "/v1/{project_id}/bandwidths/${bw_id}",
+        "body": {
+          "bandwidth": {
+            "size": "${int:target_mbit}"
+          }
+        }
+      },
+      "confirm": "to confirm live: PUT /v1/{project_id}/bandwidths/ID with {bandwidth: {size}} is not called by the repository yet (OTC Elastic IP API reference, Updating a Bandwidth)"
+    },
+    {
+      "id": "after",
+      "do": "call",
+      "says": "read the bandwidth back",
+      "call": {
+        "method": "GET",
+        "service": "vpc",
+        "path": "/v1/{project_id}/bandwidths/${bw_id}"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "id": "start-size",
+      "step": "before",
+      "says": "the bandwidth starts at the size asked for",
+      "field": "bandwidth.size",
+      "equals": "${int:start_mbit}"
+    },
+    {
+      "id": "raised",
+      "step": "after",
+      "says": "the bandwidth reads the raised size",
+      "field": "bandwidth.size",
+      "equals": "${int:target_mbit}"
+    }
+  ],
+  "teardown": {
+    "eip": {
+      "call": {
+        "method": "DELETE",
+        "service": "vpc",
+        "path": "/v1/{project_id}/publicips/${id}"
+      },
+      "gone": {
+        "call": {
+          "method": "GET",
+          "service": "vpc",
+          "path": "/v1/{project_id}/publicips/${id}"
+        },
+        "status": [
+          404
+        ]
+      },
+      "confirm": "DELETE /v1/{project_id}/publicips/ID releases the EIP with its dedicated bandwidth, as in smn-http-confirm"
+    }
+  },
+  "kb": {
+    "scope": "tcp",
+    "tags": [
+      "eip",
+      "vpc"
+    ],
+    "class": "api",
+    "statement": "The bandwidth of an EIP with a dedicated bandwidth in ${region} is raised from ${start_mbit} to ${target_mbit} Mbit/s with PUT /v1/{project_id}/bandwidths/ID and reads the new size at once."
+  }
+}

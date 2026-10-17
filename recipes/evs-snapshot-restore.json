@@ -1,0 +1,306 @@
+{
+  "name": "evs-snapshot-restore",
+  "question": "Does a snapshot of a ${size} GB SAS disk in ${az} make a second disk of the same size that becomes available?",
+  "about": "A 10 GB SAS disk, a snapshot of it, a second disk made from the snapshot. The checks: the snapshot is available and the second disk is available with the size of the first. The second disk, the snapshot and the first disk are deleted and proven gone.",
+  "params": {
+    "region": {
+      "default": "eu-de",
+      "pattern": "^eu-(de|nl)$"
+    },
+    "az": {
+      "default": "eu-de-01",
+      "pattern": "^eu-(de|nl)-0[1-3]$"
+    }
+  },
+  "vars": {
+    "size": "10"
+  },
+  "budget": {
+    "minutes": 15,
+    "teardown_minutes": 10
+  },
+  "guard": {
+    "resources": 3,
+    "lifetime_minutes": 30
+  },
+  "steps": [
+    {
+      "id": "disk",
+      "do": "create",
+      "says": "a 10 GB SAS disk",
+      "call": {
+        "method": "POST",
+        "service": "evs",
+        "path": "/v2/{project_id}/volumes",
+        "body": {
+          "volume": {
+            "name": "${name}",
+            "size": "${int:size}",
+            "volume_type": "SAS",
+            "availability_zone": "${az}",
+            "tags": "${tags:dict}"
+          }
+        }
+      },
+      "id_field": "volume.id",
+      "name": "${name}",
+      "find": {
+        "call": {
+          "method": "GET",
+          "service": "evs",
+          "path": "/v2/{project_id}/cloudvolumes/detail",
+          "query": {
+            "name": "${name}",
+            "limit": "100"
+          }
+        },
+        "list": "volumes",
+        "field": "id",
+        "within": 60
+      },
+      "resource": {
+        "kind": "evs",
+        "type": "evs disk",
+        "cost": "small"
+      },
+      "tags": "body",
+      "confirm": "POST /v2/{project_id}/volumes as in the lease check; the tags as a map under volume.tags and the find GET /v2/{project_id}/cloudvolumes/detail with the name filter are to confirm live"
+    },
+    {
+      "id": "disk-ready",
+      "do": "wait",
+      "says": "the disk is available",
+      "call": {
+        "method": "GET",
+        "service": "evs",
+        "path": "/v2/{project_id}/volumes/${disk}"
+      },
+      "until": {
+        "field": "volume.status",
+        "equals": "available"
+      },
+      "fail_on": [
+        "error"
+      ],
+      "within": 180,
+      "every": 5
+    },
+    {
+      "id": "snap",
+      "do": "create",
+      "says": "a snapshot of the disk",
+      "call": {
+        "method": "POST",
+        "service": "evs",
+        "path": "/v3/{project_id}/snapshots",
+        "body": {
+          "snapshot": {
+            "name": "${name}",
+            "volume_id": "${disk}",
+            "description": "${project} lab"
+          }
+        }
+      },
+      "id_field": "snapshot.id",
+      "name": "${name}",
+      "find": {
+        "call": {
+          "method": "GET",
+          "service": "evs",
+          "path": "/v3/{project_id}/snapshots",
+          "query": {
+            "name": "${name}"
+          }
+        },
+        "list": "snapshots",
+        "field": "id",
+        "within": 60
+      },
+      "resource": {
+        "kind": "snap",
+        "type": "evs snapshot",
+        "cost": "small"
+      },
+      "tags": "name",
+      "confirm": "to confirm live: POST /v3/{project_id}/snapshots with {snapshot: {volume_id, name, description}} and the find GET /v3/{project_id}/snapshots with the name filter are not called by the repository yet (OTC EVS API reference, Creating an EVS Snapshot); the snapshot takes no tags here, the name carries the project code"
+    },
+    {
+      "id": "snap-ready",
+      "do": "wait",
+      "says": "the snapshot is available",
+      "call": {
+        "method": "GET",
+        "service": "evs",
+        "path": "/v3/{project_id}/snapshots/${snap}"
+      },
+      "until": {
+        "field": "snapshot.status",
+        "equals": "available"
+      },
+      "fail_on": [
+        "error"
+      ],
+      "within": 300,
+      "every": 10
+    },
+    {
+      "id": "disk2",
+      "do": "create",
+      "says": "a disk from the snapshot",
+      "call": {
+        "method": "POST",
+        "service": "evs",
+        "path": "/v2/{project_id}/volumes",
+        "body": {
+          "volume": {
+            "name": "${name}-r",
+            "size": "${int:size}",
+            "volume_type": "SAS",
+            "availability_zone": "${az}",
+            "tags": "${tags:dict}",
+            "snapshot_id": "${snap}"
+          }
+        }
+      },
+      "id_field": "volume.id",
+      "name": "${name}-r",
+      "find": {
+        "call": {
+          "method": "GET",
+          "service": "evs",
+          "path": "/v2/{project_id}/cloudvolumes/detail",
+          "query": {
+            "name": "${name}-r",
+            "limit": "100"
+          }
+        },
+        "list": "volumes",
+        "field": "id",
+        "within": 60
+      },
+      "resource": {
+        "kind": "evs",
+        "type": "evs disk",
+        "cost": "small"
+      },
+      "tags": "body",
+      "confirm": "POST /v2/{project_id}/volumes as in the lease check; the tags as a map under volume.tags and the find GET /v2/{project_id}/cloudvolumes/detail with the name filter are to confirm live"
+    },
+    {
+      "id": "disk2-ready",
+      "do": "wait",
+      "says": "the disk is available",
+      "call": {
+        "method": "GET",
+        "service": "evs",
+        "path": "/v2/{project_id}/volumes/${disk2}"
+      },
+      "until": {
+        "field": "volume.status",
+        "equals": "available"
+      },
+      "fail_on": [
+        "error"
+      ],
+      "within": 180,
+      "every": 5
+    },
+    {
+      "id": "read2",
+      "do": "call",
+      "says": "read the disk made from the snapshot",
+      "call": {
+        "method": "GET",
+        "service": "evs",
+        "path": "/v2/{project_id}/volumes/${disk2}"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "id": "snap-ok",
+      "step": "snap-ready",
+      "says": "the snapshot becomes available",
+      "reached": true
+    },
+    {
+      "id": "disk2-ok",
+      "step": "disk2-ready",
+      "says": "the disk from the snapshot becomes available",
+      "reached": true
+    },
+    {
+      "id": "same-size",
+      "step": "read2",
+      "says": "the second disk has the size of the first",
+      "field": "volume.size",
+      "equals": "${int:size}"
+    }
+  ],
+  "teardown": {
+    "disk": {
+      "call": {
+        "method": "DELETE",
+        "service": "evs",
+        "path": "/v2/{project_id}/volumes/${id}"
+      },
+      "gone": {
+        "call": {
+          "method": "GET",
+          "service": "evs",
+          "path": "/v2/{project_id}/volumes/${id}"
+        },
+        "status": [
+          404
+        ],
+        "within": 120
+      }
+    },
+    "disk2": {
+      "call": {
+        "method": "DELETE",
+        "service": "evs",
+        "path": "/v2/{project_id}/volumes/${id}"
+      },
+      "gone": {
+        "call": {
+          "method": "GET",
+          "service": "evs",
+          "path": "/v2/{project_id}/volumes/${id}"
+        },
+        "status": [
+          404
+        ],
+        "within": 120
+      }
+    },
+    "snap": {
+      "call": {
+        "method": "DELETE",
+        "service": "evs",
+        "path": "/v3/{project_id}/snapshots/${id}"
+      },
+      "gone": {
+        "call": {
+          "method": "GET",
+          "service": "evs",
+          "path": "/v3/{project_id}/snapshots/${id}"
+        },
+        "status": [
+          404
+        ],
+        "within": 120
+      },
+      "confirm": "DELETE and GET /v3/{project_id}/snapshots/ID; a disk made from a snapshot may keep the snapshot busy for a short time, so the teardown deletes the second disk first"
+    }
+  },
+  "kb": {
+    "scope": "tcp",
+    "tags": [
+      "evs",
+      "api"
+    ],
+    "class": "api",
+    "statement": "An EVS snapshot of a ${size} GB SAS disk in ${az} becomes available and a disk made from it becomes available with the same size."
+  }
+}
