@@ -74,7 +74,7 @@ class World:
             monkeypatch.setenv(k, v)
         self.tmp = tmp
         self.bin = tmp / "gh-bin"
-        self.gh, self.gh_log = fake_gh(self.bin)
+        self.gh, self.gh_log = fake_gh(self.bin, title=None)
         monkeypatch.setenv("PATH", str(self.bin) + os.pathsep + os.environ.get("PATH", ""))
         self.origin = tmp / "origin.git"
         self.work = tmp / "work"
@@ -322,9 +322,10 @@ IDENTITY = "pr view %d --json author,isCrossRepository,headRepositoryOwner"
 
 
 def fake_gh(folder: Path, author: str = OWNER, head_owner: str = OWNER, cross: str = "false",
-            title: str = "a page") -> tuple[Path, Path]:
+            title: str | None = "a page") -> tuple[Path, Path]:
     """A gh in FOLDER (made here, so the folder can go on PATH) that answers `repo view --json owner`, the identity
-    query and the title query and logs every call to gh.log beside it."""
+    query and the title query and logs every call to gh.log beside it. With `title=None` the title query gets no
+    answer, so the take names the branch as it does without gh (the world's stand-in)."""
     folder.mkdir(parents=True, exist_ok=True)
     log = folder / "gh.log"
     gh = folder / "gh"
@@ -335,8 +336,8 @@ def fake_gh(folder: Path, author: str = OWNER, head_owner: str = OWNER, cross: s
         "  'repo view --json owner') echo '{\"owner\": {\"login\": \"%s\"}}' ;;\n"
         "  'pr view '*' --json author,isCrossRepository,headRepositoryOwner') echo '{\"author\": {\"login\": \"%s\"}, "
         "\"isCrossRepository\": %s, \"headRepositoryOwner\": {\"login\": \"%s\"}}' ;;\n"
-        "  'pr view '*' --json title --jq .title') echo '%s' ;;\n"
-        "esac\n" % (log, OWNER, author, cross, head_owner, title))
+        "  'pr view '*' --json title --jq .title') %s ;;\n"
+        "esac\n" % (log, OWNER, author, cross, head_owner, "echo '%s'" % title if title is not None else "exit 1"))
     gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
     return gh, log
 
