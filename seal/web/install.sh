@@ -111,7 +111,7 @@ if [ "$rollback" -eq 1 ]; then
     run systemctl daemon-reload
     run systemctl stop awb-customers.service awb-project-create.service awb-materials.service
     run systemctl restart awb-customers.socket awb-project-create.socket awb-materials.socket
-    run systemctl restart awb-portal.service awb-ask.service awb-console-data.service awb-web.service
+    run systemctl restart awb-ask.service awb-console-data.service awb-web.service
     [ "$tunnel" -eq 0 ] || run systemctl restart cloudflared.service
     echo "rolled back: the web units run the copies in /opt/awb-web again"
     exit 0
@@ -234,7 +234,7 @@ restart restart awb-keyd.service
 restart stop awb-customers.service awb-project-create.service awb-materials.service awb-owner-actions.service awb-web-publish.service
 restart restart awb-customers.socket awb-project-create.socket awb-materials.socket awb-owner-actions.socket awb-web-publish.socket awb-web.socket awb-web-status.socket awb-console-tenants.socket
 restart start awb-owner-status.service
-restart restart awb-portal.service awb-ask.service awb-console-data.service
+restart restart awb-ask.service awb-console-data.service
 restart enable --now awb-console-tenants.service
 restart restart awb-console-tenants.service awb-web.service
 [ "$tunnel" -eq 0 ] || run systemctl restart cloudflared.service

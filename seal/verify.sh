@@ -387,6 +387,10 @@ egress_checks() {
     [ -n "$before" ] && [ "$before" = "$after" ] && out=0 || out=1
     report "$out" "a planted connection of the owner's uid passes the filter uncounted"
     allowed "the timer of the egress filter is active" systemctl is-active --quiet awb-egress.timer
+    # F1 step 10: the portal went on 2026-10-17; setup.sh --update removes the unit a host sealed before keeps
+    allowed "the portal unit is gone: awb-portal.service is not found and has no unit file and no drop-in folder" \
+        sh -c 'test "$(systemctl show -p LoadState --value awb-portal.service)" = not-found &&
+        test ! -e /etc/systemd/system/awb-portal.service && test ! -e /etc/systemd/system/awb-portal.service.d'
 }
 
 egress_checks

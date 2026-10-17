@@ -41,7 +41,7 @@ TENANT_KINDS = ["ecs", "evs", "eip", "vpc", "ims"]
 DEPLOYED_KINDS = ["engagement", "lab", "topic", "code"]
 REPOSITORY_KINDS = ["query", "project"]
 READS_AS = {"engagement": "query", "topic": "query", "code": "query", "lab": "project"}
-PORTAL_PAGES = ["/", "/kb", "/price", "/projects", "/reviews", "/tenants", "/health", "/portal", "/ask"]
+NEXT_PAGES = ["/", "/ask"]   # where a sign-in may go: the console and the one server-rendered page left
 
 # Invented sample values. An id or a hash repeats one character, so the gate never reads it as a real one.
 REQ = "f" * 32
@@ -196,8 +196,10 @@ DESCRIPTION = "\n".join((
     "  without a session must arrive within 5 seconds (408 Request timed out. for a body, the connection closed",
     "  for headers); a request with a session has 20 seconds for its body.",
     "",
-    "The gateway also serves the older server-rendered pages /kb, /price, /projects, /reviews, /tenants, /health",
-    "and /portal. They are HTML, the console does not call them and they are not part of this contract.",
+    "The gateway also serves the server-rendered Ask page /ask. It is HTML, the console does not call it and it is",
+    "not part of this contract. The portal's pages /kb, /price, /projects, /reviews, /tenants and /health went",
+    "with the portal on 2026-10-17: the console reads /api/kb, /api/price, /api/usage, /api/projects, /api/board",
+    "and /api/tenants instead.",
     "",
     "The owner host (T9 step 2, repository): a second host name, owner_host of /etc/awb/paths.conf, served by the",
     "same gateway with its own exact Origin. Its sign-in is /login there with the username, the password and a",
@@ -997,7 +999,7 @@ def _session_paths() -> dict:
                        "valid for 600 seconds and is taken once."),
         "username": string(maxLength=100),
         "password": string(maxLength=200),
-        "next": string("Where to go after the sign-in.", enum=PORTAL_PAGES),
+        "next": string("Where to go after the sign-in.", enum=NEXT_PAGES),
     }, required=["csrf", "username", "password"], closed=True)
     return {
         "/login": {
@@ -1294,7 +1296,7 @@ def _reference_paths() -> dict:
                            "passes the name check of today's register and a name registered after its add is "
                            "counted in withheld and never shown. Reads the knowledge base only.",
                 parameters=[query("q", "The words to search for, cut to 200 characters.", True)],
-                state="repository"),
+                state="deployed"),
         },
         "/api/price": {
             "get": operation("lookUpPrice", "reference", "The price records of one service.", {
@@ -1310,7 +1312,7 @@ def _reference_paths() -> dict:
                             query("grep", "A part of the id, the flavor or the name."),
                             query("region", "The region, eu-de when left out or unknown.",
                                   enum=["eu-de", "eu-nl", "eu-ch2"])],
-                state="repository"),
+                state="deployed"),
         },
         "/api/usage": {
             "get": operation("getApiUsage", "reference", "The calls to the TCP API this month, by day.", {
@@ -1318,7 +1320,7 @@ def _reference_paths() -> dict:
                 "503": refusal("The usage record cannot be read.", "The usage record is unavailable.", ANSWER_FAILED),
             }, description="The API usage lines of the old /tenants page as JSON: counts per day and per service "
                            "from the Workbench's own record of its calls. No tenant alias, no path, no id.",
-                state="repository"),
+                state="deployed"),
         },
     }
 
