@@ -24,6 +24,13 @@ and a type that lists it under `os-vendor-extended:sold_out_availability_zones` 
 is made. The dry run shows the check as a step `0. disk types`. Use a type that is on sale: SATA is sold out in
 eu-de-01 to eu-de-03 (KB-KYR6), the recipes here use SAS.
 
+A recipe can read more than the disk types before its first create. `rds-create-refusal` names `GET rds
+/v3/{project_id}/storage-type/SQLServer` under `preflight` and needs its `volume_type` (default CLOUDSSD) to be
+`normal` in its AZ under `az_status`; ULTRAHIGH is unsupported in every eu-de AZ (RDS answered 400 DBS.280325, live
+2026-10-17). A create step may carry `"shape_error": {"status": [400], "code": "^DBS\\.28[0-9]{4}$"}`: an answer that
+matches it stops the run as a recipe error ("recipe error: the create tested answered 400, error_code DBS.280434")
+and is never read by the checks, so only the control matched 500 DBS.200005 counts as a refusal there.
+
 A run takes minutes: run it as a background command of the session, not in the foreground with its two-minute
 limit. A SIGTERM tears down like Ctrl-C; only a hard kill leaves rows as live or creating; `awb cloud sweep` then
 finds the resources by their tags or their lab name.
@@ -39,6 +46,7 @@ finds the resources by their tags or their lab name.
 | `vars` | fixed values of the recipe: an address range, a script for user data |
 | `budget` | `minutes` for the run and `teardown_minutes` for the teardown |
 | `guard` | the cost guard: `resources` (the most it may create) and `lifetime_minutes` (the longest a resource may live); budget plus teardown must fit into the lifetime |
+| `preflight` | optional: reads made with the read key after the disk types and before the first create, each finding the list item whose `by` field (default `name`) equals `value` and needing its `field` (under `key` when that field is an object, such as `az_status` by AZ) to equal `equals`; a miss stops the run with one line and nothing is made |
 | `steps` | the calls in order, each with an `id` and `do`: `create`, `call` or `wait` |
 | `checks` | what must hold, each naming the step it reads |
 | `teardown` | for every create step: the delete call and the read that proves the resource gone |
