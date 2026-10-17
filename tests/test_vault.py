@@ -778,6 +778,14 @@ if mode.startswith(("slow:", "late:")):
     wait = float(mode.split(":")[1])
     time.sleep(wait if mode.startswith("slow:") else max(0.0, wait - (time.monotonic() - started)))
     sys.exit(vault.main(["serve", "--takeover", str(fd)]))
+if mode == "gate":
+    # held until the test creates <log>.go: the child is "slow" by an event, not by a sleep (60 s at most)
+    gate = log + ".go"
+    for _ in range(1200):
+        if os.path.exists(gate):
+            break
+        time.sleep(0.05)
+    sys.exit(vault.main(["serve", "--takeover", str(fd)]))
 if mode == "logged":
     real_send, real_accept = vault._Pair.send, vault.Daemon.accept_now
     def send(self, obj):
@@ -825,6 +833,11 @@ def standin(monkeypatch, tmp: Path, mode: str) -> Path:
     monkeypatch.setattr(vault, "_takeover_command",
                         lambda fd: [sys.executable, "-I", str(script), str(fd), mode, str(log)])
     return log
+
+
+def release(log: Path) -> None:
+    """Let a stand-in in mode `gate` go on and start serving."""
+    Path(str(log) + ".go").write_text("go\n", encoding="utf-8")
 
 
 def notes(log: Path) -> list[dict]:
@@ -952,6 +965,7 @@ def test_a_reload_keeps_the_state_unlocked_and_the_socket_files(vp, notify, monk
                     seen.append(type(err).__name__)
                 if not (vp.admin_sock.exists() and vp.check_socket.exists()):
                     seen.append("missing")
+                stop.wait(0.05)   # a client that keeps asking, not a flood: the check socket limits 600 a minute
 
         prober = threading.Thread(target=probe)
         prober.start()
@@ -974,10 +988,10 @@ def test_a_reload_keeps_the_state_unlocked_and_the_socket_files(vp, notify, monk
         assert "MAINPID=%d" % answer["pid"] in notify.messages()
 
 
-@pytest.mark.long   # a real daemon takes over from another while a client keeps asking: the overlap needs real time
+@pytest.mark.long   # a real daemon takes over from another while a client keeps asking: the child is held by a gate
 def test_checks_and_pings_answer_during_the_hand_over(vp, notify, monkeypatch, tmp_path):
     """Planted: an _op_reload that keeps the daemon lock across the wait for the child makes both time out."""
-    standin(monkeypatch, tmp_path, "slow:5")
+    log = standin(monkeypatch, tmp_path, "gate")
     with parent(vp) as d:
         assert encrypt_vault(monkeypatch) == 0
         result = {}
@@ -991,6 +1005,7 @@ def test_checks_and_pings_answer_during_the_hand_over(vp, notify, monkeypatch, t
         assert vault.admin_call("status", timeout=1.0)["state"] == "unlocked"
         assert time.monotonic() - started < 2.0
         assert d.handing_over.is_set() and not d.handed_over.is_set(), "the child answered too early for the test"
+        release(log)
         t.join(timeout=60)
         assert result["state"] == "unlocked"
 
@@ -1093,7 +1108,7 @@ def test_write_ops_are_busy_during_the_hand_over_and_the_order_is_total(vp, noti
     """Planted: a writer that passed the flag check before taking the daemon lock and runs after the copy (the flag
     checked before the lock); a write op that is not busy during the hand-over; a new daemon that refuses
     register_save afterwards."""
-    standin(monkeypatch, tmp_path, "slow:4")
+    log = standin(monkeypatch, tmp_path, "gate")
     with parent(vp) as d:
         assert encrypt_vault(monkeypatch) == 0
         text = vault.admin_call("register_load")["text"]
@@ -1127,6 +1142,7 @@ def test_write_ops_are_busy_during_the_hand_over_and_the_order_is_total(vp, noti
             with pytest.raises(vault.VaultBusy, match="reloading, try again"):
                 vault.admin_call(op, **fields)
         assert not d.handed_over.is_set(), "the child answered too early for the test"
+        release(log)
         t.join(timeout=60)
         assert result["state"] == "unlocked"
         d.thread.join(timeout=30)
@@ -1224,7 +1240,7 @@ def test_the_reload_client_outlasts_the_parent(vp, notify, monkeypatch, tmp_path
 def test_a_reload_waits_for_an_intake_and_an_intake_waits_for_a_reload(vp, notify, monkeypatch, tmp_path):
     """Planted: a reload that starts its child while an intake holds the vault; an intake that runs during a
     hand-over."""
-    log = standin(monkeypatch, tmp_path, "slow:3")
+    log = standin(monkeypatch, tmp_path, "gate")
     with parent(vp) as d:
         assert encrypt_vault(monkeypatch) == 0
         result: dict = {}
@@ -1234,12 +1250,15 @@ def test_a_reload_waits_for_an_intake_and_an_intake_waits_for_a_reload(vp, notif
             time.sleep(1.0)
             assert not notes(log) and not result
             released = time.monotonic()
-        time.sleep(1.0)
+        until = time.monotonic() + 20      # the child starts once the lock is free: wait for its note, not a time
+        while not notes(log) and time.monotonic() < until:
+            time.sleep(0.02)
         (start,) = [n for n in notes(log) if n["event"] == "start"]
         assert start["t"] > released
         with pytest.raises(vault.VaultError, match="holds the vault"):
             with vault.vault_lock(vp, wait=0.5):
                 pass
+        release(log)
         t.join(timeout=60)
         assert result["state"] == "unlocked"
 
