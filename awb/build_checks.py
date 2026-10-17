@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 from awb import build
-from awb.build_unit_side import LOG_MAX, SHA_RE, failed_nodes, outcomes
+from awb.build_unit_side import LOG_MAX, LOGIN_KEPT, LOGIN_KEPT_LINE, SHA_RE, failed_nodes, outcomes
 from awb.build_units import SMALL_MAX, Ctx, Ended, Host, Spec, _hidden, _read, _take, _text, _write, wait
 
 
@@ -814,8 +814,12 @@ def unit_run(host: Host, ctx: Ctx, kind: str, args: list[str], stdin: Path | Non
 
 
 def clean(host: Host, ctx: Ctx, what: str) -> None:
-    unit_run(host, ctx, "hand", ["clean", str(host.root), ctx.tid, str(ctx.n), what] +
-             (["login"] if host.model == "login" else []))
+    """The clean unit. A login of the task that was not copied back for its account (exit LOGIN_KEPT, B7) is one
+    fixed line of the run's result; the owner never reads the login itself."""
+    e = unit_run(host, ctx, "hand", ["clean", str(host.root), ctx.tid, str(ctx.n), what] +
+                 (["login"] if host.model == "login" else []))
+    if host.model == "login" and e.code == LOGIN_KEPT and LOGIN_KEPT_LINE not in ctx.lines:
+        ctx.lines.append(LOGIN_KEPT_LINE)
 
 
 def handover(host: Host, ctx: Ctx) -> bool:
