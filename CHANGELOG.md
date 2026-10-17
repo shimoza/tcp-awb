@@ -187,6 +187,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The commands guide carries a list of the doors by kind of material.
+
 - `awb bucket`, `awb import` and `awb dataset put` reach the owner bucket through the admin socket of the key service (Z3 step 11, `awb/bucket.py`, `awb/tcp/keys_exchange.py`), and `AWB_BUCKET_KEYS` and `bucket_keys` are gone: the bucket key stays in the key service. The service gains three admin calls, `bucket_list`, `bucket_get` and `bucket_put`, for the owner's user id alone: list in the folders of the layout, get from a project's `in/`, put into `out/` of an active project (and the folder marks) and into `datasets/tcp-facts/`, at most `max_mb`. Locked or stopped, every command stops with one line that names `awb keys unlock`. `awb bucket move` needs a copy and a delete that the service does not offer, so it stops with a line saying so.
 
 - The intake as a package with the wipe rules by family (B-027, step 8 of the F1 plan), with no change of what it
