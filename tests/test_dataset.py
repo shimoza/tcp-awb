@@ -275,6 +275,7 @@ def test_put_sends_the_zip_the_pdf_and_the_manifest_and_marks_the_latest(home, f
         assert dataset.put(fake.client(), built.folder, replace=True) == keys
         # the command finds the newest build and needs the key service (Z3 step 11, his word P31)
         monkeypatch.setenv("AWB_KEYS_ADMIN", "/nonexistent/awb-keys-admin.sock")  # short: a tmp_path socket is too long
+        assert cli.main(["kb", "review", "--out", str(tmp_path / "ds")]) == 0          # the review gate (G6)
         assert cli.main(["dataset", "put", "--out", str(tmp_path / "ds")]) == 1
         assert "the key service is locked or not running" in capsys.readouterr().err
         assert cli.main(["dataset", "put", "--out", str(tmp_path / "none")]) == 1
@@ -619,17 +620,19 @@ def test_put_github_only_publishes_without_the_bucket_and_asks_for_no_key(home, 
     monkeypatch.setenv("AWB_BUCKET_KEYS", "")
     client = dataset.bucket.client
     monkeypatch.setattr(dataset.bucket, "client", lambda: (_ for _ in ()).throw(AssertionError("bucket asked")))
+    assert cli.main(["kb", "review", "--out", str(tmp_path / "ds")]) == 0              # the review gate (G6)
     assert cli.main(["dataset", "put", "--out", str(tmp_path / "ds"), "--github-only"]) == 0
     out = capsys.readouterr().out
     assert "releases/tag/2026-10-08" in out and "datasets/tcp-facts/" not in out
     assert any(a[:3] == ["release", "create", "2026-10-08"] for a in github.log())
     assert "TCP Facts 2026-10-08" in subprocess.run(["git", "log", "-1", "--format=%s", "main"], cwd=github.remote,
                                                     capture_output=True, text=True, check=True).stdout
-    # --github keeps its meaning: the bucket first, so without a key it stops before GitHub
+    # --github keeps its meaning: the bucket first, so without a key it stops before GitHub; after the release the
+    # review mark is stale and the put stops on the review line first (G6)
     monkeypatch.setattr(dataset.bucket, "client", client)
     n = len(github.log())
     assert cli.main(["dataset", "put", "--out", str(tmp_path / "ds"), "--github", "--replace"]) == 1
-    assert "the key service is locked or not running" in capsys.readouterr().err and len(github.log()) == n
+    assert "run awb kb review again" in capsys.readouterr().err and len(github.log()) == n
     assert cli.main(["dataset", "put", "--out", str(tmp_path / "ds"), "--github", "--github-only"]) == 1
     assert "not both" in capsys.readouterr().err
 
