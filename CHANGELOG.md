@@ -18,6 +18,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 - Two small steps of the architect journey (F3, P8 and P13). The stop hook sends one mail through the key service's notify (`keys.send_mail`, as `awb build nudge` does) for every owner item of OPEN.md that names an `awb` command, once per item: the project code, the item and the command, never a name (`projects.mail_owner_commands`, the mark in `<code>.mailed` beside the ledger drafts, written only when the mail was sent). `awb close` prints the open items of OPEN.md and the live rows of RESOURCES.md, codes only, each with its command, when it refuses.
 
+- `awb unlock`, `awb` alone and the lab defaults (P14, P15 and P7 of the F3 journey study): `awb unlock` runs `awb vault
+  unlock` and `awb keys unlock` in turn and stops at the first that fails (the passphrases are asked on the terminal as
+  before, never as arguments). `awb` without arguments prints the side (owner or work), the lock state of the vault and of
+  the key service and the first owner item of OPEN.md, codes only (it exited 2 with the usage before). `awb lab run`
+  takes `--project` from the `code:` line of the folder's SCOPE.md and `--tenant` from its `tenant:` line, which
+  `awb spawn project --tenant ALIAS` writes; both flags still win. `README.md`, `docs/commands-guide.md` and `COMMANDS.md`
+  follow.
+
 - The reader service answers `GET /api/kb?q=`, `/api/price?service=` and `/api/usage` (Z3 step 10, server part,
   `awb/tcp/web/reader_api.py`): the knowledge base with the name check of today's register, the price records of one
   service and the TCP API calls of the month by day, as JSON with codes and counts only. The gateway forwards them

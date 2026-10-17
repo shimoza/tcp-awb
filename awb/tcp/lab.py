@@ -3,7 +3,7 @@
     awb lab list                                             the recipes, their question and their cost guard
     awb lab dry-run RECIPE [--param K=V]... [--project CODE] [--tenant ALIAS]
                                                              the calls a run would make; no call is made
-    awb lab run RECIPE --project CODE --tenant ALIAS [--param K=V]...
+    awb lab run RECIPE [--project CODE] [--tenant ALIAS] [--param K=V]...
 
 A recipe is a JSON file under `recipes/` of the repository (recipes/README.md holds the format). It names the
 question it answers, its parameters with their defaults, the steps as calls through the key service with the lab
@@ -1653,6 +1653,26 @@ def run(name: str, project: str, tenant: str, given: list[str], *, send=None, cl
     return code
 
 
+def scope_defaults(start: Path | None = None) -> tuple[str | None, str | None]:
+    """(project code, tenant alias) from the SCOPE.md of the working folder's project (P7 of F3): the `code:` line
+    (else the folder's name) and the `tenant:` line; None for what it does not name."""
+    from awb import config
+
+    root = config.scope_root(Path.cwd() if start is None else start)
+    if root is None:
+        return None, None
+    try:
+        text = (root / "SCOPE.md").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None, None
+
+    def line(key: str) -> str | None:
+        m = re.search(r"^- %s: *(\S+) *$" % key, text, re.MULTILINE)
+        return m.group(1) if m else None
+
+    return line("code") or root.name, line("tenant")
+
+
 def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
@@ -1666,8 +1686,8 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--tenant", default="ALIAS")
     rn = sub.add_parser("run", help="raise, check, write the evidence and always tear down")
     rn.add_argument("recipe")
-    rn.add_argument("--project", required=True)
-    rn.add_argument("--tenant", required=True)
+    rn.add_argument("--project", default=None, help="default: the code of this folder's project")
+    rn.add_argument("--tenant", default=None, help="default: the tenant: line of this folder's SCOPE.md")
     rn.add_argument("--param", action="append", default=[], metavar="K=V")
     try:
         args = ap.parse_args(argv)
@@ -1687,7 +1707,15 @@ def main(argv: list[str] | None = None) -> int:
             print("awb lab: %s" % e, file=sys.stderr)
             return EXIT_STOPPED
         return EXIT_OK
-    return run(args.recipe, args.project, args.tenant, args.param)
+    project, tenant = args.project, args.tenant
+    if project is None or tenant is None:
+        code, alias = scope_defaults()
+        project, tenant = project or code, tenant or alias
+    if project is None or tenant is None:
+        print("awb lab: this folder names no %s; give --%s" % (("tenant",) * 2 if project else ("project",) * 2),
+              file=sys.stderr)
+        return EXIT_STOPPED
+    return run(args.recipe, project, tenant, args.param)
 
 
 if __name__ == "__main__":

@@ -220,7 +220,8 @@ def test_spawn_and_projects_list(con, home):
 
 
 def test_usage_errors_exit_2(con):
-    assert con.run()[0] == 2
+    code, out, _ = con.run()
+    assert code == 0 and out.startswith("side: ") and "next owner item: " in out
     assert con.run("nosuchcommand")[0] == 2
     assert con.run("register")[0] == 2
     assert con.run("projects")[0] == 2
