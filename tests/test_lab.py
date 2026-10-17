@@ -1420,3 +1420,74 @@ def test_a_random_password_is_drawn_by_the_key_service_and_never_in_the_answer_t
         assert drawn not in where
     # a second call draws another value
     assert keys.random_password() != keys.random_password()
+
+
+# --------------------------------------------------------------------------- the deny list over expanded values (review of 2026-10-16, finding R4)
+
+
+def pieces_recipe() -> dict:
+    """A recipe whose flavor is put together from pieces: no value of the file matches the deny list as it stands."""
+    recipe = copy.deepcopy(RECIPE)
+    recipe["params"]["size"] = {"default": "xlarge.2", "pattern": r"^[a-z0-9]+\.[0-9]+$"}
+    recipe["vars"] = {"flavor": "p2s.${size}"}
+    recipe["steps"][0]["call"]["body"]["widget"]["flavorRef"] = "${flavor}"
+    return recipe
+
+
+def test_a_denied_flavor_put_together_from_pieces_is_refused_before_any_call(project):
+    """The var holds `${`, the body holds `${` and the parameter value alone matches no line, so the reading of the
+    file passes; the run judges the expanded var and stops before its first call, naming the line and never the
+    value."""
+    recipe = pieces_recipe()
+    lab.validate(recipe)
+    write_recipe(Path(os.environ[lab.RECIPES_ENV]), recipe)
+    fake = FakeKeyService()
+    code, lines, errors = run(fake)
+    assert code == lab.EXIT_STOPPED and fake.calls == []
+    n = lab.denied("p2s.xlarge.2")
+    assert n and errors == ["awb lab: cost guard: var flavor expands to a value that matches line %d of "
+                            "recipes/DENY.txt (a denied flavor)" % n]
+    assert "p2s" not in " ".join(lines + errors)
+    assert rows(project) == [] and not list((project / "evidence").glob("lab-*"))
+
+
+def test_the_expanded_body_of_a_call_is_judged_before_the_send(project):
+    """`Run._call` walks the body it is about to send: a flavor field whose value only the run holds (a value a step
+    saved from an answer) and that matches the deny list stops the run; the key service sees nothing."""
+    from awb.tcp import sweep
+
+    fake = FakeKeyService()
+    recipe = lab.load(write_recipe(Path(os.environ[lab.RECIPES_ENV]), RECIPE))
+    handles = sweep.Handles(project / "handles.json")
+    job = lab.Run(recipe, lab.params_of(recipe, []), PROJECT, TENANT, project, handles, send=fake, clock=Clock())
+    job.env["size"] = GPU_FLAVOR
+    call = {"method": "POST", "service": "ecs", "path": "/v1/{project_id}/cloudservers",
+            "body": {"server": {"name": "${name}", "flavorRef": "${size}"}}}
+    with pytest.raises(lab.Stop) as info:
+        job._call("run", "server", call)
+    said = str(info.value)
+    assert said.startswith("cost guard: a flavor field of the call of server matches line %d of recipes/DENY.txt"
+                           % lab.denied(GPU_FLAVOR))
+    assert fake.calls == [] and job.calls == [] and GPU_FLAVOR not in said
+    job.env["size"] = "s3.medium.2"
+    answer, _ = job._call("run", "server", call)
+    assert len(fake.calls) == 1 and fake.calls[0]["body"]["server"]["flavorRef"] == "s3.medium.2"
+
+
+# --------------------------------------------------------------------------- the path column of the register (finding R5)
+
+
+def test_a_register_row_whose_path_is_another_folder_is_refused_before_any_call(project, home, tmp_path):
+    """The path column of the register is in the shared tree a session writes: a row that points the project at
+    another folder of the owner's is refused before any call and that folder is never written."""
+    other = tmp_path / "elsewhere" / PROJECT          # the register wants a path that ends in the code
+    other.mkdir(parents=True)
+    (other / "SCOPE.md").write_text("- code: %s\n" % PROJECT, encoding="utf-8")
+    projects._save(home, [projects.Project(PROJECT, "project", projects.NO_CUSTOMER, "tcp", str(other),
+                                           projects.memory_key(str(other)), "active", "2026-10-11")])
+    fake = FakeKeyService()
+    code, _, errors = run(fake)
+    assert code == lab.EXIT_STOPPED and fake.calls == []
+    assert errors == ["awb lab: the path of %s in the project register is not its folder under the projects root"
+                      % PROJECT]
+    assert sorted(p.name for p in other.iterdir()) == ["SCOPE.md"]
