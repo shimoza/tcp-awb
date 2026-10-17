@@ -1,0 +1,137 @@
+{
+  "name": "obs-lifecycle-rule",
+  "question": "Does an OBS bucket in ${region} take a lifecycle rule that expires objects after ${days} day(s) and read the rule back?",
+  "about": "A bucket named after the project, a lifecycle rule that expires every object after one day, then the rule read back with GET /BUCKET?lifecycle. The OBS calls go through the key service as in obs-policy-deny. The read back checks the status only: the lab reads JSON answers and OBS answers this one in XML. Every step is to confirm live: see the notes.",
+  "params": {
+    "region": {
+      "default": "eu-de",
+      "pattern": "^eu-(de|nl)$"
+    },
+    "days": {
+      "default": "1",
+      "pattern": "^[1-7]$",
+      "help": "the days after which objects expire, at most 7"
+    }
+  },
+  "budget": {
+    "minutes": 5,
+    "teardown_minutes": 5
+  },
+  "guard": {
+    "resources": 1,
+    "lifetime_minutes": 15
+  },
+  "steps": [
+    {
+      "id": "bucket",
+      "do": "create",
+      "says": "a bucket named after the project and the expiry",
+      "call": {
+        "method": "PUT",
+        "service": "obs",
+        "path": "/${name}"
+      },
+      "id_value": "${name}",
+      "name": "${name}",
+      "find": {
+        "call": {
+          "method": "HEAD",
+          "service": "obs",
+          "path": "/${name}"
+        },
+        "status": [
+          200
+        ],
+        "within": 30
+      },
+      "resource": {
+        "kind": "obs",
+        "type": "obs bucket",
+        "cost": "none"
+      },
+      "tags": "name",
+      "confirm": "the create and the find, as in obs-policy-deny"
+    },
+    {
+      "id": "rule",
+      "do": "call",
+      "says": "a lifecycle rule that expires objects",
+      "call": {
+        "method": "PUT",
+        "service": "obs",
+        "path": "/${name}",
+        "query": {
+          "lifecycle": ""
+        },
+        "body": {
+          "LifecycleConfiguration": {
+            "Rule": [
+              {
+                "ID": "awb-lab-expire",
+                "Prefix": "",
+                "Status": "Enabled",
+                "Expiration": {
+                  "Days": "${int:days}"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "confirm": "to confirm live and likely to fail: OBS takes PUT /BUCKET?lifecycle as XML with a Content-MD5 header (OTC OBS API reference, PUT Bucket lifecycle); the key service sends every body as JSON without that header; the step runs the shape of obs-policy-deny and says what OBS answers. A key service that sends an XML body is the owner's change"
+    },
+    {
+      "id": "read",
+      "do": "call",
+      "says": "read the rule back",
+      "call": {
+        "method": "GET",
+        "service": "obs",
+        "path": "/${name}",
+        "query": {
+          "lifecycle": ""
+        }
+      },
+      "confirm": "GET /BUCKET?lifecycle answers 200 with the rule in XML, 404 NoSuchLifecycleConfiguration without one; the days are not compared because the lab reads JSON only"
+    }
+  ],
+  "checks": [
+    {
+      "id": "rule-there",
+      "step": "read",
+      "says": "the lifecycle rule reads back",
+      "status": [
+        200
+      ]
+    }
+  ],
+  "teardown": {
+    "bucket": {
+      "call": {
+        "method": "DELETE",
+        "service": "obs",
+        "path": "/${name}"
+      },
+      "gone": {
+        "call": {
+          "method": "HEAD",
+          "service": "obs",
+          "path": "/${name}"
+        },
+        "status": [
+          404
+        ]
+      },
+      "confirm": "DELETE /BUCKET of an empty bucket; the lifecycle rule goes with the bucket"
+    }
+  },
+  "kb": {
+    "scope": "tcp",
+    "tags": [
+      "obs",
+      "api"
+    ],
+    "class": "api",
+    "statement": "An OBS bucket in ${region} takes a lifecycle rule that expires objects after ${days} day(s) and returns the rule on GET /BUCKET?lifecycle."
+  }
+}
