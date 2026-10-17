@@ -7503,8 +7503,29 @@
    "name": "close: a fingerprint it cannot write is named with what to do, the close still happens",
    "run": ".venv/bin/pytest tests/test_send_unreadable.py::test_close_says_when_it_cannot_write_the_fingerprint",
    "status": "passing"
+  },
+  {
+   "id": "n12-conftest-guard-1",
+   "phase": "n12-conftest-guard",
+   "name": "tests: a link planted before the test into a folder standing in for the vault root is refused like the root (T5)",
+   "run": ".venv/bin/pytest tests/test_vault_guard.py::test_a_link_planted_before_the_test_into_the_vault_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "n12-conftest-guard-2",
+   "phase": "n12-conftest-guard",
+   "name": "tests: a module-level open of a planted link path in a test module is refused at its import, before the first test (T4, T5)",
+   "run": ".venv/bin/pytest tests/test_vault_guard.py::test_import_time_code_of_a_test_module_meets_the_guard",
+   "status": "passing"
+  },
+  {
+   "id": "n12-conftest-guard-3",
+   "phase": "n12-conftest-guard",
+   "name": "tests: a module fixture that reaches the vault root and catches the refusal errors the first test at its setup (T4)",
+   "run": ".venv/bin/pytest tests/test_vault_guard.py::test_a_module_fixture_that_reaches_the_vault_fails_the_first_test",
+   "status": "passing"
   }
  ],
- "total_tests": 1072,
- "checked": "2026-10-16"
+ "total_tests": 1075,
+ "checked": "2026-10-17"
 }
