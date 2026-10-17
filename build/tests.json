@@ -7951,8 +7951,85 @@
    "name": "register find as the work user is refused",
    "run": ".venv/bin/pytest tests/test_register.py::test_find_as_the_work_user_is_refused",
    "status": "passing"
+  },
+  {
+   "id": "fix-rds-recipe-shape-1",
+   "phase": "fix-rds-recipe-shape",
+   "name": "defaults and the preflight step show in the dry run",
+   "run": ".venv/bin/pytest tests/test_rds_recipe_shape.py::test_the_dry_run_shows_the_new_defaults",
+   "status": "passing"
+  },
+  {
+   "id": "fix-rds-recipe-shape-2",
+   "phase": "fix-rds-recipe-shape",
+   "name": "volume_type parameter shows in the dry run",
+   "run": ".venv/bin/pytest tests/test_rds_recipe_shape.py::test_the_dry_run_takes_the_volume_type_parameter",
+   "status": "passing"
+  },
+  {
+   "id": "fix-rds-recipe-shape-3",
+   "phase": "fix-rds-recipe-shape",
+   "name": "default flavor passes the deny list and volume_type is a parameter",
+   "run": ".venv/bin/pytest tests/test_rds_recipe_shape.py::test_the_default_flavor_passes_the_deny_list_and_the_volume_type_is_a_parameter",
+   "status": "passing"
+  },
+  {
+   "id": "fix-rds-recipe-shape-4",
+   "phase": "fix-rds-recipe-shape",
+   "name": "a DBS.28xxxx shape error stops the run as a recipe error and creates no instance",
+   "run": ".venv/bin/pytest tests/test_rds_recipe_shape.py::test_a_shape_error_stops_the_run_as_a_recipe_error_and_creates_no_instance",
+   "status": "passing"
+  },
+  {
+   "id": "fix-rds-recipe-shape-5",
+   "phase": "fix-rds-recipe-shape",
+   "name": "a 400 with the code of the collation answer is still not the refusal",
+   "run": ".venv/bin/pytest tests/test_rds_recipe_shape.py::test_a_400_with_another_code_is_still_not_the_collation_answer",
+   "status": "passing"
+  },
+  {
+   "id": "fix-rds-recipe-shape-6",
+   "phase": "fix-rds-recipe-shape",
+   "name": "only the 500 of the collation passes both refusal checks",
+   "run": ".venv/bin/pytest tests/test_rds_recipe_shape.py::test_only_the_500_of_the_collation_passes_both_refusal_checks",
+   "status": "passing"
+  },
+  {
+   "id": "fix-rds-recipe-shape-7",
+   "phase": "fix-rds-recipe-shape",
+   "name": "an unsupported storage type stops before any create",
+   "run": ".venv/bin/pytest tests/test_rds_recipe_shape.py::test_an_unsupported_storage_type_stops_before_any_create",
+   "status": "passing"
+  },
+  {
+   "id": "fix-rds-recipe-shape-8",
+   "phase": "fix-rds-recipe-shape",
+   "name": "a storage type not listed or not readable stops before any create",
+   "run": ".venv/bin/pytest tests/test_rds_recipe_shape.py::test_a_storage_type_that_is_not_listed_or_not_readable_stops_before_any_create",
+   "status": "passing"
+  },
+  {
+   "id": "fix-rds-recipe-shape-9",
+   "phase": "fix-rds-recipe-shape",
+   "name": "the storage type must be normal in the AZ of the run",
+   "run": ".venv/bin/pytest tests/test_rds_recipe_shape.py::test_the_az_must_be_normal_in_the_az_of_the_run",
+   "status": "passing"
+  },
+  {
+   "id": "fix-rds-recipe-shape-10",
+   "phase": "fix-rds-recipe-shape",
+   "name": "a malformed shape_error is refused",
+   "run": ".venv/bin/pytest tests/test_rds_recipe_shape.py::test_a_malformed_shape_error_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "fix-rds-recipe-shape-11",
+   "phase": "fix-rds-recipe-shape",
+   "name": "a malformed preflight is refused",
+   "run": ".venv/bin/pytest tests/test_rds_recipe_shape.py::test_a_malformed_preflight_is_refused",
+   "status": "passing"
   }
  ],
- "total_tests": 1136,
+ "total_tests": 1147,
  "checked": "2026-10-17"
 }

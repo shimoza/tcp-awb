@@ -15,7 +15,12 @@ then the answer is that status or none), list_fail (the next so many GETs of a c
 run before each answer, for a signal), forbidden (a GET of /v1/{project_id}/forbidden answers 403 or this
 status), refused_body (the body of a refused create, by default an error_msg alone), refused_text (its text, for
 an answer that is not JSON such as the XML of an OBS error) and secrets (tenant alias: the
-names of its secrets, which the operation tenants lists as the key service does, never a value). Every id and value
+names of its secrets, which the operation tenants lists as the key service does, never a value). For the RDS recipe the
+fake also answers GET /v3/{project_id}/storage-type/SQLServer with `storage_types` (by default CLOUDSSD and GPSSD2
+normal and ULTRAHIGH unsupported in eu-de-01 to eu-de-03, the shape read live on 2026-10-17) or `storage_status`
+when that is set, GET /v3/{project_id}/instances with the instances made (name, total_count), POST
+/v3/{project_id}/instances with `rds_answer` (a function of the body that gives (status, data); by default the 500
+and DBS.200005 of a collation RDS does not take) and the vpc subnet delete and the tag call. Every id and value
 here is invented.
 """
 from __future__ import annotations
@@ -23,7 +28,7 @@ from __future__ import annotations
 import itertools
 import re
 
-_ITEM = re.compile(r"^/v1/\{project_id\}/(?P<coll>[a-z]+)(?:/(?P<id>[a-z0-9-]+)(?P<tags>/tags/action)?)?$")
+_ITEM = re.compile(r"^/v1/\{project_id\}/(?P<coll>[a-z-]+)(?:/(?P<id>[a-z0-9-]+)(?P<tags>/tags/action)?)?$")
 
 
 class FakeKeyService:
@@ -50,6 +55,13 @@ class FakeKeyService:
                                  **({"os-vendor-extended:sold_out_availability_zones": zones} if n == "SATA" else {}))}
             for i, n in enumerate(("SAS", "SSD", "SATA"), start=1)]
         self.types_status = 0
+        self.rds_answer = lambda body: (500, {"error_code": "DBS.200005", "error_msg": "refused"})
+        zones3 = ("eu-de-01", "eu-de-02", "eu-de-03")
+        self.storage_types: list[dict] = [
+            {"name": n, "az_status": {z: ("unsupported" if n == "ULTRAHIGH" else "normal") for z in zones3}}
+            for n in ("ULTRAHIGH", "CLOUDSSD", "GPSSD2")]
+        self.storage_status = 0
+        self.rds_bodies: list[dict] = []
         self._n = itertools.count(1)
 
     def created(self) -> list[str]:
@@ -76,13 +88,31 @@ class FakeKeyService:
             if self.types_status:
                 return {"ok": True, "status": self.types_status, "data": {"error_msg": "internal"}, "text": ""}
             return {"ok": True, "status": 200, "data": {"volume_types": self.volume_types}, "text": ""}
+        if method == "GET" and path == "/v3/{project_id}/storage-type/SQLServer":
+            if self.storage_status:
+                return {"ok": True, "status": self.storage_status, "data": {"error_msg": "internal"}, "text": ""}
+            return {"ok": True, "status": 200, "data": {"storage_type": self.storage_types}, "text": ""}
+        if path == "/v3/{project_id}/instances":
+            if method == "GET":
+                return {"ok": True, "status": 200, "data": {"instances": [], "total_count": 0}, "text": ""}
+            if method == "POST":
+                self.rds_bodies.append(req.get("body") or {})
+                status, data = self.rds_answer(req.get("body") or {})
+                return {"ok": True, "status": status, "data": data, "text": ""}
+        if method == "DELETE" and re.match(r"^/v1/\{project_id\}/vpcs/[a-z0-9-]+/subnets/[a-z0-9-]+$", path):
+            item = self.items.get(path.rsplit("/", 1)[1])
+            if item is not None:
+                item["deleted"] = True
+            return {"ok": True, "status": 204, "data": None, "text": ""}
+        if method == "POST" and re.match(r"^/v2\.0/\{project_id\}/vpcs/[a-z0-9-]+/tags/action$", path):
+            return {"ok": True, "status": 204, "data": None, "text": ""}
         if method == "GET" and path == "/v1/{project_id}/forbidden":
             return {"ok": True, "status": self.forbidden, "data": {"error_msg": "denied"}, "text": ""}
         m = _ITEM.match(path)
         if not m:
             return {"ok": True, "status": 404, "data": {"error_msg": "no such path"}, "text": ""}
         coll, rid, tags = m.group("coll"), m.group("id"), m.group("tags")
-        one = coll[:-1]
+        one = coll[:-1].replace("-", "_")
         if rid is None and method == "POST":
             if coll in self.fail_create:
                 if self.fail_create[coll] == "lost":

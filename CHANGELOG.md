@@ -7,6 +7,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- The recipe `rds-create-refusal` after its live runs of 2026-10-17 on eu-de (two runs, nothing created): the default
+  flavor is `rds.mssql.x1.large.2` (there are no `se` spec codes) and the volume type is the parameter `volume_type`
+  with the default CLOUDSSD (ULTRAHIGH is unsupported in every eu-de AZ). The recipe format gets two small parts: a
+  `preflight` list of reads made before the first create (the recipe reads the RDS storage types and stops with one
+  line unless the type is normal in the AZ) and a `shape_error` rule on a create step, so a 400 with DBS.28xxxx stops
+  the run as a recipe error and only the control matched 500 DBS.200005 counts as a refusal. `awb lab dry-run` shows
+  the preflight as a step `0.`. `recipes/README.md` and the README describe both.
+
 - The deploy gate (threat model G2, `awb/deploy.py`): before a release is installed, the owner's plan child runs the
   commit gate (`awb gate`, the same checks a commit and a push get) over the commits from the deployed release to the
   target, the whole history when no release is deployed, and refuses on any finding with the commit and the class
