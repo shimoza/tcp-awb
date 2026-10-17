@@ -96,7 +96,9 @@ resources, with codes only. It also carries the wipe mode as the last refresh me
 red-team pack of wipe mode through the installed intake and keeps its leaks and losses in `refresh/wipe.tsv`.
 `awb board write` keeps it as Markdown and as HTML that prints on A4.
 
-The console is the web side of the same work, behind a sign-in. It lists the projects with their status, files and
+The console is the web side of the same work, behind a sign-in. Before the sign-in a request holds one of 64 slots
+(at most 4 per address) and has 5 seconds for its headers and its body; a signed-in request has 20 seconds for its
+body. It lists the projects with their status, files and
 deliverables, shows the board and what runs on the test tenants and creates a new query or project with its bucket
 folder. On the owner host it puts files into a project's folder `in/`; the session takes them with "take the files
 from in". Each project has a chat that reads its sanitised inputs. The Ask page answers
