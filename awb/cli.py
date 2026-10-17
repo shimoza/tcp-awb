@@ -18,7 +18,9 @@ Only `awb register list --forms` prints a written form and only `awb register ke
 both are the vault side. `awb register keep PHRASE` takes any phrase and prints counts only. Every other command
 prints codes, classes, counts, states and paths made of codes. Error messages of the Workbench modules carry no value by
 design. An operating system error is printed by its class only, because its text can carry a file name. A usage
-error never repeats an argument. `awb register retire` names its argument only when it is a code. `awb check`
+error never repeats an argument. `awb register retire` names its argument only when it is a code. `awb register find`
+prints a code or "no code" and only on the owner's own terminal (refused in a pipe, as the work user and inside an
+assistant session, as `awb vault show` is). `awb check`
 and `awb gate` print a path that carries a registered form as "file N" or with [name] in its place. They refuse to
 run without a register unless --no-register is given.
 """
@@ -115,13 +117,20 @@ def _cmd_intake(args, p: config.Paths) -> int:
     return EXIT_FINDINGS if states.get("failed") else EXIT_OK
 
 
+FIND_REFUSED = ("awb register: find prints to the owner's own terminal only, never to a pipe or a file, never as "
+                "the work user and never inside an assistant session")
+
+
 def _cmd_register_add(args, p: config.Paths) -> int:
-    form = args.form
-    if form == "-":
-        form = sys.stdin.readline().rstrip("\r\n")
-    register.add(p.register, args.code, args.kind, form)
+    forms = args.forms
+    if forms == ["-"]:
+        forms = [line.rstrip("\r\n") for line in sys.stdin.readlines()]
+        forms = [f for f in forms if f.strip()]
+        if not forms:
+            return _err("register add: no form was read from standard input")
+    register.add_forms(p.register, args.code, args.kind, forms)
     active = sum(1 for e in register.load(p.register) if e.code == args.code and e.status == "active")
-    print("added one form to %s (%d active)" % (args.code, active))
+    print("added %d form(s) to %s (%d active)" % (len(forms), args.code, active))
     if args.kind == "CUST" and args.code.count("-") == 1:
         # the work side cannot read the register: its outbox folder is how awb spawn knows the code was issued
         try:
@@ -218,6 +227,20 @@ def _cmd_register_review(args, p: config.Paths) -> int:
     from awb import candidates
 
     return candidates.command(args, p)
+
+
+def _cmd_register_find(args, p: config.Paths) -> int:
+    """The code of the entry whose form is these words, on the owner's own terminal. Refused as the work user, inside
+    an assistant session and to a pipe or a file with one fixed line, as awb vault show is. Prints the code and the
+    kind or "no code": never a form, a near miss or a count."""
+    from awb import vault
+
+    if config.is_work_user() or vault.in_assistant_session() or not sys.stdout.isatty():
+        print(FIND_REFUSED, file=sys.stderr)
+        return EXIT_ERROR
+    hit = register.find_code(register.load(p.register), " ".join(args.words))
+    print("%s %s" % hit if hit else "no code")
+    return EXIT_OK
 
 
 def _cmd_spawn(args, p: config.Paths) -> int:
@@ -468,11 +491,17 @@ def _build() -> argparse.ArgumentParser:
 
     reg = sub.add_parser("register", help="the register of written forms (vault side)")
     rsub = reg.add_subparsers(dest="register_command", parser_class=_Parser)
-    s = rsub.add_parser("add", help="add one written form to a code")
+    s = rsub.add_parser("add", help="add one or more written forms to a code")
     s.add_argument("code")
     s.add_argument("kind")
-    s.add_argument("form", help="the written form or - to read it from standard input")
+    s.add_argument("forms", nargs="+", metavar="FORM",
+                   help="the written forms, or - alone to read them from standard input, one per line")
     s.set_defaults(func=_cmd_register_add)
+    s = rsub.add_parser("find", help="print the code and the kind of the entry whose form is these words, or "
+                                     "\"no code\" (owner's terminal only: refused in a pipe, as the work user and "
+                                     "inside an assistant session)")
+    s.add_argument("words", nargs="+", metavar="WORD", help="the written form, as words")
+    s.set_defaults(func=_cmd_register_find)
     s = rsub.add_parser("new", help="print a fresh code: CUST or PART (PERS, ORG, SITE only through --review)")
     s.add_argument("kind")
     s.add_argument("--parent", default=None, help=argparse.SUPPRESS)
