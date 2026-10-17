@@ -398,6 +398,7 @@ creating or not created, the last two from `awb lab run`) and a note.
 | `awb write translate FILE --to de --to ru` | `--to` takes de, en or ru and may be repeated. The German version and his Russian reading copy from the accepted text in one step: FILE.de.md and FILE.ru.md next to it (FILE.en.md for en; `--mode mail\|doc` and `--scope tcp\|hcs` as for `write check`), every number, identifier and code block kept (refused on a difference), the German text through `awb write check` (the Russian copy is exempt). The model is reached through the Ask path only; where its key is not readable (a working session) the prompt file goes to `reviews/.translate/` and the command stops with one line; translate along it and run it again with `--verify` |
 | `awb write keep BEFORE AFTER` | the voice pass changed no fact: numbers, identifiers, negations and code blocks of the text before and after it are compared, any difference blocks (exit 1). Prints kinds, counts and lines, never a value |
 | `awb voice learn DRAFT SENT` | store a draft and the version you sent, write suggestions for the style rules |
+| `awb voice learn DRAFT - [--project CODE]` | the same on the owner side: the sent text comes on standard input and is wiped first |
 | `awb seal check` | the checks of the seal that need no root, for the current user; on a host with the egress filter also its load and mode, and its counts as comment lines |
 
 ## The red-team pack (owner side)
@@ -491,7 +492,7 @@ for, what is stated more firmly than its grade. Both workflows are started by hi
 A text in his name follows the drafting skill (`seal/work-claude/skills/drafting/SKILL.md`, installed by the seal
 for the work user): facts first (the review above), then the checked version is kept as
 `reviews/FILE/before-voice.md`, then the voice pass, `awb write keep`, `awb write check`, the cut to the budget as
-a last step and both checks again. After he sends it, `awb voice learn DRAFT SENT`.
+a last step and both checks again. After he sends it, `awb voice learn DRAFT SENT`. On the owner side the sent text is piped in instead, `pbpaste | awb voice learn DRAFT -`: it is wiped like a paste and the original is written nowhere.
 
 ## Used by the client, not by hand
 
@@ -838,11 +839,12 @@ the facts of a text before and after the voice pass must be the same
 - `BEFORE`
 - `AFTER`
 
-### `awb voice learn DRAFT SENT`
+### `awb voice learn DRAFT SENT [--project PROJECT]`
 
 store a pair and write the suggestions report
 - `DRAFT`
-- `SENT`
+- `SENT`: the sent text as a file, or - for the owner: the text on standard input
+- `--project PROJECT`: with SENT as -: the project (default: the folder DRAFT lies in)
 
 ### `awb review init DELIVERABLE --request FILE --tier TIER --budget WORDS [--reader TEXT] [--mode MODE] [--force] [--lowered TEXT]`
 

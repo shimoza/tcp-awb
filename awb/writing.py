@@ -98,6 +98,13 @@ removed (in the draft, not in the sent text), the words he added and the change 
 rate of commas before and/or. It also lists candidates for the banned lists: a removed word or phrase that occurs
 in two or more pairs and is not banned yet. Nothing is ever added to the rules: he edits them himself.
 
+Owner side. `awb voice learn DRAFT - [--project CODE]` takes the sent text from standard input, never from a file.
+It is refused for the work user, inside an assistant session and when standard input is a terminal (one fixed line
+each, exit 2). The project is `--project` or the project folder DRAFT lies in. The text runs through `intake.run_text`
+in wipe mode for the customer of the project (the project code for a project without a customer), as `awb import
+CODE --paste` does: the customer forms become its code, every other name a token, and a secret refuses the whole call
+with its class. The original is written nowhere. The wiped copy is the sent text of the pair.
+
 Messages carry classes, counts and line numbers. They never carry a file name, a matched name or a register line.
 """
 from __future__ import annotations
@@ -107,6 +114,7 @@ import html
 import math
 import os
 import re
+import shutil
 import statistics
 import sys
 import tempfile
@@ -183,6 +191,10 @@ SENT_NAME = "sent.md"
 
 class WritingError(Exception):
     """A usage, rule file or read problem. Also a check that cannot run. The message carries no value. Exit 2."""
+
+
+class Held(WritingError):
+    """The command is not for this caller. The message is the one fixed line, printed as it is. Exit 2."""
 
 
 class Refused(WritingError):
@@ -2002,7 +2014,7 @@ def _fail(prog: str, err: Exception) -> int:
     if isinstance(err, OSError):
         print("%s: %s (operating system error)" % (prog, type(err).__name__), file=sys.stderr)
         return EXIT_ERROR
-    print("%s: %s" % (prog, err), file=sys.stderr)
+    print(str(err) if isinstance(err, Held) else "%s: %s" % (prog, err), file=sys.stderr)
     return EXIT_FINDINGS if isinstance(err, Refused) else EXIT_ERROR
 
 
@@ -2093,6 +2105,87 @@ def _main_keep(prog: str, before: Path, after: Path) -> int:
     return EXIT_OK
 
 
+HOLD_WORK_USER = "held: awb voice learn DRAFT - is for the owner, a session learns from two files"
+HOLD_SESSION = "held: awb voice learn DRAFT - takes the sent text in your own terminal, not in a session"
+HOLD_TERMINAL = "held: awb voice learn DRAFT - reads the sent text from a pipe, nothing is piped in"
+STDIN_ARG = "-"
+
+
+def learn_owner(draft: Path, project: str | None = None, p: config.Paths | None = None, stdin=None,
+                day=None) -> Learned:
+    """`awb voice learn DRAFT -`: the sent text on standard input, wiped by `intake.run_text` for the customer of
+    the project, is the sent text of `learn`. The original is never written. Raises Refused for a secret or a text
+    the final check withholds, WritingError for the rest."""
+    from awb import codes, intake, pastein, projects, vault
+    from awb import importcmd
+
+    stdin = stdin if stdin is not None else sys.stdin
+    if config.is_work_user():
+        raise Held(HOLD_WORK_USER)
+    if vault.in_assistant_session():
+        raise Held(HOLD_SESSION)
+    if getattr(stdin, "isatty", lambda: False)():
+        raise Held(HOLD_TERMINAL)
+    p = p or config.paths()
+    where = Path(draft).expanduser().resolve()
+    rows = projects.load(p)
+    if project is None:
+        for pr in rows:
+            try:
+                where.relative_to(Path(pr.path).resolve())
+            except ValueError:
+                continue
+            project = pr.code
+            break
+        if project is None:
+            raise WritingError("the draft lies in no project folder: name the project with --project")
+    if not codes.is_project_code(project):
+        raise WritingError("a project code reads tcp-xxxx")
+    pr = next((r for r in rows if r.code == project), None)
+    if pr is None or pr.state != "active":
+        raise WritingError("%s is not an active project" % project)
+    own = pr.customer if pr.customer != projects.NO_CUSTOMER else None
+    if own and importcmd._active_forms(p, own) == 0:
+        raise WritingError("%s has no form in the register: run awb import %s once, it asks for the written forms"
+                           % (own, project))
+    cust = own or project
+    # the draft is read and checked by `learn`; read it here too so that a bad draft stops before the intake runs
+    _read_voice_file(draft, "draft")
+    try:
+        text = pastein.read_text(importcmd.read_stdin(stdin))
+    except pastein.PasteRefused as err:
+        raise WritingError(str(err).replace("paste", "sent text")) from None
+
+    def screen(raw: str):
+        found = pastein.secret_findings(raw)
+        if found:
+            raise Refused(pastein.secret_message(found).replace("the paste", "the sent text")
+                          .replace("paste again", "run again"))
+        return None
+
+    def shape(engine, _):
+        return pastein._shape(engine, text, None, None)
+
+    def held(found: str) -> Refused:
+        return Refused("the final check withheld the sent text (%s left in it): nothing was written" % found)
+
+    tmp = Path(tempfile.mkdtemp(prefix="awb-voice-"))
+    try:
+        def write(_outdir: Path, body: str) -> Path:
+            out = tmp / "sent.md"
+            _write(out, body)
+            return out
+
+        try:
+            intake.run_text(text, cust, p, shape, write, label="sent text (voice)", kind="voice-sent",
+                            screen=screen, held=held)
+        except intake.IntakeError as err:
+            raise WritingError(str(err)) from None
+        return learn(draft, tmp / "sent.md", p, day)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def _main_voice(argv: list[str]) -> int:
     from awb.cli import SafeParser
 
@@ -2101,7 +2194,8 @@ def _main_voice(argv: list[str]) -> int:
     sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
     s = sub.add_parser("learn", help="store a pair and write the suggestions report")
     s.add_argument("draft", type=Path)
-    s.add_argument("sent", type=Path)
+    s.add_argument("sent", type=Path, help="the sent text as a file, or - for the owner: the text on standard input")
+    s.add_argument("--project", default=None, help="with SENT as -: the project (default: the folder DRAFT lies in)")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -2109,8 +2203,14 @@ def _main_voice(argv: list[str]) -> int:
     if args.command != "learn":
         ap.print_usage(sys.stderr)
         return EXIT_ERROR
+    if args.project and str(args.sent) != STDIN_ARG:
+        print("%s: --project goes with SENT as -" % prog, file=sys.stderr)
+        return EXIT_ERROR
     try:
-        res = learn(args.draft, args.sent)
+        if str(args.sent) == STDIN_ARG:
+            res = learn_owner(args.draft, args.project)
+        else:
+            res = learn(args.draft, args.sent)
     except (WritingError, OSError) as err:
         return _fail(prog, err)
     print("voice: pair %s stored under %s/%s" % (res.pair, VOICE_DIR, PAIRS_DIR))
