@@ -6,12 +6,17 @@
 Run by the owner in his working copy, on main with a clean tree:
 
 1. `git fetch origin pull/N/head` into the branch `take/pr-N`. Refused when the tree has a change, when the working
-   copy is not on main or when origin's main or the build repository's main is not in the local main.
+   copy is not on main or when origin's main or the build repository's main is not in the local main. Refused too
+   (R1) when `gh pr view N --json author,isCrossRepository,headRepositoryOwner` says the head is a fork's or the
+   author is not the owner of the repository (`gh repo view --json owner`). Without gh it is refused as well:
+   `pull/N/head` is served for a fork too and a commit's author field is set by whoever commits.
 2. The branch is rebased onto the local main in a temporary worktree outside the working copy, so his tree never
    holds the branch's files and no git hook runs. A conflict in `build/tests.json` is merged by id and one in
    `CHANGELOG.md` keeps both sides' lines in their week (awb/mergedriver.py, copied out first and run with
    `python3 -I`, so the branch never runs its own driver). Any other conflict stops the take with the file names.
 3. `awb build check take/pr-N` on the rebased branch (the gate and the whole suite as the build user) and its lines.
+   A change of `seal/`, `plugin/hooks/`, `rules/`, `.claude/`, `CLAUDE.md` or `CLAUDE.local.md` is `red: protected
+   path` unless `--allow-protected` was given, by the owner who read the diff of those paths first (R2).
 4. Only when the check passed: `git merge --no-ff` into main with "Merge pull request #N: TITLE" (the title from
    `gh pr view N --json title` when gh is there, else the branch name on origin; the gate checks the message), then
    `git push origin main`, `git push <build root>/main.git main` and, when gh is there, `gh pr close N` with a
@@ -24,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import inspect
+import json
 import os
 import re
 import shutil
@@ -34,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from awb import mergedriver
+from awb import build, mergedriver
 
 MAIN = "main"
 ORIGIN = "origin"
@@ -42,6 +48,10 @@ BRANCH = "take/pr-%d"
 TITLE_MAX = 200
 _SAFE_TITLE_RE = re.compile(r"[\x00-\x1f\x7f]")
 _ATTRIBUTES = "build/tests.json merge=awb-tests\nCHANGELOG.md merge=awb-changelog\n"
+PR_FIELDS = "author,isCrossRepository,headRepositoryOwner"
+"""What `gh pr view N --json` is asked for the identity check (R1)."""
+PROTECTED = build.PROTECTED
+"""The paths a branch from outside may not change without `--allow-protected` (R2)."""
 
 
 class Stop(Exception):
@@ -52,11 +62,11 @@ class Stop(Exception):
         self.code = code
 
 
-def _check(ref: str) -> int:
+def _check(ref: str, allow_protected: bool = False) -> int:
     """`awb build check REF`, the runner's public function; it prints the state line and the check lines."""
     from awb import buildrun
 
-    return buildrun.check_main(ref)
+    return buildrun.check_main(ref, allow_protected=allow_protected)
 
 
 def _build_repo() -> str:
@@ -82,6 +92,7 @@ class Take:
     gate_message: Callable[[Path], int] = _gate_message
     gh: str | None = field(default_factory=lambda: shutil.which("gh"))
     out: Callable[[str], None] = print
+    allow_protected: bool = False
     fetched: str | None = None
 
     @property
@@ -114,10 +125,15 @@ class Take:
         return [
             "1. refuse a tree with a change or a working copy not on %s; git fetch %s %s and the main of the build "
             "repository: both must be in the local %s" % (MAIN, ORIGIN, MAIN, MAIN),
+            "   gh pr view %d --json %s: refused when the head is a fork's or the author is not the owner of the "
+            "repository (gh repo view --json owner)%s" % (n, PR_FIELDS, "" if self.gh else "; gh is not there, so "
+                                                                                     "the take is refused"),
             "   git fetch %s +pull/%d/head:refs/heads/%s" % (ORIGIN, n, b),
             "2. git rebase %s in a temporary worktree of %s (build/tests.json by id, CHANGELOG.md by week, any other "
             "conflict stops)" % (MAIN, b),
-            "3. awb build check %s" % b,
+            "3. awb build check %s%s (a change of %s is red: protected path%s)"
+            % (b, " --allow-protected" if self.allow_protected else "", ", ".join(PROTECTED),
+               " unless --allow-protected is given" if not self.allow_protected else ", allowed here: read its diff"),
             "4. only when the check passed: git merge --no-ff %s -m \"Merge pull request #%d: TITLE\" (the title %s)"
             % (b, n, "from gh pr view %d --json title" % n if self.gh else "is the branch name, gh is not there"),
             "   git push %s %s" % (ORIGIN, MAIN),
@@ -149,7 +165,38 @@ class Take:
         if theirs and not (self.rev(theirs) and self.contains(theirs, main)):
             raise Stop("%s of the build repository is not in your %s: git pull %s %s first"
                        % (MAIN, MAIN, build, MAIN), 2)
+        self.identity()
         return main, build
+
+    def gh_json(self, *args: str) -> dict:
+        """`gh ARGS` as the JSON object it prints; a failure or anything but an object stops the take as refused."""
+        r = subprocess.run([self.gh, *args], cwd=self.repo, capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            raise Stop("gh %s failed: %s" % (" ".join(args[:2]), _last(r.stderr) or "exit %d" % r.returncode), 2)
+        try:
+            data = json.loads(r.stdout)
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
+            raise Stop("gh %s did not answer with JSON" % " ".join(args[:2]), 2)
+        return data
+
+    def identity(self) -> None:
+        """Step 1 (R1): the head of the pull request is a branch of this repository and its author is the owner of
+        the repository, both read with gh. GitHub serves `pull/N/head` for a fork as well and the author field of a
+        commit is set by whoever commits, so without gh the take is refused."""
+        if not self.gh:
+            raise Stop("gh is not there: the author of pull request #%d cannot be checked, so it is not taken"
+                       % self.number, 2)
+        owner = _login(self.gh_json("repo", "view", "--json", "owner").get("owner"))
+        if owner is None:
+            raise Stop("gh repo view did not name the owner of the repository", 2)
+        pr = self.gh_json("pr", "view", str(self.number), "--json", PR_FIELDS)
+        if pr.get("isCrossRepository") is not False:
+            raise Stop("pull request #%d comes from another repository (a fork): not taken" % self.number, 2)
+        if _login(pr.get("author")) != owner or _login(pr.get("headRepositoryOwner")) != owner:
+            raise Stop("pull request #%d is not by the owner of the repository: not taken" % self.number, 2)
+        self.out("pull request #%d is by the owner of the repository, from a branch of it" % self.number)
 
     def fetch(self) -> str:
         self.git("fetch", "--quiet", "--no-tags", ORIGIN, "+pull/%d/head:refs/heads/%s" % (self.number, self.branch))
@@ -265,8 +312,12 @@ class Take:
                 finally:
                     self.git("worktree", "remove", "--force", str(scratch / "wt"), check=False)
                     self.git("worktree", "prune", check=False)
-                self.out("awb build check %s" % self.branch)
-                code = self.check(self.branch)
+                if self.allow_protected:
+                    self.out("awb build check %s --allow-protected" % self.branch)
+                    code = self.check(self.branch, allow_protected=True)
+                else:
+                    self.out("awb build check %s" % self.branch)
+                    code = self.check(self.branch)
                 if code != 0:
                     raise Stop("the check did not pass (exit %d): %s is as it was, %s is kept"
                                % (code, MAIN, self.branch))
@@ -284,6 +335,12 @@ class Take:
             self.out("awb pr take: stopped (%s); %s is as it was unless a line above says it moved"
                      % (type(err).__name__, MAIN))
             return 1
+
+
+def _login(obj) -> str | None:
+    """The login of a gh JSON object of an account (author, owner, headRepositoryOwner); None when it has none."""
+    login = obj.get("login") if isinstance(obj, dict) else None
+    return login if isinstance(login, str) and login else None
 
 
 def _last(text: str) -> str:
@@ -309,6 +366,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("take", help="fetch, rebase onto main, awb build check, merge --no-ff, push and close")
     s.add_argument("number", type=int)
     s.add_argument("--dry-run", action="store_true", help="print the steps, change nothing")
+    s.add_argument("--allow-protected", action="store_true",
+                   help="let the branch change %s (else the check is red: protected path); read the diff of those "
+                        "paths first" % ", ".join(PROTECTED))
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -326,7 +386,7 @@ def main(argv: list[str] | None = None) -> int:
     if top is None:
         print("awb pr: run it in your working copy", file=sys.stderr)
         return 2
-    take = Take(args.number, top)
+    take = Take(args.number, top, allow_protected=args.allow_protected)
     if args.dry_run:
         for ln in take.steps():
             print(ln)

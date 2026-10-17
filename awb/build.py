@@ -79,6 +79,11 @@ BUDGET_RANGE = (1, 100)
 CLOCK_RANGE = (10, 480)
 """Minutes of one session; the default 90 is D-S6."""
 ALWAYS_ALLOWED = ("CHANGELOG.md", "README.md", "COMMANDS.md", "INTERFACES.md", "build/tests.json")
+PROTECTED = ("seal/", "plugin/hooks/", "rules/", ".claude/", "CLAUDE.md", "CLAUDE.local.md")
+"""What a branch from outside may not change without `--allow-protected` (R2): the sealed setup and its scripts,
+the generated hook files, the rules that `awb projects sync` carries into every project, the client folder and the
+two instruction files. A task is held to its paths by check 7; a branch has no paths, so its check 7 reads this
+list the other way round (build_checks.check_protected)."""
 """Paths every task may change beside its own `paths`, under the rules of DESIGN.md section 2 (checked in SB3). They
 never reserve a path (A3): a task that lists one waits on no other task for it and keeps no other task waiting."""
 QUEUE_MAX = 1 << 20
@@ -1174,6 +1179,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("check", help="the gate and the whole suite of a branch from outside as the build user in a "
                                      "task unit, through the runner's lock; never merges, pushes or deploys")
     s.add_argument("ref", help="a branch or commit of your working copy, for example a fetched pull request head")
+    s.add_argument("--allow-protected", action="store_true",
+                   help="let the branch change %s (else red: protected path); read the diff of those paths first"
+                        % ", ".join(PROTECTED))
     sub.add_parser("serve", help="the runner of the build queue, the ExecStart of awb-buildd.service")
     sub.add_parser("selftest", help="the runner's planted cases, each must be refused or classified")
     sub.add_parser("probe", help="the probe unit with a task's own properties: the model endpoint connects, a TCP "
@@ -1193,6 +1201,8 @@ def main(argv: list[str] | None = None) -> int:
         from awb import buildrun
 
         if args.command == "check":
+            if args.allow_protected:
+                return buildrun.check_main(args.ref, allow_protected=True)
             return buildrun.check_main(args.ref)
         if args.command == "serve":
             return buildrun.serve_main()

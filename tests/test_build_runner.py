@@ -2223,3 +2223,44 @@ def test_awb_build_nudge_is_the_owners_command(world, monkeypatch, capsys):
     assert "nudge B-013 asked: mail sent" in capsys.readouterr().out and len(world.mails) == 1
     monkeypatch.setattr(config, "is_build_user", lambda: True)
     assert build.main(["nudge"]) == 2 and len(world.mails) == 1
+
+
+# --------------------------------------------------------------------------- R2: a branch and the protected paths
+
+@pytest.mark.parametrize("path", ["seal/setup.sh", "plugin/hooks/hooks.json", "rules/R-001-names-never.md",
+                                  "CLAUDE.md"])
+def test_a_branch_that_changes_a_protected_path_is_red_before_any_code_runs(world, capsys, path):
+    start = main_of(world)
+    (world.seed / path).parent.mkdir(parents=True, exist_ok=True)
+    outside_branch(world, files={path: "changed from outside\n", "awb/x.py": "VALUE = 2\n"})
+    rc, out, run = check(world, "pr-1", capsys)
+    assert rc == 1 and run.state == "red: protected path" and main_of(world) == start
+    assert out.splitlines()[0] == "build check C-001 red: protected path; nothing merged; runs/C-001/1/"
+    log = checks_of(run)
+    assert "7 FAIL  the commits stay inside the task: red: protected path" in log
+    assert "- protected: %s (awb pr take N --allow-protected after you read their diff)" % path in log
+    assert not suite_specs(world) and not any(s.argv[3:4] == ["outdir"] for s in world.units.started)
+
+
+def test_allow_protected_lets_a_branch_change_a_protected_path_and_the_line_names_it(world, capsys):
+    (world.seed / "seal").mkdir(exist_ok=True)
+    outside_branch(world, files={"seal/setup.sh": "echo sealed\n", "awb/x.py": "VALUE = 2\n"})
+    world.host.working = world.seed
+    rc = buildrun.check_main("pr-1", world.host, allow_protected=True)
+    out = capsys.readouterr().out
+    run = build.latest(build.check_ids(world.runs)[-1], world.runs)
+    assert rc == 0 and run.state == "passed", out
+    assert (run.folder / buildrun.ALLOW_PROTECTED).read_text() == "yes\n"
+    log = checks_of(run)
+    assert [ln.split()[0:2] for ln in log.splitlines() if ln[:1].isdigit()] == [["4", "ok"], ["6", "ok"], ["7", "ok"],
+                                                                               ["9", "ok"], ["10", "ok"]]
+    assert "7 ok    the commits stay inside the task; protected by --allow-protected: seal/setup.sh" in log
+    assert suite_specs(world)
+
+
+def test_awb_build_check_passes_allow_protected_to_the_runner_only_when_given(monkeypatch):
+    seen = []
+    monkeypatch.setattr(buildrun, "check_main", lambda ref, **kw: seen.append((ref, kw)) or 0)
+    assert build.main(["check", "pr-1", "--allow-protected"]) == 0
+    assert build.main(["check", "pr-1"]) == 0
+    assert seen == [("pr-1", {"allow_protected": True}), ("pr-1", {})]

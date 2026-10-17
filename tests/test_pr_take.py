@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 from pathlib import Path
@@ -64,12 +65,17 @@ def commit(cwd: Path, files: dict[str, str], msg: str) -> str:
 
 
 class World:
-    """origin.git, the working copy, the build repository and a cloud session's clone that opens pull requests."""
+    """origin.git, the working copy, the build repository and a cloud session's clone that opens pull requests.
+    A stand-in gh (`fake_gh`, the owner's own pull request) is first on PATH: no test reaches the real gh and the
+    tests pass where there is none."""
 
     def __init__(self, tmp: Path, monkeypatch):
         for k, v in ENV.items():
             monkeypatch.setenv(k, v)
         self.tmp = tmp
+        self.bin = tmp / "gh-bin"
+        self.gh, self.gh_log = fake_gh(self.bin, title=None)
+        monkeypatch.setenv("PATH", str(self.bin) + os.pathsep + os.environ.get("PATH", ""))
         self.origin = tmp / "origin.git"
         self.work = tmp / "work"
         self.cloud = tmp / "cloud"
@@ -112,9 +118,10 @@ class World:
         return 0
 
     def take(self, n: int, gh: str | None = None) -> tuple[int, list[str]]:
+        """A take with the given gh, else the gh on PATH: the stand-in of this world."""
         lines: list[str] = []
         t = prtake.Take(n, self.work, check=self.check, build_repo=lambda: str(self.build),
-                        gate_message=self.gate, gh=gh, out=lines.append)
+                        gate_message=self.gate, gh=gh or shutil.which("gh"), out=lines.append)
         return t.run(), lines
 
     def heads(self) -> tuple[str, str, str]:
@@ -154,8 +161,11 @@ def test_a_take_with_gh_names_the_title_and_closes_the_pull_request_with_the_mer
     world.open_pr(8, {"docs/x.md": "a page\n"})
     log = tmp_path / "gh.log"
     gh = tmp_path / "gh"
-    gh.write_text("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> %s\n"
-                  "if [ \"$1 $2\" = \"pr view\" ]; then echo 'add a page'; fi\n" % log)
+    # the identity queries of the take (R1) go to the stand-in of the world; this gh logs the title and the close
+    gh.write_text("#!/bin/sh\n"
+                  "case \"$*\" in 'repo view --json owner'|*' --json author,'*) exec %s \"$@\" ;; esac\n"
+                  "printf '%%s\\n' \"$*\" >> %s\n"
+                  "if [ \"$1 $2\" = \"pr view\" ]; then echo 'add a page'; fi\n" % (world.gh, log))
     gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
 
     code, out = world.take(8, gh=str(gh))
@@ -301,3 +311,120 @@ def test_the_tests_driver_drops_a_row_one_side_dropped_and_refuses_a_file_with_o
         files.append(str(tmp_path / name))
     assert mergedriver.main(["tests", *files]) == 1
     assert (tmp_path / "a").read_text() == twice
+
+
+# --------------------------------------------------------------------------- R1: whose pull request it is
+
+OWNER = "zyxwo"
+"""The login of the repository's owner as the fake gh reports it (invented, lower case)."""
+OTHER = "vbnmq"
+IDENTITY = "pr view %d --json author,isCrossRepository,headRepositoryOwner"
+
+
+def fake_gh(folder: Path, author: str = OWNER, head_owner: str = OWNER, cross: str = "false",
+            title: str | None = "a page") -> tuple[Path, Path]:
+    """A gh in FOLDER (made here, so the folder can go on PATH) that answers `repo view --json owner`, the identity
+    query and the title query and logs every call to gh.log beside it. With `title=None` the title query gets no
+    answer, so the take names the branch as it does without gh (the world's stand-in)."""
+    folder.mkdir(parents=True, exist_ok=True)
+    log = folder / "gh.log"
+    gh = folder / "gh"
+    gh.write_text(
+        "#!/bin/sh\n"
+        "printf '%%s\\n' \"$*\" >> %s\n"
+        "case \"$*\" in\n"
+        "  'repo view --json owner') echo '{\"owner\": {\"login\": \"%s\"}}' ;;\n"
+        "  'pr view '*' --json author,isCrossRepository,headRepositoryOwner') echo '{\"author\": {\"login\": \"%s\"}, "
+        "\"isCrossRepository\": %s, \"headRepositoryOwner\": {\"login\": \"%s\"}}' ;;\n"
+        "  'pr view '*' --json title --jq .title') %s ;;\n"
+        "esac\n" % (log, OWNER, author, cross, head_owner, "echo '%s'" % title if title is not None else "exit 1"))
+    gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
+    return gh, log
+
+
+def take_with(world: World, n: int, gh: str | None, allow_protected: bool = False) -> tuple[int, list[str], list]:
+    """A take whose check stand-in records the ref and whether protected paths were allowed."""
+    lines: list[str] = []
+    checks: list[tuple[str, bool]] = []
+
+    def check(ref: str, allow_protected: bool = False) -> int:
+        checks.append((ref, allow_protected))
+        return world.check_code
+
+    t = prtake.Take(n, world.work, check=check, build_repo=lambda: str(world.build), gate_message=world.gate,
+                    gh=gh, out=lines.append, allow_protected=allow_protected)
+    return t.run(), lines, checks
+
+
+def test_a_pull_request_of_the_owner_from_a_branch_of_the_repository_is_taken_after_gh_said_so(world, tmp_path):
+    world.open_pr(21, {"docs/x.md": "a page\n"})
+    gh, log = fake_gh(tmp_path / "own-gh")
+
+    code, out, checks = take_with(world, 21, str(gh))
+
+    assert code == 0, out
+    assert checks == [("take/pr-21", False)]
+    assert git(world.work, "log", "-1", "--format=%s", "main") == "Merge pull request #21: a page"
+    calls = log.read_text().splitlines()
+    assert calls[:2] == ["repo view --json owner", IDENTITY % 21]
+    assert any("is by the owner of the repository" in ln for ln in out)
+
+
+@pytest.mark.parametrize("author, head_owner, cross, why", [
+    (OWNER, OWNER, "true", "comes from another repository"),
+    (OTHER, OWNER, "false", "is not by the owner of the repository"),
+    (OWNER, OTHER, "false", "is not by the owner of the repository"),
+])
+def test_a_fork_or_another_account_is_refused_before_the_fetch(world, tmp_path, author, head_owner, cross, why):
+    world.open_pr(22, {"awb/new.py": "x = 22\n"})
+    heads = world.heads()
+    gh, log = fake_gh(tmp_path / "own-gh", author=author, head_owner=head_owner, cross=cross)
+
+    code, out, checks = take_with(world, 22, str(gh))
+
+    assert code == 2
+    assert any(why in ln for ln in out), out
+    assert author not in " ".join(out) and head_owner not in " ".join(out)
+    assert checks == [] and world.messages == [] and world.heads() == heads
+    assert git(world.work, "branch", "--list", "take/pr-22") == ""
+    assert log.read_text().splitlines() == ["repo view --json owner", IDENTITY % 22]
+
+
+def test_without_gh_or_with_a_gh_that_gives_no_json_the_take_is_refused_before_the_fetch(world, tmp_path):
+    world.open_pr(23, {"awb/new.py": "x = 23\n"})
+    heads = world.heads()
+    mute = tmp_path / "gh"
+    mute.write_text("#!/bin/sh\necho 'add a page'\n")
+    mute.chmod(mute.stat().st_mode | stat.S_IXUSR)
+
+    for gh, why in ((None, "gh is not there"), (str(mute), "did not answer with JSON")):
+        code, out, checks = take_with(world, 23, gh)
+        assert code == 2 and any(why in ln for ln in out), out
+        assert checks == [] and world.heads() == heads
+        assert git(world.work, "branch", "--list", "take/pr-23") == ""
+
+
+def test_allow_protected_reaches_the_check_and_the_dry_run_names_it(world, tmp_path, monkeypatch, capsys):
+    world.open_pr(24, {"seal/setup.sh": "echo sealed\n"})
+    gh, _ = fake_gh(tmp_path / "own-gh")
+
+    code, out, checks = take_with(world, 24, str(gh), allow_protected=True)
+
+    assert code == 0, out
+    assert checks == [("take/pr-24", True)]
+    assert "awb build check take/pr-24 --allow-protected" in out
+
+    # the dry run on a PATH with git alone, so "gh is not there" holds whether or not the host has a gh
+    only_git = tmp_path / "only-git"
+    only_git.mkdir()
+    (only_git / "git").symlink_to(shutil.which("git"))
+    monkeypatch.chdir(world.work)
+    monkeypatch.setenv("AWB_BUILD_ROOT", str(world.build.parent))
+    monkeypatch.setenv("PATH", str(only_git))
+    assert prtake.main(["take", "24", "--dry-run", "--allow-protected"]) == 0
+    printed = capsys.readouterr().out
+    assert "awb build check take/pr-24 --allow-protected" in printed
+    assert IDENTITY % 24 in printed and "gh is not there, so the take is refused" in printed
+    assert prtake.main(["take", "24", "--dry-run"]) == 0
+    assert "awb build check take/pr-24 (a change of seal/, plugin/hooks/, rules/, .claude/, CLAUDE.md, " \
+           "CLAUDE.local.md is red: protected path unless --allow-protected is given)" in capsys.readouterr().out

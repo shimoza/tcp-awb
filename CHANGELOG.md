@@ -492,6 +492,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   refused tries are (`slots`, `slow`), one line per address key and minute, never the body. The owner host's own
   limiter is untouched. The contract (`docs/api/openapi.yaml`) says so.
 
+- `awb pr take N` refuses a pull request that is not the owner's (attacker review R1, code part): before the fetch it
+  asks `gh pr view N --json author,isCrossRepository,headRepositoryOwner` and `gh repo view --json owner` and stops
+  with exit 2 when the head comes from another repository (a fork) or the author or the head's owner is not the
+  owner of the repository; without gh and with a gh that gives no JSON the take is refused too, since GitHub serves
+  `pull/N/head` for a fork as well and a commit's author field is set by whoever commits. A branch from outside may
+  no longer change `seal/`, `plugin/hooks/`, `rules/`, `.claude/`, `CLAUDE.md` or `CLAUDE.local.md` unseen (R2):
+  `awb build check` runs check 7 on a branch with that list the other way round and is `red: protected path` before
+  any code runs, with a line that names the paths. `awb build check REF --allow-protected` and `awb pr take N
+  --allow-protected` let them through, for the owner who read the diff of those paths first; the check line then
+  names them. A link or a submodule in a branch is refused as it is in a task.
+
 - The work user can no longer persist past a session through its ssh keys or its crontab (F2 threat model, gap G3).
   `seal/setup.sh` copies the owner's keys to `/etc/ssh/authorized_keys/awb` (root, 644), writes the sshd drop-in
   `/etc/ssh/sshd_config.d/awb-work-user.conf` that points the work user alone at that file, checks it with `sshd -t`
