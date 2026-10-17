@@ -58,7 +58,10 @@ A recipe that fills a password from a tenant secret asks the key service for the
 first and stops before any create when one is missing. A refused call keeps its error code and the start of its
 error message in the evidence. A create whose refusal a check expects (the 500 of an RDS collation it does not take)
 goes on when the find proves nothing was made; the recipes `ecs-flavor-boot`, `smn-http-confirm` and
-`rds-create-refusal` are the write-tier checks of the fact-check service.
+`rds-create-refusal` are the write-tier checks of the fact-check service. A recipe may read before its first create
+(`preflight`): `rds-create-refusal` reads the RDS storage types and stops with one line unless its `volume_type`
+(default CLOUDSSD) is normal in the AZ. A create step may name a `shape_error`: a 400 with an error code DBS.28xxxx
+stops the run as a recipe error and is never taken as the answer a check looks for.
 `awb lab list` shows the recipes and `awb lab dry-run` the calls a run would make. A resource it cannot delete stays
 in `RESOURCES.md` as live with the line to delete it.
 

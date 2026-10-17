@@ -60,6 +60,15 @@ first create. A type the answer does not list, a type whose RESKEY:availability_
 type that lists the AZ under os-vendor-extended:sold_out_availability_zones stop it there with one line, so it makes
 nothing (run 3 of 2026-10-12 made three resources before the server create answered Ecs.0044 for a sold-out SATA).
 
+A recipe may name reads of its own under `preflight` (a list; the first is the storage types of RDS, `GET rds
+/v3/{project_id}/storage-type/SQLServer`). Each read is made with the read key after the disk types and before the
+first create, finds the list item whose `by` field (default name) equals `value`, and needs `field` of it, looked up
+under `key`, to equal `equals`: a type that is not normal in the AZ stops the run with one line and nothing is made
+(live 2026-10-17: RDS answered 400 DBS.280325 for ULTRAHIGH, unsupported in every eu-de AZ). A create step may carry
+`shape_error` (`status` list and a `code` pattern): an answer that matches it is a recipe error, the run stops with
+that line and the answer is never taken as the one the checks look for (RDS answers a request shape error with 400
+and DBS.28xxxx; only the 500 DBS.200005 is the collation answer).
+
 Exit codes: 0 every check passed and everything is gone; 1 a check failed and everything is gone; 2 refused
 before the first call, a usage error or a run that stopped (an error, the time budget, a signal) with everything
 gone; 4 a resource is left live (its row in RESOURCES.md says what to do).
@@ -124,7 +133,8 @@ ERROR_FORMS = (("error_code", "error_msg"), ("code", "message"), ("error.code", 
 """Where the TCP APIs put the code and the message of an error, in this order."""
 ERROR_CHARS = 200
 BUILTINS = ("project", "tenant", "region", "expiry", "expiry8", "rand", "name")
-TOP_KEYS = {"name", "question", "about", "params", "vars", "budget", "guard", "steps", "checks", "teardown", "kb"}
+TOP_KEYS = {"name", "question", "about", "params", "vars", "budget", "guard", "preflight", "steps", "checks",
+            "teardown", "kb"}
 
 
 class LabError(Exception):
@@ -289,6 +299,48 @@ def _check_call(call, where: str) -> None:
         raise LabError("%s: a query is an object of strings" % where)
 
 
+PREFLIGHT_KEYS = {"id", "says", "call", "list", "by", "value", "field", "key", "equals", "confirm"}
+
+
+def _check_preflight(pre, known: set[str]) -> None:
+    if pre is None:
+        return
+    if not isinstance(pre, list):
+        raise LabError("preflight is a list of reads")
+    seen: list[str] = []
+    for n, p in enumerate(pre, start=1):
+        where = "preflight %d" % n
+        if not (isinstance(p, dict) and set(p) <= PREFLIGHT_KEYS and isinstance(p.get("id"), str)
+                and _ID_RE.match(p["id"]) and p["id"] not in seen):
+            raise LabError("%s: a read has an id (used once) and the keys %s" % (where, ", ".join(sorted(PREFLIGHT_KEYS))))
+        seen.append(p["id"])
+        if not isinstance(p.get("says"), str) or not p["says"].strip():
+            raise LabError("%s: says is a phrase" % where)
+        _check_call(p.get("call"), where)
+        if p["call"]["method"] != "GET":
+            raise LabError("%s: a preflight reads" % where)
+        for k in ("list", "value", "field", "equals"):
+            if not isinstance(p.get(k), str) or not p[k]:
+                raise LabError("%s: %s is a string" % (where, k))
+        for k in ("by", "key"):
+            if k in p and not (isinstance(p[k], str) and p[k]):
+                raise LabError("%s: %s is a string" % (where, k))
+        if _refs([p["call"], p["value"], p.get("key", ""), p["equals"]]) - known:
+            raise LabError("%s: refers to a value it does not have" % where)
+
+
+def _check_shape_error(se, where: str) -> None:
+    if se is None:
+        return
+    if not (isinstance(se, dict) and set(se) == {"status", "code"} and isinstance(se["status"], list) and se["status"]
+            and all(isinstance(x, int) for x in se["status"]) and isinstance(se["code"], str)):
+        raise LabError("%s: shape_error has status (a list of numbers) and code (a pattern)" % where)
+    try:
+        re.compile(se["code"])
+    except re.error:
+        raise LabError("%s: the code of shape_error is not a regular expression" % where) from None
+
+
 def validate(r: dict) -> None:
     """Refuse a recipe that is malformed, refers to a value it does not have, creates a resource without a
     teardown or without the tags; also one that breaks its own cost guard or the Workbench ceiling."""
@@ -334,6 +386,7 @@ def validate(r: dict) -> None:
     if not (isinstance(guard, dict) and isinstance(guard.get("resources"), int)
             and isinstance(guard.get("lifetime_minutes"), int)):
         raise LabError("guard has resources and lifetime_minutes, whole numbers")
+    _check_preflight(r.get("preflight"), known)
     steps = r["steps"]
     if not isinstance(steps, list) or not steps:
         raise LabError("steps is a list")
@@ -351,7 +404,7 @@ def validate(r: dict) -> None:
             raise LabError("%s: do is create, call or wait" % where)
         allowed = {"id", "do", "says", "call", "save", "confirm"}
         if s["do"] == "create":
-            allowed |= {"resource", "id_field", "id_value", "find", "tags", "name"}
+            allowed |= {"resource", "id_field", "id_value", "find", "tags", "name", "shape_error"}
         if s["do"] == "wait":
             allowed |= {"until", "within", "every", "fail_on"}
         if not set(s) <= allowed:
@@ -384,6 +437,7 @@ def validate(r: dict) -> None:
                 raise LabError("%s: the call gives the resource its name %s" % (where, rname))
             if _refs(rname) - known:
                 raise LabError("%s: the name refers to a value it does not have" % where)
+            _check_shape_error(s.get("shape_error"), where)
             find_ = s.get("find")
             if find_ is not None:
                 if not (isinstance(find_, dict) and set(find_) <= {"call", "list", "field", "status", "within", "by"}
@@ -498,7 +552,8 @@ def validate(r: dict) -> None:
 
 def confirm_notes(r: dict) -> list[tuple[str, str]]:
     """(where, note) of every step or teardown the recipe marks "to confirm live"."""
-    out = [(s["id"], s["confirm"]) for s in r["steps"] if s.get("confirm")]
+    out = [("preflight " + p["id"], p["confirm"]) for p in r.get("preflight") or [] if p.get("confirm")]
+    out += [(s["id"], s["confirm"]) for s in r["steps"] if s.get("confirm")]
     out += [("teardown " + k, t["confirm"]) for k, t in r["teardown"].items() if t.get("confirm")]
     return out
 
@@ -572,6 +627,30 @@ def disk_refusal(answer: dict, disks: list[tuple[str, str]]) -> str | None:
         if (az and az in sold[name]) or (not az and sold[name]):
             return "the disk type %s is sold out in %s, so no create was tried; set another type in the recipe" % (
                 shown, az or ", ".join(sorted(sold[name])))
+    return None
+
+
+def preflight_refusal(answer: dict, p: dict, env: dict[str, str]) -> str | None:
+    """None when the item of the list named by `value` holds `equals` under `field` and `key`, else the line that
+    stops the run. The value and the key are shown only when they read like a code."""
+    value, key, want = expand(p["value"], env), expand(p.get("key", ""), env), expand(p["equals"], env)
+    shown = value if _CODE_RE.match(value) else "of the recipe"
+    where = " in %s" % key if key and _CODE_RE.match(key) else ""
+    data = answer.get("data") if answer.get("ok") else None
+    items = dig(data, expand(p["list"], env)) if isinstance(data, dict) else None
+    if answer.get("status") != 200 or not isinstance(items, list):
+        return "the preflight %s could not be read (%s), so no create was tried" % (
+            p["id"], "status %s" % answer.get("status") if answer.get("ok") else "no answer from the key service")
+    by = p.get("by", "name")
+    hit = next((x for x in items if isinstance(x, dict) and x.get(by) == value), None)
+    if hit is None:
+        return "%s is not in the list of the preflight %s, so no create was tried" % (shown, p["id"])
+    got = dig(hit, p["field"])
+    got = got.get(key) if key and isinstance(got, dict) else got
+    if got != want:
+        said = got if isinstance(got, str) and _CODE_RE.match(got) else "not listed"
+        return "%s is not %s%s (%s), so no create was tried; set another value in the recipe" % (
+            shown, want, where, said)
     return None
 
 
@@ -970,6 +1049,11 @@ class Run:
                 self._drop_row(res)
                 self.handles.drop(res.handle)
                 self.handles.save()
+                shape = step.get("shape_error")
+                if shape and st in shape["status"] and re.search(shape["code"], error_of(answer)[0]):
+                    raise Stop("recipe error: the create %s answered %s, a request shape error and not the answer "
+                               "the checks look for; nothing was made, fix the recipe"
+                               % (step["id"], self._said(rec)))
                 if not expected:
                     raise Stop("the create %s answered %s" % (step["id"], self._said(rec)))
                 rid = None
@@ -1213,6 +1297,16 @@ class Run:
             return None
         answer, rec = self._call("preflight", "disk types", DISK_TYPES, role="read", timed=False)
         return disk_refusal(answer, disks)
+
+    def preflight_check(self) -> str | None:
+        """The reads the recipe names under preflight, made with the read key before the first create: None when
+        each holds (or the recipe names none, then no call), else the line that stops the run."""
+        for p in self.r.get("preflight") or []:
+            answer, rec = self._call("preflight", p["id"], p["call"], role="read", timed=False)
+            line = preflight_refusal(answer, p, self.env)
+            if line:
+                return line
+        return None
 
     def _on_signal(self, signum, frame):
         if self.in_teardown:
@@ -1481,6 +1575,13 @@ def dry_run_lines(r: dict, params: dict[str, str], project: str = "tcp-xxxx", te
                    "%s" % "; ".join("%s is listed%s and not sold out%s" % (n, " and offered in %s" % az if az else "",
                                                                          " there" if az else " in any AZ")
                                     for n, az in disks))
+    for p in r.get("preflight") or []:
+        c = expand(p["call"], env, loose=True)
+        out.append("0. preflight %s: %s %s %s%s (read key); stop before the first create unless %s is %s%s" % (
+            p["id"], c["method"], c["service"], c["path"],
+            (" ?" + "&".join("%s=%s" % kv for kv in sorted(c["query"].items()))) if c.get("query") else "",
+            expand(p["value"], env, loose=True), expand(p["equals"], env, loose=True),
+            (" in %s" % expand(p["key"], env, loose=True)) if p.get("key") else ""))
     confirm = dict(confirm_notes(r))
     creates = []
     for n, s in enumerate(r["steps"], start=1):
@@ -1629,6 +1730,10 @@ def run(name: str, project: str, tenant: str, given: list[str], *, send=None, cl
     disk = job.disk_check()
     if disk is not None:
         err("awb lab: %s" % disk)
+        return EXIT_STOPPED
+    pre = job.preflight_check()
+    if pre is not None:
+        err("awb lab: %s" % pre)
         return EXIT_STOPPED
     out("awb lab: %s on %s for %s: %d step(s), at most %d resources, budget %d minutes"
         % (r["name"], tenant, project, len(r["steps"]), r["guard"]["resources"], r["budget"]["minutes"]))
