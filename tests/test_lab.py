@@ -484,8 +484,9 @@ def test_the_three_recipes_are_valid_tag_every_resource_and_use_known_tags():
             if line.strip() and not line.startswith("#")}
     names = sorted(p.stem for p in REPO_RECIPES.glob("*.json"))
     # the three first recipes and the three of the fact-check (F7); a new recipe is added here by name (P28)
-    assert names == ["ecs-boot-ssh", "ecs-flavor-boot", "elb-health", "obs-policy-deny", "rds-create-refusal",
-                     "smn-http-confirm"]
+    assert names == ["dns-private-zone", "ecs-boot-ssh", "ecs-flavor-boot", "eip-bandwidth-adjust", "elb-health",
+                     "evs-snapshot-restore", "nat-snat-egress", "obs-lifecycle-rule", "obs-policy-deny",
+                     "rds-create-refusal", "smn-http-confirm"]
     for name in names:
         r = lab.load(REPO_RECIPES / ("%s.json" % name))
         assert r["name"] == name and set(r["kb"]["tags"]) <= tags
