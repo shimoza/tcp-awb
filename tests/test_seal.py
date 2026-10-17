@@ -1339,7 +1339,11 @@ def test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_
     assert res.returncode == 0, res.stderr
     only = commands(res.stdout)
     assert only == ["+ write /etc/systemd/system/%s (mode 644, root:root)" % p.name
-                    for p in sorted(SEAL.glob("*.service")) + sorted(SEAL.glob("*.timer"))] + ["+ systemctl daemon-reload"]
+                    for p in sorted(SEAL.glob("*.service")) + sorted(SEAL.glob("*.timer"))] + [
+                        "+ systemctl disable --now awb-portal.service  # if present",
+                        "+ rm -f -- /etc/systemd/system/awb-portal.service  # if present",
+                        "+ rm -rf -- /etc/systemd/system/awb-portal.service.d  # if present",
+                        "+ systemctl daemon-reload"]
     assert "+ /usr/local/bin/awb egress load" in cmds and "+ systemctl enable --now awb-egress.timer" in cmds
     assert run_script(SETUP, ["--units-only", "--dry-run"], fakebin).returncode == 1
 
@@ -2200,3 +2204,28 @@ def test_setup_no_build_leaves_the_build_side_out_and_pending_build_applies_it(f
     unit = BUILD_UNIT.read_text(encoding="utf-8")
     assert "ExecStartPre=-+/usr/bin/env SUDO_USER=@OWNER@ /opt/tcp-awb/src/seal/setup.sh --update --pending-build" \
         in unit.splitlines()
+
+
+# --------------------------------------------------------------------------- F1 step 10: the portal is gone
+
+
+def test_setup_removes_the_portal_unit_of_before_and_verify_proves_it_gone(fakebin):
+    """The portal went on 2026-10-17. A seal and an update stop and disable awb-portal.service and remove its unit
+    file and its drop-in folder, each step only while its file is there, before systemd is reloaded; no unit of
+    that name is written any more. verify.sh checks that the unit is not found."""
+    for args in (["--dry-run"], ["--dry-run", "--update"]):
+        res = run_script(SETUP, args, fakebin)
+        assert res.returncode == 0, res.stderr
+        no_marks(fakebin)
+        cmds = commands(res.stdout)
+        gone = [cmds.index(c) for c in ("+ systemctl disable --now awb-portal.service  # if present",
+                                        "+ rm -f -- /etc/systemd/system/awb-portal.service  # if present",
+                                        "+ rm -rf -- /etc/systemd/system/awb-portal.service.d  # if present")]
+        assert gone == sorted(gone) and max(gone) < cmds.index("+ systemctl daemon-reload"), args
+        assert not [c for c in cmds if "awb-portal" in c and c not in (cmds[i] for i in gone)], args
+    assert not (SEAL / "awb-portal.service").exists() and not (SEAL / "web" / "awb-portal.service.d").exists()
+    res = run_script(VERIFY, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    assert "CHECK the portal unit is gone: awb-portal.service is not found" in res.stdout
+    text = VERIFY.read_text(encoding="utf-8")
+    assert 'systemctl show -p LoadState --value awb-portal.service)" = not-found' in text

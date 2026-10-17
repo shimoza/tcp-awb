@@ -245,8 +245,6 @@ def test_an_unsealed_host_takes_no_receipt(home, tmp_path, monkeypatch, capsys):
 
 
 def test_board_and_health_carry_the_refused_starts_of_today(host, capsys):
-    from awb.tcp import portal
-
     host.vault()
     host.start(capsys, sid="s-1")                       # keys missing
     host.start(capsys, sid="s-1")                       # the same session again counts once
@@ -257,7 +255,6 @@ def test_board_and_health_carry_the_refused_starts_of_today(host, capsys):
     with open(log, "a", encoding="utf-8") as fh:
         fh.write("2020-01-01T00:00:00Z\ts-9\t%s\tkeys\n" % CODE)
     assert hooks.refused_today(host.p) == 2
-    assert portal.health(host.p) == "sessions refused at start today: 2\nok\n"
     import copy
     from unittest.mock import patch
 
@@ -268,5 +265,3 @@ def test_board_and_health_carry_the_refused_starts_of_today(host, capsys):
     with patch.object(projects_api, "board", return_value=copy.deepcopy(contract.P_BOARD)):
         assert cli.main(["board", "show"]) == 0
     assert capsys.readouterr().out.rstrip().endswith("sessions refused at start today: 2")
-    log.write_text("", encoding="utf-8")
-    assert portal.health(host.p) == "ok\n"

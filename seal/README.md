@@ -25,8 +25,8 @@ The seal keeps the register of names away from every working session. It uses tw
 
 - `setup.sh`: sets all of the above up. Idempotent, prints every command before it runs it.
 - `verify.sh`: proves the seal as root, one line per check, PASS or FAIL, exit 1 on any FAIL.
-- `awb-vaultd.service`, `awb-keyd.service`, `awb-ask.service`, `awb-portal.service`: the units of the vault
-  daemon, the key service, the Ask page and the portal. `setup.sh` installs every `*.service` of this folder and
+- `awb-vaultd.service`, `awb-keyd.service`, `awb-ask.service`: the units of the vault daemon, the key service
+  and the Ask page. `setup.sh` installs every `*.service` of this folder and
   fills in the owner in the `User=` lines. These templates are the unit list of `awb deploy`, with the templates of
   `web/`.
 - `awb-egress.service`, `awb-egress.timer`: the egress filter of the work user (section "The egress filter"). Root
@@ -282,7 +282,7 @@ units whose code changed. `awb deploy --dry-run` prints the plan and every step 
    needrestart rule, the package holds, the client files, the managed drop-in and the build side. It never touches the
    work user, the homes, the moves, the ssh keys or the nightly jobs of the work user, so the shared tree is not chowned again. `--units-only` installs the unit templates and reloads
    systemd, nothing else.
-6. Restarts the vault daemon, then the key service, then the Ask page and the portal, then the web units through
+6. Restarts the vault daemon, then the key service, then the Ask page, then the web units through
    `releases/<commit>/seal/web/install.sh --only UNIT...` (when the web side was switched). Each must be active
    and keep its main process for 3 seconds within 20; a socket activated service answers one request on its
    socket. A unit that does not come back stays pending in the journal and the run exits 1; the next deploy

@@ -31,7 +31,7 @@ MAX_BODY = 16_384
 MAX_UPLOAD = 25 * 1024 * 1024   # one file of the owner page into a project's in/: bucket_layout.MAX_UPLOAD
 UPLOAD_PATH = re.compile(r'/api/projects/tcp-[a-z2-7]{4}/materials/upload')
 MAX_RESPONSE = 12 * 1024 * 1024
-BACKEND_ROUTES = {'/kb', '/price', '/projects', '/reviews', '/tenants', '/health', '/portal', '/ask'}
+BACKEND_ROUTES = {'/ask'}   # the server-rendered pages; the portal's pages went with it (F1 step 10)
 
 
 class UnixConnection(http.client.HTTPConnection):
@@ -1155,13 +1155,13 @@ class Gateway(BaseHTTPRequestHandler):
         if backend is None:
             self.reply(404, b'Not found.\n')
             return
-        self.forward(backend, '/' if path == '/portal' else self.path, body)
+        self.forward(backend, self.path, body)
 
     def backend(self, path, reader_pages=False):
         """Where a route goes: ('tcp', port) or ('unix', socket path); None for a path no backend serves."""
         s = self.server
         if reader_pages and path in BACKEND_ROUTES:
-            return ('tcp', s.ask_port if path == '/ask' else s.portal_port)
+            return ('tcp', s.ask_port)
         if path == '/api/tenants':
             return ('tcp', s.tenants_port)
         if re.fullmatch(r'/api/projects(?:/tcp-[a-z0-9]{4})?', path) or path in ('/api/board', '/api/kb', '/api/price', '/api/usage'):
@@ -1362,12 +1362,12 @@ class Gateway(BaseHTTPRequestHandler):
               getattr(self, 'level', '-'), getattr(self, 'refusal', '') or '-', flush=True)
 
 
-def _configure(server, auth, index, portal_port, ask_port, projects_port, tenants_port, domain):
+def _configure(server, auth, index, _portal_port, ask_port, projects_port, tenants_port, domain):
+    # _portal_port: the place of the removed portal's port, kept so the callers' positional order stays; unused
     server.domain = domain.lower()
     server.daemon_threads = True
     server.auth = auth
     server.index = Path(index)
-    server.portal_port = portal_port
     server.ask_port = ask_port
     server.projects_port = projects_port
     server.tenants_port = tenants_port
@@ -1404,12 +1404,12 @@ class TCPServer(ThreadingHTTPServer):
         return False
 
 
-def make_server(port, auth, index, portal_port, ask_port, projects_port=8182, tenants_port=8183, *, domain,
+def make_server(port, auth, index, _portal_port, ask_port, projects_port=8182, tenants_port=8183, *, domain,
                 peer=None):
     """A TCP listener on 127.0.0.1, for the tests only: the installed unit takes the site on the front socket."""
     server = TCPServer(('127.0.0.1', port), Gateway)
     server.peer = peer
-    return _configure(server, auth, index, portal_port, ask_port, projects_port, tenants_port, domain)
+    return _configure(server, auth, index, _portal_port, ask_port, projects_port, tenants_port, domain)
 
 
 def peer_uid(sock):
@@ -1487,13 +1487,13 @@ class UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         return False
 
 
-def make_front_server(sock, auth, index, portal_port, ask_port, projects_port=8182, tenants_port=8183, *, domain,
+def make_front_server(sock, auth, index, _portal_port, ask_port, projects_port=8182, tenants_port=8183, *, domain,
                       peer):
     """The front door: the site on a Unix socket that only the uid `peer` (cloudflared's user) may use."""
     if peer is None:
         raise TypeError('the front socket needs the uid of its one peer')
     server = UnixServer(sock, Gateway, peer)
-    return _configure(server, auth, index, portal_port, ask_port, projects_port, tenants_port, domain)
+    return _configure(server, auth, index, _portal_port, ask_port, projects_port, tenants_port, domain)
 
 
 class StatusHandler(BaseHTTPRequestHandler):
@@ -1547,7 +1547,6 @@ def main():
                     help='TCP listeners on 127.0.0.1 that answer the --front-peer user alone (for the tests; no '
                          'installed unit uses them, the site comes in on the front socket)')
     ap.add_argument('--v1-marker', help=argparse.SUPPRESS)
-    ap.add_argument('--portal-port', type=int, default=8180)
     ap.add_argument('--ask-port', type=int, default=8181)
     ap.add_argument('--projects-port', type=int, default=8182)
     ap.add_argument('--tenants-port', type=int, default=8183)
@@ -1564,7 +1563,7 @@ def main():
             print('AWB gateway: the user %s of --front-peer does not exist' % args.front_peer, flush=True)
             sys.exit(2)
     auth = Auth(args.auth, args.users, args.signin_log)
-    rest = (args.portal_port, args.ask_port, args.projects_port, args.tenants_port)
+    rest = (None, args.ask_port, args.projects_port, args.tenants_port)
     handed = inherited_sockets()
     servers = []
     if args.front_socket:

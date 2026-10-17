@@ -22,7 +22,6 @@ copies in `/opt/awb-web` is a step of its own, done once, by the owner.
 | `awb-customers.socket` and `.service` | the owner | `awb.tcp.web.create_api customers`: new customers, the register | `/run/awb-customers.sock` |
 | `awb-materials.socket` and `.service` | the owner | `awb.tcp.web.materials_api`: copy-only imports from the buckets, read through the key service; no network of its own | `/run/awb-materials.sock` |
 | `awb-ask.service.d/95-project-chat.conf` | `awb-ask` | `awb.tcp.web.chat_service`: the project chat and the Ask page | 127.0.0.1:8181 |
-| `awb-portal.service.d/90-awb-web.conf` | `awb` | the portal, moved to 8180 | 127.0.0.1:8180 |
 
 Owner, work user and chat stay separate processes, each with its own user and only its own rights. The sockets
 belong to `awb-web`, so only the gateway reaches them.
