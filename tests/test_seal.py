@@ -1339,7 +1339,11 @@ def test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_
     assert res.returncode == 0, res.stderr
     only = commands(res.stdout)
     assert only == ["+ write /etc/systemd/system/%s (mode 644, root:root)" % p.name
-                    for p in sorted(SEAL.glob("*.service")) + sorted(SEAL.glob("*.timer"))] + ["+ systemctl daemon-reload"]
+                    for p in sorted(SEAL.glob("*.service")) + sorted(SEAL.glob("*.timer"))] + [
+                        "+ systemctl disable --now awb-portal.service  # if present",
+                        "+ rm -f -- /etc/systemd/system/awb-portal.service  # if present",
+                        "+ rm -rf -- /etc/systemd/system/awb-portal.service.d  # if present",
+                        "+ systemctl daemon-reload"]
     assert "+ /usr/local/bin/awb egress load" in cmds and "+ systemctl enable --now awb-egress.timer" in cmds
     assert run_script(SETUP, ["--units-only", "--dry-run"], fakebin).returncode == 1
 

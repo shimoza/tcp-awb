@@ -331,7 +331,8 @@ egress_checks() {
             "the key service runs under a uid other than the work user's" \
             "a planted connection of the work user outside the list is counted (and refused in the mode enforce)" \
             "a planted connection of the owner's uid passes the filter uncounted" \
-            "the timer of the egress filter is active"
+            "the timer of the egress filter is active" \
+            "the portal unit is gone: awb-portal.service is not found and has no unit file and no drop-in folder"
         return 0
     fi
     mode=$(conf_value egress)
