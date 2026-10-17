@@ -139,6 +139,95 @@ def test_the_guard_refuses_the_network_and_lets_loopback_pass():
     assert conftest._VAULT_GUARD["hits"] == []
 
 
+def test_a_link_planted_before_the_test_into_the_vault_is_refused(tmp_path, monkeypatch):
+    """T5: a temporary folder stands in for the vault root and a link planted next to it points at the folder. An
+    open, a listing and a file to be made under the link are refused like the root itself and nothing is written;
+    the link is planted before the roots are patched, as one made before the run would be."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(vault)
+    with monkeypatch.context() as patched:
+        patched.setattr(conftest, "_REAL_VAULT_ROOTS", (str(vault),))
+        assert conftest._vault_hit(str(link)) == "the real vault folder"
+        assert conftest._vault_hit(str(link / "new" / "never-written.tsv")) == "the real vault folder"
+        assert conftest._vault_hit(str(tmp_path / "elsewhere")) is None
+        with pytest.raises(PermissionError):
+            open(link / "never-written.tsv", "w")
+        with pytest.raises(PermissionError):
+            os.listdir(link)
+        with pytest.raises(PermissionError):
+            os.mkdir(link / "new")
+    assert sorted(os.listdir(tmp_path)) == ["link", "vault"]
+    assert os.listdir(vault) == []
+    assert len(conftest._VAULT_GUARD["hits"]) == 3
+    conftest._VAULT_GUARD["hits"] = []
+
+
+def test_import_time_code_of_a_test_module_meets_the_guard(tmp_path):
+    """T4 with T5: the child's vault root is a temporary folder (`AWB_VAULT` of the start of its run) and a link
+    planted next to it points there. A module-level open of a path under the link is refused when pytest imports
+    the module, before its first test runs; nothing is written."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(vault)
+    body = """
+import os
+
+open(os.path.join(%r, "never-written.tsv"), "w")
+
+
+def test_inner():
+    pass
+""" % str(link)
+    done = _inner_run(tmp_path, body, {"AWB_VAULT": str(vault)})
+    out = done.stdout + done.stderr
+    assert done.returncode == 2, out
+    assert "the tests never reach the real vault folder" in out, out
+    assert "Interrupted: 1 error during collection" in out, out
+    assert "test_inner" not in done.stdout.split("ERRORS")[0], out     # no test ran: no dot, no F before the errors
+    assert os.listdir(vault) == []
+
+
+def test_a_module_fixture_that_reaches_the_vault_fails_the_first_test(tmp_path):
+    """T4: a fixture of module scope that opens a path of the vault root and catches the refusal is refused all the
+    same and the first test after it errors at its setup with the place that was reached, before it runs; the
+    second test, which did not reach it, passes."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    body = """
+import os
+
+import pytest
+
+
+@pytest.fixture(scope="module")
+def wide():
+    try:
+        open(os.path.join(%r, "never-written.tsv"), "w")
+    except OSError:
+        pass
+    return "set up"
+
+
+def test_first(wide):
+    assert wide == "set up"
+
+
+def test_second(wide):
+    assert wide == "set up"
+""" % str(vault)
+    done = _inner_run(tmp_path, body, {"AWB_VAULT": str(vault)})
+    out = done.stdout + done.stderr
+    assert done.returncode == 1, out
+    assert "a guarded place of the host was reached before the test" in out, out
+    assert "open reached the real vault folder" in out, out
+    assert "ERROR at setup of test_first" in out, out
+    assert done.stdout.split()[0] == "E.", out
+    assert os.listdir(vault) == []
+
+
 def test_each_test_has_its_own_shared_side_vault_kb_and_throttle_stamps(tmp_path):
     """F1 section 5: the four roots were one folder for the whole run, so a throttle stamp or a file of the shared
     side one test left was read by the next. Planted: the first of two tests writes into each root; the second finds
