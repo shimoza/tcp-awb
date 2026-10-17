@@ -7,6 +7,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- `awb voice learn DRAFT - [--project CODE]` (owner side): the sent text comes on standard input, runs through `intake.run_text` in wipe mode for the customer of the project and is the sent text of the pair. Refused for the work user, in a session and from a terminal. A secret refuses the whole call. The two-file form stays for sessions.
 - The deploy gate (threat model G2, `awb/deploy.py`): before a release is installed, the owner's plan child runs the
   commit gate (`awb gate`, the same checks a commit and a push get) over the commits from the deployed release to the
   target, the whole history when no release is deployed, and refuses on any finding with the commit and the class

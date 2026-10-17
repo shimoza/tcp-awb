@@ -7748,8 +7748,43 @@
    "name": "eval Q32 expects the revision of the dataset under test",
    "run": ".venv/bin/pytest tests/test_dataset_polish.py::test_q32_expects_the_revision_of_the_dataset_under_test",
    "status": "passing"
+  },
+  {
+   "id": "n9-voice-learn-owner-1",
+   "phase": "n9-voice-learn-owner",
+   "name": "a registered form on stdin is stored as its code",
+   "run": ".venv/bin/pytest tests/test_voice_learn_owner.py::test_a_registered_form_on_stdin_is_stored_as_its_code",
+   "status": "passing"
+  },
+  {
+   "id": "n9-voice-learn-owner-2",
+   "phase": "n9-voice-learn-owner",
+   "name": "the project may be named instead of found",
+   "run": ".venv/bin/pytest tests/test_voice_learn_owner.py::test_the_project_may_be_named_instead_of_found",
+   "status": "passing"
+  },
+  {
+   "id": "n9-voice-learn-owner-3",
+   "phase": "n9-voice-learn-owner",
+   "name": "a planted key refuses the call and writes nothing",
+   "run": ".venv/bin/pytest tests/test_voice_learn_owner.py::test_a_planted_key_refuses_the_call_and_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "n9-voice-learn-owner-4",
+   "phase": "n9-voice-learn-owner",
+   "name": "refused for the work user, a session and a terminal",
+   "run": ".venv/bin/pytest tests/test_voice_learn_owner.py::test_refused_for_the_work_user_a_session_and_a_terminal",
+   "status": "passing"
+  },
+  {
+   "id": "n9-voice-learn-owner-5",
+   "phase": "n9-voice-learn-owner",
+   "name": "the two-file form still works",
+   "run": ".venv/bin/pytest tests/test_voice_learn_owner.py::test_the_two_file_form_still_works",
+   "status": "passing"
   }
  ],
- "total_tests": 1107,
+ "total_tests": 1112,
  "checked": "2026-10-17"
 }
