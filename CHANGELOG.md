@@ -192,10 +192,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   hear of it at their next prompt and the reports are written as for a file. The paste is not kept, so `--redo` does not
   take it again. Refused for the work user and inside an assistant session with `held: a pasted mail or transcript goes
   in through awb import tcp-xxxx --paste in your own terminal`.
+- `awb register find WORD...` prints the code and the kind of the register entry whose form is these words (exact
+  after the folding of the matcher: case, umlauts, whitespace) or `no code`, on the owner's own terminal only: refused
+  with one fixed line in a pipe, as the work user and inside an assistant session, as `awb vault show` is; it never
+  prints a form, a near miss or a count. `awb register add CODE KIND FORM...` takes several forms in one call and
+  writes them in one go (one bad form and nothing is added); `-` reads them from standard input, one per line.
 
 ### Changed
 
 - The commands guide carries a list of the doors by kind of material.
+- The forms prompt of `awb import` and `awb start` for a new customer asks for the German, the English and the Russian
+  written forms (the full name, the short name, an acronym, the Cyrillic spelling), one per line.
 
 - `awb bucket`, `awb import` and `awb dataset put` reach the owner bucket through the admin socket of the key service (Z3 step 11, `awb/bucket.py`, `awb/tcp/keys_exchange.py`), and `AWB_BUCKET_KEYS` and `bucket_keys` are gone: the bucket key stays in the key service. The service gains three admin calls, `bucket_list`, `bucket_get` and `bucket_put`, for the owner's user id alone: list in the folders of the layout, get from a project's `in/`, put into `out/` of an active project (and the folder marks) and into `datasets/tcp-facts/`, at most `max_mb`. Locked or stopped, every command stops with one line that names `awb keys unlock`. `awb bucket move` needs a copy and a delete that the service does not offer, so it stops with a line saying so.
 

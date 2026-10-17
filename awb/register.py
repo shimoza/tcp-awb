@@ -262,21 +262,53 @@ def save(path: Path, entries: list[Entry]) -> None:
         pass
 
 
+def add_forms(path: Path, code: str, kind: str, forms, added: str | None = None) -> list[Entry]:
+    """Add one or more written forms for a code in one write. Every form is stripped and checked before anything
+    is written: one bad form and nothing is added. A retired code takes no new forms."""
+    entries = load(path)
+    day = added if added is not None else date.today().isoformat()
+    new: list[Entry] = []
+    for form in forms:
+        if isinstance(form, str):
+            form = form.strip()
+        e = Entry(code, kind, form, day, "active")
+        _check(e, "new entry")
+        for i, x in enumerate(entries, start=2):
+            if x.code == code and x.form == form:
+                raise _fail("new entry", "the same code and form already appear on line %d" % i)
+        if any(x.code == code and x.status == "retired" for x in entries):
+            raise _fail("new entry", "the code is retired and takes no new forms")
+        entries.append(e)
+        new.append(e)
+    if not new:
+        raise _fail("new entry", "no form given")
+    save(path, entries)
+    return new
+
+
 def add(path: Path, code: str, kind: str, form: str, added: str | None = None) -> Entry:
     """Add one written form for a code. The form is stripped. A retired code takes no new forms."""
-    entries = load(path)
-    if isinstance(form, str):
-        form = form.strip()
-    e = Entry(code, kind, form, added if added is not None else date.today().isoformat(), "active")
-    _check(e, "new entry")
-    for i, x in enumerate(entries, start=2):
-        if x.code == code and x.form == form:
-            raise _fail("new entry", "the same code and form already appear on line %d" % i)
-    if any(x.code == code and x.status == "retired" for x in entries):
-        raise _fail("new entry", "the code is retired and takes no new forms")
-    entries.append(e)
-    save(path, entries)
-    return e
+    return add_forms(path, code, kind, [form], added)[0]
+
+
+def normalised(text: str) -> str:
+    """`text` the way the matcher compares a form: the folded view (umlauts and the letters of other scripts folded
+    to plain letters), one space for every run of whitespace, lower case."""
+    from awb import matcher
+
+    return matcher._fold(_WS_RE.sub(" ", matcher.fold_text(text).strip()))
+
+
+def find_code(entries, words: str) -> tuple[str, str] | None:
+    """The code and the kind of the active entry whose form equals `words` after `normalised`, None without one.
+    The match is exact: no substring, no genitive, no near miss."""
+    key = normalised(words)
+    if not key:
+        return None
+    for e in entries:
+        if e.status == "active" and normalised(e.form) == key:
+            return e.code, e.kind
+    return None
 
 
 def retire(path: Path, code: str) -> int:

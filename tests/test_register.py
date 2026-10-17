@@ -1,12 +1,14 @@
 """Tests for awb.register. Only invented names from tests/fixtures.py appear here."""
 from __future__ import annotations
 
+import io
 import os
 import stat
+import sys
 
 import pytest
 
-from awb import codes, config, register, vault
+from awb import cli, codes, config, register, vault
 from tests import fixtures
 from tests.test_vault import PASS, encrypt_vault, fast_gpg, serving, sockets  # noqa: F401 (fixtures)
 
@@ -367,3 +369,88 @@ def test_load_and_save_go_through_the_vault_daemon_when_encrypted(home, sockets,
     with pytest.raises(register.RegisterError):
         register.save(p.register, after)
     assert not p.register.exists()
+
+
+# --- awb register add with several forms, awb register find (owner side only) ---
+
+PART = fixtures.PARTNER_CODE
+THREE_FORMS = [fixtures.PLANTED_CANDIDATE, fixtures.SECOND_COMPANY, fixtures.SELFTEST_FORM]
+
+
+def _owner_terminal(monkeypatch):
+    """The owner's own terminal: not a session, stdout a tty (pytest's capture is not one)."""
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+
+
+def _partner_forms(path):
+    return [e.form for e in register.load(path) if e.code == PART and e.status == "active"]
+
+
+def test_add_with_three_forms_registers_three(home, capsys):
+    assert cli.main(["register", "add", PART, "PART"] + THREE_FORMS) == 0
+    assert _partner_forms(home.register) == THREE_FORMS
+    out = capsys.readouterr()
+    assert out.out == "added 3 form(s) to %s (3 active)\n" % PART
+    for f in THREE_FORMS:
+        assert f not in out.out + out.err
+    # one bad form among several and nothing is added
+    assert cli.main(["register", "add", PART, "PART", THREE_FORMS[0] + " x", THREE_FORMS[1] + " (Notiz)"]) == 2
+    assert _partner_forms(home.register) == THREE_FORMS
+    assert "Notiz" not in capsys.readouterr().err
+
+
+def test_add_with_a_dash_reads_three_lines_from_standard_input(home, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(THREE_FORMS) + "\n\n"))
+    assert cli.main(["register", "add", PART, "PART", "-"]) == 0
+    assert _partner_forms(home.register) == THREE_FORMS
+    assert capsys.readouterr().out == "added 3 form(s) to %s (3 active)\n" % PART
+    monkeypatch.setattr(sys, "stdin", io.StringIO("\n"))
+    assert cli.main(["register", "add", PART, "PART", "-"]) == 2
+    assert "no form" in capsys.readouterr().err
+
+
+def test_find_of_a_registered_form_prints_its_code(home, monkeypatch, capsys):
+    _owner_terminal(monkeypatch)
+    assert cli.main(["register", "find"] + FULL.split()) == 0
+    assert capsys.readouterr().out == "%s CUST\n" % CUST
+    # the match is exact after the folding of the matcher: case and umlauts, whitespace collapsed
+    assert cli.main(["register", "find", fixtures.ORG_FORMS[1].replace("ö", "o").upper()]) == 0
+    assert capsys.readouterr().out == "%s ORG\n" % fixtures.ORG_CODE
+    assert cli.main(["register", "find", fixtures.PERSON_FORMS[0].lower()]) == 0
+    assert capsys.readouterr().out == "%s PERS\n" % fixtures.PERSON_CODE
+    # a part of a form, a genitive and a retired form are no match
+    retired = [e.form for e in register.load(home.register) if e.status == "retired"][0]
+    for words in (FULL.split()[:2], [SHORT + "s"], retired.split()):
+        assert cli.main(["register", "find"] + words) == 0
+        assert capsys.readouterr().out == "no code\n"
+
+
+def test_find_of_the_control_name_prints_no_code(home, monkeypatch, capsys):
+    _owner_terminal(monkeypatch)
+    assert cli.main(["register", "find", fixtures.CONTROL_UNREGISTERED]) == 0
+    out = capsys.readouterr()
+    assert out.out == "no code\n" and out.err == ""
+
+
+def test_find_in_a_pipe_is_refused_with_the_fixed_line(home, monkeypatch, capsys):
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+    assert cli.main(["register", "find"] + FULL.split()) == 2      # pytest captures stdout: not a terminal
+    out = capsys.readouterr()
+    assert out.out == "" and out.err == cli.FIND_REFUSED + "\n"
+    _assert_clean_message(out.err)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    monkeypatch.setenv("CLAUDECODE", "1")
+    assert cli.main(["register", "find"] + FULL.split()) == 2
+    out = capsys.readouterr()
+    assert out.out == "" and out.err == cli.FIND_REFUSED + "\n"
+
+
+def test_find_as_the_work_user_is_refused(home, monkeypatch, capsys):
+    _owner_terminal(monkeypatch)
+    monkeypatch.setattr(config, "is_work_user", lambda: True)
+    assert cli.main(["register", "find"] + FULL.split()) == 2
+    out = capsys.readouterr()
+    assert out.out == "" and out.err == cli.FIND_REFUSED + "\n"
