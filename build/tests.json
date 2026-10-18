@@ -8455,8 +8455,64 @@
    "name": "lab listing without prefix refused, own prefix signed",
    "run": ".venv/bin/pytest tests/test_keys_obs_lab_prefix.py::test_a_listing_without_a_prefix_is_refused_and_one_with_the_own_prefix_is_signed",
    "status": "passing"
+  },
+  {
+   "id": "n17-lab-write-allow-1",
+   "phase": "n17-lab-write-allow",
+   "name": "a write that matches a pair is signed",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_a_write_that_matches_a_pair_is_signed",
+   "status": "passing"
+  },
+  {
+   "id": "n17-lab-write-allow-2",
+   "phase": "n17-lab-write-allow",
+   "name": "a write outside the pairs is refused with one fixed line",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_a_write_outside_the_pairs_is_refused_with_one_fixed_line",
+   "status": "passing"
+  },
+  {
+   "id": "n17-lab-write-allow-3",
+   "phase": "n17-lab-write-allow",
+   "name": "a GET is never affected by the lab_writes line",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_a_get_is_never_affected",
+   "status": "passing"
+  },
+  {
+   "id": "n17-lab-write-allow-4",
+   "phase": "n17-lab-write-allow",
+   "name": "without the line every write but iam is signed as before",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_without_the_line_every_write_but_iam_is_signed_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "n17-lab-write-allow-5",
+   "phase": "n17-lab-write-allow",
+   "name": "an invalid lab_writes line refuses the unlock with its line number",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_an_invalid_lab_writes_line_refuses_the_unlock_with_its_line_number",
+   "status": "passing"
+  },
+  {
+   "id": "n17-lab-write-allow-6",
+   "phase": "n17-lab-write-allow",
+   "name": "a valid lab_writes line is read as pairs",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_a_valid_line_is_read_as_pairs",
+   "status": "passing"
+  },
+  {
+   "id": "n17-lab-write-allow-7",
+   "phase": "n17-lab-write-allow",
+   "name": "--from-recipes prints every recipe write once",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_from_recipes_prints_every_recipe_write_once",
+   "status": "passing"
+  },
+  {
+   "id": "n17-lab-write-allow-8",
+   "phase": "n17-lab-write-allow",
+   "name": "awb keys unlock prints the count of pairs",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_unlock_prints_the_count_of_pairs",
+   "status": "passing"
   }
  ],
- "total_tests": 1208,
+ "total_tests": 1216,
  "checked": "2026-10-18"
 }

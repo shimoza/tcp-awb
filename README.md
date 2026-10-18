@@ -357,6 +357,12 @@ the password store (`pass`), one folder per tenant alias:
 | `awb/tenant/<alias>/lab/ak`, `lab/sk` | the lab key | every method; a write needs the code of an active project |
 | `awb/tenant/<alias>/secret/<name>` | a login or a password | fills a password field of a request, never shown |
 
+With a `lab_writes = <service>:<path-prefix>[,...]` line in `keys.conf` the lab key signs a write (POST, PUT, PATCH,
+DELETE) only when its service and path match one pair by prefix; any other write is refused with one fixed line that
+names the service and never the path. Without the line every write but `iam` is signed as before. `awb keys unlock`
+prints the count of pairs. `awb keys lab-writes --from-recipes` prints the line for every write of the recipes in
+`recipes/` and of the recheck watch, so the owner can paste it (a path is cut before its first `${`).
+
 A new tenant needs its admin login in the store once; one command does the rest (the read group and user, the
 key, the register, the key service and the first snapshot) and a second run changes nothing:
 

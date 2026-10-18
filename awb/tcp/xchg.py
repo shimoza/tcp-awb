@@ -76,7 +76,8 @@ FROM = "from-session/"
 IN = bucket_layout.IN
 DEFAULTS = {"lab_bucket": "awb-lab-eu-de", "owner_bucket": bucket_layout.OWNER_BUCKET,
             "region": bucket_layout.REGION, "max_mb": str(bucket_layout.MAX_MB)}
-SETTING_KEYS = ("bucket_tenant", "lab_bucket", "owner_bucket", "region", "max_mb", "notify_topic", "tf_services")
+SETTING_KEYS = ("bucket_tenant", "lab_bucket", "owner_bucket", "region", "max_mb", "notify_topic", "tf_services",
+                "lab_writes")
 _SERVICE_RE = re.compile(r"^[a-z][a-z0-9]{1,20}$")
 """One service of tf_services: the short name of the lease policy's actions (ecs, evs, vpc)."""
 _NAME_RE = re.compile(r"^[^/\\\x00-\x1f\x7f]{1,200}$")
@@ -119,7 +120,27 @@ def read_settings(path: Path | None = None) -> dict:
         if key == "tf_services" and not tf_services_ok(value):
             raise XchgError("line %d of keys.conf: tf_services is a comma-separated list of service names, iam never"
                             % n)
+        if key == "lab_writes" and lab_writes_parse(value) is None:
+            raise XchgError("line %d of keys.conf: lab_writes is a comma-separated list of service:path-prefix, "
+                            "a lower case service (iam never) and a path that starts with / and has no .." % n)
         out[key] = value
+    return out
+
+
+_PREFIX_RE = re.compile(r"^/[A-Za-z0-9_{}.:/-]{0,500}$")
+
+
+def lab_writes_parse(value: str) -> list[tuple[str, str]] | None:
+    """The lab_writes of keys.conf: service:path-prefix pairs separated by commas. None when the line is not a
+    list of valid pairs (an empty list too); a service is lower case and never iam, a prefix starts with / and
+    has no .. and no //."""
+    out = []
+    for item in value.split(","):
+        service, sep, prefix = item.strip().partition(":")
+        if not sep or not _SERVICE_RE.match(service) or service == "iam" or not _PREFIX_RE.match(prefix) or \
+                ".." in prefix or "//" in prefix:
+            return None
+        out.append((service, prefix))
     return out
 
 

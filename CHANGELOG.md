@@ -524,6 +524,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 - K1 closed (task n15): an OBS read (`GET`, `HEAD`, a listing) that a session makes through the key service is signed only in a bucket named after its project (`tcp-xxxx-...`), the list of the buckets and the tags of a bucket (the sweep) stay; any other bucket is refused with one fixed line. The lab bucket stays with `awb xchg`, which reads `<code>/in/` and `<code>/from-session/` of the project only. The owner's own calls are unchanged.
 
+- A lab write allow list (gap G4 of the threat model F2, task n17): with `lab_writes = <service>:<path-prefix>[,...]` in `keys.conf` the key service signs a write of the lab role only when its service and path match one pair by prefix, else it refuses with one fixed line that names the service and never the path. The line is checked at the unlock (lower case service, `iam` never, a path that starts with `/` and has no `..`), `awb keys unlock` prints the count of pairs and `awb keys lab-writes --from-recipes` prints the line for every write of the recipes and of the recheck watch. Without the line nothing changes.
+
 - Four findings of the attacker review of 2026-10-16 of the fact-check service are closed (R3, R4, R5, R7). The recheck
   run never raises a grade: `write_back` passes the entry's own grade to `kb.recheck` and `pick` lists an entry whose
   grade is not live under "for the owner" instead of checking it, so a planted statement of the grade said with a

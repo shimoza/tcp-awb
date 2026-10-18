@@ -71,6 +71,8 @@ STORE_PREFIX = "awb/tenant"
 ROLES = {"read": ("GET", "HEAD"), "lab": ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")}
 WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
 NO_WRITE_SERVICES = frozenset({"iam"})
+LAB_WRITE_LINE = "refused: lab write outside the lab_writes list of keys.conf, service %s"
+"""The one line of a lab write the lab_writes list does not name: the class and the service, never the path."""
 # the lease (T12 part 3, Variant B): a temporary AK/SK of the lab key for the services a project's Terraform set may
 # use (keys.conf tf_services), IAM denied, 15 to 60 minutes
 TF_SERVICES = ("ecs", "evs", "vpc", "elb", "nat", "dns", "obs", "ims")
@@ -863,6 +865,8 @@ class Service:
                           % service)
         if not isinstance(path, str) or not _PATH_RE.match(path) or ".." in path or "//" in path:
             raise Refused("a path is plain: /v1/{project_id}/cloudservers")
+        if method in WRITE_METHODS and not self._lab_write_allowed(service, path):
+            raise Refused(LAB_WRITE_LINE % service)
         if service == "obs":
             # OBS is signed its own way and works: the exchange buckets stay with awb xchg, a write stays on the
             # buckets of the project (<code>-...), the rule of the lease policy
@@ -909,6 +913,16 @@ class Service:
         if isinstance(query, dict) and list(query) == ["tagging"] and not key:
             return True
         return isinstance(project, str) and bool(_PROJECT_RE.match(project)) and bucket.startswith(project + "-")
+
+    def _lab_write_allowed(self, service: str, path: str) -> bool:
+        """True when keys.conf has no lab_writes line, or one of its service:path-prefix pairs matches."""
+        from awb.tcp import xchg
+
+        value = self.settings.get("lab_writes")
+        if value is None:
+            return True
+        pairs = xchg.lab_writes_parse(str(value)) or []
+        return any(service == s and path.startswith(p) for s, p in pairs)
 
     def exchange_buckets(self) -> list[str]:
         """The lab bucket and the owner bucket of keys.conf (or their defaults): a leased key never reaches them."""
@@ -1216,6 +1230,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("unlock", help="load the keys and secrets from the password store (owner)")
     sub.add_parser("lock", help="forget every key and secret (owner)")
     sub.add_parser("reload", help="hand the service to a new process of the installed code, keys kept (owner)")
+    s = sub.add_parser("lab-writes", help="print the lab_writes line of keys.conf for the recipes (owner)")
+    s.add_argument("--from-recipes", action="store_true", required=True,
+                   help="the union of the write calls of every recipe and of the recheck watch")
     sub.add_parser("status", help="the tenants, their roles and the names of their secrets")
     try:
         args = ap.parse_args(argv)
@@ -1249,7 +1266,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "unlock":
             summary = unlock()
             _print_summary(summary)
+            from awb.tcp import xchg
+
+            value = xchg.read_settings().get("lab_writes")
+            if value is not None:
+                print("lab_writes: %d pairs" % len(xchg.lab_writes_parse(value) or []))
             return 0
+        if args.command == "lab-writes":
+            # a child process and no import: lab.py and recheckwatch.py belong to no unit, so a change of them must
+            # not restart this service and with it forget the keys
+            import subprocess
+
+            done = subprocess.run([sys.executable, "-m", "awb.tcp.labwrites"], capture_output=True, text=True)
+            sys.stdout.write(done.stdout)
+            sys.stderr.write(done.stderr)
+            return done.returncode
         if args.command == "reload":
             from awb import handover
 
