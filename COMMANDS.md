@@ -925,6 +925,11 @@ copy pictures into the outbox of the customer after a look
 
 run the checks that need no root for the current user, PASS or FAIL per line
 
+### `awb egress [--ask-mode count|enforce]`
+
+the egress filter of the work user and the Ask uid: status; sudo awb egress load|enforce|count|--ask-mode
+- `--ask-mode count|enforce`: the owner with sudo: the verdict of the Ask uid's chain (count refuses nothing)
+
 ### `awb egress status [--json]`
 
 the mode, the load and the counts of the last 24 hours

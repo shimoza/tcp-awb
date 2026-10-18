@@ -819,3 +819,293 @@ def test_verify_checks_that_an_established_connection_passes_only_with_the_mark(
     assert re.fullmatch(pattern.group(1), work[1])
     assert "ct state established,related goto refused" in script
     assert work[2] == "ct state established,related goto refused"
+
+
+# --------------------------------------------------------------------------- the chain ask (n16-egress-ask)
+
+GOLDEN = REPO / "tests" / "golden"
+ASK_USER = "awb-ask"
+ASK_TEMPLATE = EGRESS / "ask-egress.nft"
+
+
+class FakeNftAsk(FakeNft):
+    """The stand-in with the Ask table in memory too: its load, its refresh, its list with the counters ask_x."""
+
+    def __init__(self, fail_on: str | None = None):
+        super().__init__(fail_on)
+        self.ask_loaded: str | None = None
+        self.ask_refreshes: list[str] = []
+
+    def __call__(self, argv, input=None, capture_output=True, text=True, timeout=None):
+        args = argv[1:]
+        if args == ["-j", "list", "table", "inet", egress.ASK_TABLE]:
+            self.calls.append(args)
+            if self.ask_loaded is None:
+                return subprocess.CompletedProcess(argv, 1, "", "Error: No such file or directory\n")
+            items = [{"metainfo": {"version": "1.0.9"}}]
+            for name in egress.ASK_NAMES:
+                items.append({"counter": {"family": "inet", "name": name, "table": egress.ASK_TABLE,
+                                          "packets": self.counters.get(name, 0), "bytes": 0}})
+            verdict = [{"reject": {"type": "tcp reset"}}] if "reject with tcp reset" in self.ask_loaded else \
+                [{"accept": None}]
+            items.append({"rule": {"family": "inet", "table": egress.ASK_TABLE, "chain": "ask_refused",
+                                   "expr": verdict}})
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"nftables": items}), "")
+        if args[:2] == ["-f", "-"] and egress.ASK_TABLE in (input or ""):
+            self.calls.append(args)
+            self.ask_refreshes.append(input)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        if args[:1] == ["-f"] and args[1] != "-" and egress.ASK_TABLE in Path(args[1]).read_text(encoding="utf-8"):
+            self.calls.append(args)
+            body = Path(args[1]).read_text(encoding="utf-8")
+            if self.fail_on and self.fail_on in body:
+                return subprocess.CompletedProcess(argv, 1, "", "Error: Could not process rule\n")
+            self.ask_loaded = body
+            for name in egress.ASK_NAMES:
+                self.counters.pop(name, None)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        return super().__call__(argv, input, capture_output, text, timeout)
+
+
+@pytest.fixture
+def askworld(world):
+    host, _, clock, conf = world
+    nft = host.run = FakeNftAsk()
+    _conf(conf, "ask_mode = count\n")
+    return host, nft, clock, conf
+
+
+def _ask_rendered(ask_mode: str = "count", ask_user: str = ASK_USER) -> str:
+    entries = egress.read_ask((EGRESS / "ALLOW.md").read_text(encoding="utf-8"))
+    cache = {h: {a: T0 for a in _resolve(h)} for h in {e.dest for e in entries}}
+    return egress.render_ask(ASK_TEMPLATE.read_text(encoding="utf-8"), ask_user, ask_mode,
+                             egress.ask_elements(entries, cache))
+
+
+def _block(text: str, name: str) -> str:
+    m = re.search(r"    chain %s \{\n.*?\n    \}\n" % name, text, re.S)
+    assert m, name
+    return m.group(0)
+
+
+def test_the_ask_uid_has_a_table_chain_and_jump_of_its_own_and_the_work_template_names_no_ask_uid():
+    work = (EGRESS / "work-egress.nft").read_text(encoding="utf-8")
+    assert "jump ask" not in work and "ask_user" not in work and 'skuid "awb-ask"' not in work
+    text = _ask_rendered()
+    assert text.count("hook ") == 1 and text.count("jump ask") == 1 and len(re.findall(r"skuid", text)) == 1
+    assert _chain(text, "output") == ["type filter hook output priority filter; policy accept;",
+                                      'meta skuid "awb-ask" jump ask']
+    assert "skgid" not in text and "awb_egress {" not in text
+    for name in ("ask", "ask_refused"):
+        assert "skuid" not in "\n".join(_chain(text, name)), name
+    assert 'meta skuid "svc-ask" jump ask' in _ask_rendered(ask_user="svc-ask")
+    # the work table and the Ask table are two tables: neither names the other's uid, the owner's uid is in neither
+    assert 'skuid "awb"' not in text and 'skuid "awb-ask"' not in _rendered("count")
+    assert re.search(r"(?m)^User=awb-ask$", (SEAL / "awb-ask.service").read_text(encoding="utf-8"))
+
+
+def test_the_ask_template_keeps_no_address_of_a_host_and_its_placeholders_are_the_ask_ones():
+    template = ASK_TEMPLATE.read_text(encoding="utf-8")
+    assert set(re.findall(r"@[A-Z_]+@", template)) == {"@ASK_USER@", "@ASK_VERDICT@"}
+    code = "\n".join(x for x in template.splitlines() if not x.lstrip().startswith("#"))
+    assert not re.search(r"\d+\.\d+\.\d+\.\d+", code) and "anthropic" not in code and "otc" not in code
+    with pytest.raises(egress.EgressError, match="placeholder"):
+        egress.render_ask_rules(template + "\n# @OTHER@\n", "awb-ask", "count")
+
+
+def test_the_model_endpoint_and_the_price_host_are_accepted_and_the_two_lists_are_separate():
+    allow = (EGRESS / "ALLOW.md").read_text(encoding="utf-8")
+    ask = egress.read_ask(allow)
+    assert {e.dest for e in ask} == {"api.anthropic.com", "calculator.otc-service.com"}
+    assert all(e.port == "tcp 443" and e.set == "ask" for e in ask)
+    assert not [e for e in _entries() if e.set == "ask"]
+    text = _ask_rendered()
+    chain = _chain(text, "ask")
+    assert chain[0] == 'oifname "lo" accept'
+    assert 'ip daddr @ask4 tcp dport 443 counter name "ask_allowed" ct mark set 0xa0b003 accept' in chain
+    assert 'ip6 daddr @ask6 tcp dport 443 counter name "ask_allowed" ct mark set 0xa0b003 accept' in chain
+    assert egress.MARK_ASK_ALLOWED == 0xa0b003 and egress.MARK_ASK_OTHER == 0xa0b004
+    assert "add element inet awb_egress_ask ask4 { 80.158.5.54, 160.79.104.10 }" in text
+    assert "add element inet awb_egress_ask ask6 { 2607:6bc0::10 }" in text
+    work_only = [e.dest for e in _entries() if e.set == "allow" and e.dest not in {a.dest for a in ask}]
+    assert work_only
+    elements = "\n".join(x for x in text.splitlines() if x.startswith("add element"))
+    for host in work_only:
+        for address in _resolve(host):
+            assert address not in elements, host
+    assert sum(1 for r in chain if r.endswith("accept")) == 4
+
+
+@pytest.mark.parametrize("ask_mode", egress.MODES)
+def test_the_rest_of_the_ask_uid_is_counted_in_count_and_refused_in_enforce(ask_mode):
+    text = _ask_rendered(ask_mode)
+    chain = _chain(text, "ask")
+    assert chain[1:3] == ["ct state established,related ct mark 0xa0b003 accept",
+                          "ct state established,related goto ask_refused"]
+    for name in egress.ASK_CLASSES:
+        assert "    counter ask_%s { }" % name in text
+        assert any('counter name "ask_%s" goto ask_refused' % name in r for r in chain), name
+    assert "    counter ask_allowed { }" in text
+    assert chain[-1] == 'counter name "ask_other" goto ask_refused'
+    assert all("goto ask_refused" in r for r in chain[5:])
+    refused = _chain(text, "ask_refused")
+    assert refused[0] == "ct mark set 0xa0b004"
+    if ask_mode == "count":
+        assert refused[1:] == ["accept"] and "reject" not in text
+    else:
+        assert refused[1:] == ["meta l4proto tcp reject with tcp reset", "reject with icmpx admin-prohibited"]
+    assert not re.search(r"@[A-Z_]+@", text)
+
+
+@pytest.mark.parametrize("mode", egress.MODES)
+def test_the_work_chain_renders_the_same_text_as_before_the_ask_table(mode):
+    """tests/golden holds the chains work and refused as the template rendered them before the ask table."""
+    want = (GOLDEN / ("egress-work-chain-%s.nft" % mode)).read_text(encoding="utf-8")
+    text = _rendered(mode)
+    assert _block(text, "work") + _block(text, "refused") == want
+
+
+@pytest.mark.parametrize("bad", ["", "awb-ask; flush ruleset", "Awb", "a b", "x" * 40])
+def test_an_invalid_ask_user_name_is_refused(bad):
+    template = ASK_TEMPLATE.read_text(encoding="utf-8")
+    with pytest.raises(egress.EgressError, match="Ask user is no user name"):
+        egress.render_ask_rules(template, bad, "count")
+    with pytest.raises(egress.EgressError, match="the mode is count or enforce"):
+        egress.render_ask_rules(template, ASK_USER, "off")
+
+
+def test_the_host_file_names_the_ask_user_and_a_bad_one_stops_the_load(askworld):
+    host, nft, clock, conf = askworld
+    assert egress._ask_user("owner = x\n", "awb") == "awb-ask"
+    assert egress._ask_user("ask_user = svc-ask\n", "awb") == "svc-ask"
+    for text, message in (("ask_user = Bad\n", "no valid Ask user"), ("ask_user = awb\n", "neither"),
+                          ("ask_user = root\n", "neither"), ("owner = boss\nask_user = boss\n", "neither")):
+        with pytest.raises(egress.EgressError, match=message):
+            egress._ask_user(text, "awb")
+    _conf(conf, "ask_mode = count\nask_user = bad;name\n")
+    with pytest.raises(egress.EgressError, match="no valid Ask user"):
+        egress.load(host)
+    assert nft.loaded is None and nft.ask_loaded is None
+    _conf(conf, "ask_mode = count\nask_user = svc-ask\n")
+    egress.load(host)
+    assert 'meta skuid "svc-ask" jump ask' in nft.ask_loaded and "svc-ask" not in nft.loaded
+
+
+def test_without_an_ask_mode_line_no_ask_table_is_loaded_and_the_work_table_loads_as_before(world):
+    host, nft, clock, conf = world
+    egress.load(host)
+    assert nft.loaded and not any(egress.ASK_TABLE in " ".join(c) for c in nft.calls)
+    assert egress.ask_lines(host) == []
+    assert "ask" not in json.loads((host.state_dir / "status.json").read_text(encoding="utf-8"))
+
+
+def test_ask_mode_defaults_to_count_is_read_from_the_host_file_and_a_bad_word_stops_the_load(askworld):
+    host, nft, clock, conf = askworld
+    for text, want in (("", "count"), ("ask_mode = count\n", "count"), ("ask_mode = enforce\n", "enforce"),
+                       ("ask_mode = off\n", None), ("ask_mode = count\nask_mode = enforce\n", None)):
+        assert egress.parse_mode(text, "ask_mode")[0] == want, text
+    assert egress.parse_mode("egress = enforce\n", "ask_mode")[0] == "count"
+    assert egress.parse_mode("ask_mode = enforce\n")[0] == "count"
+    _conf(conf, "ask_mode = off\n")
+    with pytest.raises(egress.EgressError, match="ask_mode"):
+        egress.load(host)
+    assert nft.loaded is None
+    _conf(conf, "ask_mode = enforce\n")
+    egress.load(host)
+    assert "reject with tcp reset" in _block(nft.ask_loaded, "ask_refused")
+    assert "reject" not in nft.loaded
+
+
+def test_ask_mode_switches_the_ask_table_alone_and_a_failed_load_puts_the_word_back(askworld, capsys):
+    host, nft, clock, conf = askworld
+    egress.load(host)
+    work_before = nft.loaded
+    out = egress.set_ask_mode(host, "enforce")
+    assert "refused outside its list now" in out and "egress ask: mode enforce" in out
+    assert egress.conf_value(conf.read_text(encoding="utf-8"), "ask_mode") == "enforce"
+    assert egress.parse_mode(conf.read_text(encoding="utf-8"))[0] == "count"
+    assert "reject" in _block(nft.ask_loaded, "ask_refused") and nft.loaded == work_before
+    assert egress.set_ask_mode(host, "count").startswith("egress: the Ask uid is counted")
+    assert "reject" not in nft.ask_loaded
+    with pytest.raises(egress.EgressError, match="count or enforce"):
+        egress.set_ask_mode(host, "off")
+    other = egress.Host(**{**host.__dict__, "environ": {"SUDO_USER": "someone-else"}})
+    with pytest.raises(egress.EgressError, match="as the owner"):
+        egress.set_ask_mode(other, "enforce")
+    assert egress.conf_value(conf.read_text(encoding="utf-8"), "ask_mode") == "count"
+    nft.fail_on = "reject with tcp reset"
+    with pytest.raises(egress.EgressError, match="nft refused"):
+        egress.set_ask_mode(host, "enforce")
+    assert egress.conf_value(conf.read_text(encoding="utf-8"), "ask_mode") == "count"
+    nft.fail_on = None
+    assert egress.main(["--ask-mode", "enforce"], host) == 0
+    assert "egress ask: mode enforce" in capsys.readouterr().out
+    assert egress.main(["--ask-mode", "count", "status"], host) == 2
+    assert "stands alone" in capsys.readouterr().err
+    assert egress.main(["--ask-mode", "off"], host) == 2
+
+
+def test_a_reload_of_the_work_table_leaves_the_ask_counts_alone_and_the_ask_sets_refresh_in_place(askworld):
+    host, nft, clock, conf = askworld
+    egress.load(host)
+    assert nft.ask_refreshes == []
+    clock.t += 300
+    egress.load(host)
+    assert len(nft.ask_refreshes) == 1 and "flush set inet awb_egress_ask ask4" in nft.ask_refreshes[0]
+    assert "add element inet awb_egress_ask ask4 { " in nft.ask_refreshes[0]
+    nft.bump(ask_dns=3)
+    clock.t += 300
+    egress.load(host)
+    _conf(conf, "ask_mode = count\negress = enforce\n")   # the work table reloads, the Ask table does not
+    clock.t += 300
+    egress.load(host)
+    assert egress.status(host)["ask"] == {"dns": 3}
+    assert len(egress.read_history(host, egress.ASK_HISTORY, egress.ASK_NAMES)) >= 3
+    assert all(set(c) <= set(egress.CLASSES + (egress.ALLOWED,)) for _, _, c in egress.read_history(host))
+
+
+def test_the_ask_counters_are_a_block_of_their_own_and_never_stop_the_work_enforce(askworld, capsys):
+    host, nft, clock, conf = askworld
+    egress.load(host)
+    _run_for(host, nft, clock, 12)
+    nft.bump(ask_allowed=9, ask_dns=2, ask_web=5)
+    _run_for(host, nft, clock, 12.5)
+    assert egress.status(host)["ask"] == {"allowed": 9, "dns": 2, "web": 5}
+    assert egress.status(host)["window"]["counts"] == {}
+    assert egress.status_lines(host)[-1].endswith("counted outside the list: none")
+    assert egress.ask_lines(host) == ["egress ask: mode count, last 24 hours: allowed 9; counted outside its list: "
+                                      "dns 2, web 5"]
+    assert egress.main(["status"], host) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[-1].startswith("egress ask: mode count") and "dns 2, web 5" in out[-1]
+    assert not [x for x in out[:-1] if "ask" in x]
+    assert egress.main(["status", "--json"], host) == 0
+    assert json.loads(capsys.readouterr().out)["ask_mode"] == "count"
+    assert "enforce, every connection" in egress.enforce(host, set())
+    assert egress.main(["count"], host) == 0
+    assert "egress ask: mode count" in capsys.readouterr().out.splitlines()[-1]
+
+
+def test_enforce_of_the_ask_uid_deletes_its_marked_connections_alone(askworld):
+    host, nft, clock, conf = askworld
+    conntrack = FakeConntrack()
+    host.conntrack = conntrack
+    egress.load(host)
+    out = egress.set_ask_mode(host, "enforce")
+    assert "connections of the Ask uid outside the list deleted" in out
+    assert {c[c.index("-m") + 1] for c in conntrack.calls} == {"0x%x" % egress.MARK_ASK_OTHER}
+    conntrack.calls.clear()
+    egress.set_ask_mode(host, "count")
+    assert conntrack.calls == []
+
+
+def test_the_seal_scripts_know_the_ask_table(fakebin):
+    res = run_script(VERIFY, ["--dry-run"], fakebin)
+    assert res.returncode == 0, res.stderr
+    no_marks(fakebin)
+    checks = [line[6:] for line in res.stdout.splitlines() if line.startswith("CHECK ")]
+    assert "the Ask table of the egress filter has the chain ask when it is loaded" in checks
+    script = VERIFY.read_text(encoding="utf-8")
+    assert "nft list chain inet awb_egress_ask ask" in script
+    assert "ask_mode = $(kept_conf ask_mode count)" in SETUP.read_text(encoding="utf-8")
+    assert "ask_user = $(kept_conf ask_user awb-ask)" in SETUP.read_text(encoding="utf-8")

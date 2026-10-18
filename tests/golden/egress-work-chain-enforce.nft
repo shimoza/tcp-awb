@@ -1,0 +1,30 @@
+    chain work {
+        oifname "lo" accept
+        ct state established,related ct mark 0xa0b001 accept
+        ct state established,related goto refused
+        ip daddr @allow4 tcp dport 443 counter name "c_allowed" ct mark set 0xa0b001 accept
+        ip6 daddr @allow6 tcp dport 443 counter name "c_allowed" ct mark set 0xa0b001 accept
+        ip daddr 192.0.2.0/24 counter name "c_probe" goto refused
+        ip6 daddr 2001:db8::/32 counter name "c_probe" goto refused
+        ip daddr 169.254.0.0/16 counter name "c_metadata" goto refused
+        ip6 daddr fe80::/10 counter name "c_metadata" goto refused
+        meta l4proto { tcp, udp } th dport 53 counter name "c_dns" goto refused
+        udp dport 123 counter name "c_ntp" goto refused
+        ip daddr @tcp_api4 counter name "c_tcp_api" goto refused
+        ip6 daddr @tcp_api6 counter name "c_tcp_api" goto refused
+        ip daddr @github4 counter name "c_github" goto refused
+        ip6 daddr @github6 counter name "c_github" goto refused
+        tcp dport 22 counter name "c_ssh" goto refused
+        tcp dport { 25, 465, 587 } counter name "c_mail" goto refused
+        tcp dport { 80, 443 } counter name "c_web" goto refused
+        udp dport 443 counter name "c_web" goto refused
+        meta l4proto tcp counter name "c_other_tcp" goto refused
+        meta l4proto udp counter name "c_other_udp" goto refused
+        meta l4proto { icmp, ipv6-icmp } counter name "c_icmp" goto refused
+        counter name "c_other" goto refused
+    }
+    chain refused {
+        ct mark set 0xa0b002
+        meta l4proto tcp reject with tcp reset
+        reject with icmpx admin-prohibited
+    }

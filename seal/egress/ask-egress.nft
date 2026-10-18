@@ -1,0 +1,48 @@
+# The egress filter of the Ask uid (seal/egress/ALLOW.md, section "The Ask uid"; awb/egress.py), rendered by `awb
+# egress load` (root) to /var/lib/awb-egress/ask-egress.nft with the address sets after the table, and loaded as one
+# transaction. A table of its own, next to the table of the work user (work-egress.nft), which it never touches: the
+# work user's chain and its jump stay as they are, and the table is replaced as a whole when its rules change.
+# 1. Only packets of the Ask user's uid enter the chain ask. Every other uid passes the base chain untouched: the
+#    key service, the vault daemon and the owner (the owner's uid) and the work user (whose chain is in the other
+#    table).
+# 2. In the chain ask: loopback (the host's resolver 127.0.0.53, so the DNS of the Ask page, and the local services)
+#    passes. A new connection on tcp 443 to an address of the set ask (the model endpoint and the price host of
+#    ALLOW.md, resolved by root at load) passes, is counted as allowed and gets the conntrack mark 0xa0b003; an
+#    established or related packet passes only with that mark, every other one goes to the chain ask_refused
+#    uncounted.
+# 3. Every other new connection is counted in the named counter of its class, first match wins, and goes to the
+#    chain ask_refused. It marks the connection 0xa0b004, then accepts in the mode count or refuses in the mode
+#    enforce (ask_mode of the host file) with a reset or an ICMP refusal.
+table inet awb_egress_ask
+delete table inet awb_egress_ask
+table inet awb_egress_ask {
+    counter ask_allowed { }
+    counter ask_dns { }
+    counter ask_web { }
+    counter ask_other { }
+
+    set ask4 { type ipv4_addr; flags interval; }
+    set ask6 { type ipv6_addr; flags interval; }
+
+    chain output {
+        type filter hook output priority filter; policy accept;
+        meta skuid "@ASK_USER@" jump ask
+    }
+
+    chain ask {
+        oifname "lo" accept
+        ct state established,related ct mark 0xa0b003 accept
+        ct state established,related goto ask_refused
+        ip daddr @ask4 tcp dport 443 counter name "ask_allowed" ct mark set 0xa0b003 accept
+        ip6 daddr @ask6 tcp dport 443 counter name "ask_allowed" ct mark set 0xa0b003 accept
+        meta l4proto { tcp, udp } th dport 53 counter name "ask_dns" goto ask_refused
+        tcp dport { 80, 443 } counter name "ask_web" goto ask_refused
+        udp dport 443 counter name "ask_web" goto ask_refused
+        counter name "ask_other" goto ask_refused
+    }
+
+    chain ask_refused {
+        ct mark set 0xa0b004
+@ASK_VERDICT@
+    }
+}

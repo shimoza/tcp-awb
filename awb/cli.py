@@ -653,7 +653,7 @@ DELEGATED = {
     "hook": ("hooks", "entry points for the client hooks of working sessions"),
     "images": ("images", "pictures of the intake, held on the vault side: list, release"),
     "seal": ("seal", "checks of the seal between the vault and working sessions"),
-    "egress": ("egress", "the egress filter of the work user: status; sudo awb egress load|enforce|count"),
+    "egress": ("egress", "the egress filter of the work user and the Ask uid: status; sudo awb egress load|enforce|count|--ask-mode"),
     "bucket": ("bucket", "the owner's bucket: sync, folder, pull, put, move"),
     "import": ("importcmd", "customer material into a project in one command: the bucket, the vault inbox, files or pasted text (--paste)"),
     "words": ("words", "the vocabulary of the public corpus for the intake: update (owner side)"),

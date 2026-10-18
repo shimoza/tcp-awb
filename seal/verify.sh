@@ -327,6 +327,7 @@ egress_checks() {
         printf 'CHECK %s\n' "the egress table of the work user is loaded" \
             "the egress filter runs in the mode of the host file (count or enforce)" \
             "only the work user's uid enters the egress chain (the key service's uid passes untouched)" \
+            "the Ask table of the egress filter has the chain ask when it is loaded" \
             "the egress chain lets an established connection pass only with the mark of the allow rules (one opened before enforce does not survive it)" \
             "the key service runs under a uid other than the work user's" \
             "a planted connection of the work user outside the list is counted (and refused in the mode enforce)" \
@@ -366,6 +367,7 @@ egress_checks() {
         out=1
     fi
     report "$out" "the egress chain lets an established connection pass only with the mark of the allow rules (one opened before enforce does not survive it)"
+    allowed "the Ask table of the egress filter has the chain ask when it is loaded" nft list chain inet awb_egress_ask ask
     pid=$(systemctl show -p MainPID --value awb-keyd.service 2>/dev/null || echo 0)
     key_uid=""
     [ "${pid:-0}" = 0 ] || key_uid=$(stat -c %u "/proc/$pid" 2>/dev/null || true)

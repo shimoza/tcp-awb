@@ -524,6 +524,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 - K1 closed (task n15): an OBS read (`GET`, `HEAD`, a listing) that a session makes through the key service is signed only in a bucket named after its project (`tcp-xxxx-...`), the list of the buckets and the tags of a bucket (the sweep) stay; any other bucket is refused with one fixed line. The lab bucket stays with `awb xchg`, which reads `<code>/in/` and `<code>/from-session/` of the project only. The owner's own calls are unchanged.
 
+- The egress filter gets a second, counting chain for the Ask uid (task n16-egress-ask) in a table of its own (`inet awb_egress_ask`, `seal/egress/ask-egress.nft`) with a list of its own in `seal/egress/ALLOW.md` (the model endpoint and the price host) and a verdict word of its own, `ask_mode` of the host file (count by default). Everything else the Ask uid sends is counted under `ask_dns`, `ask_web` and `ask_other` and refused only in the mode enforce, set with `sudo awb egress --ask-mode enforce`. `awb egress status` and `awb egress count` print its counts as a block of their own. The work user's table and chain are unchanged.
+
 - Four findings of the attacker review of 2026-10-16 of the fact-check service are closed (R3, R4, R5, R7). The recheck
   run never raises a grade: `write_back` passes the entry's own grade to `kb.recheck` and `pick` lists an entry whose
   grade is not live under "for the owner" instead of checking it, so a planted statement of the grade said with a

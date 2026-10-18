@@ -8455,8 +8455,106 @@
    "name": "lab listing without prefix refused, own prefix signed",
    "run": ".venv/bin/pytest tests/test_keys_obs_lab_prefix.py::test_a_listing_without_a_prefix_is_refused_and_one_with_the_own_prefix_is_signed",
    "status": "passing"
+  },
+  {
+   "id": "n16-egress-ask-1",
+   "phase": "n16-egress-ask",
+   "name": "the ask uid has a table chain and jump of its own and the work template names no ask uid",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_ask_uid_has_a_table_chain_and_jump_of_its_own_and_the_work_template_names_no_ask_uid",
+   "status": "passing"
+  },
+  {
+   "id": "n16-egress-ask-2",
+   "phase": "n16-egress-ask",
+   "name": "the ask template keeps no address of a host and its placeholders are the ask ones",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_ask_template_keeps_no_address_of_a_host_and_its_placeholders_are_the_ask_ones",
+   "status": "passing"
+  },
+  {
+   "id": "n16-egress-ask-3",
+   "phase": "n16-egress-ask",
+   "name": "the model endpoint and the price host are accepted and the two lists are separate",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_model_endpoint_and_the_price_host_are_accepted_and_the_two_lists_are_separate",
+   "status": "passing"
+  },
+  {
+   "id": "n16-egress-ask-4",
+   "phase": "n16-egress-ask",
+   "name": "the rest of the ask uid is counted in count and refused in enforce",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_rest_of_the_ask_uid_is_counted_in_count_and_refused_in_enforce",
+   "status": "passing"
+  },
+  {
+   "id": "n16-egress-ask-5",
+   "phase": "n16-egress-ask",
+   "name": "the work chain renders the same text as before the ask table",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_work_chain_renders_the_same_text_as_before_the_ask_table",
+   "status": "passing"
+  },
+  {
+   "id": "n16-egress-ask-6",
+   "phase": "n16-egress-ask",
+   "name": "an invalid ask user name is refused",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_an_invalid_ask_user_name_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "n16-egress-ask-7",
+   "phase": "n16-egress-ask",
+   "name": "the host file names the ask user and a bad one stops the load",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_host_file_names_the_ask_user_and_a_bad_one_stops_the_load",
+   "status": "passing"
+  },
+  {
+   "id": "n16-egress-ask-8",
+   "phase": "n16-egress-ask",
+   "name": "without an ask mode line no ask table is loaded and the work table loads as before",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_without_an_ask_mode_line_no_ask_table_is_loaded_and_the_work_table_loads_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "n16-egress-ask-9",
+   "phase": "n16-egress-ask",
+   "name": "ask mode defaults to count is read from the host file and a bad word stops the load",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_ask_mode_defaults_to_count_is_read_from_the_host_file_and_a_bad_word_stops_the_load",
+   "status": "passing"
+  },
+  {
+   "id": "n16-egress-ask-10",
+   "phase": "n16-egress-ask",
+   "name": "ask mode switches the ask table alone and a failed load puts the word back",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_ask_mode_switches_the_ask_table_alone_and_a_failed_load_puts_the_word_back",
+   "status": "passing"
+  },
+  {
+   "id": "n16-egress-ask-11",
+   "phase": "n16-egress-ask",
+   "name": "a reload of the work table leaves the ask counts alone and the ask sets refresh in place",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_a_reload_of_the_work_table_leaves_the_ask_counts_alone_and_the_ask_sets_refresh_in_place",
+   "status": "passing"
+  },
+  {
+   "id": "n16-egress-ask-12",
+   "phase": "n16-egress-ask",
+   "name": "the ask counters are a block of their own and never stop the work enforce",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_ask_counters_are_a_block_of_their_own_and_never_stop_the_work_enforce",
+   "status": "passing"
+  },
+  {
+   "id": "n16-egress-ask-13",
+   "phase": "n16-egress-ask",
+   "name": "enforce of the ask uid deletes its marked connections alone",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_enforce_of_the_ask_uid_deletes_its_marked_connections_alone",
+   "status": "passing"
+  },
+  {
+   "id": "n16-egress-ask-14",
+   "phase": "n16-egress-ask",
+   "name": "the seal scripts know the ask table",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_the_seal_scripts_know_the_ask_table",
+   "status": "passing"
   }
  ],
- "total_tests": 1208,
+ "total_tests": 1222,
  "checked": "2026-10-18"
 }
