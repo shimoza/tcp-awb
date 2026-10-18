@@ -374,7 +374,8 @@ def mirror_count(records: list[dict]) -> int:
 
 
 def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_services: int, revision: str,
-                   prices: dict, cover: list[tuple[str, str]] = (), n_mirror: int = 0) -> list[tuple[str, str]]:
+                   prices: dict, cover: list[tuple[str, str]] = (), n_mirror: int = 0,
+                   check: list[tuple[str, str]] = ()) -> list[tuple[str, str]]:
     """The how-to as (style, text) blocks: h1, h2, p, code (code:json, code:bash for the fence). PROMPT.md and
     HOW-TO.pdf are made from it."""
     price_line = ", ".join("%s %s records" % (r, c) for r, c in prices.items()) or "no price list"
@@ -409,6 +410,7 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
               "%s. %s: a read-only MCP server over these files for Claude, VS Code or any MCP client; its first "
               "lines say how to add it. MANIFEST.json: counts, dates and the sha256 of every file."
               % (n_services, revision, price_line, MCP_FILE)),
+        *check,
         ("h2", "Dates and licence"),
         ("p", "Built %s. Best before %s: facts about availability are re-checked every %d days. Prices are a "
               "snapshot; the live price API is the source of truth before any quote." % (day, best_before,
@@ -764,7 +766,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
     check_lines.append("operator named in prose: %s" % (", ".join(named) if named else "none"))
     cover = coverage_blocks(records, orderable, revision)
     blocks = _how_to_blocks(day, best_before, len(records), grades, len(svc), revision, counts, cover,
-                            mirror_count(records))
+                            mirror_count(records), check_blocks(sign_settings()))
     (root / "PROMPT.md").write_text(blocks_to_markdown(blocks), encoding="utf-8")
     (root / "HOW-TO.pdf").write_bytes(pdf_bytes(blocks, "%s %s: how to use it" % (NAME, day)))
     (root / "README.md").write_text(blocks_to_markdown(
@@ -892,6 +894,42 @@ PERSON_CONF = "dataset_author"
 GIT_TIMEOUT = 120
 
 
+SIGN_CONF = "dataset_sign"                      # yes: sign the release tag and SHA256SUMS (host file)
+SIGN_KEY_CONF = "dataset_sign_key"              # path of the ssh signing key
+SIGN_IDENTITY_CONF = "dataset_sign_identity"    # the identity in the allowed_signers file
+SIGN_SIGNERS_CONF = "dataset_sign_allowed_signers"   # path of that file as a reader writes it; default below
+SIGN_SIGNERS_DEFAULT = "allowed_signers"
+SUMS_FILE = "SHA256SUMS"
+
+
+def sign_settings() -> dict[str, str] | None:
+    """None unless the host file says dataset_sign = yes. Then the key, the identity and the allowed_signers path;
+    refused when the key path is missing."""
+    conf = config.host_conf()
+    if conf.get(SIGN_CONF, "").lower() != "yes":
+        return None
+    key = conf.get(SIGN_KEY_CONF, "")
+    if not key:
+        raise DatasetError("dataset_sign = yes needs dataset_sign_key = <path of the signing key> in the host file")
+    return {"key": key, "identity": conf.get(SIGN_IDENTITY_CONF, "") or NAME,
+            "signers": conf.get(SIGN_SIGNERS_CONF, "") or SIGN_SIGNERS_DEFAULT}
+
+
+def check_text(sign: dict[str, str]) -> str:
+    """The block "check a download": the sums, then the signature of the sums file."""
+    return ("sha256sum -c %s\nssh-keygen -Y verify -f %s -I %s -n file -s %s.sig < %s"
+            % (SUMS_FILE, sign["signers"], sign["identity"], SUMS_FILE, SUMS_FILE))
+
+
+def check_blocks(sign: dict[str, str] | None) -> list[tuple[str, str]]:
+    if not sign:
+        return []
+    return [("h2", "Check a download"),
+            ("p", "The release holds %s with the sha256 of every asset and %s.sig, its signature. Download both "
+                  "next to the assets and run:" % (SUMS_FILE, SUMS_FILE)),
+            ("code", check_text(sign))]
+
+
 def clone_dir(p: config.Paths) -> Path:
     return datasets_dir(p) / (SLUG + ".git")
 
@@ -961,7 +999,8 @@ def scan_people(files: list[Path], values: list[str], register_path: Path | None
     return problems
 
 
-def release_notes(manifest: dict, sums: dict[str, str] | None = None, new: str = "") -> str:
+def release_notes(manifest: dict, sums: dict[str, str] | None = None, new: str = "",
+                  sign: dict[str, str] | None = None) -> str:
     """The counts, what is new since the previous release (`new`, from `whats_new`, empty for the first release),
     then the sha256 of each release asset, one line each. `sums` maps an asset name to its sum; the zip and
     MANIFEST.json come from the files (the manifest is inside the zip and cannot hold its own sum), every other
@@ -980,6 +1019,9 @@ def release_notes(manifest: dict, sums: dict[str, str] | None = None, new: str =
     if names:
         text += "\n\nsha256 of the assets, check a download with `sha256sum -c`:\n\n```\n%s```" % "".join(
             "%s  %s\n" % (sums[n], n) for n in names)
+    if sign:
+        text += "\n\nCheck a download (%s and %s.sig are release assets):\n\n```\n%s\n```" % (
+            SUMS_FILE, SUMS_FILE, check_text(sign))
     return text
 
 
@@ -995,6 +1037,20 @@ def previous_release(clone: Path, day: str) -> tuple[str, list[dict]] | None:
     if res.returncode != 0:
         return None
     return prev, read_facts(res.stdout)
+
+
+def _sign_sums(folder: Path, zpath: Path, sign: dict[str, str]) -> list[Path]:
+    """SHA256SUMS (one line per release asset) and its signature into the release folder; both come back."""
+    mpath = folder.parent / (folder.name + ".mcpb")
+    if not mpath.is_file():
+        raise DatasetError("the folder of %s has no %s; run awb dataset build --force" % (folder.name, mpath.name))
+    assets = [zpath, folder / "HOW-TO.pdf", folder / "MANIFEST.json", mpath]
+    (folder / SUMS_FILE).write_text("".join("%s  %s\n" % (_sha(a), a.name) for a in assets), encoding="utf-8")
+    (folder / (SUMS_FILE + ".sig")).unlink(missing_ok=True)
+    _run(["ssh-keygen", "-Y", "sign", "-f", sign["key"], "-n", "file", SUMS_FILE], cwd=folder)
+    if not (folder / (SUMS_FILE + ".sig")).is_file():
+        raise DatasetError("ssh-keygen wrote no %s.sig" % SUMS_FILE)
+    return [folder / SUMS_FILE, folder / (SUMS_FILE + ".sig")]
 
 
 def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: Path | None = None) -> list[str]:
@@ -1015,6 +1071,9 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
     tagged = bool(_run(_git(clone, "tag", "--list", day), cwd=clone).stdout.strip())
     if tagged and not replace:
         raise DatasetError("the repository holds the dataset of %s already; give --replace" % day)
+    sign = sign_settings()
+    if sign and SUMS_FILE + ".sig" not in (folder / "PROMPT.md").read_text(encoding="utf-8"):
+        raise DatasetError("the how-to of %s has no \"check a download\" block; run awb dataset build --force" % day)
     prev = previous_release(clone, day)            # read before the files of this build land in the clone
     for name in GITHUB_FILES:
         dst = clone / name
@@ -1036,7 +1095,13 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
     _run(_git(clone, "add", "-A", "--", *GITHUB_FILES), cwd=clone)
     if _run(_git(clone, "diff", "--cached", "--quiet"), cwd=clone, check=False).returncode:
         _run(_git(clone, "commit", "-q", "-m", "%s %s" % (NAME, day)), cwd=clone)
-    _run(_git(clone, "tag", "-f", day) if replace else _git(clone, "tag", day), cwd=clone)
+    signed: list[Path] = []
+    if sign:
+        signed = _sign_sums(folder, zpath, sign)
+        tag = ["-c", "gpg.format=ssh", "-c", "user.signingkey=" + sign["key"], "tag", "-s", "-m", "%s %s" % (NAME, day)]
+        _run(_git(clone, *tag, *(["-f"] if replace else []), day), cwd=clone)
+    else:
+        _run(_git(clone, "tag", "-f", day) if replace else _git(clone, "tag", day), cwd=clone)
     _run(_git(clone, "push", "-q", "origin", "HEAD"), cwd=clone)
     if tagged:
         _run(["gh", "release", "delete", day, "--repo", GITHUB_REPO, "--yes"], cwd=clone, check=False)
@@ -1053,11 +1118,12 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
         catalog = offered.load()
         new = whats_new(prev[1], read_facts(folder / "facts.jsonl"),
                         [s for s in catalog.services if not s.ends or s.ends > day], prev[0])
-    _run(["gh", "release", "create", day, str(zpath), *(str(folder / n) for n in GITHUB_ASSETS), str(mpath), "--repo",
-          GITHUB_REPO, "--verify-tag", "--title", "%s %s" % (NAME, day), "--notes", release_notes(manifest, sums, new)],
+    _run(["gh", "release", "create", day, str(zpath), *(str(folder / n) for n in GITHUB_ASSETS), str(mpath),
+          *map(str, signed), "--repo",
+          GITHUB_REPO, "--verify-tag", "--title", "%s %s" % (NAME, day), "--notes", release_notes(manifest, sums, new, sign)],
          cwd=clone)
     return ["github.com/%s commit and tag %s" % (GITHUB_REPO, day),
-            "github.com/%s/releases/tag/%s with %s" % (GITHUB_REPO, day, ", ".join([zpath.name, *GITHUB_ASSETS, mpath.name]))]
+            "github.com/%s/releases/tag/%s with %s" % (GITHUB_REPO, day, ", ".join([zpath.name, *GITHUB_ASSETS, mpath.name, *(x.name for x in signed)]))]
 
 
 # --------------------------------------------------------------------------- the command
