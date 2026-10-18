@@ -461,6 +461,23 @@ requirement areas and service sections the added facts touch. The first release 
 The release notes list the sha256 of the zip, the PDF and the manifest, one line each. A recipient
 saves the lines as `SHA256SUMS` next to the downloads and runs `sha256sum -c SHA256SUMS`; every file must say `OK`.
 
+### Signing a release
+
+With `dataset_sign = yes` and `dataset_sign_key = <path of an ssh key>` in the host file, `awb dataset put --github`
+signs the release: it writes `SHA256SUMS` (one line per asset: the zip, `HOW-TO.pdf`, `MANIFEST.json` and the
+`.mcpb`) into the release folder, signs it with `ssh-keygen -Y sign -n file` into `SHA256SUMS.sig`, makes the tag with
+`git tag -s` (`gpg.format ssh`, `user.signingkey` the key) and uploads both files as release assets. Build the folder
+with the same setting: the how-to, the README of the dataset and the release notes then carry "Check a download":
+
+```bash
+sha256sum -c SHA256SUMS
+ssh-keygen -Y verify -f allowed_signers -I <identity> -n file -s SHA256SUMS.sig < SHA256SUMS
+```
+
+`dataset_sign_identity` names the identity (default `TCP Facts`) and `dataset_sign_allowed_signers` the file a reader
+passes to `-f` (default `allowed_signers`). A put with `dataset_sign = yes` and no key is refused. Without
+`dataset_sign` nothing of this runs and the block is not written.
+
 ### The dataset as an MCP server
 
 Every build carries `tcp_facts_mcp.py`, in the zip, in the `.mcpb` and in the root of the public repository. The template is

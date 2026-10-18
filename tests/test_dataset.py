@@ -706,3 +706,99 @@ def test_a_failed_git_call_on_the_clone_names_the_command_and_not_the_path(tmp_p
         dataset._run(dataset._git(clone, "tag", "--list"), cwd=clone)
     assert str(err.value).startswith("git tag --list failed (exit")
     assert str(tmp_path) not in str(err.value)
+
+
+# --------------------------------------------------------------------------- n19: signing the release
+
+FAKE_GIT = '''#!%s
+import json, os, subprocess, sys
+args = sys.argv[1:]
+with open(os.environ["FAKE_GIT_LOG"], "a") as f:
+    f.write(json.dumps(args) + "\\n")
+if "-s" in args:         # the signed tag: the same tag without the signature, which needs a real key
+    args = [a for a in args if a != "-s"]
+sys.exit(subprocess.run([os.environ["REAL_GIT"], *args]).returncode)
+'''
+FAKE_KEYGEN = '''#!%s
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ["FAKE_KEYGEN_LOG"], "a") as f:
+    f.write(json.dumps(args) + "\\n")
+open(args[-1] + ".sig", "w").write("fake signature\\n")
+'''
+
+
+@pytest.fixture
+def signing(github, tmp_path, monkeypatch):
+    """Fake git and ssh-keygen in front of the fake gh, each recording its argv; the host file asks for signing."""
+    import os
+    import shutil
+    import sys
+    bindir = tmp_path / "bin"
+    monkeypatch.setenv("REAL_GIT", shutil.which("git"))
+    for name, text in (("git", FAKE_GIT), ("ssh-keygen", FAKE_KEYGEN)):
+        (bindir / name).write_text(text % sys.executable)
+        (bindir / name).chmod(0o755)
+    monkeypatch.setenv("FAKE_GIT_LOG", str(tmp_path / "git.log"))
+    monkeypatch.setenv("FAKE_KEYGEN_LOG", str(tmp_path / "keygen.log"))
+    conf = {"dataset_sign": "yes", "dataset_sign_key": "/keys/signing", "dataset_sign_identity": "facts-signer"}
+    monkeypatch.setattr(dataset.config, "host_conf", lambda: conf)
+
+    def calls(name):
+        log = tmp_path / (name + ".log")
+        return [json.loads(l) for l in log.read_text().splitlines()] if log.exists() else []
+    return SimpleNamespace(conf=conf, git=lambda: calls("git"), keygen=lambda: calls("keygen"), github=github)
+
+
+def test_a_signed_put_tags_with_s_and_the_key_and_signs_the_sums_file(home, facts, tmp_path, signing):
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    dataset.github_put(home, built.folder, clone=signing.github.clone)
+    tag = [a for a in signing.git() if "tag" in a and "-s" in a][0]
+    assert "-s" in tag and "gpg.format=ssh" in tag and "user.signingkey=/keys/signing" in tag
+    assert tag.index("-c") < tag.index("tag")
+    assert signing.keygen() == [["-Y", "sign", "-f", "/keys/signing", "-n", "file", "SHA256SUMS"]]
+
+
+def test_the_sums_file_lists_every_asset_with_its_sum_and_the_sig_is_uploaded(home, facts, tmp_path, signing):
+    import hashlib
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    dataset.github_put(home, built.folder, clone=signing.github.clone)
+    names = ["tcp-facts-2026-10-08.zip", "HOW-TO.pdf", "MANIFEST.json", "tcp-facts-2026-10-08.mcpb"]
+    where = {n: (built.folder if n in ("HOW-TO.pdf", "MANIFEST.json") else built.folder.parent) / n for n in names}
+    want = "".join("%s  %s\n" % (hashlib.sha256(where[n].read_bytes()).hexdigest(), n) for n in names)
+    assert (built.folder / "SHA256SUMS").read_text() == want
+    create = [a for a in signing.github.log() if a[:2] == ["release", "create"]][0]
+    assert [Path(a).name for a in create[3:9]] == names + ["SHA256SUMS", "SHA256SUMS.sig"]
+
+
+def test_the_how_to_the_readme_and_the_release_notes_carry_the_verify_block(home, facts, tmp_path, signing):
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    verify = "ssh-keygen -Y verify -f allowed_signers -I facts-signer -n file -s SHA256SUMS.sig < SHA256SUMS"
+    for name in ("PROMPT.md", "README.md"):
+        text = (built.folder / name).read_text()
+        assert "sha256sum -c SHA256SUMS" in text and verify in text
+    dataset.github_put(home, built.folder, clone=signing.github.clone)
+    notes = [a for a in signing.github.log() if a[:2] == ["release", "create"]][0]
+    notes = notes[notes.index("--notes") + 1]
+    assert "sha256sum -c SHA256SUMS" in notes and verify in notes
+
+
+def test_a_put_with_signing_and_no_key_path_is_refused(home, facts, tmp_path, signing):
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    del signing.conf["dataset_sign_key"]
+    with pytest.raises(dataset.DatasetError, match="dataset_sign_key"):
+        dataset.github_put(home, built.folder, clone=signing.github.clone)
+    assert signing.keygen() == []
+
+
+def test_without_the_setting_nothing_of_the_signing_runs(home, facts, tmp_path, signing):
+    signing.conf.clear()
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    for name in ("PROMPT.md", "README.md"):
+        assert "SHA256SUMS" not in (built.folder / name).read_text()
+    dataset.github_put(home, built.folder, clone=signing.github.clone)
+    assert signing.keygen() == []
+    assert not any("-s" in a for a in signing.git())
+    assert not (built.folder / "SHA256SUMS").exists()
+    create = [a for a in signing.github.log() if a[:2] == ["release", "create"]][0]
+    assert "SHA256SUMS" not in " ".join(create)
