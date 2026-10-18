@@ -64,6 +64,37 @@ from the work user's uid, that key counts as `tcp_api` and is refused in the mod
 Workbench uses a lease from a session yet (`awb cloud terraform` is designed, not built); when it comes, its hosts
 move into the allowed table.
 
+## The Ask uid
+
+The Ask page and the project chat run as the Ask user (`ask_user` of `/etc/awb/paths.conf`, `awb-ask` without the
+line). Its connections enter the chain `ask` of a table of its own, `inet awb_egress_ask` (`ask-egress.nft`), and no other
+chain; the owner's uid and the work user's table are not touched by it. The list of the Ask uid is separate from the list above: an address that only the work
+user's list names does not pass in the chain `ask`. The same holds the other way round.
+
+| destination | port | set | why |
+|---|---|---|---|
+| `api.anthropic.com` | `tcp 443` | `ask` | the model endpoint of the Ask page and the project chat (`API_URL` of `awb/tcp/ask.py`) |
+| `calculator.otc-service.com` | `tcp 443` | `ask` | the public price API of T Cloud Public, the price host (`awb price`), no key |
+
+Allowed without a row: loopback, which carries the host's resolver `127.0.0.53`, so DNS to the host's resolver passes.
+A new connection on `tcp 443` to the set `ask` passes with the conntrack mark `0xa0b003`; its established packets pass
+with that mark alone, like the work user's.
+
+Every other new connection of the Ask uid is counted under counters of its own and then goes to the chain
+`ask_refused` (mark `0xa0b004`), which accepts it in the mode count and refuses it in the mode enforce. The mode is the
+line `ask_mode` of the host file (count without the line), set with `sudo awb egress --ask-mode count|enforce`. It
+does not depend on the mode of the work user. First match wins:
+
+| counter | what |
+|---|---|
+| `ask_allowed` | a new connection to the set `ask` (shown, never counted as outside) |
+| `ask_dns` | port 53 to any address but loopback: a resolver other than the host's own |
+| `ask_web` | tcp 80 and 443, udp 443, to a host not in the set `ask` |
+| `ask_other` | the rest |
+
+`awb egress status` shows these counts as a block of their own. They never stop `sudo awb egress enforce` of the work
+user. The limits below hold for the Ask uid too: an allowed host is a way out. DNS through the resolver stays open.
+
 ## The classes of a connection outside the list
 
 First match wins, in this order. `awb egress status` shows the counts of the last 24 hours per class.
