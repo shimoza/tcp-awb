@@ -33,13 +33,16 @@ def read_counts(p: config.Paths) -> dict:
     return {k: v for k, v in data.items() if CUSTOMER_RE.match(k) and isinstance(v, dict)} if isinstance(data, dict) else {}
 
 
-def record_intake(p: config.Paths, customer: str, waiting: int, when: float | None = None) -> None:
+def record_intake(p: config.Paths, customer: str, waiting: int, when: float | None = None,
+                  extractor: str | None = None) -> None:
     """Set the count of candidates waiting for `customer` and the time of its last report. Codes only; a failure
-    to write never stops an intake or a review."""
+    to write never stops an intake or a review. `extractor` (direct or unit) is kept when the intake read a pdf."""
     if not CUSTOMER_RE.match(customer or "") or not isinstance(waiting, int) or waiting < 0:
         return
     data = read_counts(p)
     data[customer] = {"waiting": waiting, "time": now_text(when)}
+    if extractor in ("direct", "unit"):
+        data[customer]["extractor"] = extractor
     try:
         fd, tmp = tempfile.mkstemp(prefix=".intake-counts.", dir=p.vault)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:

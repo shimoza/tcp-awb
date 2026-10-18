@@ -127,6 +127,12 @@ def wiped_by_rule(run: Run) -> list[tuple[str, list[tuple[str, int]]]]:
 # --------------------------------------------------------------------------- public report
 
 
+def extractor_word(run: Run) -> str | None:
+    """`unit` when any pdf of the run was read in a unit, else `direct` when one was read, else None."""
+    words = {part.meta.get("extractor") for f in run.files for part in f.parts}
+    return "unit" if "unit" in words else "direct" if "direct" in words else None
+
+
 def customer_text(customer: str) -> str:
     """The customer line of a report: the code, or none and the project for a project without a customer."""
     return "none (project %s)" % customer if customer.startswith(("tcp-", "hcs-")) else customer
@@ -147,6 +153,7 @@ def render_public(run: Run) -> str:
         "- files: %d" % len(run.files),
         "- outputs: %d" % outputs,
         "- states: %s" % (", ".join("%s %d" % kv for kv in sorted(states.items())) or "none"),
+        *(["- extractor: %s" % word] if (word := extractor_word(run)) else []),
         "",
         "| file id | kind | state | replaced | notes |",
         "| --- | --- | --- | --- | --- |",
@@ -199,6 +206,7 @@ def render_minimal(run: Run) -> str:
         "- files: %d" % len(run.files),
         "- outputs: %d" % sum(1 for f in run.files if f.output is not None),
         "- states: %s" % (", ".join("%s %d" % kv for kv in sorted(states.items())) or "none"),
+        *(["- extractor: %s" % word] if (word := extractor_word(run)) else []),
         "",
         "The detailed report was withheld because it did not pass the final check, see the private report.",
         "",

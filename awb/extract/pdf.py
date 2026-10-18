@@ -20,6 +20,14 @@ object streams, goes to `scan_text`, which is checked for registered forms only.
 a viewer shows without rendering them as page text (annotation contents and subjects, form field values,
 outline titles, JavaScript) go to `detect_text` as well, with a note.
 
+Where the tools run is a `Runner`. Direct (paths.conf has no `extract_user`): the tool is started as this user with
+the path of the file. A unit (it has one): every call is `sudo -n systemd-run` as that throwaway user with no network,
+a read-only system, no home, a private /tmp, no new privileges, 512M and 120 seconds; the bytes of the file go on
+standard input and the text comes from standard output, so the path is in no argument and the file lies where the
+user cannot read it. A unit that cannot start or times out fails that file, it is never run direct. The tool
+pdfdetach cannot read standard input, so a unit run leaves embedded files unread and says so in a note.
+`meta["extractor"]` carries the word `direct` or `unit`.
+
 Files embedded in the PDF (attachments, the documents of a portfolio) are saved with pdfdetach into a private
 temporary folder and read as children through `awb.extract.extract`, like the members of an archive.
 """
@@ -34,6 +42,7 @@ import time
 import zlib
 from pathlib import Path
 
+from awb import config
 from awb import extract as _extract
 from awb.extract import MAX_ARCHIVE_DEPTH, Extraction, make_temp_dir
 
@@ -77,10 +86,15 @@ class _Missing(Exception):
 
 
 class _Tools:
-    def __init__(self) -> None:
+    def __init__(self, runner: "Runner | None" = None) -> None:
         self.pdftotext = shutil.which("pdftotext")
         self.pdfinfo = shutil.which("pdfinfo")
         self.pdfdetach = shutil.which("pdfdetach")
+        self.runner = runner or Runner()
+
+    def run(self, tool: str, options: list[str], target: str, out: bool = False) -> tuple[int, str, str]:
+        """One poppler call through the runner of this extraction."""
+        return self.runner.run(tool, options, target, out)
 
     @property
     def present(self) -> bool:
@@ -106,6 +120,55 @@ def _run(args: list[str]) -> tuple[int, str, str]:
 
 
 # --------------------------------------------------------------------------- pdfinfo
+
+
+class Runner:
+    """Where the poppler tools run. This one is direct: the tool is started as this user with the path of the file."""
+
+    name = "direct"
+
+    def run(self, tool: str, options: list[str], target: str, out: bool = False) -> tuple[int, str, str]:
+        return _run([tool, *options, target] + (["-"] if out else []))
+
+
+UNIT_PROPERTIES = ("PrivateNetwork=yes", "ProtectSystem=strict", "ProtectHome=yes", "PrivateTmp=yes",
+                   "NoNewPrivileges=yes", "MemoryMax=512M", "RuntimeMaxSec=120")
+"""The isolation of the unit of a sandboxed call, fixed. The sudoers line of seal/setup.sh allows this form only."""
+_USER_RE = re.compile(r"[a-z_][a-z0-9_-]{0,31}")
+
+
+class UnitRunner(Runner):
+    """Every call in a transient unit of a throwaway user: the file goes on standard input and the text comes from
+    standard output, the file never lies where that user can read it and its path is in no argument. A unit that
+    cannot start or times out is a failed call (an OSError or a TimeoutExpired), never a call run direct."""
+
+    name = "unit"
+
+    def __init__(self, user: str, data: bytes, run=None) -> None:
+        self.user = user
+        self.data = data
+        self._run = run
+
+    def argv(self, tool: str, options: list[str], out: bool = False) -> list[str]:
+        head = ["sudo", "-n", "systemd-run", "--quiet", "--wait", "--pipe", "--collect",
+                "--uid=%s" % self.user, "--gid=%s" % self.user]
+        head += ["--property=%s" % p for p in UNIT_PROPERTIES]
+        return head + ["--", tool, *options] + (["-", "-"] if out else ["-"])
+
+    def run(self, tool: str, options: list[str], target: str, out: bool = False) -> tuple[int, str, str]:
+        if not _USER_RE.fullmatch(self.user):
+            raise OSError("extract_user is not a user name")
+        proc = (self._run or subprocess.run)(self.argv(tool, options, out), input=self.data, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, timeout=TIMEOUT + 15, check=False)
+        return proc.returncode, proc.stdout.decode("utf-8", errors="replace"), proc.stderr.decode("utf-8", errors="replace")
+
+
+def runner_for(path: Path) -> Runner:
+    """Direct when paths.conf has no extract_user, else the unit runner with the bytes of the file."""
+    user = config.host_conf().get("extract_user", "").strip()
+    if not user:
+        return Runner()
+    return UnitRunner(user, Path(path).read_bytes())
 
 
 def _parse_info(out: str) -> list[tuple[str, str]]:
@@ -175,7 +238,7 @@ def _chars(text: str) -> int:
 def _page_text(tools: _Tools, target: str, n: int) -> str | None:
     """Layout text of page n. None when pdftotext failed on it."""
     try:
-        code, out, _ = _run([tools.pdftotext, "-layout", "-enc", "UTF-8", "-f", str(n), "-l", str(n), target, "-"])
+        code, out, _ = tools.run(tools.pdftotext, ["-layout", "-enc", "UTF-8", "-f", str(n), "-l", str(n)], target, True)
     except subprocess.TimeoutExpired:
         return None
     return _clean(out) if code == 0 else None
@@ -184,7 +247,7 @@ def _page_text(tools: _Tools, target: str, n: int) -> str | None:
 def _split_pages(tools: _Tools, target: str) -> list[str | None] | None:
     """Fallback when pdfinfo gave no page count: the whole document once, split at the page breaks."""
     try:
-        code, out, _ = _run([tools.pdftotext, "-layout", "-enc", "UTF-8", target, "-"])
+        code, out, _ = tools.run(tools.pdftotext, ["-layout", "-enc", "UTF-8"], target, True)
     except subprocess.TimeoutExpired:
         return None
     if code != 0:
@@ -202,7 +265,12 @@ def extract(path: Path, depth: int = 0) -> Extraction:
     """Read a PDF file. Never raises, a problem becomes state failed or unreadable with a note."""
     path = Path(path)
     ex = Extraction(path, "pdf", "ok")
-    tools = _Tools()
+    try:
+        runner = runner_for(path)
+    except OSError as err:
+        return Extraction(path, "pdf", "failed", notes=["%s while reading the file" % type(err).__name__])
+    ex.meta["extractor"] = runner.name
+    tools = _Tools(runner)
     if not tools.present:
         ex.state = "failed"
         ex.notes.append(MISSING_NOTE)
@@ -211,15 +279,16 @@ def extract(path: Path, depth: int = 0) -> Extraction:
     try:
         return _read(ex, tools, target, depth)
     except _Missing:
-        return Extraction(path, "pdf", "failed", notes=[MISSING_NOTE])
+        return Extraction(path, "pdf", "failed", meta=dict(ex.meta), notes=[MISSING_NOTE])
     except subprocess.TimeoutExpired:
-        return Extraction(path, "pdf", "failed", notes=["pdfinfo timed out, review the original"])
+        return Extraction(path, "pdf", "failed", meta=dict(ex.meta), notes=["pdfinfo timed out, review the original"])
     except OSError as err:
-        return Extraction(path, "pdf", "failed", notes=["%s while running poppler" % type(err).__name__])
+        return Extraction(path, "pdf", "failed", meta=dict(ex.meta),
+                          notes=["%s while running poppler" % type(err).__name__])
 
 
 def _read(ex: Extraction, tools: _Tools, target: str, depth: int = 0) -> Extraction:
-    code, info_out, info_err = _run([tools.pdfinfo, "-enc", "UTF-8", target])
+    code, info_out, info_err = tools.run(tools.pdfinfo, ["-enc", "UTF-8"], target)
     if code != 0:
         ex.state = "failed"
         if "password" in info_err.lower():
@@ -320,6 +389,10 @@ def _attachments(ex: Extraction, tools: _Tools, target: str, depth: int) -> None
     PDF gives it: pdfdetach honours a name such as ../../x in -saveall and would write outside the folder with
     the rights of the owner (found by the review of 2026-09-27). The name from the listing is kept in the
     child's meta only, on the vault side."""
+    if tools.runner.name == "unit":
+        # pdfdetach cannot read standard input and a file the unit user could read is what the unit is for
+        ex.notes.append("embedded files are not read when the extractor is a unit, review the original")
+        return
     if not tools.pdfdetach:
         return
     try:
@@ -371,7 +444,7 @@ def _attachments(ex: Extraction, tools: _Tools, target: str, depth: int) -> None
 
 def _reading_order(tools: _Tools, target: str) -> str | None:
     try:
-        code, out, _ = _run([tools.pdftotext, "-enc", "UTF-8", target, "-"])
+        code, out, _ = tools.run(tools.pdftotext, ["-enc", "UTF-8"], target, True)
     except subprocess.TimeoutExpired:
         return None
     return _clean(out) if code == 0 else None
@@ -380,7 +453,7 @@ def _reading_order(tools: _Tools, target: str) -> str | None:
 def _read_metadata(ex: Extraction, tools: _Tools, target: str, det: list[str]) -> None:
     """Information dictionary (every key), XMP packet and link targets into meta and detection lines."""
     try:
-        code, out, _ = _run([tools.pdfinfo, "-custom", "-isodates", "-enc", "UTF-8", target])
+        code, out, _ = tools.run(tools.pdfinfo, ["-custom", "-isodates", "-enc", "UTF-8"], target)
     except subprocess.TimeoutExpired:
         code, out = -1, ""
     if code == 0:
@@ -397,7 +470,7 @@ def _read_metadata(ex: Extraction, tools: _Tools, target: str, det: list[str]) -
         ex.notes.append("document information could not be read")
 
     try:
-        code, out, _ = _run([tools.pdfinfo, "-meta", target])
+        code, out, _ = tools.run(tools.pdfinfo, ["-meta"], target)
     except subprocess.TimeoutExpired:
         code, out = -1, ""
     if code == 0 and out.strip():
@@ -408,7 +481,7 @@ def _read_metadata(ex: Extraction, tools: _Tools, target: str, det: list[str]) -
         ex.notes.append("xmp metadata could not be read")
 
     try:
-        code, out, _ = _run([tools.pdfinfo, "-url", target])
+        code, out, _ = tools.run(tools.pdfinfo, ["-url"], target)
     except subprocess.TimeoutExpired:
         code, out = -1, ""
     if code == 0:

@@ -516,6 +516,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 - The grant names its customer and needs it confirmed (task n20): `awb projects kind CODE KIND` for a project whose row names a customer writes the grant only with `--customer CODE` equal to the row's customer, because a session can write the row. Without the option it prints `grant not written` and the line to run, exit 1; another code is refused in one line. A project without a customer needs no option. `awb start` passes the code it registered. The grant file is unchanged in shape.
 
+- The poppler tools of the pdf reader run in a transient systemd unit of the throwaway user `awb-extract` when paths.conf names `extract_user` (task n18-extract-sandbox): no network, read-only system, no home, 512M, 120 seconds, the file on standard input. A unit that fails fails that file and never falls back to direct; the import report and the intake counts carry `extractor: direct` or `extractor: unit`. `seal/setup.sh` creates the user and the sudoers line, `seal/verify.sh` probes it.
+
 - Four findings of the attacker review of 2026-10-16 of the fact-check service are closed (R3, R4, R5, R7). The recheck
   run never raises a grade: `write_back` passes the entry's own grade to `kb.recheck` and `pick` lists an entry whose
   grade is not live under "for the owner" instead of checking it, so a planted statement of the grade said with a
