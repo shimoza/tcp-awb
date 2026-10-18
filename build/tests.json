@@ -8287,8 +8287,64 @@
    "name": "every create of the five carries the project code and the tags the lab writes",
    "run": ".venv/bin/pytest tests/test_lab_five.py::test_every_create_of_the_five_carries_the_project_code_and_the_tags_the_lab_writes",
    "status": "passing"
+  },
+  {
+   "id": "n15-keys-obs-read-scope-1",
+   "phase": "n15-keys-obs-read-scope",
+   "name": "own bucket read signed",
+   "run": ".venv/bin/pytest tests/test_keys_obs_read_scope.py::test_a_read_in_a_bucket_of_the_own_project_is_signed",
+   "status": "passing"
+  },
+  {
+   "id": "n15-keys-obs-read-scope-2",
+   "phase": "n15-keys-obs-read-scope",
+   "name": "foreign bucket read refused with one fixed line",
+   "run": ".venv/bin/pytest tests/test_keys_obs_read_scope.py::test_a_read_in_a_bucket_of_another_project_is_refused_with_one_fixed_line",
+   "status": "passing"
+  },
+  {
+   "id": "n15-keys-obs-read-scope-3",
+   "phase": "n15-keys-obs-read-scope",
+   "name": "bucket list and bucket tags stay for the sweep",
+   "run": ".venv/bin/pytest tests/test_keys_obs_read_scope.py::test_the_list_of_the_buckets_and_the_tags_of_a_bucket_stay_for_the_sweep",
+   "status": "passing"
+  },
+  {
+   "id": "n15-keys-obs-read-scope-4",
+   "phase": "n15-keys-obs-read-scope",
+   "name": "exchange bucket stays closed to a session",
+   "run": ".venv/bin/pytest tests/test_keys_obs_read_scope.py::test_an_exchange_bucket_stays_closed_to_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "n15-keys-obs-read-scope-5",
+   "phase": "n15-keys-obs-read-scope",
+   "name": "owner reads any key of any bucket",
+   "run": ".venv/bin/pytest tests/test_keys_obs_read_scope.py::test_the_owner_reads_any_key_of_any_bucket",
+   "status": "passing"
+  },
+  {
+   "id": "n15-keys-obs-read-scope-6",
+   "phase": "n15-keys-obs-read-scope",
+   "name": "service project reads as any project",
+   "run": ".venv/bin/pytest tests/test_keys_obs_read_scope.py::test_the_service_project_reads_as_any_project",
+   "status": "passing"
+  },
+  {
+   "id": "n15-keys-obs-read-scope-7",
+   "phase": "n15-keys-obs-read-scope",
+   "name": "lab read under own prefix signed, foreign refused",
+   "run": ".venv/bin/pytest tests/test_keys_obs_lab_prefix.py::test_a_read_under_the_own_prefix_is_signed_and_one_under_another_prefix_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "n15-keys-obs-read-scope-8",
+   "phase": "n15-keys-obs-read-scope",
+   "name": "lab listing without prefix refused, own prefix signed",
+   "run": ".venv/bin/pytest tests/test_keys_obs_lab_prefix.py::test_a_listing_without_a_prefix_is_refused_and_one_with_the_own_prefix_is_signed",
+   "status": "passing"
   }
  ],
- "total_tests": 1184,
+ "total_tests": 1192,
  "checked": "2026-10-17"
 }

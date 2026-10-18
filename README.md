@@ -372,7 +372,7 @@ pass:awb/tenant/test-1 --region eu-de`.
 The key service signs a call to `obs` the OBS way (`Authorization: OBS AK:SIGNATURE`, the code of `awb/obs.py`): the
 path is `/BUCKET[/KEY]`, the bucket is reached by its own host and `GET /` lists the buckets. Every other service is
 signed the way of the API gateway (SDK-HMAC-SHA256). An OBS call never reaches the two exchange buckets (they are
-`awb xchg`'s) and an OBS write reaches only a bucket named after the project (`tcp-xxxx-...`). The code and
+`awb xchg`'s) and an OBS write or read of a session reaches only a bucket named after its project (`tcp-xxxx-...`); the list of the buckets and the tags of a bucket (the sweep) stay open, and the owner's own calls are not limited. The code and
 message of an OBS error, which comes in XML, are read like those of a JSON error. An OBS list in XML comes whole as
 data: `GET /` gives the buckets (name, creation date, location when given), `GET /BUCKET` the keys of one page and
 `GET /BUCKET?tagging` the tags. An answer that declares a DOCTYPE or an entity is never parsed. Any other answer that is not JSON is cut to its first 300 bytes; the command says so

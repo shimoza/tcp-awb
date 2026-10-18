@@ -1129,6 +1129,11 @@ Admin socket ops: ping, status, load, lock, reload (T2: the vault daemon's hand-
 holds, the parent compares both before `go`; the digest stays on the pair; `load` and `lock` answer `busy` during
 it). `ping` and `status` answer `ops` and `release`. Call socket ops: ping, tenants, call. `awb/tcp/cloud.py` gained
 `call` and `tenants`, which go through the service for every user. The unit is `seal/awb-keyd.service`.
+OBS rule of `call` (K1): for a session (not the owner, not the console) a read (`GET`, `HEAD`, a listing) of `obs` is signed
+only for `/` (the buckets), the tags of a bucket (`?tagging` without a key) and any key of a bucket named `<code>-...`
+of the project of the call; every other bucket is refused with one line that names the class and never the key. The
+exchange buckets stay refused for `call`; the lab bucket is read through op `obs`, under `<code>/in/` and
+`<code>/from-session/` of the project only.
 
 ## The deploy (2026-10-07, T1)
 
