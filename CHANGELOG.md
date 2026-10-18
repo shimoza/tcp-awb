@@ -514,6 +514,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- The grant names its customer and needs it confirmed (task n20): `awb projects kind CODE KIND` for a project whose row names a customer writes the grant only with `--customer CODE` equal to the row's customer, because a session can write the row. Without the option it prints `grant not written` and the line to run, exit 1; another code is refused in one line. A project without a customer needs no option. `awb start` passes the code it registered. The grant file is unchanged in shape.
+
 - Four findings of the attacker review of 2026-10-16 of the fact-check service are closed (R3, R4, R5, R7). The recheck
   run never raises a grade: `write_back` passes the entry's own grade to `kb.recheck` and `pick` lists an entry whose
   grade is not live under "for the owner" instead of checking it, so a planted statement of the grade said with a

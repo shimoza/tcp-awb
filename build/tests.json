@@ -8294,8 +8294,43 @@
    "name": "web status prints one health line from the status socket and HEALTH_PORT is gone",
    "run": ".venv/bin/pytest tests/test_web_publish.py::test_status_health_line_comes_from_the_status_socket",
    "status": "passing"
+  },
+  {
+   "id": "n20-grant-customer-confirm-1",
+   "phase": "n20-grant-customer-confirm",
+   "name": "kind without customer on a customer project writes no grant and prints the line",
+   "run": ".venv/bin/pytest tests/test_grant_customer_confirm.py::test_kind_without_customer_on_a_customer_project_writes_no_grant_and_prints_the_line",
+   "status": "passing"
+  },
+  {
+   "id": "n20-grant-customer-confirm-2",
+   "phase": "n20-grant-customer-confirm",
+   "name": "kind with the right customer writes the grant",
+   "run": ".venv/bin/pytest tests/test_grant_customer_confirm.py::test_kind_with_the_right_customer_writes_the_grant",
+   "status": "passing"
+  },
+  {
+   "id": "n20-grant-customer-confirm-3",
+   "phase": "n20-grant-customer-confirm",
+   "name": "kind with another customer refuses in one line and writes nothing",
+   "run": ".venv/bin/pytest tests/test_grant_customer_confirm.py::test_kind_with_another_customer_refuses_in_one_line_and_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "n20-grant-customer-confirm-4",
+   "phase": "n20-grant-customer-confirm",
+   "name": "a project without a customer is granted as before",
+   "run": ".venv/bin/pytest tests/test_grant_customer_confirm.py::test_a_project_without_a_customer_is_granted_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "n20-grant-customer-confirm-5",
+   "phase": "n20-grant-customer-confirm",
+   "name": "start grants with the code it registered",
+   "run": ".venv/bin/pytest tests/test_grant_customer_confirm.py::test_start_grants_with_the_code_it_registered",
+   "status": "passing"
   }
  ],
- "total_tests": 1185,
+ "total_tests": 1190,
  "checked": "2026-10-17"
 }
