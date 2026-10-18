@@ -399,6 +399,7 @@ egress_checks
 # --------------------------------------------------------------------------- the build side (presentations/self-build)
 
 BUILD_USER=awb-build
+EXTRACT_USER=awb-extract
 BUILD_IMAGE=/var/lib/awb-build.img
 BUILD_SIZE_GB=20
 BUILD_CLIENT=/opt/claude-build
@@ -493,6 +494,7 @@ build_dry() {
         "the probe unit cannot list the work user's home" "the probe unit cannot read the host file" \
         "the probe unit cannot connect to the check socket" \
         "the probe unit sees an empty /dev/shm of at most 64 MB and no /dev/mqueue"
+    extract_checks
     net_probe
 }
 
@@ -685,7 +687,33 @@ build_checks() {
     else
         allowed "$what" probe sh -c '[ -z "$(ls -A /dev/shm)" ] && [ "$(df -k --output=size /dev/shm | tail -n 1)" -le 65536 ] && ! ls /dev/mqueue >/dev/null 2>&1'
     fi
+    extract_checks
     net_probe
+}
+
+extract_checks() {
+    # the pdf extraction: the unit of the throwaway user runs pdftotext on a one page pdf made by reportlab (test extras)
+    local pdf py="$OPT/venv/bin/python3" out=1 text
+    if [ "$dry_run" -eq 1 ]; then
+        printf 'CHECK %s\n' "the unit of $EXTRACT_USER runs pdftotext on a one page pdf made by reportlab"
+        return 0
+    fi
+    if ! getent passwd "$EXTRACT_USER" >/dev/null || ! grep -Eq "^[[:space:]]*extract_user[[:space:]]*=[[:space:]]*$EXTRACT_USER[[:space:]]*$" "$CONF_FILE"; then
+        printf 'SKIP  the host file names no extract user, the pdf tools run direct\n'
+        return 0
+    fi
+    pdf=$(mktemp)
+    if "$py" -c 'import sys; from reportlab.pdfgen import canvas
+c = canvas.Canvas(sys.argv[1]); c.drawString(72, 720, "extract probe line"); c.save()' "$pdf" 2>/dev/null; then
+        text=$(runuser -u "$owner" -- sudo -n systemd-run --quiet --wait --pipe --collect \
+            --uid="$EXTRACT_USER" --gid="$EXTRACT_USER" --property=PrivateNetwork=yes \
+            --property=ProtectSystem=strict --property=ProtectHome=yes --property=PrivateTmp=yes \
+            --property=NoNewPrivileges=yes --property=MemoryMax=512M --property=RuntimeMaxSec=120 \
+            -- "$(command -v pdftotext)" -layout -enc UTF-8 - - < "$pdf" 2>/dev/null) || text=""
+        case "$text" in *"extract probe line"*) out=0 ;; esac
+    fi
+    rm -f -- "$pdf"
+    report "$out" "the unit of $EXTRACT_USER runs pdftotext on a one page pdf made by reportlab"
 }
 
 build_checks

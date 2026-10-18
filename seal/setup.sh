@@ -71,6 +71,8 @@ MANAGED_FILE=/etc/claude-code/managed-settings.d/awb-workbench.json
 CLIENT_FILES="settings.json CLAUDE.md skills/drafting/SKILL.md"
 FORBIDDEN_GROUPS=(ubuntu docker adm sudo lxd)
 BUILD_USER=awb-build
+EXTRACT_USER=awb-extract
+EXTRACT_SUDOERS=/etc/sudoers.d/awb-extract
 BUILD_ROOT=/srv/awb-build             # awb/config.py BUILD_ROOT holds the same path
 BUILD_IMAGE=/var/lib/awb-build.img
 BUILD_SIZE_GB=20                      # D-S17
@@ -479,6 +481,40 @@ step_users() {
     fi
 }
 
+step_extract_user() {
+    local uid tool path line=""
+    info "the throwaway user $EXTRACT_USER of the pdf extraction: a system user with no home and no login shell, in its"
+    info "own group alone; the owner's uid may start the one fixed systemd-run form of awb/extract/pdf.py as root"
+    if getent passwd "$EXTRACT_USER" >/dev/null; then
+        skip "the user exists" useradd --system --user-group --no-create-home -d /nonexistent \
+            --shell /usr/sbin/nologin "$EXTRACT_USER"
+    else
+        run useradd --system --user-group --no-create-home -d /nonexistent --shell /usr/sbin/nologin \
+            --comment "Architect Workbench pdf extraction" "$EXTRACT_USER"
+    fi
+    uid=$(id -u "$owner" 2>/dev/null || echo 0)
+    for tool in pdftotext pdfinfo; do
+        path=$(command -v "$tool" || true)
+        [ -z "$path" ] || line="$line${line:+, }$path *"
+    done
+    if [ -z "$line" ]; then
+        info "poppler is not installed: no sudoers line for the extraction"
+        return 0
+    fi
+    write_file "$EXTRACT_SUDOERS" 440 root:root <<EOF
+# Architect Workbench: the owner may run the pdf tools in a transient unit of $EXTRACT_USER, in this form only
+#$uid ALL=(root) NOPASSWD: $(extract_prefix) -- $line
+EOF
+    [ "$dry_run" -eq 1 ] || run visudo -cf "$EXTRACT_SUDOERS"
+}
+
+extract_prefix() {
+    # the fixed argument list of awb/extract/pdf.py (UnitRunner.argv) up to the tool
+    printf '/usr/bin/systemd-run --quiet --wait --pipe --collect --uid=%s --gid=%s' "$EXTRACT_USER" "$EXTRACT_USER"
+    printf ' --property=%s' PrivateNetwork=yes ProtectSystem=strict ProtectHome=yes PrivateTmp=yes \
+        NoNewPrivileges=yes MemoryMax=512M RuntimeMaxSec=120
+}
+
 step_homes() {
     info "home modes: the work user cannot enter the owner's home"
     run chmod 750 "$owner_home"
@@ -734,13 +770,18 @@ build_model_mode() {
 }
 
 step_conf() {
-    local web_keys owner_host recheck_tenant
+    local web_keys owner_host recheck_tenant extract_conf
     info "the host file of the Workbench paths: /etc/awb root:awb 751 (a user outside the group may reach a file it"
     info "owns there, awb-owner its secret, and lists nothing), paths.conf and blocklist.txt 640 root:awb"
     run mkdir -p "$CONF_DIR"
     run chown root:"$WORK_GROUP" "$CONF_DIR"
     run chmod 751 "$CONF_DIR"
     owner_host=$(kept_conf owner_host "")
+    if getent passwd "$EXTRACT_USER" >/dev/null; then
+        extract_conf=$(kept_conf extract_user "$EXTRACT_USER")
+    else
+        extract_conf=$(kept_conf extract_user "")
+    fi
     web_keys="front_socket = $(kept_conf front_socket /run/awb-web/front.sock)
 cloudflared_user = $(kept_conf cloudflared_user cloudflared)"
     [ -z "$owner_host" ] || web_keys="$web_keys
@@ -761,6 +802,7 @@ check_socket = $CHECK_SOCKET
 mirrors = $MIRROR_ROOT
 egress = $(kept_conf egress count)
 build_user = $BUILD_USER
+extract_user = $extract_conf
 build_root = $BUILD_ROOT
 build_model = $build_model
 build_model_key = $BUILD_MODEL_KEY
@@ -1567,6 +1609,7 @@ steps() {
         return 0
     fi
     step_users
+    step_extract_user
     step_homes
     step_moves
     step_code
