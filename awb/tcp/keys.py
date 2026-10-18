@@ -871,6 +871,10 @@ class Service:
                 raise Refused("the exchange buckets are reached through awb xchg only")
             if method in WRITE_METHODS and not bucket.startswith(project + "-"):
                 raise Refused("an OBS write reaches only a bucket named after the project (%s-...)" % project)
+            if method not in WRITE_METHODS and self._session_read(uid) and not self._obs_read_ok(
+                    bucket, path[1:].partition("/")[2], req.get("query"), project):
+                # K1: a session reads its own project's buckets, the bucket list (the sweep) and the tags of a bucket
+                raise Refused("an OBS read reaches only a bucket named after the project (%s-...)" % project)
         query = req.get("query") or {}
         if not isinstance(query, dict) or not all(isinstance(k, str) and isinstance(v, (str, list))
                                                   for k, v in query.items()):
@@ -891,6 +895,20 @@ class Service:
             answer = {"ok": True, "status": err.status or 0, "data": None, "text": str(err)}
         self._log(uid, alias, role, method, service, region, answer["status"], project)
         return self._mask(answer, tenant, drawn)
+
+    def _session_read(self, uid: int) -> bool:
+        """True for a call of a session (the work user), false for the owner's own and the console's."""
+        return uid != os.getuid() and uid != self._console_uid()
+
+    @staticmethod
+    def _obs_read_ok(bucket: str, key: str, query, project) -> bool:
+        """The OBS reads of a session: the list of the buckets, the tags of any bucket (what the sweep asks) and
+        anything in a bucket named after its project. The exchange buckets are refused before this."""
+        if bucket == "":
+            return True
+        if isinstance(query, dict) and list(query) == ["tagging"] and not key:
+            return True
+        return isinstance(project, str) and bool(_PROJECT_RE.match(project)) and bucket.startswith(project + "-")
 
     def exchange_buckets(self) -> list[str]:
         """The lab bucket and the owner bucket of keys.conf (or their defaults): a leased key never reaches them."""
