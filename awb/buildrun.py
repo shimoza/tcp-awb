@@ -690,6 +690,9 @@ class Runner:
         word = push_main(h, h.register)
         if word == "pushed":
             return self.finish(ctx, "done")
+        if word == "waiting":
+            _write(ctx.folder / "waits", "%d\n" % waiting_commits(h))
+            return self.finish(ctx, "held: push pending")
         if word == "pending":
             return self.finish(ctx, "held: push pending")
         return self.finish(ctx, "held: push refused")
@@ -831,10 +834,26 @@ def _key(host: Host) -> bytes | None:
     return data if data and b"\n" not in data else None
 
 
+def _deployed_target(host: Host) -> str | None:
+    data = _json(_read_any(host.deployed))
+    target = data.get("target") if isinstance(data, dict) else None
+    return target if isinstance(target, str) and SHA_RE.fullmatch(target) else None
+
+
+def waiting_commits(host: Host) -> int:
+    """How many commits of main in main.git the deployed commit does not hold yet (0 when either is unknown)."""
+    target, main = _deployed_target(host), rev(host, "refs/heads/main")
+    if target is None or main is None:
+        return 0
+    r = git(host, "rev-list", "--count", "%s..%s" % (target, main), check=False)
+    return int(r.stdout.decode("ascii").strip() or 0) if r.returncode == 0 else 0
+
+
 def push_main(host: Host, register: Path | None) -> str:
     """main of main.git to origin main (D-S2): fetch origin, refuse a main that does not descend from it, the gate
     with the register over origin/main..main, `git push origin main:main` without --force. pushed, pending (the name
-    check cannot run) or refused."""
+    check cannot run), waiting (deployed mode: main is ahead of the deployed commit, the rest waits for the deploy)
+    or refused. In deployed mode the top of the push is the commit of the DEPLOYED journal, never main."""
     from awb import register as reg
 
     if git(host, "fetch", "--quiet", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main", check=False,
@@ -844,9 +863,18 @@ def push_main(host: Host, register: Path | None) -> str:
     main = rev(host, "refs/heads/main")
     if main is None or remote is None or not is_ancestor(host, remote, main):
         return "refused"
-    commits = git(host, "rev-list", "--reverse", "%s..%s" % (remote, main)).stdout.decode("ascii").split()
+    top = main
+    if host.push_deployed:
+        top = _deployed_target(host)
+        if top is None or rev(host, top) is None or not is_ancestor(host, top, main):
+            _log("push: the deployed commit is no ancestor of main, nothing pushed")
+            return "refused"
+        if not is_ancestor(host, remote, top):
+            # origin is already past the deployed commit: nothing to push until the next deploy
+            return "pushed" if remote == main else "waiting"
+    commits = git(host, "rev-list", "--reverse", "%s..%s" % (remote, top)).stdout.decode("ascii").split()
     if not commits:
-        return "pushed"
+        return "pushed" if top == main else "waiting"
     if oversized(host, commits):
         return "refused"
     try:
@@ -855,9 +883,11 @@ def push_main(host: Host, register: Path | None) -> str:
         return "pending"
     if found:
         return "refused"
-    r = git(host, "push", "--quiet", "origin", "refs/heads/main:refs/heads/main", check=False, net=True,
-            timeout=300)
-    return "pushed" if r.returncode == 0 else "refused"
+    spec = "refs/heads/main:refs/heads/main" if top == main else "%s:refs/heads/main" % top
+    r = git(host, "push", "--quiet", "origin", spec, check=False, net=True, timeout=300)
+    if r.returncode != 0:
+        return "refused"
+    return "pushed" if top == main else "waiting"
 
 
 # --------------------------------------------------------------------------- what he reads

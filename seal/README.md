@@ -254,7 +254,7 @@ most 64 MB and no `/dev/mqueue`. A probe of that unit counts only after the unit
   no ACL tools.
 - `tcp-shared/build` (the work user's, group `awb`, 3770): the runner writes `state.tsv` there for the board.
 - The host file gets `build_model` (login unless he wrote key), `build_model_key`, `build_model_key_source` and
-  `build_push` (yes unless he wrote no: the runner pushes a green `main` to GitHub, D-S2).
+  `build_push` (yes unless he wrote no or deployed: the runner pushes a green `main` to GitHub, D-S2; `deployed` pushes only up to the commit `/opt/tcp-awb/DEPLOYED` names as live; the update keeps the value).
 
 `verify.sh` also names the build model in one line (with `login`: whether a login is there, by its presence only;
 with `key`: the copy of the key, the owner's, 400, the same bytes as its source), checks the board's folder and
