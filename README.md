@@ -411,6 +411,8 @@ name or mail: a dotted reference in code is not a web address. The session delet
 `awb xchg clean CODE --dry-run|--go` (`--older-than DATE` for older date folders), each deletion a row in RESOURCES.md. The key service signs every object call
 and refuses everything outside the inbox and the project's own folders, and every put outside from-session/.
 
+With `extract_user` in `/etc/awb/paths.conf` (`seal/setup.sh` writes `awb-extract`, a user with no home and no login) every poppler call of the pdf reader runs in a `sudo -n systemd-run` unit of that user with no network, a read-only system, no home, 512M and 120 seconds, the file on standard input and the text from standard output. The import report and the intake counts say `extractor: unit` or `extractor: direct`, a unit that fails fails that file and is never run direct, and embedded files of a pdf are not read in a unit.
+
 ## The knowledge as a dataset
 
 The knowledge base of TCP facts is not part of this repository. It leaves as the dataset "TCP Facts", built in one
