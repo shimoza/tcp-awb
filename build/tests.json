@@ -8175,8 +8175,120 @@
    "name": "the two-file form still works",
    "run": ".venv/bin/pytest tests/test_voice_learn_owner.py::test_the_two_file_form_still_works",
    "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-1",
+   "phase": "n13-recipes-five",
+   "name": "the five recipes are valid fit the guard and the readme lists them",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_the_five_recipes_are_valid_fit_the_guard_and_the_readme_lists_them",
+   "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-2",
+   "phase": "n13-recipes-five",
+   "name": "the defaults of the five recipes are the sizes of the task",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_the_defaults_of_the_five_recipes_are_the_sizes_of_the_task",
+   "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-3",
+   "phase": "n13-recipes-five",
+   "name": "a value outside the pattern is refused before any call",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_a_value_outside_the_pattern_is_refused_before_any_call",
+   "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-4",
+   "phase": "n13-recipes-five",
+   "name": "the dry run of each recipe makes no call and shows every create",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_the_dry_run_of_each_recipe_makes_no_call_and_shows_every_create",
+   "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-5",
+   "phase": "n13-recipes-five",
+   "name": "the eip recipe raises the bandwidth reads it back and releases the eip",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_the_eip_recipe_raises_the_bandwidth_reads_it_back_and_releases_the_eip",
+   "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-6",
+   "phase": "n13-recipes-five",
+   "name": "a bandwidth that stays at five fails the check and the eip is still released",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_a_bandwidth_that_stays_at_five_fails_the_check_and_the_eip_is_still_released",
+   "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-7",
+   "phase": "n13-recipes-five",
+   "name": "the evs recipe makes a disk a snapshot and a disk from it and tears all three down",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_the_evs_recipe_makes_a_disk_a_snapshot_and_a_disk_from_it_and_tears_all_three_down",
+   "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-8",
+   "phase": "n13-recipes-five",
+   "name": "a sold out disk type stops the evs recipe before any create",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_a_sold_out_disk_type_stops_the_evs_recipe_before_any_create",
+   "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-9",
+   "phase": "n13-recipes-five",
+   "name": "the nat recipe builds the rule reads it and tears down in reverse",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_the_nat_recipe_builds_the_rule_reads_it_and_tears_down_in_reverse",
+   "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-10",
+   "phase": "n13-recipes-five",
+   "name": "a lost create answer on the nat gateway is found by name and torn down",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_a_lost_create_answer_on_the_nat_gateway_is_found_by_name_and_torn_down",
+   "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-11",
+   "phase": "n13-recipes-five",
+   "name": "a lost create answer that made nothing is not created and the rest is torn down",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_a_lost_create_answer_that_made_nothing_is_not_created_and_the_rest_is_torn_down",
+   "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-12",
+   "phase": "n13-recipes-five",
+   "name": "the obs recipe makes a bucket a rule reads it and removes the bucket",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_the_obs_recipe_makes_a_bucket_a_rule_reads_it_and_removes_the_bucket",
+   "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-13",
+   "phase": "n13-recipes-five",
+   "name": "a refused lifecycle rule stops the run and the bucket still goes",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_a_refused_lifecycle_rule_stops_the_run_and_the_bucket_still_goes",
+   "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-14",
+   "phase": "n13-recipes-five",
+   "name": "the dns recipe binds a zone adds a record reads it and tears down",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_the_dns_recipe_binds_a_zone_adds_a_record_reads_it_and_tears_down",
+   "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-15",
+   "phase": "n13-recipes-five",
+   "name": "a record that reads another address fails the check and zone and vpc still go",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_a_record_that_reads_another_address_fails_the_check_and_zone_and_vpc_still_go",
+   "status": "passing"
+  },
+  {
+   "id": "n13-recipes-five-16",
+   "phase": "n13-recipes-five",
+   "name": "every create of the five carries the project code and the tags the lab writes",
+   "run": ".venv/bin/pytest tests/test_lab_five.py::test_every_create_of_the_five_carries_the_project_code_and_the_tags_the_lab_writes",
+   "status": "passing"
   }
  ],
- "total_tests": 1168,
+ "total_tests": 1184,
  "checked": "2026-10-17"
 }
