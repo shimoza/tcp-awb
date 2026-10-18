@@ -8287,8 +8287,43 @@
    "name": "every create of the five carries the project code and the tags the lab writes",
    "run": ".venv/bin/pytest tests/test_lab_five.py::test_every_create_of_the_five_carries_the_project_code_and_the_tags_the_lab_writes",
    "status": "passing"
+  },
+  {
+   "id": "n19-dataset-signing-1",
+   "phase": "n19-dataset-signing",
+   "name": "a signed put tags with -s and the key and signs the sums file",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_a_signed_put_tags_with_s_and_the_key_and_signs_the_sums_file",
+   "status": "passing"
+  },
+  {
+   "id": "n19-dataset-signing-2",
+   "phase": "n19-dataset-signing",
+   "name": "the sums file lists every asset with its sum and the sig is uploaded",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_the_sums_file_lists_every_asset_with_its_sum_and_the_sig_is_uploaded",
+   "status": "passing"
+  },
+  {
+   "id": "n19-dataset-signing-3",
+   "phase": "n19-dataset-signing",
+   "name": "the how-to, the README and the release notes carry the verify block",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_the_how_to_the_readme_and_the_release_notes_carry_the_verify_block",
+   "status": "passing"
+  },
+  {
+   "id": "n19-dataset-signing-4",
+   "phase": "n19-dataset-signing",
+   "name": "a put with signing and no key path is refused",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_a_put_with_signing_and_no_key_path_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "n19-dataset-signing-5",
+   "phase": "n19-dataset-signing",
+   "name": "without the setting nothing of the signing runs",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_without_the_setting_nothing_of_the_signing_runs",
+   "status": "passing"
   }
  ],
- "total_tests": 1184,
+ "total_tests": 1189,
  "checked": "2026-10-17"
 }

@@ -512,6 +512,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Security
 
+- `awb dataset put` signs the release when the host file says `dataset_sign = yes` with `dataset_sign_key`: a signed tag (`git tag -s`, ssh format), `SHA256SUMS` and `SHA256SUMS.sig` as release assets, and a "check a download" block in the how-to, the README and the release notes (task n19).
+
 - Four findings of the attacker review of 2026-10-16 of the fact-check service are closed (R3, R4, R5, R7). The recheck
   run never raises a grade: `write_back` passes the entry's own grade to `kb.recheck` and `pick` lists an entry whose
   grade is not live under "for the owner" instead of checking it, so a planted statement of the grade said with a
