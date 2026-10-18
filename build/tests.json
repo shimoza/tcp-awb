@@ -8287,8 +8287,15 @@
    "name": "every create of the five carries the project code and the tags the lab writes",
    "run": ".venv/bin/pytest tests/test_lab_five.py::test_every_create_of_the_five_carries_the_project_code_and_the_tags_the_lab_writes",
    "status": "passing"
+  },
+  {
+   "id": "web-status-after-portal-1",
+   "phase": "web-status-after-portal",
+   "name": "web status prints one health line from the status socket and HEALTH_PORT is gone",
+   "run": ".venv/bin/pytest tests/test_web_publish.py::test_status_health_line_comes_from_the_status_socket",
+   "status": "passing"
   }
  ],
- "total_tests": 1184,
+ "total_tests": 1185,
  "checked": "2026-10-17"
 }
