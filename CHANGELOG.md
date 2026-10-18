@@ -5,6 +5,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ## Week 42, 2026-10-12 to 2026-10-18 (in progress)
 
+### Changed
+
+- `awb web status` reads its health line from the gateway's status socket (`ok`, or `not installed` when there is no gateway) and no longer asks the removed portal on port 8180; `HEALTH_PORT` is gone (branch web-status-after-portal).
+
 ### Added
 
 - Five lab recipes, tested on fake answers only (task n13): `eip-bandwidth-adjust`, `evs-snapshot-restore`, `nat-snat-egress`, `obs-lifecycle-rule` and `dns-private-zone`. Shapes the repository did not call before are marked to confirm live in the recipe notes and in `recipes/README.md`.

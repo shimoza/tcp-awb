@@ -215,7 +215,17 @@ def test_status_names_the_page_and_the_last_backup(web, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "page: %d bytes" % len(_page("new")) in out
     assert "last backup: index.html.before-ui-20261007-011" in out
-    assert "gateway: not installed" in out and "health: no answer" in out
+    assert "gateway: not installed" in out and "health: not installed" in out
+
+
+def test_status_health_line_comes_from_the_status_socket(web, monkeypatch, capsys):
+    monkeypatch.setattr(publish, "_domain", lambda unit: "site.example.com")
+    monkeypatch.setattr(publish, "signin_lines", lambda *a, **k: [])
+    assert not hasattr(publish, "HEALTH_PORT")
+    for answer, line in (("200 {\"status\":\"ok\"}", "health: ok"), ("no answer", "health: no answer")):
+        monkeypatch.setattr(publish, "_ask_socket", lambda path, answer=answer: answer)
+        assert publish.main(["status"]) == 0
+        assert line in capsys.readouterr().out
 
 
 # --------------------------------------------------------------------------- T9 step 3: Publish from the owner host

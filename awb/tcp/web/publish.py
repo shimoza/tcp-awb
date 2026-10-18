@@ -24,7 +24,7 @@ connection on the socket systemd hands over, reads one run id from it, publishes
 /etc/awb/paths.conf (in place of SUDO_USER) and answers one line, `published BACKUP` or `refused REASON`.
 
 `--rollback` installs a backup back (the newest without NAME); the page it replaces is kept as a backup too.
-`status` prints the size and time of the page, the last backup and the answers of the gateway and of /health, and
+`status` prints the size and time of the page, the last backup and the answers of the gateway and its health (ok, or not installed), and
 from the sign-in log the attempts of the last day by result and every login that waits (the log belongs to the
 gateway: under sudo, or AWB_WEB_SIGNIN_LOG for another file).
 
@@ -63,7 +63,6 @@ SOURCE = Path("Documents/Codex/2026-10-01/new-chat/outputs/architect-workbench.h
 CANDIDATE = "workspace/architect-workbench.html"                                # in the run folder
 GATEWAY_UNIT = Path("/etc/systemd/system/awb-web.service")
 STATUS_SOCKET = "/run/awb-web-status.sock"
-HEALTH_PORT = 8180
 HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$")
 SIGNIN_LOG = Path("/var/lib/awb-web/signin.log")
 PUBLISH_STATE = Path("/var/lib/awb-web-publish")
@@ -546,7 +545,7 @@ def _status(a, host: Host) -> int:
     domain = _domain(GATEWAY_UNIT)
     gw = _ask_socket(host.environ.get("AWB_WEB_STATUS_SOCKET") or STATUS_SOCKET) if domain else "not installed"
     _say("gateway: %s" % gw)
-    _say("health: %s" % _ask("http://127.0.0.1:%d/health" % HEALTH_PORT))
+    _say("health: %s" % ("not installed" if not domain else "ok" if gw.startswith("200") else gw))
     for line in signin_lines(Path(host.environ.get("AWB_WEB_SIGNIN_LOG") or SIGNIN_LOG)):
         _say(line)
     return 0
