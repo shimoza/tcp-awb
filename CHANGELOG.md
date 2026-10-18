@@ -528,6 +528,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 - A lab write allow list (gap G4 of the threat model F2, task n17): with `lab_writes = <service>:<path-prefix>[,...]` in `keys.conf` the key service signs a write of the lab role only when its service and path match one pair by prefix, else it refuses with one fixed line that names the service and never the path. The line is checked at the unlock (lower case service, `iam` never, a path that starts with `/` and has no `..`), `awb keys unlock` prints the count of pairs and `awb keys lab-writes --from-recipes` prints the line for every write of the recipes and of the recheck watch. Without the line nothing changes.
 
+- The egress filter gets a second, counting chain for the Ask uid (task n16-egress-ask) in a table of its own (`inet awb_egress_ask`, `seal/egress/ask-egress.nft`) with a list of its own in `seal/egress/ALLOW.md` (the model endpoint and the price host) and a verdict word of its own, `ask_mode` of the host file (count by default). Everything else the Ask uid sends is counted under `ask_dns`, `ask_web` and `ask_other` and refused only in the mode enforce, set with `sudo awb egress --ask-mode enforce`. `awb egress status` and `awb egress count` print its counts as a block of their own. The work user's table and chain are unchanged.
+
 - Four findings of the attacker review of 2026-10-16 of the fact-check service are closed (R3, R4, R5, R7). The recheck
   run never raises a grade: `write_back` passes the entry's own grade to `kb.recheck` and `pick` lists an entry whose
   grade is not live under "for the owner" instead of checking it, so a planted statement of the grade said with a

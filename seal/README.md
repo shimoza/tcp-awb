@@ -31,8 +31,8 @@ The seal keeps the register of names away from every working session. It uses tw
   `web/`.
 - `awb-egress.service`, `awb-egress.timer`: the egress filter of the work user (section "The egress filter"). Root
   runs `awb egress load` at boot, before the logins and the units of the work user, and every 5 minutes.
-- `egress/ALLOW.md`, `egress/work-egress.nft`: the allow list with the reason per destination and how it was
-  measured, and the nftables template of the filter.
+- `egress/ALLOW.md`, `egress/work-egress.nft`, `egress/ask-egress.nft`: the allow list with the reason per destination and how it was
+  measured, and the nftables templates of the filter (the work user and the Ask uid, two tables).
 - `needrestart-awb.conf`: goes to `/etc/needrestart/conf.d/awb.conf`, so that a package upgrade never restarts
   the vault daemon or the key service: a restart locks them and the console loses projects and chat.
 - The package holds (T9 step 4, RT-26): `apt-mark hold cloudflared terraform`, so the routine upgrade leaves the

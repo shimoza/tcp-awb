@@ -6,6 +6,7 @@
                                                   its timer every 5 minutes)
     sudo awb egress enforce [--accept CLASS]...   the owner with sudo: refused unless 24 hours of counts allow it
     sudo awb egress count                         the owner with sudo: back to counting
+    sudo awb egress --ask-mode count|enforce      the owner with sudo: the verdict of the Ask uid's chain alone
 
 The table `inet awb_egress` (seal/egress/work-egress.nft) sends every packet of the work user's uid (work_user of
 /etc/awb/paths.conf) through a chain of its own; every other uid passes the base chain untouched: the key service,
@@ -17,6 +18,17 @@ mode count or refused in the mode enforce. An established connection passes only
 passes uncounted in the mode count and is refused in the mode enforce: a connection opened outside the list in the
 mode count and an inbound connection to a listener of the work user never pass in enforce. The switch to enforce
 also deletes the conntrack entries marked MARK_OTHER when conntrack is installed (forget).
+
+A second table, `inet awb_egress_ask` (seal/egress/ask-egress.nft), has a base chain of its own that sends the uid of
+the Ask user (ask_user of /etc/awb/paths.conf, awb-ask without the line) and no other into the chain ask. The table
+of the work user is not touched by it, so the work chain and its jump stay as they were. It is loaded, refreshed and
+recorded by `awb egress load` when the host file carries an `ask_mode` line (seal/setup.sh writes it). It has a list of its own (the rows of the set ask of ALLOW.md: the model endpoint
+and the price host; an address of the work user's list does not pass in it), lets loopback through (the host's
+resolver 127.0.0.53 and so the DNS of the Ask page), counts every other new connection in the counters ask_dns,
+ask_web and ask_other and accepts it in the mode count or refuses it in the mode enforce. Its mode is the line
+`ask_mode = count|enforce` of the same file (count without the line), set with `sudo awb egress --ask-mode MODE`. The
+mode of the work user does not depend on it. The counts of the Ask uid are recorded in history-ask.tsv, are shown as a
+block of their own and never stop `enforce` of the work user.
 
 The mode is the line `egress = count|enforce` of /etc/awb/paths.conf, read from that root file alone and never from
 AWB_CONF; without the line it is count. Another word or a second line is no mode: load refuses and the loaded table
@@ -69,6 +81,17 @@ COUNTER_PREFIX = "c_"
 """A named counter of the table is the class with this prefix (c_web): a bare icmp is a keyword of nft."""
 ALLOWED = "allowed"
 """The counter of the new connections to the allow list: shown, never a class."""
+ASK_CLASSES = ("dns", "web", "other")
+"""The classes of a connection of the Ask uid outside its list, in the order of the rules of the chain ask."""
+ASK_PREFIX = "ask_"
+"""A named counter of the chain ask is ASK_PREFIX and the class (ask_dns) or ASK_PREFIX + ALLOWED."""
+ASK_SET = "ask"
+ASK_TABLE = "awb_egress_ask"
+ASK_TEMPLATE = "ask-egress.nft"
+ASK_HISTORY = "history-ask.tsv"
+DEFAULT_ASK_USER = "awb-ask"
+ASK_NAMES = tuple(ASK_PREFIX + c for c in ASK_CLASSES + (ALLOWED,))
+"""The counters of the chain ask as the Ask history and the status name them (ask_dns, ..., ask_allowed)."""
 WATCH = ("tcp_api", "github")
 """Classes ALLOW.md fills by address: counted, never allowed."""
 SETS = ("allow",) + WATCH
@@ -82,6 +105,10 @@ MARK_ALLOWED = 0xa0b001
 """The conntrack mark of a connection the allow rules accepted: its established packets pass in both modes."""
 MARK_OTHER = 0xa0b002
 """The conntrack mark of a connection of the work user that went through the chain refused."""
+MARK_ASK_ALLOWED = 0xa0b003
+"""The conntrack mark of a connection of the Ask uid the chain ask accepted from its list."""
+MARK_ASK_OTHER = 0xa0b004
+"""The conntrack mark of a connection of the Ask uid that went through the chain ask_refused."""
 WINDOW = 24 * 3600
 MAX_GAP = 30 * 60
 STALE = 15 * 60
@@ -94,6 +121,7 @@ VERDICTS = {
 }
 
 _EGRESS_RE = re.compile(r"^[ \t]*egress[ \t]*=[ \t]*(.*?)[ \t]*$")
+_ASK_MODE_RE = re.compile(r"^[ \t]*ask_mode[ \t]*=[ \t]*(.*?)[ \t]*$")
 _USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 _HOST_RE = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 _ROW_RE = re.compile(r"^\|\s*`([^`\s]+)`\s*\|\s*`(tcp 443|any)`\s*\|\s*`([a-z_]+)`\s*\|")
@@ -150,18 +178,20 @@ def _read(path: Path) -> str | None:
         return None
 
 
-def parse_mode(text: str | None) -> tuple[str | None, str]:
+def parse_mode(text: str | None, key: str = "egress") -> tuple[str | None, str]:
     """(mode, note) of the text of a host file: count without a file or without the line; (None, why) for another
-    word or a second line."""
+    word or a second line. `key` is egress (the work user) or ask_mode (the Ask uid)."""
+    pattern = _ASK_MODE_RE if key == "ask_mode" else _EGRESS_RE
+    name = "ask_mode" if key == "ask_mode" else "egress"
     if text is None:
         return DEFAULT_MODE, "no host file"
-    found = [m.group(1) for m in map(_EGRESS_RE.match, text.splitlines()) if m]
+    found = [m.group(1) for m in map(pattern.match, text.splitlines()) if m]
     if not found:
-        return DEFAULT_MODE, "no egress line, the default"
+        return DEFAULT_MODE, "no %s line, the default" % name
     if len(found) > 1:
-        return None, "two egress lines"
+        return None, "two %s lines" % name
     if found[0] not in MODES:
-        return None, "an egress line that is neither count nor enforce"
+        return None, "an %s line that is neither count nor enforce" % name
     return found[0], ""
 
 
@@ -200,16 +230,18 @@ def _atomic_write(path: Path, text: str, host: Host, mode_bits: int = 0o644, gid
         raise
 
 
-def write_mode(host: Host, new: str) -> None:
-    """Put `egress = NEW` into the root host file in place of any egress line, atomically; every other line stays."""
+def write_mode(host: Host, new: str, key: str = "egress") -> None:
+    """Put `egress = NEW` (or `ask_mode = NEW`) into the root host file in place of any such line, atomically; every
+    other line stays."""
     if new not in MODES:
         raise EgressError("the mode is count or enforce")
+    pattern = _ASK_MODE_RE if key == "ask_mode" else _EGRESS_RE
     path = host.conf_path
     text = _read(path)
     if text is None:
         raise EgressError("the host file cannot be read: run seal/setup.sh first")
-    lines = [line for line in text.splitlines() if not _EGRESS_RE.match(line)]
-    lines.append("egress = %s" % new)
+    lines = [line for line in text.splitlines() if not pattern.match(line)]
+    lines.append("%s = %s" % ("ask_mode" if key == "ask_mode" else "egress", new))
     # the host file keeps its mode, never a group or other write bit, and its group (640 root:awb since SB1 of the
     # self-build, closed to other users)
     st = path.stat()
@@ -233,8 +265,8 @@ def _network(text: str):
         return None
 
 
-def read_allow(text: str) -> list[Entry]:
-    """The machine rows of ALLOW.md: a table row whose first three cells are in backticks (destination, `tcp 443`
+def _rows(text: str) -> list[Entry]:
+    """Every machine row of ALLOW.md: a table row whose first three cells are in backticks (destination, `tcp 443`
     or `any`, set). Every other line is prose. A row that names an unknown set, an allowed row on another port or a
     destination that is neither a host name nor a network stops the load."""
     out: list[Entry] = []
@@ -243,16 +275,28 @@ def read_allow(text: str) -> list[Entry]:
         if not m:
             continue
         dest, port, kind = m.groups()
-        if kind not in SETS:
-            raise EgressError("ALLOW.md: a row names a set other than %s" % ", ".join(SETS))
-        if (kind == "allow") != (port == "tcp 443"):
+        if kind not in SETS + (ASK_SET,):
+            raise EgressError("ALLOW.md: a row names a set other than %s" % ", ".join(SETS + (ASK_SET,)))
+        if (kind in ("allow", ASK_SET)) != (port == "tcp 443"):
             raise EgressError("ALLOW.md: an allowed row is tcp 443, a watched row is any")
         if not (_HOST_RE.match(dest) or _network(dest)):
             raise EgressError("ALLOW.md: a row names neither a host name nor a network")
         out.append(Entry(dest, port, kind))
+    return out
+
+
+def read_allow(text: str) -> list[Entry]:
+    """The rows of the work user's lists: the allowed rows and the watched rows. The rows of the Ask uid
+    (read_ask) are not among them."""
+    out = [e for e in _rows(text) if e.set != ASK_SET]
     if not any(e.set == "allow" for e in out):
         raise EgressError("ALLOW.md lists no allowed host")
     return out
+
+
+def read_ask(text: str) -> list[Entry]:
+    """The rows of the set ask: what the Ask uid may reach on tcp 443, a list of its own."""
+    return [e for e in _rows(text) if e.set == ASK_SET]
 
 
 def _resolve(name: str) -> list[str]:
@@ -341,6 +385,43 @@ def render(template: str, work_user: str, mode_word: str, elements: dict[str, li
     return "\n".join([rules] + element_lines(elements)) + "\n"
 
 
+def render_ask_rules(template: str, ask_user: str, ask_mode: str) -> str:
+    """The template of the Ask table with the Ask user and the verdict of its mode; refused when a placeholder
+    stays or the name is no user name."""
+    if ask_mode not in MODES:
+        raise EgressError("the mode is count or enforce")
+    if not _USER_RE.match(ask_user or ""):
+        raise EgressError("the Ask user is no user name")
+    text = template.replace("@ASK_USER@", ask_user).replace("@ASK_VERDICT@", VERDICTS[ask_mode])
+    if re.search(r"@[A-Z_]+@", text):
+        raise EgressError("the template of the Ask table keeps a placeholder after rendering")
+    return text
+
+
+def ask_elements(entries: list[Entry], cache: dict) -> dict[str, list[str]]:
+    """{"ask4": [...], "ask6": [...]}: the addresses the hosts of the set ask resolved to, collapsed."""
+    nets: dict[str, list] = {"ask4": [], "ask6": []}
+    for e in entries:
+        for n in [_network(a) for a in (cache.get(e.dest) or {})] if _network(e.dest) is None else [_network(e.dest)]:
+            if n is not None:
+                nets["ask%d" % n.version].append(n)
+    return {k: [_plain(n) for n in ipaddress.collapse_addresses(v)] if v else [] for k, v in nets.items()}
+
+
+def render_ask(template: str, ask_user: str, ask_mode: str, elements: dict[str, list[str]]) -> str:
+    """The whole file `nft -f` loads for the Ask table: the table, then its addresses."""
+    lines = ["add element inet %s %s { %s }" % (ASK_TABLE, name, ", ".join(values))
+             for name, values in sorted(elements.items()) if values]
+    return "\n".join([render_ask_rules(template, ask_user, ask_mode).rstrip("\n")] + lines) + "\n"
+
+
+def refresh_ask_text(elements: dict[str, list[str]]) -> str:
+    """One transaction that replaces the addresses of the Ask sets and leaves its rules and counters alone."""
+    return "\n".join(["flush set inet %s %s" % (ASK_TABLE, name) for name in sorted(elements)]
+                      + ["add element inet %s %s { %s }" % (ASK_TABLE, name, ", ".join(values))
+                         for name, values in sorted(elements.items()) if values]) + "\n"
+
+
 def refresh_text(elements: dict[str, list[str]]) -> str:
     """One transaction that replaces the addresses of every set and leaves the rules and the counters alone."""
     return "\n".join(["flush set inet %s %s" % (TABLE, name) for name in sorted(elements)]
@@ -377,6 +458,28 @@ def table_state(host: Host) -> dict | None:
     return {"counters": counters, "verdict": verdict}
 
 
+def ask_state(host: Host) -> dict | None:
+    """{"counters": {ask_x: packets}, "verdict": ...} of the loaded Ask table, None when there is none."""
+    r = _nft(host, ["-j", "list", "table", "inet", ASK_TABLE])
+    if r.returncode != 0:
+        return None
+    try:
+        data = json.loads(r.stdout)
+    except ValueError:
+        return None
+    counters: dict[str, int] = {}
+    verdict = None
+    for item in data.get("nftables", []) if isinstance(data, dict) else []:
+        c = item.get("counter") if isinstance(item, dict) else None
+        if isinstance(c, dict) and c.get("table") == ASK_TABLE and isinstance(c.get("packets"), int) \
+                and str(c.get("name")) in ASK_NAMES:
+            counters[str(c["name"])] = c["packets"]
+        rule = item.get("rule") if isinstance(item, dict) else None
+        if isinstance(rule, dict) and rule.get("chain") == "ask_refused":
+            verdict = "enforce" if '"reject"' in json.dumps(rule.get("expr")) else (verdict or "count")
+    return {"counters": counters, "verdict": verdict}
+
+
 def _first_line(text: str) -> str:
     line = next((x for x in (text or "").splitlines() if x.strip()), "")
     return re.sub(r"[^\x20-\x7e]", " ", line)[:200]
@@ -389,15 +492,16 @@ def _conntrack(args: list[str]) -> subprocess.CompletedProcess | None:
     return subprocess.run([CONNTRACK] + args, capture_output=True, text=True, timeout=60)
 
 
-def forget(host: Host) -> str:
+def forget(host: Host, mark: int = MARK_OTHER, who: str = "the work user") -> str:
     """Delete the conntrack entries marked MARK_OTHER (the work user's connections outside the list that passed in
-    the mode count), for IPv4 and IPv6. Never raises: without conntrack the entries stay until they time out and the
-    chain refuses their packets anyway, since they lack MARK_ALLOWED. Returns a note for the owner."""
+    the mode count), for IPv4 and IPv6; with MARK_ASK_OTHER those of the Ask uid. Never raises: without conntrack
+    the entries stay until they time out and the chain refuses their packets anyway, since they lack the mark of the
+    allow rules. Returns a note for the owner."""
     run = host.conntrack or _conntrack
     deleted = 0
     for family in ("ipv4", "ipv6"):
         try:
-            r = run(["-D", "-f", family, "-m", "0x%x" % MARK_OTHER])
+            r = run(["-D", "-f", family, "-m", "0x%x" % mark])
         except (OSError, subprocess.SubprocessError):
             r = subprocess.CompletedProcess([], 2, "", "conntrack did not run")
         if r is None:
@@ -409,7 +513,7 @@ def forget(host: Host) -> str:
             return ("conntrack failed (%s): the connections opened outside the list stay in conntrack until they "
                     "time out and the filter refuses their packets" % _first_line(r.stderr))
         deleted += int(m.group(1))
-    return "conntrack: %d connections of the work user outside the list deleted" % deleted
+    return "conntrack: %d connections of %s outside the list deleted" % (deleted, who)
 
 
 # --------------------------------------------------------------------------- the state
@@ -439,10 +543,12 @@ def _read_json(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def read_history(host: Host) -> list[tuple[float, str, dict[str, int]]]:
-    """(time, mode, counts) per line of history.tsv, oldest first; a line that does not parse is left out."""
+def read_history(host: Host, file: str = "history.tsv",
+                 names: tuple = CLASSES + (ALLOWED,)) -> list[tuple[float, str, dict[str, int]]]:
+    """(time, mode, counts) per line of history.tsv (or the Ask history), oldest first; a line that does not parse is
+    left out."""
     out = []
-    for line in (_read(host.state_dir / "history.tsv") or "").splitlines():
+    for line in (_read(host.state_dir / file) or "").splitlines():
         parts = line.split("\t")
         if len(parts) != 3:
             continue
@@ -453,33 +559,34 @@ def read_history(host: Host) -> list[tuple[float, str, dict[str, int]]]:
         if parts[2] != "-":
             for pair in parts[2].split(","):
                 k, _, v = pair.partition("=")
-                if (k in CLASSES or k == ALLOWED) and v.isdigit():
+                if k in names and v.isdigit():
                     counts[k] = int(v)
         out.append((t, parts[1], counts))
     return sorted(out, key=lambda x: x[0])
 
 
-def _write_history(host: Host, rows: list[tuple[float, str, dict[str, int]]]) -> None:
+def _write_history(host: Host, rows: list[tuple[float, str, dict[str, int]]], file: str = "history.tsv") -> None:
     lines = ["%s\t%s\t%s" % (_now_text(t), m, ",".join("%s=%d" % kv for kv in sorted(c.items())) or "-")
              for t, m, c in rows]
-    _atomic_write(host.state_dir / "history.tsv", "\n".join(lines) + ("\n" if lines else ""), host)
+    _atomic_write(host.state_dir / file, "\n".join(lines) + ("\n" if lines else ""), host)
 
 
-def record(host: Host, st: dict, counters: dict[str, int], mode_word: str, now: float) -> dict[str, int]:
+def record(host: Host, st: dict, counters: dict[str, int], mode_word: str, now: float,
+           names: tuple = CLASSES + (ALLOWED,), file: str = "history.tsv") -> dict[str, int]:
     """Append what each class counted since the last record; a counter below its last value counts from zero (the
-    table was loaded again). Returns the counts of the line."""
+    table was loaded again). Returns the counts of the line. `names` and `file` select the Ask history."""
     last = st.get("last") if isinstance(st.get("last"), dict) else {}
     delta: dict[str, int] = {}
-    for name in CLASSES + (ALLOWED,):
+    for name in names:
         cur = counters.get(name, 0)
         prev = last.get(name, 0) if isinstance(last.get(name, 0), int) else 0
         d = cur - prev if cur >= prev else cur
         if d > 0:
             delta[name] = d
-    st["last"] = {name: counters.get(name, 0) for name in CLASSES + (ALLOWED,)}
-    rows = [r for r in read_history(host) if now - r[0] <= KEEP_HISTORY]
+    st["last"] = {name: counters.get(name, 0) for name in names}
+    rows = [r for r in read_history(host, file, names) if now - r[0] <= KEEP_HISTORY]
     rows.append((now, mode_word, delta))
-    _write_history(host, rows)
+    _write_history(host, rows, file)
     return delta
 
 
@@ -549,6 +656,68 @@ def _work_user(text: str) -> str:
     return user
 
 
+def _ask_user(text: str, work_user: str) -> str:
+    """The Ask user of the host file (awb-ask without the line). Its existence is not checked here: nft refuses the
+    rules when the user is missing and the table before stays."""
+    user = conf_value(text, "ask_user") or DEFAULT_ASK_USER
+    if not _USER_RE.match(user):
+        raise EgressError("the host file names no valid Ask user")
+    if user in (work_user, "root", conf_value(text, "owner")):
+        raise EgressError("the Ask user must be neither the work user nor the owner nor root")
+    return user
+
+
+def has_ask_line(host: Host) -> bool:
+    """True when the root host file carries an ask_mode line: the Ask table is part of this host's filter."""
+    return any(_ASK_MODE_RE.match(line) for line in (_read(host.conf_path) or "").splitlines())
+
+
+def ask_counts(rows: list[tuple[float, str, dict[str, int]]], now: float) -> dict[str, int]:
+    """What the Ask chain counted in the last 24 hours, by class, with "allowed" for its list."""
+    out: dict[str, int] = {}
+    for t, _, c in rows:
+        if t > now - WINDOW:
+            for k, v in c.items():
+                out[k[len(ASK_PREFIX):]] = out.get(k[len(ASK_PREFIX):], 0) + v
+    return dict(sorted(out.items()))
+
+
+def _load_ask(host: Host, st: dict, template: str, ask_user: str, ask_mode: str, entries: list[Entry], cache: dict,
+              now: float, force_reload: bool) -> None:
+    """Load the Ask table when its rules changed (recording the counters of the old one first) or refresh its
+    address sets in place, record its counters in the Ask history and keep its state under st["ask"]."""
+    ast = st.get("ask") if isinstance(st.get("ask"), dict) else {}
+    digest = hashlib.sha256(render_ask_rules(template, ask_user, ask_mode).encode("utf-8")).hexdigest()
+    elements = ask_elements(entries, cache)
+    current = ask_state(host)
+    if current is not None and not force_reload and ast.get("rules_sha256") == digest \
+            and current.get("verdict") == ask_mode:
+        r = _nft(host, ["-f", "-"], refresh_ask_text(elements))
+        if r.returncode != 0:
+            raise EgressError("nft refused the address sets of the Ask table: %s" % _first_line(r.stderr))
+    else:
+        if current is not None:
+            record(host, ast, current["counters"], ast.get("mode") if ast.get("mode") in MODES else ask_mode, now,
+                   ASK_NAMES, ASK_HISTORY)
+        path = host.state_dir / ASK_TEMPLATE
+        _atomic_write(path, render_ask(template, ask_user, ask_mode, elements), host)
+        r = _nft(host, ["-f", str(path)])
+        if r.returncode != 0:
+            st["ask"] = ast
+            raise EgressError("nft refused the rules of the Ask table, the table before stays: %s"
+                              % _first_line(r.stderr))
+        ast["last"] = {}
+        ast["rules_sha256"] = digest
+        ast["loaded_at"] = _now_text(now)
+        ast["mode"] = ask_mode
+    after = ask_state(host)
+    if after is not None:
+        record(host, ast, after["counters"], ask_mode, now, ASK_NAMES, ASK_HISTORY)
+    ast["refreshed_at"] = _now_text(now)
+    ast["window"] = ask_counts(read_history(host, ASK_HISTORY, ASK_NAMES), now)
+    st["ask"] = ast
+
+
 def load(host: Host, *, force_reload: bool = False) -> dict:
     """Resolve, then load the table when its rules changed (recording the counters of the old one first) or refresh
     its address sets in place, record the counters and write status.json. The mode comes from the host file."""
@@ -559,18 +728,27 @@ def load(host: Host, *, force_reload: bool = False) -> dict:
     mode_word, why = parse_mode(text)
     if mode_word is None:
         raise EgressError("the host file has %s: the loaded table stays as it is" % why)
+    ask_mode, why = parse_mode(text, "ask_mode")
+    if ask_mode is None:
+        raise EgressError("the host file has %s: the loaded table stays as it is" % why)
     user = _work_user(text)
+    with_ask = has_ask_line(host)
+    ask_user = _ask_user(text, user) if with_ask else DEFAULT_ASK_USER
     template = _read(host.source_dir / TEMPLATE)
     allow_text = _read(host.source_dir / ALLOW_FILE)
     if template is None or allow_text is None:
         raise EgressError("seal/egress of the installed release cannot be read")
     entries = read_allow(allow_text)
+    ask_entries = read_ask(allow_text) if with_ask else []
+    ask_template = _read(host.source_dir / ASK_TEMPLATE) if with_ask else None
+    if with_ask and (not ask_entries or ask_template is None):
+        raise EgressError("ALLOW.md lists no host for the Ask user or %s cannot be read" % ASK_TEMPLATE)
     rules = render_rules(template, user, mode_word)
     digest = hashlib.sha256(rules.encode("utf-8")).hexdigest()
     host.state_dir.mkdir(mode=0o755, parents=True, exist_ok=True)
     st = _read_json(host.state_dir / "status.json")
     now = host.now()
-    cache, missing = update_cache(_read_json(host.state_dir / "addresses.json"), entries,
+    cache, missing = update_cache(_read_json(host.state_dir / "addresses.json"), entries + ask_entries,
                                   host.resolve or _resolve, now)
     _atomic_write(host.state_dir / "addresses.json", json.dumps(cache, indent=1, sort_keys=True) + "\n", host)
     elements = set_elements(entries, cache)
@@ -609,9 +787,16 @@ def load(host: Host, *, force_reload: bool = False) -> dict:
     after = table_state(host)
     if after is not None:
         record(host, st, after["counters"], mode_word, now)
+    if with_ask:
+        try:
+            _load_ask(host, st, ask_template, ask_user, ask_mode, ask_entries, cache, now, force_reload)
+        except EgressError:
+            _save_status(host, st)
+            raise
     st["boot_id"] = boot
     st["refreshed_at"] = _now_text(now)
-    st["hosts"] = {"listed": len({e.dest for e in entries if _network(e.dest) is None}), "unanswered": missing}
+    st["hosts"] = {"listed": len({e.dest for e in entries + ask_entries if _network(e.dest) is None}),
+                   "unanswered": missing}
     st["window"] = window(read_history(host), now, _parse_time(st.get("count_since")))
     _save_status(host, st)
     return {"action": action, "mode": mode_word, "unanswered": missing}
@@ -668,7 +853,37 @@ def count(host: Host) -> str:
     _require_owner(host, text, "count")
     write_mode(host, "count")
     load(host)
-    return "egress: count, nothing is refused; the 24 hours start again now"
+    return "\n".join(["egress: count, nothing is refused; the 24 hours start again now"] + ask_lines(host))
+
+
+def set_ask_mode(host: Host, new: str) -> str:
+    """Put ask_mode NEW into the host file and load: the verdict of the chain ask alone changes, the table of the
+    work user and its mode stay. The owner with sudo; no window of counts is asked for. A failed load puts the
+    word before back."""
+    if new not in MODES:
+        raise EgressError("--ask-mode takes count or enforce")
+    text = _read(host.conf_path)
+    if text is None:
+        raise EgressError("the host file cannot be read: run seal/setup.sh first")
+    _require_owner(host, text, "--ask-mode %s" % new)
+    before, why = parse_mode(text, "ask_mode")
+    if before is None:
+        raise EgressError("the host file has %s: fix it to ask_mode = count first" % why)
+    write_mode(host, new, "ask_mode")
+    try:
+        load(host)
+    except EgressError:
+        write_mode(host, before, "ask_mode")
+        try:
+            load(host, force_reload=True)
+        except EgressError:
+            pass
+        raise
+    head = ("egress: the Ask uid is refused outside its list now" if new == "enforce"
+            else "egress: the Ask uid is counted outside its list, nothing is refused")
+    if new == "enforce":
+        head += "\negress: " + forget(host, MARK_ASK_OTHER, "the Ask uid")
+    return "\n".join([head] + ask_lines(host))
 
 
 # --------------------------------------------------------------------------- what every user can read
@@ -680,13 +895,38 @@ def status(host: Host | None = None) -> dict:
     st = _read_json(host.state_dir / "status.json")
     host_mode, why = parse_mode(_read(host.conf_path))
     refreshed = _parse_time(st.get("refreshed_at"))
+    ast = st.get("ask") if isinstance(st.get("ask"), dict) else {}
     return {"host_mode": host_mode, "host_why": why, "line": has_line(host), "loaded": bool(st.get("loaded_at")),
             "mode": st.get("mode") if st.get("mode") in MODES else None, "loaded_at": st.get("loaded_at"),
             "refreshed_at": st.get("refreshed_at"),
             "table_lost_at": st.get("table_lost_at") if isinstance(st.get("table_lost_at"), str) else None,
             "stale": refreshed is None or host.now() - refreshed > STALE,
             "window": st.get("window") if isinstance(st.get("window"), dict) else None,
-            "hosts": st.get("hosts") if isinstance(st.get("hosts"), dict) else None}
+            "hosts": st.get("hosts") if isinstance(st.get("hosts"), dict) else None,
+            "ask_line": has_ask_line(host),
+            "ask_host_mode": parse_mode(_read(host.conf_path), "ask_mode")[0],
+            "ask_mode": ast.get("mode") if ast.get("mode") in MODES else None,
+            "ask": ast.get("window") if isinstance(ast.get("window"), dict) else None}
+
+
+def ask_lines(host: Host | None = None) -> list[str]:
+    """The block of the Ask uid: its mode and what its chain counted in the last 24 hours, apart from the work
+    user's lines (status_lines). `awb egress status` and `count` print it after them. Empty while no table is
+    loaded."""
+    s = status(host)
+    if not s["loaded"] or not s["ask_line"]:
+        return []
+    if s["ask_host_mode"] is None:
+        return ["egress ask: the host file has an ask_mode that is neither count nor enforce: "
+                "sudo awb egress --ask-mode count sets it right"]
+    ask = s["ask"] if isinstance(s["ask"], dict) else {}
+    counted = ", ".join("%s %d" % (k, v) for k, v in sorted(ask.items()) if k != ALLOWED and isinstance(v, int) and v)
+    lines = ["egress ask: mode %s, last 24 hours: allowed %s; counted outside its list: %s"
+             % (s["ask_mode"] or s["ask_host_mode"], ask.get(ALLOWED, 0), counted or "none")]
+    if s["ask_mode"] != s["ask_host_mode"]:
+        lines.append("egress ask: the host file says %s, the table runs %s: sudo awb egress load"
+                     % (s["ask_host_mode"], s["ask_mode"] or "no mode"))
+    return lines
 
 
 def status_lines(host: Host | None = None) -> list[str]:
@@ -730,6 +970,8 @@ def main(argv: list[str] | None = None, host: Host | None = None) -> int:
 
     host = host or Host()
     ap = SafeParser(prog="awb egress", description="The egress filter of the work user (seal/egress/ALLOW.md).")
+    ap.add_argument("--ask-mode", choices=MODES, default=None, metavar="count|enforce",
+                    help="the owner with sudo: the verdict of the Ask uid's chain (count refuses nothing)")
     sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
     st = sub.add_parser("status", help="the mode, the load and the counts of the last 24 hours")
     st.add_argument("--json", action="store_true")
@@ -742,11 +984,16 @@ def main(argv: list[str] | None = None, host: Host | None = None) -> int:
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 2
     try:
+        if args.ask_mode:
+            if args.command:
+                raise EgressError("--ask-mode stands alone: sudo awb egress --ask-mode count|enforce")
+            print(set_ask_mode(host, args.ask_mode))
+            return 0
         if args.command == "status":
             if args.json:
                 print(json.dumps(status(host), sort_keys=True))
             else:
-                for line in status_lines(host):
+                for line in status_lines(host) + ask_lines(host):
                     print(line)
             return 0
         if args.command == "load":
