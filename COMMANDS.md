@@ -591,11 +591,12 @@ list the projects with their goal
 - `--paths`: the folder of each project instead of its goal
 - `--all`: also the deleted projects
 
-### `awb projects kind CODE KIND`
+### `awb projects kind CODE KIND [--customer CODE]`
 
 switch a project between query (knowledge only) and project (test tenants)
 - `CODE`
 - `KIND`: (one of query, project)
+- `--customer CODE`: the customer the row names; the grant is written only when it matches (needed for a customer project)
 
 ### `awb projects delete CODE...`
 

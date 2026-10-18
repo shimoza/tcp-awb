@@ -401,6 +401,20 @@ def _cmd_projects_kind(args, p: config.Paths) -> int:
         if row is None:
             print("awb projects: %s is not an active project" % args.code, file=sys.stderr)
             return EXIT_ERROR
+        given = getattr(args, "customer", None)
+        if row.customer != projects.NO_CUSTOMER:
+            # a session can write the row: the owner confirms the customer the grant will record
+            if given is None:
+                print("grant not written: the row names %s; run awb projects kind %s %s --customer %s"
+                      % (row.customer, args.code, args.kind, row.customer), file=sys.stderr)
+                return EXIT_FINDINGS
+            if given != row.customer:
+                print("awb projects: --customer %s is not the customer the row of %s names; nothing was written"
+                      % (given, args.code), file=sys.stderr)
+                return EXIT_FINDINGS
+        elif given not in (None, "", projects.NO_CUSTOMER):
+            print("awb projects: %s has no customer in its row; nothing was written" % args.code, file=sys.stderr)
+            return EXIT_FINDINGS
         customer_before = grants.customer(p, args.code)
         try:
             granted_before = grants.grant(p, args.code, args.kind, customer=row.customer)
@@ -600,6 +614,9 @@ def _build() -> argparse.ArgumentParser:
     s = psub.add_parser("kind", help="switch a project between query (knowledge only) and project (test tenants)")
     s.add_argument("code")
     s.add_argument("kind", choices=("query", "project"))
+    s.add_argument("--customer", metavar="CODE",
+                   help="the customer the row names; the grant is written only when it matches (needed for a "
+                        "customer project)")
     s.set_defaults(func=_cmd_projects_kind)
     s = psub.add_parser("delete", help="remove the folder of closed projects; the code stays registered as deleted")
     s.add_argument("codes", nargs="+", metavar="CODE")
