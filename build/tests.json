@@ -8287,8 +8287,43 @@
    "name": "every create of the five carries the project code and the tags the lab writes",
    "run": ".venv/bin/pytest tests/test_lab_five.py::test_every_create_of_the_five_carries_the_project_code_and_the_tags_the_lab_writes",
    "status": "passing"
+  },
+  {
+   "id": "n14-build-push-deployed-1",
+   "phase": "n14-build-push-deployed",
+   "name": "deployed mode pushes exactly the deployed commit and the rest after a deploy",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_deployed_mode_pushes_exactly_the_deployed_commit_and_the_rest_after_a_deploy",
+   "status": "passing"
+  },
+  {
+   "id": "n14-build-push-deployed-2",
+   "phase": "n14-build-push-deployed",
+   "name": "deployed mode pushes nothing when the deployed commit is no ancestor",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_deployed_mode_pushes_nothing_when_the_deployed_commit_is_no_ancestor",
+   "status": "passing"
+  },
+  {
+   "id": "n14-build-push-deployed-3",
+   "phase": "n14-build-push-deployed",
+   "name": "yes still pushes main whole and no pushes nothing beside deployed mode",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_yes_still_pushes_main_whole_and_no_pushes_nothing_beside_deployed_mode",
+   "status": "passing"
+  },
+  {
+   "id": "n14-build-push-deployed-4",
+   "phase": "n14-build-push-deployed",
+   "name": "a held push of deployed mode says it waits for the deploy",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_a_held_push_of_deployed_mode_says_it_waits_for_the_deploy",
+   "status": "passing"
+  },
+  {
+   "id": "n14-build-push-deployed-5",
+   "phase": "n14-build-push-deployed",
+   "name": "the host file value deployed switches the mode and unknown values push nothing",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_host_file_value_deployed_switches_the_mode_and_unknown_values_push_nothing",
+   "status": "passing"
   }
  ],
- "total_tests": 1184,
- "checked": "2026-10-17"
+ "total_tests": 1189,
+ "checked": "2026-10-18"
 }

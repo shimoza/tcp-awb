@@ -744,6 +744,7 @@ PLANTED_AWAY = [
     ("n12-lock", buildrun, "acquire_lock", lambda runs: os.open(os.devnull, os.O_RDONLY)),
     ("n12-reattach", buildrun.LocalUnits, "attach", lambda self, name: None),
     ("push-nonff", buildrun, "push_main", lambda host, register: "pushed"),
+    ("push-deployed", buildrun, "push_main", lambda host, register: "pushed"),
 ]
 
 
@@ -2269,3 +2270,79 @@ def test_awb_build_check_passes_allow_protected_to_the_runner_only_when_given(mo
     assert build.main(["check", "pr-1", "--allow-protected"]) == 0
     assert build.main(["check", "pr-1"]) == 0
     assert seen == [("pr-1", {"allow_protected": True}), ("pr-1", {})]
+
+
+# --------------------------------------------------------------------------- the push mode deployed (n14)
+
+def deployed_world(world, count=2):
+    """`count` green runs in main.git with the push off, then the push on in deployed mode; the commits of the runs."""
+    world.host.push = False
+    commits = [(world.run("good").folder / "commit").read_text().strip() for _ in range(count)]
+    world.host.push = True
+    world.host.push_deployed = True
+    return commits
+
+
+def set_deployed(world, target: str) -> None:
+    (world.base / "DEPLOYED").write_text(json.dumps({"target": target}), encoding="utf-8")
+
+
+def test_deployed_mode_pushes_exactly_the_deployed_commit_and_the_rest_after_a_deploy(world):
+    first, second = deployed_world(world)
+    set_deployed(world, first)
+    assert buildrun.push_main(world.host, world.register) == "waiting"
+    assert origin_of(world) == first and main_of(world) == second
+    assert buildrun.waiting_commits(world.host) == 1
+    set_deployed(world, second)                                # the fake deploy
+    assert buildrun.push_main(world.host, world.register) == "pushed"
+    assert origin_of(world) == second
+
+
+def test_deployed_mode_pushes_nothing_when_the_deployed_commit_is_no_ancestor(world):
+    deployed_world(world)
+    start = origin_of(world)
+    tree = world.g("--git-dir", str(world.root / "main.git"), "rev-parse", "refs/heads/main^{tree}").strip()
+    stray = world.g("--git-dir", str(world.root / "main.git"), "-c", "user.name=t", "-c", "user.email=t@localhost",
+                    "commit-tree", tree, "-m", "stray").strip()
+    set_deployed(world, stray)
+    assert buildrun.push_main(world.host, world.register) == "refused"
+    set_deployed(world, "1" * 40)
+    assert buildrun.push_main(world.host, world.register) == "refused"
+    (world.base / "DEPLOYED").unlink()
+    assert buildrun.push_main(world.host, world.register) == "refused"
+    assert origin_of(world) == start
+
+
+def test_yes_still_pushes_main_whole_and_no_pushes_nothing_beside_deployed_mode(world):
+    first, second = deployed_world(world)
+    set_deployed(world, first)
+    world.host.push_deployed = False                           # yes
+    assert buildrun.push_main(world.host, world.register) == "pushed"
+    assert origin_of(world) == second
+    world.host.push = False                                    # no
+    assert world.run("good").state == "done"
+
+
+def test_a_held_push_of_deployed_mode_says_it_waits_for_the_deploy(world):
+    world.host.push_deployed = True
+    set_deployed(world, origin_of(world))
+    run = world.run("good")
+    assert run.state == "held: push pending"
+    assert build.line(run) == "build %s push: waits for the deploy of 1 commits" % run.id
+    set_deployed(world, main_of(world))
+    later = datetime.now() + timedelta(minutes=11)
+    world.host.now = lambda: later
+    assert world.runner().poll_once() is True
+    assert build.latest(run.id, world.runs).state == "done" and origin_of(world) == main_of(world)
+
+
+def test_the_host_file_value_deployed_switches_the_mode_and_unknown_values_push_nothing(monkeypatch):
+    from awb import config
+
+    for value, push, only in (("yes", True, False), ("deployed", True, True), ("no", False, False),
+                              ("maybe", False, False)):
+        monkeypatch.setattr(config, "host_conf", lambda value=value: {"build_push": value})
+        host = buildrun.Host.from_config()
+        assert (host.push, host.push_deployed) == (push, only), value
+    monkeypatch.setattr(config, "host_conf", lambda: {})
+    assert buildrun.Host.from_config().push is True            # the default stays yes

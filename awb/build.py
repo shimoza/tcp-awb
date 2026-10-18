@@ -678,6 +678,9 @@ def line(run: Run) -> str:
     if w == "stopped":
         return "build %s %s; %s" % (tid, s, run.rel)
     if w == "held":
+        waits = _deploy_wait(run)
+        if s == "held: push pending" and waits:
+            return "build %s push: waits for the deploy of %s commits" % (tid, waits)
         return "build %s %s" % (tid, s)
     if w in ("interrupted", "stale"):
         return "build %s %s; awb build retry %s" % (tid, s, tid)
@@ -688,6 +691,15 @@ def line(run: Run) -> str:
     if w == "green":
         return "build %s green, waits for the push" % tid
     return "build %s state unknown; %s" % (tid, run.rel)
+
+
+def _deploy_wait(run: Run) -> str:
+    """The count the runner wrote when the deployed mode held the push at the deployed commit, else empty."""
+    try:
+        text = (run.folder / "waits").read_text(encoding="ascii").strip()
+    except (OSError, ValueError):
+        return ""
+    return text if text.isdigit() else ""
 
 
 def _hm(t: datetime | None) -> str:

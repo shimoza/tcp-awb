@@ -662,6 +662,13 @@ awb build check pr-12 --allow-protected   # the same, a change of seal/, plugin/
 awb pr take 12               # gh says it is yours; fetch, rebase onto main, the check, merge --no-ff, push, close
 ```
 
+The push of a green `main` to GitHub follows `build_push` in the host file (`/etc/awb/paths.conf`), which has three values:
+`yes` (the default: the runner pushes `main` whole), `no` (it never pushes; done is main.git) and `deployed` (it pushes
+`main` only up to the commit `/opt/tcp-awb/DEPLOYED` names as live). In `deployed` mode a `main` that is ahead of the
+deployed commit is pushed up to the deployed one and the rest waits for the next retry (every 10 minutes);
+`awb build status` says `push: waits for the deploy of N commits`, and `awb deploy --task B-012` still takes the task.
+A deployed commit that is no ancestor of main.git pushes nothing. `seal/setup.sh --update` keeps the value.
+
 `model` (opus, sonnet, fable; opus), `effort` (low, medium, high; medium), `budget` (USD, 1 to 100; 10) and `clock`
 (minutes, 10 to 480; 90) may be left out. `paths` are the files the task may change, `tests_replaced` the test ids
 it may drop or replace, `check` test node ids under `tests/` with `-k` or `-m`. A block with a fault is refused in
