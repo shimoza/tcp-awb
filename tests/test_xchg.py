@@ -89,7 +89,9 @@ def run(argv, capsys):
 def _grant(capsys, code):
     """The owner grants the project in his own terminal: the key service takes its customer from the grant alone,
     and a project he never granted has none (finding 5 of the review of 2026-10-10)."""
-    assert run(["projects", "kind", code, "query"], capsys)[0] == 0
+    row = next(r for r in projects.load(config.paths()) if r.code == code)
+    named = [] if row.customer == projects.NO_CUSTOMER else ["--customer", row.customer]
+    assert run(["projects", "kind", code, "query"] + named, capsys)[0] == 0
 
 
 # --------------------------------------------------------------------------- the lab inbox
@@ -882,7 +884,7 @@ def test_rg_a_row_changed_after_the_grant_does_not_change_the_customer_of_the_se
     from awb import grants
 
     _, own = buckets
-    assert run(["projects", "kind", cust_project.code, "query"], capsys)[0] == 0
+    assert run(["projects", "kind", cust_project.code, "query", "--customer", fx.CUSTOMER_CODE], capsys)[0] == 0
     assert grants.customer(home, cust_project.code) == fx.CUSTOMER_CODE
     own.objects["inbox/CUST-ZZ22/task.txt"] = b"Another customer's task.\n"
     ident = _owner_id(svc, cust_project.code, b"Another customer's task.\n")
@@ -945,7 +947,7 @@ def test_rg_the_check_lists_a_grant_without_customer_and_the_rerun_fills_it(svc,
     a = keys.request(svc.call_path, {"op": "take_owner", "id": ident, "project": cust_project.code})
     assert not a["ok"] and a["error"] == xchg.STALE_LINE % (cust_project.code, cust_project.code, "query")
     assert "inbox/" + rel in own.objects
-    code, out, _ = run(["projects", "kind", cust_project.code, "query"], capsys)
+    code, out, _ = run(["projects", "kind", cust_project.code, "query", "--customer", fx.CUSTOMER_CODE], capsys)
     assert code == 0 and "the customer of the grant is %s (was not recorded)" % fx.CUSTOMER_CODE in out
     assert grants.customer(home, cust_project.code) == fx.CUSTOMER_CODE
     code, out, _ = run(["projects", "check"], capsys)

@@ -83,10 +83,10 @@ def spawn_step(p: config.Paths, argv: list[str], *, run=subprocess.run) -> str:
     return new[0]
 
 
-def grant_step(p: config.Paths, code: str, kind: str) -> None:
+def grant_step(p: config.Paths, code: str, kind: str, customer: str | None = None) -> None:
     from awb import cli
 
-    if cli._cmd_projects_kind(argparse.Namespace(code=code, kind=kind), p) != 0:
+    if cli._cmd_projects_kind(argparse.Namespace(code=code, kind=kind, customer=customer), p) != 0:
         raise StartError("the grant was not written: run awb projects kind %s %s in your own terminal" % (code, kind))
 
 
@@ -112,7 +112,7 @@ def start(p: config.Paths, kind: str, goal: str, customer: str | None = None, ta
     cust = customer_step(p, customer, read=read, tty=tty)
     code = spawn_step(p, spawn_argv(kind, goal, cust, list(tags)), run=run)
     try:
-        grant_step(p, code, kind)
+        grant_step(p, code, kind, cust)
         result = import_step(p, code, read=read, tty=tty)
     except (StartError, importcmd.ImportRefused, intake.IntakeError, register.RegisterError,
             projects.ProjectError) as err:
