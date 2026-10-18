@@ -428,6 +428,18 @@ def _case_push(w: World) -> str | None:
     return None if word == "refused" else "a push that is not a fast-forward was %s" % word
 
 
+def _case_push_deployed(w: World) -> str | None:
+    """Deployed mode: a DEPLOYED target that is no ancestor of main pushes nothing."""
+    start = w.g("--git-dir", str(w.origin), "rev-parse", "refs/heads/main").strip()
+    (w.base / "DEPLOYED").write_text('{"target": "%s"}' % ("1" * 40), encoding="utf-8")
+    w.host.push_deployed = True
+    word = push_main(w.host, w.register)
+    if word != "refused":
+        return "a deployed commit that is no ancestor was %s" % word
+    now = w.g("--git-dir", str(w.origin), "rev-parse", "refs/heads/main").strip()
+    return None if now == start else "a deployed commit that is no ancestor moved origin"
+
+
 SELFTEST_CASES: list[tuple[str, Callable[[World], str | None]]] = [
     ("n6-prompt", _case_prompt),
     ("n6-home", _case_home),
@@ -445,11 +457,12 @@ SELFTEST_CASES: list[tuple[str, Callable[[World], str | None]]] = [
     ("n12-lock", _case_lock),
     ("n12-reattach", _case_reattach),
     ("push-nonff", _case_push),
+    ("push-deployed", _case_push_deployed),
 ]
 """The planted cases of THREAT-MODEL N6, N7, N9 to N12 and the push: each must be refused or classified."""
 SELFTEST_REQUIRED = ("n6-prompt", "n6-home", "n7-clock", "n9-deleted", "n9-skipped", "n9-conftest", "n9-outside",
                      "n10-coauthor", "n10-author", "n11-newline", "n11-subject", "n11-check", "n11-fsmonitor",
-                     "n12-lock", "n12-reattach", "push-nonff")
+                     "n12-lock", "n12-reattach", "push-nonff", "push-deployed")
 """The cases the selftest must hold (SB5): a case taken out of SELFTEST_CASES fails the selftest, it never shrinks
 to a clean report."""
 

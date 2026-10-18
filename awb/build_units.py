@@ -181,6 +181,8 @@ class Host:
     suite_seconds: float = SUITE_SECONDS
     retry_wait: float = RETRY_WAIT
     push: bool = True
+    push_deployed: bool = False
+    """The host file's `build_push: deployed`: push (True too) only up to the commit /opt/tcp-awb/DEPLOYED names."""
     push_url: str = PUSH_URL
     mail: Callable[[str, str], bool] | None = None
     precheck: Callable[[], str | None] | None = None
@@ -241,7 +243,8 @@ class Host:
         return cls(root=build_root(), runs=build.runs_dir(), queue=build.queue_dir(),
                    units=SystemdUnits(user), board=p.shared / "build", model_key=Path(key) if key else None,
                    model=model,
-                   register=p.register, build_uid=uid, push=conf.get("build_push", "yes") == "yes",
+                   register=p.register, build_uid=uid, push=conf.get("build_push", "yes") in ("yes", "deployed"),
+                   push_deployed=conf.get("build_push", "yes") == "deployed",
                    push_url=conf.get("build_push_url", PUSH_URL), mail=send_mail)
 
 

@@ -7,6 +7,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- The build push mode `deployed` (task n14, D1): `build_push: deployed` in the host file makes the runner push `main` only up to the commit `/opt/tcp-awb/DEPLOYED` names as live, never further. When main.git is ahead the push stops at the deployed commit and the rest waits for the next retry (`awb build status` says `push: waits for the deploy of N commits`); when the deployed commit is no ancestor of main.git nothing is pushed. `yes` and `no` are as before and the default stays `yes`. The selftest gets the case `push-deployed`.
+
 - Five lab recipes, tested on fake answers only (task n13): `eip-bandwidth-adjust`, `evs-snapshot-restore`, `nat-snat-egress`, `obs-lifecycle-rule` and `dns-private-zone`. Shapes the repository did not call before are marked to confirm live in the recipe notes and in `recipes/README.md`.
 
 - The recipe `rds-create-refusal` after its live runs of 2026-10-17 on eu-de (two runs, nothing created): the default
@@ -515,6 +517,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 ### Security
 
 - The grant names its customer and needs it confirmed (task n20): `awb projects kind CODE KIND` for a project whose row names a customer writes the grant only with `--customer CODE` equal to the row's customer, because a session can write the row. Without the option it prints `grant not written` and the line to run, exit 1; another code is refused in one line. A project without a customer needs no option. `awb start` passes the code it registered. The grant file is unchanged in shape.
+
+- A public push can follow the deploy: with `build_push: deployed` no commit reaches GitHub before the owner has deployed it, so the register gate over the pushed range runs on commits that went live first (D1).
 
 - Four findings of the attacker review of 2026-10-16 of the fact-check service are closed (R3, R4, R5, R7). The recheck
   run never raises a grade: `write_back` passes the entry's own grade to `kb.recheck` and `pick` lists an entry whose
