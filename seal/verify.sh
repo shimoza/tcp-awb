@@ -494,6 +494,7 @@ build_dry() {
         "the probe unit cannot list the work user's home" "the probe unit cannot read the host file" \
         "the probe unit cannot connect to the check socket" \
         "the probe unit sees an empty /dev/shm of at most 64 MB and no /dev/mqueue"
+    extract_checks
     net_probe
 }
 
@@ -686,6 +687,7 @@ build_checks() {
     else
         allowed "$what" probe sh -c '[ -z "$(ls -A /dev/shm)" ] && [ "$(df -k --output=size /dev/shm | tail -n 1)" -le 65536 ] && ! ls /dev/mqueue >/dev/null 2>&1'
     fi
+    extract_checks
     net_probe
 }
 
@@ -715,7 +717,6 @@ c = canvas.Canvas(sys.argv[1]); c.drawString(72, 720, "extract probe line"); c.s
 }
 
 build_checks
-extract_checks
 
 if [ "$dry_run" -eq 1 ]; then
     exit 0
