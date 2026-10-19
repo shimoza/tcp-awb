@@ -14,9 +14,75 @@ statement. A customer or partner appears only as a code (`CUST-Q7M4`), a piece o
 
 Most of it is not tied to one cloud. The facts, prices and API details are for TCP.
 
+## The parts
+
+Two users on one host hold the two sides apart. The owner keeps the register of names (the vault), the tenant
+keys (the key service) and the originals. The work user runs every session and owns the projects. A session gets a
+yes or no from the vault and a signed call from the key service, never a name and never a key.
+
+| part | what it is |
+|---|---|
+| the vault daemon | the register of codes and names, encrypted at rest; a session asks it whether a text carries a name and gets a yes or no |
+| the key service | holds the keys and secrets of the test tenants in memory and signs the calls a session sends; since week 42 it is also the owner's one door to the bucket (`awb bucket`, `awb import`, `awb fetch`, `awb dataset put`), so no bucket key lives in the environment |
+| the project sessions | Claude Code as the work user, one folder per project, six hooks, a tool guard, an egress filter that refuses every host outside the list |
+| the knowledge base | checked facts with a grade and an expiry; the fact-check service checks an expired fact again on a test tenant (a check block per fact, a weekly read run, a monthly write run, a watchdog) |
+| the console | the web side behind a sign-in: the projects, the board, the tenants, the project chat and Ask; its page reads the knowledge base, the price lookup and the usage from the reader service (`/api/kb`, `/api/price`, `/api/usage`); the old read-only portal is gone |
+| the build runner and `awb pr take` | the Workbench builds itself: a task runs as the build user in sandboxed units, a pull request of a cloud session is checked in the same sandbox and taken in with one command, `sudo awb deploy` brings a release live |
+
+```mermaid
+flowchart LR
+  subgraph owner [owner side]
+    Owner[owner, own terminal]
+    Vault[(vault: register of names)]
+    Keys[key service: tenant keys, bucket door]
+    Runner[build runner]
+  end
+  subgraph web [web side, one uid per service]
+    Gateway[gateway, sign-in]
+    Reader[reader service: /api/kb, /api/price, /api/usage]
+    Ask[Ask, project chat]
+    Console[console page]
+  end
+  subgraph work [work user]
+    Sessions[project sessions: hooks, tool guard, egress filter]
+    KB[(knowledge base)]
+  end
+  Build[build user: task units, branch checks]
+  Cloud[cloud sessions: pull requests]
+  GitHub[(GitHub)]
+  Tenants[(TCP test tenants)]
+  Owner --> Vault
+  Owner --> Keys
+  Owner --> Runner
+  Owner --> Gateway
+  Runner --> Build
+  Runner --> GitHub
+  Cloud --> GitHub
+  Sessions -- yes or no --> Vault
+  Sessions -- signed calls --> Keys
+  Keys --> Tenants
+  Sessions --> KB
+  Console --> Gateway
+  Gateway --> Reader
+  Gateway --> Ask
+  Reader --> KB
+  Ask --> KB
+```
+
+## Start here (the owner)
+
+```bash
+awb unlock                                   # after a reboot: the vault, then the keys, each asks its passphrase
+awb                                          # which side you are on, what is locked, the first item that waits on you
+awb start project --goal "..." --customer new   # a new piece of work: code, forms, spawn, grant and import in one command
+awb projects open                            # the active projects numbered with their Next line; the number opens one
+awb fetch tcp-xxxx                           # what a project put for you, downloaded with the names back
+```
+
 ## Two kinds of work
 
-Every piece of work starts with `awb spawn` and gets its own folder with its goal, its rules, its checkpoints and
+Every piece of work starts with `awb spawn` (or `awb start` on the owner side, which wraps it) and gets its own
+folder with its goal, its rules, its checkpoints and
 its git history.
 
 | kind | for | reaches |
@@ -177,7 +243,11 @@ a meeting. In the Workbench every fact carries its weight:
 | `assumed` | not checked yet, used as a lead only |
 
 A negative ("this is not possible") needs two recorded attempts. Facts that go stale (availability, flavors,
-regions) carry an expiry date and are checked again.
+regions) carry an expiry date and are checked again by the fact-check service: a check block on the fact says
+which calls or which recipe prove it, what confirms it, what refutes it and the control that tells the two apart.
+A read tier runs every Sunday as the work user, a write tier runs a recipe on the test tenant on the owner's word
+and a watchdog deletes what a run left behind. A run never raises a grade; a refuted fact stays expired for a
+person.
 
 **Only what is offered.** A service counts as offered only when the latest service description lists it. The docs,
 an API that answers or a price record do not make it offered. `awb service check` tells, both chats carry the list
@@ -250,7 +320,7 @@ working loop, the full run and every build run them. Running with pytest-xdist (
 rely on the timing of real daemons and failed under the load of a second worker.
 
 The suite also runs from a read-only copy of the tree anywhere outside the homes, with a venv that has the test
-extras and not the package, as the self-build will run it on a `git archive` export:
+extras and not the package, as the self-build runs it on a `git archive` export:
 
 ```bash
 seal/setup.sh --suite-venv /var/tmp/awb-suite-venv     # python3 -m venv --system-site-packages and the test extras
@@ -630,7 +700,7 @@ Things you want no commit to carry (names of other workspaces, a naming scheme) 
 line: `/etc/awb/blocklist.txt` or `~/.config/awb/blocklist.txt`. It never enters the repository.
 
 A fourth user, `awb-build`, is there for the self-build (`presentations/self-build`): unattended build tasks of the
-Workbench itself will run as this user, never as you or as `awb`. It has no password, no sudo and no group but its
+Workbench itself and the checks of a branch from outside run as this user, never as you or as `awb`. It has no password, no sudo and no group but its
 own, so it reaches neither the vault, the sockets, the projects nor `/etc/awb` (root:awb 751, the host file and the
 blocklist 640). Its folder `/srv/awb-build` is a 20 GB loop image (`main.git`, the clones, the runner's records, the
 suite's venv, a root owned home template), its client a pinned root owned copy in `/opt/claude-build`, and its hook
@@ -641,8 +711,8 @@ removes it with the home, and the tasks spend your shared quota. A token the tas
 the build user's home only when it names the same `subscriptionType` as the login there and expires later; a login
 of the task that names another or none stays where it is and the run's `result.md` says so in one line (a task
 cannot replace your login with its own). `build_model = key` in `/etc/awb/paths.conf` switches
-to a copy of the Workbench's key (`/etc/awb/build-model.key`, yours alone, 400) in one line. The runner's unit `awb-buildd.service` is installed and not
-enabled yet; `sudo seal/verify.sh` proves the rest. `seal/README.md`, section "The build side", has the details.
+to a copy of the Workbench's key (`/etc/awb/build-model.key`, yours alone, 400) in one line. The runner's unit `awb-buildd.service` is installed and
+you enable it when you are ready (`sudo systemctl enable --now awb-buildd.service`); `sudo seal/verify.sh` proves the rest. `seal/README.md`, section "The build side", has the details.
 
 | when | what to run |
 |---|---|
@@ -752,8 +822,8 @@ GitHub, so their refusal is the address filter. Without an upstream nameserver i
 enter) and reads the record of the last probe. Every
 task unit names the oneshot `awb-task-failed@.service` in `OnFailure=`: a task unit that fails while no runner
 waits on it (the runner stopped or crashed) adds `no runner watched: B-012 failed 14:02 (timeout)` to the board line
-until the runner starts again and reports the task itself. The unit has `MemoryMax=2G`, so a read that grows ends the runner and not the vault daemon or the key service. It is installed and not enabled: start it with
-`sudo systemctl start awb-buildd.service`, stop it with `awb build stop`.
+until the runner starts again and reports the task itself. The unit has `MemoryMax=2G`, so a read that grows ends the runner and not the vault daemon or the key service. The seal installs it and leaves it to you to enable: start it with
+`sudo systemctl start awb-buildd.service` (or `enable --now` for every boot), stop it with `awb build stop`.
 
 A branch from outside, a pull request of a cloud session, is never tested in your shell: its tests and its
 `conftest.py` would run as you with the vault readable. Fetch it into your working copy and run `awb build check
