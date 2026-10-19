@@ -165,12 +165,8 @@ def test_the_lines_name_entries_of_the_service_and_services_the_list_does_not_kn
     other = entry("an RDS instance can be resized online", ["rds"])
     notes = mirror.parse_release_notes(page(*P1, *P2))[0]
     lines = refresh.release_note_lines(notes, kb.load(home), offered.load())
-    assert sorted(lines) == sorted([
-        "recheck: %s (release note 2026-09-11 Elastic Cloud Server)" % by_tag.id,
-        "recheck: %s (release note 2026-09-11 Elastic Cloud Server)" % by_name.id,
-        "new service?: gadget hub (release note 2026-09-11 end of life)",
-        "recheck: %s (release note 2026-10-16 Key Management Service)" % by_short.id,
-    ])
+    # RN3: an entry is listed only when it shares two topic words with the note; these three share none or one
+    assert lines == ["new service?: gadget hub (release note 2026-09-11 end of life)"]
     assert gone.id not in "".join(lines) and other.id not in "".join(lines)
 
 
@@ -187,7 +183,7 @@ def test_the_part_lists_the_notes_since_the_last_refresh_and_changes_no_entry(ho
     part = refresh.part_release_notes(home, base, out, update=True, today=today)
     text = "\n".join(part.lines)
     assert "2 release note(s) dated since 2026-09-19" in text            # the first run: the last 30 days
-    assert "recheck: %s (release note 2026-10-16 Key Management Service)" % e.id in text
+    assert "recheck: %s (release note 2026-10-16 Key Management Service)" % e.id not in text   # RN3: one shared word
     assert "gadget hub" not in text                                      # its note is older than 30 days
     assert (out / "release-notes.txt").exists()
     again = refresh.part_release_notes(home, base, out, update=True, today=today)
