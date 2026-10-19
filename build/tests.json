@@ -8651,8 +8651,29 @@
    "name": "the seal scripts know the ask table",
    "run": ".venv/bin/pytest tests/test_egress.py::test_the_seal_scripts_know_the_ask_table",
    "status": "passing"
+  },
+  {
+   "id": "fk10b-check-blocks-1",
+   "phase": "fk10b-check-blocks",
+   "name": "the block file has one section per entry",
+   "run": ".venv/bin/pytest tests/test_kb_check_blocks_fk10b.py::test_the_file_has_one_section_per_entry",
+   "status": "passing"
+  },
+  {
+   "id": "fk10b-check-blocks-2",
+   "phase": "fk10b-check-blocks",
+   "name": "every block parses and stands under the rules",
+   "run": ".venv/bin/pytest tests/test_kb_check_blocks_fk10b.py::test_a_block_parses_and_stands_under_the_rules",
+   "status": "passing"
+  },
+  {
+   "id": "fk10b-check-blocks-3",
+   "phase": "fk10b-check-blocks",
+   "name": "every block is taken by how and the entry verifies",
+   "run": ".venv/bin/pytest tests/test_kb_check_blocks_fk10b.py::test_a_block_is_taken_by_how_and_the_entry_verifies",
+   "status": "passing"
   }
  ],
- "total_tests": 1236,
+ "total_tests": 1239,
  "checked": "2026-10-18"
 }
