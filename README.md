@@ -1,8 +1,22 @@
-# Architect Workbench
+<h1 align="center">Architect Workbench</h1>
+
+<p align="center"><b>A harness for cloud architecture work on T Cloud Public (TCP)</b></p>
+
+<p align="center">
+  <a href="INSTALL.md"><img alt="Install: INSTALL.md" src="https://img.shields.io/badge/Install-INSTALL.md-2f6fd1?logo=linux&logoColor=white"></a>
+  <a href="COMMANDS.md"><img alt="Commands: COMMANDS.md" src="https://img.shields.io/badge/Commands-COMMANDS.md-c64a3d?logo=gnubash&logoColor=white"></a>
+  <a href="https://github.com/shimoza/tcp-facts"><img alt="Dataset: TCP Facts" src="https://img.shields.io/badge/Dataset-TCP_Facts-e0b43a?logo=github&logoColor=white"></a>
+  <a href="#as-a-plugin-for-claude-code"><img alt="Plugin: awb@tcp-awb" src="https://img.shields.io/badge/Plugin-awb%40tcp--awb-8a63b8?logo=anthropic&logoColor=white"></a>
+  <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache_2.0-3f9d5a?logo=apache&logoColor=white"></a>
+</p>
+
+```bash
+$ awb start project --goal "Test a virtual firewall appliance on TCP" --customer new
+```
 
 To run the Workbench on your own Linux host, follow [INSTALL.md](INSTALL.md).
 
-**A harness for cloud architecture work on T Cloud Public (TCP).** The Workbench sits around an AI assistant (Claude
+The Workbench sits around an AI assistant (Claude
 Code). The model reasons and writes. The Workbench decides what the model may use, checks what it hands out and
 keeps the record: checked facts in place of the model's memory, live prices, exact arithmetic, real test tenants and
 a review before any text leaves.
@@ -30,33 +44,32 @@ yes or no from the vault and a signed call from the key service, never a name an
 | the build runner and `awb pr take` | the Workbench builds itself: a task runs as the build user in sandboxed units, a pull request of a cloud session is checked in the same sandbox and taken in with one command, `sudo awb deploy` brings a release live |
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'fontFamily':'Segoe UI, Helvetica, sans-serif','fontSize':'14px','primaryColor':'#dde9f8','primaryTextColor':'#1d2330','primaryBorderColor':'#5a8fd6','lineColor':'#4a5468','clusterBkg':'#f4f6fb','clusterBorder':'#9fb8de','titleColor':'#1d2330'}}}%%
 flowchart LR
-  subgraph OWN [" Owner side, the owner's uid "]
+  subgraph OWN [" 🔑 Owner side, the owner's uid "]
     direction TB
-    Owner("Owner<br/>own terminal, passphrases, grants")
-    Vault[("Vault daemon<br/>register of names")]
-    Keys("Key service<br/>tenant keys in memory, bucket door")
-    Runner("Build runner<br/>judges every branch, pushes green main")
+    Owner("👤 Owner<br/>own terminal, passphrases, grants")
+    Vault[("🔒 Vault daemon<br/>register of names")]
+    Keys("🗝️ Key service<br/>tenant keys in memory, bucket door")
+    Runner("⚙️ Build runner<br/>judges every branch, pushes green main")
   end
-  subgraph WORK [" Work user "]
+  subgraph WORK [" 🤖 Work user "]
     direction TB
-    Sessions("Project sessions<br/>hooks, tool guard, egress filter")
-    KB[("Knowledge base<br/>facts with check blocks")]
+    Sessions("🤖 Project sessions<br/>hooks, tool guard, egress filter")
+    KB[("📚 Knowledge base<br/>facts with check blocks")]
   end
-  subgraph WEB [" Web side, one uid per service "]
+  subgraph WEB [" 🌐 Web side, one uid per service "]
     direction TB
-    Gateway("Gateway<br/>sign-in")
-    Reader("Reader service<br/>/api/kb, /api/price, /api/usage")
-    Ask("Ask and project chat")
-    Console("Console page")
+    Gateway("🚪 Gateway<br/>sign-in")
+    Reader("📖 Reader service<br/>/api/kb, /api/price, /api/usage")
+    Ask("💬 Ask and project chat")
+    Console("🖥️ Console page")
   end
-  subgraph OUT [" Outside the host "]
+  subgraph OUT [" ☁️ Outside the host "]
     direction TB
-    Build("Build user<br/>task units, branch checks")
-    Cloud("Cloud sessions<br/>pull requests")
-    GitHub[("GitHub")]
-    Tenants[("TCP test tenants")]
+    Build("🧪 Build user<br/>task units, branch checks")
+    Cloud("☁️ Cloud sessions<br/>pull requests")
+    GitHub[("🐙 GitHub")]
+    Tenants[("🏢 TCP test tenants")]
   end
   Owner --> Vault
   Owner --> Keys
