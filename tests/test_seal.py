@@ -2229,3 +2229,27 @@ def test_setup_removes_the_portal_unit_of_before_and_verify_proves_it_gone(fakeb
     assert "CHECK the portal unit is gone: awb-portal.service is not found" in res.stdout
     text = VERIFY.read_text(encoding="utf-8")
     assert 'systemctl show -p LoadState --value awb-portal.service)" = not-found' in text
+
+
+def test_the_extract_probe_pdf_is_made_without_reportlab_and_read_by_pdftotext(tmp_path):
+    """The probe pdf of verify.sh (extract_checks) is made with the standard library alone, so the runtime venv needs
+    no reportlab, and poppler reads it."""
+    if shutil.which("pdftotext") is None:
+        pytest.skip("poppler is not installed")
+    text = VERIFY.read_text(encoding="utf-8")
+    m = re.search(r"^make_probe_pdf\(\) \{\n.*?^\}\n", text, re.S | re.M)
+    assert m, "make_probe_pdf is not found in verify.sh"
+    assert "reportlab" not in re.sub(r"^\s*#.*$", "", m.group(0), flags=re.M)
+    pdf = tmp_path / "probe.pdf"
+    res = subprocess.run(["bash", "-c", m.group(0) + '\nmake_probe_pdf "$1" "$2"', "probe", "python3", str(pdf)],
+                         capture_output=True, text=True, timeout=30)
+    assert res.returncode == 0, res.stderr
+    out = subprocess.run(["pdftotext", "-layout", "-enc", "UTF-8", str(pdf), "-"], capture_output=True, text=True,
+                         timeout=30)
+    assert out.returncode == 0 and "extract probe line" in out.stdout and not out.stderr
+
+
+def test_the_extract_check_uses_the_probe_pdf_maker_and_no_reportlab():
+    body = re.search(r"^extract_checks\(\) \{\n.*?^\}\n", VERIFY.read_text(encoding="utf-8"), re.S | re.M).group(0)
+    assert 'make_probe_pdf "$py" "$pdf"' in body
+    assert "reportlab" not in body
