@@ -9,9 +9,11 @@ Parts, in this order:
   --no-update); a new revision of the service description marks every contract entry for a re-check.
 - release-notes: the release notes of T Cloud Public brought up to date (awb mirror rn, owner side, unless
   --no-update) and every note first seen since the last refresh read against the knowledge base and the services:
-  "recheck: KB-XXXX (release note DATE SERVICE)" for each active entry whose tags or statement name the note's
-  service, "new service?" for a service that rules/services.tsv does not know. Nothing is changed, the lines are only
-  listed (also in release-notes.txt next to the report). The first run, without a day to compare with, reads the
+  "recheck: KB-XXXX (release note DATE SERVICE)" for each active entry that names the note's service and shares at
+  least two topic words (title or first paragraph of the note against statement and tags; stop and generic words and
+  the service names do not count), most shared words first, 15 per note and then "and N more" (--all lists every
+  match); a note dated after today is listed in its own block "announced" with its date; "new service?" for a
+  service that rules/services.tsv does not know. Nothing is changed, the lines are only listed (also in release-notes.txt next to the report). The first run, without a day to compare with, reads the
   notes dated in the last 30 days. The day of a run that updated goes to <shared>/refresh/release-notes.json.
 - prices: a snapshot of every region, unless there is one of today, and every value changed since the one before.
 - knowledge: the expired entries of the knowledge base, each with the way it can be checked again, which follows
@@ -65,6 +67,15 @@ MAX_STATE_AGE = 14
 RN_FIRST_DAYS = 30
 # tags of the release-notes page that name no service
 RN_NOT_SERVICES = {"news for users"}
+RN_LIMIT = 15                 # entries listed per note unless --all
+RN_SHARED = 2                 # topic words an entry shares with a note to be listed
+# words that make no topic: stop words and words every note has
+RN_STOP = set("""a an and are as at be by can for from has have in into is it its of on or that the their this to
+with will you your all also any more most new now not only other out over than then there these those up use used
+using via was were when which who service services cloud support supports supported available availability
+announce announced announcement release released general generally offer offered offers add added adds introduce
+introduced introduces provide provides provided enable enables enabled allow allows allowed update updates updated
+feature features""".split())
 _KB_ID_RE = codes.KB_RE
 _AWB_CMD_RE = re.compile(r"`awb ([a-z][a-z-]*)")
 _REVISION_RE = re.compile(r"\b(?:revision|revised|Rev\.?)\s+(\d{2})\.(\d{2})\.(\d{4})\b", re.I)
@@ -142,25 +153,64 @@ def _forms_match(e: kb.Entry, s: offered.Service) -> bool:
     return False
 
 
-def release_note_lines(notes: list[dict], entries: list[kb.Entry], catalog: offered.Catalog) -> list[str]:
-    """For each note, oldest first: the active entries that name its services and the services the catalog does not
-    know. Public names and codes only."""
+def _stem(w: str) -> str:
+    return w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+
+
+def _words(text: str) -> set[str]:
+    """The significant words of a text: lower case, a plural made singular, no stop or generic words."""
+    return {_stem(w) for w in offered.norm(text).split() if len(w) >= 3 and w not in RN_STOP and _stem(w) not in RN_STOP}
+
+
+def note_topic(n: dict, names: set[str]) -> set[str]:
+    """The topic words of a note: its title and first paragraph without the words of the service names."""
+    first = (n.get("text") or "").strip().split("\n\n")[0]
+    return _words("%s %s" % (n.get("title", ""), first)) - names
+
+
+def release_note_lines(notes: list[dict], entries: list[kb.Entry], catalog: offered.Catalog, *,
+                       today: datetime.date | None = None, limit: int | None = RN_LIMIT) -> list[str]:
+    """For each note, oldest first: the active entries that name its services and share at least RN_SHARED topic
+    words with it, most shared words first and at most `limit` of them (None: all, then no "and N more" line), and the
+    services the catalog does not know. A note dated after `today` goes to the block "announced" at the end.
+    Public names and codes only."""
+    today = today or datetime.date.today()
     out: list[str] = []
+    announced: list[str] = []
     for n in sorted(notes, key=lambda n: (n["date"], n["id"])):
+        lines = announced if n["date"] > today.isoformat() else out
+        topic: set[str] | None = None
+        hits: list[tuple[int, str, str]] = []
+        seen: set[str] = set()
         for name in n.get("services", []):
             if offered.norm(name) in RN_NOT_SERVICES:
                 continue
             found = catalog.find(name)
             if not found:
-                out.append("new service?: %s (release note %s %s)" % (name, n["date"], n["title"]))
+                lines.append("new service?: %s (release note %s %s)" % (name, n["date"], n["title"]))
                 continue
+            if topic is None:
+                topic = note_topic(n, set().union(*(_words(" ".join(s.forms())) for s in found), _words(name)))
             for e in entries:
-                if not e.is_retired and any(_forms_match(e, s) for s in found):
-                    out.append("recheck: %s (release note %s %s)" % (e.id, n["date"], found[0].name))
+                if e.is_retired or e.id in seen or not any(_forms_match(e, s) for s in found):
+                    continue
+                shared = len(topic & _words("%s %s" % (e.statement, " ".join(e.tags))))
+                if shared >= RN_SHARED:
+                    seen.add(e.id)
+                    hits.append((shared, e.id, "recheck: %s (release note %s %s)" % (e.id, n["date"], found[0].name)))
+        hits.sort(key=lambda h: (-h[0], h[1]))
+        shown = hits if limit is None else hits[:limit]
+        lines += [h[2] for h in shown]
+        if len(shown) < len(hits):
+            lines.append("and %d more (awb refresh --part release-notes --all)" % (len(hits) - len(shown)))
+    if announced:
+        out.append("announced:")
+        out += ["  " + line for line in announced]
     return out
 
 
-def part_release_notes(p: config.Paths, base: Path, out_dir: Path, *, update: bool, today: datetime.date) -> Part:
+def part_release_notes(p: config.Paths, base: Path, out_dir: Path, *, update: bool, today: datetime.date,
+                       show_all: bool = False) -> Part:
     part = Part("release-notes")
     if update and not config.is_work_user():
         try:
@@ -186,7 +236,7 @@ def part_release_notes(p: config.Paths, base: Path, out_dir: Path, *, update: bo
         part.lines.append("no release notes in the mirror: run awb mirror rn")
         part.overdue += 1
         return part
-    lines = release_note_lines(fresh, kb.load(p), offered.load())
+    lines = release_note_lines(fresh, kb.load(p), offered.load(), today=today, limit=None if show_all else RN_LIMIT)
     part.lines.append("%d release note(s) %s; %d line(s) for a look" % (len(fresh), since, len(lines)))
     part.lines += ["  " + line for line in lines]
     part.overdue += len(lines)
@@ -531,7 +581,8 @@ def part_dataset(p: config.Paths, *, today: datetime.date, after: list[Part]) ->
 
 
 def run(p: config.Paths, *, parts=PARTS, update: bool = True, today: datetime.date | None = None,
-        max_state_age: int = MAX_STATE_AGE, job: jobs.Job | None = None) -> tuple[list[Part], Path]:
+        max_state_age: int = MAX_STATE_AGE, job: jobs.Job | None = None,
+        show_all: bool = False) -> tuple[list[Part], Path]:
     today = today or datetime.datetime.now(datetime.timezone.utc).date()
     job = job or jobs.Job("refresh", None, budget=jobs.DEFAULT_BUDGET, out=io.StringIO())
     out_dir = refresh_dir(p, today)
@@ -544,7 +595,8 @@ def run(p: config.Paths, *, parts=PARTS, update: bool = True, today: datetime.da
             if name == "mirrors":
                 done.append(part_mirrors(base, update=update, job=job))
             elif name == "release-notes":
-                done.append(part_release_notes(p, base, out_dir, update=update, today=today))
+                done.append(part_release_notes(p, base, out_dir, update=update, today=today,
+                                                 show_all=show_all))
             elif name == "prices":
                 done.append(part_prices(p, today=today, job=job))
             elif name == "knowledge":
@@ -728,6 +780,8 @@ def main(argv: list[str] | None = None) -> int:
                                                     "each run.")
     ap.add_argument("--part", action="append", choices=PARTS, default=[])
     ap.add_argument("--no-update", action="store_true", help="read the mirrors, do not bring them up to date")
+    ap.add_argument("--all", action="store_true", dest="show_all",
+                    help="release-notes: list every entry that fits a note, not the first %d" % RN_LIMIT)
     ap.add_argument("--max-state-age", type=int, default=MAX_STATE_AGE)
     ap.add_argument("--budget", type=float, default=jobs.DEFAULT_BUDGET)
     try:
@@ -736,7 +790,7 @@ def main(argv: list[str] | None = None) -> int:
         return exc.code if isinstance(exc.code, int) else 2
     job = jobs.Job("refresh", None, budget=args.budget)
     parts, report = run(config.paths(), parts=tuple(args.part) or PARTS, update=not args.no_update,
-                        max_state_age=args.max_state_age, job=job)
+                        max_state_age=args.max_state_age, job=job, show_all=args.show_all)
     for part in parts:
         print("%-10s %s" % (part.name, "ERROR " + part.error if part.error else
                             ("%d overdue" % part.overdue if part.overdue else "nothing overdue")))

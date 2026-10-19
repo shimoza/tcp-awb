@@ -8756,8 +8756,43 @@
    "name": "the part runs in the refresh between mirrors and prices",
    "run": ".venv/bin/pytest tests/test_release_notes.py::test_the_part_runs_in_the_refresh_between_mirrors_and_prices",
    "status": "passing"
+  },
+  {
+   "id": "rn3-narrow-release-notes-1",
+   "phase": "rn3-narrow-release-notes",
+   "name": "a note about one feature lists only the entries of that feature",
+   "run": ".venv/bin/pytest tests/test_release_notes_narrow.py::test_a_note_about_one_feature_lists_only_the_entries_of_that_feature",
+   "status": "passing"
+  },
+  {
+   "id": "rn3-narrow-release-notes-2",
+   "phase": "rn3-narrow-release-notes",
+   "name": "the lines come by shared words, most first",
+   "run": ".venv/bin/pytest tests/test_release_notes_narrow.py::test_the_lines_come_by_shared_words_most_first",
+   "status": "passing"
+  },
+  {
+   "id": "rn3-narrow-release-notes-3",
+   "phase": "rn3-narrow-release-notes",
+   "name": "the list is capped at fifteen and all prints every match",
+   "run": ".venv/bin/pytest tests/test_release_notes_narrow.py::test_the_list_is_capped_at_fifteen_and_all_prints_every_match",
+   "status": "passing"
+  },
+  {
+   "id": "rn3-narrow-release-notes-4",
+   "phase": "rn3-narrow-release-notes",
+   "name": "a note dated after today is listed in the block announced with its date",
+   "run": ".venv/bin/pytest tests/test_release_notes_narrow.py::test_a_note_dated_after_today_is_listed_in_the_block_announced_with_its_date",
+   "status": "passing"
+  },
+  {
+   "id": "rn3-narrow-release-notes-5",
+   "phase": "rn3-narrow-release-notes",
+   "name": "the part takes all and the cli flag exists",
+   "run": ".venv/bin/pytest tests/test_release_notes_narrow.py::test_the_part_takes_all_and_the_cli_flag_exists",
+   "status": "passing"
   }
  ],
- "total_tests": 1251,
+ "total_tests": 1256,
  "checked": "2026-10-18"
 }
