@@ -693,11 +693,34 @@ build_checks() {
     net_probe
 }
 
+make_probe_pdf() {
+    # make_probe_pdf PYTHON FILE: a minimal one page pdf with the line "extract probe line", written with the standard
+    # library alone (the runtime venv holds no reportlab). The xref offsets are counted from the bytes written
+    "$1" -c 'import sys
+objs = [b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>"]
+stream = b"BT /F1 12 Tf 72 720 Td (extract probe line) Tj ET"
+objs.append(b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream")
+objs.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+out = b"%PDF-1.4\n"
+offs = []
+for i, o in enumerate(objs, 1):
+    offs.append(len(out))
+    out += str(i).encode() + b" 0 obj\n" + o + b"\nendobj\n"
+xref = len(out)
+out += b"xref\n0 " + str(len(objs) + 1).encode() + b"\n0000000000 65535 f \n"
+for o in offs:
+    out += ("%010d 00000 n \n" % o).encode()
+out += b"trailer\n<< /Size " + str(len(objs) + 1).encode() + b" /Root 1 0 R >>\nstartxref\n" + str(xref).encode() + b"\n%%EOF\n"
+open(sys.argv[1], "wb").write(out)' "$2"
+}
+
 extract_checks() {
-    # the pdf extraction: the unit of the throwaway user runs pdftotext on a one page pdf made by reportlab (test extras)
+    # the pdf extraction: the unit of the throwaway user runs pdftotext on a one page pdf made by make_probe_pdf
     local pdf py="$OPT/venv/bin/python3" out=1 text
     if [ "$dry_run" -eq 1 ]; then
-        printf 'CHECK %s\n' "the unit of $EXTRACT_USER runs pdftotext on a one page pdf made by reportlab"
+        printf 'CHECK %s\n' "the unit of $EXTRACT_USER runs pdftotext on a one page pdf"
         return 0
     fi
     if ! getent passwd "$EXTRACT_USER" >/dev/null || ! grep -Eq "^[[:space:]]*extract_user[[:space:]]*=[[:space:]]*$EXTRACT_USER[[:space:]]*$" "$CONF_FILE"; then
@@ -705,8 +728,7 @@ extract_checks() {
         return 0
     fi
     pdf=$(mktemp)
-    if "$py" -c 'import sys; from reportlab.pdfgen import canvas
-c = canvas.Canvas(sys.argv[1]); c.drawString(72, 720, "extract probe line"); c.save()' "$pdf" 2>/dev/null; then
+    if make_probe_pdf "$py" "$pdf" 2>/dev/null; then
         text=$(runuser -u "$owner" -- sudo -n systemd-run --quiet --wait --pipe --collect \
             --uid="$EXTRACT_USER" --gid="$EXTRACT_USER" --property=PrivateNetwork=yes \
             --property=ProtectSystem=strict --property=ProtectHome=yes --property=PrivateTmp=yes \
@@ -715,7 +737,7 @@ c = canvas.Canvas(sys.argv[1]); c.drawString(72, 720, "extract probe line"); c.s
         case "$text" in *"extract probe line"*) out=0 ;; esac
     fi
     rm -f -- "$pdf"
-    report "$out" "the unit of $EXTRACT_USER runs pdftotext on a one page pdf made by reportlab"
+    report "$out" "the unit of $EXTRACT_USER runs pdftotext on a one page pdf"
 }
 
 build_checks
