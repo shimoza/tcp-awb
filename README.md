@@ -30,27 +30,34 @@ yes or no from the vault and a signed call from the key service, never a name an
 | the build runner and `awb pr take` | the Workbench builds itself: a task runs as the build user in sandboxed units, a pull request of a cloud session is checked in the same sandbox and taken in with one command, `sudo awb deploy` brings a release live |
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'Segoe UI, Helvetica, sans-serif','fontSize':'14px','primaryColor':'#dde9f8','primaryTextColor':'#1d2330','primaryBorderColor':'#5a8fd6','lineColor':'#4a5468','clusterBkg':'#f4f6fb','clusterBorder':'#9fb8de','titleColor':'#1d2330'}}}%%
 flowchart LR
-  subgraph owner [owner side]
-    Owner[owner, own terminal]
-    Vault[(vault: register of names)]
-    Keys[key service: tenant keys, bucket door]
-    Runner[build runner]
+  subgraph OWN [" Owner side, the owner's uid "]
+    direction TB
+    Owner("Owner<br/>own terminal, passphrases, grants")
+    Vault[("Vault daemon<br/>register of names")]
+    Keys("Key service<br/>tenant keys in memory, bucket door")
+    Runner("Build runner<br/>judges every branch, pushes green main")
   end
-  subgraph web [web side, one uid per service]
-    Gateway[gateway, sign-in]
-    Reader[reader service: /api/kb, /api/price, /api/usage]
-    Ask[Ask, project chat]
-    Console[console page]
+  subgraph WORK [" Work user "]
+    direction TB
+    Sessions("Project sessions<br/>hooks, tool guard, egress filter")
+    KB[("Knowledge base<br/>facts with check blocks")]
   end
-  subgraph work [work user]
-    Sessions[project sessions: hooks, tool guard, egress filter]
-    KB[(knowledge base)]
+  subgraph WEB [" Web side, one uid per service "]
+    direction TB
+    Gateway("Gateway<br/>sign-in")
+    Reader("Reader service<br/>/api/kb, /api/price, /api/usage")
+    Ask("Ask and project chat")
+    Console("Console page")
   end
-  Build[build user: task units, branch checks]
-  Cloud[cloud sessions: pull requests]
-  GitHub[(GitHub)]
-  Tenants[(TCP test tenants)]
+  subgraph OUT [" Outside the host "]
+    direction TB
+    Build("Build user<br/>task units, branch checks")
+    Cloud("Cloud sessions<br/>pull requests")
+    GitHub[("GitHub")]
+    Tenants[("TCP test tenants")]
+  end
   Owner --> Vault
   Owner --> Keys
   Owner --> Runner
@@ -58,8 +65,8 @@ flowchart LR
   Runner --> Build
   Runner --> GitHub
   Cloud --> GitHub
-  Sessions -- yes or no --> Vault
-  Sessions -- signed calls --> Keys
+  Sessions -- "yes or no" --> Vault
+  Sessions -- "signed calls" --> Keys
   Keys --> Tenants
   Sessions --> KB
   Console --> Gateway
@@ -67,6 +74,20 @@ flowchart LR
   Gateway --> Ask
   Reader --> KB
   Ask --> KB
+  classDef blue fill:#dde9f8,stroke:#5a8fd6,stroke-width:2px,color:#1d2330,rx:12,ry:12
+  classDef green fill:#dff0d8,stroke:#6aa84f,stroke-width:2px,color:#1d2330,rx:12,ry:12
+  classDef yellow fill:#fff2cc,stroke:#d6a523,stroke-width:2px,color:#1d2330,rx:12,ry:12
+  classDef purple fill:#ece3f5,stroke:#9b7bbd,stroke-width:2px,color:#1d2330,rx:12,ry:12
+  classDef store fill:#ffffff,stroke:#9b7bbd,stroke-width:2px,color:#1d2330
+  class Owner,Keys,Runner blue
+  class Sessions green
+  class Gateway,Reader,Ask,Console yellow
+  class Build,Cloud purple
+  class Vault,KB,GitHub,Tenants store
+  style OWN fill:#eef3fb,stroke:#5a8fd6,stroke-width:2px,color:#1d2330
+  style WORK fill:#eef7ea,stroke:#6aa84f,stroke-width:2px,color:#1d2330
+  style WEB fill:#fff9e8,stroke:#d6a523,stroke-width:2px,color:#1d2330
+  style OUT fill:#f3eef8,stroke:#9b7bbd,stroke-width:2px,color:#1d2330
 ```
 
 ## Start here (the owner)
