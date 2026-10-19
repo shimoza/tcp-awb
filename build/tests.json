@@ -8651,8 +8651,22 @@
    "name": "the seal scripts know the ask table",
    "run": ".venv/bin/pytest tests/test_egress.py::test_the_seal_scripts_know_the_ask_table",
    "status": "passing"
+  },
+  {
+   "id": "fix-verify-extract-probe-1",
+   "phase": "fix-verify-extract-probe",
+   "name": "the extract probe pdf is made without reportlab and read by pdftotext",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_extract_probe_pdf_is_made_without_reportlab_and_read_by_pdftotext",
+   "status": "passing"
+  },
+  {
+   "id": "fix-verify-extract-probe-2",
+   "phase": "fix-verify-extract-probe",
+   "name": "the extract check uses the probe pdf maker and no reportlab",
+   "run": ".venv/bin/pytest tests/test_seal.py::test_the_extract_check_uses_the_probe_pdf_maker_and_no_reportlab",
+   "status": "passing"
   }
  ],
- "total_tests": 1236,
+ "total_tests": 1238,
  "checked": "2026-10-18"
 }
