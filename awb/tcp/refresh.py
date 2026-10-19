@@ -7,6 +7,12 @@ instead of one long prompt (phase 7, R-12, R-80, R-82, section 6 of the design).
 Parts, in this order:
 - mirrors: the service description and the documentation mirror brought up to date (owner side, unless
   --no-update); a new revision of the service description marks every contract entry for a re-check.
+- release-notes: the release notes of T Cloud Public brought up to date (awb mirror rn, owner side, unless
+  --no-update) and every note first seen since the last refresh read against the knowledge base and the services:
+  "recheck: KB-XXXX (release note DATE SERVICE)" for each active entry whose tags or statement name the note's
+  service, "new service?" for a service that rules/services.tsv does not know. Nothing is changed, the lines are only
+  listed (also in release-notes.txt next to the report). The first run, without a day to compare with, reads the
+  notes dated in the last 30 days. The day of a run that updated goes to <shared>/refresh/release-notes.json.
 - prices: a snapshot of every region, unless there is one of today, and every value changed since the one before.
 - knowledge: the expired entries of the knowledge base, each with the way it can be checked again, which follows
   from its grade and scope, with the tier of its check block ("no block" without one) and the block itself. An entry
@@ -53,9 +59,12 @@ import awb
 from awb import codes, config, jobs, kb, offered, projects
 from awb.tcp import board, dataset, mirror, price
 
-PARTS = ("mirrors", "prices", "knowledge", "wipe", "projects", "defaults", "dataset")
+PARTS = ("mirrors", "release-notes", "prices", "knowledge", "wipe", "projects", "defaults", "dataset")
 VERDICTS = ("confirmed", "changed", "refuted", "unchecked")
 MAX_STATE_AGE = 14
+RN_FIRST_DAYS = 30
+# tags of the release-notes page that name no service
+RN_NOT_SERVICES = {"news for users"}
 _KB_ID_RE = codes.KB_RE
 _AWB_CMD_RE = re.compile(r"`awb ([a-z][a-z-]*)")
 _REVISION_RE = re.compile(r"\b(?:revision|revised|Rev\.?)\s+(\d{2})\.(\d{2})\.(\d{4})\b", re.I)
@@ -107,6 +116,85 @@ def part_mirrors(base: Path, *, update: bool, job: jobs.Job) -> Part:
     if mirror.current_sd(base) is None:
         part.lines.append("no service description in the mirror: contract entries cannot be checked here")
         part.overdue += 1
+    return part
+
+
+# --------------------------------------------------------------------------- release notes
+
+
+def rn_state(p: config.Paths) -> Path:
+    return p.shared / "refresh" / "release-notes.json"
+
+
+def _forms_match(e: kb.Entry, s: offered.Service) -> bool:
+    """True when the tags or the statement of the entry name the service: a tag equals a name or short name, the
+    statement holds the name, or a short name of three letters or more written in capitals as a word."""
+    tags = {offered.key(t) for t in e.tags}
+    statement = " %s " % offered.norm(e.statement)
+    for form in s.forms():
+        if offered.key(form) in tags:
+            return True
+        if form.isupper() and len(form) >= 3:
+            if re.search(r"(?<![A-Za-z0-9])%s(?![A-Za-z0-9])" % re.escape(form), e.statement):
+                return True
+        elif len(form) >= 3 and " %s " % offered.norm(form) in statement:
+            return True
+    return False
+
+
+def release_note_lines(notes: list[dict], entries: list[kb.Entry], catalog: offered.Catalog) -> list[str]:
+    """For each note, oldest first: the active entries that name its services and the services the catalog does not
+    know. Public names and codes only."""
+    out: list[str] = []
+    for n in sorted(notes, key=lambda n: (n["date"], n["id"])):
+        for name in n.get("services", []):
+            if offered.norm(name) in RN_NOT_SERVICES:
+                continue
+            found = catalog.find(name)
+            if not found:
+                out.append("new service?: %s (release note %s %s)" % (name, n["date"], n["title"]))
+                continue
+            for e in entries:
+                if not e.is_retired and any(_forms_match(e, s) for s in found):
+                    out.append("recheck: %s (release note %s %s)" % (e.id, n["date"], found[0].name))
+    return out
+
+
+def part_release_notes(p: config.Paths, base: Path, out_dir: Path, *, update: bool, today: datetime.date) -> Part:
+    part = Part("release-notes")
+    if update and not config.is_work_user():
+        try:
+            r = mirror.sync_release_notes(base)
+            part.lines.append("release notes: %d new, %d known, %d page(s) read" % (r["new"], r["known"], r["pages"]))
+        except mirror.MirrorError as err:
+            part.lines.append("release notes: not updated (%s)" % err)
+            part.overdue += 1
+    state = rn_state(p)
+    try:
+        last = json.loads(state.read_text(encoding="utf-8")).get("last", "")
+    except (OSError, ValueError, AttributeError):
+        last = ""
+    notes = mirror.release_notes(base)
+    if last:
+        fresh = [n for n in notes if n.get("seen", "") > last]
+        since = "first seen since %s" % last
+    else:
+        floor = (today - datetime.timedelta(days=RN_FIRST_DAYS)).isoformat()
+        fresh = [n for n in notes if n.get("date", "") >= floor]
+        since = "dated since %s, the first run" % floor
+    if not notes:
+        part.lines.append("no release notes in the mirror: run awb mirror rn")
+        part.overdue += 1
+        return part
+    lines = release_note_lines(fresh, kb.load(p), offered.load())
+    part.lines.append("%d release note(s) %s; %d line(s) for a look" % (len(fresh), since, len(lines)))
+    part.lines += ["  " + line for line in lines]
+    part.overdue += len(lines)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "release-notes.txt").write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+    if update and not config.is_work_user():
+        state.parent.mkdir(parents=True, exist_ok=True)
+        state.write_text(json.dumps({"last": mirror._now()}) + "\n", encoding="utf-8")
     return part
 
 
@@ -455,6 +543,8 @@ def run(p: config.Paths, *, parts=PARTS, update: bool = True, today: datetime.da
         try:
             if name == "mirrors":
                 done.append(part_mirrors(base, update=update, job=job))
+            elif name == "release-notes":
+                done.append(part_release_notes(p, base, out_dir, update=update, today=today))
             elif name == "prices":
                 done.append(part_prices(p, today=today, job=job))
             elif name == "knowledge":
@@ -633,8 +723,9 @@ def main(argv: list[str] | None = None) -> int:
         print("awb refresh apply: %s" % ", ".join("%d %s" % (n, k) for k, n in sorted(counts.items())))
         return 0 if all(a.ok for a in applied) else 1
 
-    ap = SafeParser(prog="awb refresh", description="The refresh of TCP knowledge: mirrors, prices, knowledge, "
-                                                    "wipe, projects, defaults, dataset; a report each run.")
+    ap = SafeParser(prog="awb refresh", description="The refresh of TCP knowledge: mirrors, release notes, "
+                                                    "prices, knowledge, wipe, projects, defaults, dataset; a report "
+                                                    "each run.")
     ap.add_argument("--part", action="append", choices=PARTS, default=[])
     ap.add_argument("--no-update", action="store_true", help="read the mirrors, do not bring them up to date")
     ap.add_argument("--max-state-age", type=int, default=MAX_STATE_AGE)

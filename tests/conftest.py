@@ -467,6 +467,7 @@ def invented_blocklist(tmp_path_factory, monkeypatch):
     from awb.tcp import mirror
     monkeypatch.setattr(mirror, "ORG_API", DEAD_URL + "orgs/%s/repos?page=%d")
     monkeypatch.setattr(mirror, "SD_PAGE", DEAD_URL + "service-description")
+    monkeypatch.setattr(mirror, "RN_PAGE", DEAD_URL + "release-notes")
 
 
 needs_hook_process = pytest.mark.skipif(SEALED_FOR_ANOTHER_USER,
