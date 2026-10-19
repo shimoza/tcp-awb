@@ -9,6 +9,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 - `awb mirror rn` (task rn-release-notes): the release notes of T Cloud Public as a third public source next to the docs mirror and the service description. It reads the list page one request per page with a pause (`--pause`, default 2 s) and a User-Agent that names the Workbench, never a note page, `/neos/` or an image. It keeps one file per note under `<mirrors>/release-notes/notes/` plus `INDEX.json`. A known note is never written again; once every page has been read a run stops at the first page without a new note (`--pages N` caps a run). `awb mirror status` shows the count. `awb refresh` gets the part `release-notes` (after `mirrors`): for each note first seen since the last refresh it lists `recheck: KB-XXXX (release note DATE SERVICE)` for the entries whose tags or statement name the service and `new service?` for a service `rules/services.tsv` does not know. It changes no entry. The first run reads the notes dated in the last 30 days.
 
+### Changed
+
+- `awb refresh --part release-notes` lists fewer entries (task rn3-narrow-release-notes): an entry is listed for a note only when it names the service and shares at least two topic words with the note (words of the title or first paragraph against the statement and tags; stop words, the service names and generic words such as service, cloud, new or support do not count). The lines run by shared words, most first, 15 per note and then `and N more (awb refresh --part release-notes --all)`; `--all` lists every match. A note dated after today goes to its own block `announced` with its date.
+
 ### Fixed
 
 - `seal/verify.sh`: the check of the pdf extraction unit made its probe PDF with reportlab, which the runtime venv does not hold, so it failed on a real host although the unit works. The probe PDF is now a minimal one page PDF written with the standard library alone (`make_probe_pdf`), and the check reads "the unit of awb-extract runs pdftotext on a one page pdf". The `systemd-run` line is unchanged.

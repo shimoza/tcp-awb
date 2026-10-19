@@ -1123,11 +1123,12 @@ fetch the release notes list, a file per new note
 
 what the mirrors hold
 
-### `awb refresh [--part PART] [--no-update] [--max-state-age MAX_STATE_AGE] [--budget BUDGET]`
+### `awb refresh [--part PART] [--no-update] [--all] [--max-state-age MAX_STATE_AGE] [--budget BUDGET]`
 
 the refresh: mirrors, prices, expired knowledge, projects, defaults, dataset; apply results
 - `--part PART`
 - `--no-update`: read the mirrors, do not bring them up to date
+- `--all`: release-notes: list every entry that fits a note, not the first 15
 - `--max-state-age MAX_STATE_AGE`
 - `--budget BUDGET`
 
