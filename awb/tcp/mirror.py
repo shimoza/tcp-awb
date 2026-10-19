@@ -2,6 +2,7 @@
 
     awb mirror docs [--budget SECONDS] [--only REPO]...
     awb mirror sd
+    awb mirror rn [--pages N] [--pause SECONDS]
     awb mirror status
 
 docs: every repository of the GitHub organisation opentelekomcloud-docs that is not archived, cloned shallow into
@@ -15,6 +16,14 @@ and its text (pdftotext -layout) go to <root>/service-description/<revision>/, t
 revised" line. A new revision gets a folder of its own and the older ones stay as the archive; CURRENT names the
 newest. The text decides whether anything changed: another export of the same text is unchanged, other text under
 the same revision date is reported as replaced.
+
+rn: the release notes of T Cloud Public, the third public source. The list page is read one request per page, with a
+pause between pages and a User-Agent that names the Workbench; the note pages, /neos/ and the images are never
+fetched, because the list holds the date, title, text and link of each note. Each note becomes a file
+<root>/release-notes/notes/<date>-<slug>.json (date, title, text, link, services) and INDEX.json lists them with the
+day they were first seen. A note that is in the index is never written again. Until every page has been read once
+(--pages or an error can cut the first run short) a run goes on to the last page; after that it stops at the first
+page that brings nothing new, so a later run reads page 1.
 
 <root> is AWB_MIRRORS or ~/tcp-mirrors on the owner side. The work user of the seal reads /srv/tcp-mirrors, where
 the seal mounts them read-only (seal/setup.sh --mirrors <root>/docs <root>/service-description), and never updates
@@ -30,8 +39,11 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable
 
@@ -42,7 +54,10 @@ ORG_API = "https://api.github.com/orgs/%s/repos?per_page=100&type=public&page=%d
 SD_PAGE = "https://www.t-cloud-public.com/service-description"
 ROOT_ENV = "AWB_MIRRORS"
 SEALED_ROOT = Path("/srv/tcp-mirrors")
-DOCS, SD = "docs", "service-description"
+RN_PAGE = "https://www.t-cloud-public.com/en/support/release-notes"
+RN_PAUSE = 2.0
+DOCS, SD, RN = "docs", "service-description", "release-notes"
+INDEX = "INDEX.json"
 MANIFEST = "MANIFEST.json"
 CURRENT = "CURRENT"
 GIT_TIMEOUT = 600
@@ -269,6 +284,167 @@ def current_sd(base: Path) -> Path | None:
     return path if path.exists() else None
 
 
+# --------------------------------------------------------------------------- the release notes
+
+
+class _ListParser(HTMLParser):
+    """The articles of the list page (<article class="page-teaser">): date, title, text, link and tags, and the
+    highest page number of the pager."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.notes: list[dict] = []
+        self.last_page = 1
+        self._note: dict | None = None
+        self._field = ""
+        self._buf: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        a = dict(attrs)
+        cls = (a.get("class") or "").split()
+        href = a.get("href") or ""
+        if tag == "a":
+            m = re.search(r"[?&]p=(\d+)", href)
+            if m:
+                self.last_page = max(self.last_page, int(m.group(1)))
+        if tag == "article" and "page-teaser" in cls:
+            self._note = {"date": "", "title": "", "text": "", "link": "", "services": [], "types": []}
+        elif self._note is None:
+            return
+        elif tag == "time":
+            self._note["date"] = (a.get("datetime") or "")[:10]
+        elif tag in ("h2", "p"):
+            self._field = {"h2": "title", "p": "text"}[tag]
+            self._buf = []
+        elif tag == "a" and "teaser-link" in cls:
+            self._note["link"] = href
+        elif tag == "a" and "tag" in cls:
+            self._field = "tag-type" if "type=" in href else "tag-service"
+            self._buf = []
+
+    def handle_data(self, data: str) -> None:
+        if self._field:
+            self._buf.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._note is None:
+            return
+        if tag in ("h2", "p", "a") and self._field:
+            text = " ".join("".join(self._buf).split())
+            if self._field in ("title", "text") and tag in ("h2", "p"):
+                self._note[self._field] = self._note[self._field] or text
+            elif self._field == "tag-service" and tag == "a" and text:
+                self._note["services"].append(text)
+            elif self._field == "tag-type" and tag == "a" and text:
+                self._note["types"].append(text)
+            else:
+                return
+            self._field = ""
+        elif tag == "article":
+            self.notes.append(self._note)
+            self._note = None
+
+
+def _note_link(href: str, page: str) -> str:
+    """The absolute link of a note, or "" when it leaves the site or points into /neos/."""
+    url = urllib.parse.urljoin(page + "/", href) if href else ""
+    u, base = urllib.parse.urlsplit(url), urllib.parse.urlsplit(page)
+    if u.scheme != "https" or u.netloc != base.netloc or u.path.startswith("/neos/"):
+        return ""
+    return urllib.parse.urlunsplit((u.scheme, u.netloc, u.path, "", ""))
+
+
+def parse_release_notes(html: str, page: str | None = None) -> tuple[list[dict], int]:
+    """The notes of one list page and the number of the last page. A note without a date, a title or a usable link
+    is left out. Each note carries its id (date and the last part of the link), the link made absolute and the
+    services and types of its tags."""
+    page = page or RN_PAGE
+    parser = _ListParser()
+    parser.feed(html)
+    parser.close()
+    notes = []
+    for n in parser.notes:
+        link = _note_link(n["link"], page)
+        slug = link.rstrip("/").rsplit("/", 1)[-1].lower()
+        if not (re.fullmatch(r"\d{4}-\d{2}-\d{2}", n["date"]) and n["title"] and link
+                and re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,150}", slug)):
+            continue
+        notes.append(dict(n, link=link, id="%s-%s" % (n["date"], slug)))
+    return notes, parser.last_page
+
+
+def _fetch_page(url: str) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": _AGENT, "Accept": "text/html"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read().decode("utf-8", "replace")
+
+
+def load_rn_index(base: Path) -> dict:
+    try:
+        data = json.loads((base / RN / INDEX).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"notes": {}}
+    return data if isinstance(data.get("notes"), dict) else {"notes": {}}
+
+
+def sync_release_notes(base: Path, *, fetch: Callable[[str], str] | None = None, pages: int | None = None,
+                       pause: float = RN_PAUSE, sleep: Callable[[float], None] = time.sleep,
+                       page: str | None = None) -> dict:
+    """The new notes of the release-notes list into <base>/release-notes/. One request per page, `pause` seconds
+    between two pages, and the run stops at the first page without a new note, at the last page or after `pages`
+    pages. The index is written after every page, so a run that is cut off keeps what it did. Returns the counts
+    (new, known, pages) and the ids of the new notes. A page that holds no note at all is an error: the page changed
+    its shape."""
+    fetch = fetch or _fetch_page
+    page = page or RN_PAGE
+    folder = base / RN
+    index = load_rn_index(base)
+    index.update({"source": page})
+    complete = bool(index.get("complete"))
+    new: list[str] = []
+    known = read = 0
+    last = 1
+    number = 1
+    while number <= last and (pages is None or read < pages):
+        url = page if number == 1 else "%s?p=%d" % (page, number)
+        try:
+            html = fetch(url)
+        except urllib.error.HTTPError as exc:
+            raise MirrorError("the release notes answered HTTP %d (page %d)" % (exc.code, number)) from None
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            raise MirrorError("the release notes could not be fetched (%s, page %d)"
+                              % (type(exc).__name__, number)) from None
+        read += 1
+        notes, last = parse_release_notes(html, page)
+        if not notes:
+            raise MirrorError("the release notes page %d holds no note: its shape changed" % number)
+        fresh = [n for n in notes if n["id"] not in index["notes"]]
+        known += len(notes) - len(fresh)
+        for n in fresh:
+            name = "notes/%s.json" % n["id"]
+            _write_json(folder / name, {k: n[k] for k in ("id", "date", "title", "text", "link", "services", "types")})
+            index["notes"][n["id"]] = {"date": n["date"], "title": n["title"], "services": n["services"],
+                                       "file": name, "seen": _now()}
+            new.append(n["id"])
+        index["last_run"] = _now()
+        if not fresh and complete:
+            _write_json(folder / INDEX, index)
+            break
+        number += 1
+        if number > last:                              # the last page is read: every page has been seen
+            index["complete"] = complete = True
+        _write_json(folder / INDEX, index)
+        if number <= last and (pages is None or read < pages):
+            sleep(pause)
+    return {"new": len(new), "known": known, "pages": read, "ids": new, "total": len(index["notes"])}
+
+
+def release_notes(base: Path) -> list[dict]:
+    """Every note of the index, newest first, with its id and the day it was first seen."""
+    out = [dict(v, id=k) for k, v in load_rn_index(base)["notes"].items()]
+    return sorted(out, key=lambda n: (n.get("date", ""), n["id"]), reverse=True)
+
+
 def status(base: Path) -> list[str]:
     m = load_manifest(base / DOCS)
     states: dict[str, int] = {}
@@ -279,6 +455,9 @@ def status(base: Path) -> list[str]:
         ", ".join("%d %s" % (n, s) for s, n in sorted(states.items())) or "none")]
     sd = current_sd(base)
     lines.append("service description: %s" % (("revision %s in %s" % (sd.parent.name, sd.parent)) if sd else "none"))
+    notes = release_notes(base)
+    lines.append("release notes: %s" % (("%d notes, newest %s, in %s" % (len(notes), notes[0]["date"], base / RN))
+                                        if notes else "none"))
     return lines
 
 
@@ -286,16 +465,19 @@ def status(base: Path) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """`awb mirror docs|sd|status`. Exit 0 done, 1 some repository failed, 2 an error or refused."""
+    """`awb mirror docs|sd|rn|status`. Exit 0 done, 1 some repository failed, 2 an error or refused."""
     from awb.cli import SafeParser
 
-    ap = SafeParser(prog="awb mirror", description="Public mirrors of TCP: the documentation sources and the "
-                                                    "service description (owner side).")
+    ap = SafeParser(prog="awb mirror", description="Public mirrors of TCP: the documentation sources, the "
+                                                    "service description and the release notes (owner side).")
     sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
     d = sub.add_parser("docs", help="clone or update every documentation repository")
     d.add_argument("--budget", type=float, default=jobs.DEFAULT_BUDGET, help="seconds before the run stops")
     d.add_argument("--only", action="append", default=[], help="one repository (repeat for more)")
     sub.add_parser("sd", help="fetch the service description, a folder per revision")
+    r = sub.add_parser("rn", help="fetch the release notes list, a file per new note")
+    r.add_argument("--pages", type=int, default=None, help="read at most this many pages")
+    r.add_argument("--pause", type=float, default=RN_PAUSE, help="seconds between two pages")
     sub.add_parser("status", help="what the mirrors hold")
     try:
         args = ap.parse_args(argv)
@@ -315,6 +497,11 @@ def main(argv: list[str] | None = None) -> int:
             r = sync_sd(base)
             print("awb mirror sd: revision %s %s, current %s, %d older revision(s) kept -> %s"
                   % (r["revision"], r["state"], r["current"], r["archive"], r["folder"]))
+            return 0
+        if args.command == "rn":
+            r = sync_release_notes(base, pages=args.pages, pause=args.pause)
+            print("awb mirror rn: %d new note(s), %d known, %d page(s) read, %d in the index -> %s"
+                  % (r["new"], r["known"], r["pages"], r["total"], base / RN))
             return 0
         listing = list_repos()
         if listing.state != jobs.LIST:

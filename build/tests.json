@@ -8665,8 +8665,99 @@
    "name": "the extract check uses the probe pdf maker and no reportlab",
    "run": ".venv/bin/pytest tests/test_seal.py::test_the_extract_check_uses_the_probe_pdf_maker_and_no_reportlab",
    "status": "passing"
+  },
+  {
+   "id": "rn-release-notes-1",
+   "phase": "rn-release-notes",
+   "name": "a page is read into date title text link and tags",
+   "run": ".venv/bin/pytest tests/test_release_notes.py::test_a_page_is_read_into_date_title_text_link_and_tags",
+   "status": "passing"
+  },
+  {
+   "id": "rn-release-notes-2",
+   "phase": "rn-release-notes",
+   "name": "a note without a date or with a link outside the site or into neos is left out",
+   "run": ".venv/bin/pytest tests/test_release_notes.py::test_a_note_without_a_date_or_with_a_link_outside_the_site_or_into_neos_is_left_out",
+   "status": "passing"
+  },
+  {
+   "id": "rn-release-notes-3",
+   "phase": "rn-release-notes",
+   "name": "the first run reads every page with a pause between them",
+   "run": ".venv/bin/pytest tests/test_release_notes.py::test_the_first_run_reads_every_page_with_a_pause_between_them",
+   "status": "passing"
+  },
+  {
+   "id": "rn-release-notes-4",
+   "phase": "rn-release-notes",
+   "name": "a second run adds nothing and reads page one only",
+   "run": ".venv/bin/pytest tests/test_release_notes.py::test_a_second_run_adds_nothing_and_reads_page_one_only",
+   "status": "passing"
+  },
+  {
+   "id": "rn-release-notes-5",
+   "phase": "rn-release-notes",
+   "name": "a new note on page one is the only one added",
+   "run": ".venv/bin/pytest tests/test_release_notes.py::test_a_new_note_on_page_one_is_the_only_one_added",
+   "status": "passing"
+  },
+  {
+   "id": "rn-release-notes-6",
+   "phase": "rn-release-notes",
+   "name": "pages caps the run and the next run goes on",
+   "run": ".venv/bin/pytest tests/test_release_notes.py::test_pages_caps_the_run_and_the_next_run_goes_on",
+   "status": "passing"
+  },
+  {
+   "id": "rn-release-notes-7",
+   "phase": "rn-release-notes",
+   "name": "a page without notes is an error and a failed fetch keeps what was done",
+   "run": ".venv/bin/pytest tests/test_release_notes.py::test_a_page_without_notes_is_an_error_and_a_failed_fetch_keeps_what_was_done",
+   "status": "passing"
+  },
+  {
+   "id": "rn-release-notes-8",
+   "phase": "rn-release-notes",
+   "name": "the command fetches and status tells",
+   "run": ".venv/bin/pytest tests/test_release_notes.py::test_the_command_fetches_and_status_tells",
+   "status": "passing"
+  },
+  {
+   "id": "rn-release-notes-9",
+   "phase": "rn-release-notes",
+   "name": "the lines name entries of the service and services the list does not know",
+   "run": ".venv/bin/pytest tests/test_release_notes.py::test_the_lines_name_entries_of_the_service_and_services_the_list_does_not_know",
+   "status": "passing"
+  },
+  {
+   "id": "rn-release-notes-10",
+   "phase": "rn-release-notes",
+   "name": "the part lists the notes since the last refresh and changes no entry",
+   "run": ".venv/bin/pytest tests/test_release_notes.py::test_the_part_lists_the_notes_since_the_last_refresh_and_changes_no_entry",
+   "status": "passing"
+  },
+  {
+   "id": "rn-release-notes-11",
+   "phase": "rn-release-notes",
+   "name": "the part uses what is first seen and a run without update keeps the day",
+   "run": ".venv/bin/pytest tests/test_release_notes.py::test_the_part_uses_what_is_first_seen_and_a_run_without_update_keeps_the_day",
+   "status": "passing"
+  },
+  {
+   "id": "rn-release-notes-12",
+   "phase": "rn-release-notes",
+   "name": "an empty mirror is overdue and a failed fetch is said",
+   "run": ".venv/bin/pytest tests/test_release_notes.py::test_an_empty_mirror_is_overdue_and_a_failed_fetch_is_said",
+   "status": "passing"
+  },
+  {
+   "id": "rn-release-notes-13",
+   "phase": "rn-release-notes",
+   "name": "the part runs in the refresh between mirrors and prices",
+   "run": ".venv/bin/pytest tests/test_release_notes.py::test_the_part_runs_in_the_refresh_between_mirrors_and_prices",
+   "status": "passing"
   }
  ],
- "total_tests": 1238,
+ "total_tests": 1251,
  "checked": "2026-10-18"
 }
