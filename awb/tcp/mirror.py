@@ -393,12 +393,27 @@ def parse_release_notes(html: str, page: str | None = None) -> tuple[list[dict],
     return notes, parser.last_page
 
 
+class _SameSite(urllib.request.HTTPRedirectHandler):
+    """A redirect is followed only to https on the host that was asked; any other answer ends as an HTTPError."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        old = urllib.parse.urlsplit(req.full_url)
+        newurl = urllib.parse.urljoin(req.full_url, newurl)
+        new = urllib.parse.urlsplit(newurl)
+        if new.scheme != "https" or new.netloc != old.netloc:
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_SameSite)
+
+
 def _fetch_page(url: str) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": _AGENT, "Accept": "text/html"})
     end = time.monotonic() + RN_MAX_SECONDS
     chunks: list[bytes] = []
     size = 0
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with _OPENER.open(req, timeout=30) as resp:
         while True:
             chunk = resp.read(65536)
             if not chunk:
