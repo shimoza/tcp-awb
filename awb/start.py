@@ -58,8 +58,11 @@ def customer_step(p: config.Paths, customer: str | None, *, read=None, tty=None)
     return customer, code
 
 
-def spawn_argv(kind: str, goal: str, customer: str | None, tags: list[str], code: str | None = None) -> list[str]:
+def spawn_argv(kind: str, goal: str, customer: str | None, tags: list[str], code: str | None = None,
+               review_tier: int | None = None) -> list[str]:
     argv = ["spawn", kind, "--goal", goal]
+    if review_tier:
+        argv += ["--review-tier", str(review_tier)]
     if customer:
         argv += ["--customer", "new", "--code", code]
     for tag in tags:
@@ -105,7 +108,7 @@ def import_step(p: config.Paths, code: str, *, read=None, tty=None) -> int:
 
 
 def start(p: config.Paths, kind: str, goal: str, customer: str | None = None, tags: list[str] = (), *,
-          run=subprocess.run, read=None, tty=None) -> int:
+          run=subprocess.run, read=None, tty=None, review_tier: int | None = None) -> int:
     from awb import vault
 
     if config.is_work_user() or vault.in_assistant_session():
@@ -113,7 +116,7 @@ def start(p: config.Paths, kind: str, goal: str, customer: str | None = None, ta
     if kind not in projects.PROJECT_KINDS:
         raise StartError("a piece of work is a query or a project")
     cust, reserved = customer_step(p, customer, read=read, tty=tty)
-    code = spawn_step(p, spawn_argv(kind, goal, cust, list(tags), reserved), run=run)
+    code = spawn_step(p, spawn_argv(kind, goal, cust, list(tags), reserved, review_tier), run=run)
     if reserved and code != reserved:
         raise StartError("%s is spawned but not under the reserved code %s" % (code, reserved))
     try:
@@ -140,12 +143,14 @@ def main(argv: list[str] | None = None) -> int:
                     help="new issues CUST-XXXX with the four characters of the project code; its written forms are "
                          "asked on the terminal, never given here; an existing customer is refused")
     ap.add_argument("--tag", action="append", default=[], help="a tag of rules/tags.txt, as awb spawn takes it")
+    ap.add_argument("--review-tier", type=int, choices=projects.REVIEW_TIERS, default=None, metavar="1|2|3",
+                    help="the review tier of the project (default 3): written to its SCOPE.md")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else EXIT_ERROR
     try:
-        return start(config.paths(), args.kind, args.goal, args.customer, args.tag)
+        return start(config.paths(), args.kind, args.goal, args.customer, args.tag, review_tier=args.review_tier)
     except (StartError, importcmd.ImportRefused, intake.IntakeError, register.RegisterError, projects.ProjectError,
             vault.VaultError) as err:
         print("awb start: %s" % err, file=sys.stderr)

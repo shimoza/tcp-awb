@@ -13,7 +13,8 @@ The owner drops files into an inbox in the OBS console and names one in his prom
 2. A project without a customer takes from the owner inbox only with the code he gives: `--customer CUST-XXXX`.
 3. A file from or about a customer that reached you through the lab inbox: stop, tell him, keep it out of git
    and ask him to drop it into the owner inbox.
-4. Results go out with `awb xchg put FILE` into `<project>/from-session/<date>/`; he gets a mail. Codes only, no ids
+4. Name a deliverable `<project code>-<kind word>-<language>.<ext>` from the start (`tcp-q7m4-mapping-de.md`); when the
+   name check refuses a name, `awb xchg put` proposes one. Results go out with `awb xchg put FILE` into `<project>/from-session/<date>/`; he gets a mail. Codes only, no ids
    in logs. A screenshot only with `--image --reason "what it shows, checked for names and ids"`. A deliverable of
    a customer project leaves only with a valid review.
 5. `awb xchg list` shows what you put; `awb inbox list` shows the lab inbox.

@@ -9561,8 +9561,92 @@
    "name": "CS6: the owner side keeps the paste door as it is",
    "run": ".venv/bin/pytest tests/test_material.py::test_the_owner_side_keeps_the_paste_door_as_it_is",
    "status": "passing"
+  },
+  {
+   "id": "xg-names-and-review-tier-1",
+   "phase": "xg-names-and-review-tier",
+   "name": "xg2 a spawn without a tier writes no line and the project tier is 3",
+   "run": ".venv/bin/pytest tests/test_xg_names_and_tier.py::test_xg2_a_spawn_without_a_tier_writes_no_line_and_the_project_tier_is_3",
+   "status": "passing"
+  },
+  {
+   "id": "xg-names-and-review-tier-2",
+   "phase": "xg-names-and-review-tier",
+   "name": "xg2 a spawn with a tier writes it into the scope",
+   "run": ".venv/bin/pytest tests/test_xg_names_and_tier.py::test_xg2_a_spawn_with_a_tier_writes_it_into_the_scope",
+   "status": "passing"
+  },
+  {
+   "id": "xg-names-and-review-tier-3",
+   "phase": "xg-names-and-review-tier",
+   "name": "xg2 the spawn command and awb start take the tier",
+   "run": ".venv/bin/pytest tests/test_xg_names_and_tier.py::test_xg2_the_spawn_command_and_awb_start_take_the_tier",
+   "status": "passing"
+  },
+  {
+   "id": "xg-names-and-review-tier-4",
+   "phase": "xg-names-and-review-tier",
+   "name": "xg2 awb projects tier changes the line and reports the old value",
+   "run": ".venv/bin/pytest tests/test_xg_names_and_tier.py::test_xg2_awb_projects_tier_changes_the_line_and_reports_the_old_value",
+   "status": "passing"
+  },
+  {
+   "id": "xg-names-and-review-tier-5",
+   "phase": "xg-names-and-review-tier",
+   "name": "xg2 a contract takes the tier of its project and the owner may raise it",
+   "run": ".venv/bin/pytest tests/test_xg_names_and_tier.py::test_xg2_a_contract_takes_the_tier_of_its_project_and_the_owner_may_raise_it",
+   "status": "passing"
+  },
+  {
+   "id": "xg-names-and-review-tier-6",
+   "phase": "xg-names-and-review-tier",
+   "name": "xg2 the send gate keeps refusing below the project tier",
+   "run": ".venv/bin/pytest tests/test_xg_names_and_tier.py::test_xg2_the_send_gate_keeps_refusing_below_the_project_tier",
+   "status": "passing"
+  },
+  {
+   "id": "xg-names-and-review-tier-7",
+   "phase": "xg-names-and-review-tier",
+   "name": "xg2 a project without the line still needs tier 3",
+   "run": ".venv/bin/pytest tests/test_xg_names_and_tier.py::test_xg2_a_project_without_the_line_still_needs_tier_3",
+   "status": "passing"
+  },
+  {
+   "id": "xg-names-and-review-tier-8",
+   "phase": "xg-names-and-review-tier",
+   "name": "xg2 a tier the project does not name cannot lower the gate",
+   "run": ".venv/bin/pytest tests/test_xg_names_and_tier.py::test_xg2_a_tier_the_project_does_not_name_cannot_lower_the_gate",
+   "status": "passing"
+  },
+  {
+   "id": "xg-names-and-review-tier-9",
+   "phase": "xg-names-and-review-tier",
+   "name": "xg1 a refused put name gets a neutral proposal in the language of the text",
+   "run": ".venv/bin/pytest tests/test_xg_names_and_tier.py::test_xg1_a_refused_put_name_gets_a_neutral_proposal_in_the_language_of_the_text",
+   "status": "passing"
+  },
+  {
+   "id": "xg-names-and-review-tier-10",
+   "phase": "xg-names-and-review-tier",
+   "name": "xg1 the name check itself is unchanged and a neutral name passes it",
+   "run": ".venv/bin/pytest tests/test_xg_names_and_tier.py::test_xg1_the_name_check_itself_is_unchanged_and_a_neutral_name_passes_it",
+   "status": "passing"
+  },
+  {
+   "id": "xg-names-and-review-tier-11",
+   "phase": "xg-names-and-review-tier",
+   "name": "xg1 a review command on a refused name proposes the name too",
+   "run": ".venv/bin/pytest tests/test_xg_names_and_tier.py::test_xg1_a_review_command_on_a_refused_name_proposes_the_name_too",
+   "status": "passing"
+  },
+  {
+   "id": "xg-names-and-review-tier-12",
+   "phase": "xg-names-and-review-tier",
+   "name": "xg1 the session template and the rules tell the session to name deliverables so",
+   "run": ".venv/bin/pytest tests/test_xg_names_and_tier.py::test_xg1_the_session_template_and_the_rules_tell_the_session_to_name_deliverables_so",
+   "status": "passing"
   }
  ],
- "total_tests": 1366,
+ "total_tests": 1378,
  "checked": "2026-10-20"
 }

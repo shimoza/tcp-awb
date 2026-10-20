@@ -348,6 +348,7 @@ The work user of the seal reads the mirrors read-only under `/srv/tcp-mirrors/`:
 | `awb spawn project --goal "..." [--customer new] --tag vpn` | a project: everything a query has plus the test tenants through the key service |
 | `awb spawn project --goal "..." --tag vpn --tenant test-1` | a project whose SCOPE.md carries the line `- tenant: test-1`; `awb lab run` takes it as its default tenant. Refused for a query and for an alias that does not read like `test-1` |
 | `awb spawn query --goal "..." --customer CUST-XXXX --from-outbox` | the sanitised copies waiting in `~/tcp-shared/outbox/CUST-XXXX/` move into `input/` and the first commit |
+| `awb projects tier tcp-xxxx 2` | the review tier of a project (1, 2 or 3; 3 unless set at `awb start` or `awb spawn` with `--review-tier`), the `- review-tier:` line of its SCOPE.md. A deliverable takes it unless you raise it for that file (`awb review init --tier`); the send gate refuses a text for a customer or partner reviewed below it unless you lowered it for that file. Your own terminal only |
 | `awb projects kind tcp-xxxx project` | switch a query to a project (or back); a ledger line records it. The old kinds engagement, topic and code read as query, lab as project. Run by a session it changes the project's row only; run by you in your own terminal it also writes your grant (`<vault>/grants.json`) with the customer of the row at that moment, and the key service lets a session reach a test tenant only with that grant and an active row of the kind project. The key service takes a granted project's customer from the grant alone (owner-inbox take, project take, send gate of a put, lease) and refuses a row that names another one. A project you never granted has no customer for the key service: its owner-inbox take holds, its project take runs under the project code and its put meets the strict send gate. Run it once more for a project granted before 2026-10-10 so its grant records the customer; a change of the grant's customer is printed |
 | `awb projects list` | the project register with the goal of each project (checked for names again) and the session that holds each active project; `--paths` shows the folders instead of the goals |
 | `awb projects delete CODE...` | remove the folder of closed projects (`awb close` first); refused while RESOURCES.md lists a live resource or a session holds the project; the code stays registered as deleted and `awb projects list` hides it (`--all` shows it) |
@@ -366,7 +367,7 @@ The work user of the seal reads the mirrors read-only under `/srv/tcp-mirrors/`:
 | `awb lab list`, `awb lab dry-run RECIPE [--param K=V]... [--project CODE] [--tenant ALIAS]` | the lab recipes of `recipes/` with their question, their cost guard and how many of their API shapes are still to confirm live; the dry run prints every call a run would make with its checks and its teardown, and the disk type check before the first create as a step `0. disk types`; it makes no call (`--project` and `--tenant` replace the placeholders `tcp-xxxx` and `ALIAS` in the printed calls) |
 | `awb lab run RECIPE [--project CODE] [--tenant ALIAS] [--param K=V]...` | without `--project` the code of the working folder's project (the `code:` line of SCOPE.md) and without `--tenant` its `tenant:` line (`awb spawn --tenant ALIAS` writes it); a flag always wins; with neither the run stops with one line that names the flag. A live check on a test tenant in one command, from a project of the kind project: the project's row and grant first, then one read through the key service for its grant; a recipe that fills a field with `{{secret:NAME}}` then asks the key service for the names of the tenant's secrets (never a value) and stops with one line such as `the secret ecs-admin is missing for test-1` before any create; a recipe whose create bodies name an EVS disk type (`volumetype` or `volume_type`) then reads the disk types with the read key (`GET evs /v2/{project_id}/types`) and stops with one line, before any create, when the type is not listed, not offered in the recipe's AZ or sold out there (`os-vendor-extended:sold_out_availability_zones`); every resource tagged `awb-project` and `awb-expiry` (in the body, a tag call or its name); before each create a row in RESOURCES.md in the state creating with the name the resource gets, then its id when the answer holds it; when the answer is lost (no answer, a timeout or a 5xx) or holds no id, the find of the step looks the resource up by that name: found, the row gets the id; a find that answers without it marks the row not created with its answer as proof; a find that cannot tell leaves the row live with the name for the owner; a create the platform refuses with a 4xx takes its row back and the stop line names the step and the error code of the answer; the checks; then the teardown, which always runs (also on a failed check, an error, the time budget and Ctrl-C or SIGTERM) and proves each resource gone with a read; a row without an id is looked up by its name once more first. A resource it cannot delete or cannot place keeps its row as live with the line to delete it. The evidence goes to `evidence/lab-<recipe>-<date>-<n>.md` (every call with its status and the fields read, a refused or failed call also with its error code and the first 200 characters of its error message, withheld when the name check finds a name or cannot run, the checks, the teardown proof, the time and the resource count; ids as handles, no key, token or secret) and ends with a ready `awb kb add` line with the grade live when every check passed. A parameter outside its pattern, a recipe over its guard (at most 12 resources for at most 120 minutes) and a flavor of the deny list `recipes/DENY.txt` (GPU families p, pi, g, ai, kp, sizes above 2xlarge, physical flavors; as a default, a choice, a var, a flavor field or `--param`) are refused before any call, the deny list by its line number, never the value. A password field may carry `{{random:password}}`: the key service draws a throw-away password at call time that is never returned, printed or logged. Exit 0 passed, 1 a check failed, 2 refused or stopped (also any error of the host in the preflight, as one line), 4 a resource left live. The format: `recipes/README.md` |
 | `awb inbox take WORDS...` | a session takes the file you described, from either inbox: your words as they are ("the pdf", "эксель", "the newest", a part of the name; `|` between several ways of saying it) are matched inside the key service, so no exact name is needed: a kind and "the newest" meet every file, the same letters or a part of the name only a file of the lab inbox whose name is shown; a file of the owner inbox or of `in/` is never found by a word of its name. One file found: from the lab inbox (`<lab bucket>/inbox/`) after the name check into `input/` and the project's `in/`, from the owner inbox (`awb/inbox/`) only through your intake in wipe mode, the session gets the sanitised copies. The new files of the project's own folder `in/` of the owner bucket are listed beside the inboxes for every project and taken the same way, for the project's customer or, without one, under the project code; "take the files from in" takes all of them. A project without a customer takes nothing from the owner inbox, nor does a project you never granted (`awb projects kind CODE query` once). A file of the owner inbox above `max_mb` or in a folder that is not exactly one `CUST-XXXX` stays there. A registered name in a lab inbox file holds it, and a file of the owner inbox that cannot be read as text is held with a mail that says `held: run awb import tcp-xxxx as the owner in your own terminal`. None or several: both inboxes are listed (id, kind, size, time; names of the owner inbox are never shown) and the session takes the one you mean with `--id ID`. `--all` takes every file of both inboxes. Every refusal is the one line `held: run awb import tcp-xxxx as the owner in your own terminal`, with a class word that names no value where the kind of refusal is known: `held (grant): run awb projects kind tcp-xxxx query as the owner in your own terminal` for a customer project you never granted (the import does not cure that), `held (size)` for a file above `max_mb`, `held (unreadable)` for a file the intake cannot read as text and `held (folder)` for a file in a folder of the owner inbox that is not the project's customer; a project without a customer keeps the plain line. `awb inbox list` shows both inboxes. `--project CODE` names another project than the one of the folder and `--customer CUST-XXXX` only has to agree with the customer of the project |
-| `awb xchg put FILE [--as NAME] [--image --reason TEXT]` | a result into `<lab bucket>/<code>/from-session/<date>/<file id>` after the name check of its content and of its name (the `--as` name or its own, also for `--image`) and, for a customer project, the send gate (the key service runs both again, the send gate strict unless your grant records no customer); you get a mail with the code, the id and the size, never the name. `awb xchg list` shows what the project put. `awb xchg clean CODE [--older-than DATE] --dry-run\|--go` deletes what the project put into `<code>/from-session/` (`--dry-run` lists it, `--go` deletes it, `--older-than DATE` takes only the date folders before that day) and records each deletion as a row in RESOURCES.md |
+| `awb xchg put FILE [--as NAME] [--kind WORD] [--lang XX] [--image --reason TEXT]` | a result into `<lab bucket>/<code>/from-session/<date>/<file id>` after the name check of its content and of its name (the `--as` name or its own, also for `--image`) and, for a customer project, the send gate (the key service runs both again, the send gate strict unless your grant records no customer); you get a mail with the code, the id and the size, never the name. When the name check refuses the file name, the refusal ends with `(try --as tcp-xxxx-doc-de.md)`: `<project code>-<kind word>-<language>.<ext>`, the kind word from `--kind` (default `doc`) and the language from `--lang` (default read from the text); `awb review init`, `l0` and `pass` print the same proposal. `awb xchg list` shows what the project put. `awb xchg clean CODE [--older-than DATE] --dry-run\|--go` deletes what the project put into `<code>/from-session/` (`--dry-run` lists it, `--go` deletes it, `--older-than DATE` takes only the date folders before that day) and records each deletion as a row in RESOURCES.md |
 | `awb paste [--as NAME]` | a long terminal output into the project instead of the chat: the text on standard input passes the name check and the secret check, addresses, web addresses, phone numbers and MAC addresses are masked (`[ip]`, `[url]`, `[phone]`, `[mac]`) and it lands in `notes/pastes/<date>-<n>.txt` (`<date>-<NAME>.txt`); a registered name, a mail, bank data or a secret refuses it and nothing is written. The session reads the file |
 | `awb material add [--kind mail\|transcript\|table\|note] [--title WORDS]` | pasted text that holds no name, kept as project material from inside the session: the text on standard input passes the secret scan, the home-path rule, the owner blocklist and the name check, then lands unchanged in `input/` as `note-<date>-<n>.md` (`mail-`, `transcript-`, `table-….csv` by kind) with a ledger line, and the command prints the file name only; any hit refuses the whole text with its class and line and nothing is written. The session runs it when your message starts with `material:` |
 | `~/.config/awb/keys.conf` | your settings of the exchange, sent with `awb keys unlock`: `bucket_tenant` (the alias whose lab key reaches both buckets), `lab_bucket`, `owner_bucket`, `region`, `max_mb` (default 100), `notify_topic` (an SMN topic urn for the mails), `tf_services` (the services a leased key may use, comma-separated, default `ecs, evs, vpc, elb, nat, dns, obs, ims`; a shorter list narrows every lease, an empty line allows none, `iam` or a name that is no service stops the unlock), `lab_writes` (`service:path-prefix` pairs, comma-separated: when the line is there the lab key signs a write only when service and path match one pair by prefix; `awb keys lab-writes --from-recipes` prints the line for the recipes and the recheck watch; `iam`, a path without a leading `/` or with `..` stops the unlock) |
@@ -475,7 +476,7 @@ gate, the gate over what it carries and `awb kb verify --staged`, so a file writ
 
 | command | what it does |
 |---|---|
-| `awb review init deliverables/FILE --request REQUEST.md --tier 2 --budget 400` | the contract: request, reader, questions, budget, tier. Also `--reader`, `--mode mail` (default doc), `--force` to write the contract again. A text for a customer or partner is tier 3; `--lowered "his words"` records that he lowered it |
+| `awb review init deliverables/FILE --request REQUEST.md [--tier 2] --budget 400` | the contract: request, reader, questions, budget, tier. Also `--reader`, `--mode mail` (default doc), `--force` to write the contract again. A text for a customer or partner is tier 3; `--lowered "his words"` records that he lowered it |
 | `awb review claims deliverables/FILE` | every checkable statement into `reviews/FILE/claims.tsv`; fill evidence and verdict there. `kb.tsv` next to it lists the knowledge entries per claim; one of grade live or contract that has not expired settles a claim as evidence `kb:KB-XXXX` |
 | `awb review l0 deliverables/FILE` | the level-0 check: style, names, budget, claims with evidence; a computed number (a total, a sum, a saving, 20 x 8) needs `calc:K-N` as evidence |
 | `awb migrate init --from azure` | start a migration in the project (every `awb migrate` command takes `--project DIR` before its name for another project); `awb migrate status` and `awb migrate next` show the phases (discover, map, estimate, plan, review), the next phase file and its worker |
@@ -569,7 +570,7 @@ sort the candidates of an intake stopped by --review in an editor: mark the real
 - `CUSTOMER`: the CUST code of the stopped intake
 - `--report REPORT`: a private report other than the latest of the customer
 
-### `awb spawn KIND --goal GOAL [--customer new] [--tag TAG] [--from-outbox] [--tenant ALIAS]`
+### `awb spawn KIND --goal GOAL [--customer new] [--tag TAG] [--from-outbox] [--tenant ALIAS] [--review-tier 1|2|3]`
 
 create a sealed tcp- project: a query or a project
 - `KIND`: query (knowledge base, prices, no tenant) or project (also the test tenants)
@@ -578,6 +579,7 @@ create a sealed tcp- project: a query or a project
 - `--tag TAG`
 - `--from-outbox`: move the customer's outbox copies into input/
 - `--tenant ALIAS`: the test tenant of the project: written as the tenant: line of SCOPE.md, the default of awb lab run
+- `--review-tier 1|2|3`: the review tier of the project, written to its SCOPE.md: a deliverable takes it, the send gate refuses below it (default 3)
 
 ### `awb unlock`
 
@@ -601,6 +603,12 @@ switch a project between query (knowledge only) and project (test tenants)
 - `CODE`
 - `KIND`: (one of query, project)
 - `--customer CODE`: the customer the row names; the grant is written only when it matches (needed for a customer project)
+
+### `awb projects tier CODE TIER`
+
+set the review tier of a project (owner): deliverables take it, the send gate refuses below it
+- `CODE`
+- `TIER`: (one of 1, 2, 3)
 
 ### `awb projects delete CODE...`
 
@@ -859,12 +867,12 @@ store a pair and write the suggestions report
 - `SENT`: the sent text as a file, or - for the owner: the text on standard input
 - `--project PROJECT`: with SENT as -: the project (default: the folder DRAFT lies in)
 
-### `awb review init DELIVERABLE --request FILE --tier TIER --budget WORDS [--reader TEXT] [--mode MODE] [--force] [--lowered TEXT]`
+### `awb review init DELIVERABLE --request FILE [--tier TIER] --budget WORDS [--reader TEXT] [--mode MODE] [--force] [--lowered TEXT]`
 
 write the contract of a deliverable
 - `DELIVERABLE`
 - `--request FILE`: the request as a text file
-- `--tier TIER`
+- `--tier TIER`: the tier of this deliverable (default: the review tier of the project; raise it for a file only when he says so)
 - `--budget WORDS`
 - `--reader TEXT`: who reads it (codes and roles only)
 - `--mode MODE`: the mode of the writing check (default doc)
@@ -1175,13 +1183,15 @@ take the file he describes from either inbox into this project
 
 both inboxes: id, kind, size and time
 
-### `awb xchg put FILE [--as AS_NAME] [--image] [--reason REASON]`
+### `awb xchg put FILE [--as AS_NAME] [--image] [--reason REASON] [--kind WORD] [--lang XX]`
 
 a file into <code>/from-session/<date>/
 - `FILE`
 - `--as AS_NAME`
 - `--image`
 - `--reason REASON`
+- `--kind WORD`: the kind word of the neutral name proposed when the file name is refused (default doc)
+- `--lang XX`: the language of the neutral name proposed when the file name is refused (default: read from the text)
 
 ### `awb xchg list`
 
@@ -1195,13 +1205,14 @@ delete what this project put into <code>/from-session/
 - `--dry-run`: list what would be deleted
 - `--go`: delete and record the rows in RESOURCES.md
 
-### `awb start KIND --goal GOAL [--customer new] [--tag TAG]`
+### `awb start KIND --goal GOAL [--customer new] [--tag TAG] [--review-tier 1|2|3]`
 
 a piece of work in one command: register, spawn, grant, import, the open line (owner side)
 - `KIND`: query (no test tenant) or project (test tenants) (one of query, project)
 - `--goal GOAL`
 - `--customer new`: new issues CUST-XXXX with the four characters of the project code; its written forms are asked on the terminal, never given here; an existing customer is refused
 - `--tag TAG`: a tag of rules/tags.txt, as awb spawn takes it
+- `--review-tier 1|2|3`: the review tier of the project (default 3): written to its SCOPE.md
 
 ### `awb fetch CODE [--again] [--into DIR]`
 

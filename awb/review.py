@@ -16,7 +16,7 @@ Per deliverable `<project>/deliverables/<name>` the review lives in `<project>/r
 
 Commands (`awb review ...`):
 
-    init DELIVERABLE --request FILE --tier 0..3 --budget WORDS [--reader TEXT] [--mode mail|doc|chat]
+    init DELIVERABLE --request FILE [--tier 0..3] --budget WORDS [--reader TEXT] [--mode mail|doc|chat]
          [--lowered TEXT] [--force]
     claims DELIVERABLE
     l0 DELIVERABLE
@@ -238,6 +238,59 @@ def _label(rel: str, reg: Path) -> str:
     return shown if _is_clean(shown, reg) else "the deliverable"
 
 
+def project_tier(project) -> int:
+    """The review tier of a project: the `- review-tier:` line of its SCOPE.md (the owner sets it with awb start,
+    awb spawn or awb projects tier), 3 when the line is missing or not 1, 2 or 3."""
+    try:
+        text = (Path(project) / "SCOPE.md").read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return SEND_TIER
+    m = re.search(r"(?m)^- review-tier: *([123]) *$", text)
+    return int(m.group(1)) if m else SEND_TIER
+
+
+_GERMAN_WORDS = frozenset("der die das und ist nicht mit für von ein eine den dem auf werden wird sind auch".split())
+_ENGLISH_WORDS = frozenset("the and is of to in for with that this are be on as by".split())
+_KIND_WORD_RE = re.compile(r"[a-z]{2,20}")
+_LANG_RE = re.compile(r"[a-z]{2}")
+DEFAULT_KIND_WORD = "doc"
+
+
+def guess_language(path) -> str:
+    """en, de or ru by the letters and the common words of the start of a text file; en when it cannot say."""
+    try:
+        raw = Path(path).read_bytes()[:20000].decode("utf-8")
+    except (OSError, UnicodeError):
+        return "en"
+    letters = [c for c in raw if c.isalpha()]
+    if letters and sum("\u0400" <= c <= "\u04ff" for c in letters) * 2 > len(letters):
+        return "ru"
+    words = re.findall(r"[a-zäöüß]+", raw.lower())
+    de, en = sum(w in _GERMAN_WORDS for w in words), sum(w in _ENGLISH_WORDS for w in words)
+    return "de" if de > en else "en"
+
+
+def propose_name(project, name: str, path=None, kind_word: str | None = None, lang: str | None = None,
+                 register_path=None) -> str | None:
+    """A neutral file name for a deliverable whose name the name check refused: <project code>-<kind word>-
+    <language>.<ext>, for example tcp-q7m4-mapping-de.md. The code is the name of the project folder, the kind word
+    and the language come from the caller (doc and the guess of the text when absent), the extension from the
+    name when it is plain. None when the project folder is no project code or the proposal does not pass the
+    name check itself."""
+    code = Path(project).name
+    if not codes.is_project_code(code):
+        return None
+    kind_word = kind_word or DEFAULT_KIND_WORD
+    lang = lang or (guess_language(path) if path is not None else "en")
+    if not _KIND_WORD_RE.fullmatch(kind_word) or not _LANG_RE.fullmatch(lang):
+        return None
+    ext = Path(name).suffix.lower()
+    if not re.fullmatch(r"\.[a-z0-9]{1,5}", ext):
+        ext = ""
+    proposal = "%s-%s-%s%s" % (code, kind_word, lang, ext)
+    return proposal if _is_clean(proposal, _register(register_path)) else None
+
+
 # --------------------------------------------------------------------------- reading the deliverable
 
 
@@ -420,14 +473,17 @@ def _clean_reader(reader) -> str:
     return reader
 
 
-def init(deliverable, request, tier: int, budget: int, reader: str | None = None, mode: str = "doc",
+def init(deliverable, request, tier: int | None, budget: int, reader: str | None = None, mode: str = "doc",
          force: bool = False, register_path=None, today: str | None = None, lowered: str | None = None) -> Path:
     """Write `reviews/<name>/contract.md`. The request text, the reader and his words that lowered the tier must
     pass the name check; a hit raises Refused and nothing is written. Returns the path of the contract.
 
     `lowered` carries his words when he lowered the tier of a text that goes to a customer or partner (decision
-    14: tier 3 by default, he lowers it with one word). The send gate reads it; it needs a tier below 3."""
+    14: the tier of the project, 3 by default, he lowers it with one word). The send gate reads it; it needs a tier
+    below the tier of the project. Without `tier` the deliverable takes the tier of its project."""
     project, rel = locate(deliverable)
+    if tier is None:
+        tier = project_tier(project)
     if tier not in TIERS:
         raise ReviewError("the tier must be 0, 1, 2 or 3")
     if not isinstance(budget, int) or isinstance(budget, bool) or budget <= 0:
@@ -436,8 +492,8 @@ def init(deliverable, request, tier: int, budget: int, reader: str | None = None
         raise ReviewError("the mode must be mail, doc or chat")
     reader = _clean_reader(reader)
     lowered = " ".join(str(lowered).split()) if lowered else ""
-    if lowered and tier >= SEND_TIER:
-        raise ReviewError("--lowered goes with a tier below %d" % SEND_TIER)
+    if lowered and tier >= project_tier(project):
+        raise ReviewError("--lowered goes with a tier below %d" % project_tier(project))
     if len(lowered) > MAX_LOWERED:
         raise ReviewError("his words for the lowered tier are longer than %d characters" % MAX_LOWERED)
     try:
@@ -1884,9 +1940,10 @@ def send_check(project: Path, file: Path, for_customer: bool, register_path=None
         return SEND_REFUSE, "the record does not carry the tier of its contract: run awb review pass again"
     if not for_customer:
         return SEND_OK, "reviewed at tier %d" % tier
-    if tier < SEND_TIER and not contract.lowered:
+    needed = project_tier(project)
+    if tier < needed and not contract.lowered:
         return SEND_REFUSE, ("reviewed at tier %d, but a text for a customer or partner needs tier %d unless he "
-                             "lowered it (awb review init --lowered)" % (tier, SEND_TIER))
+                             "lowered it (awb review init --lowered)" % (tier, needed))
     if tier >= SEND_TIER and not _request_lens_for(folder, rel):
         return SEND_REFUSE, "the request check has not run for this deliverable (workflows/request-check.js)"
     return SEND_OK, "reviewed at tier %d%s" % (tier, ", lowered by him" if contract.lowered else "")
@@ -1907,13 +1964,30 @@ def _print_problems(problems: list[str]) -> None:
         print("- %s" % p)
 
 
+def _print_name_hint(project, rel: str, path, reg: Path, file=None) -> None:
+    """When the name check refuses the file name of a deliverable, say which neutral name to give it."""
+    if _is_clean("%s/%s" % (DELIVERABLES, rel), reg):
+        return
+    proposal = propose_name(project, rel, path if Path(path).is_file() else None, register_path=reg)
+    if proposal:
+        print("name: the file name was refused by the name check; rename the file to %s (kind word and language: "
+              "<project code>-<kind word>-<language>.<ext>)" % proposal, file=file or sys.stdout)
+
+
+def _hint_args(deliverable) -> tuple:
+    project, rel = locate(deliverable)
+    return project, rel, deliverable, _register(None)
+
+
 def _cmd_init(args) -> int:
     target = init(args.deliverable, args.request, args.tier, args.budget, reader=args.reader, mode=args.mode,
                   force=args.force, lowered=args.lowered)
     project, rel = locate(args.deliverable)
+    tier = args.tier if args.tier is not None else project_tier(project)
     reg = _register(None)
     print("review init: wrote the contract of %s (tier %d%s, budget %d words, mode %s)"
-          % (_label(rel, reg), args.tier, ", lowered by him" if args.lowered else "", args.budget, args.mode))
+          % (_label(rel, reg), tier, ", lowered by him" if args.lowered else "", args.budget, args.mode))
+    _print_name_hint(project, rel, args.deliverable, reg)
     print("next: fill the questions and the out of scope list in %s" % (
         target.relative_to(project).as_posix() if _is_clean(rel, reg) else "contract.md"))
     return EXIT_OK
@@ -1943,6 +2017,7 @@ def _cmd_l0(args) -> int:
     if res.blocked:
         print("l0 blocked: %s (tier %d): %s" % (label, res.tier, _l0_line(res)))
         _print_problems(res.problems)
+        _print_name_hint(*_hint_args(args.deliverable))
         return EXIT_FINDINGS
     print("l0 passed: %s (tier %d): %s" % (label, res.tier, _l0_line(res)))
     return EXIT_OK
@@ -1955,6 +2030,7 @@ def _cmd_pass(args) -> int:
     if not res.passed:
         print("pass blocked: %s (tier %d)" % (label, res.l0.tier))
         _print_problems(res.problems)
+        _print_name_hint(*_hint_args(args.deliverable))
         return EXIT_FINDINGS
     print("pass: %s (tier %d): %s; %d lens files, %d blocking findings closed; record.json written"
           % (label, res.l0.tier, _l0_line(res.l0), res.lenses["files"], res.lenses["blocking"]))
@@ -2006,7 +2082,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("init", help="write the contract of a deliverable")
     s.add_argument("deliverable", type=Path)
     s.add_argument("--request", required=True, type=Path, metavar="FILE", help="the request as a text file")
-    s.add_argument("--tier", required=True, type=int, choices=TIERS)
+    s.add_argument("--tier", default=None, type=int, choices=TIERS,
+                   help="the tier of this deliverable (default: the review tier of the project; raise it for a "
+                        "file only when he says so)")
     s.add_argument("--budget", required=True, type=_positive, metavar="WORDS")
     s.add_argument("--reader", default=None, metavar="TEXT", help="who reads it (codes and roles only)")
     s.add_argument("--mode", default="doc", choices=MODES, help="the mode of the writing check (default doc)")
@@ -2043,6 +2121,11 @@ def main(argv: list[str] | None = None) -> int:
         return func(args)
     except Refused as err:
         print("%s: %s" % (prog, err), file=sys.stderr)
+        if getattr(args, "deliverable", None) is not None:
+            try:
+                _print_name_hint(*_hint_args(args.deliverable), file=sys.stderr)
+            except Exception:
+                pass
         return EXIT_FINDINGS
     except ReviewError as err:
         print("%s: %s" % (prog, err), file=sys.stderr)
