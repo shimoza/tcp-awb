@@ -264,7 +264,9 @@ else the note "its code unchanged since".
 first. A deploy from a copy that is behind the live release is refused, so it cannot take back a build task's work.
 While a build task runs, the deploy leaves the build side (the home template the task reads) for later: the next
 deploy or the build runner's next start applies it, `awb deploy status` names it and `sudo awb deploy --wait-build`
-waits up to 60 minutes for the task instead.
+waits up to 60 minutes for the task instead. The build runner restarts through `systemctl` also when the web side is
+live. An idle runner exits by itself once the live release is newer than its own. `awb deploy status` names the
+runner's release and fails when an idle runner still runs an older one; `seal/verify.sh` checks the same.
 
 ## What it does for an architect
 
