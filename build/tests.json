@@ -8896,8 +8896,22 @@
    "name": "K12: the refresh part reports a cut body and goes on",
    "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_the_refresh_part_reports_a_cut_body_and_goes_on",
    "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-9",
+   "phase": "k-release-notes-hardening",
+   "name": "K23: a date in other digits or off the calendar leaves the note out",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_date_in_other_digits_or_off_the_calendar_leaves_the_note_out",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-10",
+   "phase": "k-release-notes-hardening",
+   "name": "K23: a plain date is kept",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_plain_date_is_kept",
+   "status": "passing"
   }
  ],
- "total_tests": 1271,
+ "total_tests": 1273,
  "checked": "2026-10-20"
 }
