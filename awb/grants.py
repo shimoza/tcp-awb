@@ -26,6 +26,10 @@ CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
 KINDS = ("query", "project")
 CUST_RE = re.compile("^%s$" % codes.CUST)
 NO_CUSTOMER = "none"
+TOKENS_NAME = "key-tokens.json"
+"""K4: the key token of each granted project's folder, recorded by the owner's grant (mode 600, next to the
+grants); the key service takes a session's project from the token it presents."""
+TOKEN_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class GrantError(Exception):
@@ -98,3 +102,46 @@ def grant(p: config.Paths, code: str, kind: str, when: float | None = None,
             os.unlink(tmp)
         raise
     return before
+
+
+def _load_tokens(p: config.Paths) -> dict[str, str]:
+    try:
+        data = json.loads((p.vault / TOKENS_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {c: t for c, t in data.items() if CODE_RE.match(c) and isinstance(t, str) and TOKEN_RE.match(t)}
+
+
+def tokens(p: config.Paths) -> dict[str, str]:
+    """The key tokens of the projects the owner granted the kind project, by project code (K4)."""
+    recorded = load(p)
+    return {c: t for c, t in _load_tokens(p).items() if recorded.get(c, {}).get("kind") == "project"}
+
+
+def token(p: config.Paths, code: str) -> str | None:
+    """The key token recorded for a granted project `code`; None when there is none."""
+    return tokens(p).get(code) if isinstance(code, str) else None
+
+
+def record_token(p: config.Paths, code: str, value: str) -> None:
+    """Record the key token of the folder of `code` (K4), the owner's alone like the grant."""
+    if config.is_work_user():
+        raise GrantError("the grant is the owner's: he runs awb projects kind in his own terminal")
+    if not CODE_RE.match(code or "") or not TOKEN_RE.match(value or ""):
+        raise GrantError("a key token is 64 hex digits for a project code")
+    data = _load_tokens(p)
+    data[code] = value
+    p.vault.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".key-tokens.", dir=p.vault)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, sort_keys=True, indent=1)
+            fh.write("\n")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, p.vault / TOKENS_NAME)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
