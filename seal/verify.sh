@@ -440,7 +440,7 @@ probe() {
     # file of loopback over /etc/hosts and a resolv.conf without a nameserver over /etc/resolv.conf (B4)
     systemd-run --quiet --wait --pipe --collect --uid="$BUILD_USER" --gid="$BUILD_USER" --setenv=HOME=/tmp \
         --property=ProtectSystem=strict --property=ProtectHome=yes --property=PrivateTmp=yes \
-        --property=PrivateIPC=yes --property=TemporaryFileSystem=/dev/shm:size=64M \
+        --property=PrivateIPC=yes --property=TemporaryFileSystem=/dev/shm:size=64M,mode=1777 \
         --property=InaccessiblePaths=-/dev/mqueue \
         --property=NoNewPrivileges=yes --property=InaccessiblePaths=/etc/awb --property=IPAddressDeny=any \
         --property="IPAddressAllow=$probe_allow" --property="BindReadOnlyPaths=$probe_names/hosts:/etc/hosts" \

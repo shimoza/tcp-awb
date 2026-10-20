@@ -21,6 +21,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- A build task's own /dev/shm is writable for the task user again (mode=1777): checks no longer fail the two ledger
+  tests on a lock they could not create (SH).
+
 - `awb kb recheck-watch` no longer deletes a resource by a name match alone (task B-029, finding R8 of the review of 2026-10-16). A server, disk or address is taken only when its `awb-project` tag names the service project. A VPC, subnet, security group, WAF policy, SMN topic or subscription and RDS instance, whose listings carry no tags, is also taken by its lab name with the project code and an `awb-expiry` marker that has passed. A resource named like the project without the tag or the marker is left alone and listed by its handle.
 
 - The front door of the gateway limits a request by one deadline (task k-gateway-limits, K17): the request line, the headers and the body together get `UNAUTHENTICATED_TIMEOUT` (5 s), the body of a request with a session `AUTHENTICATED_TIMEOUT` (20 s). Before, each read waited that long, so a client sending one byte at a time held its thread without limit.
