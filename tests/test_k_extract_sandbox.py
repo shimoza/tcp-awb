@@ -63,6 +63,33 @@ def test_k7_verify_probes_pdfinfo_in_the_unit():
     assert "runs pdfinfo on a one page pdf" in body
 
 
+# ---------------------------------------------------------------------------------------------- K19
+
+
+def test_k19_an_unreadable_host_file_is_not_a_direct_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "HOST_CONF", str(tmp_path))  # a folder: reading it is an OSError, not a missing file
+    monkeypatch.delenv("AWB_CONF", raising=False)
+    monkeypatch.setattr(config, "is_work_user", lambda: True)
+    sample = tmp_path / "x.pdf"
+    sample.write_bytes(b"%PDF-1.4\n")
+    ex = pdf.extract(sample)
+    assert ex.state == "failed" and "extractor" not in ex.meta
+    assert any("OSError" in n or "IsADirectoryError" in n for n in ex.notes)
+
+
+def test_k19_a_missing_host_file_is_still_a_direct_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "HOST_CONF", str(tmp_path / "none.conf"))
+    monkeypatch.delenv("AWB_CONF", raising=False)
+    assert type(pdf.runner_for(tmp_path / "x.pdf")) is pdf.Runner
+
+
+def test_k19_a_host_file_without_extract_user_is_direct(tmp_path, monkeypatch):
+    conf = tmp_path / "paths.conf"
+    conf.write_text("vault = /nowhere\n", encoding="utf-8")
+    monkeypatch.setenv("AWB_CONF", str(conf))
+    assert type(pdf.runner_for(tmp_path / "x.pdf")) is pdf.Runner
+
+
 # ---------------------------------------------------------------------------------------------- K18
 
 

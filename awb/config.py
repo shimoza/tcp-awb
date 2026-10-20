@@ -204,14 +204,23 @@ def mode() -> str | None:
     return found[-1] if found else "sealed"
 
 
-def host_conf() -> dict[str, str]:
+def host_conf(strict: bool = False) -> dict[str, str]:
     """Key and value pairs of the host file; an empty dict when there is none or it cannot be read. The work
-    user reads the root host file only, never the one AWB_CONF names."""
+    user reads the root host file only, never the one AWB_CONF names. With `strict` only a file that is not there
+    gives an empty dict: a file that is there and cannot be read raises OSError."""
     f = Path(HOST_CONF) if is_work_user() else Path(os.environ.get("AWB_CONF") or HOST_CONF)
     try:
         text = f.read_text(encoding="utf-8")
-    except OSError:
+    except FileNotFoundError:
         return {}
+    except OSError:
+        if strict:
+            raise
+        return {}
+    except UnicodeDecodeError as err:
+        if strict:
+            raise OSError("the host file is not text") from err
+        raise
     out: dict[str, str] = {}
     for line in text.splitlines():
         line = line.strip()

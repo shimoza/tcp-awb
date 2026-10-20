@@ -187,8 +187,9 @@ def _limit_file_size() -> None:
 
 
 def runner_for(path: Path) -> Runner:
-    """Direct when paths.conf has no extract_user, else the unit runner with the bytes of the file."""
-    user = config.host_conf().get("extract_user", "").strip()
+    """Direct when paths.conf is not there or has no extract_user, else the unit runner with the bytes of the file.
+    A host file that is there and cannot be read raises OSError: the file fails, it is never run direct (K19)."""
+    user = config.host_conf(strict=True).get("extract_user", "").strip()
     if not user:
         return Runner()
     return UnitRunner(user, Path(path).read_bytes())
