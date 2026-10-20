@@ -90,3 +90,35 @@ def test_a_page_holds_at_most_the_capped_number_of_notes():
     html = page(*[article("2026-10-16", "title", "n-%d" % i) for i in range(mirror.RN_MAX_NOTES + 50)])
     notes, _ = mirror.parse_release_notes(html, PAGE)
     assert len(notes) == mirror.RN_MAX_NOTES
+
+
+# K12
+
+def test_a_pager_number_of_thousands_of_digits_is_ignored_and_the_run_goes_on(tmp_path):
+    html = page(article("2026-10-16", "title", "one"), pager='<a href="%s?p=%s">x</a>' % (PAGE, "9" * 5000))
+    r = sync(tmp_path, lambda url: html)
+    assert r["new"] == 1 and r["pages"] == 1
+
+
+@pytest.mark.parametrize("exc", [http.client.IncompleteRead(b"ab"), http.client.RemoteDisconnected("cut"),
+                                 OSError("reset")])
+def test_a_cut_body_or_a_reset_is_a_mirror_error_that_names_the_page(tmp_path, exc):
+    def fetch(url):
+        raise exc
+
+    with pytest.raises(mirror.MirrorError, match="could not be fetched"):
+        sync(tmp_path, fetch)
+
+
+def test_the_refresh_part_reports_a_cut_body_and_goes_on(tmp_path, monkeypatch, home):
+    import datetime
+
+    from awb.tcp import refresh
+
+    def cut(url):
+        raise http.client.IncompleteRead(b"")
+
+    monkeypatch.setattr(mirror, "_fetch_page", cut)
+    part = refresh.part_release_notes(home, tmp_path / "mirrors", tmp_path / "out", update=True,
+                                      today=datetime.date(2026, 10, 19))
+    assert any("not updated" in line for line in part.lines) and part.overdue >= 1
