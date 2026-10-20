@@ -15,6 +15,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- The status socket of the gateway drops an idle client after 3 seconds (task k-gateway-limits, K5): `StatusHandler` had no timeout, the socket is 0666 and its threads share the `TasksMax` of the gateway, so any local uid could hold the site with idle connections.
 - `seal/verify.sh`: the check of the pdf extraction unit made its probe PDF with reportlab, which the runtime venv does not hold, so it failed on a real host although the unit works. The probe PDF is now a minimal one page PDF written with the standard library alone (`make_probe_pdf`), and the check reads "the unit of awb-extract runs pdftotext on a one page pdf". The `systemd-run` line is unchanged.
 
 ## Week 42, 2026-10-12 to 2026-10-18 (in progress)
