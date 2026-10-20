@@ -9022,8 +9022,43 @@
    "name": "k1 a fresh clone under a group umask is made the owners alone",
    "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k1_a_fresh_clone_under_a_group_umask_is_made_the_owners_alone",
    "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-5",
+   "phase": "k-dataset-signing",
+   "name": "k2 the work user may not review",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k2_the_work_user_may_not_review",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-6",
+   "phase": "k-dataset-signing",
+   "name": "k2 a mark the owner did not write alone is refused",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k2_a_mark_the_owner_did_not_write_alone_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-7",
+   "phase": "k-dataset-signing",
+   "name": "k2 a released file writable by others stops the review and the put",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k2_a_released_file_writable_by_others_stops_the_review_and_the_put",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-8",
+   "phase": "k-dataset-signing",
+   "name": "k2 the mark of another folder does not count",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k2_the_mark_of_another_folder_does_not_count",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-9",
+   "phase": "k-dataset-signing",
+   "name": "k2 the mark is never written through a planted link",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k2_the_mark_is_never_written_through_a_planted_link",
+   "status": "passing"
   }
  ],
- "total_tests": 1289,
+ "total_tests": 1294,
  "checked": "2026-10-20"
 }
