@@ -8840,8 +8840,106 @@
    "name": "a slow header is cut at the deadline not per byte",
    "run": ".venv/bin/pytest tests/test_gateway_limits.py::test_k17_a_slow_header_is_cut_at_the_deadline_not_per_byte",
    "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-1",
+   "phase": "k-release-notes-hardening",
+   "name": "K6: a pager link to a huge page does not lead the run past the cap",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_pager_link_to_a_huge_page_does_not_lead_the_run_past_the_cap",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-2",
+   "phase": "k-release-notes-hardening",
+   "name": "K6: a page larger than the byte cap is refused",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_page_larger_than_the_cap_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-3",
+   "phase": "k-release-notes-hardening",
+   "name": "K6: a page that trickles past the deadline is refused",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_page_that_trickles_past_the_deadline_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-4",
+   "phase": "k-release-notes-hardening",
+   "name": "K6: titles, texts and tags are cut to their caps",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_titles_texts_and_tags_are_cut_to_their_caps",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-5",
+   "phase": "k-release-notes-hardening",
+   "name": "K6: a page holds at most the capped number of notes",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_page_holds_at_most_the_capped_number_of_notes",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-6",
+   "phase": "k-release-notes-hardening",
+   "name": "K12: a pager number of thousands of digits is ignored",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_pager_number_of_thousands_of_digits_is_ignored_and_the_run_goes_on",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-7",
+   "phase": "k-release-notes-hardening",
+   "name": "K12: a cut body or a reset is a mirror error naming the page",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_cut_body_or_a_reset_is_a_mirror_error_that_names_the_page",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-8",
+   "phase": "k-release-notes-hardening",
+   "name": "K12: the refresh part reports a cut body and goes on",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_the_refresh_part_reports_a_cut_body_and_goes_on",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-9",
+   "phase": "k-release-notes-hardening",
+   "name": "K23: a date in other digits or off the calendar leaves the note out",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_date_in_other_digits_or_off_the_calendar_leaves_the_note_out",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-10",
+   "phase": "k-release-notes-hardening",
+   "name": "K23: a plain date is kept",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_plain_date_is_kept",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-11",
+   "phase": "k-release-notes-hardening",
+   "name": "K24: a redirect off the site or to plain http is not followed",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_redirect_off_the_site_or_to_plain_http_is_not_followed",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-12",
+   "phase": "k-release-notes-hardening",
+   "name": "K24: a redirect on the same host over https is followed",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_redirect_on_the_same_host_over_https_is_followed",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-13",
+   "phase": "k-release-notes-hardening",
+   "name": "K24: the fetch goes through the same-site opener",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_the_fetch_goes_through_the_same_site_opener",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-14",
+   "phase": "k-release-notes-hardening",
+   "name": "K13: a title and a tag with escapes reach the lines as plain ASCII",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_title_and_a_tag_with_escapes_or_other_characters_reach_the_lines_as_plain_ascii",
+   "status": "passing"
   }
  ],
- "total_tests": 1263,
+ "total_tests": 1277,
  "checked": "2026-10-20"
 }

@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -56,6 +57,11 @@ ROOT_ENV = "AWB_MIRRORS"
 SEALED_ROOT = Path("/srv/tcp-mirrors")
 RN_PAGE = "https://www.t-cloud-public.com/en/support/release-notes"
 RN_PAUSE = 2.0
+RN_MAX_PAGES = 200                  # the pager of a hostile page cannot lead a run past this
+RN_MAX_BYTES = 2 * 1024 * 1024      # one list page
+RN_MAX_SECONDS = 60                 # one list page, the whole read
+RN_MAX_NOTES = 100                  # per list page
+RN_MAX_TITLE, RN_MAX_TEXT, RN_MAX_TAGS, RN_MAX_TAG = 200, 2000, 10, 80
 DOCS, SD, RN = "docs", "service-description", "release-notes"
 INDEX = "INDEX.json"
 MANIFEST = "MANIFEST.json"
@@ -304,9 +310,9 @@ class _ListParser(HTMLParser):
         cls = (a.get("class") or "").split()
         href = a.get("href") or ""
         if tag == "a":
-            m = re.search(r"[?&]p=(\d+)", href)
+            m = re.search(r"[?&]p=([0-9]{1,6})(?![0-9])", href)
             if m:
-                self.last_page = max(self.last_page, int(m.group(1)))
+                self.last_page = min(RN_MAX_PAGES, max(self.last_page, int(m.group(1))))
         if tag == "article" and "page-teaser" in cls:
             self._note = {"date": "", "title": "", "text": "", "link": "", "services": [], "types": []}
         elif self._note is None:
@@ -332,11 +338,14 @@ class _ListParser(HTMLParser):
         if tag in ("h2", "p", "a") and self._field:
             text = " ".join("".join(self._buf).split())
             if self._field in ("title", "text") and tag in ("h2", "p"):
-                self._note[self._field] = self._note[self._field] or text
+                cap = RN_MAX_TITLE if self._field == "title" else RN_MAX_TEXT
+                self._note[self._field] = self._note[self._field] or text[:cap]
             elif self._field == "tag-service" and tag == "a" and text:
-                self._note["services"].append(text)
+                if len(self._note["services"]) < RN_MAX_TAGS:
+                    self._note["services"].append(text[:RN_MAX_TAG])
             elif self._field == "tag-type" and tag == "a" and text:
-                self._note["types"].append(text)
+                if len(self._note["types"]) < RN_MAX_TAGS:
+                    self._note["types"].append(text[:RN_MAX_TAG])
             else:
                 return
             self._field = ""
@@ -354,6 +363,17 @@ def _note_link(href: str, page: str) -> str:
     return urllib.parse.urlunsplit((u.scheme, u.netloc, u.path, "", ""))
 
 
+def _is_date(text: str) -> bool:
+    """A real calendar date written YYYY-MM-DD in ASCII digits."""
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", text):
+        return False
+    try:
+        datetime.date.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
+
+
 def parse_release_notes(html: str, page: str | None = None) -> tuple[list[dict], int]:
     """The notes of one list page and the number of the last page. A note without a date, a title or a usable link
     is left out. Each note carries its id (date and the last part of the link), the link made absolute and the
@@ -363,20 +383,48 @@ def parse_release_notes(html: str, page: str | None = None) -> tuple[list[dict],
     parser.feed(html)
     parser.close()
     notes = []
-    for n in parser.notes:
+    for n in parser.notes[:RN_MAX_NOTES]:
         link = _note_link(n["link"], page)
         slug = link.rstrip("/").rsplit("/", 1)[-1].lower()
-        if not (re.fullmatch(r"\d{4}-\d{2}-\d{2}", n["date"]) and n["title"] and link
+        if not (_is_date(n["date"]) and n["title"] and link
                 and re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,150}", slug)):
             continue
         notes.append(dict(n, link=link, id="%s-%s" % (n["date"], slug)))
     return notes, parser.last_page
 
 
+class _SameSite(urllib.request.HTTPRedirectHandler):
+    """A redirect is followed only to https on the host that was asked; any other answer ends as an HTTPError."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        old = urllib.parse.urlsplit(req.full_url)
+        newurl = urllib.parse.urljoin(req.full_url, newurl)
+        new = urllib.parse.urlsplit(newurl)
+        if new.scheme != "https" or new.netloc != old.netloc:
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_SameSite)
+
+
 def _fetch_page(url: str) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": _AGENT, "Accept": "text/html"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.read().decode("utf-8", "replace")
+    end = time.monotonic() + RN_MAX_SECONDS
+    chunks: list[bytes] = []
+    size = 0
+    with _OPENER.open(req, timeout=30) as resp:
+        while True:
+            chunk = resp.read(65536)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > RN_MAX_BYTES:
+                raise MirrorError("the release notes page is larger than %d bytes" % RN_MAX_BYTES)
+            if time.monotonic() > end:
+                raise MirrorError("the release notes page took longer than %d seconds" % RN_MAX_SECONDS)
+            chunks.append(chunk)
+    return b"".join(chunks).decode("utf-8", "replace")
 
 
 def load_rn_index(base: Path) -> dict:
@@ -411,7 +459,7 @@ def sync_release_notes(base: Path, *, fetch: Callable[[str], str] | None = None,
             html = fetch(url)
         except urllib.error.HTTPError as exc:
             raise MirrorError("the release notes answered HTTP %d (page %d)" % (exc.code, number)) from None
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException, OSError) as exc:
             raise MirrorError("the release notes could not be fetched (%s, page %d)"
                               % (type(exc).__name__, number)) from None
         read += 1
