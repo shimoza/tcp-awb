@@ -8812,8 +8812,22 @@
    "name": "recheck-watch: a tagged server with a lab name is still deleted (R8)",
    "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_a_tagged_server_with_a_lab_name_is_still_deleted",
    "status": "passing"
+  },
+  {
+   "id": "k-build-units-1",
+   "phase": "k-build-units",
+   "name": "K8: only the token fields go back and the old object keeps the rest",
+   "run": ".venv/bin/pytest tests/test_build_units_k.py::test_k8_only_the_token_fields_go_back_and_the_old_object_keeps_the_rest",
+   "status": "passing"
+  },
+  {
+   "id": "k-build-units-2",
+   "phase": "k-build-units",
+   "name": "K8: an expiry far ahead and another account id are not copied",
+   "run": ".venv/bin/pytest tests/test_build_units_k.py::test_k8_an_expiry_far_ahead_and_another_account_id_are_not_copied",
+   "status": "passing"
   }
  ],
- "total_tests": 1259,
+ "total_tests": 1261,
  "checked": "2026-10-20"
 }

@@ -743,7 +743,8 @@ keeps every tool call inside its own clone (the venv may be read and its interpr
 `/srv/awb-build` passes). It runs on your subscription login, which you make once as yourself
 with `sudo -u awb-build -H /opt/claude-build/bin/claude login`; the runner copies it into each task's home and
 removes it with the home, and the tasks spend your shared quota. A token the task's client refreshed goes back to
-the build user's home only when it names the same `subscriptionType` as the login there and expires later; a login
+the build user's home only the token fields (`accessToken`, `refreshToken`, `expiresAt`) go, only when it names the same `subscriptionType`
+(and the same account id, where the login there has one) as the login there and expires later by at most 48 hours; a login
 of the task that names another or none stays where it is and the run's `result.md` says so in one line (a task
 cannot replace your login with its own). `build_model = key` in `/etc/awb/paths.conf` switches
 to a copy of the Workbench's key (`/etc/awb/build-model.key`, yours alone, 400) in one line. The runner's unit `awb-buildd.service` is installed and
