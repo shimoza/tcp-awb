@@ -13,6 +13,9 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   recognise as a token, a customer as its code. No customer is normal. A text he wrote and pastes is his brief. A
   pasted mail or transcript goes in through `awb import CODE --paste` in his own terminal. An unreadable file of `in/`
   alone is one line: `held: run awb import tcp-xxxx as the owner in your own terminal`.
+- When his message starts with `material:`, pipe the text after that word, unchanged, to `awb material add` (add
+  `--kind mail|transcript|table|note` or `--title WORDS` only when he says so) and report the one line it prints. Never
+  rewrite the text before it is saved. A refusal names a class and a line: report that and stop.
 
 ## Where things are
 
