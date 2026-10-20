@@ -46,3 +46,14 @@ def test_k8_an_expiry_far_ahead_and_another_account_id_are_not_copied(world):
         assert own.read_bytes() == before
     task_home(world, login(EXP + buildrun.LOGIN_EXPIRY_STEP_MS, accountUuid="acct-one"))
     assert buildrun.unit_clean(str(world.root), "B-901", "1", "home", "login") == 0
+
+
+def test_k22_a_deeply_nested_login_file_does_not_keep_the_task_home(world):
+    own = plant_login(world)
+    before = own.read_bytes()
+    home = task_home(world, b"[" * 60000)
+    assert buildrun.unit_clean(str(world.root), "B-901", "1", "all", "login") == 0
+    assert own.read_bytes() == before and not home.exists()
+    home = task_home(world, b'{"claudeAiOauth": ' + b"[" * 60000)
+    assert buildrun.unit_clean(str(world.root), "B-901", "1", "home", "login") == 0
+    assert not home.exists()

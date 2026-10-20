@@ -164,7 +164,7 @@ def _login_expiry(data: bytes | None) -> float | None:
         return None
     try:
         obj = json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
+    except (UnicodeDecodeError, ValueError, RecursionError):
         return None
     oauth = obj.get("claudeAiOauth") if isinstance(obj, dict) else None
     if not isinstance(oauth, dict):
@@ -423,8 +423,10 @@ def unit_clean(root: str, tid: str, n: str, what: str, model: str = "key") -> in
         return 2
     rc = 0
     if model == "login" and home.is_dir() and not home.is_symlink():
-        with contextlib.suppress(OSError):
+        try:
             rc = 0 if _login_back(r, home) else LOGIN_KEPT
+        except (OSError, ValueError, RecursionError):
+            rc = LOGIN_KEPT     # K22: whatever the task's file did, the home still goes below
     if what == "key":
         for rel in (KEY_IN_HOME, LOGIN_IN_HOME):
             with contextlib.suppress(FileNotFoundError, NotADirectoryError):

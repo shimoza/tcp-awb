@@ -20,6 +20,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 ### Fixed
 
 - `awb kb recheck-watch` no longer deletes a resource by a name match alone (task B-029, finding R8 of the review of 2026-10-16). A server, disk or address is taken only when its `awb-project` tag names the service project. A VPC, subnet, security group, WAF policy, SMN topic or subscription and RDS instance, whose listings carry no tags, is also taken by its lab name with the project code and an `awb-expiry` marker that has passed. A resource named like the project without the tag or the marker is left alone and listed by its handle.
+- The clean unit of a build task with `build_model = login` (task k-build-units, finding K22): a login file of the task that breaks the JSON parser (a deep nesting) no longer ends the unit before the home is removed. The unit treats it as not copied, removes the home and exits with the login-kept code.
+
 - The login that goes back to the build user's home (task k-build-units, finding K8 of the review of 2026-10-20): only the token fields are copied, into the object that is there, so a key the task added stays behind; a login whose `expiresAt` is more than 48 hours ahead of the one there, or whose account id differs, is not copied and the run says so as before.
 
 - `seal/verify.sh`: the check of the pdf extraction unit made its probe PDF with reportlab, which the runtime venv does not hold, so it failed on a real host although the unit works. The probe PDF is now a minimal one page PDF written with the standard library alone (`make_probe_pdf`), and the check reads "the unit of awb-extract runs pdftotext on a one page pdf". The `systemd-run` line is unchanged.

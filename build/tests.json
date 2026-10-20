@@ -8826,8 +8826,15 @@
    "name": "K8: an expiry far ahead and another account id are not copied",
    "run": ".venv/bin/pytest tests/test_build_units_k.py::test_k8_an_expiry_far_ahead_and_another_account_id_are_not_copied",
    "status": "passing"
+  },
+  {
+   "id": "k-build-units-3",
+   "phase": "k-build-units",
+   "name": "K22: a deeply nested login file does not keep the task home",
+   "run": ".venv/bin/pytest tests/test_build_units_k.py::test_k22_a_deeply_nested_login_file_does_not_keep_the_task_home",
+   "status": "passing"
   }
  ],
- "total_tests": 1261,
+ "total_tests": 1262,
  "checked": "2026-10-20"
 }
