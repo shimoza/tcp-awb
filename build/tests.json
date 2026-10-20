@@ -1872,7 +1872,7 @@
   {
    "id": "T4-11",
    "phase": "T4",
-   "name": "awb import: the vault inbox, the bucket folder in/ and FILE arguments, a file once, counts only and no name; --customer new from the project's characters or random; the forms prompt on a terminal only; --redo under the same file ids; --review registers one PERS code and wipes what is left for later; refused for the work user and in an assistant session; the notice of the next prompt once per session of that project",
+   "name": "awb import: the vault inbox, the bucket folder in/ and FILE arguments, a file once, counts only and no name; --customer new from the project's characters, refused when taken; the forms prompt on a terminal only; --redo under the same file ids; --review registers one PERS code and wipes what is left for later; refused for the work user and in an assistant session; the notice of the next prompt once per session of that project",
    "run": ".venv/bin/pytest tests/test_import.py",
    "status": "passing"
   },
@@ -6506,8 +6506,8 @@
   {
    "id": "z2-convenience-P1-1",
    "phase": "Z2",
-   "name": "start: a project of a known customer is spawned, granted and ends with the open line",
-   "run": ".venv/bin/pytest tests/test_start.py::test_a_project_of_a_known_customer_is_spawned_granted_and_ends_with_the_open_line",
+   "name": "start: a project of a new customer is spawned, granted and ends with the open line",
+   "run": ".venv/bin/pytest tests/test_start.py::test_a_project_of_a_new_customer_is_spawned_granted_and_ends_with_the_open_line",
    "status": "passing"
   },
   {
@@ -9155,8 +9155,22 @@
    "name": "import new refuses a taken customer code and draws no other",
    "run": ".venv/bin/pytest tests/test_one_code_per_project.py::test_import_new_refuses_a_taken_customer_code_and_draws_no_other",
    "status": "passing"
+  },
+  {
+   "id": "one-code-per-project-6",
+   "phase": "one-code-per-project",
+   "name": "a fully anonymous project needs no written form",
+   "run": ".venv/bin/pytest tests/test_start.py::test_a_fully_anonymous_project_needs_no_written_form",
+   "status": "passing"
+  },
+  {
+   "id": "one-code-per-project-7",
+   "phase": "one-code-per-project",
+   "name": "start refuses an existing customer with one line and spawns nothing",
+   "run": ".venv/bin/pytest tests/test_start.py::test_start_refuses_an_existing_customer_with_one_line_and_spawns_nothing",
+   "status": "passing"
   }
  ],
- "total_tests": 1308,
+ "total_tests": 1310,
  "checked": "2026-10-20"
 }

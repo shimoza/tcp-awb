@@ -132,11 +132,14 @@ def test_customer_new_issues_the_projects_own_four_characters(home, lab, capsys)
     assert _copies(home, want)
 
 
-def test_customer_new_is_random_when_the_projects_code_is_taken(home, lab, capsys):
+def test_customer_new_is_refused_when_the_projects_code_is_taken(home, lab, capsys):
+    """One code per project: no random code takes the place of the project's own four characters."""
     taken = "CUST-" + lab.code.split("-")[1].upper()
     config.make_dir(home.outbox / taken, 0o750, shared=True)
-    code, own = importcmd.new_customer(home, lab.code)
-    assert not own and code != taken and code.startswith("CUST-")
+    with pytest.raises(importcmd.ImportRefused, match="%s is taken or not safe as a customer code" % taken):
+        importcmd.new_customer(home, lab.code)
+    with pytest.raises(importcmd.ImportRefused, match="is taken or not safe"):
+        importcmd.run(home, lab.code, [], customer="new", read=lambda: "\n", tty=True)
 
 
 def test_the_forms_prompt_needs_a_terminal_and_an_empty_line_issues_the_code_without_a_form(home, lab, capsys):

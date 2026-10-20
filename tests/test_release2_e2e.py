@@ -203,11 +203,14 @@ def test_release2_end_to_end_with_the_tool_guard(places, daemon, monkeypatch, ca
 
     # ------------------------------------------------------------------ the work side: spawn with the hooks
     code, out, _ = con.run("spawn", "engagement", "--goal", "landing zone offer with two app clusters",
-                           "--customer", cust, "--tag", "cce")
+                           "--customer", "new", "--tag", "cce")
     assert code == 0, out
     (pr,) = projects.load(w)
     project = Path(pr.path)
-    assert pr.customer == cust and codes.is_project_code(pr.code)
+    assert codes.is_project_code(pr.code) and pr.customer == "CUST-" + pr.code.split("-", 1)[1].upper()
+    code, _, err = con.run("spawn", "engagement", "--goal", "landing zone offer", "--customer", cust)
+    assert code == 2 and "every project gets its own code" in err
+    cust = pr.customer        # the customer of this project: its own code from here on
     settings = json.loads((project / ".claude" / "settings.json").read_text(encoding="utf-8"))
     events = {"UserPromptSubmit": "prompt", "PreToolUse": "pre-write", "PostToolUse": "post-write", "Stop": "stop",
               "SessionStart": "session-start"}
