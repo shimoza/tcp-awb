@@ -9421,8 +9421,43 @@
    "name": "K4: across two uids a session reaches its own project and never another",
    "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_across_two_uids_a_session_reaches_its_own_project_and_never_another",
    "status": "passing"
+  },
+  {
+   "id": "cs6-material-paste-1",
+   "phase": "cs6-material-paste",
+   "name": "CS6: a clean note is kept unchanged and the file name is all it prints",
+   "run": ".venv/bin/pytest tests/test_material.py::test_a_clean_note_is_kept_unchanged_and_the_file_name_is_all_it_prints",
+   "status": "passing"
+  },
+  {
+   "id": "cs6-material-paste-2",
+   "phase": "cs6-material-paste",
+   "name": "CS6: a registered name refuses the whole text with its kind and line",
+   "run": ".venv/bin/pytest tests/test_material.py::test_a_registered_name_refuses_the_whole_text_with_its_kind_and_line",
+   "status": "passing"
+  },
+  {
+   "id": "cs6-material-paste-3",
+   "phase": "cs6-material-paste",
+   "name": "CS6: a secret refuses the whole text with its class and line",
+   "run": ".venv/bin/pytest tests/test_material.py::test_a_secret_refuses_the_whole_text_with_its_class_and_line",
+   "status": "passing"
+  },
+  {
+   "id": "cs6-material-paste-4",
+   "phase": "cs6-material-paste",
+   "name": "CS6: outside a project folder it refuses",
+   "run": ".venv/bin/pytest tests/test_material.py::test_outside_a_project_folder_it_refuses",
+   "status": "passing"
+  },
+  {
+   "id": "cs6-material-paste-5",
+   "phase": "cs6-material-paste",
+   "name": "CS6: the owner side keeps the paste door as it is",
+   "run": ".venv/bin/pytest tests/test_material.py::test_the_owner_side_keeps_the_paste_door_as_it_is",
+   "status": "passing"
   }
  ],
- "total_tests": 1346,
+ "total_tests": 1351,
  "checked": "2026-10-20"
 }

@@ -699,6 +699,7 @@ DELEGATED = {
     "xchg": ("tcp.xchg", "put a result of this project into the owner's from-session folder"),
     "start": ("start", "a piece of work in one command: register, spawn, grant, import, the open line (owner side)"),
     "fetch": ("tcp.fetch", "what a project put for you, in one folder with the names back (owner side)"),
+    "material": ("material", "keep pasted text that holds no name as project material: add (inside a project folder)"),
     "paste": ("paste", "put a long terminal output into the project, masked, instead of the chat"),
     "keys": ("tcp.keys", "the key service: keys, logins and passwords of the test tenants, never shown to a session"),
     "migrate": ("tcp.migrate", "a migration to TCP in phases: inventory, mapping, estimate, plan, review"),

@@ -706,6 +706,14 @@ customer data out of the model as far as it can:
   its turns as `[person 1]`, `[person 2]` and its timestamps, a table keeps its columns and loses the columns of people and
   mail addresses. The copy lands in the outbox as `mail-<date>-<n>.md`, `transcript-<date>-<n>.md` or `table-<date>-<n>.csv`. A
   text you wrote yourself is still your brief and goes into the chat.
+- `awb material add [--kind mail|transcript|table|note] [--title WORDS]` keeps text that holds no name at all, without leaving
+  the project session. Write `material:` and the text in the chat; the session pipes what follows that word, unchanged, to
+  the command inside the project folder and reports the one line it prints (the file name). The text passes the secret scan, the
+  home-path rule, your blocklist and the name check through the check socket of the work user. A hit of any of them (a
+  secret, a name, a mail or web address) refuses the whole text with its class and line, never the value, and nothing is
+  written. On a pass the text lands in `input/` of the project as `note-<date>-<n>.md` (`mail-`, `transcript-` with `.md`,
+  `table-` with `.csv` by kind) and one line goes to the ledger. Nothing is wiped or rewritten, so a text that may hold
+  names still goes in through `awb import CODE --paste` in your own terminal, which stays as it is.
 - The register of names lives in a vault on the owner's side. The sealed setup runs every session as a separate
   system user that cannot read it.
 - Six hooks check every prompt, every written file, every file or shell call and the start and end of every
