@@ -8826,8 +8826,29 @@
    "name": "K6: a page holds at most the capped number of notes",
    "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_page_holds_at_most_the_capped_number_of_notes",
    "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-6",
+   "phase": "k-release-notes-hardening",
+   "name": "K12: a pager number of thousands of digits is ignored",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_pager_number_of_thousands_of_digits_is_ignored_and_the_run_goes_on",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-7",
+   "phase": "k-release-notes-hardening",
+   "name": "K12: a cut body or a reset is a mirror error naming the page",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_cut_body_or_a_reset_is_a_mirror_error_that_names_the_page",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-8",
+   "phase": "k-release-notes-hardening",
+   "name": "K12: the refresh part reports a cut body and goes on",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_the_refresh_part_reports_a_cut_body_and_goes_on",
+   "status": "passing"
   }
  ],
- "total_tests": 1261,
+ "total_tests": 1264,
  "checked": "2026-10-18"
 }

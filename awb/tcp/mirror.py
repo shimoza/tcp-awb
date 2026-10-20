@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -309,7 +310,7 @@ class _ListParser(HTMLParser):
         cls = (a.get("class") or "").split()
         href = a.get("href") or ""
         if tag == "a":
-            m = re.search(r"[?&]p=(\d+)", href)
+            m = re.search(r"[?&]p=([0-9]{1,6})(?![0-9])", href)
             if m:
                 self.last_page = min(RN_MAX_PAGES, max(self.last_page, int(m.group(1))))
         if tag == "article" and "page-teaser" in cls:
@@ -432,7 +433,7 @@ def sync_release_notes(base: Path, *, fetch: Callable[[str], str] | None = None,
             html = fetch(url)
         except urllib.error.HTTPError as exc:
             raise MirrorError("the release notes answered HTTP %d (page %d)" % (exc.code, number)) from None
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException, OSError) as exc:
             raise MirrorError("the release notes could not be fetched (%s, page %d)"
                               % (type(exc).__name__, number)) from None
         read += 1
