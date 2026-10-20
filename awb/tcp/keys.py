@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -71,6 +72,8 @@ STORE_PREFIX = "awb/tenant"
 ROLES = {"read": ("GET", "HEAD"), "lab": ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")}
 WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
 NO_WRITE_SERVICES = frozenset({"iam"})
+_NOT_ASKED = object()
+"""The caller's project was not looked up: the owner, the console or a direct call of a test (K4)."""
 LAB_WRITE_LINE = "refused: lab write outside the lab_writes list of keys.conf, service %s"
 """The one line of a lab write the lab_writes list does not name: the class and the service, never the path."""
 # the lease (T12 part 3, Variant B): a temporary AK/SK of the lab key for the services a project's Terraform set may
@@ -450,7 +453,7 @@ class Service:
                     if isinstance(answer, tuple):
                         answer, stream = answer
                 else:
-                    answer = self._call_socket(req, uid, upload)
+                    answer = self._call_socket(req, uid, upload, caller=self._caller_project(req, uid))
                     if isinstance(answer, tuple):
                         answer, stream = answer
                 conn.settimeout(CALL_TIMEOUT)
@@ -686,7 +689,7 @@ class Service:
                     for a, t in sorted(self.tenants.items())}
 
     # the call socket
-    def _call_socket(self, req: dict, uid: int, upload: Path | None = None):
+    def _call_socket(self, req: dict, uid: int, upload: Path | None = None, caller=_NOT_ASKED):
         now = time.monotonic()
         with self.lock:
             q = self._rate.setdefault(uid, deque())
@@ -704,14 +707,14 @@ class Service:
                                             for a, s in self._summary().items()}}
         if op == "call":
             try:
-                return self._call(req, uid)
+                return self._call(req, uid, caller)
             except Refused as err:
                 return {"ok": False, "error": str(err)}
             except KeysError as err:
                 return {"ok": False, "error": str(err)}
         if op == "lease":
             try:
-                return self._lease(req, uid)
+                return self._lease(req, uid, caller)
             except Refused as err:
                 return {"ok": False, "error": str(err)}
         if (op == "owner_has" or (op == "take_owner" and req.get("id") is None)) and uid != os.getuid():
@@ -811,7 +814,38 @@ class Service:
         except Exception:
             return False
 
-    def _call(self, req: dict, uid: int) -> dict:
+    def _grant_tokens(self) -> dict[str, str]:
+        from awb import grants
+
+        try:
+            return grants.tokens(self.paths_fn())
+        except Exception:
+            return {}
+
+    def _caller_project(self, req: dict, uid: int):
+        """K4: the project of a session (the work user) is the granted project whose key token the request
+        presents, never the code it names: `_NOT_ASKED` for the owner and the console, None for no such token. It
+        reads only the request and the owner's grants: the service runs as the owner and may not read the process of
+        another user (PR 69, reverted)."""
+        if not self._session_read(uid):
+            return _NOT_ASKED
+        token = req.get("token")
+        if not (isinstance(token, str) and len(token) == 64):
+            return None
+        found = None
+        for code, recorded in self._grant_tokens().items():
+            if hmac.compare_digest(recorded.encode("ascii"), token.encode("ascii", "replace")):
+                found = code
+        return found
+
+    def _unbound(self, project, caller, what: str) -> Refused:
+        if caller is None and isinstance(project, str) and _PROJECT_RE.match(project):
+            if self._granted(project) and project not in self._grant_tokens():
+                return Refused("the grant of %s holds no key token: the owner runs awb projects kind %s project once "
+                               "more" % (project, project))
+        return Refused(what)
+
+    def _call(self, req: dict, uid: int, caller=_NOT_ASKED) -> dict:
         from awb.tcp import cloud
 
         alias = req.get("tenant")
@@ -846,6 +880,10 @@ class Service:
             # a session reaches a tenant only from a project of the kind project, never from a query
             from awb import projects as _projects
 
+            if caller is not _NOT_ASKED and caller != project:
+                # K4: the project is the one whose key token the session presents, never the one the request names
+                raise self._unbound(project, caller, "a call to a test tenant runs from the folder of an active "
+                                                     "project")
             row = self._project_row(project)
             if row is None:
                 raise Refused("a call to a test tenant runs from the folder of an active project")
@@ -964,7 +1002,7 @@ class Service:
             bucket = (self.tenants.get(tenant) or {}).get("roles", {}).get("lab") or {}
         return bool(bucket.get("ak")) and bucket.get("ak") == pair.get("ak")
 
-    def _lease(self, req: dict, uid: int) -> dict:
+    def _lease(self, req: dict, uid: int, caller=_NOT_ASKED) -> dict:
         """A temporary AK/SK and security token of the tenant's lab key (Variant B of DESIGN-terraform.md): for a
         session only from the folder of an active project of the kind project that the owner granted (P0), for the
         owner for any project; never from the lab key of the bucket tenant; 15 to 60 minutes; the policy of
@@ -993,6 +1031,9 @@ class Service:
 
             if uid == self._console_uid():
                 raise Refused("the console takes no lease")
+            if caller is not _NOT_ASKED and caller != project:
+                # K4: a lease reaches the OBS buckets of its project, so it is bound like a call
+                raise self._unbound(project, caller, "a lease is for the folder of an active project")
             row = self._project_row(project)
             if row is None:
                 raise Refused("a lease is for the folder of an active project")
@@ -1128,10 +1169,33 @@ def admin_socket() -> Path:
     return Path(env) if env else config.paths().vault / "keys-admin.sock"
 
 
+def own_token(start: Path | None = None) -> str | None:
+    """K4: the key token of the project folder this process works in (at or above `start`, default the working
+    folder); None outside a project folder. The work user writes one into a project folder that has none yet (a
+    project spawned before the token); the owner's next grant of the project records it."""
+    from awb import projects
+
+    try:
+        folder = config.scope_root(Path(os.path.abspath(start or Path.cwd())))
+        if folder is None:
+            return None
+        token = projects.read_key_token(folder)
+        if token is None and config.is_work_user() and not os.path.lexists(folder / projects.BIND_FILE):
+            token = projects.write_key_token(folder)
+        return token
+    except (OSError, ValueError):
+        return None
+
+
 def request(sock: Path, obj: dict, timeout: float = CALL_TIMEOUT + 10, *, upload: Path | None = None,
             download: Path | None = None) -> dict:
     """One request. `upload` sends a file's bytes after the request line (a put); `download` receives the bytes
-    that follow an answer carrying a length (a get)."""
+    that follow an answer carrying a length (a get). A call and a lease carry the key token of the project folder
+    this process works in (K4)."""
+    if isinstance(obj, dict) and obj.get("op") in ("call", "lease") and "token" not in obj:
+        token = own_token()
+        if token is not None:
+            obj = dict(obj, token=token)
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(timeout)
     try:
