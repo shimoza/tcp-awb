@@ -685,7 +685,7 @@ def _live_rows(folder: Path) -> list[dict[str, str]]:
     head: list[str] | None = None
     live: list[dict[str, str]] = []
     for line in text.splitlines():
-        cells = [c.strip().lower() for c in line.strip().strip("|").split("|")] if line.strip().startswith("|") else None
+        cells = [_plain(c).lower() for c in line.strip().strip("|").split("|")] if line.strip().startswith("|") else None
         if cells is None:
             continue
         if head is None:
@@ -733,7 +733,7 @@ def open_item_lines(folder: Path) -> list[str]:
     out = []
     for line in text.splitlines():
         if line.startswith("- "):
-            item = " ".join(line[2:].split())
+            item = _plain(line[2:])
             cmd = item_command(item)
             out.append("open: %s%s" % (item, " (run: %s)" % cmd if cmd else ""))
     return out
@@ -967,6 +967,12 @@ WAITING_ITEMS = 5
 """The most owner items `awb projects open` shows for one project (the board shows as many)."""
 
 
+def _plain(text: str) -> str:
+    """A line of a file a session writes, for the owner's terminal: whitespace collapsed, control and format
+    characters (ESC, C1, bidi marks) dropped, as `build.py` does for the agent's message."""
+    return "".join(c for c in " ".join(text.split()) if unicodedata.category(c) not in ("Cc", "Cf"))
+
+
 def _owner_items(text: str) -> list[str]:
     """The dash items of OPEN.md that wait on the owner: every item under a ## heading that names the owner and an
     item elsewhere that names him."""
@@ -977,7 +983,7 @@ def _owner_items(text: str) -> list[str]:
             owner_section = "owner" in line.lower()
             continue
         if line.startswith("- "):
-            item = " ".join(line[2:].split())
+            item = _plain(line[2:])
             if owner_section or re.search(r"\bowner\b", item, re.IGNORECASE):
                 out.append(item)
     return out
