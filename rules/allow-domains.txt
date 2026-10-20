@@ -66,3 +66,8 @@ gesetze-im-internet.de
 t-cloud-public.com
 www.t-cloud-public.com
 public.t-cloud.com
+docs.llmhub.t-systems.net
+llm-server.llmhub.t-systems.net
+apikey.llmhub.t-systems.net
+uptime.llmhub.t-systems.net
+api-gateway.ai.t-systems.net
