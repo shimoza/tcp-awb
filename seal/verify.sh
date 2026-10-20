@@ -721,6 +721,7 @@ extract_checks() {
     local pdf py="$OPT/venv/bin/python3" out=1 text
     if [ "$dry_run" -eq 1 ]; then
         printf 'CHECK %s\n' "the unit of $EXTRACT_USER runs pdftotext on a one page pdf"
+        printf 'CHECK %s\n' "the unit of $EXTRACT_USER runs pdfinfo on a one page pdf"
         return 0
     fi
     if ! getent passwd "$EXTRACT_USER" >/dev/null || ! grep -Eq "^[[:space:]]*extract_user[[:space:]]*=[[:space:]]*$EXTRACT_USER[[:space:]]*$" "$CONF_FILE"; then
@@ -736,8 +737,18 @@ extract_checks() {
             -- "$(command -v pdftotext)" -layout -enc UTF-8 - - < "$pdf" 2>/dev/null) || text=""
         case "$text" in *"extract probe line"*) out=0 ;; esac
     fi
-    rm -f -- "$pdf"
     report "$out" "the unit of $EXTRACT_USER runs pdftotext on a one page pdf"
+    out=1
+    if [ -s "$pdf" ]; then
+        text=$(runuser -u "$owner" -- sudo -n systemd-run --quiet --wait --pipe --collect \
+            --uid="$EXTRACT_USER" --gid="$EXTRACT_USER" --property=PrivateNetwork=yes \
+            --property=ProtectSystem=strict --property=ProtectHome=yes --property=PrivateTmp=yes \
+            --property=NoNewPrivileges=yes --property=MemoryMax=512M --property=RuntimeMaxSec=120 \
+            -- "$(command -v pdfinfo)" -enc UTF-8 - < "$pdf" 2>/dev/null) || text=""
+        case "$text" in *"Pages:"*) out=0 ;; esac
+    fi
+    rm -f -- "$pdf"
+    report "$out" "the unit of $EXTRACT_USER runs pdfinfo on a one page pdf"
 }
 
 build_checks

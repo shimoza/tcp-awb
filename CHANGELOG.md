@@ -15,6 +15,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- `seal/setup.sh`, `seal/verify.sh` (task k-extract-sandbox, K7): the sudoers line of the pdf extraction joined the two tools with a comma after one prefix, and a comma starts a new command in sudoers, so the second command was a bare `pdfinfo` as root and the unit's own `pdfinfo` call matched nothing. Every tool now carries the whole fixed `systemd-run` prefix. `seal/verify.sh` gets a second check, `the unit of awb-extract runs pdfinfo on a one page pdf`.
+
 - `seal/verify.sh`: the check of the pdf extraction unit made its probe PDF with reportlab, which the runtime venv does not hold, so it failed on a real host although the unit works. The probe PDF is now a minimal one page PDF written with the standard library alone (`make_probe_pdf`), and the check reads "the unit of awb-extract runs pdftotext on a one page pdf". The `systemd-run` line is unchanged.
 
 ## Week 42, 2026-10-12 to 2026-10-18 (in progress)
