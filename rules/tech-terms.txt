@@ -1,0 +1,553 @@
+# Vendor and technical terms that are not in the TCP documentation: CPU generations, hypervisors and
+# virtualization, Windows and security, common Linux tools, hardware and networking, benchmark tools. One term per line.
+# Source: written by hand for the intake (public product and technology names only, no person, no customer).
+# The intake reads this list next to rules/known-words.txt and rules/known-phrases.txt: a term here is no name
+# candidate, alone or as a phrase of several words (Sapphire Rapids, Credential Guard), and a run of words that
+# forms a term is known. A term that is also a first name of rules/first-names.txt (Milan) is ignored by the loader:
+# a first name always stays a candidate. Case does not matter. Add a term by one line; a section line is a comment.
+
+# CPU generations and processors
+Sapphire Rapids
+Sapphire
+Rapids
+Emerald Rapids
+Granite Rapids
+Ice Lake
+Cascade Lake
+Skylake
+Cooper Lake
+Broadwell
+Haswell
+Sandy Bridge
+Ivy Bridge
+Comet Lake
+Alder Lake
+Raptor Lake
+Meteor Lake
+Lunar Lake
+Arrow Lake
+Tiger Lake
+Rocket Lake
+Kaby Lake
+Coffee Lake
+Whiskey Lake
+Cannon Lake
+Knights Landing
+Xeon
+Xeon Scalable
+Xeon Platinum
+Xeon Gold
+Xeon Silver
+Core Ultra
+EPYC
+Ryzen
+Threadripper
+Genoa
+Genoa-X
+Milan
+Milan-X
+Zen 2
+Zen 3
+Zen 4
+Zen 5
+Graviton
+Ampere Altra
+Neoverse
+Apple Silicon
+Power10
+POWER9
+CDNA
+RDNA
+
+# Hypervisors and virtualization
+KVM
+QEMU
+Xen
+ESXi
+vSphere
+vCenter
+vSAN
+NSX
+vMotion
+Hyper-V
+VirtualBox
+VMware
+VMware Workstation
+Proxmox
+Proxmox VE
+libvirt
+virsh
+Firecracker
+Cloud Hypervisor
+crosvm
+bhyve
+Nutanix AHV
+oVirt
+OpenStack
+Kata Containers
+gVisor
+LXC
+LXD
+Incus
+VBS
+HVCI
+VT-x
+VT-d
+VT-c
+AMD-V
+AMD-Vi
+SR-IOV
+MR-IOV
+IOMMU
+SLAT
+EPT
+NPT
+RVI
+VMX
+SVM
+VMCS
+VMCB
+VFIO
+virtio
+virtio-net
+virtio-blk
+virtio-scsi
+vhost
+vhost-user
+DPDK
+SPDK
+Nested Virtualization
+Live Migration
+Memory Ballooning
+Huge Pages
+Transparent Huge Pages
+NUMA
+Passthrough
+GPU Passthrough
+PCI Passthrough
+Paravirtualization
+Hardware Virtualization
+Virtual Machine
+Virtual Machines
+Virtual Function
+Physical Function
+Guest OS
+Host OS
+Dom0
+DomU
+VMM
+VMD
+vCPU
+vGPU
+vNIC
+vTPM
+vSwitch
+Secure Encrypted Virtualization
+SEV
+SEV-SNP
+TDX
+Trust Domain Extensions
+SGX
+Software Guard Extensions
+Confidential Computing
+Confidential VM
+
+# Windows and security
+Credential Guard
+Device Guard
+Remote Credential Guard
+Windows Defender
+Microsoft Defender
+Defender for Endpoint
+Application Guard
+Exploit Guard
+Virtualization-based Security
+Virtualization Based Security
+Hypervisor-protected Code Integrity
+Memory Integrity
+Core Isolation
+Kernel DMA Protection
+LSA
+LSASS
+LSA Protection
+SAM
+NTLM
+NTLMv2
+Kerberos
+Active Directory
+AD DS
+AD FS
+Group Policy
+GPO
+PowerShell
+WinRM
+WMI
+RDP
+SMB
+CredSSP
+DPAPI
+TPM
+TPM 2.0
+Secure Boot
+Measured Boot
+Trusted Boot
+BitLocker
+BitLocker To Go
+UEFI
+BIOS
+Windows Server
+Windows 10
+Windows 11
+Windows Hello
+Windows Update
+Windows Sandbox
+Event Viewer
+Task Manager
+Device Manager
+System Information
+Registry Editor
+Local Security Authority
+Local Security Policy
+Security Baseline
+Secure Kernel
+Trustlet
+Trustlets
+IUM
+Isolated User Mode
+Virtual Secure Mode
+VSM
+System Guard
+Attestation
+Remote Attestation
+Pass-the-Hash
+Pass-the-Ticket
+Mimikatz
+Sysinternals
+AppLocker
+WDAC
+Windows Defender Application Control
+Code Integrity
+Smart Card
+FIDO2
+MFA
+SSO
+SAML
+OAuth
+OIDC
+LDAP
+LDAPS
+RADIUS
+PKI
+CA
+CRL
+OCSP
+X.509
+NTFS
+ReFS
+CIFS
+DFS
+DNS
+DHCP
+WSUS
+SCCM
+Intune
+Autopilot
+Azure AD
+Entra ID
+Microsoft Entra
+
+# Linux and common tools
+Linux
+Ubuntu
+Debian
+Fedora
+CentOS
+Rocky Linux
+AlmaLinux
+openSUSE
+SUSE
+Red Hat
+RHEL
+Alpine
+Arch Linux
+Gentoo
+systemd
+systemctl
+journalctl
+journald
+udev
+dracut
+initramfs
+GRUB
+grub2
+SELinux
+AppArmor
+seccomp
+cgroups
+namespaces
+iptables
+nftables
+firewalld
+ufw
+netfilter
+conntrack
+tcpdump
+Wireshark
+tshark
+nmap
+netcat
+socat
+curl
+wget
+openssl
+ssh
+sshd
+scp
+rsync
+sftp
+grep
+egrep
+fgrep
+ripgrep
+awk
+sed
+sort
+uniq
+xargs
+find
+locate
+tar
+gzip
+bzip2
+xz
+zstd
+cpio
+dd
+mount
+umount
+fdisk
+parted
+lsblk
+blkid
+lvm
+mdadm
+ZFS
+Btrfs
+ext4
+XFS
+NFS
+iSCSI
+Ceph
+GlusterFS
+multipath
+lscpu
+lspci
+lsusb
+lsmod
+modprobe
+dmesg
+dmidecode
+sysctl
+strace
+ltrace
+perf
+ftrace
+eBPF
+bpftrace
+top
+htop
+iotop
+iostat
+vmstat
+sar
+free
+ps
+kill
+nice
+cron
+crontab
+logrotate
+rsyslog
+syslog-ng
+ansible
+Terraform
+Packer
+Vagrant
+Docker
+Podman
+Kubernetes
+kubectl
+Helm
+containerd
+CRI-O
+runc
+Buildah
+Skopeo
+Git
+GitHub
+GitLab
+Jenkins
+Prometheus
+Grafana
+Loki
+Elasticsearch
+Logstash
+Kibana
+Nginx
+HAProxy
+Envoy
+Traefik
+PostgreSQL
+MySQL
+MariaDB
+Redis
+MongoDB
+SQLite
+Python
+Bash
+Zsh
+Perl
+Ruby
+Golang
+Rust
+Java
+Node.js
+/proc/cpuinfo
+/proc/meminfo
+/etc/passwd
+/etc/fstab
+/var/log
+
+# Hardware and networking
+NVMe
+SATA
+SAS
+SSD
+HDD
+RAID
+HBA
+NIC
+SmartNIC
+DPU
+BlueField
+ConnectX
+InfiniBand
+RoCE
+RDMA
+iWARP
+PCIe
+PCI Express
+CXL
+DDR4
+DDR5
+HBM
+ECC
+Optane
+BMC
+IPMI
+iDRAC
+iLO
+Redfish
+PXE
+iPXE
+Dell PowerEdge
+HPE ProLiant
+Supermicro
+Lenovo ThinkSystem
+Cisco UCS
+Juniper
+Arista
+Mellanox
+Broadcom
+Intel
+AMD
+NVIDIA
+Qualcomm
+VXLAN
+GENEVE
+GRE
+BGP
+OSPF
+VLAN
+LACP
+MTU
+QoS
+ECMP
+EVPN
+MPLS
+IPsec
+WireGuard
+OpenVPN
+TLS
+mTLS
+HTTPS
+HTTP
+SMTP
+IMAP
+NTP
+SNMP
+ICMP
+TCP
+UDP
+QUIC
+
+# Benchmark and test terms
+Geekbench
+SPECint
+SPECrate
+SPEC CPU
+Phoronix
+sysbench
+fio
+iperf
+iperf3
+stress-ng
+memtester
+Linpack
+HPL
+STREAM
+netperf
+wrk
+Apache Bench
+JMeter
+Gatling
+k6
+Locust
+Cinebench
+PassMark
+UnixBench
+OpenBenchmarking
+Flame Graph
+Flame Graphs
+
+# Names that are also plain words, people or places: only with the vendor in front
+AMD Rome
+AMD Naples
+AMD Siena
+AMD Turin
+EPYC Rome
+EPYC Naples
+EPYC Siena
+EPYC Turin
+Nvidia Hopper
+Nvidia Ampere
+Nvidia Volta
+Nvidia Turing
+Nvidia Pascal
+Nvidia Blackwell
+Intel Atom
+AMD Zen
+ARM Cortex
+Apache HTTP Server
+OpenStack Nova
+OpenStack Neutron
+OpenStack Cinder
+OpenStack Glance
+OpenStack Keystone
+OpenStack Heat
+OpenStack Horizon
+OpenStack Ironic
+AMD Instinct
+AMD Bergamo
+AMD Opteron
+Intel Itanium

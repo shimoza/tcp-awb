@@ -16,8 +16,8 @@ from awb.intake.wipe.basic import (_ABBREVIATIONS, _COMPANY_RE, _FORM_ALT, _FUNC
 from awb.intake.wipe.lexicon import (_FIRST_NAMES, _GENERIC_ADDRESSEES, _GENERIC_COMPANY_WORDS, _GERMAN_FUNCTION,
                                      _LEGAL_WORDS, _MONTHS_DAYS, _NEUTRAL_LABELS, _PARTICLE_WORDS, _ROLE_WORDS,
                                      _SECTION_WORDS, _SOURCE_PLATFORM_WORDS, _STANDARD_WORDS, _TITLE_WORDS, _UNIT_WORDS,
-                                     _compound_known, _generic_word, _known_word, _lettered_list, _letters, _org_word,
-                                     _person_known, _role_shape, _speech_shaped)
+                                     _common_word, _compound_known, _generic_word, _known_word, _lettered_list, _letters,
+                                     _org_word, _person_known, _role_shape, _speech_shaped)
 from awb.matcher import GLUE_AFFIXES, Span
 
 
@@ -1043,7 +1043,7 @@ def _initial_candidates_known(text: str, blocked) -> list[tuple[int, int, str]]:
         at_line_start = not text[line_start:a].strip(" \t>*_-#|")
         head = text[:a].rstrip(" \t")
         prev = re.split(r"[\s.]+", head)[-1].casefold().strip(",;:") if head.strip() else ""
-        if prev in _SECTION_WORDS or (_known_word(last) and at_line_start):
+        if prev in _SECTION_WORDS or ((_known_word(last) or _common_word(last)) and at_line_start):
             continue   # Szenario B. Lift and Shift, Teil V. Betrieb, A. Einleitung: a section letter
         if at_line_start and _lettered_list(text, line_start):
             continue

@@ -9197,8 +9197,64 @@
    "name": "without --trusted the guessing still runs",
    "run": ".venv/bin/pytest tests/test_import_trusted.py::test_without_trusted_the_guessing_still_runs",
    "status": "passing"
+  },
+  {
+   "id": "nq-fewer-false-candidates-1",
+   "phase": "nq-fewer-false-candidates",
+   "name": "the nine words of the report give no candidate",
+   "run": ".venv/bin/pytest tests/test_false_candidates.py::test_the_nine_words_of_the_report_give_no_candidate",
+   "status": "passing"
+  },
+  {
+   "id": "nq-fewer-false-candidates-2",
+   "phase": "nq-fewer-false-candidates",
+   "name": "a planted person next to them is still found",
+   "run": ".venv/bin/pytest tests/test_false_candidates.py::test_a_planted_person_next_to_them_is_still_found",
+   "status": "passing"
+  },
+  {
+   "id": "nq-fewer-false-candidates-3",
+   "phase": "nq-fewer-false-candidates",
+   "name": "a first name that is also an English word stays a candidate",
+   "run": ".venv/bin/pytest tests/test_false_candidates.py::test_a_first_name_that_is_also_an_english_word_stays_a_candidate",
+   "status": "passing"
+  },
+  {
+   "id": "nq-fewer-false-candidates-4",
+   "phase": "nq-fewer-false-candidates",
+   "name": "two capitalised words in a row stay a candidate unless the phrase is known",
+   "run": ".venv/bin/pytest tests/test_false_candidates.py::test_two_capitalised_words_in_a_row_stay_a_candidate_unless_the_phrase_is_known",
+   "status": "passing"
+  },
+  {
+   "id": "nq-fewer-false-candidates-5",
+   "phase": "nq-fewer-false-candidates",
+   "name": "a section label is no initial but an initial before an invented surname is",
+   "run": ".venv/bin/pytest tests/test_false_candidates.py::test_a_section_label_is_no_initial_but_an_initial_before_an_invented_surname_is",
+   "status": "passing"
+  },
+  {
+   "id": "nq-fewer-false-candidates-6",
+   "phase": "nq-fewer-false-candidates",
+   "name": "code gives no candidates and prose after it still does",
+   "run": ".venv/bin/pytest tests/test_false_candidates.py::test_code_gives_no_candidates_and_prose_after_it_still_does",
+   "status": "passing"
+  },
+  {
+   "id": "nq-fewer-false-candidates-7",
+   "phase": "nq-fewer-false-candidates",
+   "name": "the new lists load and a first name is dropped from them",
+   "run": ".venv/bin/pytest tests/test_false_candidates.py::test_the_new_lists_load_and_a_first_name_is_dropped_from_them",
+   "status": "passing"
+  },
+  {
+   "id": "nq-fewer-false-candidates-8",
+   "phase": "nq-fewer-false-candidates",
+   "name": "the new rules files say where they come from",
+   "run": ".venv/bin/pytest tests/test_false_candidates.py::test_the_new_rules_files_say_where_they_come_from",
+   "status": "passing"
   }
  ],
- "total_tests": 1314,
+ "total_tests": 1322,
  "checked": "2026-10-20"
 }

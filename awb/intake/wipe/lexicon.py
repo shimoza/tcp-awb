@@ -8,9 +8,10 @@ from __future__ import annotations
 import re
 
 from awb import codes
+from awb import words as _word_lists
 from awb.intake.wipe import _list
 from awb.intake.wipe.basic import _FUNCTION_WORDS, _OPENERS, _STOP_SINGLES, _TOOL_WORDS
-from awb.matcher import fold_text
+from awb.matcher import Span, fold_text
 
 
 # --------------------------------------------------------------------------- word lists of wipe mode
@@ -193,6 +194,71 @@ _GERMAN_FUNCTION = _list("sentence-openers.txt", section="german-function")
 """German prepositions, conjunctions and adverbs that open a sentence with a capital: never a name, trimmed off a run."""
 _EXTRA_KNOWN = _list("allowed-terms.txt", section="intake-seed", single=True)
 """Words the public corpus lacks that typical architecture, contract and agile texts carry (rules/allowed-terms.txt)."""
+_COMMON_WORDS = frozenset(_word_lists.load_plain(_word_lists.COMMON_FILE)) - _FIRST_NAMES
+"""Plain English words, lowercase (rules/common-words.txt, the Moby lists): a capitalised word on it is no candidate
+on its own. A first name is never on it for the purpose (Rose, Mark, Bill)."""
+_TECH_CANON = frozenset(t for t in _word_lists.load_plain(_word_lists.TECH_FILE, fold=False)
+                        if t.casefold() not in _FIRST_NAMES)
+_TECH_TERMS = frozenset(t.casefold() for t in _TECH_CANON)
+"""Vendor and technical terms the documentation lacks (rules/tech-terms.txt): Sapphire Rapids, KVM, Credential Guard."""
+_TECH_SINGLE = frozenset(t for t in _TECH_TERMS if " " not in t)
+_TECH_MULTI = frozenset(t for t in _TECH_TERMS if " " in t)
+_TECH_FORMS = _TECH_SINGLE | _TECH_MULTI | frozenset(t.replace(" ", "-") for t in _TECH_MULTI)
+"""Every spelling the vocabulary knows: a term of several words also with hyphens (Sapphire-Rapids)."""
+_TECH_MARKED = sorted((t for t in _TECH_CANON if not t.isalpha() or t != t.lower()), key=len, reverse=True)
+"""The terms that are marked in a text: those written with a capital, a digit or a sign (KVM, Hyper-V, Credential
+Guard). A plain lower-case tool name (grep, curl) is known but never marked: it gives no candidate by itself."""
+_TECH_RE = re.compile(r"(?<![\w-])(?:%s)(?![\w-])" % "|".join(re.escape(t).replace(r"\ ", "[ \\t-]") for t in _TECH_MARKED)
+                      if _TECH_MARKED else r"(?!)", re.I)
+
+_CODE_BACKTICK_RE = re.compile(r"`[^`\n]{1,400}`")
+_CODE_FENCE_RE = re.compile(r"^[ \t]*(```|~~~)[^\n]*\n.*?(?:^[ \t]*\1[^\n]*$|\Z)", re.S | re.M)
+_CODE_LINE_RE = re.compile(
+    r"^[ \t]*(?:"
+    r"[$#][ \t]+(?:sudo[ \t]+)?[a-z][\w.+-]*(?:[ \t]+(?:-{1,2}[A-Za-z]|[/~.$|'\"])|[ \t]*$)"   # $ cmd, # cmd -x
+    r"|(?:sudo[ \t]+)?[a-z][\w.+-]*[ \t]+-{1,2}[A-Za-z][\w=-]*(?:[ \t]|$)[^\n]*['\"|/]"   # cmd -Ec 'pattern' /path
+    r"|[a-z][\w.+-]*[ \t]+[^\n]*[ \t]-{1,2}[A-Za-z][\w=-]*[^\n]*[ \t]\|[ \t]"            # cmd ... -x ... | cmd
+    r")",
+    re.M)
+
+
+def _code_spans(text: str) -> list[Span]:
+    """The spans of a text that read as code and not as prose: a backtick span, a fenced block, a line that is a
+    shell command (a leading $ or # before a command word, a command with flags like -Ec and a quoted pattern, a path
+    or a pipe). They give no candidates (the register still replaces a registered form in them)."""
+    if not text:
+        return []
+    out = [Span(m.start(), m.end(), "code") for m in _CODE_FENCE_RE.finditer(text)]
+    out += [Span(m.start(), m.end(), "code") for m in _CODE_BACKTICK_RE.finditer(text)]
+    for m in _CODE_LINE_RE.finditer(text):
+        end = text.find("\n", m.end())
+        out.append(Span(m.start(), len(text) if end < 0 else end, "code"))
+    return out
+
+
+def _tech_spans(text: str) -> list[Span]:
+    """The spans of the vendor and technical terms of rules/tech-terms.txt in a text (Sapphire Rapids, KVM)."""
+    return [Span(m.start(), m.end(), "tech") for m in _TECH_RE.finditer(text)] if text else []
+
+
+def _common_word(word: str) -> bool:
+    """A plain English word (or a technical term) that is not a first name: no candidate on its own."""
+    low = word.casefold().strip(".,;:!?()[]\"'")
+    return bool(low) and low not in _FIRST_NAMES and (low in _COMMON_WORDS or low in _TECH_SINGLE)
+
+
+def _plain_value(value: str) -> bool:
+    """A candidate of one word (or hyphenated words) that is all plain English or technical: Outcome, SCORECARD,
+    KVM, Sapphire-Rapids. A run of several capitalised words is never plain here: the run rule stands."""
+    value = value.strip()
+    if not value or re.search(r"\s", value):
+        return False
+    if value.casefold().strip(".,;:!?()[]\"'") in _TECH_FORMS:
+        return True
+    parts = [p for p in re.split(r"-+", value.strip(".,;:!?()[]\"'")) if p]
+    return bool(parts) and all(p.isalpha() and _common_word(p) for p in parts)
+
+
 _ORG_WORDS = frozenset(("team", "teams", "abteilung", "gruppe", "leitung", "büro", "board", "gremium", "ausschuss",
                         "referat", "bereich", "support", "service", "desk", "office", "committee", "council",
                         "department", "unit", "division", "management", "vorstand", "geschäftsführung", "betriebsrat",

@@ -508,7 +508,7 @@ a part of the name only for a file of the lab inbox whose name the session may s
 taken. None or several list both inboxes, without any name of the owner
 inbox. The session takes the one you mean with `--id`. `--all` takes every file of both inboxes. A file of the
 owner inbox goes through your intake in wipe mode and the session gets only the sanitised copies; the original goes
-to the vault. The new files of the project's own folder `in/` are listed beside the inboxes for every project.
+to the vault. The intake asks you only about what can be a name: a capitalised word that is a plain English word (`rules/common-words.txt`) or a vendor or technical term (`rules/tech-terms.txt`: KVM, Sapphire Rapids, Credential Guard) is no candidate on its own, nor is anything inside code (a backtick span, a fenced block or a shell command line) or a section letter such as `D. Built`. Two capitalised words in a row stay a candidate unless the phrase is known, and a first name of `rules/first-names.txt` always does. The new files of the project's own folder `in/` are listed beside the inboxes for every project.
 "take the files from in" takes all of them through the same intake: for the project's customer if it has one, else
 with no customer code and every name a token. A project without a customer takes nothing from the owner inbox. A
 text you wrote yourself and paste into the chat is your brief, not customer material: the session works with it.
