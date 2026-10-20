@@ -13,9 +13,13 @@ The ExecStart of awb-kb-recheck-watch.service, which its root owned timer starts
 2. Sweep: per tenant (`--tenant`, repeatable; without it every tenant of the key service that holds a read and a lab
    key), `sweep.sweep` with the read key over the sources the key service can list (every source of the sweep and
    the named sources of FK3, but the ELB and NAT v2.0 listings, which need a header the key service does not send).
-   It takes every resource whose project tag (or the code in its name) is the service project (default tcp-n7e6) and
-   whose `awb-expiry` has passed. A resource of another project, one not expired yet and one without an expiry are
-   never touched. A listing that cannot be read is named and passed over.
+   It takes every resource whose `awb-project` tag is the service project (default tcp-n7e6) and whose `awb-expiry`
+   has passed. A VPC, subnet, security group, WAF policy, SMN topic or subscription and RDS instance, whose listings
+   carry no tags, it also takes by its lab name: the project code and an `awb-expiry` marker that has passed
+   (`<code>-lab-<YYYYMMDD>-<4 letters>`). A name match alone is never enough: a server, disk or address without the
+   tag and a resource named like the project without the marker are left alone and listed (review of 2026-10-16,
+   finding R8). A resource of another project, one not expired yet and one without an expiry are never touched. A
+   listing that cannot be read is named and passed over.
 3. Delete, servers first and networks last, one at a time, with the lab key: a resource whose row in the project's
    RESOURCES.md names the lab run that made it (`awb lab run RECIPE DATE`) is deleted by that recipe's teardown call
    for its type and proven gone by the recipe's read; one no row names (or whose teardown needs a value only the run
@@ -62,6 +66,9 @@ GONE_WITHIN = 180
 MAIL_MAX = 4000             # keys.NOTIFY_MAX: the longest message the admin socket takes
 ORDER = ("ecs", "rds", "evs", "eip", "smns", "smn", "waf", "sg", "sub", "vpc")
 """The order of the deletes: what holds an address or a port before the network it sits in."""
+NAME_KINDS = ("vpc", "sub", "sg", "waf", "smn", "smns", "rds")
+"""The kinds whose listing carries no tags: the reaper takes one by its lab name (the code and an awb-expiry marker),
+never by the code in its name alone. A server, a disk and an address are taken by their awb-project tag only (R8)."""
 GONE_STATES = {"ecs": ("DELETED",)}
 """A listed state that counts as gone: a deleted server may list as DELETED for a while."""
 # the delete call of each kind the sweep lists, filled from the listed item (${id} its id, ${vpc_id} a field of it).
@@ -422,15 +429,32 @@ class Watch:
             self.say("%s: could not read %s; those listings are passed over" % (tenant, ", ".join(rep.unknown)))
         out = []
         for item in rep.items:
-            if item.project != self.project or "expired" not in item.reasons:
-                continue
-            if item.state in GONE_STATES.get(item.kind, ()):
+            if item.project != self.project or item.state in GONE_STATES.get(item.kind, ()):
                 continue
             source = next(s for s in sources if s[0] == item.kind)
             rid = self.handles.resolve(item.handle)
             raw = next((r for r in seen[source[2]].items if sweep._id_and_name(source, r)[0] == rid), {})
+            why = self.name_only(item, raw)
+            if why:
+                self.say("%s (%s) on %s: %s, left alone" % (item.handle, item.kind, tenant, why))
+                continue
+            if "expired" not in item.reasons:
+                continue
             out.append(Target(tenant, item.kind, item.handle, rid, item.expiry, raw, source))
         return out
+
+    def name_only(self, item, raw: dict) -> str:
+        """Why a resource the sweep gives to the project by its name alone is not the reaper's (R8), else empty."""
+        from awb.tcp import sweep
+
+        tags = sweep.tags(raw.get("tags") if "tags" in raw else raw.get("metadata"))
+        if tags.get(sweep.PROJECT_TAG) == self.project:
+            return ""
+        if item.kind not in NAME_KINDS:
+            return "named like %s without its awb-project tag" % self.project
+        if not item.expiry:
+            return "named like %s without an awb-expiry marker" % self.project
+        return ""
 
     # ----------------------------------------------------------------- step 3, the delete
 

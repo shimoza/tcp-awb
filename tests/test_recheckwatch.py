@@ -433,3 +433,50 @@ def test_the_mail_carries_the_sweeps_handle_and_kind_and_no_text_of_a_row(projec
     assert all(0x20 <= ord(c) <= 0x7e or c == "\n" for c in message) and all(0x20 <= ord(c) <= 0x7e for c in subject)
     row = next(r for r in rows(project) if r["id"] == rid(16))
     assert re.fullmatch(r"evs-[0-9]+", row["handle"]) and row["type"] == "evs" and row["state"] == "live"
+
+
+def test_a_server_named_like_the_project_without_its_tag_is_left_alone_and_listed(project):
+    """R8: a server, a disk and an address take tags, so a lab name of the service project with a passed expiry is
+    not enough when the awb-project tag is missing: only reads go out and the output lists each by its handle."""
+    cloud, world = Cloud(), World()
+    name = "%s-lab-20261001-abcd" % PROJECT
+    cloud.add("ecs", {"id": rid(20), "name": name, "status": "ACTIVE", "tags": []})
+    cloud.add("evs", {"id": rid(21), "name": name, "status": "available", "metadata": {}})
+    cloud.add("eip", {"id": rid(22), "name": name, "status": "DOWN"})
+    code, lines, errors = go(cloud, world)
+    assert code == 0, errors
+    assert cloud.writes() == [] and cloud.gone == set()
+    assert rows(project) == [] and world.mails == []
+    for kind in ("ecs", "evs", "eip"):
+        assert any(re.match(r"^recheck-watch: %s-\d+ \(%s\) on %s: named like %s without its awb-project tag, "
+                            r"left alone$" % (kind, kind, TENANT, PROJECT), x) for x in lines), lines
+    assert not any(rid(n) in x or name in x for n in (20, 21, 22) for x in lines + errors)
+
+
+def test_a_named_resource_without_the_expiry_marker_is_left_alone_and_listed(project):
+    """R8: a WAF policy, an SMN topic, an RDS instance and a VPC whose name carries the service project's code but no
+    awb-expiry marker are not deleted, however old they are; the output lists each by its handle."""
+    cloud, world = Cloud(), World()
+    cloud.add("waf", {"id": rid(23), "name": "%s-policy" % PROJECT})
+    cloud.add("smn", {"topic_urn": "urn:smn:eu-de:0a1b:%s-alerts" % PROJECT, "name": "%s-alerts" % PROJECT})
+    cloud.add("rds", {"id": rid(24), "name": "db-%s" % PROJECT, "status": "ACTIVE"})
+    cloud.add("vpc", {"id": rid(25), "name": "%s-lab-net" % PROJECT, "status": "OK"})
+    code, lines, errors = go(cloud, world)
+    assert code == 0, errors
+    assert cloud.writes() == [] and cloud.gone == set()
+    assert rows(project) == [] and world.mails == []
+    for kind in ("waf", "smn", "rds"):
+        assert any(re.match(r"^recheck-watch: %s-\d+ \(%s\) on %s: named like %s without an awb-expiry marker, "
+                            r"left alone$" % (kind, kind, TENANT, PROJECT), x) for x in lines), lines
+    assert not any(x.startswith("recheck-watch: vpc-") for x in lines)
+
+
+def test_a_tagged_server_with_a_lab_name_is_still_deleted(project):
+    """R8: the awb-project tag of the service project with a passed awb-expiry is enough, whatever the name."""
+    cloud, world = Cloud(), World()
+    cloud.add("ecs", {"id": rid(26), "name": "%s-lab-20261001-abcd" % PROJECT, "status": "ACTIVE",
+                      "tags": tagged(PROJECT, PAST)})
+    code, lines, errors = go(cloud, world)
+    assert code == 0, errors
+    assert rid(26) in cloud.gone
+    assert not any("left alone" in x for x in lines)

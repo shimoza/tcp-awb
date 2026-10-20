@@ -8791,8 +8791,29 @@
    "name": "the part takes all and the cli flag exists",
    "run": ".venv/bin/pytest tests/test_release_notes_narrow.py::test_the_part_takes_all_and_the_cli_flag_exists",
    "status": "passing"
+  },
+  {
+   "id": "b029-r8-name-only-1",
+   "phase": "b029-r8-name-only",
+   "name": "recheck-watch: a server, disk and address named like the project without the awb-project tag are left alone and listed (R8)",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_a_server_named_like_the_project_without_its_tag_is_left_alone_and_listed",
+   "status": "passing"
+  },
+  {
+   "id": "b029-r8-name-only-2",
+   "phase": "b029-r8-name-only",
+   "name": "recheck-watch: a named resource without the awb-expiry marker is left alone and listed (R8)",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_a_named_resource_without_the_expiry_marker_is_left_alone_and_listed",
+   "status": "passing"
+  },
+  {
+   "id": "b029-r8-name-only-3",
+   "phase": "b029-r8-name-only",
+   "name": "recheck-watch: a tagged server with a lab name is still deleted (R8)",
+   "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_a_tagged_server_with_a_lab_name_is_still_deleted",
+   "status": "passing"
   }
  ],
- "total_tests": 1256,
- "checked": "2026-10-18"
+ "total_tests": 1259,
+ "checked": "2026-10-20"
 }
