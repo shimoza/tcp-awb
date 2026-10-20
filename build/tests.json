@@ -8805,8 +8805,22 @@
    "name": "an idle client of the status socket is dropped",
    "run": ".venv/bin/pytest tests/test_gateway_limits.py::test_k5_an_idle_client_of_the_status_socket_is_dropped",
    "status": "passing"
+  },
+  {
+   "id": "k-gateway-limits-3",
+   "phase": "k-gateway-limits",
+   "name": "the deadline reader stops a trickle and keeps a fast request",
+   "run": ".venv/bin/pytest tests/test_gateway_limits.py::test_k17_the_deadline_reader_stops_a_trickle_and_keeps_a_fast_request",
+   "status": "passing"
+  },
+  {
+   "id": "k-gateway-limits-4",
+   "phase": "k-gateway-limits",
+   "name": "a slow header is cut at the deadline not per byte",
+   "run": ".venv/bin/pytest tests/test_gateway_limits.py::test_k17_a_slow_header_is_cut_at_the_deadline_not_per_byte",
+   "status": "passing"
   }
  ],
- "total_tests": 1258,
+ "total_tests": 1260,
  "checked": "2026-10-18"
 }
