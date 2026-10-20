@@ -99,6 +99,8 @@ NUDGE_FILE = "nudged"
 time of the mail. A new state line (an answer or a widen that ends in the same state again) is mailed again."""
 NUDGE_WORDS = ("asked", "red", "held")
 SHARED_FILES = ("CHANGELOG.md", "README.md", "COMMANDS.md", "INTERFACES.md")
+RESTART_WANTED = "restart-wanted"   # awb/deploy.py RESTART_WANTED: a deploy wants the runner's restart
+RUNNER_STATE = "runner.state"       # awb/deploy.py RUNNER_STATE: the serving runner's pid, release and state
 
 
 def _log(text: str) -> None:
@@ -113,10 +115,27 @@ def clean_message(data: bytes) -> str:
 
 # --------------------------------------------------------------------------- the runner
 
+def running_release(module_file: str = __file__) -> str | None:
+    """The release this process runs: the commit folder under releases/ that holds its code, None for code that is
+    not a release (a working copy, the tests)."""
+    found = Path(module_file).resolve().parts
+    for i, part in enumerate(found[:-1]):
+        if part == "releases" and SHA_RE.fullmatch(found[i + 1]):
+            return found[i + 1]
+    return None
+
+
+RELEASE = running_release()
+"""Read once at import: the src link resolved now names the release whose code this process loaded."""
+
+
 class Runner:
     def __init__(self, host: Host):
         self.host = host
         self.held_queue: str | None = None
+        self.release = RELEASE
+        self.serving = False
+        self.recorded: str | None = None
 
     def log(self, text: str) -> None:
         if not self.host.quiet:
@@ -143,22 +162,56 @@ class Runner:
         if fd is None:
             print("awb build: another runner holds runs/.runner.lock; this one exits", file=sys.stderr)
             return 1
+        self.serving = True
         try:
             ensure_main(h)
             self.reconcile()
             while True:
+                self.record("idle")
                 if os.path.lexists(h.runs / build.STOP_FILE):
                     os.unlink(h.runs / build.STOP_FILE)
                     self.log("stopped by awb build stop")
                     return 0
-                if os.path.lexists(h.runs / "restart-wanted"):
-                    os.unlink(h.runs / "restart-wanted")
-                    self.log("exits between two tasks for the new code (restart-wanted)")
+                if self.restart_due():
                     return 75
                 if not self.poll_once():
                     h.sleep(h.poll)
         finally:
+            self.serving = False
+            with contextlib.suppress(OSError):
+                os.unlink(h.runs / RUNNER_STATE)
             os.close(fd)
+
+    def record(self, state: str) -> None:
+        """runs/runner.state, `pid release idle|busy since`, read by `awb deploy status` and seal/verify.sh. Written
+        when the state changes, by the serving runner only (a check of `awb build check` that runs in its own process
+        writes none)."""
+        if not self.serving or state == self.recorded:
+            return
+        with contextlib.suppress(OSError):
+            _write(self.host.runs / RUNNER_STATE, "%d\t%s\t%s\t%s\n" % (
+                os.getpid(), self.release or "unknown", state, self.host.now().strftime("%Y-%m-%dT%H:%M:%S")), 0o644)
+            self.recorded = state
+
+    def restart_due(self) -> bool:
+        """At an idle moment, after a task step or a check: the runner exits for its restart when a deploy left
+        restart-wanted, or when the live release (the src link next to DEPLOYED) is not the one it runs. The second
+        keeps a runner from serving old code when no mark came (2026-10-20: six days, about thirty deploys)."""
+        h = self.host
+        if os.path.lexists(h.runs / RESTART_WANTED):
+            os.unlink(h.runs / RESTART_WANTED)
+            self.log("exits between two tasks for the new code (restart-wanted)")
+            return True
+        if self.release is None:
+            return False
+        try:
+            live = os.path.basename(os.readlink(Path(h.deployed).parent / "src").rstrip("/"))
+        except OSError:
+            return False
+        if SHA_RE.fullmatch(live) and live != self.release:
+            self.log("exits for the live release %s (runs %s)" % (live[:7], self.release[:7]))
+            return True
+        return False
 
     def preconditions(self) -> str | None:
         """Before a session is spent: a resolver for the task unit, the vault unlocked, the key service loaded, the
@@ -261,6 +314,7 @@ class Runner:
     def _guarded(self, tid: str, step: Callable[[], None]) -> bool:
         """One step of a task; a step that breaks (git, a file, a unit) leaves its run interrupted with one line, the
         runner goes on with the next task."""
+        self.record("busy")
         try:
             step()
         except Exception as err:
