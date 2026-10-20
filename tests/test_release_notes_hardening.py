@@ -29,6 +29,14 @@ def page(*articles, pager=""):
     return "<html><body>%s<nav>%s</nav></body></html>" % ("".join(articles), pager)
 
 
+class Opener:
+    def __init__(self, resp):
+        self.resp = resp
+
+    def open(self, req, timeout=0):
+        return self.resp
+
+
 def sync(tmp_path, fetch, **kw):
     return mirror.sync_release_notes(tmp_path, fetch=fetch, sleep=lambda s: None, **kw)
 
@@ -57,7 +65,7 @@ def test_a_page_larger_than_the_cap_is_refused(tmp_path, monkeypatch):
             return False
 
     monkeypatch.setattr(mirror, "RN_MAX_BYTES", 1000)
-    monkeypatch.setattr(mirror.urllib.request, "urlopen", lambda req, timeout=0: Resp(b"x" * 5000))
+    monkeypatch.setattr(mirror, "_OPENER", Opener(Resp(b"x" * 5000)))
     with pytest.raises(mirror.MirrorError, match="larger"):
         mirror._fetch_page(PAGE)
 
@@ -72,7 +80,7 @@ def test_a_page_that_trickles_past_the_deadline_is_refused(monkeypatch):
 
     clock = iter(range(0, 1000, 100))
     monkeypatch.setattr(mirror.time, "monotonic", lambda: next(clock))
-    monkeypatch.setattr(mirror.urllib.request, "urlopen", lambda req, timeout=0: Resp(b"x" * 200000))
+    monkeypatch.setattr(mirror, "_OPENER", Opener(Resp(b"x" * 200000)))
     with pytest.raises(mirror.MirrorError, match="seconds"):
         mirror._fetch_page(PAGE)
 
@@ -135,3 +143,22 @@ def test_a_date_in_other_digits_or_off_the_calendar_leaves_the_note_out(date):
 def test_a_plain_date_is_kept():
     notes, _ = mirror.parse_release_notes(page(article("2026-02-28", "title", "fine")), PAGE)
     assert [n["id"] for n in notes] == ["2026-02-28-fine"]
+
+
+# K24
+
+@pytest.mark.parametrize("target", ["http://www.t-cloud-public.com/x", "https://169.254.169.254/latest",
+                                    "https://other.example/x", "ftp://www.t-cloud-public.com/x"])
+def test_a_redirect_off_the_site_or_to_plain_http_is_not_followed(target):
+    req = mirror.urllib.request.Request(PAGE)
+    assert mirror._SameSite().redirect_request(req, None, 302, "found", {}, target) is None
+
+
+def test_a_redirect_on_the_same_host_over_https_is_followed():
+    req = mirror.urllib.request.Request(PAGE)
+    got = mirror._SameSite().redirect_request(req, None, 301, "moved", {}, "/en/support/release-notes/")
+    assert got is not None and got.full_url == PAGE + "/"
+
+
+def test_the_fetch_goes_through_the_same_site_opener():
+    assert any(isinstance(h, mirror._SameSite) for h in mirror._OPENER.handlers)

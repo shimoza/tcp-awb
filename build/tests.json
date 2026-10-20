@@ -8910,8 +8910,29 @@
    "name": "K23: a plain date is kept",
    "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_plain_date_is_kept",
    "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-11",
+   "phase": "k-release-notes-hardening",
+   "name": "K24: a redirect off the site or to plain http is not followed",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_redirect_off_the_site_or_to_plain_http_is_not_followed",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-12",
+   "phase": "k-release-notes-hardening",
+   "name": "K24: a redirect on the same host over https is followed",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_redirect_on_the_same_host_over_https_is_followed",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-13",
+   "phase": "k-release-notes-hardening",
+   "name": "K24: the fetch goes through the same-site opener",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_the_fetch_goes_through_the_same_site_opener",
+   "status": "passing"
   }
  ],
- "total_tests": 1273,
+ "total_tests": 1276,
  "checked": "2026-10-20"
 }
