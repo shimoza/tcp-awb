@@ -558,7 +558,9 @@ statement, compared with `RELEASED.jsonl` beside the folders (the `facts.jsonl` 
 put). It writes `tcp-facts-<date>.review.json` beside the folder. `awb dataset put` refuses a folder without
 that mark, with a mark of other facts (a build after the review) or of another release, in one line that names the
 command. So a fact a session planted with a fabricated source is read by a person before it reaches the public
-dataset (G6 of the threat model).
+dataset (G6 of the threat model). `awb kb review` is refused for the work user, and the mark and `RELEASED.jsonl`
+count only when they are no link, belong to you and are writable by nobody else; the mark must name its own folder
+(K2 of the review of 2026-10-20). Both are written as new files of mode 0644, never through a link.
 `awb dataset put` sends the zip, the PDF and the manifest into the owner's bucket. With `--github` it also puts the
 files and the build's README.md into the root of the public repository
 [shimoza/tcp-facts](https://github.com/shimoza/tcp-facts), so the root README is never written by hand; LICENSE

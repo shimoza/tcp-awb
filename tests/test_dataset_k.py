@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ import pytest
 from awb import cli, config, kbreview
 from awb.tcp import dataset
 from tests.test_dataset import TODAY, facts, github, live, signing  # noqa: F401
+from tests.test_kb_review import bucket  # noqa: F401
 
 
 def _planted_programs(clone: Path, tmp_path: Path) -> Path:
@@ -96,3 +98,77 @@ def test_k1_a_fresh_clone_under_a_group_umask_is_made_the_owners_alone(home, fac
         os.umask(old)
     dataset.check_clone(github.clone)
     assert not (github.clone / ".git" / "config").stat().st_mode & 0o022
+
+
+# --------------------------------------------------------------------------- K2: the mark and RELEASED.jsonl
+
+def _review(ds, capsys) -> None:
+    assert cli.main(["kb", "review", "--out", str(ds)]) == 0
+    capsys.readouterr()
+
+
+def test_k2_the_work_user_may_not_review(home, facts, tmp_path, capsys, monkeypatch):
+    ds = tmp_path / "ds"
+    built = dataset.build(home, out=ds, today=TODAY)
+    monkeypatch.setattr(config, "is_work_user", lambda: True)
+    assert cli.main(["kb", "review", "--out", str(ds)]) == 2
+    assert "awb kb review is the owner's" in capsys.readouterr().err
+    assert not kbreview.review_path(built.folder).exists()
+
+
+@pytest.mark.parametrize("plant", ["writable by others", "a link"])
+def test_k2_a_mark_the_owner_did_not_write_alone_is_refused(home, facts, tmp_path, bucket, capsys, plant):
+    ds = tmp_path / "ds"
+    built = dataset.build(home, out=ds, today=TODAY)
+    _review(ds, capsys)
+    mark = kbreview.review_path(built.folder)
+    if plant == "writable by others":
+        mark.chmod(0o666)
+    else:
+        copy = tmp_path / "copy.json"
+        copy.write_bytes(mark.read_bytes())
+        mark.unlink()
+        mark.symlink_to(copy)
+    assert cli.main(["dataset", "put", "--out", str(ds)]) == 1
+    err = capsys.readouterr().err
+    assert "is not yours alone" in err and "run awb kb review again" in err and str(tmp_path) not in err
+    assert not bucket.objects and not kbreview.released_path(ds).exists()
+
+
+def test_k2_a_released_file_writable_by_others_stops_the_review_and_the_put(home, facts, tmp_path, bucket, capsys):
+    ds = tmp_path / "ds"
+    dataset.build(home, out=ds, today=TODAY)
+    _review(ds, capsys)
+    assert cli.main(["dataset", "put", "--out", str(ds)]) == 0
+    capsys.readouterr()
+    released = kbreview.released_path(ds)
+    assert not released.stat().st_mode & 0o022
+    released.chmod(0o666)
+    assert cli.main(["kb", "review", "--out", str(ds)]) == 2
+    assert "RELEASED.jsonl beside the folders is not yours alone" in capsys.readouterr().err
+    assert cli.main(["dataset", "put", "--out", str(ds), "--replace"]) == 1
+    assert "RELEASED.jsonl beside the folders is not yours alone" in capsys.readouterr().err
+
+
+def test_k2_the_mark_of_another_folder_does_not_count(home, facts, tmp_path, bucket, capsys):
+    ds = tmp_path / "ds"
+    first = dataset.build(home, out=ds, today=TODAY)
+    _review(ds, capsys)
+    second = dataset.build(home, out=ds, today=TODAY + timedelta(days=7))
+    (second.folder / "facts.jsonl").write_bytes((first.folder / "facts.jsonl").read_bytes())
+    kbreview.review_path(second.folder).write_bytes(kbreview.review_path(first.folder).read_bytes())
+    assert cli.main(["dataset", "put", "--out", str(ds)]) == 1
+    assert "run awb kb review again" in capsys.readouterr().err and not bucket.objects
+
+
+def test_k2_the_mark_is_never_written_through_a_planted_link(home, facts, tmp_path, capsys):
+    ds = tmp_path / "ds"
+    built = dataset.build(home, out=ds, today=TODAY)
+    victim = tmp_path / "victim.txt"
+    victim.write_text("untouched\n")
+    mark = kbreview.review_path(built.folder)
+    mark.with_name(".%s.new" % mark.name).symlink_to(victim)
+    _review(ds, capsys)
+    assert victim.read_text() == "untouched\n"
+    assert not mark.is_symlink() and json.loads(mark.read_text())["dataset"] == built.folder.name
+    assert mark.stat().st_mode & 0o777 == 0o644
