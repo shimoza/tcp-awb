@@ -8826,8 +8826,29 @@
    "name": "K18: an output under the cap is returned whole",
    "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k18_an_output_under_the_cap_is_returned_whole",
    "status": "passing"
+  },
+  {
+   "id": "k-extract-sandbox-k19-1",
+   "phase": "k-extract-sandbox",
+   "name": "K19: an unreadable host file is not a direct run",
+   "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k19_an_unreadable_host_file_is_not_a_direct_run",
+   "status": "passing"
+  },
+  {
+   "id": "k-extract-sandbox-k19-2",
+   "phase": "k-extract-sandbox",
+   "name": "K19: a missing host file is still a direct run",
+   "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k19_a_missing_host_file_is_still_a_direct_run",
+   "status": "passing"
+  },
+  {
+   "id": "k-extract-sandbox-k19-3",
+   "phase": "k-extract-sandbox",
+   "name": "K19: a host file without extract_user is direct",
+   "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k19_a_host_file_without_extract_user_is_direct",
+   "status": "passing"
   }
  ],
- "total_tests": 1261,
+ "total_tests": 1264,
  "checked": "2026-10-18"
 }
