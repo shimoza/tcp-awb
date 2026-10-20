@@ -51,7 +51,7 @@ def customer_step(p: config.Paths, customer: str | None, *, read=None, tty=None)
     code, customer = intake.new_pair(p)
     _say("new customer %s for project %s" % (customer, code))
     if importcmd._active_forms(p, customer) == 0:
-        importcmd.ask_forms(p, customer, read=read, tty=tty)
+        importcmd.ask_forms(p, customer, read=read, tty=tty, allow_none=True)
     # the work side cannot read the register: its outbox folder is how awb spawn knows the code was issued, as
     # awb register add makes it
     config.make_dir(p.outbox / customer, 0o750, shared=True)

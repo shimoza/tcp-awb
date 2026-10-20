@@ -75,7 +75,7 @@ def test_spawn_takes_the_outbox_of_the_customer_into_input(home, register_path):
 
 
 def test_the_command_line_writes_the_first_and_the_last_ledger_entry(home, register_path, capsys):
-    assert cli.main(["spawn", "engagement", "--goal", GOAL, "--customer", fx.CUSTOMER_CODE, "--tag", "cce"]) == 0
+    assert cli.main(["spawn", "engagement", "--goal", GOAL, "--customer", "new", "--tag", "cce"]) == 0
     code = capsys.readouterr().out.split()[1]
     assert cli.main(["close", code]) == 0
     assert "closed %s" % code in capsys.readouterr().out

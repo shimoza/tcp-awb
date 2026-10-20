@@ -58,6 +58,9 @@ def test_start_grants_with_the_code_it_registered(home, capsys, monkeypatch):
     seen = []
     real = cli._cmd_projects_kind
     monkeypatch.setattr(cli, "_cmd_projects_kind", lambda args, p: seen.append(args.customer) or real(args, p))
-    assert start.start(home, "project", GOAL, fx.CUSTOMER_CODE) == 0
+    assert start.start(home, "project", GOAL, "new", read=lambda: "", tty=True) == 0
     (pr,) = projects.load(home)
-    assert seen == [fx.CUSTOMER_CODE] and grants.customer(home, pr.code) == fx.CUSTOMER_CODE
+    own = "CUST-" + pr.code.split("-", 1)[1].upper()
+    assert seen == [own] and grants.customer(home, pr.code) == own
+    with pytest.raises(start.StartError, match="every project gets its own code"):
+        start.start(home, "project", GOAL, fx.CUSTOMER_CODE)
