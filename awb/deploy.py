@@ -115,6 +115,10 @@ DAEMON_ORDER = ("vault", "keys")
 
 # The entry modules that read the rules at their start: the units that start them restart when rules/** changed.
 RULES_ENTRIES = frozenset({"awb/tcp/ask.py", "awb/tcp/web/chat_service.py"})
+# The modules that read a file of rules/ when they are imported (awb/patterns.py: ALLOW_DOMAINS): a unit whose
+# closure holds one of them runs the old rules until it is reloaded or restarted, so a change of rules/** counts as
+# a change for it, a vault daemon included (it reloads, kept unlocked).
+RULES_IMPORTERS = frozenset({"awb/patterns.py"})
 
 # importlib calls the import map cannot follow, keyed by file and the function that holds the call. SUBCOMMAND:
 # the dispatcher of cli.py runs the module of the command it was given, which is resolved per unit from its
@@ -787,7 +791,8 @@ def map_changes(changed: list[str], units: dict[str, dict], closures: dict[str, 
             eff.sync = True
         if "rules" in rule:
             for u, e in entries.items():
-                if e and e & RULES_ENTRIES:
+                c = closures.get(u)
+                if (e and e & RULES_ENTRIES) or (c and c & RULES_IMPORTERS):
                     add(u, rel)
     if eff.every:
         for u in units:

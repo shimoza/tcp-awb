@@ -19,6 +19,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- `awb deploy` and a change of `rules/` alone (task fix-rules-reload): a change of any file under `rules/` now counts as a change for every daemon whose code imports `awb/patterns.py`, which reads `rules/allow-domains.txt` at import. The vault daemon reloads and stays unlocked, the others restart. Before, only the Ask page and the chat restarted, so a new allowed host was refused by the running name check until `awb vault reload` by hand (2026-10-20).
+
 - `awb kb recheck-watch` no longer deletes a resource by a name match alone (task B-029, finding R8 of the review of 2026-10-16). A server, disk or address is taken only when its `awb-project` tag names the service project. A VPC, subnet, security group, WAF policy, SMN topic or subscription and RDS instance, whose listings carry no tags, is also taken by its lab name with the project code and an `awb-expiry` marker that has passed. A resource named like the project without the tag or the marker is left alone and listed by its handle.
 
 - The front door of the gateway limits a request by one deadline (task k-gateway-limits, K17): the request line, the headers and the body together get `UNAUTHENTICATED_TIMEOUT` (5 s), the body of a request with a session `AUTHENTICATED_TIMEOUT` (20 s). Before, each read waited that long, so a client sending one byte at a time held its thread without limit.
