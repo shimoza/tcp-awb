@@ -898,6 +898,53 @@ def document_csp(data):
     return "default-src 'none'; script-src " + (hashes('script') or "'none'") + "; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
 
+class DeadlineReader:
+    """The read side of a connection with one monotonic deadline for all reads together: a client that sends a byte
+    every few seconds cannot keep the thread past it (K17). `restart` starts a new deadline (the body of a request
+    with a session)."""
+
+    def __init__(self, conn, seconds):
+        self.conn = conn
+        self.buffer = b''
+        self.restart(seconds)
+
+    def restart(self, seconds):
+        self.seconds = seconds
+        self.deadline = time.monotonic() + seconds
+
+    def fill(self):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise socket.timeout('timed out')
+        self.conn.settimeout(remaining)
+        try:
+            chunk = self.conn.recv(65536)
+        finally:
+            self.conn.settimeout(self.seconds)   # the writes keep the wait of the connection
+        self.buffer += chunk
+        return bool(chunk)
+
+    def read(self, size=-1):
+        while (size < 0 or len(self.buffer) < size) and self.fill():
+            pass
+        if size < 0:
+            size = len(self.buffer)
+        out, self.buffer = self.buffer[:size], self.buffer[size:]
+        return out
+
+    def readline(self, limit=-1):
+        while b'\n' not in self.buffer and (limit < 0 or len(self.buffer) < limit) and self.fill():
+            pass
+        end = self.buffer.find(b'\n') + 1 or len(self.buffer)
+        if limit >= 0:
+            end = min(end, limit)
+        out, self.buffer = self.buffer[:end], self.buffer[end:]
+        return out
+
+    def close(self):
+        pass
+
+
 class Gateway(BaseHTTPRequestHandler):
     server_version = 'AWB'
     sys_version = ''
@@ -908,6 +955,8 @@ class Gateway(BaseHTTPRequestHandler):
         # the session is known only after the headers, so every request reads them within the short timeout; a
         # request with a session gets AUTHENTICATED_TIMEOUT for its body in dispatch (n8)
         self.connection.settimeout(UNAUTHENTICATED_TIMEOUT)
+        # one deadline for the request line, the headers and the body together, not a wait per read (K17)
+        self.rfile = DeadlineReader(self.connection, UNAUTHENTICATED_TIMEOUT)
 
     def reply(self, status, body=b'', headers=None):
         self.close_connection = True
@@ -1029,6 +1078,7 @@ class Gateway(BaseHTTPRequestHandler):
         if signed_in:
             self.level = 'owner' if owner_side else self.user[1]
             self.connection.settimeout(AUTHENTICATED_TIMEOUT)
+            self.rfile.restart(AUTHENTICATED_TIMEOUT)
             return self.owner_route(session) if owner_side else self.route(session)
         peer = self.client_key()
         refused = self.server.auth.hold(peer)
@@ -1535,6 +1585,7 @@ class StatusHandler(BaseHTTPRequestHandler):
     """The status socket: GET /health and nothing else, for awb web status, the publish code and the deploy."""
     server_version = 'AWB'
     sys_version = ''
+    timeout = 3   # the socket is 0666: an idle client must not hold a thread of the gateway (K5)
 
     def answer(self):
         body = b'{"status":"ok"}\n' if self.path == '/health' and self.command in ('GET', 'HEAD') else b'Not found.\n'
