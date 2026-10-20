@@ -151,4 +151,4 @@ def test_the_owner_side_keeps_the_paste_door_as_it_is(home, project, monkeypatch
 def test_the_work_rules_carry_the_material_rule():
     rules = (config.Path(material.__file__).resolve().parent.parent / "seal" / "work-claude" / "CLAUDE.md")
     text = rules.read_text(encoding="utf-8")
-    assert "starts with `material:`" in text and "awb material add" in text and "Never\n  rewrite the text" in text
+    assert "After `material:` pipe his text, unchanged, to `awb material add`" in " ".join(text.split())

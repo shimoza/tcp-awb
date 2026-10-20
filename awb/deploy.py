@@ -147,6 +147,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/seal.py": "awb seal check, run by the work user against the host",
     "awb/prtake.py": "awb pr take, run by the owner in his own working copy",
     "awb/mergedriver.py": "the git merge driver of awb pr take, run by git in the owner's working copy",
+    "awb/material.py": "awb material add, run in a working session with the pasted text on standard input",
     "awb/paste.py": "awb paste, run in a working session with a terminal output on standard input",
     "awb/importcmd.py": "awb import, run by the owner in his own terminal",
     "awb/pastein.py": "awb import --paste, run by the owner in his own terminal",
