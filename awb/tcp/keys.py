@@ -53,6 +53,7 @@ import re
 import secrets as _secrets
 import socket
 import string
+import struct
 import subprocess
 import sys
 import tempfile
@@ -71,6 +72,8 @@ STORE_PREFIX = "awb/tenant"
 ROLES = {"read": ("GET", "HEAD"), "lab": ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")}
 WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
 NO_WRITE_SERVICES = frozenset({"iam"})
+_NOT_ASKED = object()
+"""The caller's project was not looked up (a direct call, the owner, the console)."""
 LAB_WRITE_LINE = "refused: lab write outside the lab_writes list of keys.conf, service %s"
 """The one line of a lab write the lab_writes list does not name: the class and the service, never the path."""
 # the lease (T12 part 3, Variant B): a temporary AK/SK of the lab key for the services a project's Terraform set may
@@ -450,7 +453,7 @@ class Service:
                     if isinstance(answer, tuple):
                         answer, stream = answer
                 else:
-                    answer = self._call_socket(req, uid, upload)
+                    answer = self._call_socket(req, uid, upload, caller=self._caller_project(conn, uid))
                     if isinstance(answer, tuple):
                         answer, stream = answer
                 conn.settimeout(CALL_TIMEOUT)
@@ -686,7 +689,7 @@ class Service:
                     for a, t in sorted(self.tenants.items())}
 
     # the call socket
-    def _call_socket(self, req: dict, uid: int, upload: Path | None = None):
+    def _call_socket(self, req: dict, uid: int, upload: Path | None = None, caller=_NOT_ASKED):
         now = time.monotonic()
         with self.lock:
             q = self._rate.setdefault(uid, deque())
@@ -704,7 +707,7 @@ class Service:
                                             for a, s in self._summary().items()}}
         if op == "call":
             try:
-                return self._call(req, uid)
+                return self._call(req, uid, caller)
             except Refused as err:
                 return {"ok": False, "error": str(err)}
             except KeysError as err:
@@ -811,7 +814,29 @@ class Service:
         except Exception:
             return False
 
-    def _call(self, req: dict, uid: int) -> dict:
+    def _caller_project(self, conn: socket.socket, uid: int):
+        """K4: the project of the folder the peer process works in, for a session (the work user); `_NOT_ASKED` for
+        the owner and the console. None when the process is gone or works outside every active project folder."""
+        if not self._session_read(uid):
+            return _NOT_ASKED
+        try:
+            raw = conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+            cwd = Path(os.readlink("/proc/%d/cwd" % struct.unpack("3i", raw)[0]))
+            from awb import projects
+
+            best = None
+            for r in projects.load(self.paths_fn()):
+                if r.state != "active":
+                    continue
+                folder = Path(r.path).resolve()
+                if cwd == folder or folder in cwd.parents:
+                    if best is None or len(str(folder)) > len(str(best[0])):
+                        best = (folder, r.code)
+            return best[1] if best else None
+        except Exception:
+            return None
+
+    def _call(self, req: dict, uid: int, caller=_NOT_ASKED) -> dict:
         from awb.tcp import cloud
 
         alias = req.get("tenant")
@@ -846,6 +871,9 @@ class Service:
             # a session reaches a tenant only from a project of the kind project, never from a query
             from awb import projects as _projects
 
+            if caller is not _NOT_ASKED and caller != project:
+                # K4: the project is the one of the caller's folder, never the one the request names
+                raise Refused("a call to a test tenant runs from the folder of an active project")
             row = self._project_row(project)
             if row is None:
                 raise Refused("a call to a test tenant runs from the folder of an active project")

@@ -8812,8 +8812,36 @@
    "name": "recheck-watch: a tagged server with a lab name is still deleted (R8)",
    "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_a_tagged_server_with_a_lab_name_is_still_deleted",
    "status": "passing"
+  },
+  {
+   "id": "k-keys-scope-1",
+   "phase": "k-keys-scope",
+   "name": "K4: the caller is the project of the folder the process works in",
+   "run": ".venv/bin/pytest tests/test_keys_scope_caller.py::test_the_caller_is_the_project_of_the_folder_the_process_works_in",
+   "status": "passing"
+  },
+  {
+   "id": "k-keys-scope-2",
+   "phase": "k-keys-scope",
+   "name": "K4: a process outside every project folder has no project",
+   "run": ".venv/bin/pytest tests/test_keys_scope_caller.py::test_a_process_outside_every_project_folder_has_no_project",
+   "status": "passing"
+  },
+  {
+   "id": "k-keys-scope-3",
+   "phase": "k-keys-scope",
+   "name": "K4: the owner is not bound to a folder",
+   "run": ".venv/bin/pytest tests/test_keys_scope_caller.py::test_the_owner_is_not_bound_to_a_folder",
+   "status": "passing"
+  },
+  {
+   "id": "k-keys-scope-4",
+   "phase": "k-keys-scope",
+   "name": "K4: a session naming another project is refused before anything is signed",
+   "run": ".venv/bin/pytest tests/test_keys_scope_caller.py::test_a_session_naming_another_project_is_refused_before_anything_is_signed",
+   "status": "passing"
   }
  ],
- "total_tests": 1259,
+ "total_tests": 1263,
  "checked": "2026-10-20"
 }
