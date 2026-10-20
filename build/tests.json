@@ -8791,8 +8791,43 @@
    "name": "the part takes all and the cli flag exists",
    "run": ".venv/bin/pytest tests/test_release_notes_narrow.py::test_the_part_takes_all_and_the_cli_flag_exists",
    "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-1",
+   "phase": "k-release-notes-hardening",
+   "name": "K6: a pager link to a huge page does not lead the run past the cap",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_pager_link_to_a_huge_page_does_not_lead_the_run_past_the_cap",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-2",
+   "phase": "k-release-notes-hardening",
+   "name": "K6: a page larger than the byte cap is refused",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_page_larger_than_the_cap_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-3",
+   "phase": "k-release-notes-hardening",
+   "name": "K6: a page that trickles past the deadline is refused",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_page_that_trickles_past_the_deadline_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-4",
+   "phase": "k-release-notes-hardening",
+   "name": "K6: titles, texts and tags are cut to their caps",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_titles_texts_and_tags_are_cut_to_their_caps",
+   "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-5",
+   "phase": "k-release-notes-hardening",
+   "name": "K6: a page holds at most the capped number of notes",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_page_holds_at_most_the_capped_number_of_notes",
+   "status": "passing"
   }
  ],
- "total_tests": 1256,
+ "total_tests": 1261,
  "checked": "2026-10-18"
 }
