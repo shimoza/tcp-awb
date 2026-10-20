@@ -9120,8 +9120,106 @@
    "name": "K22: a deeply nested login file does not keep the task home",
    "run": ".venv/bin/pytest tests/test_build_units_k.py::test_k22_a_deeply_nested_login_file_does_not_keep_the_task_home",
    "status": "passing"
+  },
+  {
+   "id": "k4-scope-across-users-1",
+   "phase": "k4-scope-across-users",
+   "name": "K4: a key token is written once kept out of git and read back",
+   "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_a_key_token_is_written_once_kept_out_of_git_and_read_back",
+   "status": "passing"
+  },
+  {
+   "id": "k4-scope-across-users-2",
+   "phase": "k4-scope-across-users",
+   "name": "K4: a linked or malformed token file is no token",
+   "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_a_linked_or_malformed_token_file_is_no_token",
+   "status": "passing"
+  },
+  {
+   "id": "k4-scope-across-users-3",
+   "phase": "k4-scope-across-users",
+   "name": "K4: the client presents the token of its own folder and the work user writes a missing one",
+   "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_the_client_presents_the_token_of_its_own_folder_and_the_work_user_writes_a_missing_one",
+   "status": "passing"
+  },
+  {
+   "id": "k4-scope-across-users-4",
+   "phase": "k4-scope-across-users",
+   "name": "K4: a call and a lease carry the token and nothing else does",
+   "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_a_call_and_a_lease_carry_the_token_and_nothing_else_does",
+   "status": "passing"
+  },
+  {
+   "id": "k4-scope-across-users-5",
+   "phase": "k4-scope-across-users",
+   "name": "K4: spawn writes the token and the owners grant records it",
+   "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_spawn_writes_the_token_and_the_owners_grant_records_it",
+   "status": "passing"
+  },
+  {
+   "id": "k4-scope-across-users-6",
+   "phase": "k4-scope-across-users",
+   "name": "K4: a grant without a token in the folder says what to do",
+   "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_a_grant_without_a_token_in_the_folder_says_what_to_do",
+   "status": "passing"
+  },
+  {
+   "id": "k4-scope-across-users-7",
+   "phase": "k4-scope-across-users",
+   "name": "K4: the caller is the project of the token never the code it names",
+   "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_the_caller_is_the_project_of_the_token_never_the_code_it_names",
+   "status": "passing"
+  },
+  {
+   "id": "k4-scope-across-users-8",
+   "phase": "k4-scope-across-users",
+   "name": "K4: the owner and the console are not bound",
+   "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_the_owner_and_the_console_are_not_bound",
+   "status": "passing"
+  },
+  {
+   "id": "k4-scope-across-users-9",
+   "phase": "k4-scope-across-users",
+   "name": "K4: a session of one project naming another is refused before anything is signed",
+   "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_a_session_of_one_project_naming_another_is_refused_before_anything_is_signed",
+   "status": "passing"
+  },
+  {
+   "id": "k4-scope-across-users-10",
+   "phase": "k4-scope-across-users",
+   "name": "K4: a session bound to its project still reads only its own buckets",
+   "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_a_session_bound_to_its_project_still_reads_only_its_own_buckets",
+   "status": "passing"
+  },
+  {
+   "id": "k4-scope-across-users-11",
+   "phase": "k4-scope-across-users",
+   "name": "K4: a lease for another project is refused",
+   "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_a_lease_for_another_project_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "k4-scope-across-users-12",
+   "phase": "k4-scope-across-users",
+   "name": "K4: a grant without a token names the owners command",
+   "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_a_grant_without_a_token_names_the_owners_command",
+   "status": "passing"
+  },
+  {
+   "id": "k4-scope-across-users-13",
+   "phase": "k4-scope-across-users",
+   "name": "K4: the owners cli reaches every project through the socket",
+   "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_the_owners_cli_reaches_every_project_through_the_socket",
+   "status": "passing"
+  },
+  {
+   "id": "k4-scope-across-users-14",
+   "phase": "k4-scope-across-users",
+   "name": "K4: across two uids a session reaches its own project and never another",
+   "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_across_two_uids_a_session_reaches_its_own_project_and_never_another",
+   "status": "passing"
   }
  ],
- "total_tests": 1303,
+ "total_tests": 1317,
  "checked": "2026-10-20"
 }

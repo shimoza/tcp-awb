@@ -144,6 +144,17 @@ session sends: a call to OBS the OBS way, every other service the way of the API
 reads only. A write needs the lab key and the code of an active project. A write to the identity service is
 always refused. Every answer comes back with every key and secret taken out.
 
+A session's call and lease are bound to its own project by a key token, never by the code the request names (K4 of
+the review of 2026-10-20). `awb spawn` writes the token into the project folder (`.git/awb-key-token`, mode 640, never
+tracked by git); the owner's grant (`awb projects kind CODE project`) records it in `<vault>/key-tokens.json` (mode 600). The
+awb client sends the token of the folder it works in with each call and lease. The key service takes the session's
+project from it: a request that names another project or comes with no token or a wrong one is refused before
+anything is signed. The service reads only the request and the owner's files, never the caller's process, so it works
+with the service as the owner and the sessions as the work user. The owner's own calls carry no binding. A project
+spawned before the token gets one with its first `awb cloud` call; the key service then refuses with `the grant of
+CODE holds no key token` until the owner runs `awb projects kind CODE project` once more. The sessions of other
+projects share the work user, so the token is kept from them by the place guard, as the rest of the folder is.
+
 Every resource a project creates carries the project code as a tag and a row in the project's `RESOURCES.md`. A
 daily snapshot tells what ran on which tenant on which day. `awb close` refuses while something is still running.
 What a session learned live on the platform goes into the knowledge base with the grade `live`.

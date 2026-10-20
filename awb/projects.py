@@ -24,6 +24,7 @@ import fcntl
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 import unicodedata
@@ -476,6 +477,48 @@ def _claude(code: str, kind: str, customer: str) -> str:
 
 SETTINGS_FILE = ".claude/settings.json"
 
+BIND_FILE = ".git/awb-key-token"
+"""K4: the key token of a project, written at spawn (the work user, mode 640, inside .git so git never tracks it;
+.git gets the folder's own 750 so the owner reads it as he reads OPEN.md). The owner's grant records it; the key
+service takes a session's project from the token it presents, never from the code the request names. The place
+guard keeps the sessions of other projects out of the folder."""
+_KEY_TOKEN_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def read_key_token(folder: Path) -> str | None:
+    """The key token of the project in `folder`; None when there is none, it is a link or not 64 hex digits."""
+    try:
+        fd = os.open(Path(folder) / BIND_FILE, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        text = os.read(fd, 128).decode("ascii", "replace").strip()
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    return text if _KEY_TOKEN_RE.match(text) else None
+
+
+def write_key_token(folder: Path) -> str:
+    """Write a new key token into the .git of `folder` (never over one that is there); the token."""
+    import secrets
+
+    git = Path(folder) / ".git"
+    if git.is_symlink() or not git.is_dir():
+        raise FileNotFoundError("the project folder has no .git of its own")
+    os.chmod(git, (os.stat(git).st_mode & 0o7777) | 0o750)
+    token = secrets.token_hex(32)
+    fd = os.open(Path(folder) / BIND_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640)
+    try:
+        os.fchmod(fd, 0o640)
+        os.write(fd, (token + "\n").encode("ascii"))
+    finally:
+        os.close(fd)
+    return token
+
 
 def _settings() -> str:
     """The client settings of a project: the six Workbench hooks, run as `sys.executable -m awb hook NAME`, so
@@ -627,6 +670,7 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
                 _gate.install_hook(folder)
             except _gate.GateError as err:
                 raise ProjectError("the commit gate could not be installed (%s), nothing was created" % err) from None
+            write_key_token(folder)
             _git(folder, "add", "-A")
             try:
                 _git(folder, "commit", "-q", *([] if waiting else ["--no-verify"]), "-m",

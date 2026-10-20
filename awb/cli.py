@@ -416,14 +416,22 @@ def _cmd_projects_kind(args, p: config.Paths) -> int:
             print("awb projects: %s has no customer in its row; nothing was written" % args.code, file=sys.stderr)
             return EXIT_FINDINGS
         customer_before = grants.customer(p, args.code)
+        # K4: the key token of the project's folder; a session presents it with each call to the key service
+        token = projects.read_key_token(Path(row.path)) if projects.tenant_access(args.kind) else None
         try:
             granted_before = grants.grant(p, args.code, args.kind, customer=row.customer)
+            if token is not None:
+                grants.record_token(p, args.code, token)
         except grants.GrantError as err:
             print("awb projects: %s" % err, file=sys.stderr)
             return EXIT_ERROR
         print("%s: the owner's grant is %s (was %s)%s" % (args.code, args.kind, granted_before or "none",
                                                           ": it reaches the test tenants"
                                                           if projects.tenant_access(args.kind) else ": no test tenant"))
+        if projects.tenant_access(args.kind) and grants.token(p, args.code) is None:
+            print("%s: the folder holds no key token yet, so a session of it is refused at the key service; it "
+                  "writes one with its first awb cloud call, then run awb projects kind %s project once more"
+                  % (args.code, args.code))
         customer_now = grants.customer(p, args.code)
         if customer_before != customer_now:
             # the customer comes from the row as it is now: a change the owner did not make shows here
