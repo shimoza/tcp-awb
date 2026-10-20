@@ -41,6 +41,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 - `seal/setup.sh`, `seal/verify.sh` (task k-extract-sandbox, K7): the sudoers line of the pdf extraction joined the two tools with a comma after one prefix, and a comma starts a new command in sudoers, so the second command was a bare `pdfinfo` as root and the unit's own `pdfinfo` call matched nothing. Every tool now carries the whole fixed `systemd-run` prefix. `seal/verify.sh` gets a second check, `the unit of awb-extract runs pdfinfo on a one page pdf`.
 
+- `awb dataset put --github` (task k-dataset-signing, K1 of the review of 2026-10-20): every git and gh call on the clone sets `core.hooksPath=/dev/null`, `core.fsmonitor=false` and `gpg.ssh.program=ssh-keygen` (through `GIT_CONFIG_COUNT`, the scope of `git -c`), so a setting a session plants in the clone runs no program as the owner and never reaches the signing key. The put refuses a clone whose folder, `.git` or anything in `.git` is a link, owned by another user or writable by group or others, before the pull and again before the tag and the push; git runs with umask 022 so a fresh clone passes. A clone the work user owns must be removed once; the next put clones it again.
+
 - `seal/verify.sh`: the check of the pdf extraction unit made its probe PDF with reportlab, which the runtime venv does not hold, so it failed on a real host although the unit works. The probe PDF is now a minimal one page PDF written with the standard library alone (`make_probe_pdf`), and the check reads "the unit of awb-extract runs pdftotext on a one page pdf". The `systemd-run` line is unchanged.
 
 ## Week 42, 2026-10-12 to 2026-10-18 (in progress)

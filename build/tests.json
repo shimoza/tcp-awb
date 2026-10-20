@@ -8994,8 +8994,36 @@
    "name": "K19: a host file without extract_user is direct",
    "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k19_a_host_file_without_extract_user_is_direct",
    "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-1",
+   "phase": "k-dataset-signing",
+   "name": "k1 a hook or fsmonitor in the clone config never runs",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k1_a_hook_or_fsmonitor_in_the_clone_config_never_runs",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-2",
+   "phase": "k-dataset-signing",
+   "name": "k1 every git call on the clone carries the fixed settings",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k1_every_git_call_on_the_clone_carries_the_fixed_settings",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-3",
+   "phase": "k-dataset-signing",
+   "name": "k1 a clone that is not the owners alone is refused and nothing is published",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k1_a_clone_that_is_not_the_owners_alone_is_refused_and_nothing_is_published",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-4",
+   "phase": "k-dataset-signing",
+   "name": "k1 a fresh clone under a group umask is made the owners alone",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k1_a_fresh_clone_under_a_group_umask_is_made_the_owners_alone",
+   "status": "passing"
   }
  ],
- "total_tests": 1285,
+ "total_tests": 1289,
  "checked": "2026-10-20"
 }

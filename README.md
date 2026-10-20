@@ -565,8 +565,11 @@ files and the build's README.md into the root of the public repository
 stays as the repository has it. It commits them
 as the GitHub account, tags the date and makes a release of it with the zip, the PDF, the manifest and the `.mcpb`. The files are
 scanned for a person and a registered name first, and a hit refuses the put.
-Every git call on the clone (`~/tcp-shared/datasets/tcp-facts.git`, owned by the work user) names that path in
-`-c safe.directory=`, so your put passes git's ownership check without a global git setting.
+Every git call on the clone (`~/tcp-shared/datasets/tcp-facts.git`) names that path in `-c safe.directory=`, so
+your put needs no global git setting. Every git and gh call sets `core.hooksPath=/dev/null`, `core.fsmonitor=false`
+and `gpg.ssh.program=ssh-keygen` through `GIT_CONFIG_COUNT` (the scope of `git -c`), so no setting in the clone runs a program as you (K1 of the review of 2026-10-20). The
+put refuses a clone that is not yours alone: the clone, its `.git` or anything in `.git` owned by another user, a
+link or writable by group or others. Remove such a clone; the next put clones it again (git runs with umask 022).
 `--github-only` does the GitHub part alone, without the bucket and without calling the key service.
 The release notes say what is new since the previous release: the facts added, amended (same id, changed statement
 or source) and retired, compared by id with the `facts.jsonl` of the previous release tag in the local clone, and the
