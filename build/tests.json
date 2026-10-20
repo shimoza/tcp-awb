@@ -8938,8 +8938,64 @@
    "name": "K13: a title and a tag with escapes reach the lines as plain ASCII",
    "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_title_and_a_tag_with_escapes_or_other_characters_reach_the_lines_as_plain_ascii",
    "status": "passing"
+  },
+  {
+   "id": "k-extract-sandbox-k7-1",
+   "phase": "k-extract-sandbox",
+   "name": "K7: every sudoers command of the extract unit carries the whole fixed prefix",
+   "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k7_every_sudoers_command_carries_the_whole_fixed_prefix",
+   "status": "passing"
+  },
+  {
+   "id": "k-extract-sandbox-k7-2",
+   "phase": "k-extract-sandbox",
+   "name": "K7: no sudoers command of the extract unit is a bare tool",
+   "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k7_no_sudoers_command_is_a_bare_tool",
+   "status": "passing"
+  },
+  {
+   "id": "k-extract-sandbox-k7-3",
+   "phase": "k-extract-sandbox",
+   "name": "K7: verify.sh probes pdfinfo in the unit",
+   "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k7_verify_probes_pdfinfo_in_the_unit",
+   "status": "passing"
+  },
+  {
+   "id": "k-extract-sandbox-k18-1",
+   "phase": "k-extract-sandbox",
+   "name": "K18: a unit output over the cap fails the call",
+   "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k18_a_unit_output_over_the_cap_fails_the_call",
+   "status": "passing"
+  },
+  {
+   "id": "k-extract-sandbox-k18-2",
+   "phase": "k-extract-sandbox",
+   "name": "K18: an output under the cap is returned whole",
+   "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k18_an_output_under_the_cap_is_returned_whole",
+   "status": "passing"
+  },
+  {
+   "id": "k-extract-sandbox-k19-1",
+   "phase": "k-extract-sandbox",
+   "name": "K19: an unreadable host file is not a direct run",
+   "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k19_an_unreadable_host_file_is_not_a_direct_run",
+   "status": "passing"
+  },
+  {
+   "id": "k-extract-sandbox-k19-2",
+   "phase": "k-extract-sandbox",
+   "name": "K19: a missing host file is still a direct run",
+   "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k19_a_missing_host_file_is_still_a_direct_run",
+   "status": "passing"
+  },
+  {
+   "id": "k-extract-sandbox-k19-3",
+   "phase": "k-extract-sandbox",
+   "name": "K19: a host file without extract_user is direct",
+   "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k19_a_host_file_without_extract_user_is_direct",
+   "status": "passing"
   }
  ],
- "total_tests": 1277,
+ "total_tests": 1285,
  "checked": "2026-10-20"
 }

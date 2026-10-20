@@ -36,8 +36,11 @@ from __future__ import annotations
 import html
 import os
 import re
+import resource
 import shutil
+import signal
 import subprocess
+import tempfile
 import time
 import zlib
 from pathlib import Path
@@ -59,6 +62,8 @@ DEADLINE = 600
 MAX_RAW_BYTES = 64 * 1024 * 1024
 """Bytes of the file and of decompressed streams the second pass reads, all together."""
 MAX_STREAMS = 5000
+MAX_OUTPUT = 64 * 1024 * 1024
+"""Bytes a unit may write to standard output or standard error; more fails the call (K18)."""
 
 PAGE_NOTE = "page %d has no extractable text, review the original"
 ALL_EMPTY_NOTE = "no page has extractable text, review the original"
@@ -158,14 +163,33 @@ class UnitRunner(Runner):
     def run(self, tool: str, options: list[str], target: str, out: bool = False) -> tuple[int, str, str]:
         if not _USER_RE.fullmatch(self.user):
             raise OSError("extract_user is not a user name")
-        proc = (self._run or subprocess.run)(self.argv(tool, options, out), input=self.data, stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE, timeout=TIMEOUT + 15, check=False)
-        return proc.returncode, proc.stdout.decode("utf-8", errors="replace"), proc.stderr.decode("utf-8", errors="replace")
+        with tempfile.TemporaryFile() as out_file, tempfile.TemporaryFile() as err_file:
+            # the output goes to files of a size limit, so a crafted pdf cannot fill the memory of the intake
+            proc = (self._run or subprocess.run)(self.argv(tool, options, out), input=self.data, stdout=out_file,
+                                                 stderr=err_file, timeout=TIMEOUT + 15, check=False,
+                                                 preexec_fn=_limit_file_size)
+            if proc.returncode == -signal.SIGXFSZ:
+                raise OSError("the unit wrote more than %d bytes" % MAX_OUTPUT)
+            got = []
+            for raw, file in ((proc.stdout, out_file), (proc.stderr, err_file)):
+                if raw is None:
+                    file.seek(0)
+                    raw = file.read(MAX_OUTPUT + 1)
+                if len(raw) > MAX_OUTPUT:
+                    raise OSError("the unit wrote more than %d bytes" % MAX_OUTPUT)
+                got.append(raw.decode("utf-8", errors="replace"))
+        return proc.returncode, got[0], got[1]
+
+
+def _limit_file_size() -> None:
+    """In the child before it starts: no file it writes grows past MAX_OUTPUT (plus one byte, to see the excess)."""
+    resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_OUTPUT + 1, MAX_OUTPUT + 1))
 
 
 def runner_for(path: Path) -> Runner:
-    """Direct when paths.conf has no extract_user, else the unit runner with the bytes of the file."""
-    user = config.host_conf().get("extract_user", "").strip()
+    """Direct when paths.conf is not there or has no extract_user, else the unit runner with the bytes of the file.
+    A host file that is there and cannot be read raises OSError: the file fails, it is never run direct (K19)."""
+    user = config.host_conf(strict=True).get("extract_user", "").strip()
     if not user:
         return Runner()
     return UnitRunner(user, Path(path).read_bytes())
