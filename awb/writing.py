@@ -1736,11 +1736,12 @@ def _voice_root(p: config.Paths) -> Path:
 
 
 def _mkdir(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
+    """A folder of the voice store on the shared side: `config.make_dir` refuses a link in place of the folder or on
+    the way to it, so a planted link is never chmodded or written through."""
     try:
-        os.chmod(path, 0o750)
-    except OSError:
-        pass
+        config.make_dir(path, 0o750, shared=True)
+    except OSError as err:
+        raise WritingError("the voice folder cannot be made (%s)" % type(err).__name__) from None
 
 
 def _write(path: Path, text: str) -> None:
@@ -1760,8 +1761,10 @@ def _write(path: Path, text: str) -> None:
 
 
 def _read_voice_file(path: Path, what: str) -> str:
-    try:
-        data = Path(path).read_bytes()
+    try:                        # a link in place of the file is refused: a session plants links
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as fh:
+            data = fh.read()
     except OSError as err:
         raise WritingError("the %s cannot be read (%s)" % (what, type(err).__name__)) from None
     text = _decode(data)
@@ -2147,6 +2150,13 @@ def learn_owner(draft: Path, project: str | None = None, p: config.Paths | None 
     pr = next((r for r in rows if r.code == project), None)
     if pr is None or pr.state != "active":
         raise WritingError("%s is not an active project" % project)
+    folder = Path(pr.path)       # a draft that lies in the project folder by its own path has no link on the way
+    try:
+        rel = Path(os.path.abspath(Path(draft).expanduser())).relative_to(os.path.abspath(folder))
+    except ValueError:
+        rel = None
+    if rel is not None and where != folder.resolve() / rel:
+        raise WritingError("the draft is reached through a link inside the folder of %s" % project)
     own = pr.customer if pr.customer != projects.NO_CUSTOMER else None
     if own and importcmd._active_forms(p, own) == 0:
         raise WritingError("%s has no form in the register: run awb import %s once, it asks for the written forms"
