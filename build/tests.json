@@ -9316,8 +9316,15 @@
    "name": "K15: the owner timer mails every active project",
    "run": ".venv/bin/pytest tests/test_k15_owner_mail.py::test_the_owner_timer_mails_every_active_project",
    "status": "passing"
+  },
+  {
+   "id": "fix-rules-reload-1",
+   "phase": "fix-rules-reload",
+   "name": "a change of rules/ alone reloads the vault daemon and restarts the other daemon that loads them at import",
+   "run": ".venv/bin/pytest tests/test_deploy.py::test_a_change_of_rules_only_reloads_the_daemon_that_loads_them_at_import",
+   "status": "passing"
   }
  ],
- "total_tests": 1331,
+ "total_tests": 1332,
  "checked": "2026-10-20"
 }
