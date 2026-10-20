@@ -1896,3 +1896,38 @@ def test_wait_build_waits_for_the_task_and_times_out(world, tmp_path, capsys):
     assert "# failed: --wait-build" in out
     assert [c for c, _ in w2.runner.named("setup.sh")][0][-1] == "--no-build"
     assert deploy.read_build_pending(w2.root) == w2.c1
+
+
+def test_a_change_of_rules_only_reloads_the_daemon_that_loads_them_at_import(world, tmp_path):
+    """fix-rules-reload: awb/patterns.py reads rules/allow-domains.txt at import, and the vault daemon runs it, so a
+    release that changes only rules/ must still reload the vault daemon (kept unlocked) and restart the keys
+    daemon that imports it too. Planted: a temporary release whose second commit changes rules/allow-domains.txt and
+    nothing else; the gateway, which imports nothing of it, is left alone."""
+    takeover = "TAKEOVER = '--takeover'\n"
+    tree = synth_tree(tmp_path, {
+        "awb/patterns.py": "ALLOW = open('rules/allow-domains.txt').read()\n",
+        "awb/vault.py": "from awb import config, patterns\n" + takeover,
+        "awb/tcp/keys.py": "from awb.cli import main\nfrom awb import patterns\n",
+        "rules/allow-domains.txt": "docs.example.org\n"})
+    repo = tmp_path / "rl"
+    shutil.copytree(tree.root, repo)
+    git(repo, "init", "-q")
+    c1 = commit(repo)
+    (repo / "rules" / "allow-domains.txt").write_text("docs.example.org\nnew.example.org\n")
+    c2 = commit(repo)
+    assert git(repo, "diff", "--name-only", c1, c2) == "rules/allow-domains.txt"
+    shutil.copytree(REPO / "seal", world.root / "releases" / c1 / "seal")
+    (world.root / "src").unlink()
+    (world.root / "src").symlink_to("releases/%s" % c1)
+    deploy.write_journal(world.root / "DEPLOYED", {"state": "done", "target": c1, "previous": None, "units": {},
+                                                    "pending": [], "running": {}})
+    for u in ("awb-vaultd.service", "awb-keyd.service"):
+        world.runner.unit(u)["CanReload"] = "yes"
+    running = lambda: {"vault": {"state": "unlocked", "ops": ["reload"]},                   # noqa: E731
+                       "keys": {"state": "unlocked"}}
+    plan = deploy.owner_plan(deploy.Options(to=c2), repo, plan_host(world, repo, running))
+    got = {u["unit"]: u["action"] for u in plan["units"]}
+    assert got["awb-vaultd.service"] == "reload"
+    assert got["awb-keyd.service"] == "restart"
+    assert got["awb-ask.service"] == "restart"          # it already restarted for rules/** (RULES_ENTRIES)
+    assert got.get("awb-web.service", "unchanged") == "unchanged"
