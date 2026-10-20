@@ -265,7 +265,8 @@ def _cmd_spawn(args, p: config.Paths) -> int:
         print("awb spawn: every project gets its own code: give --customer new or no customer", file=sys.stderr)
         return EXIT_ERROR
     pr = projects.spawn(p, args.kind, args.goal, customer, p.register, args.tag or [],
-                        from_outbox=args.from_outbox, tenant=args.tenant, code=code, new_customer=issued)
+                        from_outbox=args.from_outbox, tenant=args.tenant, code=code, new_customer=issued,
+                        review_tier=args.review_tier)
     print("spawned %s (%s, customer %s): %s" % (pr.code, pr.kind, pr.customer, pr.path))
     print(pr.folder_note)
     try:
@@ -406,6 +407,21 @@ def _cmd_projects_list(args, p: config.Paths) -> int:
             tail = projects.short_goal(goals[i])
         print("%-9s %-11s %-10s %-7s %-11s %-9s %s" % (r.code, r.kind, r.customer, r.state, r.created,
                                                      sessions.short(held["session"]) if held else "-", tail))
+    return EXIT_OK
+
+
+def _cmd_projects_tier(args, p: config.Paths) -> int:
+    from awb import projects, vault
+
+    if config.is_work_user() or vault.in_assistant_session():
+        print("awb projects: the review tier is set by the owner, in his own terminal", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        row, before = projects.set_review_tier(p, args.code, args.tier)
+    except projects.ProjectError as err:
+        print("awb projects: %s" % err, file=sys.stderr)
+        return EXIT_ERROR
+    print("%s: the review tier is %d (was %d)" % (row.code, args.tier, before))
     return EXIT_OK
 
 
@@ -624,6 +640,9 @@ def _build() -> argparse.ArgumentParser:
     s.add_argument("--tenant", default=None, metavar="ALIAS",
                    help="the test tenant of the project: written as the tenant: line of SCOPE.md, the default of "
                         "awb lab run")
+    s.add_argument("--review-tier", type=int, choices=(1, 2, 3), default=None, metavar="1|2|3",
+                   help="the review tier of the project, written to its SCOPE.md: a deliverable takes it, the send "
+                        "gate refuses below it (default 3)")
     s.set_defaults(func=_cmd_spawn)
 
     s = sub.add_parser("unlock", help="unlock the vault, then the key service (owner)")
@@ -647,6 +666,11 @@ def _build() -> argparse.ArgumentParser:
                    help="the customer the row names; the grant is written only when it matches (needed for a "
                         "customer project)")
     s.set_defaults(func=_cmd_projects_kind)
+    s = psub.add_parser("tier", help="set the review tier of a project (owner): deliverables take it, the send gate "
+                                     "refuses below it")
+    s.add_argument("code")
+    s.add_argument("tier", type=int, choices=(1, 2, 3))
+    s.set_defaults(func=_cmd_projects_tier)
     s = psub.add_parser("delete", help="remove the folder of closed projects; the code stays registered as deleted")
     s.add_argument("codes", nargs="+", metavar="CODE")
     s.set_defaults(func=_cmd_projects_delete)

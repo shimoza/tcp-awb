@@ -38,6 +38,9 @@ from awb import config as _config
 from awb import register as _register
 
 PROJECT_KINDS = ("query", "project")
+REVIEW_TIERS = (1, 2, 3)
+DEFAULT_REVIEW_TIER = 3
+"""The review tier of a project when SCOPE.md has no `- review-tier:` line (decision 14)."""
 """A query works with the knowledge base, the docs mirror, live prices and calculations; a project also reaches the
 test tenants through the key service. A customer is an option of either (--customer), not a kind."""
 LEGACY_KINDS = {"engagement": "query", "topic": "query", "code": "query", "lab": "project"}
@@ -382,7 +385,7 @@ def _check_customer(customer, register_path: Path, p: _config.Paths | None = Non
 # --- the skeleton -------------------------------------------------------------------------------------------
 
 def _scope(code: str, kind: str, customer: str, tags: list[str], goal: str, created: str,
-           tenant: str | None = None) -> str:
+           tenant: str | None = None, review_tier: int | None = None) -> str:
     return (
         "# Scope of %s\n\n"
         "- code: %s\n"
@@ -394,7 +397,8 @@ def _scope(code: str, kind: str, customer: str, tags: list[str], goal: str, crea
         "- created: %s\n"
         "- mode: sealed\n"
     ) % (code, code, kind, customer, PLATFORM, ", ".join(tags) if tags else "none", goal, created) + (
-        "- tenant: %s\n" % tenant if tenant else "")
+        "- tenant: %s\n" % tenant if tenant else "") + (
+        "- review-tier: %d\n" % review_tier if review_tier else "")
 
 
 def _state(code: str) -> str:
@@ -464,11 +468,12 @@ def _claude(code: str, kind: str, customer: str) -> str:
         "- Never open an original or the vault.\n"
         "- Proof goes to evidence/, results to deliverables/, review records to reviews/.\n"
         "- Files for him leave with `awb xchg put FILE` (the lab bucket, from-session/<date>/), after the name check "
-        "and, for a customer project, the review.\n"
+        "and, for a customer project, the review. Name every deliverable `%s-<kind word>-<language>.<ext>` from the "
+        "start (`%s-mapping-de.md`), never with words of the material.\n"
         "- RESOURCES.md lists what the project uses, with platform ids and codes.\n"
         "- Run `awb check FILE` on every deliverable and `awb gate` before every commit.\n"
         "- %s\n"
-    ) % (code, kind, _rules_ref(), who,
+    ) % (code, kind, _rules_ref(), who, code, code,
          "This is a project: it reaches the test tenants through the key service (`awb cloud call`)."
          if tenant_access(kind) else
          "This is a query: knowledge base, docs mirror, live prices and calculations, no test tenant. When an "
@@ -566,7 +571,7 @@ _known_tags = known_tags         # kept for the web adapters still deployed outs
 
 def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register_path: Path,
           tags: list[str] = (), from_outbox: bool = False, code: str | None = None,
-          tenant: str | None = None, new_customer: bool = False) -> Project:
+          tenant: str | None = None, new_customer: bool = False, review_tier: int | None = None) -> Project:
     """Create, commit and register a sealed tcp- project. Refuses before anything is written. Tags come from
     rules/tags.txt (T-03). With `from_outbox` the sanitised copies waiting in the outbox of the customer move into
     input/ and go into the first commit (T-14). `code` takes a code reserved before (the web creation keeps it
@@ -576,6 +581,8 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
     kind = LEGACY_KINDS.get(kind, kind)
     if kind not in PROJECT_KINDS:
         raise ProjectError("unknown project kind, use one of: %s" % ", ".join(PROJECT_KINDS))
+    if review_tier is not None and review_tier not in REVIEW_TIERS:
+        raise ProjectError("the review tier is 1, 2 or 3")
     if tenant is not None and not (tenant_access(kind) and re.fullmatch(r"[a-z][a-z0-9-]{1,30}", tenant)):
         raise ProjectError("a tenant alias reads like test-1 and belongs to a project, not a query")
     goal = _clean_goal(goal)
@@ -635,7 +642,7 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
             raise ProjectError("the projects root cannot be written to the project register")
         created = date.today().isoformat()
         files = {
-            "SCOPE.md": _scope(code, kind, customer, tags, goal, created, tenant),
+            "SCOPE.md": _scope(code, kind, customer, tags, goal, created, tenant, review_tier),
             "STATE.md": _state(code),
             "OPEN.md": _open(code),
             "RESOURCES.md": _resources(code),
@@ -944,6 +951,33 @@ def set_kind(p: _config.Paths, code: str, kind: str) -> tuple[Project, str]:
     except OSError:
         pass
     return rows[idx], before
+
+
+def set_review_tier(p: _config.Paths, code: str, tier: int) -> tuple[Project, int]:
+    """Set the review tier of an active project: the `- review-tier:` line of its SCOPE.md. Returns (row, the tier
+    before). The send gate reads the line; a deliverable takes it unless the owner raises it for that file."""
+    if not isinstance(code, str) or not _codes.is_project_code(code):
+        raise ProjectError("not a project code")
+    if tier not in REVIEW_TIERS:
+        raise ProjectError("the review tier is 1, 2 or 3")
+    row = next((r for r in load(p) if r.code == code), None)
+    if row is None:
+        raise ProjectError("project %s is not registered" % code)
+    if row.state != "active":
+        raise ProjectError("project %s is not active" % code)
+    scope = Path(row.path) / "SCOPE.md"
+    try:
+        text = scope.read_text(encoding="utf-8")
+        m = re.search(r"(?m)^- review-tier: *([123]) *$", text)
+        before = int(m.group(1)) if m else DEFAULT_REVIEW_TIER
+        line = "- review-tier: %d" % tier
+        new = re.sub(r"(?m)^- review-tier: .*$", line, text, count=1) if m else (
+            text.rstrip("\n") + "\n" + line + "\n")
+        if new != text:
+            scope.write_text(new, encoding="utf-8")
+    except (OSError, UnicodeError):
+        raise ProjectError("SCOPE.md of %s cannot be read or written from here" % code) from None
+    return row, before
 
 
 def delete(p: _config.Paths, code: str, holder=None) -> Project:

@@ -117,7 +117,9 @@ awb fetch tcp-xxxx                           # what a project put for you, downl
 
 Every piece of work starts with `awb spawn` (or `awb start` on the owner side, which wraps it) and gets its own
 folder with its goal, its rules, its checkpoints and
-its git history.
+its git history. The review tier of the project is set once: `--review-tier 1|2|3` of `awb start` and `awb spawn`
+(default 3) writes `- review-tier:` into its SCOPE.md, a deliverable takes it unless you raise it for that file, and
+`awb projects tier tcp-xxxx 2` changes it later, as the owner. The send gate keeps refusing below the tier.
 
 | kind | for | reaches |
 |---|---|---|
@@ -529,7 +531,9 @@ A file of the lab inbox with a registered name is held, and so is a file of the 
 text. A file of the owner inbox above `max_mb` of keys.conf, or in a folder that is not exactly one customer code,
 stays there and its take is refused. A pdf, a sheet or an archive from the lab inbox lands in `input/opaque/`, which `.gitignore` keeps out of git. You get a mail with the one command to run (`awb import tcp-xxxx`). Results come back with
 `awb xchg put` into `<project>/from-session/<date>/<file id>` of the lab bucket, after the name check of the file and of
-its name and, for a customer project, the send gate. No object key or log line carries a file name the check did not pass, and no mail carries a file name at all. You fetch them with `awb fetch tcp-xxxx` in your own terminal (what is new since your last fetch, through the key service, into `~/awb-fetch/tcp-xxxx/` of mode 700 with the names put back as `awb reveal` does) or in the OBS console. A mail tells you about each one by its file id. A Terraform or code file passes when it holds no address,
+its name and, for a customer project, the send gate. When the name check refuses a file name, the refusal proposes a neutral one,
+`<project code>-<kind word>-<language>.<ext>` (`tcp-q7m4-mapping-de.md`; `--kind` and `--lang` choose the words), and
+the review commands do the same; a project names its deliverables that way from the start. No object key or log line carries a file name the check did not pass, and no mail carries a file name at all. You fetch them with `awb fetch tcp-xxxx` in your own terminal (what is new since your last fetch, through the key service, into `~/awb-fetch/tcp-xxxx/` of mode 700 with the names put back as `awb reveal` does) or in the OBS console. A mail tells you about each one by its file id. A Terraform or code file passes when it holds no address,
 name or mail: a dotted reference in code is not a web address. The session deletes what it put with
 `awb xchg clean CODE --dry-run|--go` (`--older-than DATE` for older date folders), each deletion a row in RESOURCES.md. The key service signs every object call
 and refuses everything outside the inbox and the project's own folders, and every put outside from-session/.

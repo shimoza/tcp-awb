@@ -292,6 +292,14 @@ def _ok(answer: dict) -> dict:
     return answer
 
 
+def name_hint(root: Path, name: str, path: Path, kind_word: str | None = None, lang: str | None = None) -> str:
+    """The neutral name to put a refused file under: ` (try --as tcp-q7m4-mapping-de.md)`, or nothing."""
+    from awb import review
+
+    proposal = review.propose_name(root, name, path, kind_word, lang)
+    return " (try --as %s)" % proposal if proposal else ""
+
+
 def name_problems(name: str, register: Path | None = None) -> list[str]:
     """Why an object name must not cross: a hit of the name check in the name itself (the --as name or the
     source name), whatever kind of file it names."""
@@ -470,7 +478,8 @@ def inbox_list() -> list[str]:
     return lines
 
 
-def put(path: Path, as_name: str | None = None, image: bool = False, reason: str | None = None) -> str:
+def put(path: Path, as_name: str | None = None, image: bool = False, reason: str | None = None,
+        kind_word: str | None = None, lang: str | None = None) -> str:
     from awb import projects, review
 
     root, code, customer = _project()
@@ -482,9 +491,10 @@ def put(path: Path, as_name: str | None = None, image: bool = False, reason: str
         raise XchgError("a name without a folder")
     if image and not (reason and len(reason.strip()) >= 10):
         raise XchgError("--image needs a reason of one line: what it shows and that you checked it for names")
-    problems = name_problems(name) or check_problems(path, image=image)
+    named = name_problems(name)
+    problems = named or check_problems(path, image=image)
     if problems:
-        raise XchgError("; ".join(problems))
+        raise XchgError("; ".join(problems) + (name_hint(root, name, path, kind_word, lang) if named else ""))
     if customer not in (projects.NO_CUSTOMER, "", None):
         verdict, message = review.send_check(root, path, True, name=name)
         if verdict == review.SEND_REFUSE:
@@ -627,6 +637,11 @@ def main_xchg(argv: list[str] | None = None) -> int:
     pt.add_argument("--as", dest="as_name", default=None)
     pt.add_argument("--image", action="store_true")
     pt.add_argument("--reason", default=None)
+    pt.add_argument("--kind", dest="kind_word", default=None, metavar="WORD",
+                    help="the kind word of the neutral name proposed when the file name is refused (default doc)")
+    pt.add_argument("--lang", default=None, metavar="XX",
+                    help="the language of the neutral name proposed when the file name is refused (default: read "
+                         "from the text)")
     sub.add_parser("list", help="what this project put")
     cl = sub.add_parser("clean", help="delete what this project put into <code>/from-session/")
     cl.add_argument("code")
@@ -643,7 +658,7 @@ def main_xchg(argv: list[str] | None = None) -> int:
         return 2
     try:
         if args.command == "put":
-            print(put(Path(args.file), args.as_name, args.image, args.reason))
+            print(put(Path(args.file), args.as_name, args.image, args.reason, args.kind_word, args.lang))
         elif args.command == "clean":
             for line in clean(args.code, args.older_than, args.go):
                 print(line)
