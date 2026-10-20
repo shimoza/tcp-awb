@@ -8812,8 +8812,22 @@
    "name": "K7: verify.sh probes pdfinfo in the unit",
    "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k7_verify_probes_pdfinfo_in_the_unit",
    "status": "passing"
+  },
+  {
+   "id": "k-extract-sandbox-k18-1",
+   "phase": "k-extract-sandbox",
+   "name": "K18: a unit output over the cap fails the call",
+   "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k18_a_unit_output_over_the_cap_fails_the_call",
+   "status": "passing"
+  },
+  {
+   "id": "k-extract-sandbox-k18-2",
+   "phase": "k-extract-sandbox",
+   "name": "K18: an output under the cap is returned whole",
+   "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k18_an_output_under_the_cap_is_returned_whole",
+   "status": "passing"
   }
  ],
- "total_tests": 1259,
+ "total_tests": 1261,
  "checked": "2026-10-18"
 }

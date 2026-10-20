@@ -61,3 +61,23 @@ def test_k7_verify_probes_pdfinfo_in_the_unit():
     body = _function(VERIFY.read_text(encoding="utf-8"), "extract_checks")
     assert 'command -v pdfinfo' in body
     assert "runs pdfinfo on a one page pdf" in body
+
+
+# ---------------------------------------------------------------------------------------------- K18
+
+
+def test_k18_a_unit_output_over_the_cap_fails_the_call(monkeypatch):
+    monkeypatch.setattr(pdf, "MAX_OUTPUT", 1000)
+    runner = pdf.UnitRunner("extract-test", b"data")
+    monkeypatch.setattr(runner, "argv", lambda tool, options, out=False: [
+        "python3", "-c", "import sys; sys.stdout.write('a' * 100000)"])
+    with pytest.raises(OSError):
+        runner.run("pdftotext", [], "x", True)
+
+
+def test_k18_an_output_under_the_cap_is_returned_whole(monkeypatch):
+    runner = pdf.UnitRunner("extract-test", b"data")
+    monkeypatch.setattr(runner, "argv", lambda tool, options, out=False: [
+        "python3", "-c", "import sys; sys.stdout.write(sys.stdin.read().upper())"])
+    code, out, err = runner.run("pdftotext", [], "x", True)
+    assert (code, out, err) == (0, "DATA", "")
