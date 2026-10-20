@@ -33,6 +33,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - A build task's own /dev/shm is writable for the task user again (mode=1777): checks no longer fail the two ledger
   tests on a lock they could not create (SH).
 
+- The owner mail for a command in OPEN.md is sent by the owner's timer (K15): `awb build nudge`, every 15 minutes, now also calls `projects.mail_owner_commands_all`, because the stop hook runs as the work user and the key service refuses that user. The mail carries a command only when it is on the allow list (`projects.OWNER_MAIL_COMMANDS`: keys and vault unlock, unlock, projects kind and delete, close, cloud sweep, import, build show, retry and widen) and the item passes the name check; a check that cannot run mails nothing.
+
 - `awb voice learn` no longer follows links (K11): a draft that is a link, or that lies behind a link inside the project folder, is refused with and without `--project`; the voice folders are made with `config.make_dir(..., shared=True)`, which refuses a planted link instead of chmodding what it points to.
 
 - OPEN.md and RESOURCES.md lines no longer carry terminal escapes to the owner (K10 of the review of 2026-10-20): the items of `awb`, `awb close` and `awb projects` and the live resource lines drop control and format characters (ESC, C1, bidi marks) before they are printed.
