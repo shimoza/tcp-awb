@@ -27,7 +27,7 @@ def test_an_import_for_a_customer_issued_without_a_form_asks_for_none(home, caps
     (pr,) = projects.load(home)
     capsys.readouterr()
     f = tmp_path / "notes.md"
-    f.write_text("Enable Credential Guard on a Windows Server 2022 guest.\n", encoding="utf-8")
+    f.write_text("enable the credential guard on a windows server 2022 guest.\n", encoding="utf-8")
 
     def no_read():
         raise AssertionError("the import asked for a form")

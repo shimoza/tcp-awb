@@ -40,13 +40,13 @@ def _project(home, capsys):
 def test_trusted_guesses_no_name_and_still_replaces_a_registered_form_and_a_mail_address(home, capsys, tmp_path):
     pr = _project(home, capsys)
     f = tmp_path / "notes.md"
-    f.write_text("Outcome\n\nWorked on Sapphire Rapids with KVM in %s. Scorecard: APPEARED.\n"
+    f.write_text("Outcome\n\nworked on Sapphire with KVM in %s. Scorecard: APPEARED.\n"
                  "Microsoft and Intel. Mail: quorvane.halbrecht@example.org\n" % fx.CUSTOMER_FORMS[0], encoding="utf-8")
     assert importcmd.run(home, pr.code, [f], tty=True, trusted=True) == 0
     out = "".join(capsys.readouterr())
     assert "trusted: no name is guessed" in out
     copy = _copy(home, pr.customer)
-    for word in ("Outcome", "Sapphire Rapids", "KVM", "Scorecard", "APPEARED"):
+    for word in ("Outcome", "Sapphire", "KVM", "Scorecard", "APPEARED"):
         assert word in copy, word
     assert fx.CUSTOMER_FORMS[0] not in copy, "a registered form is still replaced"
     assert "Microsoft" in copy and "Intel" in copy
@@ -56,6 +56,6 @@ def test_trusted_guesses_no_name_and_still_replaces_a_registered_form_and_a_mail
 def test_without_trusted_the_guessing_still_runs(home, capsys, tmp_path):
     pr = _project(home, capsys)
     f = tmp_path / "notes.md"
-    f.write_text("The pilot ran with Quorvane Halbrecht and Sapphire Rapids.\n", encoding="utf-8")
+    f.write_text("The pilot ran with %s and Sapphire.\n" % fx.PLANTED_CANDIDATE, encoding="utf-8")
     assert importcmd.run(home, pr.code, [f], tty=True) == 0
-    assert "Quorvane Halbrecht" not in _copy(home, pr.customer)
+    assert fx.PLANTED_CANDIDATE not in _copy(home, pr.customer)
