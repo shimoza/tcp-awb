@@ -9057,8 +9057,50 @@
    "name": "k2 the mark is never written through a planted link",
    "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k2_the_mark_is_never_written_through_a_planted_link",
    "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-10",
+   "phase": "k-dataset-signing",
+   "name": "k3 the review pins every release asset",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k3_the_review_pins_every_release_asset",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-11",
+   "phase": "k-dataset-signing",
+   "name": "k3 an asset changed after the review stops the put",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k3_an_asset_changed_after_the_review_stops_the_put",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-12",
+   "phase": "k-dataset-signing",
+   "name": "k3 signing refuses an asset the review did not pin and signs nothing",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k3_signing_refuses_an_asset_the_review_did_not_pin_and_signs_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-13",
+   "phase": "k-dataset-signing",
+   "name": "k3 signing passes with the pins of the review",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k3_signing_passes_with_the_pins_of_the_review",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-14",
+   "phase": "k-dataset-signing",
+   "name": "k3 the sums file is never written through a planted link",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k3_the_sums_file_is_never_written_through_a_planted_link",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-15",
+   "phase": "k-dataset-signing",
+   "name": "k3 the put command hands the pins of the review to the signing",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k3_the_put_command_hands_the_pins_of_the_review_to_the_signing",
+   "status": "passing"
   }
  ],
- "total_tests": 1294,
+ "total_tests": 1300,
  "checked": "2026-10-20"
 }

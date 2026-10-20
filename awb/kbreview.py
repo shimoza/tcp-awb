@@ -75,6 +75,18 @@ REVIEW_FIELDS = ("statement", "source", "grade")
 REVIEW_HINT = "run awb kb review first"
 
 
+def release_assets(folder: Path) -> list[Path]:
+    """The files a release uploads and the signed SHA256SUMS lists: the zip, HOW-TO.pdf, MANIFEST.json, the .mcpb."""
+    return [folder.parent / (folder.name + ".zip"), folder / "HOW-TO.pdf", folder / "MANIFEST.json",
+            folder.parent / (folder.name + ".mcpb")]
+
+
+def asset_sums(folder: Path) -> dict[str, str]:
+    """The sha256 of every release asset there is now, by file name: what the review pins (K3 of the review of
+    2026-10-20)."""
+    return {a.name: sha256_of(a) for a in release_assets(folder) if a.is_file()}
+
+
 def released_path(base: Path) -> Path:
     return base / RELEASED
 
@@ -172,7 +184,8 @@ def review(p: config.Paths, *, out: Path | None = None, day: str | None = None) 
     since, previous = released(folder.parent)
     added, amended, retired = changes(previous, read_facts(facts), REVIEW_FIELDS)
     lines = review_lines(folder, since, added, amended, retired)
-    mark = {"dataset": folder.name, "since": since, "facts_sha256": sha256_of(facts), "added": len(added),
+    mark = {"dataset": folder.name, "since": since, "facts_sha256": sha256_of(facts), "assets": asset_sums(folder),
+            "added": len(added),
             "amended": len(amended), "retired": len(retired),
             "reviewed_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
     _write_text(review_path(folder), json.dumps(mark, indent=1, sort_keys=True) + "\n")
@@ -182,7 +195,7 @@ def review(p: config.Paths, *, out: Path | None = None, day: str | None = None) 
 
 def require_review(folder: Path) -> dict:
     """The mark of `awb kb review` for this folder. ReviewError in one line that names the command when there is no mark,
-    a mark of other facts (the folder was built again) or of another release (one went out since)."""
+    a mark of other facts or assets (the folder was built again) or of another release (one went out since)."""
     since, _ = released(folder.parent)
     path = review_path(folder)
     if not path.is_file():
@@ -194,7 +207,7 @@ def require_review(folder: Path) -> dict:
     try:
         mark = json.loads(path.read_text(encoding="utf-8"))
         fresh = (mark["facts_sha256"] == sha256_of(folder / "facts.jsonl") and mark["since"] == since
-                 and mark.get("dataset", folder.name) == folder.name)
+                 and mark.get("dataset", folder.name) == folder.name and mark["assets"] == asset_sums(folder))
     except (ValueError, KeyError, TypeError, OSError):
         fresh = False
     if not fresh:
