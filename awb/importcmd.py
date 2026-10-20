@@ -170,7 +170,7 @@ def _copy_out(p: config.Paths, original: Path, folder: Path) -> Path:
 
 
 def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None = None, review: bool = False,
-        redo: bool = False, read=None, tty=None, edit=None, confirm=None) -> int:
+        redo: bool = False, read=None, tty=None, edit=None, confirm=None, trusted: bool = False) -> int:
     from awb import projects, rulesync, vault
 
     if config.is_work_user() or vault.in_assistant_session():
@@ -238,7 +238,9 @@ def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None =
             _say("%s: no new file in the bucket folder in/ and none in the vault inbox" % code)
             return EXIT_OK
         _say("%s: %d file(s) from %s" % (code, len(files), where))
-        res = intake.run(files, cust, p, review=review, edit=edit, confirm=confirm, redo=mapping)
+        if trusted:
+            _say("trusted: no name is guessed; registered forms, secrets, mail addresses and phones are still wiped")
+        res = intake.run(files, cust, p, review=review, edit=edit, confirm=confirm, redo=mapping, trusted=trusted)
     finally:
         if tmp is not None:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -326,6 +328,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="only when a project without a customer gets one: new issues CUST- and the project's four "
                          "characters; without it such a project runs with no customer code")
     ap.add_argument("--review", action="store_true", help="stop once on the candidates and review them in an editor")
+    ap.add_argument("--trusted", action="store_true", help="the owner vouches that the files hold no name: no name "
+                    "is guessed; the registered forms, the secret check, mail addresses and phones still apply")
     ap.add_argument("--redo", action="store_true", help="run the originals of the last import again with the keep "
                                                          "list of now, the copies replace the earlier ones")
     ap.add_argument("--paste", action="store_true",
@@ -354,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.paste:
             return run_paste(config.paths(), args.code, args.kind)
         return run(config.paths(), args.code, [Path(f) for f in args.files], customer=args.customer,
-                   review=args.review, redo=args.redo)
+                   review=args.review, redo=args.redo, trusted=args.trusted)
     except (ImportRefused, intake.IntakeError, register.RegisterError, projects.ProjectError, vault.VaultError) as err:
         text = str(err)
         print(text if text.startswith("held: ") else "awb import: %s" % text, file=sys.stderr)

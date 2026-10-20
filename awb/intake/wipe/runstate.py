@@ -92,7 +92,8 @@ class WipeState:
     """What one import run knows beyond the register: the tokens it issued, the forms it learned, the words of its
     product labels and the keep list. One per engine; `bind` makes it the one the rules read."""
 
-    def __init__(self, keep: tuple[str, ...] = ()):
+    def __init__(self, keep: tuple[str, ...] = (), trusted: bool = False):
+        self.trusted = trusted   # `awb import --trusted`: no guessed name is wiped, of any class
         self.tokens: dict[tuple[str, str], str] = {}
         self.numbers: Counter = Counter()
         self.learned = _Learned()
@@ -226,6 +227,8 @@ def wipe_spans(state: WipeState, text: str, names: list[Span], structured: list[
     """The candidates of `text` and the learned forms of the run that stand in it, none over a registered form or a
     piece of structured data."""
     spans = candidate_spans(state, text, names + structured)
+    if state.trusted:
+        spans = []   # the owner vouches for the files: no guessed name; register forms and structured data stay
     taken_spans = names + structured + spans
 
     def taken(a: int, b: int) -> bool:

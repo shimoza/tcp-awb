@@ -7,6 +7,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- `awb import CODE --trusted`: the owner vouches that the files hold no name, so no name is guessed; registered
+  forms, secrets, mail addresses and phones are still wiped (his ask 2026-10-20).
+
 - The key service no longer checks the caller's project folder through the caller's process (K4 of the review of 2026-10-20, PR 69, reverted): the key service runs as the owner and cannot read the process of a session of the work user, so every session call was refused. K4 comes back in another form.
 
 - `awb mirror rn` (task rn-release-notes): the release notes of T Cloud Public as a third public source next to the docs mirror and the service description. It reads the list page one request per page with a pause (`--pause`, default 2 s) and a User-Agent that names the Workbench, never a note page, `/neos/` or an image. It keeps one file per note under `<mirrors>/release-notes/notes/` plus `INDEX.json`. A known note is never written again; once every page has been read a run stops at the first page without a new note (`--pages N` caps a run). `awb mirror status` shows the count. `awb refresh` gets the part `release-notes` (after `mirrors`): for each note first seen since the last refresh it lists `recheck: KB-XXXX (release note DATE SERVICE)` for the entries whose tags or statement name the service and `new service?` for a service `rules/services.tsv` does not know. It changes no entry. The first run reads the notes dated in the last 30 days.

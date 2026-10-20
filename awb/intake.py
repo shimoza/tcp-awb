@@ -382,7 +382,7 @@ def selftest() -> list[str]:
 
 
 def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = False, edit=None,
-        confirm=None, redo: dict | None = None) -> IntakeResult:
+        confirm=None, redo: dict | None = None, trusted: bool = False) -> IntakeResult:
     """Take `files` in for `customer` (a CUST code, "new" or the code of a project without a customer, tcp-xxxx)
     in wipe mode. See the module text for the steps.
     Nothing is read before the self-test passed. With `review` the run first stops on the candidates and hands
@@ -424,17 +424,18 @@ def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = Fal
                 except candidates.ReviewError as err:
                     raise IntakeError("review: %s" % err) from None
         with vault.vault_lock(p):
-            return _run(files, customer, p, reviewed=reviewed, redo=redo)
+            return _run(files, customer, p, reviewed=reviewed, redo=redo, trusted=trusted)
     except vault.VaultError as err:
         raise IntakeError(str(err)) from None
 
 
-def _detect_all(files: list[Path], customer: str, p: config.Paths, redo: dict | None = None):
+def _detect_all(files: list[Path], customer: str, p: config.Paths, redo: dict | None = None, trusted: bool = False):
     """Steps 2 to 4: the customer, file ids, extraction, detection and the forms the run learns. No stop."""
     entries = register.load(p.register)
     cust, is_new = _resolve_customer(customer, entries, p)
     engine = _Engine(entries)
     engine.keep = tuple(load_keep(p))
+    engine.wipe.trusted = trusted
     now = datetime.now()
     rec = _report.Run(date=now.date().isoformat(), time=now.strftime("%H:%M:%S"), customer=cust,
                       new_customer=is_new, register_forms=engine.forms)
@@ -493,10 +494,10 @@ def _review_stop(files: list[Path], customer: str, p: config.Paths) -> tuple[str
 
 
 def _run(files: list[Path], customer: str, p: config.Paths, *, reviewed: int = 0,
-         redo: dict | None = None) -> IntakeResult:
+         redo: dict | None = None, trusted: bool = False) -> IntakeResult:
     # an encrypted register is read through the vault daemon; originals and private reports are then sealed
     encrypted = vault_encrypted(p)
-    cust, engine, rec, extractions, now = _detect_all(files, customer, p, redo)
+    cust, engine, rec, extractions, now = _detect_all(files, customer, p, redo, trusted)
     rec.reviewed = reviewed
     stamp = now.strftime("%Y-%m-%d-%H%M%S")
     private_path = p.private_reports / cust / ("%s.md" % stamp)
