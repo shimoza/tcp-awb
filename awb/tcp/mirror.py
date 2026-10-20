@@ -363,6 +363,17 @@ def _note_link(href: str, page: str) -> str:
     return urllib.parse.urlunsplit((u.scheme, u.netloc, u.path, "", ""))
 
 
+def _is_date(text: str) -> bool:
+    """A real calendar date written YYYY-MM-DD in ASCII digits."""
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", text):
+        return False
+    try:
+        datetime.date.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
+
+
 def parse_release_notes(html: str, page: str | None = None) -> tuple[list[dict], int]:
     """The notes of one list page and the number of the last page. A note without a date, a title or a usable link
     is left out. Each note carries its id (date and the last part of the link), the link made absolute and the
@@ -375,7 +386,7 @@ def parse_release_notes(html: str, page: str | None = None) -> tuple[list[dict],
     for n in parser.notes[:RN_MAX_NOTES]:
         link = _note_link(n["link"], page)
         slug = link.rstrip("/").rsplit("/", 1)[-1].lower()
-        if not (re.fullmatch(r"\d{4}-\d{2}-\d{2}", n["date"]) and n["title"] and link
+        if not (_is_date(n["date"]) and n["title"] and link
                 and re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,150}", slug)):
             continue
         notes.append(dict(n, link=link, id="%s-%s" % (n["date"], slug)))

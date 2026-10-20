@@ -122,3 +122,16 @@ def test_the_refresh_part_reports_a_cut_body_and_goes_on(tmp_path, monkeypatch, 
     part = refresh.part_release_notes(home, tmp_path / "mirrors", tmp_path / "out", update=True,
                                       today=datetime.date(2026, 10, 19))
     assert any("not updated" in line for line in part.lines) and part.overdue >= 1
+
+
+# K23
+
+@pytest.mark.parametrize("date", ["٢٠٣٠-٠١-٠١", "2026-13-40", "2026-02-30", "2026-1-01"])
+def test_a_date_in_other_digits_or_off_the_calendar_leaves_the_note_out(date):
+    notes, _ = mirror.parse_release_notes(page(article(date, "title", "odd")), PAGE)
+    assert notes == []
+
+
+def test_a_plain_date_is_kept():
+    notes, _ = mirror.parse_release_notes(page(article("2026-02-28", "title", "fine")), PAGE)
+    assert [n["id"] for n in notes] == ["2026-02-28-fine"]
