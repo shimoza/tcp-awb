@@ -40,6 +40,12 @@ LOGIN_ACCOUNT = "subscriptionType"
 file (review of 2026-10-13, B7): a login of the task goes back to the build user's home only when it names the same
 value as the login there, and a login without the field never does. A task that writes a login of its own, with a
 far-future expiresAt, keeps the build user's login where it was."""
+LOGIN_IDENTITY = ("accountUuid", "organizationUuid")
+"""Fields of `claudeAiOauth` that name one account, not a plan (review of 2026-10-20, K8): when the login in the build
+user's home has one of them the task's login must hold the same value."""
+LOGIN_TOKEN_FIELDS = ("accessToken", "refreshToken", "expiresAt")
+LOGIN_EXPIRY_STEP_MS = 48 * 3600 * 1000
+"""The most a refresh moves expiresAt ahead of the login it replaces (K8); a later one is not a refresh."""
 LOGIN_KEPT = 6
 """Exit of the clean unit when a login of the task was not copied back for its account (the home went all the same);
 the runner puts LOGIN_KEPT_LINE into the run's result."""
@@ -193,8 +199,20 @@ def _login_back(r: Path, home: Path) -> bool:
     account = _login_account(new)
     if account is None or account != _login_account(old):
         return False
+    oauth_old = json.loads(old.decode("utf-8"))["claudeAiOauth"]
+    oauth_new = json.loads(new.decode("utf-8"))["claudeAiOauth"]
+    if any(k in oauth_old and oauth_old[k] != oauth_new.get(k) for k in LOGIN_IDENTITY):
+        return False
+    if exp_new > exp_old + LOGIN_EXPIRY_STEP_MS:
+        return False
     if exp_new <= exp_old:
         return True
+    # K8: only the token fields travel, into the object that is there; a key the task added stays behind
+    for k in LOGIN_TOKEN_FIELDS:
+        oauth_old[k] = oauth_new[k]
+    merged = json.loads(old.decode("utf-8"))
+    merged["claudeAiOauth"] = oauth_old
+    new = json.dumps(merged).encode("utf-8")
     d = persistent / os.path.dirname(LOGIN_IN_HOME)
     if d.is_symlink() or not d.is_dir():
         return True
