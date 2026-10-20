@@ -1906,7 +1906,7 @@ paths:
       tags:
         - reference
       summary: The checked facts that carry the words searched for.
-      description: "The answer of the old /kb page as JSON: retired entries are left out, every entry passes the name check of today's register and a name registered after its add is counted in withheld and never shown. Reads the knowledge base only."
+      description: "The facts that match the words, best first, with the query and the count withheld: retired entries are left out, every entry passes the name check of today's register and a name registered after its add is counted in withheld and never shown. Reads the knowledge base only."
       parameters:
         - name: q
           in: query
@@ -1989,7 +1989,7 @@ paths:
       tags:
         - reference
       summary: The price records of one service.
-      description: The answer of the old /price page as JSON, from the public price API at the moment of the request. An unknown region reads as eu-de.
+      description: The price records of one service in one region, a price per term in each, from the public price API at the moment of the request. An unknown region reads as eu-de.
       parameters:
         - name: service
           in: query
@@ -2101,7 +2101,7 @@ paths:
       tags:
         - reference
       summary: The calls to the TCP API this month, by day.
-      description: "The API usage lines of the old /tenants page as JSON: counts per day and per service from the Workbench's own record of its calls. No tenant alias, no path, no id."
+      description: "The calls to the TCP API this month: counts per day and per service with a total, from the Workbench's own record of its calls. No tenant alias, no path, no id."
       responses:
         "200":
           description: The days.

@@ -1292,8 +1292,8 @@ def _reference_paths() -> dict:
                 "400": refusal("No words to search for.", "Give the words to search for in q."),
                 "503": refusal("The name check cannot run, so no fact is shown.",
                                "The name check cannot run, so no fact is shown.", ANSWER_FAILED),
-            }, description="The answer of the old /kb page as JSON: retired entries are left out, every entry "
-                           "passes the name check of today's register and a name registered after its add is "
+            }, description="The facts that match the words, best first, with the query and the count withheld: "
+                           "retired entries are left out, every entry passes the name check of today's register and a name registered after its add is "
                            "counted in withheld and never shown. Reads the knowledge base only.",
                 parameters=[query("q", "The words to search for, cut to 200 characters.", True)],
                 state="deployed"),
@@ -1305,8 +1305,8 @@ def _reference_paths() -> dict:
                                "A service name reads like ecs or rds."),
                 "503": refusal("The price API gave no usable answer.",
                                "The price API gave no usable answer for this service right now.", ANSWER_FAILED),
-            }, description="The answer of the old /price page as JSON, from the public price API at the moment of "
-                           "the request. An unknown region reads as eu-de.",
+            }, description="The price records of one service in one region, a price per term in each, from the "
+                           "public price API at the moment of the request. An unknown region reads as eu-de.",
                 parameters=[query("service", "A service such as ecs, evs, rds or cce.", True),
                             query("flavor", "The flavor, exact, in any case."),
                             query("grep", "A part of the id, the flavor or the name."),
@@ -1318,7 +1318,7 @@ def _reference_paths() -> dict:
             "get": operation("getApiUsage", "reference", "The calls to the TCP API this month, by day.", {
                 "200": answer("The days.", ref("UsageAnswer"), {"two-days": USAGE_ANSWER}),
                 "503": refusal("The usage record cannot be read.", "The usage record is unavailable.", ANSWER_FAILED),
-            }, description="The API usage lines of the old /tenants page as JSON: counts per day and per service "
+            }, description="The calls to the TCP API this month: counts per day and per service with a total, "
                            "from the Workbench's own record of its calls. No tenant alias, no path, no id.",
                 state="deployed"),
         },
