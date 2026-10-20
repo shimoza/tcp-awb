@@ -9120,8 +9120,43 @@
    "name": "K22: a deeply nested login file does not keep the task home",
    "run": ".venv/bin/pytest tests/test_build_units_k.py::test_k22_a_deeply_nested_login_file_does_not_keep_the_task_home",
    "status": "passing"
+  },
+  {
+   "id": "one-code-per-project-1",
+   "phase": "one-code-per-project",
+   "name": "start new issues the project and the customer from the same four characters",
+   "run": ".venv/bin/pytest tests/test_one_code_per_project.py::test_start_new_issues_the_project_and_the_customer_from_the_same_four_characters",
+   "status": "passing"
+  },
+  {
+   "id": "one-code-per-project-2",
+   "phase": "one-code-per-project",
+   "name": "spawn new issues the same pair",
+   "run": ".venv/bin/pytest tests/test_one_code_per_project.py::test_spawn_new_issues_the_same_pair",
+   "status": "passing"
+  },
+  {
+   "id": "one-code-per-project-3",
+   "phase": "one-code-per-project",
+   "name": "a taken pair is drawn again never one code alone",
+   "run": ".venv/bin/pytest tests/test_one_code_per_project.py::test_a_taken_pair_is_drawn_again_never_one_code_alone",
+   "status": "passing"
+  },
+  {
+   "id": "one-code-per-project-4",
+   "phase": "one-code-per-project",
+   "name": "start and spawn refuse an existing customer with one line",
+   "run": ".venv/bin/pytest tests/test_one_code_per_project.py::test_start_and_spawn_refuse_an_existing_customer_with_one_line",
+   "status": "passing"
+  },
+  {
+   "id": "one-code-per-project-5",
+   "phase": "one-code-per-project",
+   "name": "import new refuses a taken customer code and draws no other",
+   "run": ".venv/bin/pytest tests/test_one_code_per_project.py::test_import_new_refuses_a_taken_customer_code_and_draws_no_other",
+   "status": "passing"
   }
  ],
- "total_tests": 1303,
+ "total_tests": 1308,
  "checked": "2026-10-20"
 }

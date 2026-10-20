@@ -55,22 +55,18 @@ def _say(text: str) -> None:
     print(text)
 
 
-def project_customer_code(code: str) -> str:
-    """CUST- and the four characters of the project code (tcp-q7m4 -> CUST-Q7M4)."""
-    return "CUST-" + code.split("-", 1)[1].upper()
+project_customer_code = intake.project_customer_code
 
 
 def new_customer(p: config.Paths, code: str) -> tuple[str, bool]:
-    """The code of a new customer for project `code`: the project's four characters when that code is free and
-    safe (no register form in it, no structured shape, never issued), else a random safe code. Returns (code, the
-    project's own)."""
+    """The code of a new customer for project `code`: CUST- and the project's four characters. The project
+    exists, so a taken pair is refused: there is no second code to draw. Returns (code, True)."""
     entries = register.load(p.register)
     wanted = project_customer_code(code)
-    issued = intake.issued_codes(p) | set(register.codes(entries))
-    engine = intake._Engine(entries)
-    if codes.is_code(wanted) and wanted not in issued and engine.safe(wanted):
-        return wanted, True
-    return intake.safe_new_code(entries, "CUST", issued), False
+    if not intake.pair_is_free(p, entries, intake._Engine(entries), wanted):
+        raise ImportRefused("%s is taken or not safe as a customer code: %s cannot get a customer of its own code"
+                            % (wanted, code))
+    return wanted, True
 
 
 def _active_forms(p: config.Paths, customer: str) -> int:
@@ -188,9 +184,8 @@ def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None =
     if customer == "new":
         if own:
             raise ImportRefused("%s has the customer %s already" % (code, own))
-        cust, from_project = new_customer(p, code)
-        _say("new customer %s%s" % (cust, "" if from_project else " (the project's own code was taken, a random one "
-                                                                  "was issued)"))
+        cust, _own = new_customer(p, code)
+        _say("new customer %s" % cust)
     elif customer:
         if not (codes.is_code(customer) and codes.kind_of(customer) == "CUST" and customer.count("-") == 1):
             raise ImportRefused("a customer code reads CUST-XXXX or new")
