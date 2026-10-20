@@ -25,6 +25,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 - The status socket of the gateway drops an idle client after 3 seconds (task k-gateway-limits, K5): `StatusHandler` had no timeout, the socket is 0666 and its threads share the `TasksMax` of the gateway, so any local uid could hold the site with idle connections.
 
+- `awb mirror rn` (task k-release-notes-hardening, K6 of the attacker review of 2026-10-20): a hostile list page can no longer make a run unbounded. The pager is read up to 200 pages, one page is read up to 2 MiB and 60 seconds in all, and a page holds at most 100 notes with a title cut to 200 characters, a text to 2000 and at most 10 tags of 80.
+
 - `seal/verify.sh`: the check of the pdf extraction unit made its probe PDF with reportlab, which the runtime venv does not hold, so it failed on a real host although the unit works. The probe PDF is now a minimal one page PDF written with the standard library alone (`make_probe_pdf`), and the check reads "the unit of awb-extract runs pdftotext on a one page pdf". The `systemd-run` line is unchanged.
 
 ## Week 42, 2026-10-12 to 2026-10-18 (in progress)

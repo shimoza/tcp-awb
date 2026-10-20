@@ -56,6 +56,11 @@ ROOT_ENV = "AWB_MIRRORS"
 SEALED_ROOT = Path("/srv/tcp-mirrors")
 RN_PAGE = "https://www.t-cloud-public.com/en/support/release-notes"
 RN_PAUSE = 2.0
+RN_MAX_PAGES = 200                  # the pager of a hostile page cannot lead a run past this
+RN_MAX_BYTES = 2 * 1024 * 1024      # one list page
+RN_MAX_SECONDS = 60                 # one list page, the whole read
+RN_MAX_NOTES = 100                  # per list page
+RN_MAX_TITLE, RN_MAX_TEXT, RN_MAX_TAGS, RN_MAX_TAG = 200, 2000, 10, 80
 DOCS, SD, RN = "docs", "service-description", "release-notes"
 INDEX = "INDEX.json"
 MANIFEST = "MANIFEST.json"
@@ -306,7 +311,7 @@ class _ListParser(HTMLParser):
         if tag == "a":
             m = re.search(r"[?&]p=(\d+)", href)
             if m:
-                self.last_page = max(self.last_page, int(m.group(1)))
+                self.last_page = min(RN_MAX_PAGES, max(self.last_page, int(m.group(1))))
         if tag == "article" and "page-teaser" in cls:
             self._note = {"date": "", "title": "", "text": "", "link": "", "services": [], "types": []}
         elif self._note is None:
@@ -332,11 +337,14 @@ class _ListParser(HTMLParser):
         if tag in ("h2", "p", "a") and self._field:
             text = " ".join("".join(self._buf).split())
             if self._field in ("title", "text") and tag in ("h2", "p"):
-                self._note[self._field] = self._note[self._field] or text
+                cap = RN_MAX_TITLE if self._field == "title" else RN_MAX_TEXT
+                self._note[self._field] = self._note[self._field] or text[:cap]
             elif self._field == "tag-service" and tag == "a" and text:
-                self._note["services"].append(text)
+                if len(self._note["services"]) < RN_MAX_TAGS:
+                    self._note["services"].append(text[:RN_MAX_TAG])
             elif self._field == "tag-type" and tag == "a" and text:
-                self._note["types"].append(text)
+                if len(self._note["types"]) < RN_MAX_TAGS:
+                    self._note["types"].append(text[:RN_MAX_TAG])
             else:
                 return
             self._field = ""
@@ -363,7 +371,7 @@ def parse_release_notes(html: str, page: str | None = None) -> tuple[list[dict],
     parser.feed(html)
     parser.close()
     notes = []
-    for n in parser.notes:
+    for n in parser.notes[:RN_MAX_NOTES]:
         link = _note_link(n["link"], page)
         slug = link.rstrip("/").rsplit("/", 1)[-1].lower()
         if not (re.fullmatch(r"\d{4}-\d{2}-\d{2}", n["date"]) and n["title"] and link
@@ -375,8 +383,21 @@ def parse_release_notes(html: str, page: str | None = None) -> tuple[list[dict],
 
 def _fetch_page(url: str) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": _AGENT, "Accept": "text/html"})
+    end = time.monotonic() + RN_MAX_SECONDS
+    chunks: list[bytes] = []
+    size = 0
     with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.read().decode("utf-8", "replace")
+        while True:
+            chunk = resp.read(65536)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > RN_MAX_BYTES:
+                raise MirrorError("the release notes page is larger than %d bytes" % RN_MAX_BYTES)
+            if time.monotonic() > end:
+                raise MirrorError("the release notes page took longer than %d seconds" % RN_MAX_SECONDS)
+            chunks.append(chunk)
+    return b"".join(chunks).decode("utf-8", "replace")
 
 
 def load_rn_index(base: Path) -> dict:
