@@ -1222,6 +1222,13 @@ def nudge_main() -> int:
         return 1
     for ln in nudge(host):
         print("awb build: nudge %s" % ln)
+    try:                        # the mails of the owner commands in OPEN.md go out here, as the owner (K15)
+        from awb import projects
+        sent = projects.mail_owner_commands_all(config.paths())
+        if sent:
+            print("awb build: nudge %d owner command mail%s" % (sent, "" if sent == 1 else "s"))
+    except Exception as err:
+        print("awb build: the owner command mails failed (%s)" % type(err).__name__, file=sys.stderr)
     return 0
 
 

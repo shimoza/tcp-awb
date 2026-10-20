@@ -691,7 +691,7 @@ def _live_rows(folder: Path) -> list[dict[str, str]]:
     head: list[str] | None = None
     live: list[dict[str, str]] = []
     for line in text.splitlines():
-        cells = [c.strip().lower() for c in line.strip().strip("|").split("|")] if line.strip().startswith("|") else None
+        cells = [_plain(c).lower() for c in line.strip().strip("|").split("|")] if line.strip().startswith("|") else None
         if cells is None:
             continue
         if head is None:
@@ -739,7 +739,7 @@ def open_item_lines(folder: Path) -> list[str]:
     out = []
     for line in text.splitlines():
         if line.startswith("- "):
-            item = " ".join(line[2:].split())
+            item = _plain(line[2:])
             cmd = item_command(item)
             out.append("open: %s%s" % (item, " (run: %s)" % cmd if cmd else ""))
     return out
@@ -750,6 +750,32 @@ def live_resource_lines(folder: Path) -> list[str]:
     platform id."""
     return ["live: %s (%s, %s) (run: %s)" % (r.get("handle") or "-", r.get("type") or "-", r.get("state") or "-",
                                              LIVE_COMMAND) for r in _live_rows(folder)]
+
+
+OWNER_MAIL_COMMANDS = (("keys", "unlock"), ("vault", "unlock"), ("unlock",), ("projects", "kind"), ("projects", "delete"),
+                       ("close",), ("cloud", "sweep"), ("import",), ("build", "show"), ("build", "retry"),
+                       ("build", "widen"))
+"""The commands an owner mail may carry, by their first words. OPEN.md is a session's file: a mail runs only what
+the owner's own steps are, never any `awb SUB ARGS` a session wrote."""
+
+
+def mailable_command(item: str) -> str | None:
+    """The command of an owner item when it is clean and on the allow list, else None."""
+    cmd = item_command(item)
+    if cmd is None:
+        return None
+    words = cmd.split()[1:]
+    return cmd if any(tuple(words[:len(a)]) == a for a in OWNER_MAIL_COMMANDS) else None
+
+
+def mail_owner_commands_all(p: _config.Paths, send=None) -> int:
+    """`mail_owner_commands` for every active project: run by the owner's timer (`awb build nudge`), never in the
+    session hook, where the key service refuses the work user. Returns the count sent."""
+    sent = 0
+    for r in load(p):
+        if r.state == "active":
+            sent += mail_owner_commands(p, Path(r.path), send)
+    return sent
 
 
 def mail_owner_commands(p: _config.Paths, folder: Path, send=None) -> int:
@@ -777,8 +803,16 @@ def mail_owner_commands(p: _config.Paths, folder: Path, send=None) -> int:
         def send(subject: str, message: str) -> bool:
             return keys.send_mail(subject, message) == "sent"
     sent = 0
-    for item in _owner_items(text):
-        cmd = item_command(item)
+    items = _owner_items(text)
+    from awb import ledger
+    try:                        # the name check over item and command; a check that cannot run mails nothing
+        hidden = ledger.hit_indexes(items, ledger.register_path(p))
+    except ledger.LedgerError:
+        return 0
+    for i, item in enumerate(items):
+        cmd = mailable_command(item)
+        if i in hidden:
+            continue
         key = hashlib.sha256(item.encode("utf-8")).hexdigest()[:16]
         if cmd is None or key in done:
             continue
@@ -973,6 +1007,12 @@ WAITING_ITEMS = 5
 """The most owner items `awb projects open` shows for one project (the board shows as many)."""
 
 
+def _plain(text: str) -> str:
+    """A line of a file a session writes, for the owner's terminal: whitespace collapsed, control and format
+    characters (ESC, C1, bidi marks) dropped, as `build.py` does for the agent's message."""
+    return "".join(c for c in " ".join(text.split()) if unicodedata.category(c) not in ("Cc", "Cf"))
+
+
 def _owner_items(text: str) -> list[str]:
     """The dash items of OPEN.md that wait on the owner: every item under a ## heading that names the owner and an
     item elsewhere that names him."""
@@ -983,7 +1023,7 @@ def _owner_items(text: str) -> list[str]:
             owner_section = "owner" in line.lower()
             continue
         if line.startswith("- "):
-            item = " ".join(line[2:].split())
+            item = _plain(line[2:])
             if owner_section or re.search(r"\bowner\b", item, re.IGNORECASE):
                 out.append(item)
     return out

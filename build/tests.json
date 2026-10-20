@@ -9253,8 +9253,71 @@
    "name": "the new rules files say where they come from",
    "run": ".venv/bin/pytest tests/test_false_candidates.py::test_the_new_rules_files_say_where_they_come_from",
    "status": "passing"
+  },
+  {
+   "id": "k-cli-hooks-writing-k10-1",
+   "phase": "k-cli-hooks-writing",
+   "name": "K10: open items drop escapes and format characters",
+   "run": ".venv/bin/pytest tests/test_k10_terminal_escapes.py::test_open_items_drop_escapes_and_format_characters",
+   "status": "passing"
+  },
+  {
+   "id": "k-cli-hooks-writing-k10-2",
+   "phase": "k-cli-hooks-writing",
+   "name": "K10: owner items drop escapes",
+   "run": ".venv/bin/pytest tests/test_k10_terminal_escapes.py::test_owner_items_drop_escapes",
+   "status": "passing"
+  },
+  {
+   "id": "k-cli-hooks-writing-k10-3",
+   "phase": "k-cli-hooks-writing",
+   "name": "K10: live resource lines drop escapes",
+   "run": ".venv/bin/pytest tests/test_k10_terminal_escapes.py::test_live_resource_lines_drop_escapes",
+   "status": "passing"
+  },
+  {
+   "id": "k-cli-hooks-writing-k11-1",
+   "phase": "k-cli-hooks-writing",
+   "name": "K11: a linked draft in the project is refused",
+   "run": ".venv/bin/pytest tests/test_k11_voice_links.py::test_a_linked_draft_in_the_project_is_refused_with_and_without_project",
+   "status": "passing"
+  },
+  {
+   "id": "k-cli-hooks-writing-k11-2",
+   "phase": "k-cli-hooks-writing",
+   "name": "K11: a draft behind a linked folder of the project is refused",
+   "run": ".venv/bin/pytest tests/test_k11_voice_links.py::test_a_draft_behind_a_linked_folder_of_the_project_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "k-cli-hooks-writing-k11-3",
+   "phase": "k-cli-hooks-writing",
+   "name": "K11: a planted link for the voice folder is not followed",
+   "run": ".venv/bin/pytest tests/test_k11_voice_links.py::test_a_planted_link_for_the_voice_folder_is_not_followed_or_chmodded",
+   "status": "passing"
+  },
+  {
+   "id": "k-cli-hooks-writing-k15-1",
+   "phase": "k-cli-hooks-writing",
+   "name": "K15: a command off the allow list is not mailed",
+   "run": ".venv/bin/pytest tests/test_k15_owner_mail.py::test_a_command_off_the_allow_list_is_not_mailed",
+   "status": "passing"
+  },
+  {
+   "id": "k-cli-hooks-writing-k15-2",
+   "phase": "k-cli-hooks-writing",
+   "name": "K15: an item with a name is not mailed",
+   "run": ".venv/bin/pytest tests/test_k15_owner_mail.py::test_an_item_with_a_name_is_not_mailed",
+   "status": "passing"
+  },
+  {
+   "id": "k-cli-hooks-writing-k15-3",
+   "phase": "k-cli-hooks-writing",
+   "name": "K15: the owner timer mails every active project",
+   "run": ".venv/bin/pytest tests/test_k15_owner_mail.py::test_the_owner_timer_mails_every_active_project",
+   "status": "passing"
   }
  ],
- "total_tests": 1322,
+ "total_tests": 1331,
  "checked": "2026-10-20"
 }
