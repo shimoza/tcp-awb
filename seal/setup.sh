@@ -495,7 +495,7 @@ step_extract_user() {
     uid=$(id -u "$owner" 2>/dev/null || echo 0)
     for tool in pdftotext pdfinfo; do
         path=$(command -v "$tool" || true)
-        [ -z "$path" ] || line="$line${line:+, }$path *"
+        [ -z "$path" ] || line="$line${line:+, }$(extract_prefix) -- $path *"
     done
     if [ -z "$line" ]; then
         info "poppler is not installed: no sudoers line for the extraction"
@@ -503,7 +503,7 @@ step_extract_user() {
     fi
     write_file "$EXTRACT_SUDOERS" 440 root:root <<EOF
 # Architect Workbench: the owner may run the pdf tools in a transient unit of $EXTRACT_USER, in this form only
-#$uid ALL=(root) NOPASSWD: $(extract_prefix) -- $line
+#$uid ALL=(root) NOPASSWD: $line
 EOF
     [ "$dry_run" -eq 1 ] || run visudo -cf "$EXTRACT_SUDOERS"
 }
