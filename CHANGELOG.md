@@ -21,6 +21,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 - `awb kb recheck-watch` no longer deletes a resource by a name match alone (task B-029, finding R8 of the review of 2026-10-16). A server, disk or address is taken only when its `awb-project` tag names the service project. A VPC, subnet, security group, WAF policy, SMN topic or subscription and RDS instance, whose listings carry no tags, is also taken by its lab name with the project code and an `awb-expiry` marker that has passed. A resource named like the project without the tag or the marker is left alone and listed by its handle.
 
+- `awb dataset put --github` (task k-dataset-signing, K1 of the review of 2026-10-20): every git and gh call on the clone sets `core.hooksPath=/dev/null`, `core.fsmonitor=false` and `gpg.ssh.program=ssh-keygen` (through `GIT_CONFIG_COUNT`, the scope of `git -c`), so a setting a session plants in the clone runs no program as the owner and never reaches the signing key. The put refuses a clone whose folder, `.git` or anything in `.git` is a link, owned by another user or writable by group or others, before the pull and again before the tag and the push; git runs with umask 022 so a fresh clone passes. A clone the work user owns must be removed once; the next put clones it again.
+
 - `seal/verify.sh`: the check of the pdf extraction unit made its probe PDF with reportlab, which the runtime venv does not hold, so it failed on a real host although the unit works. The probe PDF is now a minimal one page PDF written with the standard library alone (`make_probe_pdf`), and the check reads "the unit of awb-extract runs pdftotext on a one page pdf". The `systemd-run` line is unchanged.
 
 ## Week 42, 2026-10-12 to 2026-10-18 (in progress)
