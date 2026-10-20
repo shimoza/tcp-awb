@@ -9127,8 +9127,29 @@
    "name": "K4: a session naming another project is refused before anything is signed",
    "run": ".venv/bin/pytest tests/test_keys_scope_caller.py::test_a_session_naming_another_project_is_refused_before_anything_is_signed",
    "status": "passing"
+  },
+  {
+   "id": "k-build-units-1",
+   "phase": "k-build-units",
+   "name": "K8: only the token fields go back and the old object keeps the rest",
+   "run": ".venv/bin/pytest tests/test_build_units_k.py::test_k8_only_the_token_fields_go_back_and_the_old_object_keeps_the_rest",
+   "status": "passing"
+  },
+  {
+   "id": "k-build-units-2",
+   "phase": "k-build-units",
+   "name": "K8: an expiry far ahead and another account id are not copied",
+   "run": ".venv/bin/pytest tests/test_build_units_k.py::test_k8_an_expiry_far_ahead_and_another_account_id_are_not_copied",
+   "status": "passing"
+  },
+  {
+   "id": "k-build-units-3",
+   "phase": "k-build-units",
+   "name": "K22: a deeply nested login file does not keep the task home",
+   "run": ".venv/bin/pytest tests/test_build_units_k.py::test_k22_a_deeply_nested_login_file_does_not_keep_the_task_home",
+   "status": "passing"
   }
  ],
- "total_tests": 1304,
+ "total_tests": 1307,
  "checked": "2026-10-20"
 }
