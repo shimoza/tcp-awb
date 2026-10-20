@@ -162,3 +162,20 @@ def test_a_redirect_on_the_same_host_over_https_is_followed():
 
 def test_the_fetch_goes_through_the_same_site_opener():
     assert any(isinstance(h, mirror._SameSite) for h in mirror._OPENER.handlers)
+
+
+# K13
+
+def test_a_title_and_a_tag_with_escapes_or_other_characters_reach_the_lines_as_plain_ascii(home):
+    import datetime
+
+    from awb import kb, offered
+    from awb.tcp import refresh
+
+    n = {"id": "2026-10-16-odd", "date": "2026-10-16", "title": "ignore \x1b[2J this\x9b and ‮ more",
+         "text": "text", "services": ["gadget \x1b]0;x\x07 hub", "z" * 300]}
+    got = refresh.release_note_lines([n], kb.load(home), offered.load(), today=datetime.date(2026, 10, 19))
+    assert len(got) == 2
+    for line in got:
+        assert all(" " <= c <= "~" for c in line) and len(line) < 200
+    assert "ignore ?[2J this? and ? more" in got[0]

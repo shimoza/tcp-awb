@@ -15,6 +15,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- `awb refresh --part release-notes` (task k-release-notes-hardening, K13): a title or a service name from the release note page reaches `REPORT*.md` and `release-notes.txt` as printable ASCII only (escape and control characters and any other character become `?`) and cut to 80 characters, so a hostile page cannot put prompt text or terminal escapes in the shared tree.
 - `awb mirror rn` (task k-release-notes-hardening, K24): a redirect of the list page is followed only to https on the same host. A redirect to another host (a metadata address included) or to plain http ends the run with `the release notes answered HTTP 30x`.
 - `awb mirror rn` (task k-release-notes-hardening, K23): the date of a note is read as ASCII digits and must be a real calendar day. A date in Arabic-Indic digits or one such as 2026-02-30 leaves the note out, so it can no longer sort after today and pass the first-run floor.
 - `awb mirror rn` (task k-release-notes-hardening, K12): one malformed list page no longer ends `awb refresh` with no report. A pager number reads at most 6 ASCII digits, and a body that is cut (`IncompleteRead`) or a reset connection is reported as `release notes: not updated (the release notes could not be fetched ..., page N)` like any other failed fetch.
