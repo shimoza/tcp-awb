@@ -201,7 +201,12 @@ def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None =
             raise ImportRefused("%s has no customer: --review registers codes of a customer, run without it or with "
                                 "--customer new" % code)
     if cust != code and _active_forms(p, cust) == 0:
-        ask_forms(p, cust, read=read, tty=tty, allow_none=own is None)
+        if (p.outbox / cust).is_dir():
+            # issued without a form (awb start --customer new, an empty first line): nothing to ask again; the
+            # other customers' forms and the secret checks still run
+            _say("%s was issued without a form: the copies are checked against the forms of the register" % cust)
+        else:
+            ask_forms(p, cust, read=read, tty=tty, allow_none=own is None)
     if review and not (tty if tty is not None else (sys.stdin.isatty() and sys.stdout.isatty())) and edit is None:
         raise ImportRefused("--review opens an editor: run it in your own terminal")
 

@@ -23,6 +23,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- `awb import` into a project whose customer was issued without a form no longer asks for a form (CG3).
+
 - A build task's own /dev/shm is writable for the task user again (mode=1777): checks no longer fail the two ledger
   tests on a lock they could not create (SH).
 

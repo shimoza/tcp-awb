@@ -9169,6 +9169,20 @@
    "name": "start refuses an existing customer with one line and spawns nothing",
    "run": ".venv/bin/pytest tests/test_start.py::test_start_refuses_an_existing_customer_with_one_line_and_spawns_nothing",
    "status": "passing"
+  },
+  {
+   "id": "formless-import-1",
+   "phase": "one-code-per-project",
+   "name": "an import for a customer issued without a form asks for none",
+   "run": ".venv/bin/pytest tests/test_import_formless.py::test_an_import_for_a_customer_issued_without_a_form_asks_for_none",
+   "status": "passing"
+  },
+  {
+   "id": "formless-import-2",
+   "phase": "one-code-per-project",
+   "name": "a customer never issued is still asked for its forms",
+   "run": ".venv/bin/pytest tests/test_import_formless.py::test_a_customer_never_issued_is_still_asked_for_its_forms",
+   "status": "passing"
   }
  ],
  "total_tests": 1310,
