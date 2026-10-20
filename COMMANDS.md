@@ -31,10 +31,10 @@ session of the project.
 
 | command | what it does |
 |---|---|
-| `awb start project\|query --goal "..." [--customer CUST-XXXX\|new] [--tag TAG]...` | a piece of work in one command: register, spawn, grant, import, then the line `open: awb projects open tcp-xxxx`. `--customer new` issues a code (`awb register new CUST`); a customer without a registered form is asked for its written forms on the terminal, one per line, an empty line ends, as `awb import` asks. The spawn runs as the work user through `sudo -n` as `awb projects open` does (on a host without a work user in this process); then your grant `awb projects kind CODE KIND`; then `awb import CODE` for the new files of the project's `in/` folder of the owner bucket (the vault inbox is never taken here, it may hold another customer's files). A step that fails stops the run and says which steps are done. Your own terminal only |
+| `awb start project\|query --goal "..." [--customer new] [--tag TAG]...` | a piece of work in one command: register, spawn, grant, import, then the line `open: awb projects open tcp-xxxx`. `--customer new` issues the project code and the customer code from the same four characters (`tcp-xxxx` and `CUST-XXXX`; a pair of which either code is taken is drawn again); `--customer CUST-XXXX` is refused with one line, every project gets its own code, ten projects for one customer are ten codes that are never linked; a customer without a registered form is asked for its written forms on the terminal, one per line, an empty line ends, as `awb import` asks. The spawn runs as the work user through `sudo -n` as `awb projects open` does (on a host without a work user in this process); then your grant `awb projects kind CODE KIND`; then `awb import CODE` for the new files of the project's `in/` folder of the owner bucket (the vault inbox is never taken here, it may hold another customer's files). A step that fails stops the run and says which steps are done. Your own terminal only |
 | `awb init` | create `~/tcp-shared`, `~/tcp-vault` and an empty register (done once) |
 | `awb import tcp-xxxx [FILE...]` | the one door for customer material: takes the FILE arguments, else every new file of the project's `in/` folder in the bucket, else everything in `~/tcp-vault/inbox`, and runs the intake for the project's customer in wipe mode. The copies go to `~/tcp-shared/outbox/CUST-XXXX/` (for a project without a customer to `~/tcp-shared/outbox/tcp-xxxx/`, with no customer code) and carry the customer as its code and every other name the rules recognise as a token (`[person 1]`, `[company 1]`, `[place 1]`, `[name 1]`, numbered within the import); nothing stops, no editor opens. It prints the files taken, the copies written, the values wiped per class, the pictures held and the files withheld, never a name, and the sessions of the project read "new input" at their next prompt. Your own terminal only |
-| `awb import tcp-xxxx --customer CUST-XXXX` or `--customer new` | only when a project without a customer is to get one (without it such a project imports with no customer code): `new` issues `CUST-` and the project's four characters (a random code when that one is taken). A customer without a registered form is asked for its written forms on the terminal, one per line, an empty line ends; for a project without a customer an empty first line issues the code without a form |
+| `awb import tcp-xxxx --customer CUST-XXXX` or `--customer new` | only when a project without a customer is to get one (without it such a project imports with no customer code): `new` issues `CUST-` and the project's four characters (refused when that code is taken: the project keeps its code, so there is no second one to draw). A customer without a registered form is asked for its written forms on the terminal, one per line, an empty line ends; for a project without a customer an empty first line issues the code without a form |
 | `awb import tcp-xxxx --redo` | the repair of a wiped term: after `awb register keep "the term"`, the originals of the customer's last import run again from the vault and the copies replace the earlier ones under the same file ids; the session reads "replaced" |
 | `awb import tcp-xxxx --review` | the rare case where a person, a partner or a place must keep a code: the run stops once, an editor opens with the candidates (`p` person, `o` company, `c` this customer, `s` place, `+` one more form, `-` later, no mark: keep), then it goes on in wipe mode and a candidate left for later is a token |
 | `awb vault show` | the newest private report (what was wiped, by class and rule, and the forms the run learned) of `--customer CUST-XXXX` or of the only customer with a report of the last day; a FILE shows that file. Your own terminal only, never to a pipe or inside an assistant session |
@@ -343,8 +343,8 @@ The work user of the seal reads the mirrors read-only under `/srv/tcp-mirrors/`:
 
 | command | what it does |
 |---|---|
-| `awb spawn query --goal "..." [--customer CUST-XXXX] --tag iam` | a query `tcp-<code>` with its files, hooks and git: the knowledge base, the docs mirror, live prices and calculations, no test tenant (the key service refuses it). It ends with the project's folder `<YYYY-MM>/tcp-<code>/` with `in/` and `out/` in the owner bucket, made by the key service; when the service cannot be reached it says so in one line and goes on (the first take or `awb bucket folder CODE` makes it). The console's creation runs the same spawn |
-| `awb spawn project --goal "..." [--customer CUST-XXXX] --tag vpn` | a project: everything a query has plus the test tenants through the key service |
+| `awb spawn query --goal "..." [--customer new] --tag iam` | a query `tcp-<code>` with its files, hooks and git: the knowledge base, the docs mirror, live prices and calculations, no test tenant (the key service refuses it). It ends with the project's folder `<YYYY-MM>/tcp-<code>/` with `in/` and `out/` in the owner bucket, made by the key service; when the service cannot be reached it says so in one line and goes on (the first take or `awb bucket folder CODE` makes it). The console's creation runs the same spawn |
+| `awb spawn project --goal "..." [--customer new] --tag vpn` | a project: everything a query has plus the test tenants through the key service |
 | `awb spawn project --goal "..." --tag vpn --tenant test-1` | a project whose SCOPE.md carries the line `- tenant: test-1`; `awb lab run` takes it as its default tenant. Refused for a query and for an alias that does not read like `test-1` |
 | `awb spawn query --goal "..." --customer CUST-XXXX --from-outbox` | the sanitised copies waiting in `~/tcp-shared/outbox/CUST-XXXX/` move into `input/` and the first commit |
 | `awb projects kind tcp-xxxx project` | switch a query to a project (or back); a ledger line records it. The old kinds engagement, topic and code read as query, lab as project. Run by a session it changes the project's row only; run by you in your own terminal it also writes your grant (`<vault>/grants.json`) with the customer of the row at that moment, and the key service lets a session reach a test tenant only with that grant and an active row of the kind project. The key service takes a granted project's customer from the grant alone (owner-inbox take, project take, send gate of a put, lease) and refuses a row that names another one. A project you never granted has no customer for the key service: its owner-inbox take holds, its project take runs under the project code and its put meets the strict send gate. Run it once more for a project granted before 2026-10-10 so its grant records the customer; a change of the grant's customer is printed |
@@ -567,12 +567,12 @@ sort the candidates of an intake stopped by --review in an editor: mark the real
 - `CUSTOMER`: the CUST code of the stopped intake
 - `--report REPORT`: a private report other than the latest of the customer
 
-### `awb spawn KIND --goal GOAL [--customer CUSTOMER] [--tag TAG] [--from-outbox] [--tenant ALIAS]`
+### `awb spawn KIND --goal GOAL [--customer new] [--tag TAG] [--from-outbox] [--tenant ALIAS]`
 
 create a sealed tcp- project: a query or a project
 - `KIND`: query (knowledge base, prices, no tenant) or project (also the test tenants)
 - `--goal GOAL`
-- `--customer CUSTOMER`
+- `--customer new`: new issues the customer code with the project's four characters (CUST-XXXX for tcp-xxxx); without it the project has no customer. An existing customer is refused: every project gets its own code
 - `--tag TAG`
 - `--from-outbox`: move the customer's outbox copies into input/
 - `--tenant ALIAS`: the test tenant of the project: written as the tenant: line of SCOPE.md, the default of awb lab run
@@ -1192,12 +1192,12 @@ delete what this project put into <code>/from-session/
 - `--dry-run`: list what would be deleted
 - `--go`: delete and record the rows in RESOURCES.md
 
-### `awb start KIND --goal GOAL [--customer CUST-XXXX|new] [--tag TAG]`
+### `awb start KIND --goal GOAL [--customer new] [--tag TAG]`
 
 a piece of work in one command: register, spawn, grant, import, the open line (owner side)
 - `KIND`: query (no test tenant) or project (test tenants) (one of query, project)
 - `--goal GOAL`
-- `--customer CUST-XXXX|new`: the customer's code or new to issue one; its written forms are asked on the terminal, never given here
+- `--customer new`: new issues CUST-XXXX with the four characters of the project code; its written forms are asked on the terminal, never given here; an existing customer is refused
 - `--tag TAG`: a tag of rules/tags.txt, as awb spawn takes it
 
 ### `awb fetch CODE [--again] [--into DIR]`

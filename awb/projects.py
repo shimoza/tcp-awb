@@ -523,11 +523,13 @@ _known_tags = known_tags         # kept for the web adapters still deployed outs
 
 def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register_path: Path,
           tags: list[str] = (), from_outbox: bool = False, code: str | None = None,
-          tenant: str | None = None) -> Project:
+          tenant: str | None = None, new_customer: bool = False) -> Project:
     """Create, commit and register a sealed tcp- project. Refuses before anything is written. Tags come from
     rules/tags.txt (T-03). With `from_outbox` the sanitised copies waiting in the outbox of the customer move into
     input/ and go into the first commit (T-14). `code` takes a code reserved before (the web creation keeps it
-    with its request id); a reserved code that is registered already is refused."""
+    with its request id); a reserved code that is registered already is refused. With `new_customer` the customer
+    is the one issued with the project (CUST- and the four characters of `code`): it has no form in the register
+    yet, so only its shape is checked."""
     kind = LEGACY_KINDS.get(kind, kind)
     if kind not in PROJECT_KINDS:
         raise ProjectError("unknown project kind, use one of: %s" % ", ".join(PROJECT_KINDS))
@@ -556,7 +558,11 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
     # a readable register, an encrypted one through the vault daemon or (the work side of the seal) the check
     # socket of the daemon; no register at all or no answer refuses
     _require_name_check(_check_mod, register_path)
-    customer = _check_customer(customer, register_path, p, _check_mod)
+    if new_customer:
+        if not (isinstance(customer, str) and customer != NO_CUSTOMER and _is_customer(customer)):
+            raise ProjectError("customer must be a top-level CUST code")
+    else:
+        customer = _check_customer(customer, register_path, p, _check_mod)
     _name_check(check_text, goal, register_path, "goal")
     _candidate_check(goal, "goal")
     for n, tag in enumerate(tags, start=1):
