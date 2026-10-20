@@ -13,7 +13,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
-- One code per project (task one-code-per-project): `awb start`, `awb spawn` and `awb import` with `--customer new` issue `tcp-xxxx` and `CUST-XXXX` from the same four characters, and the bucket folder is `YYYY-MM/tcp-xxxx/`. A pair of which either code is taken is drawn again; `awb import` on an existing project refuses a taken `CUST-` code in place of a random one. `awb start` and `awb spawn` refuse `--customer CUST-XXXX` with one line (every project gets its own code); `--customer new` or no customer. `awb spawn --customer new` is new. Existing projects keep their codes.
+- One code per project (task one-code-per-project): `awb start`, `awb spawn` and `awb import` with `--customer new` issue `tcp-xxxx` and `CUST-XXXX` from the same four characters, and the bucket folder is `YYYY-MM/tcp-xxxx/`. A pair of which either code is taken is drawn again; `awb import` on an existing project refuses a taken `CUST-` code in place of a random one. `awb start` and `awb spawn` refuse `--customer CUST-XXXX` with one line (every project gets its own code); `--customer new` or no customer. `awb spawn --customer new` is new. `awb start --customer new` takes an empty first line at the forms prompt: a fully anonymous project with no written form. Existing projects keep their codes.
 
 - The gateway (task B-029): `make_server`, `make_front_server` and `_configure` of `awb/tcp/web/gateway.py` no longer take the unused place of the removed portal's port; the ask port is now the fourth argument. The command line of the gateway is unchanged.
 
