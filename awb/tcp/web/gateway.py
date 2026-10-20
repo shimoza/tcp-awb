@@ -1535,6 +1535,7 @@ class StatusHandler(BaseHTTPRequestHandler):
     """The status socket: GET /health and nothing else, for awb web status, the publish code and the deploy."""
     server_version = 'AWB'
     sys_version = ''
+    timeout = 3   # the socket is 0666: an idle client must not hold a thread of the gateway (K5)
 
     def answer(self):
         body = b'{"status":"ok"}\n' if self.path == '/health' and self.command in ('GET', 'HEAD') else b'Not found.\n'

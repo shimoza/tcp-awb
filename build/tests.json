@@ -8812,8 +8812,22 @@
    "name": "recheck-watch: a tagged server with a lab name is still deleted (R8)",
    "run": ".venv/bin/pytest tests/test_recheckwatch.py::test_a_tagged_server_with_a_lab_name_is_still_deleted",
    "status": "passing"
+  },
+  {
+   "id": "k-gateway-limits-1",
+   "phase": "k-gateway-limits",
+   "name": "the status handler has a short timeout",
+   "run": ".venv/bin/pytest tests/test_gateway_limits.py::test_k5_the_status_handler_has_a_short_timeout",
+   "status": "passing"
+  },
+  {
+   "id": "k-gateway-limits-2",
+   "phase": "k-gateway-limits",
+   "name": "an idle client of the status socket is dropped",
+   "run": ".venv/bin/pytest tests/test_gateway_limits.py::test_k5_an_idle_client_of_the_status_socket_is_dropped",
+   "status": "passing"
   }
  ],
- "total_tests": 1259,
+ "total_tests": 1261,
  "checked": "2026-10-20"
 }
