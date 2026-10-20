@@ -11,7 +11,11 @@ writes the service names:
 
 A word or a phrase is written from MIN_FILES files on; the intake reads them from LOAD_MIN_FILES files on (the
 red team of 2026-10-07 measured two). The mirrors are AWB_MIRRORS or ~/tcp-mirrors on the owner side; the work user
-reads them and never writes the lists. An empty corpus writes nothing: a missing or empty mirror must never leave
+reads them and never writes the lists.
+
+Two more lists are written by hand and read by `load_plain`, one entry per line: rules/common-words.txt (plain
+English words, lowercase, from the public-domain Moby lists; a capitalised word on it is no candidate on its own) and
+rules/tech-terms.txt (vendor and technical terms the documentation lacks: Sapphire Rapids, KVM, Credential Guard). An empty corpus writes nothing: a missing or empty mirror must never leave
 the intake with fewer known words than before.
 """
 from __future__ import annotations
@@ -26,6 +30,8 @@ from awb import config, patterns
 
 WORDS_FILE = patterns.RULES_DIR / "known-words.txt"
 PHRASES_FILE = patterns.RULES_DIR / "known-phrases.txt"
+COMMON_FILE = patterns.RULES_DIR / "common-words.txt"
+TECH_FILE = patterns.RULES_DIR / "tech-terms.txt"
 MIN_FILES = 2
 LOAD_MIN_FILES = 2
 MIN_WORDS = 100
@@ -123,6 +129,22 @@ def load(path: Path, min_files: int = LOAD_MIN_FILES) -> set[str]:
                 out.add(parts[0].casefold())
         except ValueError:
             continue
+    return out
+
+
+def load_plain(path: Path, fold: bool = True) -> set[str]:
+    """The entries of a hand-written list (case folded unless `fold` is False, whitespace inside collapsed), one per
+    line, `#` lines and blank lines skipped. Missing -> empty."""
+    out: set[str] = set()
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return out
+    for line in lines:
+        line = line.strip()
+        if line and not line.startswith("#"):
+            line = " ".join(line.split())
+            out.add(line.casefold() if fold else line)
     return out
 
 

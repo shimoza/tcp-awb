@@ -19,7 +19,8 @@ endings), the tokens issued and the product-label words of the run.
 
 The lists that keep a text readable are rules files: the public corpus (rules/known-words.txt and
 rules/known-phrases.txt, written by `awb words update`), rules/known-words-de.txt, rules/known-words-ru.txt,
-rules/first-names.txt, rules/source-platforms.txt, rules/standards.txt, the section german-function of
+rules/first-names.txt, rules/common-words.txt (plain English words: no candidate on its own), rules/tech-terms.txt
+(vendor and technical terms), rules/source-platforms.txt, rules/standards.txt, the section german-function of
 rules/sentence-openers.txt and the section intake-seed of rules/allowed-terms.txt. A missing list gives fewer
 exemptions, never more: more is wiped, nothing passes that would not pass with the list.
 

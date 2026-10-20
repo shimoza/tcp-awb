@@ -14,6 +14,7 @@ from awb.intake.wipe.basic import _COMPANY_RE, _Mask, _SPACED_RE, _TITLES, _mail
 from awb.intake.wipe.lexicon import (_CODE_KIND_WORDS, _EXTRA_KNOWN, _FIRST_NAMES, _GENERIC_COMPANY_WORDS, _GERMAN_ADJ,
                                      _GERMAN_FUNCTION, _GERMAN_KNOWN, _PARTICLE_WORDS, _PRODUCT_LABEL_RE,
                                      _generic_local, _generic_word, _known_word, _letters)
+from awb.intake.wipe.lexicon import _TECH_FORMS, _TECH_MULTI, _code_spans, _plain_value, _tech_spans
 from awb.intake.wipe.proposed import (PROPOSED_RULES, _DC_RE, _blank_marks, _name_shaped, _plausible, _run_rule_exempt,
                                       _token_spans, _trim_run, _value_words)
 from awb.intake.wipe.learned import _Learned, _TITLES_EXTRA, _domain_label, _host_labels
@@ -24,8 +25,8 @@ from awb.matcher import Span
 
 _CORPUS = frozenset(_word_lists.load(_word_lists.WORDS_FILE))
 """The capitalised words of the public corpus (rules/known-words.txt from two files on)."""
-_PHRASES = frozenset(_word_lists.load(_word_lists.PHRASES_FILE))
-_VOCAB = _CORPUS | _GERMAN_KNOWN | _GERMAN_FUNCTION | _EXTRA_KNOWN | _GERMAN_ADJ
+_PHRASES = frozenset(_word_lists.load(_word_lists.PHRASES_FILE)) | _TECH_MULTI
+_VOCAB = _CORPUS | _GERMAN_KNOWN | _GERMAN_FUNCTION | _EXTRA_KNOWN | _GERMAN_ADJ | _TECH_FORMS
 _RUN_EXEMPT: set = set()
 """Casefolded words of the values under product labels (Hersteller: Kemp, Tools: Gitea, Zammad) of the run that is
 bound now (`bind`)."""
@@ -148,6 +149,7 @@ def candidate_spans(state: WipeState, text: str, known: list[Span]) -> list[Span
     raw = text
     text = _blank_marks(text)
     extra = _token_spans(text) + [Span(m.start("v"), m.end("v"), "token") for m in _PRODUCT_LABEL_RE.finditer(text)]
+    extra += _code_spans(text) + _tech_spans(text)   # code and vendor terms (KVM, Sapphire Rapids) give no candidates
     blocked = _Mask(len(text), known + _stop_spans(text) + extra)
     found: list[tuple[int, int, int, str]] = []
     for prio, rule in enumerate(PROPOSED_RULES):
@@ -201,6 +203,8 @@ def candidate_spans(state: WipeState, text: str, known: list[Span]) -> list[Span
         value = re.sub(r"\s+", " ", text[a:b]).strip()
         if not value or keep_key(value) in keep_keys:
             continue
+        if cls == "unknown" and _plain_value(value) and not (learned and value.casefold() in learned):
+            continue   # Outcome, Worked, SCORECARD: a plain English word on its own is no name
         if cls == "unknown" and learned:
             classes = {learned[w.casefold()][1][0] for w in value.split() if w.casefold() in learned}
             if "person" in classes:
