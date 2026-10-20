@@ -18,9 +18,9 @@ The review before a release: `awb kb review` compares the facts.jsonl of the fol
 folders (the facts.jsonl of the last release, written by every successful put) and prints every fact added, amended
 (statement, source or grade changed) or retired since, with its id, grade, check date, source and statement, so the
 owner reads what a session put into the knowledge base before it goes public. It writes
-`tcp-facts-<date>.review.json` beside the folder with the sha256 of the facts it showed and the release it compared
-with; `put` refuses a folder without that mark, with a mark of other facts (a build after the review) or of another
-release. It names the command in one line.
+`tcp-facts-<date>.review.json` beside the folder with the sha256 of the facts it showed, of every release asset (K3)
+and the release it compared with; `put` refuses a folder without that mark, with a mark of other facts (a build after the review) or of another
+release. It names the command in one line. A signed put refuses an asset that differs from the review's pin.
 
 What the folder holds: README.md and PROMPT.md (how to use it, the one-line prompt), HOW-TO.pdf (the same for
 people who read PDF), facts.md (every fact on one line, grouped by topic, small enough for one chat), topics/<tag>.md
@@ -61,6 +61,7 @@ import random
 import re
 import os
 import shutil
+import stat
 import struct
 import subprocess
 import sys
@@ -934,17 +935,55 @@ def clone_dir(p: config.Paths) -> Path:
     return datasets_dir(p) / (SLUG + ".git")
 
 
+# K1 (review of 2026-10-20): the clone lies in the work user's tree, so no setting of the clone may run a program as
+# the owner: no hooks, no fsmonitor, and the signing program is ssh-keygen whatever the clone's config says. Every git
+# call of _run gets them through GIT_CONFIG_COUNT, the scope of `git -c` above every config file.
+GIT_FIXED = (("core.hooksPath", "/dev/null"), ("core.fsmonitor", "false"), ("gpg.ssh.program", "ssh-keygen"))
+
+
+def _git_env() -> dict[str, str]:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_CONFIG_KEY_")
+           and not k.startswith("GIT_CONFIG_VALUE_")}
+    env["GIT_CONFIG_COUNT"] = str(len(GIT_FIXED))
+    for i, (key, value) in enumerate(GIT_FIXED):
+        env["GIT_CONFIG_KEY_%d" % i], env["GIT_CONFIG_VALUE_%d" % i] = key, value
+    return env
+
+
 def _git(clone: Path, *args: str) -> list[str]:
-    """A git command on the clone that names the clone as a safe directory, so the owner may run it on a clone the
-    work user owns without a global git setting; only that path, never every directory."""
+    """A git command on the clone that names the clone as a safe directory, so git needs no global setting; only that
+    path, never every directory. _run adds the settings of GIT_FIXED."""
     return ["git", "-c", "safe.directory=%s" % Path(clone).resolve(), *args]
+
+
+def check_clone(clone: Path) -> None:
+    """Refused unless the clone, its .git and everything in .git belong to this user, are no link and are writable
+    by nobody else: the owner runs git and the signing key there, the work user may write the folder around it."""
+    uid = os.geteuid()
+    git = clone / ".git"
+    entries = [clone, git]
+    if git.is_dir() and not git.is_symlink():
+        for root, dirs, files in os.walk(git):                  # does not follow links: a link is listed and refused
+            entries += [Path(root) / n for n in dirs + files]
+    for x in entries:
+        try:
+            st = os.lstat(x)
+        except OSError:
+            st = None
+        if (st is None or stat.S_ISLNK(st.st_mode) or st.st_uid != uid or st.st_mode & 0o022
+                or (x == git and not stat.S_ISDIR(st.st_mode))):
+            raise DatasetError("the clone %s is not yours alone (a link, another owner or writable by others); "
+                               "nothing was published: remove it, the next put clones it again" % clone.name)
 
 
 def _run(args: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
     """One git or gh call. A failure names the command and its exit code, never its output."""
     shown = args[3:] if args[1:2] == ["-c"] else args[1:]          # the safe.directory setting names a path
     try:
-        res = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=GIT_TIMEOUT)
+        # umask 022: what git writes into the clone stays writable by the owner alone (check_clone), whatever the
+        # owner's own umask
+        res = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=GIT_TIMEOUT, umask=0o022,
+                             env=_git_env() if args[0] in ("git", "gh") else None)
     except FileNotFoundError:
         raise DatasetError("%s is not installed" % args[0]) from None
     except subprocess.TimeoutExpired:
@@ -1039,13 +1078,24 @@ def previous_release(clone: Path, day: str) -> tuple[str, list[dict]] | None:
     return prev, read_facts(res.stdout)
 
 
-def _sign_sums(folder: Path, zpath: Path, sign: dict[str, str]) -> list[Path]:
-    """SHA256SUMS (one line per release asset) and its signature into the release folder; both come back."""
+def _sign_sums(folder: Path, zpath: Path, sign: dict[str, str], pinned: dict[str, str] | None = None) -> list[Path]:
+    """SHA256SUMS (one line per release asset) and its signature into the release folder; both come back. With
+    `pinned` (the asset sums of the review mark) refused when an asset differs from what the review pinned, so the
+    key vouches only for the files the owner reviewed (K3 of the review of 2026-10-20). The sums file is a new file,
+    never written through a link."""
     mpath = folder.parent / (folder.name + ".mcpb")
     if not mpath.is_file():
         raise DatasetError("the folder of %s has no %s; run awb dataset build --force" % (folder.name, mpath.name))
     assets = [zpath, folder / "HOW-TO.pdf", folder / "MANIFEST.json", mpath]
-    (folder / SUMS_FILE).write_text("".join("%s  %s\n" % (_sha(a), a.name) for a in assets), encoding="utf-8")
+    sums = [(_sha(a), a.name) for a in assets]
+    if pinned is not None and any(pinned.get(name) != sha for sha, name in sums):
+        raise DatasetError("an asset of %s changed since the review; nothing was signed, %s"
+                           % (folder.name, kbreview.REVIEW_HINT.replace("first", "again")))
+    path = folder / SUMS_FILE
+    path.unlink(missing_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write("".join("%s  %s\n" % pair for pair in sums))
     (folder / (SUMS_FILE + ".sig")).unlink(missing_ok=True)
     _run(["ssh-keygen", "-Y", "sign", "-f", sign["key"], "-n", "file", SUMS_FILE], cwd=folder)
     if not (folder / (SUMS_FILE + ".sig")).is_file():
@@ -1053,7 +1103,8 @@ def _sign_sums(folder: Path, zpath: Path, sign: dict[str, str]) -> list[Path]:
     return [folder / SUMS_FILE, folder / (SUMS_FILE + ".sig")]
 
 
-def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: Path | None = None) -> list[str]:
+def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: Path | None = None,
+               pinned: dict[str, str] | None = None) -> list[str]:
     """The files of a build into the root of the public repository, committed as the GitHub account, and a release
     of its date with the zip, the how-to PDF and the manifest. Refused when that date is tagged already unless `replace`, and when a person
     or a registered name is in any file that would go public."""
@@ -1065,7 +1116,9 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
     if not (clone / ".git").is_dir():
         clone.parent.mkdir(parents=True, exist_ok=True)
         _run(["gh", "repo", "clone", GITHUB_REPO, str(clone)])
+        check_clone(clone)
     else:
+        check_clone(clone)
         _run(_git(clone, "pull", "--ff-only", "--tags", "--force"), cwd=clone)
     _account_identity(clone)
     tagged = bool(_run(_git(clone, "tag", "--list", day), cwd=clone).stdout.strip())
@@ -1096,8 +1149,9 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
     if _run(_git(clone, "diff", "--cached", "--quiet"), cwd=clone, check=False).returncode:
         _run(_git(clone, "commit", "-q", "-m", "%s %s" % (NAME, day)), cwd=clone)
     signed: list[Path] = []
+    check_clone(clone)                                             # again before the key and the push
     if sign:
-        signed = _sign_sums(folder, zpath, sign)
+        signed = _sign_sums(folder, zpath, sign, pinned)
         tag = ["-c", "gpg.format=ssh", "-c", "user.signingkey=" + sign["key"], "tag", "-s", "-m", "%s %s" % (NAME, day)]
         _run(_git(clone, *tag, *(["-f"] if replace else []), day), cwd=clone)
     else:
@@ -1172,10 +1226,10 @@ def main(argv: list[str] | None = None) -> int:
         if folder is None:
             raise DatasetError("no built dataset%s; run awb dataset build" % (" of that date" if args.date else ""))
         client = None if args.github_only else bucket.client()
-        require_review(folder)                      # G6: nothing leaves that the owner has not read
+        mark = require_review(folder)               # G6: nothing leaves that the owner has not read
         keys = [] if args.github_only else put(client, folder, replace=args.replace)
         if args.github or args.github_only:
-            keys += github_put(p, folder, replace=args.replace)
+            keys += github_put(p, folder, replace=args.replace, pinned=mark["assets"])
         record_release(folder)
         for key in keys:
             print("awb dataset put: " + key)

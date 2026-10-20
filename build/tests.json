@@ -8994,8 +8994,113 @@
    "name": "K19: a host file without extract_user is direct",
    "run": ".venv/bin/pytest tests/test_k_extract_sandbox.py::test_k19_a_host_file_without_extract_user_is_direct",
    "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-1",
+   "phase": "k-dataset-signing",
+   "name": "k1 a hook or fsmonitor in the clone config never runs",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k1_a_hook_or_fsmonitor_in_the_clone_config_never_runs",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-2",
+   "phase": "k-dataset-signing",
+   "name": "k1 every git call on the clone carries the fixed settings",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k1_every_git_call_on_the_clone_carries_the_fixed_settings",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-3",
+   "phase": "k-dataset-signing",
+   "name": "k1 a clone that is not the owners alone is refused and nothing is published",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k1_a_clone_that_is_not_the_owners_alone_is_refused_and_nothing_is_published",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-4",
+   "phase": "k-dataset-signing",
+   "name": "k1 a fresh clone under a group umask is made the owners alone",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k1_a_fresh_clone_under_a_group_umask_is_made_the_owners_alone",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-5",
+   "phase": "k-dataset-signing",
+   "name": "k2 the work user may not review",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k2_the_work_user_may_not_review",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-6",
+   "phase": "k-dataset-signing",
+   "name": "k2 a mark the owner did not write alone is refused",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k2_a_mark_the_owner_did_not_write_alone_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-7",
+   "phase": "k-dataset-signing",
+   "name": "k2 a released file writable by others stops the review and the put",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k2_a_released_file_writable_by_others_stops_the_review_and_the_put",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-8",
+   "phase": "k-dataset-signing",
+   "name": "k2 the mark of another folder does not count",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k2_the_mark_of_another_folder_does_not_count",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-9",
+   "phase": "k-dataset-signing",
+   "name": "k2 the mark is never written through a planted link",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k2_the_mark_is_never_written_through_a_planted_link",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-10",
+   "phase": "k-dataset-signing",
+   "name": "k3 the review pins every release asset",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k3_the_review_pins_every_release_asset",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-11",
+   "phase": "k-dataset-signing",
+   "name": "k3 an asset changed after the review stops the put",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k3_an_asset_changed_after_the_review_stops_the_put",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-12",
+   "phase": "k-dataset-signing",
+   "name": "k3 signing refuses an asset the review did not pin and signs nothing",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k3_signing_refuses_an_asset_the_review_did_not_pin_and_signs_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-13",
+   "phase": "k-dataset-signing",
+   "name": "k3 signing passes with the pins of the review",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k3_signing_passes_with_the_pins_of_the_review",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-14",
+   "phase": "k-dataset-signing",
+   "name": "k3 the sums file is never written through a planted link",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k3_the_sums_file_is_never_written_through_a_planted_link",
+   "status": "passing"
+  },
+  {
+   "id": "k-dataset-signing-15",
+   "phase": "k-dataset-signing",
+   "name": "k3 the put command hands the pins of the review to the signing",
+   "run": ".venv/bin/pytest tests/test_dataset_k.py::test_k3_the_put_command_hands_the_pins_of_the_review_to_the_signing",
+   "status": "passing"
   }
  ],
- "total_tests": 1285,
+ "total_tests": 1300,
  "checked": "2026-10-20"
 }

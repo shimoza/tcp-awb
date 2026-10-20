@@ -555,18 +555,24 @@ Its README and PROMPT.md carry the section "MCP clients" with the configurations
 Before a release the owner reads what changed: `awb kb review` lists every fact of the built folder that was added,
 amended (statement, source or grade) or retired since the last release, with its id, grade, check date, source and
 statement, compared with `RELEASED.jsonl` beside the folders (the `facts.jsonl` of the last release, written by every
-put). It writes `tcp-facts-<date>.review.json` beside the folder. `awb dataset put` refuses a folder without
-that mark, with a mark of other facts (a build after the review) or of another release, in one line that names the
+put). It writes `tcp-facts-<date>.review.json` beside the folder with the sha256 of the facts and of every release
+asset (the zip, `HOW-TO.pdf`, `MANIFEST.json` and the `.mcpb`, K3 of the review of 2026-10-20). `awb dataset put` refuses a folder without
+that mark, with a mark of other facts or assets (a build after the review) or of another release, in one line that names the
 command. So a fact a session planted with a fabricated source is read by a person before it reaches the public
-dataset (G6 of the threat model).
+dataset (G6 of the threat model). `awb kb review` is refused for the work user, and the mark and `RELEASED.jsonl`
+count only when they are no link, belong to you and are writable by nobody else; the mark must name its own folder
+(K2 of the review of 2026-10-20). Both are written as new files of mode 0644, never through a link.
 `awb dataset put` sends the zip, the PDF and the manifest into the owner's bucket. With `--github` it also puts the
 files and the build's README.md into the root of the public repository
 [shimoza/tcp-facts](https://github.com/shimoza/tcp-facts), so the root README is never written by hand; LICENSE
 stays as the repository has it. It commits them
 as the GitHub account, tags the date and makes a release of it with the zip, the PDF, the manifest and the `.mcpb`. The files are
 scanned for a person and a registered name first, and a hit refuses the put.
-Every git call on the clone (`~/tcp-shared/datasets/tcp-facts.git`, owned by the work user) names that path in
-`-c safe.directory=`, so your put passes git's ownership check without a global git setting.
+Every git call on the clone (`~/tcp-shared/datasets/tcp-facts.git`) names that path in `-c safe.directory=`, so
+your put needs no global git setting. Every git and gh call sets `core.hooksPath=/dev/null`, `core.fsmonitor=false`
+and `gpg.ssh.program=ssh-keygen` through `GIT_CONFIG_COUNT` (the scope of `git -c`), so no setting in the clone runs a program as you (K1 of the review of 2026-10-20). The
+put refuses a clone that is not yours alone: the clone, its `.git` or anything in `.git` owned by another user, a
+link or writable by group or others. Remove such a clone; the next put clones it again (git runs with umask 022).
 `--github-only` does the GitHub part alone, without the bucket and without calling the key service.
 The release notes say what is new since the previous release: the facts added, amended (same id, changed statement
 or source) and retired, compared by id with the `facts.jsonl` of the previous release tag in the local clone, and the
@@ -579,7 +585,9 @@ saves the lines as `SHA256SUMS` next to the downloads and runs `sha256sum -c SHA
 With `dataset_sign = yes` and `dataset_sign_key = <path of an ssh key>` in the host file, `awb dataset put --github`
 signs the release: it writes `SHA256SUMS` (one line per asset: the zip, `HOW-TO.pdf`, `MANIFEST.json` and the
 `.mcpb`) into the release folder, signs it with `ssh-keygen -Y sign -n file` into `SHA256SUMS.sig`, makes the tag with
-`git tag -s` (`gpg.format ssh`, `user.signingkey` the key) and uploads both files as release assets. Build the folder
+`git tag -s` (`gpg.format ssh`, `user.signingkey` the key) and uploads both files as release assets. It signs
+only the sums the review pinned: an asset that changed since refuses the put before anything is signed, and
+`SHA256SUMS` is written as a new file, never through a link. Build the folder
 with the same setting: the how-to, the README of the dataset and the release notes then carry "Check a download":
 
 ```bash

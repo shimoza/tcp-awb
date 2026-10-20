@@ -19,6 +19,7 @@ import datetime
 import hashlib
 import json
 import os
+import stat
 from pathlib import Path
 
 from awb import config
@@ -74,6 +75,18 @@ REVIEW_FIELDS = ("statement", "source", "grade")
 REVIEW_HINT = "run awb kb review first"
 
 
+def release_assets(folder: Path) -> list[Path]:
+    """The files a release uploads and the signed SHA256SUMS lists: the zip, HOW-TO.pdf, MANIFEST.json, the .mcpb."""
+    return [folder.parent / (folder.name + ".zip"), folder / "HOW-TO.pdf", folder / "MANIFEST.json",
+            folder.parent / (folder.name + ".mcpb")]
+
+
+def asset_sums(folder: Path) -> dict[str, str]:
+    """The sha256 of every release asset there is now, by file name: what the review pins (K3 of the review of
+    2026-10-20)."""
+    return {a.name: sha256_of(a) for a in release_assets(folder) if a.is_file()}
+
+
 def released_path(base: Path) -> Path:
     return base / RELEASED
 
@@ -82,11 +95,25 @@ def review_path(folder: Path) -> Path:
     return folder.parent / (folder.name + REVIEW_SUFFIX)
 
 
+def owned_alone(path: Path) -> bool:
+    """True when `path` is no link, belongs to this user and is writable by nobody else. The folders lie in the work
+    user's tree: the mark and RELEASED.jsonl count only when the owner wrote them (K2 of the review of 2026-10-20)."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return not stat.S_ISLNK(st.st_mode) and st.st_uid == os.geteuid() and not st.st_mode & 0o022
+
+
 def released(base: Path) -> tuple[str, list[dict]]:
-    """(date, facts) of the last release recorded beside the built folders; ("", []) before the first."""
+    """(date, facts) of the last release recorded beside the built folders; ("", []) before the first. ReviewError
+    when the file is there but not written by this user alone: a session could hide what changed since."""
     path = released_path(base)
-    if not path.is_file():
+    if not path.is_file() and not path.is_symlink():
         return "", []
+    if not owned_alone(path):
+        raise ReviewError("%s beside the folders is not yours alone (a link, another owner or writable by others); "
+                          "check it, then remove it or make it yours" % RELEASED)
     text = path.read_text(encoding="utf-8")
     first = text.splitlines()[0] if text.strip() else "{}"
     try:
@@ -98,8 +125,13 @@ def released(base: Path) -> tuple[str, list[dict]]:
 
 
 def _write_text(path: Path, text: str) -> None:
+    """`text` into `path` through a new file of mode 0644 that is never a link a session planted (O_EXCL|O_NOFOLLOW)."""
     tmp = path.with_name(".%s.new" % path.name)
-    tmp.write_text(text, encoding="utf-8")
+    tmp.unlink(missing_ok=True)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(tmp, 0o644)                                            # whatever the umask: writable by the owner alone
     os.replace(tmp, path)
 
 
@@ -139,7 +171,10 @@ def review_lines(folder: Path, since: str, added: list[dict], amended: list[tupl
 
 def review(p: config.Paths, *, out: Path | None = None, day: str | None = None) -> list[str]:
     """The review of the newest built folder (or the one of `day`) against the last release, as lines to print,
-    and its mark beside the folder: the sha256 of the facts reviewed and the release they were compared with."""
+    and its mark beside the folder: the sha256 of the facts reviewed and the release they were compared with.
+    Refused for the work user: a session must not mark its own facts as read (K2 of the review of 2026-10-20)."""
+    if config.is_work_user():
+        raise ReviewError("awb kb review is the owner's; the work user may not write the mark of a review")
     folder = latest(p, out, day)
     if folder is None:
         raise ReviewError("no built dataset%s; run awb dataset build" % (" of that date" if day else ""))
@@ -149,7 +184,8 @@ def review(p: config.Paths, *, out: Path | None = None, day: str | None = None) 
     since, previous = released(folder.parent)
     added, amended, retired = changes(previous, read_facts(facts), REVIEW_FIELDS)
     lines = review_lines(folder, since, added, amended, retired)
-    mark = {"dataset": folder.name, "since": since, "facts_sha256": sha256_of(facts), "added": len(added),
+    mark = {"dataset": folder.name, "since": since, "facts_sha256": sha256_of(facts), "assets": asset_sums(folder),
+            "added": len(added),
             "amended": len(amended), "retired": len(retired),
             "reviewed_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
     _write_text(review_path(folder), json.dumps(mark, indent=1, sort_keys=True) + "\n")
@@ -159,15 +195,19 @@ def review(p: config.Paths, *, out: Path | None = None, day: str | None = None) 
 
 def require_review(folder: Path) -> dict:
     """The mark of `awb kb review` for this folder. ReviewError in one line that names the command when there is no mark,
-    a mark of other facts (the folder was built again) or of another release (one went out since)."""
+    a mark of other facts or assets (the folder was built again) or of another release (one went out since)."""
     since, _ = released(folder.parent)
     path = review_path(folder)
     if not path.is_file():
         raise ReviewError("the facts of %s were not reviewed%s; %s"
                            % (folder.name, " since the release of %s" % since if since else "", REVIEW_HINT))
+    if not owned_alone(path):
+        raise ReviewError("the mark of %s is not yours alone (a link, another owner or writable by others); %s"
+                          % (folder.name, REVIEW_HINT.replace("first", "again")))
     try:
         mark = json.loads(path.read_text(encoding="utf-8"))
-        fresh = mark["facts_sha256"] == sha256_of(folder / "facts.jsonl") and mark["since"] == since
+        fresh = (mark["facts_sha256"] == sha256_of(folder / "facts.jsonl") and mark["since"] == since
+                 and mark.get("dataset", folder.name) == folder.name and mark["assets"] == asset_sums(folder))
     except (ValueError, KeyError, TypeError, OSError):
         fresh = False
     if not fresh:
