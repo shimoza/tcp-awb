@@ -92,6 +92,36 @@ def safe_new_code(entries: list[register.Entry], kind: str, taken: set[str] | fr
     raise IntakeError("could not find a free %s code" % kind)
 
 
+def project_customer_code(code: str) -> str:
+    """CUST- and the four characters of the project code (tcp-q7m4 -> CUST-Q7M4)."""
+    return "CUST-" + code.split("-", 1)[1].upper()
+
+
+def pair_is_free(p: config.Paths, entries, engine, cust: str) -> bool:
+    """The customer code is in no register entry, no issued folder and no row of the project list, and is safe."""
+    from awb import projects
+
+    taken = issued_codes(p) | set(register.codes(entries)) | {r.customer for r in projects.load(p)}
+    return codes.is_code(cust) and cust not in taken and engine.safe(cust)
+
+
+def new_pair(p: config.Paths) -> tuple[str, str]:
+    """A fresh pair (project code, customer code) of the same four characters: tcp-xxxx and CUST-XXXX. A pair of
+    which either code is taken is drawn again, never one code without the other."""
+    from awb import projects
+
+    entries = register.load(p.register)
+    engine = _Engine(entries)
+    taken = {r.code for r in projects.load(p)}
+    for _ in range(1000):
+        code = codes.new_project_code("tcp", taken)
+        cust = project_customer_code(code)
+        if pair_is_free(p, entries, engine, cust):
+            return code, cust
+        taken.add(code)
+    raise IntakeError("could not find a free pair of project and customer code")
+
+
 def issued_codes(p: config.Paths) -> set[str]:
     """Customer codes that earlier intakes used: the folders on both sides."""
     out: set[str] = set()

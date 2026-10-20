@@ -34,11 +34,12 @@ def _reader(lines):
     return lambda: next(it, "")
 
 
-def test_a_project_of_a_known_customer_is_spawned_granted_and_ends_with_the_open_line(home, capsys):
-    assert start.start(home, "project", GOAL, fx.CUSTOMER_CODE) == 0
+def test_a_project_of_a_new_customer_is_spawned_granted_and_ends_with_the_open_line(home, capsys):
+    assert start.start(home, "project", GOAL, "new", read=_reader(["\n"]), tty=True) == 0
     (pr,) = projects.load(home)
-    assert pr.kind == "project" and pr.customer == fx.CUSTOMER_CODE
-    assert grants.load(home)[pr.code]["kind"] == "project" and grants.customer(home, pr.code) == fx.CUSTOMER_CODE
+    own = "CUST-" + pr.code.split("-", 1)[1].upper()
+    assert pr.kind == "project" and pr.customer == own
+    assert grants.load(home)[pr.code]["kind"] == "project" and grants.customer(home, pr.code) == own
     out = _lines(capsys)
     assert "the bucket folder in/ cannot be read here" in out
     assert out.strip().splitlines()[-1] == "open: awb projects open %s" % pr.code
@@ -83,6 +84,30 @@ def test_on_a_sealed_host_the_spawn_runs_as_the_work_user_through_sudo(home, cap
     assert "open: awb projects open %s" % pr.code in _lines(capsys)
 
 
+def test_a_fully_anonymous_project_needs_no_written_form(home, capsys):
+    """--customer new with an empty first line at the forms prompt: the pair is issued, no form is registered."""
+    assert cli.main(["start", "project", "--goal", GOAL, "--customer", "new"]) == 2    # no terminal: still refused
+    assert not projects.load(home)
+    capsys.readouterr()
+    assert start.start(home, "project", GOAL, "new", read=_reader(["\n"]), tty=True) == 0
+    (pr,) = projects.load(home)
+    own = "CUST-" + pr.code.split("-", 1)[1].upper()
+    assert pr.customer == own and (home.outbox / own).is_dir()
+    assert not [e for e in register.load(home.register) if e.code == own], "no form went into the register"
+    assert grants.customer(home, pr.code) == own
+    out = _lines(capsys)
+    assert "issued %s without a form" % own in out
+    assert out.strip().splitlines()[-1] == "open: awb projects open %s" % pr.code
+
+
+def test_start_refuses_an_existing_customer_with_one_line_and_spawns_nothing(home, capsys):
+    assert cli.main(["start", "project", "--goal", GOAL, "--customer", fx.CUSTOMER_CODE]) == 2
+    err = capsys.readouterr().err
+    assert err.strip().splitlines() == [
+        "awb start: every project gets its own code: give --customer new or no customer"]
+    assert not projects.load(home)
+
+
 def test_where_sudo_is_not_allowed_nothing_is_spawned(home, capsys, monkeypatch):
     monkeypatch.setattr(config, "work_user", lambda: "worker")
     monkeypatch.setattr(projects.shutil, "which", lambda name: "/usr/bin/sudo")
@@ -95,10 +120,12 @@ def test_what_lies_in_the_folder_in_is_imported(home, capsys, monkeypatch, tmp_p
     f = tmp_path / "task.txt"
     f.write_text("Migrate the database cluster of %s.\n" % fx.CUSTOMER_FORMS[0], encoding="utf-8")
     monkeypatch.setattr(importcmd, "_from_bucket", lambda p, code: [f])
-    assert start.start(home, "project", GOAL, fx.CUSTOMER_CODE) == 0
+    assert start.start(home, "project", GOAL, "new", read=_reader([fx.CUSTOMER_FORMS[0] + "\n", "\n"]),
+                       tty=True) == 0
     out = _lines(capsys)
+    (pr,) = projects.load(home)
     assert "files taken: 1" in out and "copies written: 1" in out
-    assert (home.outbox / fx.CUSTOMER_CODE).is_dir()
+    assert (home.outbox / pr.customer).is_dir()
     fx.assert_no_fixture_name(out, "the output of awb start")
 
 

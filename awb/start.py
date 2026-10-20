@@ -1,14 +1,15 @@
 """`awb start`: a piece of work in one owner command (P1 of F3).
 
-    awb start project|query --goal "..." [--customer CUST-XXXX|new] [--tag TAG]...
+    awb start project|query --goal "..." [--customer new] [--tag TAG]...
 
 It runs, in his own terminal, the four steps that stood in three places of the docs, each through the command that
 does it today. It ends with the one line that opens the session:
 
-1. register: `--customer new` issues a customer code (`awb register new CUST`); a customer without an active form in
+1. register: `--customer new` issues the project code and the customer code from the same four characters
+   (tcp-xxxx and CUST-XXXX); an existing customer is refused, every project gets its own code. A customer without an active form in
    the register (a new one always) is asked for its written forms on the terminal, as `awb import` asks. A name is
    typed at that prompt and never an argument, so it never lands in the shell history.
-2. spawn: `awb spawn KIND --goal ... [--customer CUST-XXXX] [--tag TAG]` as the work user through `sudo -n`, as
+2. spawn: `awb spawn KIND --goal ... [--customer new] [--tag TAG]` as the work user through `sudo -n`, as
    `awb projects open` starts a session; on a host without a work user in this process, as the owner runs it there.
 3. grant: `awb projects kind CODE KIND`, the owner's grant the key service reads.
 4. import: what lies in the project's folder in/ of the owner bucket, through `awb import CODE`. A new project's
@@ -38,27 +39,29 @@ def _say(text: str) -> None:
     print(text)
 
 
-def customer_step(p: config.Paths, customer: str | None, *, read=None, tty=None) -> str | None:
-    """The customer code the spawn gets, its forms asked first where the register has none."""
+def customer_step(p: config.Paths, customer: str | None, *, read=None, tty=None) -> tuple[str | None, str | None]:
+    """The (customer code, project code) the spawn gets: a new pair of the same four characters, its customer's
+    forms asked first. An existing customer is refused: every project gets its own code."""
     if customer is None:
-        return None
-    if customer == "new":
-        customer = intake.safe_new_code(register.load(p.register), "CUST", intake.issued_codes(p))
-        _say("new customer %s" % customer)
-    elif not (codes.is_code(customer) and codes.kind_of(customer) == "CUST" and customer.count("-") == 1):
-        raise StartError("a customer code reads CUST-XXXX or new")
+        return None, None
+    if customer != "new":
+        if not (codes.is_code(customer) and codes.kind_of(customer) == "CUST" and customer.count("-") == 1):
+            raise StartError("a customer code reads CUST-XXXX or new")
+        raise StartError("every project gets its own code: give --customer new or no customer")
+    code, customer = intake.new_pair(p)
+    _say("new customer %s for project %s" % (customer, code))
     if importcmd._active_forms(p, customer) == 0:
-        importcmd.ask_forms(p, customer, read=read, tty=tty)
+        importcmd.ask_forms(p, customer, read=read, tty=tty, allow_none=True)
     # the work side cannot read the register: its outbox folder is how awb spawn knows the code was issued, as
     # awb register add makes it
     config.make_dir(p.outbox / customer, 0o750, shared=True)
-    return customer
+    return customer, code
 
 
-def spawn_argv(kind: str, goal: str, customer: str | None, tags: list[str]) -> list[str]:
+def spawn_argv(kind: str, goal: str, customer: str | None, tags: list[str], code: str | None = None) -> list[str]:
     argv = ["spawn", kind, "--goal", goal]
     if customer:
-        argv += ["--customer", customer]
+        argv += ["--customer", "new", "--code", code]
     for tag in tags:
         argv += ["--tag", tag]
     return argv
@@ -109,8 +112,10 @@ def start(p: config.Paths, kind: str, goal: str, customer: str | None = None, ta
         raise StartError("awb start runs on the owner side, in your own terminal")
     if kind not in projects.PROJECT_KINDS:
         raise StartError("a piece of work is a query or a project")
-    cust = customer_step(p, customer, read=read, tty=tty)
-    code = spawn_step(p, spawn_argv(kind, goal, cust, list(tags)), run=run)
+    cust, reserved = customer_step(p, customer, read=read, tty=tty)
+    code = spawn_step(p, spawn_argv(kind, goal, cust, list(tags), reserved), run=run)
+    if reserved and code != reserved:
+        raise StartError("%s is spawned but not under the reserved code %s" % (code, reserved))
     try:
         grant_step(p, code, kind, cust)
         result = import_step(p, code, read=read, tty=tty)
@@ -122,7 +127,7 @@ def start(p: config.Paths, kind: str, goal: str, customer: str | None = None, ta
 
 
 def main(argv: list[str] | None = None) -> int:
-    """`awb start project|query --goal "..." [--customer CUST-XXXX|new] [--tag TAG]...`. Exit 0 done, 1 the import
+    """`awb start project|query --goal "..." [--customer new] [--tag TAG]...`. Exit 0 done, 1 the import
     withheld a file, 2 refused or an error."""
     from awb import vault
     from awb.cli import SafeParser
@@ -131,9 +136,9 @@ def main(argv: list[str] | None = None) -> int:
                                                   "(owner side).")
     ap.add_argument("kind", choices=projects.PROJECT_KINDS, help="query (no test tenant) or project (test tenants)")
     ap.add_argument("--goal", required=True)
-    ap.add_argument("--customer", default=None, metavar="CUST-XXXX|new",
-                    help="the customer's code or new to issue one; its written forms are asked on the terminal, "
-                         "never given here")
+    ap.add_argument("--customer", default=None, metavar="new",
+                    help="new issues CUST-XXXX with the four characters of the project code; its written forms are "
+                         "asked on the terminal, never given here; an existing customer is refused")
     ap.add_argument("--tag", action="append", default=[], help="a tag of rules/tags.txt, as awb spawn takes it")
     try:
         args = ap.parse_args(argv)

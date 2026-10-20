@@ -245,10 +245,27 @@ def _cmd_register_find(args, p: config.Paths) -> int:
 
 
 def _cmd_spawn(args, p: config.Paths) -> int:
-    from awb import ledger, projects
+    from awb import intake, ledger, projects
 
-    pr = projects.spawn(p, args.kind, args.goal, args.customer, p.register, args.tag or [],
-                        from_outbox=args.from_outbox, tenant=args.tenant)
+    customer, code, issued = args.customer, None, False
+    if customer == "new":
+        # one code per piece of work: the customer code is CUST- and the four characters of the project code
+        if args.code:
+            code = args.code
+            customer = intake.project_customer_code(code) if codes.is_project_code(code) else ""
+            if not codes.is_project_code(code) or not (p.outbox / customer).is_dir():
+                raise projects.ProjectError("the reserved code %s was not issued with its customer" % code)
+        else:
+            code, customer = intake.new_pair(p)
+            config.make_dir(p.outbox / customer, 0o750, shared=True)
+        issued = True
+    elif args.code:
+        raise projects.ProjectError("--code goes with --customer new")
+    elif customer is not None and customer != projects.NO_CUSTOMER:
+        print("awb spawn: every project gets its own code: give --customer new or no customer", file=sys.stderr)
+        return EXIT_ERROR
+    pr = projects.spawn(p, args.kind, args.goal, customer, p.register, args.tag or [],
+                        from_outbox=args.from_outbox, tenant=args.tenant, code=code, new_customer=issued)
     print("spawned %s (%s, customer %s): %s" % (pr.code, pr.kind, pr.customer, pr.path))
     print(pr.folder_note)
     try:
@@ -331,7 +348,7 @@ def _exchange_leftovers(code: str, folder: Path | None) -> str | None:
 
 
 def _cmd_close(args, p: config.Paths) -> int:
-    from awb import ledger, projects
+    from awb import intake, ledger, projects
 
     before = {r.code: r for r in projects.load(p)}.get(args.code)
     if not args.force and before is not None and before.state == "active":
@@ -589,7 +606,11 @@ def _build() -> argparse.ArgumentParser:
     s = sub.add_parser("spawn", help="create a sealed tcp- project: a query or a project")
     s.add_argument("kind", help="query (knowledge base, prices, no tenant) or project (also the test tenants)")
     s.add_argument("--goal", required=True)
-    s.add_argument("--customer", default=None)
+    s.add_argument("--customer", default=None, metavar="new",
+                   help="new issues the customer code with the project's four characters (CUST-XXXX for "
+                        "tcp-xxxx); without it the project has no customer. An existing customer is refused: "
+                        "every project gets its own code")
+    s.add_argument("--code", default=None, help=argparse.SUPPRESS)
     s.add_argument("--tag", action="append", default=[])
     s.add_argument("--from-outbox", action="store_true", help="move the customer's outbox copies into input/")
     s.add_argument("--tenant", default=None, metavar="ALIAS",

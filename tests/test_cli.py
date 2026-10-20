@@ -198,12 +198,15 @@ def test_spawn_and_projects_list(con, home):
     code, out, _ = con.run("projects", "list")
     assert code == 0 and "no projects" in out
     code, out, _ = con.run("spawn", "engagement", "--goal", "Design the landing zone for the first workload",
-                           "--customer", fx.CUSTOMER_CODE, "--tag", "network")
+                           "--customer", "new", "--tag", "network")
     assert code == 0, out
     pcode = re.search(r"\btcp-[a-z2-7]{4}\b", out).group(0)
+    own = "CUST-" + pcode.split("-")[1].upper()          # one code per project: the same four characters
+    code, _, err = con.run("spawn", "engagement", "--goal", "anything at all", "--customer", fx.CUSTOMER_CODE)
+    assert code == 2 and "every project gets its own code: give --customer new or no customer" in err
     assert (home.projects_root / pcode / "SCOPE.md").is_file()
     code, out, _ = con.run("projects", "list")
-    assert code == 0 and pcode in out and fx.CUSTOMER_CODE in out
+    assert code == 0 and pcode in out and own in out
     assert "Design the landing zone for the first workload" in out
     code, out, _ = con.run("projects", "list", "--paths")
     assert code == 0 and str(home.projects_root / pcode) in out
