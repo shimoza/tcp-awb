@@ -168,6 +168,15 @@ def note_topic(n: dict, names: set[str]) -> set[str]:
     return _words("%s %s" % (n.get("title", ""), first)) - names
 
 
+RN_SHOWN = 80                 # characters of a title or a service name in a line
+
+
+def _plain(text: str) -> str:
+    """Text of a public page for a line of the shared tree: printable ASCII only (anything else becomes ?) and cut."""
+    text = "".join(c if " " <= c <= "~" else "?" for c in text)
+    return text if len(text) <= RN_SHOWN else text[:RN_SHOWN - 3] + "..."
+
+
 def release_note_lines(notes: list[dict], entries: list[kb.Entry], catalog: offered.Catalog, *,
                        today: datetime.date | None = None, limit: int | None = RN_LIMIT) -> list[str]:
     """For each note, oldest first: the active entries that name its services and share at least RN_SHARED topic
@@ -187,7 +196,7 @@ def release_note_lines(notes: list[dict], entries: list[kb.Entry], catalog: offe
                 continue
             found = catalog.find(name)
             if not found:
-                lines.append("new service?: %s (release note %s %s)" % (name, n["date"], n["title"]))
+                lines.append("new service?: %s (release note %s %s)" % (_plain(name), n["date"], _plain(n["title"])))
                 continue
             if topic is None:
                 topic = note_topic(n, set().union(*(_words(" ".join(s.forms())) for s in found), _words(name)))

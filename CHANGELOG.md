@@ -25,6 +25,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 - The status socket of the gateway drops an idle client after 3 seconds (task k-gateway-limits, K5): `StatusHandler` had no timeout, the socket is 0666 and its threads share the `TasksMax` of the gateway, so any local uid could hold the site with idle connections.
 
+- `awb refresh --part release-notes` (task k-release-notes-hardening, K13): a title or a service name from the release note page reaches `REPORT*.md` and `release-notes.txt` as printable ASCII only (escape and control characters and any other character become `?`) and cut to 80 characters, so a hostile page cannot put prompt text or terminal escapes in the shared tree.
+
 - `awb mirror rn` (task k-release-notes-hardening, K24): a redirect of the list page is followed only to https on the same host. A redirect to another host (a metadata address included) or to plain http ends the run with `the release notes answered HTTP 30x`.
 
 - `awb mirror rn` (task k-release-notes-hardening, K23): the date of a note is read as ASCII digits and must be a real calendar day. A date in Arabic-Indic digits or one such as 2026-02-30 leaves the note out, so it can no longer sort after today and pass the first-run floor.

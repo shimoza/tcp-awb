@@ -8931,8 +8931,15 @@
    "name": "K24: the fetch goes through the same-site opener",
    "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_the_fetch_goes_through_the_same_site_opener",
    "status": "passing"
+  },
+  {
+   "id": "k-release-notes-hardening-14",
+   "phase": "k-release-notes-hardening",
+   "name": "K13: a title and a tag with escapes reach the lines as plain ASCII",
+   "run": ".venv/bin/pytest tests/test_release_notes_hardening.py::test_a_title_and_a_tag_with_escapes_or_other_characters_reach_the_lines_as_plain_ascii",
+   "status": "passing"
   }
  ],
- "total_tests": 1276,
+ "total_tests": 1277,
  "checked": "2026-10-20"
 }
