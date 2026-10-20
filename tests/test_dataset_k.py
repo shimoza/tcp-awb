@@ -172,3 +172,72 @@ def test_k2_the_mark_is_never_written_through_a_planted_link(home, facts, tmp_pa
     assert victim.read_text() == "untouched\n"
     assert not mark.is_symlink() and json.loads(mark.read_text())["dataset"] == built.folder.name
     assert mark.stat().st_mode & 0o777 == 0o644
+
+
+# --------------------------------------------------------------------------- K3: the signed sums
+
+def test_k3_the_review_pins_every_release_asset(home, facts, tmp_path, capsys):
+    ds = tmp_path / "ds"
+    built = dataset.build(home, out=ds, today=TODAY)
+    _review(ds, capsys)
+    mark = json.loads(kbreview.review_path(built.folder).read_text())
+    names = ["tcp-facts-2026-10-08.zip", "HOW-TO.pdf", "MANIFEST.json", "tcp-facts-2026-10-08.mcpb"]
+    assert sorted(mark["assets"]) == sorted(names)
+    assert mark["assets"]["HOW-TO.pdf"] == kbreview.sha256_of(built.folder / "HOW-TO.pdf")
+    assert mark["assets"] == kbreview.asset_sums(built.folder)
+
+
+@pytest.mark.parametrize("asset", ["zip", "HOW-TO.pdf", "MANIFEST.json", "mcpb"])
+def test_k3_an_asset_changed_after_the_review_stops_the_put(home, facts, tmp_path, bucket, capsys, asset):
+    ds = tmp_path / "ds"
+    built = dataset.build(home, out=ds, today=TODAY)
+    _review(ds, capsys)
+    path = built.folder / asset if "." in asset else built.folder.parent / (built.folder.name + "." + asset)
+    with path.open("ab") as f:
+        f.write(b"\n")
+    assert cli.main(["dataset", "put", "--out", str(ds)]) == 1
+    assert "run awb kb review again" in capsys.readouterr().err and not bucket.objects
+
+
+def test_k3_signing_refuses_an_asset_the_review_did_not_pin_and_signs_nothing(home, facts, tmp_path, signing):
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    pinned = dict(kbreview.asset_sums(built.folder), **{"HOW-TO.pdf": "0" * 64})
+    with pytest.raises(dataset.DatasetError, match="changed since the review; nothing was signed") as err:
+        dataset.github_put(home, built.folder, clone=signing.github.clone, pinned=pinned)
+    assert "run awb kb review again" in str(err.value)
+    assert signing.keygen() == [] and not (built.folder / "SHA256SUMS").exists()
+    assert not [a for a in signing.github.log() if a[:2] == ["release", "create"]]
+
+
+def test_k3_signing_passes_with_the_pins_of_the_review(home, facts, tmp_path, signing):
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    dataset.github_put(home, built.folder, clone=signing.github.clone, pinned=kbreview.asset_sums(built.folder))
+    assert len(signing.keygen()) == 1
+    lines = (built.folder / "SHA256SUMS").read_text().splitlines()
+    assert {l.split("  ")[1]: l.split("  ")[0] for l in lines} == kbreview.asset_sums(built.folder)
+
+
+def test_k3_the_sums_file_is_never_written_through_a_planted_link(home, facts, tmp_path, signing):
+    built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
+    victim = tmp_path / "victim.txt"
+    victim.write_text("untouched\n")
+    (built.folder / "SHA256SUMS").symlink_to(victim)
+    dataset.github_put(home, built.folder, clone=signing.github.clone)
+    assert victim.read_text() == "untouched\n"
+    assert not (built.folder / "SHA256SUMS").is_symlink() and "HOW-TO.pdf" in (built.folder / "SHA256SUMS").read_text()
+
+
+def test_k3_the_put_command_hands_the_pins_of_the_review_to_the_signing(home, facts, tmp_path, signing, capsys,
+                                                                     monkeypatch):
+    ds = tmp_path / "ds"
+    built = dataset.build(home, out=ds, today=TODAY)
+    _review(ds, capsys)
+    seen = []
+    real = dataset.github_put
+
+    def spy(p, folder, **kw):
+        seen.append(kw.get("pinned"))
+        return real(p, folder, **{**kw, "clone": signing.github.clone})
+    monkeypatch.setattr(dataset, "github_put", spy)
+    assert cli.main(["dataset", "put", "--out", str(ds), "--github-only"]) == 0
+    assert seen == [kbreview.asset_sums(built.folder)]

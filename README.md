@@ -555,8 +555,9 @@ Its README and PROMPT.md carry the section "MCP clients" with the configurations
 Before a release the owner reads what changed: `awb kb review` lists every fact of the built folder that was added,
 amended (statement, source or grade) or retired since the last release, with its id, grade, check date, source and
 statement, compared with `RELEASED.jsonl` beside the folders (the `facts.jsonl` of the last release, written by every
-put). It writes `tcp-facts-<date>.review.json` beside the folder. `awb dataset put` refuses a folder without
-that mark, with a mark of other facts (a build after the review) or of another release, in one line that names the
+put). It writes `tcp-facts-<date>.review.json` beside the folder with the sha256 of the facts and of every release
+asset (the zip, `HOW-TO.pdf`, `MANIFEST.json` and the `.mcpb`, K3 of the review of 2026-10-20). `awb dataset put` refuses a folder without
+that mark, with a mark of other facts or assets (a build after the review) or of another release, in one line that names the
 command. So a fact a session planted with a fabricated source is read by a person before it reaches the public
 dataset (G6 of the threat model). `awb kb review` is refused for the work user, and the mark and `RELEASED.jsonl`
 count only when they are no link, belong to you and are writable by nobody else; the mark must name its own folder
@@ -584,7 +585,9 @@ saves the lines as `SHA256SUMS` next to the downloads and runs `sha256sum -c SHA
 With `dataset_sign = yes` and `dataset_sign_key = <path of an ssh key>` in the host file, `awb dataset put --github`
 signs the release: it writes `SHA256SUMS` (one line per asset: the zip, `HOW-TO.pdf`, `MANIFEST.json` and the
 `.mcpb`) into the release folder, signs it with `ssh-keygen -Y sign -n file` into `SHA256SUMS.sig`, makes the tag with
-`git tag -s` (`gpg.format ssh`, `user.signingkey` the key) and uploads both files as release assets. Build the folder
+`git tag -s` (`gpg.format ssh`, `user.signingkey` the key) and uploads both files as release assets. It signs
+only the sums the review pinned: an asset that changed since refuses the put before anything is signed, and
+`SHA256SUMS` is written as a new file, never through a link. Build the folder
 with the same setting: the how-to, the README of the dataset and the release notes then carry "Check a download":
 
 ```bash

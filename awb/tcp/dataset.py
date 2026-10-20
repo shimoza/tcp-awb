@@ -18,9 +18,9 @@ The review before a release: `awb kb review` compares the facts.jsonl of the fol
 folders (the facts.jsonl of the last release, written by every successful put) and prints every fact added, amended
 (statement, source or grade changed) or retired since, with its id, grade, check date, source and statement, so the
 owner reads what a session put into the knowledge base before it goes public. It writes
-`tcp-facts-<date>.review.json` beside the folder with the sha256 of the facts it showed and the release it compared
-with; `put` refuses a folder without that mark, with a mark of other facts (a build after the review) or of another
-release. It names the command in one line.
+`tcp-facts-<date>.review.json` beside the folder with the sha256 of the facts it showed, of every release asset (K3)
+and the release it compared with; `put` refuses a folder without that mark, with a mark of other facts (a build after the review) or of another
+release. It names the command in one line. A signed put refuses an asset that differs from the review's pin.
 
 What the folder holds: README.md and PROMPT.md (how to use it, the one-line prompt), HOW-TO.pdf (the same for
 people who read PDF), facts.md (every fact on one line, grouped by topic, small enough for one chat), topics/<tag>.md
@@ -1078,13 +1078,24 @@ def previous_release(clone: Path, day: str) -> tuple[str, list[dict]] | None:
     return prev, read_facts(res.stdout)
 
 
-def _sign_sums(folder: Path, zpath: Path, sign: dict[str, str]) -> list[Path]:
-    """SHA256SUMS (one line per release asset) and its signature into the release folder; both come back."""
+def _sign_sums(folder: Path, zpath: Path, sign: dict[str, str], pinned: dict[str, str] | None = None) -> list[Path]:
+    """SHA256SUMS (one line per release asset) and its signature into the release folder; both come back. With
+    `pinned` (the asset sums of the review mark) refused when an asset differs from what the review pinned, so the
+    key vouches only for the files the owner reviewed (K3 of the review of 2026-10-20). The sums file is a new file,
+    never written through a link."""
     mpath = folder.parent / (folder.name + ".mcpb")
     if not mpath.is_file():
         raise DatasetError("the folder of %s has no %s; run awb dataset build --force" % (folder.name, mpath.name))
     assets = [zpath, folder / "HOW-TO.pdf", folder / "MANIFEST.json", mpath]
-    (folder / SUMS_FILE).write_text("".join("%s  %s\n" % (_sha(a), a.name) for a in assets), encoding="utf-8")
+    sums = [(_sha(a), a.name) for a in assets]
+    if pinned is not None and any(pinned.get(name) != sha for sha, name in sums):
+        raise DatasetError("an asset of %s changed since the review; nothing was signed, %s"
+                           % (folder.name, kbreview.REVIEW_HINT.replace("first", "again")))
+    path = folder / SUMS_FILE
+    path.unlink(missing_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write("".join("%s  %s\n" % pair for pair in sums))
     (folder / (SUMS_FILE + ".sig")).unlink(missing_ok=True)
     _run(["ssh-keygen", "-Y", "sign", "-f", sign["key"], "-n", "file", SUMS_FILE], cwd=folder)
     if not (folder / (SUMS_FILE + ".sig")).is_file():
@@ -1092,7 +1103,8 @@ def _sign_sums(folder: Path, zpath: Path, sign: dict[str, str]) -> list[Path]:
     return [folder / SUMS_FILE, folder / (SUMS_FILE + ".sig")]
 
 
-def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: Path | None = None) -> list[str]:
+def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: Path | None = None,
+               pinned: dict[str, str] | None = None) -> list[str]:
     """The files of a build into the root of the public repository, committed as the GitHub account, and a release
     of its date with the zip, the how-to PDF and the manifest. Refused when that date is tagged already unless `replace`, and when a person
     or a registered name is in any file that would go public."""
@@ -1139,7 +1151,7 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
     signed: list[Path] = []
     check_clone(clone)                                             # again before the key and the push
     if sign:
-        signed = _sign_sums(folder, zpath, sign)
+        signed = _sign_sums(folder, zpath, sign, pinned)
         tag = ["-c", "gpg.format=ssh", "-c", "user.signingkey=" + sign["key"], "tag", "-s", "-m", "%s %s" % (NAME, day)]
         _run(_git(clone, *tag, *(["-f"] if replace else []), day), cwd=clone)
     else:
@@ -1214,10 +1226,10 @@ def main(argv: list[str] | None = None) -> int:
         if folder is None:
             raise DatasetError("no built dataset%s; run awb dataset build" % (" of that date" if args.date else ""))
         client = None if args.github_only else bucket.client()
-        require_review(folder)                      # G6: nothing leaves that the owner has not read
+        mark = require_review(folder)               # G6: nothing leaves that the owner has not read
         keys = [] if args.github_only else put(client, folder, replace=args.replace)
         if args.github or args.github_only:
-            keys += github_put(p, folder, replace=args.replace)
+            keys += github_put(p, folder, replace=args.replace, pinned=mark["assets"])
         record_release(folder)
         for key in keys:
             print("awb dataset put: " + key)
