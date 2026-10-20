@@ -126,7 +126,7 @@ def test_a_local_client_cannot_pick_its_own_address_key(readers):
     tmp_path, path, pw, owner = readers
     auth = _auth(tmp_path, path, time.time)
     (tmp_path / "index.html").write_text("<html>x</html>")
-    server = gateway.make_server(0, auth, tmp_path / "index.html", 1, 1, domain=DOMAIN)
+    server = gateway.make_server(0, auth, tmp_path / "index.html", 1, domain=DOMAIN)
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     def attempt(login, address):

@@ -57,7 +57,7 @@ def site(tmp_path):
     backend = ThreadingHTTPServer(("127.0.0.1", 0), Projects)
     (tmp_path / "index.html").write_text("<html>page</html>")
     port = backend.server_port
-    server = gateway.make_server(0, auth, tmp_path / "index.html", port, port, port, domain=DOMAIN)
+    server = gateway.make_server(0, auth, tmp_path / "index.html", port, port, domain=DOMAIN)
     for s in (backend, server):
         threading.Thread(target=s.serve_forever, daemon=True).start()
     Projects.calls.clear()

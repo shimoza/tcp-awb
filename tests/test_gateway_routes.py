@@ -39,7 +39,7 @@ class Site:
         (root / "index.html").write_text("<html>main page</html>")
         self.sock = str(root / "gw.sock")
         server = gateway.UnixServer(gateway.unix_listener(self.sock), Recording)
-        self.gw = gateway._configure(server, self.auth, root / "index.html", 8180, 8181, 8182, 8183, DOMAIN)
+        self.gw = gateway._configure(server, self.auth, root / "index.html", 8181, 8182, 8183, DOMAIN)
         self.gw.owner_host = OWNER
         self.gw.forwarded = []
         threading.Thread(target=self.gw.serve_forever, daemon=True).start()

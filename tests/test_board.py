@@ -111,7 +111,7 @@ def test_the_gateway_sends_the_board_to_the_projects_service():
     t = LoginTests()
     backend = ThreadingHTTPServer(("127.0.0.1", 0), Marked)
     threading.Thread(target=backend.serve_forever, daemon=True).start()
-    s = gateway.make_server(0, t.auth, t.root / "index.html", 1, 1, backend.server_port, 1, domain=DOMAIN)
+    s = gateway.make_server(0, t.auth, t.root / "index.html", 1, backend.server_port, 1, domain=DOMAIN)
     threading.Thread(target=s.serve_forever, daemon=True).start()
     try:
         assert t.request("/api/board", headers=t.session_headers(), server=s)[2] == b"/api/board"

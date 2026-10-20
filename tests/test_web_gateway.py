@@ -63,7 +63,7 @@ class LoginTests(unittest.TestCase):
         cls.auth = gateway.Auth(root / "auth.json")
         cls.backend = ThreadingHTTPServer(("127.0.0.1", 0), Backend)
         port = cls.backend.server_port
-        cls.servers = [gateway.make_server(0, cls.auth, root / "index.html", port, port, domain=DOMAIN)
+        cls.servers = [gateway.make_server(0, cls.auth, root / "index.html", port, domain=DOMAIN)
                        for _ in range(2)]
         for s in [cls.backend, *cls.servers]:
             threading.Thread(target=s.serve_forever, daemon=True).start()
@@ -286,7 +286,7 @@ class LoginTests(unittest.TestCase):
             b.mark = mark
             threading.Thread(target=b.serve_forever, daemon=True).start()
             backends.append(b)
-        s = gateway.make_server(0, self.auth, self.root / "index.html", 1, 1, backends[0].server_port,
+        s = gateway.make_server(0, self.auth, self.root / "index.html", 1, backends[0].server_port,
                                 backends[1].server_port, domain=DOMAIN)
         threading.Thread(target=s.serve_forever, daemon=True).start()
         try:
@@ -300,7 +300,7 @@ class LoginTests(unittest.TestCase):
                 x.server_close()
 
     def test_the_host_of_the_site_is_a_setting(self):
-        other = gateway.make_server(0, self.auth, self.root / "index.html", 1, 1, domain="Other.Example.Test")
+        other = gateway.make_server(0, self.auth, self.root / "index.html", 1, domain="Other.Example.Test")
         threading.Thread(target=other.serve_forever, daemon=True).start()
         try:
             self.assertEqual(self.request(server=other)[0], 400)
@@ -351,7 +351,7 @@ def _front(tmp_path, peer):
     (tmp_path / "index.html").write_text("<html>front page</html>")
     auth = gateway.Auth(tmp_path / "auth.json")
     sock = gateway.unix_listener(str(tmp_path / "front.sock"))
-    server = gateway.make_front_server(sock, auth, tmp_path / "index.html", 1, 1, domain=DOMAIN, peer=peer)
+    server = gateway.make_front_server(sock, auth, tmp_path / "index.html", 1, domain=DOMAIN, peer=peer)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server, auth
 
@@ -447,7 +447,7 @@ def test_a_tcp_listener_answers_its_one_peer_alone_and_only_that_peer_names_the_
             self.reply(204)
 
     def ask(peer):
-        server = gateway.make_server(0, auth, tmp_path / "index.html", 1, 1, domain=DOMAIN, peer=peer)
+        server = gateway.make_server(0, auth, tmp_path / "index.html", 1, domain=DOMAIN, peer=peer)
         server.RequestHandlerClass = Seen
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
@@ -507,7 +507,7 @@ def test_bruteforce_limit_per_address_the_tunnel_names(tmp_path):
         return r.status
 
     for peer, addresses in ((os.getuid(), ["failed-logins"] * 9), (None, ["192.0.2.%d" % i for i in range(9)])):
-        server = gateway.make_server(0, gateway.Auth(tmp_path / "auth.json"), tmp_path / "index.html", 1, 1,
+        server = gateway.make_server(0, gateway.Auth(tmp_path / "auth.json"), tmp_path / "index.html", 1,
                                      domain=DOMAIN, peer=peer)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:

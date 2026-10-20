@@ -167,7 +167,7 @@ def test_an_unknown_login_is_counted_and_answered_like_a_wrong_password_behind_t
     2026-10-10): its server took CF-Connecting-IP from any local client, which only a listener whose one peer is
     the tunnel's uid does now. The server here has this test's uid as that peer; the asserts are the same."""
     auth, pw, clock, tmp_path = site
-    server = gateway.make_server(0, auth, tmp_path / "auth.json", 1, 1, domain=DOMAIN, peer=os.getuid())
+    server = gateway.make_server(0, auth, tmp_path / "auth.json", 1, domain=DOMAIN, peer=os.getuid())
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     def attempt(login, password, address):

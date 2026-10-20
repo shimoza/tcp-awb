@@ -95,7 +95,7 @@ class Site:
         self.actions = owner_actions.Server(gateway.unix_listener(str(root / "owner.sock")), os.getuid(), self.status,
                                             root / "actions-log")
         threading.Thread(target=self.actions.serve_forever, daemon=True).start()
-        self.gw = gateway.make_server(0, self.auth, root / "index.html", port, port, port, port, domain=DOMAIN)
+        self.gw = gateway.make_server(0, self.auth, root / "index.html", port, port, port, domain=DOMAIN)
         (root / "index.html").write_text("<html>main page</html>")
         self.gw.owner_host = OWNER
         self.gw.customer_socket = str(root / "customers.sock")

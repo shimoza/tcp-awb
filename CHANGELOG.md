@@ -11,6 +11,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 
+- The gateway (task B-029): `make_server`, `make_front_server` and `_configure` of `awb/tcp/web/gateway.py` no longer take the unused place of the removed portal's port; the ask port is now the fourth argument. The command line of the gateway is unchanged.
+
 - `awb refresh --part release-notes` lists fewer entries (task rn3-narrow-release-notes): an entry is listed for a note only when it names the service and shares at least two topic words with the note (words of the title or first paragraph against the statement and tags; stop words, the service names and generic words such as service, cloud, new or support do not count). The lines run by shared words, most first, 15 per note and then `and N more (awb refresh --part release-notes --all)`; `--all` lists every match. A note dated after today goes to its own block `announced` with its date.
 
 ### Fixed

@@ -1398,8 +1398,7 @@ class Gateway(BaseHTTPRequestHandler):
               getattr(self, 'level', '-'), getattr(self, 'refusal', '') or '-', flush=True)
 
 
-def _configure(server, auth, index, _portal_port, ask_port, projects_port, tenants_port, domain):
-    # _portal_port: the place of the removed portal's port, kept so the callers' positional order stays; unused
+def _configure(server, auth, index, ask_port, projects_port, tenants_port, domain):
     server.domain = domain.lower()
     server.daemon_threads = True
     server.auth = auth
@@ -1440,12 +1439,12 @@ class TCPServer(ThreadingHTTPServer):
         return False
 
 
-def make_server(port, auth, index, _portal_port, ask_port, projects_port=8182, tenants_port=8183, *, domain,
+def make_server(port, auth, index, ask_port, projects_port=8182, tenants_port=8183, *, domain,
                 peer=None):
     """A TCP listener on 127.0.0.1, for the tests only: the installed unit takes the site on the front socket."""
     server = TCPServer(('127.0.0.1', port), Gateway)
     server.peer = peer
-    return _configure(server, auth, index, _portal_port, ask_port, projects_port, tenants_port, domain)
+    return _configure(server, auth, index, ask_port, projects_port, tenants_port, domain)
 
 
 def peer_uid(sock):
@@ -1523,13 +1522,13 @@ class UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         return False
 
 
-def make_front_server(sock, auth, index, _portal_port, ask_port, projects_port=8182, tenants_port=8183, *, domain,
+def make_front_server(sock, auth, index, ask_port, projects_port=8182, tenants_port=8183, *, domain,
                       peer):
     """The front door: the site on a Unix socket that only the uid `peer` (cloudflared's user) may use."""
     if peer is None:
         raise TypeError('the front socket needs the uid of its one peer')
     server = UnixServer(sock, Gateway, peer)
-    return _configure(server, auth, index, _portal_port, ask_port, projects_port, tenants_port, domain)
+    return _configure(server, auth, index, ask_port, projects_port, tenants_port, domain)
 
 
 class StatusHandler(BaseHTTPRequestHandler):
@@ -1599,7 +1598,7 @@ def main():
             print('AWB gateway: the user %s of --front-peer does not exist' % args.front_peer, flush=True)
             sys.exit(2)
     auth = Auth(args.auth, args.users, args.signin_log)
-    rest = (None, args.ask_port, args.projects_port, args.tenants_port)
+    rest = (args.ask_port, args.projects_port, args.tenants_port)
     handed = inherited_sockets()
     servers = []
     if args.front_socket:

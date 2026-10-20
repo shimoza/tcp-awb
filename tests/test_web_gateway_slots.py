@@ -31,7 +31,7 @@ def site(tmp_path):
     write_auth(tmp_path / "auth.json")
     (tmp_path / "index.html").write_text("<html>x</html>")
     auth = gateway.Auth(tmp_path / "auth.json", log=tmp_path / "signin.log")
-    server = gateway.make_server(0, auth, tmp_path / "index.html", 1, 1, domain=DOMAIN, peer=os.getuid())
+    server = gateway.make_server(0, auth, tmp_path / "index.html", 1, domain=DOMAIN, peer=os.getuid())
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         yield server, auth
