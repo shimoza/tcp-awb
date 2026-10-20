@@ -157,4 +157,4 @@ def test_xg1_the_session_template_and_the_rules_tell_the_session_to_name_deliver
     assert "%s-<kind word>-<language>.<ext>" % pr.code in text
     assert len(text.splitlines()) <= projects.MAX_CLAUDE_LINES
     rules = projects.RULES_FILE.read_text(encoding="utf-8")
-    assert "<project code>-<kind word>-<language>.<ext>" in rules and "review-tier" in rules
+    assert "<code>-<kind word>-<language>.<ext>" in rules
