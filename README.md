@@ -1,10 +1,11 @@
 <h1 align="center">Architect Workbench</h1>
 
-<p align="center">An independent, open-source harness for work on T Cloud Public (TCP). Not a product of the operator; it speaks for nobody but its author.</p>
+> **Unofficial and independent.** Not a product of, and not endorsed by, T-Systems or Deutsche Telekom; it speaks for nobody but its author. Built only from public sources (the public documentation, the public service description, the public price API), with respect for robots.txt and the terms of those sources. No customer data and no confidential information. No warranty: the provider's contract documents are binding.
 
 <p align="center"><b>A harness for cloud architecture work on T Cloud Public (TCP)</b></p>
 
 <p align="center">
+  <img alt="Unofficial" src="https://img.shields.io/badge/Status-Unofficial-c64a3d">
   <a href="INSTALL.md"><img alt="Install: INSTALL.md" src="https://img.shields.io/badge/Install-INSTALL.md-2f6fd1?logo=linux&logoColor=white"></a>
   <a href="COMMANDS.md"><img alt="Commands: COMMANDS.md" src="https://img.shields.io/badge/Commands-COMMANDS.md-c64a3d?logo=gnubash&logoColor=white"></a>
   <a href="https://github.com/shimoza/tcp-facts"><img alt="Dataset: TCP Facts" src="https://img.shields.io/badge/Dataset-TCP_Facts-e0b43a?logo=github&logoColor=white"></a>

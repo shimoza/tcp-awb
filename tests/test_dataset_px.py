@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from pathlib import Path
 
 from awb.tcp import dataset
 from tests.test_dataset import TODAY, facts, github, live, _remote_files  # noqa: F401  (fixtures)
@@ -179,10 +180,25 @@ def test_the_github_put_code_never_forces_a_push():
         assert '"--force"' not in inspect.getsource(fn), fn.__name__
 
 
-def test_the_built_readme_says_the_dataset_is_independent_under_the_title(home, facts, tmp_path):
+def test_the_built_readme_opens_with_the_centred_header_the_disclaimer_and_the_badges(home, facts, tmp_path):
     built_ = dataset.build(home, out=tmp_path / "ds", today=TODAY)
-    lines = (built_.folder / "README.md").read_text().splitlines()
-    assert lines[0].startswith("# TCP Facts ") and lines[2] == dataset.INDEPENDENT_LINE
-    assert dataset.INDEPENDENT_LINE == ("TCP Facts is an independent, community-made dataset about T Cloud Public "
-                                        "(TCP). It is not a product of the operator and nothing in it speaks for "
-                                        "T-Systems or Deutsche Telekom.")
+    text = (built_.folder / "README.md").read_text()
+    lines = text.splitlines()
+    assert lines[0] == '<h1 align="center">TCP Facts</h1>' and lines[2].startswith('<p align="center"><b>')
+    assert lines[4] == dataset.DISCLAIMER and text.index(dataset.DISCLAIMER) < text.index("img.shields.io")
+    assert dataset.DISCLAIMER.startswith("> **Unofficial and independent.** Not a product of, and not endorsed by, "
+                                         "T-Systems or Deutsche Telekom; it speaks for nobody but its author.")
+    assert dataset.DISCLAIMER.endswith("No warranty: the provider's contract documents are binding.")
+    badges = re.findall(r'alt="([^"]+)" src="https://img.shields.io/badge/([^"]+)"', text)
+    assert [a.split(":")[0] for a, _ in badges] == ["Unofficial", "Facts", "Best before", "License", "MCP server"]
+    assert "Best_before-2026--11--07-e0b43a" in text and "Facts-3-2f6fd1" in text and "CC_BY_4.0-3f9d5a" in text
+    assert "logo" not in text and "e20074" not in text.lower()
+    assert "Best before 2026-11-07" in text
+
+
+def test_the_repository_readme_has_the_disclaimer_under_the_title_and_the_unofficial_badge_first():
+    text = (Path(__file__).resolve().parent.parent / "README.md").read_text()
+    lines = text.splitlines()
+    assert re.fullmatch(r'<h1 align="center">[^<]+</h1>', lines[0]) and lines[2] == dataset.DISCLAIMER
+    first = re.search(r"<img alt=\"([^\"]+)\"", text).group(1)
+    assert first == "Unofficial"

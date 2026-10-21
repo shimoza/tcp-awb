@@ -217,8 +217,32 @@ MCP_CLIENTS = [
           "every backslash of a path is written twice. The rules of \"%s\" apply here too: the client "
           "sends your questions to its model provider." % WARNING_HEADING),
 ]
-INDEPENDENT_LINE = ("TCP Facts is an independent, community-made dataset about T Cloud Public (TCP). It is not a "
-                    "product of the operator and nothing in it speaks for T-Systems or Deutsche Telekom.")
+DISCLAIMER = (
+    '> **Unofficial and independent.** Not a product of, and not endorsed by, T-Systems or Deutsche Telek'
+    'om; it speaks for nobody but its author. Built only from public sources (the public documentation, t'
+    'he public service description, the public price API), with respect for robots.txt and the terms of t'
+    "hose sources. No customer data and no confidential information. No warranty: the provider's contract"
+    ' documents are binding.')
+BADGE_COLOURS = {"unofficial": "c64a3d", "facts": "2f6fd1", "before": "e0b43a", "licence": "3f9d5a", "mcp": "8a63b8"}
+
+
+def readme_header(day: str, best_before: str, n_facts: int) -> list[tuple[str, str]]:
+    """The top of the README: a centred title and subtitle, the disclaimer and a row of badges (shields.io, no logo)."""
+    def badge(alt: str, label: str, value: str, key: str, href: str = "") -> str:
+        img = '<img alt="%s" src="https://img.shields.io/badge/%s-%s-%s">' % (
+            alt, label, value.replace("-", "--").replace(" ", "_"), BADGE_COLOURS[key])
+        return '  <a href="%s">%s</a>' % (href, img) if href else "  " + img
+    row = "\n".join([badge("Unofficial", "Status", "Unofficial", "unofficial"),
+                     badge("Facts: %d" % n_facts, "Facts", str(n_facts), "facts"),
+                     badge("Best before: %s" % best_before, "Best_before", best_before, "before"),
+                     badge("License: CC BY 4.0", "License", "CC BY 4.0", "licence"),
+                     badge("MCP server", "MCP", "server", "mcp", "#" + MCP_HEADING.lower().replace(" ", "-"))])
+    return [("p", '<h1 align="center">%s</h1>' % NAME),
+            ("p", '<p align="center"><b>Checked facts about T Cloud Public (TCP) for any AI assistant, dataset of %s</b></p>' % day),
+            ("p", DISCLAIMER),
+            ("p", '<p align="center">\n%s\n</p>' % row)]
+
+
 LICENCE_LINE = "The full licence text is in LICENSE at github.com/%s." % GITHUB_REPO
 ONE_LINER = "Use the attached TCP Facts. Answer: <your question>"
 LONG_PROMPT = ("Answer only from the attached TCP Facts. Cite the id (KB-XXXX) after every fact you use. Say \"no "
@@ -755,7 +779,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
     (root / "PROMPT.md").write_text(blocks_to_markdown(blocks), encoding="utf-8")
     (root / "HOW-TO.pdf").write_bytes(pdf_bytes(blocks, "%s %s: how to use it" % (NAME, day)))
     (root / "README.md").write_text(blocks_to_markdown(
-        [("h1", "%s %s" % (NAME, day)), ("p", INDEPENDENT_LINE), ("p", "Build of %s. A later build of the same day replaces this one under the same "
+        readme_header(day, best_before, len(records)) + [("p", "Build of %s. A later build of the same day replaces this one under the same "
                                               "name; the manifest carries the build time." % built_at)]
         + blocks[1:4] + [("h2", "Use"), ("p", "Attach facts.md and type:"),
                                                           ("code", ONE_LINER), ("p", "PROMPT.md has the rest.")]

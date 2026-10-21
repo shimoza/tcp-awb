@@ -9845,11 +9845,18 @@
   {
    "id": "px-no-price-csv-in-dataset-11",
    "phase": "px-no-price-csv-in-dataset",
-   "name": "the built README says the dataset is independent under the title",
-   "run": ".venv/bin/pytest tests/test_dataset_px.py::test_the_built_readme_says_the_dataset_is_independent_under_the_title",
+   "name": "the built README opens with the centred header, the disclaimer and the badges",
+   "run": ".venv/bin/pytest tests/test_dataset_px.py::test_the_built_readme_opens_with_the_centred_header_the_disclaimer_and_the_badges",
+   "status": "passing"
+  },
+  {
+   "id": "px-no-price-csv-in-dataset-12",
+   "phase": "px-no-price-csv-in-dataset",
+   "name": "the repository README has the disclaimer under the title and the Unofficial badge first",
+   "run": ".venv/bin/pytest tests/test_dataset_px.py::test_the_repository_readme_has_the_disclaimer_under_the_title_and_the_unofficial_badge_first",
    "status": "passing"
   }
  ],
- "total_tests": 1407,
+ "total_tests": 1408,
  "checked": "2026-10-20"
 }
