@@ -85,7 +85,7 @@ project was created. A drifted folder is renamed in the bucket, never the projec
 
 | command | what it does |
 |---|---|
-| `awb bucket sync` | create the folders of every active project; report folders that match no project (count per month, no name) |
+| `awb bucket sync` | create the folders of every active project and add the `.keep` file to `in/` and `out/` where it is missing; report folders that match no project (count per month, no name) |
 | `awb bucket folder CODE` | the folder of one project, created when missing |
 | `awb bucket pull CODE` | new files of `in/` into the vault inbox, then the intake for the project's customer (for a project without one under the project code), in wipe mode; it prints the values wiped per class. A file is taken once (`--again` takes it again). `awb import CODE` does the same and more. Your own terminal, never an assistant session: the client gives no file of `in/` to one |
 | `awb bucket put CODE FILE` | FILE into `out/`; `--replace` overwrites, `--reveal` puts the real names back first (your own shell). The send gate runs first: for a project with a customer or partner it refuses a deliverable without a valid review at tier 3 (or a tier he lowered) and a tier 3 review without the request check; an internal file leaves with a warning |
