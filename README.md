@@ -386,6 +386,14 @@ When the interpreter does not import this tree by itself, `tests/conftest.py` gi
 throw-away interpreter that does (one `.pth` line in a temporary folder), and a copy a test makes of the tree is
 writable for it; nothing is written into the tree.
 
+### On a laptop
+
+For the partner who wants the Workbench on a laptop without the sealed host, install `awb` as above, run `awb init`,
+then `awb kb import facts.jsonl` from the latest TCP Facts release (github.com/shimoza/tcp-facts; the zip of the
+release works too). The new knowledge base starts empty and the import fills it: every fact is checked as `awb kb add`
+checks it, an id that is already there is skipped and the counts say what was imported, skipped and refused. It
+needs no vault daemon, no key service and no work user. Run it again with `--update` after a newer release.
+
 ### As a plugin for Claude Code
 
 The skills, the workers and the checkpoints also come as a plugin, with this repository as its marketplace. Install

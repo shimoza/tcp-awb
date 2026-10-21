@@ -695,7 +695,7 @@ DELEGATED = {
     "gate": ("gate", "the commit gate"),
     "vault": ("vault", "the vault: serve, unlock, lock, status, encrypt"),
     "kb": ("kb", "the knowledge base: add, amend, how, bench, recheck, retire, find, show, scope, expired, export, "
-           "review, index, verify, recheck-run, recheck-watch"),
+           "import, review, index, verify, recheck-run, recheck-watch"),
     "ledger": ("ledger", "the activity ledger: add, list"),
     "report": ("ledger", "reports from the ledger by customer, technology, kind or project"),
     "career": ("career", "the career log: add, update, due"),

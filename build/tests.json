@@ -9883,8 +9883,71 @@
    "name": "the generated docs do not say the console reference holds screenshots",
    "run": ".venv/bin/pytest tests/test_howto.py::test_the_generated_docs_do_not_say_the_console_reference_holds_screenshots",
    "status": "passing"
+  },
+  {
+   "id": "pg-kb-import-and-lite-plugin-1",
+   "phase": "pg-kb-import-and-lite-plugin",
+   "name": "import writes entries with the release values",
+   "run": ".venv/bin/pytest tests/test_kb_import.py::test_import_writes_entries_with_the_release_values",
+   "status": "passing"
+  },
+  {
+   "id": "pg-kb-import-and-lite-plugin-2",
+   "phase": "pg-kb-import-and-lite-plugin",
+   "name": "a refused entry is counted by class and not written",
+   "run": ".venv/bin/pytest tests/test_kb_import.py::test_a_refused_entry_is_counted_by_class_and_not_written",
+   "status": "passing"
+  },
+  {
+   "id": "pg-kb-import-and-lite-plugin-3",
+   "phase": "pg-kb-import-and-lite-plugin",
+   "name": "a taken id is skipped and never overwritten",
+   "run": ".venv/bin/pytest tests/test_kb_import.py::test_a_taken_id_is_skipped_and_never_overwritten",
+   "status": "passing"
+  },
+  {
+   "id": "pg-kb-import-and-lite-plugin-4",
+   "phase": "pg-kb-import-and-lite-plugin",
+   "name": "update replaces only older entries of the same dataset",
+   "run": ".venv/bin/pytest tests/test_kb_import.py::test_update_replaces_only_older_entries_of_the_same_dataset",
+   "status": "passing"
+  },
+  {
+   "id": "pg-kb-import-and-lite-plugin-5",
+   "phase": "pg-kb-import-and-lite-plugin",
+   "name": "a zip and a dry run",
+   "run": ".venv/bin/pytest tests/test_kb_import.py::test_a_zip_and_a_dry_run",
+   "status": "passing"
+  },
+  {
+   "id": "pg-kb-import-and-lite-plugin-6",
+   "phase": "pg-kb-import-and-lite-plugin",
+   "name": "bad lines and bad input are counted without their content",
+   "run": ".venv/bin/pytest tests/test_kb_import.py::test_bad_lines_and_bad_input_are_counted_without_their_content",
+   "status": "passing"
+  },
+  {
+   "id": "pg-kb-import-and-lite-plugin-7",
+   "phase": "pg-kb-import-and-lite-plugin",
+   "name": "it needs no vault daemon or work user",
+   "run": ".venv/bin/pytest tests/test_kb_import.py::test_it_needs_no_vault_daemon_or_work_user",
+   "status": "passing"
+  },
+  {
+   "id": "pg-kb-import-and-lite-plugin-8",
+   "phase": "pg-kb-import-and-lite-plugin",
+   "name": "a scope that the folder does not hold is refused",
+   "run": ".venv/bin/pytest tests/test_kb_import.py::test_a_scope_that_the_folder_does_not_hold_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "pg-kb-import-and-lite-plugin-9",
+   "phase": "pg-kb-import-and-lite-plugin",
+   "name": "a release without a prices folder imports and the module expects none",
+   "run": ".venv/bin/pytest tests/test_kb_import.py::test_a_release_without_a_prices_folder_imports_and_the_module_expects_none",
+   "status": "passing"
   }
  ],
- "total_tests": 1412,
+ "total_tests": 1421,
  "checked": "2026-10-21"
 }
