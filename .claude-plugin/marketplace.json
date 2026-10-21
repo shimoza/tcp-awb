@@ -10,12 +10,6 @@
       "source": "./plugin",
       "description": "A harness for TCP architects: checked facts, live prices, migrations, test tenants, exchange and reviews",
       "version": "0.2.0"
-    },
-    {
-      "name": "tcp-fieldkit",
-      "source": "./fieldkit",
-      "description": "An independent, community-made toolkit for T Cloud Public (TCP): facts from downloaded TCP Facts files and live price lookups",
-      "version": "0.1.0"
     }
   ]
 }

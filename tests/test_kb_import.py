@@ -139,3 +139,12 @@ def test_a_scope_that_the_folder_does_not_hold_is_refused(home, tmp_path, capsys
     (home.kb / "SCOPE").write_text("hcs\n", encoding="utf-8")
     code, out, err = run(["import", str(release(tmp_path, FACTS[:1]))], capsys)
     assert code == 1 and "scope 1" in err
+
+
+def test_a_release_without_a_prices_folder_imports_and_the_module_expects_none(home, tmp_path, capsys):
+    z = tmp_path / "release.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.write(release(tmp_path, FACTS[:1]), "tcp-facts-2026-10-19/facts.jsonl")
+    code, out, _ = run(["import", str(z)], capsys)
+    assert code == 0 and "imported 1" in out
+    assert "prices" not in (Path(kbimport.__file__)).read_text(encoding="utf-8")
