@@ -9526,8 +9526,57 @@
    "name": "import: 13 synthetic Markdown files within the time bound",
    "run": ".venv/bin/pytest tests/test_import_progress.py::test_the_synthetic_set_of_13_markdown_files_imports_within_the_time_bound",
    "status": "passing"
+  },
+  {
+   "id": "cs5-mirror-console-1",
+   "phase": "cs5-mirror-console",
+   "name": "find ranks by overlap and prints the matching line",
+   "run": ".venv/bin/pytest tests/test_console_mirror.py::test_find_ranks_by_overlap_and_prints_the_matching_line",
+   "status": "passing"
+  },
+  {
+   "id": "cs5-mirror-console-2",
+   "phase": "cs5-mirror-console",
+   "name": "find reaches the text and filters by service",
+   "run": ".venv/bin/pytest tests/test_console_mirror.py::test_find_reaches_the_text_and_filters_by_service",
+   "status": "passing"
+  },
+  {
+   "id": "cs5-mirror-console-3",
+   "phase": "cs5-mirror-console",
+   "name": "show prints the index line the text and the image path",
+   "run": ".venv/bin/pytest tests/test_console_mirror.py::test_show_prints_the_index_line_the_text_and_the_image_path",
+   "status": "passing"
+  },
+  {
+   "id": "cs5-mirror-console-4",
+   "phase": "cs5-mirror-console",
+   "name": "show refuses a bad or unknown reference",
+   "run": ".venv/bin/pytest tests/test_console_mirror.py::test_show_refuses_a_bad_or_unknown_reference",
+   "status": "passing"
+  },
+  {
+   "id": "cs5-mirror-console-5",
+   "phase": "cs5-mirror-console",
+   "name": "the newest walk is the default and an unknown one is refused",
+   "run": ".venv/bin/pytest tests/test_console_mirror.py::test_the_newest_walk_is_the_default_and_an_unknown_one_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "cs5-mirror-console-6",
+   "phase": "cs5-mirror-console",
+   "name": "status lists the console mirror",
+   "run": ".venv/bin/pytest tests/test_console_mirror.py::test_status_lists_the_console_mirror",
+   "status": "passing"
+  },
+  {
+   "id": "cs5-mirror-console-7",
+   "phase": "cs5-mirror-console",
+   "name": "the command line finds and shows and the work user may",
+   "run": ".venv/bin/pytest tests/test_console_mirror.py::test_the_command_line_finds_and_shows_and_the_work_user_may",
+   "status": "passing"
   }
  ],
- "total_tests": 1361,
+ "total_tests": 1368,
  "checked": "2026-10-20"
 }

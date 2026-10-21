@@ -3,6 +3,8 @@
     awb mirror docs [--budget SECONDS] [--only REPO]...
     awb mirror sd
     awb mirror rn [--pages N] [--pause SECONDS]
+    awb mirror console find WORDS [--service SVC] [--limit N]
+    awb mirror console show SVC/NN-slug
     awb mirror status
 
 docs: every repository of the GitHub organisation opentelekomcloud-docs that is not archived, cloned shallow into
@@ -24,6 +26,9 @@ fetched, because the list holds the date, title, text and link of each note. Eac
 day they were first seen. A note that is in the index is never written again. Until every page has been read once
 (--pages or an error can cut the first run short) a run goes on to the last page; after that it stops at the first
 page that brings nothing new, so a later run reads page 1.
+
+console: the owner's private mirror of the console screens, read only here (awb/tcp/console_mirror.py); it is never
+in the public dataset and never in git.
 
 <root> is AWB_MIRRORS or ~/tcp-mirrors on the owner side. The work user of the seal reads /srv/tcp-mirrors, where
 the seal mounts them read-only (seal/setup.sh --mirrors <root>/docs <root>/service-description), and never updates
@@ -49,6 +54,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from awb import config, jobs
+from awb.tcp import console_mirror
 
 ORG = "opentelekomcloud-docs"
 ORG_API = "https://api.github.com/orgs/%s/repos?per_page=100&type=public&page=%d"
@@ -506,6 +512,7 @@ def status(base: Path) -> list[str]:
     notes = release_notes(base)
     lines.append("release notes: %s" % (("%d notes, newest %s, in %s" % (len(notes), notes[0]["date"], base / RN))
                                         if notes else "none"))
+    lines.append(console_mirror.status(base))
     return lines
 
 
@@ -513,7 +520,7 @@ def status(base: Path) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """`awb mirror docs|sd|rn|status`. Exit 0 done, 1 some repository failed, 2 an error or refused."""
+    """`awb mirror docs|sd|rn|console|status`. Exit 0 done, 1 some repository failed, 2 an error or refused."""
     from awb.cli import SafeParser
 
     ap = SafeParser(prog="awb mirror", description="Public mirrors of TCP: the documentation sources, the "
@@ -526,6 +533,16 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("rn", help="fetch the release notes list, a file per new note")
     r.add_argument("--pages", type=int, default=None, help="read at most this many pages")
     r.add_argument("--pause", type=float, default=RN_PAUSE, help="seconds between two pages")
+    c = sub.add_parser("console", help="search or show the console screen mirror (read only)")
+    csub = c.add_subparsers(dest="console_command", parser_class=SafeParser)
+    cf = csub.add_parser("find", help="screens ranked by word overlap")
+    cf.add_argument("words", nargs="+", help="the words to look for")
+    cf.add_argument("--service", default=None, help="only this service")
+    cf.add_argument("--limit", type=int, default=console_mirror.DEFAULT_LIMIT, help="at most this many screens")
+    cf.add_argument("--walk", default=None, help="a walk date (default: the newest)")
+    cs = csub.add_parser("show", help="the INDEX line, the text and the image path of one screen")
+    cs.add_argument("ref", help="SERVICE/NN-slug")
+    cs.add_argument("--walk", default=None, help="a walk date (default: the newest)")
     sub.add_parser("status", help="what the mirrors hold")
     try:
         args = ap.parse_args(argv)
@@ -535,6 +552,11 @@ def main(argv: list[str] | None = None) -> int:
         ap.print_usage(sys.stderr)
         return 2
     base = root()
+    if args.command == "console":
+        if not args.console_command:
+            c.print_usage(sys.stderr)
+            return 2
+        return console_mirror.main(args, base)
     try:
         if args.command == "status":
             for line in status(base):

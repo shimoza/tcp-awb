@@ -1121,6 +1121,20 @@ fetch the release notes list, a file per new note
 - `--pages PAGES`: read at most this many pages
 - `--pause PAUSE`: seconds between two pages
 
+### `awb mirror console find WORDS... [--service SERVICE] [--limit LIMIT] [--walk WALK]`
+
+screens ranked by word overlap
+- `WORDS...`: the words to look for
+- `--service SERVICE`: only this service
+- `--limit LIMIT`: at most this many screens
+- `--walk WALK`: a walk date (default: the newest)
+
+### `awb mirror console show REF [--walk WALK]`
+
+the INDEX line, the text and the image path of one screen
+- `REF`: SERVICE/NN-slug
+- `--walk WALK`: a walk date (default: the newest)
+
 ### `awb mirror status`
 
 what the mirrors hold

@@ -25,10 +25,10 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 
 - Check before you state. Prices come from the live price API (`awb price`), never from memory; a price sheet passes
   `awb price check` before it leaves. A negative needs a live check or a dated source; an expired entry is a lead.
-- Offered is only what the latest service description lists: `awb service check NAME` before you name an option.
-  What an offered service is made of comes from the docs (GitHub), the API, the knowledge base and experience.
+- Offered is only what the latest service description lists: `awb service check NAME` before you name an option. A
+  console how-to cites mirror screens with their date; a missing step reads "not in the mirror yet: check on screen".
 - Never compute in a reply, use `awb calc` (R-005). A clean check counts only after it has shown that it can fail.
-  Before a write outside the project or a change in the cloud, say where it lands: remote, folder or account.
+  Before a write outside the project or a cloud change, say where it lands.
 
 ## Housekeeping and commands
 
