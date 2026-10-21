@@ -28,9 +28,9 @@ day they were first seen. A note that is in the index is never written again. Un
 (--pages or an error can cut the first run short) a run goes on to the last page; after that it stops at the first
 page that brings nothing new, so a later run reads page 1.
 
-console: the owner's private mirror of the console screens, read only here (awb/tcp/console_mirror.py); it is never
-in the public dataset and never in git. `console publish` (owner side) copies the newest walk to <mirrors>/console
-for the work user.
+console: the owner's private console reference, read only here (awb/tcp/console_mirror.py); it is never in the
+public dataset and never in git. `console publish` (owner side) copies the newest pass to <mirrors>/console for the
+work user.
 
 <root> is AWB_MIRRORS or ~/tcp-mirrors on the owner side. The work user of the seal reads /srv/tcp-mirrors, where
 the seal mounts them read-only (seal/setup.sh --mirrors <root>/docs <root>/service-description), and never updates
@@ -535,19 +535,19 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("rn", help="fetch the release notes list, a file per new note")
     r.add_argument("--pages", type=int, default=None, help="read at most this many pages")
     r.add_argument("--pause", type=float, default=RN_PAUSE, help="seconds between two pages")
-    c = sub.add_parser("console", help="search or show the console screen mirror (read only)")
+    c = sub.add_parser("console", help="search or show the private console reference (read only)")
     csub = c.add_subparsers(dest="console_command", parser_class=SafeParser)
-    cf = csub.add_parser("find", help="screens ranked by word overlap")
+    cf = csub.add_parser("find", help="entries ranked by word overlap")
     cf.add_argument("words", nargs="+", help="the words to look for")
     cf.add_argument("--service", default=None, help="only this service")
-    cf.add_argument("--limit", type=int, default=console_mirror.DEFAULT_LIMIT, help="at most this many screens")
-    cf.add_argument("--walk", default=None, help="a walk date (default: the newest)")
+    cf.add_argument("--limit", type=int, default=console_mirror.DEFAULT_LIMIT, help="at most this many entries")
+    cf.add_argument("--walk", default=None, help="a pass date (default: the newest)")
     cp = csub.add_parser("publish", help="copy the newest walk where the work user reads it (owner side)")
     cp.add_argument("--to", default=None, help="the place (default: AWB_MIRRORS_PUBLISH or the mirrors of the host file)")
-    cp.add_argument("--walk", default=None, help="a walk date (default: the newest)")
-    cs = csub.add_parser("show", help="the INDEX line, the text and the image path of one screen")
+    cp.add_argument("--walk", default=None, help="a pass date (default: the newest)")
+    cs = csub.add_parser("show", help="the INDEX line, the text and the file path of one entry")
     cs.add_argument("ref", help="SERVICE/NN-slug")
-    cs.add_argument("--walk", default=None, help="a walk date (default: the newest)")
+    cs.add_argument("--walk", default=None, help="a pass date (default: the newest)")
     sub.add_parser("status", help="what the mirrors hold")
     try:
         args = ap.parse_args(argv)

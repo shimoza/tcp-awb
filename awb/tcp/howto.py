@@ -1,23 +1,27 @@
-"""Step-by-step how-tos for the TCP console, drafted from the console mirror and never from memory.
+"""Step-by-step how-tos for the TCP console, drafted from the private console reference and never from memory.
 
     awb howto draft "TOPIC" [--service SVC] [--step WORDS]... [--limit N] [--walk DATE] [--name NAME] [--force]
-    awb howto render FILE [--pdf]
+                    [--internal]
+    awb howto render FILE [--internal] [--pdf]
 
-draft finds the screens of the topic in the console mirror (awb/tcp/console_mirror.py; the published copy for the
-work user, ~/tcp-mirrors for the owner), orders them by service, menu path and step number and writes a Markdown
-draft into the deliverables folder of the project: a title, a short "before you start", then one numbered step per
-screen. A step names the menu path, the field and button labels as the INDEX note spells them, cites the screen as
-`SVC/NN-slug, console mirror DATE` and embeds its screenshot from an `images/` folder next to the draft, where only
-the cited images are copied. With --step WORDS (repeated) each step is searched on its own and the best screen is
-the step; a step the mirror does not hold or whose image was dropped, reads "not in the mirror yet: check on
-screen". The draft says the date of the walk. A draft that exists is never overwritten without --force: the
-session edits its text and never invents a label.
+draft finds the screens of the topic in the private console reference (awb/tcp/console_mirror.py; the published
+copy for the work user, ~/tcp-mirrors for the owner), orders them by service, menu path and step number and writes a
+Markdown draft into the deliverables folder of the project: a title, a short "before you start", then one numbered
+step per screen. By default the draft is the outward text: a step names the menu path and the field and button labels
+as the INDEX note spells them and nothing else, with no image link and no screen citation. The citation of each
+screen (`SVC/NN-slug, console mirror DATE`) and the date of the walk go into `reviews/howto-NAME/sources.md`, an
+internal note next to the draft that never leaves. With --internal the draft is the image version: every step
+cites its screen and embeds its screenshot from an `images/` folder next to the draft, where only the cited images
+are copied. With --step WORDS (repeated) each step is searched on its own and the best screen is the step; a step
+the reference does not hold reads "not confirmed yet: check on screen" (in the internal version "not in the mirror
+yet: check on screen"). A draft that exists is never overwritten without --force: the session edits its text and
+never invents a label.
 
-render turns the draft into one self-contained HTML file next to it, the images inline as data URIs. It reads a
-small Markdown subset (headings, paragraphs, lists, bold, italic, code, images) and nothing else. A PDF has no
-standard-library route (reportlab is test-only and poppler cannot read HTML): --pdf writes the HTML, says so and
-exits 1; print the HTML from a browser until that is built. The screenshots are private: the result goes out with
-`awb xchg put --image --reason TEXT` to a customer or partner by mail, never into a public repository.
+render turns the draft into one self-contained HTML file next to it. It reads a small Markdown subset (headings,
+paragraphs, lists, bold, italic, code, images) and nothing else. A draft with images is refused unless --internal;
+an internal render carries "internal, never publish" at the top, the images inline as data URIs, and never goes out
+(`awb xchg put` refuses it). A PDF has no standard-library route (reportlab is test-only and poppler cannot read
+HTML): --pdf writes the HTML, says so and exits 1; print the HTML from a browser until that is built.
 """
 from __future__ import annotations
 
@@ -33,6 +37,10 @@ from awb.tcp import console_mirror
 from awb.tcp.console_mirror import ConsoleError, Screen
 
 MISSING = "not in the mirror yet: check on screen"
+UNCONFIRMED = "not confirmed yet: check on screen"
+INTERNAL_BANNER = "internal, never publish"
+SOURCES = "sources.md"
+REVIEWS = "reviews"
 IMAGES = "images"
 DELIVERABLES = "deliverables"
 DEFAULT_LIMIT = 8
@@ -89,14 +97,22 @@ def _labels(note: str) -> list[str]:
     return lines
 
 
-def _step(n: int, about: str, s: Screen | None, walk: str, base: Path, images: Path) -> list[str]:
+def _step(n: int, about: str, s: Screen | None, walk: str, base: Path, images: Path,
+          internal: bool) -> tuple[list[str], str]:
+    """(the lines of the step, its line for sources.md). The outward step has the menu path and the labels only."""
     if s is None:
-        return ["%d. **%s**" % (n, about), "   - Screen: %s" % MISSING, ""]
+        miss = MISSING if internal else UNCONFIRMED
+        return ["%d. **%s**" % (n, about), "   - Screen: %s" % miss if internal else "   - %s" % miss.capitalize(),
+                ""], "%d. %s: %s" % (n, about, MISSING)
     lines = ["%d. **%s**" % (n, s.title or about),
-             "   - Menu path: %s" % (s.menu or "not in the INDEX"),
-             "   - Screen: `%s, console mirror %s`" % (s.ref, walk)]
+             "   - Menu path: %s" % (s.menu or "not in the INDEX")]
+    cite = "`%s, console mirror %s`" % (s.ref, walk)
+    if internal:
+        lines.append("   - Screen: %s" % cite)
     lines += ["   - %s" % x for x in _labels(s.note)]
     src = console_mirror.image_path(base, walk, s)
+    if not internal:
+        return lines + [""], "%d. %s: %s" % (n, s.title or about, cite + ("" if src else "; no image"))
     if src is None:
         lines.append("   - Screenshot: %s" % MISSING)
     else:
@@ -104,13 +120,14 @@ def _step(n: int, about: str, s: Screen | None, walk: str, base: Path, images: P
         images.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, images / name)
         lines += ["", "   ![%s](%s/%s)" % (s.title or s.stem, IMAGES, name)]
-    return lines + [""]
+    return lines + [""], "%d. %s: %s" % (n, s.title or about, cite)
 
 
 def draft(topic: str, *, base: Path, project: Path, service: str | None = None, steps: list[str] | None = None,
           limit: int = DEFAULT_LIMIT, walk: str | None = None, name: str | None = None,
-          force: bool = False) -> tuple[Path, int, int]:
-    """Write the draft; (path, steps, lines that say the mirror lacks something)."""
+          force: bool = False, internal: bool = False) -> tuple[Path, int, int]:
+    """Write the draft; (path, steps, lines that say the reference lacks something). Without `internal` the text is
+    the outward version and the citations go into reviews/howto-NAME/sources.md; with it the image version."""
     topic = " ".join(topic.split())
     if not topic:
         raise HowtoError("a how-to needs a topic")
@@ -127,19 +144,34 @@ def draft(topic: str, *, base: Path, project: Path, service: str | None = None, 
         raise HowtoError("%s exists; edit it or use --force to draft again" % target.relative_to(project))
     if os.path.islink(out_dir) or os.path.islink(target):
         raise HowtoError("a link stands where the deliverables folder or the draft should be")
+    sources = project / REVIEWS / ("howto-%s" % stem) / SOURCES
+    if not internal and (os.path.islink(project / REVIEWS) or os.path.islink(sources.parent)
+                         or os.path.islink(sources)):
+        raise HowtoError("a link stands where the review folder should be")
     out_dir.mkdir(parents=True, exist_ok=True)
     services = sorted({s.service for _, s in chosen if s})
     text = ["# How to: %s" % topic, "", "## Before you start", "",
             "- You are signed in to the TCP console.",
             "- Your account may use %s." % (("the service %s" % services[0]) if len(services) == 1 else
                                             ("the services %s" % ", ".join(services)) if services else
-                                            "the service of this topic"),
-            "- The screens are from the console mirror walk of %s. A later console may look different." % day,
-            "", "## Steps", ""]
+                                            "the service of this topic")]
+    if internal:
+        text.append("- The screens are from the console mirror walk of %s. A later console may look different." % day)
+    else:
+        text.append("- A later console may look different.")
+    text += ["", "## Steps", ""]
+    cites = []
     for n, (about, s) in enumerate(chosen, start=1):
-        text += _step(n, about, s, day, base, out_dir / IMAGES)
+        lines, cite = _step(n, about, s, day, base, out_dir / IMAGES, internal)
+        text += lines
+        cites.append(cite)
     target.write_text("\n".join(text).rstrip("\n") + "\n", encoding="utf-8")
-    return target, len(chosen), sum(1 for line in text if MISSING in line)
+    if not internal:
+        sources.parent.mkdir(parents=True, exist_ok=True)
+        sources.write_text("\n".join(["# Sources of howto-%s.md (internal, never publish)" % stem, "",
+                                      "Console walk: %s" % day, "", "The deliverable carries text steps only.", ""]
+                                     + cites) + "\n", encoding="utf-8")
+    return target, len(chosen), sum(1 for line in text if UNCONFIRMED in line.lower() or MISSING in line)
 
 
 # --------------------------------------------------------------------------- render
@@ -262,18 +294,25 @@ def to_html(markdown: str, root: Path) -> tuple[str, list[str]]:
     return doc, problems
 
 
-def render(path: Path) -> tuple[Path, list[str], int]:
-    """Write FILE.html beside the draft; (path, problems, steps still marked as missing). Nothing is written when
-    an image is missing, refused or too large."""
+def render(path: Path, internal: bool = False) -> tuple[Path, list[str], int]:
+    """Write FILE.html beside the draft; (path, problems, steps still marked as missing). A draft with images is
+    refused unless `internal`, and an internal page carries INTERNAL_BANNER at the top. Nothing is written when an
+    image is missing, refused or too large."""
     if path.suffix.lower() != ".md" or not path.is_file() or os.path.islink(path):
         raise HowtoError("render takes a Markdown draft, as `awb howto draft` wrote it")
     text = path.read_text(encoding="utf-8")
+    if _IMG_RE.search(text) and not internal:
+        raise HowtoError("the draft has images: the outward text carries steps only; for an internal page use "
+                         "--internal, or draft again without --internal")
     doc, problems = to_html(text, path.parent)
     if problems:
         raise HowtoError("; ".join(problems))
+    if internal:
+        doc = doc.replace("<title>", "<title>%s: " % INTERNAL_BANNER, 1).replace(
+            "<body>\n", '<body>\n<p><strong>%s</strong></p>\n' % INTERNAL_BANNER, 1)
     out = path.with_suffix(".html")
     out.write_text(doc, encoding="utf-8")
-    return out, problems, text.count(MISSING)
+    return out, problems, text.count(MISSING) + text.lower().count(UNCONFIRMED)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -281,19 +320,24 @@ def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
     from awb.tcp import mirror
 
-    ap = SafeParser(prog="awb howto", description="Step-by-step console how-tos from the console mirror.")
+    ap = SafeParser(prog="awb howto", description="Step-by-step console how-tos from the private console reference.")
     sub = ap.add_subparsers(dest="command")
-    d = sub.add_parser("draft", help="a Markdown draft with the screens of the topic, into the project's deliverables")
+    d = sub.add_parser("draft", help="a Markdown draft of the topic, into the project's deliverables")
     d.add_argument("topic", help="what the how-to is about")
     d.add_argument("--service", default=None, help="only this service")
     d.add_argument("--step", action="append", default=[], metavar="WORDS",
                    help="one step by its words, the best screen is taken; repeat for each step in order")
-    d.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help="at most this many screens")
-    d.add_argument("--walk", default=None, help="a walk date (default: the newest)")
+    d.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help="at most this many entries")
+    d.add_argument("--walk", default=None, help="a pass date (default: the newest)")
     d.add_argument("--name", default=None, help="the file is deliverables/howto-NAME.md (default: from the topic)")
     d.add_argument("--force", action="store_true", help="draft again over an existing draft")
-    r = sub.add_parser("render", help="one self-contained HTML file of a draft, images inline")
+    d.add_argument("--internal", action="store_true",
+                   help="the image version with source citations, for internal use only (default: text steps, the "
+                        "citations go into reviews/howto-NAME/sources.md)")
+    r = sub.add_parser("render", help="one self-contained HTML file of a draft")
     r.add_argument("file", help="the Markdown draft")
+    r.add_argument("--internal", action="store_true",
+                   help="allow a draft with images; the page says \"internal, never publish\" at the top")
     r.add_argument("--pdf", action="store_true", help="also a PDF (waits: HTML only for now)")
     try:
         args = ap.parse_args(argv)
@@ -306,11 +350,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "draft":
             path, n, lacking = draft(args.topic, base=mirror.root(), project=review.find_project(),
                                      service=args.service, steps=args.step, limit=args.limit, walk=args.walk,
-                                     name=args.name, force=args.force)
-            print("howto: %d step(s), %d not in the mirror yet, written to %s" % (n, lacking, path))
-            print("next: edit the text, never invent a label; `awb howto render %s`" % path)
+                                     name=args.name, force=args.force, internal=args.internal)
+            print("howto: %d step(s), %d not confirmed yet, written to %s" % (n, lacking, path))
+            print("next: edit the text, never invent a label; `awb howto render %s%s`"
+                  % (path, " --internal" if args.internal else ""))
             return 0
-        out, _, lacking = render(Path(args.file))
+        out, _, lacking = render(Path(args.file), internal=args.internal)
         print("howto: %s" % out)
         if lacking:
             print("note: %d step(s) still say %r" % (lacking, MISSING), file=sys.stderr)
@@ -318,7 +363,7 @@ def main(argv: list[str] | None = None) -> int:
             print("howto: no PDF yet, there is no standard-library route; print the HTML from a browser",
                   file=sys.stderr)
             return 1
-        print("next: awb xchg put %s --image --reason \"console screenshots of the mirror, masked text only\"" % out)
+        print("internal, never publish: it does not leave" if args.internal else "next: awb xchg put %s" % out)
         return 0
     except (HowtoError, ConsoleError) as err:
         print("awb howto: %s" % err, file=sys.stderr)

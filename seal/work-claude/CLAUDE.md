@@ -26,7 +26,7 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 - Check before you state. Prices come from the live price API (`awb price`), never from memory; a price sheet passes
   `awb price check` before it leaves. A negative needs a live check or a dated source; an expired entry is a lead.
 - Offered is only what the latest service description lists: `awb service check NAME` before you name an option. A
-  console how-to starts from `awb howto draft "TOPIC"`, never from memory; a missing step reads "not in the mirror yet".
+  console how-to starts from `awb howto draft "TOPIC"`, never from memory: text steps only, screens only in `reviews/<name>/sources.md`.
 - Never compute in a reply, use `awb calc` (R-005). A clean check counts only after it has shown that it can fail.
   Before a write outside the project or a cloud change, say where it lands.
 
@@ -42,7 +42,7 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   register or bucket block. At most one command block per reply; a held take: one line naming the user and the command.
 - Files: he describes a file, never names it. `awb inbox take HIS WORDS` takes the match of `in/` or the lab inbox
   ("from in": all of `in/`); none or several: pick or ask, then `--id ID`. Results go out with `awb xchg put FILE`:
-  name it `<code>-<kind word>-<language>.<ext>`; codes only, no ids in logs, a screenshot only with `--image`, why it is clean.
+  name it `<code>-<kind word>-<language>.<ext>`; codes only, no ids in logs, an image only with `--image` (never a console one).
 - `awb cloud tenants` lists the test tenants; `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role lab]` reaches
   them through the key service. A password goes into a body only as `{{secret:NAME}}`, a key never.
 - `awb kb find|add|scope`, `awb ledger add`, `awb report --by KEY`, `awb career add`. `awb check`, `awb write check` and
