@@ -5,6 +5,7 @@ check of `awb spawn`). One family of the wipe rules (F1 step 8); the package tex
 """
 from __future__ import annotations
 
+import functools
 import re
 
 from awb import codes, patterns
@@ -16,10 +17,12 @@ from awb.matcher import Span
 _STOP_FILE = patterns.RULES_DIR / "stop-words.txt"
 
 
-def _load_stop_words() -> tuple[frozenset[str], tuple[re.Pattern, ...]]:
-    """Single stop words (case folded) and the multi-word stop phrases as patterns."""
+def _load_stop_words() -> tuple[frozenset[str], tuple[re.Pattern, ...], tuple[str, ...]]:
+    """Single stop words (case folded), the multi-word stop phrases as patterns and the case folded first word of
+    each phrase (same order)."""
     singles: set[str] = set()
     phrases: list[re.Pattern] = []
+    firsts: list[str] = []
     try:
         lines = _STOP_FILE.read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -34,10 +37,14 @@ def _load_stop_words() -> tuple[frozenset[str], tuple[re.Pattern, ...]]:
         else:
             body = r"\s+".join(re.escape(w) for w in words)
             phrases.append(re.compile(r"(?<![\w-])" + body + r"(?![\w-])", re.IGNORECASE))
-    return frozenset(singles), tuple(phrases)
+            firsts.append(words[0].casefold())
+    return frozenset(singles), tuple(phrases), tuple(firsts)
 
 
-_STOP_SINGLES, _STOP_PHRASES = _load_stop_words()
+_STOP_SINGLES, _STOP_PHRASES, _STOP_FIRSTS = _load_stop_words()
+# one scan finds which first words occur in a text, so only the phrases that can match run (there are hundreds)
+_STOP_FIRST_RE = re.compile(r"(?<![\w-])(?:%s)(?![\w-])" % "|".join(
+    re.escape(w) for w in sorted(set(_STOP_FIRSTS), key=len, reverse=True)), re.IGNORECASE) if _STOP_FIRSTS else None
 
 _OPENERS_FILE = patterns.RULES_DIR / "sentence-openers.txt"
 
@@ -208,7 +215,19 @@ def _opening(text: str, pos: int) -> bool:
 
 
 def _stop_spans(text: str) -> list[Span]:
-    return [Span(m.start(), m.end(), "stop") for rx in _STOP_PHRASES for m in rx.finditer(text)]
+    # the same text is scanned again and again in one intake, and the answer depends on the text alone
+    return [Span(a, b, "stop") for a, b in _stop_ranges(text)]
+
+
+@functools.lru_cache(maxsize=64)
+def _stop_ranges(text: str) -> tuple[tuple[int, int], ...]:
+    if _STOP_FIRST_RE is None:
+        return ()
+    present = {m.group(0).casefold() for m in _STOP_FIRST_RE.finditer(text)}
+    if not present:
+        return ()
+    return tuple((m.start(), m.end()) for rx, first in zip(_STOP_PHRASES, _STOP_FIRSTS) if first in present
+                 for m in rx.finditer(text))
 
 
 def _ordinary(word: str) -> bool:
@@ -217,6 +236,7 @@ def _ordinary(word: str) -> bool:
     return low in _FUNCTION_WORDS or low in _STOP_SINGLES or low in _TOOL_WORDS
 
 
+@functools.lru_cache(maxsize=4096)
 def _name_word(word: str) -> bool:
     """A word shaped like part of a name: capitalised (any alphabet, accents, O'Name, Name-Name) or in
     capitals with at least _MIN_CAPS_LETTERS letters. An English possessive ('s, ’s) at the end is no part of the
@@ -278,6 +298,11 @@ def _company_candidates(text: str, blocked: _Mask) -> list[tuple[int, int]]:
 
 def _runs(text: str) -> list[list[tuple[int, int, str]]]:
     """Runs of name words that stand next to each other with only spaces or tabs between them."""
+    return [list(run) for run in _runs_cached(text)]
+
+
+@functools.lru_cache(maxsize=64)
+def _runs_cached(text: str) -> tuple[tuple[tuple[int, int, str], ...], ...]:
     runs: list[list[tuple[int, int, str]]] = []
     current: list[tuple[int, int, str]] = []
     for m in _TOKEN_RE.finditer(text):
@@ -294,7 +319,7 @@ def _runs(text: str) -> list[list[tuple[int, int, str]]]:
         current.append((a, b, w))
     if current:
         runs.append(current)
-    return runs
+    return tuple(tuple(run) for run in runs)
 
 
 def _run_candidates(text: str, blocked: _Mask) -> list[tuple[int, int]]:

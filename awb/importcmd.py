@@ -55,6 +55,11 @@ def _say(text: str) -> None:
     print(text)
 
 
+def _progress(text: str) -> None:
+    """One progress line on standard error while the import runs (a file id and a time, never a name)."""
+    print(text, file=sys.stderr, flush=True)
+
+
 project_customer_code = intake.project_customer_code
 
 
@@ -240,7 +245,8 @@ def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None =
         _say("%s: %d file(s) from %s" % (code, len(files), where))
         if trusted:
             _say("trusted: no name is guessed; registered forms, secrets, mail addresses and phones are still wiped")
-        res = intake.run(files, cust, p, review=review, edit=edit, confirm=confirm, redo=mapping, trusted=trusted)
+        res = intake.run(files, cust, p, review=review, edit=edit, confirm=confirm, redo=mapping, trusted=trusted,
+                         progress=_progress)
     finally:
         if tmp is not None:
             shutil.rmtree(tmp, ignore_errors=True)
