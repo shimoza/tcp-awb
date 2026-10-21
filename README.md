@@ -1,8 +1,11 @@
 <h1 align="center">Architect Workbench</h1>
 
+> **Unofficial and independent.** Not a product of, and not endorsed by, T-Systems or Deutsche Telekom; it speaks for nobody but its author. Built only from public sources (the public documentation, the public service description, the public price API), with respect for robots.txt and the terms of those sources. No customer data and no confidential information. No warranty: the provider's contract documents are binding.
+
 <p align="center"><b>A harness for cloud architecture work on T Cloud Public (TCP)</b></p>
 
 <p align="center">
+  <img alt="Unofficial" src="https://img.shields.io/badge/Status-Unofficial-c64a3d">
   <a href="INSTALL.md"><img alt="Install: INSTALL.md" src="https://img.shields.io/badge/Install-INSTALL.md-2f6fd1?logo=linux&logoColor=white"></a>
   <a href="COMMANDS.md"><img alt="Commands: COMMANDS.md" src="https://img.shields.io/badge/Commands-COMMANDS.md-c64a3d?logo=gnubash&logoColor=white"></a>
   <a href="https://github.com/shimoza/tcp-facts"><img alt="Dataset: TCP Facts" src="https://img.shields.io/badge/Dataset-TCP_Facts-e0b43a?logo=github&logoColor=white"></a>
@@ -576,7 +579,8 @@ awb dataset build
 
 That writes `~/tcp-shared/datasets/tcp-facts-<date>/`, its zip and `tcp-facts-<date>.mcpb` (the one-click extension for Claude Desktop): `facts.md` with every fact on one line, grouped
 by topic and small enough for one chat, one file per topic under `topics/`, `facts.jsonl` with the metadata, the
-list of orderable services, the price list of each region as CSV, a `PROMPT.md` and a `HOW-TO.pdf`. Every text file
+list of orderable services, a `PROMPT.md` and a `HOW-TO.pdf`. The dataset holds no price list (no `prices/` folder, no
+price file in `MANIFEST.json`): prices come live from the public price API with `--live` of the MCP server. Every text file
 opens with the rules for the assistant that reads it, so a person attaches `facts.md` to ChatGPT, Claude or a local
 model and types `Use the attached TCP Facts. Answer: <question>`. The dataset carries a best-before date of 30 days. Its README, PROMPT.md and HOW-TO.pdf warn against customer data in prompts to a public model.
 Its README, PROMPT.md and HOW-TO.pdf also carry "What the facts cover", counted from the facts at each build: how

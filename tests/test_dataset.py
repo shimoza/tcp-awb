@@ -56,9 +56,9 @@ def live(monkeypatch):
 
 @pytest.fixture
 def facts(home, live):
-    live = new(S_ECS, grade="live", source="live API call on test-10491, eu-de")
+    live = new(S_ECS, grade="live", source="live API call on test-00001, eu-de")
     new(S_OBS, grade="docs", tags=["obs", "storage"])
-    new(S_IAM, grade="live", tags=["iam"], source="awb cloud call with the read key of test tenant test-10497 in eu-de")
+    new(S_IAM, grade="live", tags=["iam"], source="awb cloud call with the read key of test tenant test-00002 in eu-de")
     new("GPU flavor p2 needs a quota increase in eu-nl", grade="said", tags=["gpu"])
     snapshot(home, "eu-de", "2026-10-01", [RAW])
     bms = dict(RAW, id="OTC_BMS_EL_BLST_SAS", productIdParameter="bms", productId="BARE METAL", productName="EVS High I/O",
@@ -68,11 +68,11 @@ def facts(home, live):
 
 
 def test_the_rewrite_of_a_tenant_alias_is_proven_on_a_plant_and_covers_both_forms():
-    assert dataset.tenant_free("a call on test-10491 in eu-de") == "a call on a TCP test tenant in eu-de"
-    assert dataset.tenant_free("the key of test tenant test-10497 got 403") == "the key of a TCP test tenant got 403"
-    assert dataset.tenant_free("the key of the test tenant test-10497") == "the key of a TCP test tenant"
-    assert "test-1049" not in dataset.tenant_free(dataset._PLANT)
-    assert dataset.tenant_free("awb cloud call against test-10491, a DELETE through the key service") == \
+    assert dataset.tenant_free("a call on test-00001 in eu-de") == "a call on a TCP test tenant in eu-de"
+    assert dataset.tenant_free("the key of test tenant test-00002 got 403") == "the key of a TCP test tenant got 403"
+    assert dataset.tenant_free("the key of the test tenant test-00002") == "the key of a TCP test tenant"
+    assert "test-0000" not in dataset.tenant_free(dataset._PLANT)
+    assert dataset.tenant_free("awb cloud call against test-00001, a DELETE through the key service") == \
         "a scripted call against a TCP test tenant, a DELETE through a signed call"
     assert not dataset._TOOL_LEFT_RE.search(dataset.tenant_free(dataset._PLANT_TOOL))
 
@@ -89,29 +89,21 @@ def test_build_writes_every_file_with_the_rules_and_no_tenant_alias(home, facts,
     root = tmp_path / "ds" / "tcp-facts-2026-10-08"
     names = {str(x.relative_to(root)) for x in root.rglob("*") if x.is_file()}
     assert {"README.md", "PROMPT.md", "HOW-TO.pdf", "facts.md", "facts.jsonl", "services.md", "MANIFEST.json",
-            "prices/eu-de.csv", "topics/ecs.md", "topics/obs.md", "topics/iam.md"} <= names
+            "topics/ecs.md", "topics/obs.md", "topics/iam.md"} <= names
     facts_md = (root / "facts.md").read_text()
     assert facts_md.startswith("<!-- TCP Facts, dataset of 2026-10-08.")
-    assert "Best before 2026-11-07" in facts_md and "taken 2026-10-07 06:00 UTC" in facts_md
+    assert "Best before 2026-11-07" in facts_md and "holds no price list" in facts_md
     assert "- %s (%s, live, checked 2026-10-08)" % (S_ECS, facts.id) in facts_md
     assert "## ecs (1)" in facts_md and "## obs (1)" in facts_md and "GPU flavor p2" not in facts_md
     for name in names:
         if name.endswith((".md", ".jsonl", ".csv")):
-            assert "test-1049" not in (root / name).read_text(), name
+            assert "test-0000" not in (root / name).read_text(), name
     rows = [json.loads(l) for l in (root / "facts.jsonl").read_text().splitlines()]
     assert rows[0]["dataset"] == "TCP Facts" and rows[0]["count"] == 3
     assert next(r for r in rows[1:] if r["id"] == facts.id)["source"] == "live API call on a TCP test tenant, eu-de"
     assert not any(re.search(r"\bawb\b|key service", r["source"]) for r in rows[1:])
     topic = (root / "topics" / "iam.md").read_text()
     assert topic.startswith("<!-- TCP Facts") and S_IAM in topic and S_OBS not in topic
-    csv_lines = (root / "prices" / "eu-de.csv").read_text().splitlines()
-    assert csv_lines[0].startswith("# TCP price list eu-de") and "fetched 2026-10-07 06:00 UTC" in csv_lines[0]
-    assert csv_lines[1].startswith("id,service,product,flavor,os,vcpu,ram,unit,currency,payg,reserved_12m")
-    assert csv_lines[2] == "OTC_ECS_S3L2,Elastic Cloud Server,s3.large.2 linux,s3.large.2,Linux,2,4 GiB,h,EUR,0.051000," \
-                           "0.040000,0.038000,0.036000,0.030000,0.028000,0.026000"
-    # a service the service description does not offer stays out of the price list, named in the header
-    assert len(csv_lines) == 3 and "OTC_BMS" not in (root / "prices" / "eu-de.csv").read_text()
-    assert "does not offer are left out" in csv_lines[0] and "BARE METAL (1)" in csv_lines[0]
     assert dataset.not_offered(dataset.offered.load(), "2026-10-08", "bms", "BARE METAL")
     assert dataset.not_offered(dataset.offered.load(), "2026-10-08", "csbs", "CLOUD SERVER BACKUP SERVICE")
     assert not dataset.not_offered(dataset.offered.load(), "2026-10-08", "ecsflex", "ELASTIC CLOUD SERVER (Flexible)")
@@ -126,7 +118,6 @@ def test_build_writes_every_file_with_the_rules_and_no_tenant_alias(home, facts,
     assert manifest["facts"] == 3 and manifest["grades"] == {"docs": 1, "live": 2} and manifest["best_before"] == "2026-11-07"
     assert manifest["built_at"].endswith(" UTC") and "Build of %s" % manifest["built_at"] in (root / "README.md").read_text()
     assert "built %s" % manifest["built_at"] in out
-    assert manifest["prices"]["records"] == {"eu-de": 1} and manifest["prices"]["left_out"] == {"eu-de": {"BARE METAL": 1}}
     assert manifest["files"]["facts.md"]["bytes"] == (root / "facts.md").stat().st_size
     assert len(manifest["files"]["HOW-TO.pdf"]["sha256"]) == 64 and "MANIFEST.json" not in manifest["files"]
     with zipfile.ZipFile(tmp_path / "ds" / "tcp-facts-2026-10-08.zip") as z:
@@ -250,8 +241,8 @@ def test_build_refuses_without_facts_over_an_existing_folder_and_with_an_alias_l
         dataset.build(home, out=tmp_path / "ds2", today=TODAY)
     assert not (tmp_path / "ds2").exists()
     # a rewrite that passes the plant but misses a form in the files: the folder is removed again
-    monkeypatch.setattr(dataset, "_TENANT_RE", dataset.re.compile(r"test-1049[17]\b(?= and| in eu-de$)"))
-    monkeypatch.setattr(dataset, "_PLANT", "test-10491 and test-10497 in eu-de")
+    monkeypatch.setattr(dataset, "_TENANT_RE", dataset.re.compile(r"test-0000[12]\b(?= and| in eu-de$)"))
+    monkeypatch.setattr(dataset, "_PLANT", "test-00001 and test-00002 in eu-de")
     with pytest.raises(dataset.DatasetError, match="tenant alias was left"):
         dataset.build(home, out=tmp_path / "ds3", today=TODAY)
     assert not (tmp_path / "ds3" / "tcp-facts-2026-10-08").exists()
@@ -408,8 +399,8 @@ def test_github_put_lands_the_files_and_the_build_readme_in_the_root_tags_the_da
     lines = dataset.github_put(home, built.folder, clone=github.clone)
     assert lines[-1].startswith("github.com/shimoza/tcp-facts/releases/tag/2026-10-08 with tcp-facts-2026-10-08.zip")
     files = _remote_files(github.remote, "refs/tags/2026-10-08")
-    assert {"README.md", "LICENSE", "facts.md", "facts.jsonl", "services.md", "prices/eu-de.csv",
-            "topics/ecs.md"} <= set(files)
+    assert {"README.md", "LICENSE", "facts.md", "facts.jsonl", "services.md",
+            "topics/ecs.md"} <= set(files) and "prices/eu-de.csv" not in files
     assert subprocess.run(["git", "show", "main:facts.md"], cwd=github.remote, capture_output=True,
                           check=True).stdout == (built.folder / "facts.md").read_bytes()
     assert subprocess.run(["git", "show", "main:README.md"], cwd=github.remote, capture_output=True,
@@ -645,7 +636,7 @@ def test_the_build_packs_an_mcp_bundle_with_the_manifest_the_specification_requi
         assert z.testzip() is None
         names = set(z.namelist())
         m = json.loads(z.read("manifest.json"))
-        assert {"manifest.json", "tcp_facts_mcp.py", "facts.jsonl", "facts.md", "services.md", "prices/eu-de.csv"} <= names
+        assert {"manifest.json", "tcp_facts_mcp.py", "facts.jsonl", "facts.md", "services.md"} <= names and "prices/eu-de.csv" not in names
         assert "MANIFEST.json" not in names and "HOW-TO.pdf" not in names     # no clash with manifest.json
         assert z.read("tcp_facts_mcp.py") == (built.folder / "tcp_facts_mcp.py").read_bytes()
         assert z.read("facts.jsonl") == (built.folder / "facts.jsonl").read_bytes()
@@ -689,9 +680,9 @@ def test_every_git_call_on_the_clone_names_only_the_clone_as_a_safe_directory(ho
     monkeypatch.setattr(dataset, "_run", spy)
     built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
     dataset.github_put(home, built.folder, clone=github.clone)
-    dataset.github_put(home, built.folder, replace=True, clone=github.clone)       # the pull of an existing clone
+    dataset.github_put(home, built.folder, replace=True, clone=github.clone)       # the sync of an existing clone
     on_clone = [a for a, cwd in calls if a[0] == "git" and cwd == github.clone]
-    assert {a[3] for a in on_clone} >= {"pull", "config", "tag", "add", "diff", "commit", "push"}
+    assert {a[3] for a in on_clone} >= {"fetch", "config", "tag", "add", "diff", "commit", "push"}
     for args in on_clone:
         assert args[1:3] == ["-c", "safe.directory=%s" % github.clone.resolve()], args
     assert not any("safe.directory=*" in a for args, _ in calls for a in args)

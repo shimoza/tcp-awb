@@ -2726,8 +2726,8 @@
   {
    "id": "MCP-6",
    "phase": "MCP",
-   "name": "mcp: tcp_price_find reads the price snapshot of a region with its date",
-   "run": ".venv/bin/pytest tests/test_mcp.py::test_price_find_reads_the_snapshot_with_its_date",
+   "name": "mcp: tcp_price_find without --live says prices are live only (replaces the snapshot test, task PX)",
+   "run": ".venv/bin/pytest tests/test_mcp.py::test_price_find_without_live_says_prices_are_live_only",
    "status": "passing"
   },
   {
@@ -9771,8 +9771,92 @@
    "name": "a page with embedded pictures crosses only as an image",
    "run": ".venv/bin/pytest tests/test_howto.py::test_a_page_with_embedded_pictures_crosses_only_as_an_image",
    "status": "passing"
+  },
+  {
+   "id": "px-no-price-csv-in-dataset-1",
+   "phase": "px-no-price-csv-in-dataset",
+   "name": "the build writes no price CSV, no MANIFEST entry and no README mention of a price file",
+   "run": ".venv/bin/pytest tests/test_dataset_px.py::test_the_build_writes_no_price_file_and_no_text_names_one",
+   "status": "passing"
+  },
+  {
+   "id": "px-no-price-csv-in-dataset-2",
+   "phase": "px-no-price-csv-in-dataset",
+   "name": "the build still checks a price sample against the live API and writes nothing of it",
+   "run": ".venv/bin/pytest tests/test_dataset_px.py::test_the_build_still_checks_a_price_sample_against_the_live_api",
+   "status": "passing"
+  },
+  {
+   "id": "px-no-price-csv-in-dataset-3",
+   "phase": "px-no-price-csv-in-dataset",
+   "name": "mcp: tcp_price_find refuses without --live and says how to turn it on",
+   "run": ".venv/bin/pytest tests/test_dataset_px.py::test_the_price_tool_refuses_without_live_and_says_how_to_turn_it_on",
+   "status": "passing"
+  },
+  {
+   "id": "px-no-price-csv-in-dataset-4",
+   "phase": "px-no-price-csv-in-dataset",
+   "name": "mcp: tcp_price_find works with a stubbed live call",
+   "run": ".venv/bin/pytest tests/test_dataset_px.py::test_the_price_tool_works_with_a_stubbed_live_call",
+   "status": "passing"
+  },
+  {
+   "id": "px-no-price-csv-in-dataset-5",
+   "phase": "px-no-price-csv-in-dataset",
+   "name": "mcp: the server header and the tool text say live only",
+   "run": ".venv/bin/pytest tests/test_dataset_px.py::test_the_mcp_server_text_and_tool_say_live_only",
+   "status": "passing"
+  },
+  {
+   "id": "px-no-price-csv-in-dataset-6",
+   "phase": "px-no-price-csv-in-dataset",
+   "name": "dataset put --github removes a stale prices/ folder with git rm and says so in the commit message",
+   "run": ".venv/bin/pytest tests/test_dataset_px.py::test_the_put_removes_a_stale_prices_folder_with_git_rm_and_says_so",
+   "status": "passing"
+  },
+  {
+   "id": "px-no-price-csv-in-dataset-7",
+   "phase": "px-no-price-csv-in-dataset",
+   "name": "dataset put --github without a stale prices/ folder says nothing of it",
+   "run": ".venv/bin/pytest tests/test_dataset_px.py::test_the_put_without_a_stale_prices_folder_says_nothing_of_it",
+   "status": "passing"
+  },
+  {
+   "id": "px-no-price-csv-in-dataset-8",
+   "phase": "px-no-price-csv-in-dataset",
+   "name": "the put resets a clone whose history the owner rewrote and never forces",
+   "run": ".venv/bin/pytest tests/test_dataset_px.py::test_the_put_resets_a_clone_whose_history_the_owner_rewrote_and_never_forces",
+   "status": "passing"
+  },
+  {
+   "id": "px-no-price-csv-in-dataset-9",
+   "phase": "px-no-price-csv-in-dataset",
+   "name": "a non-fast-forward push is refused and nothing is pushed",
+   "run": ".venv/bin/pytest tests/test_dataset_px.py::test_a_non_fast_forward_push_is_refused_and_nothing_is_pushed",
+   "status": "passing"
+  },
+  {
+   "id": "px-no-price-csv-in-dataset-10",
+   "phase": "px-no-price-csv-in-dataset",
+   "name": "the github put code never forces a push",
+   "run": ".venv/bin/pytest tests/test_dataset_px.py::test_the_github_put_code_never_forces_a_push",
+   "status": "passing"
+  },
+  {
+   "id": "px-no-price-csv-in-dataset-11",
+   "phase": "px-no-price-csv-in-dataset",
+   "name": "the built README opens with the centred header, the disclaimer and the badges",
+   "run": ".venv/bin/pytest tests/test_dataset_px.py::test_the_built_readme_opens_with_the_centred_header_the_disclaimer_and_the_badges",
+   "status": "passing"
+  },
+  {
+   "id": "px-no-price-csv-in-dataset-12",
+   "phase": "px-no-price-csv-in-dataset",
+   "name": "the repository README has the disclaimer under the title and the Unofficial badge first",
+   "run": ".venv/bin/pytest tests/test_dataset_px.py::test_the_repository_readme_has_the_disclaimer_under_the_title_and_the_unofficial_badge_first",
+   "status": "passing"
   }
  ],
- "total_tests": 1396,
+ "total_tests": 1408,
  "checked": "2026-10-20"
 }

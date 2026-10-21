@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """TCP Facts MCP server: the dataset TCP Facts as four read-only tools for any MCP client.
 
-The file lies in the dataset folder (next to facts.jsonl, services.md and prices/) and runs locally:
+The file lies in the dataset folder (next to facts.jsonl and services.md) and runs locally:
 
     python3 tcp_facts_mcp.py [--data DIR] [--live] [--price-api URL]
 
 --data      the dataset folder (default: the folder this file lies in)
---live      tcp_price_find also asks the public price API (no credentials); without it there is no network at all
+--live      tcp_price_find asks the public price API (no credentials); without it prices are not served and there
+            is no network at all
 --price-api another address of the price API (a mirror or a test)
 
 Tools: tcp_facts_search (the checked facts), tcp_service_check (offered or not, by the service description),
-tcp_price_find (the price snapshot, or the live price API with --live) and tcp_calculate (exact arithmetic with
-hours). Every answer carries the dataset date, the best-before date and the rule for the assistant.
+tcp_price_find (live prices from the public price API, only with --live; the dataset holds no price list) and
+tcp_calculate (exact arithmetic with hours). Every answer carries the dataset date, the best-before date and the rule for the assistant.
 
 The server speaks JSON-RPC 2.0 over stdio as the Model Context Protocol says: one message per line. It serves the
 revision 2026-07-28 (server/discover, the version in the _meta of each request) and the revisions of the initialize
@@ -38,9 +39,7 @@ sys.dont_write_bytecode = True      # the server writes no file, not even a cach
 
 import argparse
 import ast
-import csv
 import datetime
-import io
 import json
 import math
 import re
@@ -344,42 +343,30 @@ def service_check(ds: Dataset, name: str) -> dict:
 
 # --------------------------------------------------------------------------- prices
 
-_FETCHED_RE = re.compile(r"fetched (.+?)\. Prices")
-
-
 def _match(row: dict, terms: list[str], fields: tuple) -> bool:
     hay = " ".join(str(row.get(f, "")) for f in fields).lower()
     return all(t in hay for t in terms)
 
 
+LIVE_ONLY = ("prices are live only: this dataset holds no price list. Start the server with --live (add \"--live\" "
+             "to its arguments and restart the client) to ask the public price API, which needs no credentials")
+
+
 def price_find(ds: Dataset, query: str, region: str = "eu-de", service: str | None = None) -> dict:
     terms = [t for t in query.lower().split() if t]
     out: dict = {"query": query, "region": region}
-    if ds.live:
-        if service:
-            got = _live(ds, service, region, terms)
-            if got is not None:
-                out.update(got)
-                return out
-            out["live"] = "the price API gave no usable answer; the snapshot follows"
-        else:
-            out["live"] = "give the service short name (such as ecs, evs, rds) for a live price; the snapshot follows"
-    text = ds.read("prices/%s.csv" % region)
-    if text is None:
-        out.update(count=0, rows=[], note="the dataset has no price list of %s" % region)
+    if not ds.live:
+        out.update(count=0, rows=[], note=LIVE_ONLY)
         return out
-    lines = text.splitlines(keepends=True)
-    head = lines[0] if lines and lines[0].startswith("#") else ""
-    m = _FETCHED_RE.search(head)
-    rows = list(csv.DictReader(io.StringIO("".join(lines[1:] if head else lines))))
-    hits = [r for r in rows if _match(r, terms, ("id", "service", "product", "flavor", "os"))]
-    hits.sort(key=lambda r: (r.get("flavor", "").lower() not in terms, r.get("id", "")))
-    out.update(source="price snapshot of the public price API, fetched %s" % (m.group(1) if m else "unknown"),
-               note="prices per unit in EUR, net; the live price API is the source of truth before any quote",
-               count=len(hits), rows=hits[:MAX_HITS])
-    if head and "left out" in head:
-        out["left_out"] = head[head.index("Rows of services"):].strip() if "Rows of services" in head else ""
-    if not hits:
+    if not service:
+        out.update(count=0, rows=[], note="give the service short name (such as ecs, evs, rds) for a live price")
+        return out
+    got = _live(ds, service, region, terms)
+    if got is None:
+        out.update(count=0, rows=[], note="the public price API gave no usable answer; try again later")
+        return out
+    out.update(got)
+    if not got["rows"]:
         out["note"] = "no price row matches; try a flavor (s3.large.2) or a product word"
     return out
 
@@ -628,8 +615,9 @@ TOOLS = [
          "required": ["name"], "additionalProperties": False}},
     {"name": "tcp_price_find", "title": "Find a TCP price",
      "annotations": dict(READ_ONLY, title="Find a TCP price"),
-     "description": "TCP prices from the price snapshot of the dataset (with its date), or from the live public "
-                    "price API when the server runs with --live and a service is given. Every word of the query "
+     "description": "Live TCP prices from the public price API. The dataset holds no price list: without --live "
+                    "the tool answers that prices are live only and how to turn --live on; with --live it needs a "
+                    "service short name. Every word of the query "
                     "must appear in the row (id, service, product, flavor or OS). Up to 20 rows, prices per unit in "
                     "EUR net: payg, reserved_* per month, reserved_upfront_*.",
      "inputSchema": {"type": "object", "properties": {
@@ -878,7 +866,7 @@ def main(argv: list[str] | None = None) -> int:
                                  "server over stdio.")
     ap.add_argument("--data", type=Path, default=Path(__file__).resolve().parent,
                     help="the dataset folder (default: the folder of this file)")
-    ap.add_argument("--live", action="store_true", help="tcp_price_find also asks the public price API")
+    ap.add_argument("--live", action="store_true", help="tcp_price_find asks the public price API (prices are live only)")
     ap.add_argument("--price-api", default=PRICE_API, help="another address of the price API")
     args = ap.parse_args(argv)
     if not (args.data / "facts.jsonl").is_file():
