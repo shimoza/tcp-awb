@@ -30,6 +30,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- Setup creates the notices folder of the shared side (owner writes, work user reads): `awb import` ended in a
+  PermissionError after writing the copies and sessions never saw "new input".
+
 - `awb import` into a project whose customer was issued without a form no longer asks for a form (CG3).
 
 - A build task's own /dev/shm is writable for the task user again (mode=1777): checks no longer fail the two ledger

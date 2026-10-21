@@ -590,6 +590,10 @@ step_moves() {
     run chmod -R u+rwX,g+rwX,o-rwx "$shared/outbox" "$shared/tenants"
     # setgid keeps the group, the sticky bit keeps one user from renaming or removing another user's entries
     run find "$shared/outbox" "$shared/tenants" -type d -exec chmod 3770 {} +
+    # the import notices for the sessions ("new input"): written by the owner, read by the work user
+    run mkdir -p "$shared/notices"
+    run chown "$WORK_USER:$WORK_GROUP" "$shared/notices"
+    run chmod 3770 "$shared/notices"
     move_projects "$shared"
     move_folder tcp-kb
     run mkdir -p "$kb"
