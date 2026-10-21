@@ -9645,8 +9645,134 @@
    "name": "xg1 the session template and the rules tell the session to name deliverables so",
    "run": ".venv/bin/pytest tests/test_xg_names_and_tier.py::test_xg1_the_session_template_and_the_rules_tell_the_session_to_name_deliverables_so",
    "status": "passing"
+  },
+  {
+   "id": "cs5-mirror-console-1",
+   "phase": "cs5-mirror-console",
+   "name": "find ranks by overlap and prints the matching line",
+   "run": ".venv/bin/pytest tests/test_console_mirror.py::test_find_ranks_by_overlap_and_prints_the_matching_line",
+   "status": "passing"
+  },
+  {
+   "id": "cs5-mirror-console-2",
+   "phase": "cs5-mirror-console",
+   "name": "find reaches the text and filters by service",
+   "run": ".venv/bin/pytest tests/test_console_mirror.py::test_find_reaches_the_text_and_filters_by_service",
+   "status": "passing"
+  },
+  {
+   "id": "cs5-mirror-console-3",
+   "phase": "cs5-mirror-console",
+   "name": "show prints the index line the text and the image path",
+   "run": ".venv/bin/pytest tests/test_console_mirror.py::test_show_prints_the_index_line_the_text_and_the_image_path",
+   "status": "passing"
+  },
+  {
+   "id": "cs5-mirror-console-4",
+   "phase": "cs5-mirror-console",
+   "name": "show refuses a bad or unknown reference",
+   "run": ".venv/bin/pytest tests/test_console_mirror.py::test_show_refuses_a_bad_or_unknown_reference",
+   "status": "passing"
+  },
+  {
+   "id": "cs5-mirror-console-5",
+   "phase": "cs5-mirror-console",
+   "name": "the newest walk is the default and an unknown one is refused",
+   "run": ".venv/bin/pytest tests/test_console_mirror.py::test_the_newest_walk_is_the_default_and_an_unknown_one_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "cs5-mirror-console-6",
+   "phase": "cs5-mirror-console",
+   "name": "status lists the console mirror",
+   "run": ".venv/bin/pytest tests/test_console_mirror.py::test_status_lists_the_console_mirror",
+   "status": "passing"
+  },
+  {
+   "id": "cs5-mirror-console-7",
+   "phase": "cs5-mirror-console",
+   "name": "the command line finds and shows and the work user may",
+   "run": ".venv/bin/pytest tests/test_console_mirror.py::test_the_command_line_finds_and_shows_and_the_work_user_may",
+   "status": "passing"
+  },
+  {
+   "id": "cs7-howto-from-mirror-1",
+   "phase": "cs7-howto-from-mirror",
+   "name": "the draft orders the steps by menu path and number",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_the_draft_orders_the_steps_by_menu_path_and_number",
+   "status": "passing"
+  },
+  {
+   "id": "cs7-howto-from-mirror-2",
+   "phase": "cs7-howto-from-mirror",
+   "name": "the draft keeps the labels as the screen spells them",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_the_draft_keeps_the_labels_as_the_screen_spells_them",
+   "status": "passing"
+  },
+  {
+   "id": "cs7-howto-from-mirror-3",
+   "phase": "cs7-howto-from-mirror",
+   "name": "the draft copies only the cited images",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_the_draft_copies_only_the_cited_images",
+   "status": "passing"
+  },
+  {
+   "id": "cs7-howto-from-mirror-4",
+   "phase": "cs7-howto-from-mirror",
+   "name": "a step the mirror does not hold is marked",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_a_step_the_mirror_does_not_hold_is_marked",
+   "status": "passing"
+  },
+  {
+   "id": "cs7-howto-from-mirror-5",
+   "phase": "cs7-howto-from-mirror",
+   "name": "a draft is never overwritten without force and needs a project",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_a_draft_is_never_overwritten_without_force_and_needs_a_project",
+   "status": "passing"
+  },
+  {
+   "id": "cs7-howto-from-mirror-6",
+   "phase": "cs7-howto-from-mirror",
+   "name": "render makes one self contained html with the images inline",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_render_makes_one_self_contained_html_with_the_images_inline",
+   "status": "passing"
+  },
+  {
+   "id": "cs7-howto-from-mirror-7",
+   "phase": "cs7-howto-from-mirror",
+   "name": "render refuses a missing or escaping image and escapes text",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_render_refuses_a_missing_or_escaping_image_and_escapes_text",
+   "status": "passing"
+  },
+  {
+   "id": "cs7-howto-from-mirror-8",
+   "phase": "cs7-howto-from-mirror",
+   "name": "the command line drafts renders and pdf waits",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_the_command_line_drafts_renders_and_pdf_waits",
+   "status": "passing"
+  },
+  {
+   "id": "cs7-howto-from-mirror-9",
+   "phase": "cs7-howto-from-mirror",
+   "name": "publish copies the newest walk read only and only what is cited",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_publish_copies_the_newest_walk_read_only_and_only_what_is_cited",
+   "status": "passing"
+  },
+  {
+   "id": "cs7-howto-from-mirror-10",
+   "phase": "cs7-howto-from-mirror",
+   "name": "the work user reads the published copy and cannot publish",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_the_work_user_reads_the_published_copy_and_cannot_publish",
+   "status": "passing"
+  },
+  {
+   "id": "cs7-howto-from-mirror-11",
+   "phase": "cs7-howto-from-mirror",
+   "name": "a page with embedded pictures crosses only as an image",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_a_page_with_embedded_pictures_crosses_only_as_an_image",
+   "status": "passing"
   }
  ],
- "total_tests": 1378,
+ "total_tests": 1396,
  "checked": "2026-10-20"
 }

@@ -19,6 +19,14 @@ edit short. It does not replace his review and it cannot promise that no reader 
 4. Collect the facts first. `awb kb find` for checked facts, `awb price` for every price (never from memory), a
    live check or a dated source for availability and for every negative. Keep the source of each fact.
    Every number you compute (a total, a saving, a product) comes from `awb calc`, never from your head.
+5. A how-to for the TCP console (menu path, screen, field, button, tab) starts from `awb howto draft "TOPIC"
+   [--service SVC]`, never from memory. It writes the draft into `deliverables/` with the steps in order, the exact
+   labels, each screen named `SVC/NN-slug, console mirror DATE` and its screenshot in `images/`. Edit the text, keep
+   every label as the screen spells it, never invent one. A step the mirror does not hold stays "not in the mirror
+   yet: check on screen" until it is seen on screen. `awb mirror console find|show` looks up a single screen.
+   `awb howto render FILE` makes the one HTML file, which goes out with `awb xchg put FILE --image --reason TEXT` to
+   a customer or partner by mail, never to a public place. What a service is made of still comes from the docs, the
+   API, the knowledge base and experience.
 
 ## How he writes
 

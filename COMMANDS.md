@@ -328,6 +328,10 @@ only. The work user of the seal gets its own key with T-100.
 | `awb mirror sd` | the service description into `~/tcp-mirrors/service-description/<revision>/`, PDF and text; a new revision gets its own folder |
 | `awb mirror rn` | the release notes of T Cloud Public (the third public source, next to the docs and the service description) into `~/tcp-mirrors/release-notes/`: a file `notes/<date>-<slug>.json` per note (date, title, text, link, services) and `INDEX.json`; owner side, one request per list page with a pause between pages (`--pause SECONDS`, default 2), no note page, no `/neos/`, no image; a known note is never written again and a run stops at the first page without a new note once every page has been read (`--pages N` reads at most N pages) |
 | `awb mirror status` | what the mirrors hold |
+| `awb mirror console find WORDS` / `show SVC/NN-slug` | the console screens of the private mirror, ranked by word overlap (`--service SVC`, `--limit N`, `--walk DATE`); the owner reads `~/tcp-mirrors/console/<date>/`, the work user the published copy in `/srv/tcp-mirrors/console/<date>/` |
+| `awb mirror console publish [--to DIR] [--walk DATE]` | owner side: copy the newest walk (INDEX.tsv, jpg, png and txt files only) to `<mirrors>/console/<date>/` for the work user: folders 0750, files 0640, group of the work user, no write for the work user; the copy is built beside the target and renamed into place, so a second run replaces the walk |
+| `awb howto draft "TOPIC" [--service SVC] [--step WORDS]...` | a Markdown draft of a console how-to in `deliverables/howto-<topic>.md`: a title, "before you start", numbered steps in the order of service, menu path and step number, each with the menu path, the labels as the screen spells them, the screen and walk date and its screenshot from `deliverables/images/` (only the cited images are copied); with `--step` each step is searched on its own; a step the mirror lacks reads "not in the mirror yet: check on screen"; an existing draft is not overwritten without `--force`; both sides |
+| `awb howto render FILE [--pdf]` | one self-contained HTML file next to the draft, the images inline as data URIs; `--pdf` waits (no standard-library route): it writes the HTML, says so and exits 1; send it with `awb xchg put FILE --image --reason TEXT`, to a customer or partner by mail only |
 
 The re-check of the worklist is agent work, run from a session on the owner side. Split `worklist.jsonl` into
 batches by service and plant one false fact in each (the brief forbids looking ids up). Every first-check agent
@@ -1130,6 +1134,26 @@ fetch the release notes list, a file per new note
 - `--pages PAGES`: read at most this many pages
 - `--pause PAUSE`: seconds between two pages
 
+### `awb mirror console find WORDS... [--service SERVICE] [--limit LIMIT] [--walk WALK]`
+
+screens ranked by word overlap
+- `WORDS...`: the words to look for
+- `--service SERVICE`: only this service
+- `--limit LIMIT`: at most this many screens
+- `--walk WALK`: a walk date (default: the newest)
+
+### `awb mirror console publish [--to TO] [--walk WALK]`
+
+copy the newest walk where the work user reads it (owner side)
+- `--to TO`: the place (default: AWB_MIRRORS_PUBLISH or the mirrors of the host file)
+- `--walk WALK`: a walk date (default: the newest)
+
+### `awb mirror console show REF [--walk WALK]`
+
+the INDEX line, the text and the image path of one screen
+- `REF`: SERVICE/NN-slug
+- `--walk WALK`: a walk date (default: the newest)
+
 ### `awb mirror status`
 
 what the mirrors hold
@@ -1182,6 +1206,23 @@ take the file he describes from either inbox into this project
 ### `awb inbox list`
 
 both inboxes: id, kind, size and time
+
+### `awb howto draft TOPIC [--service SERVICE] [--step WORDS] [--limit LIMIT] [--walk WALK] [--name NAME] [--force]`
+
+a Markdown draft with the screens of the topic, into the project's deliverables
+- `TOPIC`: what the how-to is about
+- `--service SERVICE`: only this service
+- `--step WORDS`: one step by its words, the best screen is taken; repeat for each step in order
+- `--limit LIMIT`: at most this many screens
+- `--walk WALK`: a walk date (default: the newest)
+- `--name NAME`: the file is deliverables/howto-NAME.md (default: from the topic)
+- `--force`: draft again over an existing draft
+
+### `awb howto render FILE [--pdf]`
+
+one self-contained HTML file of a draft, images inline
+- `FILE`: the Markdown draft
+- `--pdf`: also a PDF (waits: HTML only for now)
 
 ### `awb xchg put FILE [--as AS_NAME] [--image] [--reason REASON] [--kind WORD] [--lang XX]`
 

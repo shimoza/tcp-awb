@@ -1581,6 +1581,7 @@ check_mirror() {
 
 step_mirrors() {
     local src target
+    step_console_mirror          # also on a deploy: the folder is made once, the rest of this step needs --mirrors
     [ "$mirrors" -eq 1 ] || return 0
     info "read-only bind mounts of the public doc mirrors under $MIRROR_ROOT"
     run mkdir -p "$MIRROR_ROOT"
@@ -1599,6 +1600,20 @@ step_mirrors() {
             run mount "$target"
         fi
     done
+}
+
+step_console_mirror() {
+    # the published console screens (awb mirror console publish): the owner writes, the work user only reads.
+    # Made when missing and never chowned again, so a deploy leaves a filled folder alone.
+    info "the console screen mirror: $MIRROR_ROOT/console, the owner writes, the work user reads"
+    run mkdir -p "$MIRROR_ROOT"
+    if [ "$dry_run" -eq 0 ] && [ -d "$MIRROR_ROOT/console" ]; then
+        skip "already there" mkdir "$MIRROR_ROOT/console"
+        return 0
+    fi
+    run mkdir "$MIRROR_ROOT/console"
+    run chown "$owner:$WORK_GROUP" "$MIRROR_ROOT/console"
+    run chmod 2750 "$MIRROR_ROOT/console"
 }
 
 steps() {

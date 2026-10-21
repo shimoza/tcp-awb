@@ -429,6 +429,8 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | check facts again | `awb kb recheck-run --tier read --tenant ALIAS` (`--dry-run` first; without `--tenant` the tenant `recheck_tenant` of the host file names); the read tier also runs by itself every Sunday at 02:30 UTC as the work user (`awb-kb-recheck.timer`, on the tenant of `recheck_tenant`) | the expired entries whose check block a run can send, checked on the test tenant and written back: confirmed ones are fresh again with their grade kept (a run never raises a grade; an entry whose grade is not live is listed for you), the rest stays expired and is listed in the run's RESULT.md |
 | clean up after a check | nothing: `awb-kb-recheck-watch.timer` runs `awb kb recheck-watch` as you every 15 minutes | every resource of the service project whose expiry has passed is deleted and proven gone (by its `awb-project` tag, or for a service whose listing carries no tags by its lab name with the code and the expiry marker; a name match alone is listed and left alone) and its row in RESOURCES.md says so; one mail for a resource it cannot delete and one for each recheck run that ended |
 | offered or not | `awb service check dms rds` | the section and revision of the latest service description |
+| a console screen | `awb mirror console find "create vpc" --service vpc`, `awb mirror console show vpc/03-create` | the private mirror of the console screens (`~/tcp-mirrors/console/<date>/`, one folder per walk, filled by the owner; never in the public dataset or in git), ranked by word overlap over the INDEX note, menu path, title and screen text; a how-to cites the screens with the date of the walk and writes a step the mirror lacks as "not in the mirror yet: check on screen"; read only; the work user reads the copy that `awb mirror console publish` (owner side) puts in `/srv/tcp-mirrors/console/<date>/`; `awb mirror status` lists the walks, the newest date, the screens and the services |
+| a console how-to | `awb howto draft "create a vpc" --service vpc`, edit the text, `awb howto render deliverables/howto-create-a-vpc.md` | see "Console how-tos" below |
 | what is new on TCP | `awb mirror rn`, then `awb refresh --part release-notes` | the release notes of T Cloud Public as a mirror (the third public source, next to the docs and the service description; a run reads at most 200 pages of at most 2 MiB each and cuts long titles and tags) and, for each note first seen since the last refresh, the knowledge entries to check again (`recheck: KB-XXXX (release note DATE SERVICE)`; only entries that name the service and share two topic words with the note, most shared first, 15 per note and `--all` for every one; a note dated after today is listed as `announced`) and the services the list does not know (`new service?`; a title or service name from the site shows as printable ASCII cut to 80 characters); it only lists |
 | a price | `awb price find ecs --grep s3.large` | the live records with every term |
 | check a price sheet | `awb price check sheet.csv` | every price fetched again, every total recomputed |
@@ -448,6 +450,27 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | the owner host name | `sudo awb web host HOST` | once: the host name of the owner level, kept in `/etc/awb/paths.conf` |
 | the owner level's status | `awb owner status` | what the owner page shows: vault, key service, release, page, UI runs (with each run's summary after the name check, for `GET /api/ui-runs`), intake counts; a timer writes it every minute |
 | hand a UI task to Codex | `awb ui submit presentations/ui-tasks/ID.txt`, `awb ui status` | the task checked and queued; a result note in `presentations/ui-tasks/` when the run ends |
+
+## Console how-tos
+
+A how-to for the TCP console starts from the console mirror and never from memory. `awb howto draft "TOPIC"
+[--service SVC]` finds the screens of the topic, orders them by service, menu path and step number and writes
+`deliverables/howto-<topic>.md` in the project: a title, a short "before you start" that says the date of the walk,
+then numbered steps. A step names the menu path, the field and button labels as the screen spells them, the screen
+(`SVC/NN-slug, console mirror DATE`) and its screenshot, which is copied to `deliverables/images/` (only the cited
+ones). `--step "WORDS"`, repeated, names the steps yourself, one search each. A step the mirror does not hold or
+whose image was dropped, reads "not in the mirror yet: check on screen"; the session edits the text and never
+invents a label. A draft that exists is not overwritten without `--force`.
+
+`awb howto render FILE` writes one self-contained HTML file next to the draft, the images inline as data URIs. A PDF
+waits: there is no standard-library route (reportlab is test-only), so `--pdf` writes the HTML, says so and exits 1;
+print the HTML from a browser. The result goes out with `awb xchg put FILE --image --reason TEXT` (a page with
+embedded pictures needs `--image` like a picture) to a customer or partner by mail. The screenshots are private: a
+rendered how-to never goes into a public repository.
+
+The work user reads a copy, because the owner's home is closed to it. `awb mirror console publish` (owner side)
+copies the newest walk to `/srv/tcp-mirrors/console/<date>/` (folders 0750, files 0640, group of the work user).
+`seal/setup.sh` makes the folder, owned by the owner, so the work user reads it and cannot write there.
 
 ## A typical day
 
