@@ -1,0 +1,8 @@
+{
+  "name": "tcp-facts-lite",
+  "description": "Answers about T Cloud Public (TCP) from the files of a TCP Facts release you downloaded: checked facts with their ids and check dates and prices from the price list of a region. No tool, no hook, no network.",
+  "version": "0.1.0",
+  "author": {
+    "name": "shimoza"
+  }
+}
