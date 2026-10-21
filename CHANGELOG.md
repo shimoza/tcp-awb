@@ -7,6 +7,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Added
 
+- `awb mirror console` (task cs5-mirror-console, his "CS-D yes, mirror" of 2026-10-20): the owner's private mirror of the TCP console screens (`~/tcp-mirrors/console/<date>/`, one folder per walk, `INDEX.tsv` with seven columns and per service `NN-slug.jpg` or `.png` and `NN-slug.txt`) as a searchable source. `awb mirror console find WORDS [--service SVC] [--limit N]` ranks the screens of the newest walk by word overlap over the note, menu path, title and text (as `awb kb find` does) and prints service, file, menu path, URL path and the first matching line; `awb mirror console show SVC/NN-slug` prints the INDEX line, the text and the image path; `--walk DATE` names an older walk. Both are read only, so the work user runs them against `/srv/tcp-mirrors`. `awb mirror status` lists the console mirror: walks, newest date, screens and services. The mirror is never in the public dataset and never in git. The drafting skill and the work rules: a console how-to cites the screens with their date and writes a step the mirror lacks as "not in the mirror yet: check on screen", never from memory (one sentence in the work rules, which stay at their 60 lines).
+
 - `awb import CODE --trusted`: the owner vouches that the files hold no name, so no name is guessed; registered
   forms, secrets, mail addresses and phones are still wiped (his ask 2026-10-20).
 
