@@ -9946,8 +9946,43 @@
    "name": "a release without a prices folder imports and the module expects none",
    "run": ".venv/bin/pytest tests/test_kb_import.py::test_a_release_without_a_prices_folder_imports_and_the_module_expects_none",
    "status": "passing"
+  },
+  {
+   "id": "tr-translation-keeps-facts-1",
+   "phase": "tr-translation-keeps-facts",
+   "name": "translation check: same fact in the form of the other language passes",
+   "run": ".venv/bin/pytest tests/test_translate_facts.py::test_the_same_fact_in_the_form_of_the_other_language_passes",
+   "status": "passing"
+  },
+  {
+   "id": "tr-translation-keeps-facts-2",
+   "phase": "tr-translation-keeps-facts",
+   "name": "translation check: the four real cases of the task pass",
+   "run": ".venv/bin/pytest tests/test_translate_facts.py::test_the_four_real_cases_of_the_task_pass",
+   "status": "passing"
+  },
+  {
+   "id": "tr-translation-keeps-facts-3",
+   "phase": "tr-translation-keeps-facts",
+   "name": "translation check: a changed value is still refused",
+   "run": ".venv/bin/pytest tests/test_translate_facts.py::test_a_changed_value_is_still_refused",
+   "status": "passing"
+  },
+  {
+   "id": "tr-translation-keeps-facts-4",
+   "phase": "tr-translation-keeps-facts",
+   "name": "translation check: numbers are read by one rule",
+   "run": ".venv/bin/pytest tests/test_translate_facts.py::test_numbers_are_read_by_one_rule",
+   "status": "passing"
+  },
+  {
+   "id": "tr-translation-keeps-facts-5",
+   "phase": "tr-translation-keeps-facts",
+   "name": "translation check: within one language nothing is read across",
+   "run": ".venv/bin/pytest tests/test_translate_facts.py::test_within_one_language_nothing_is_read_across",
+   "status": "passing"
   }
  ],
- "total_tests": 1421,
+ "total_tests": 1426,
  "checked": "2026-10-21"
 }
