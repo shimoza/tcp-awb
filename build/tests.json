@@ -9696,31 +9696,10 @@
    "status": "passing"
   },
   {
-   "id": "cs7-howto-from-mirror-1",
-   "phase": "cs7-howto-from-mirror",
-   "name": "the draft orders the steps by menu path and number",
-   "run": ".venv/bin/pytest tests/test_howto.py::test_the_draft_orders_the_steps_by_menu_path_and_number",
-   "status": "passing"
-  },
-  {
    "id": "cs7-howto-from-mirror-2",
    "phase": "cs7-howto-from-mirror",
    "name": "the draft keeps the labels as the screen spells them",
    "run": ".venv/bin/pytest tests/test_howto.py::test_the_draft_keeps_the_labels_as_the_screen_spells_them",
-   "status": "passing"
-  },
-  {
-   "id": "cs7-howto-from-mirror-3",
-   "phase": "cs7-howto-from-mirror",
-   "name": "the draft copies only the cited images",
-   "run": ".venv/bin/pytest tests/test_howto.py::test_the_draft_copies_only_the_cited_images",
-   "status": "passing"
-  },
-  {
-   "id": "cs7-howto-from-mirror-4",
-   "phase": "cs7-howto-from-mirror",
-   "name": "a step the mirror does not hold is marked",
-   "run": ".venv/bin/pytest tests/test_howto.py::test_a_step_the_mirror_does_not_hold_is_marked",
    "status": "passing"
   },
   {
@@ -9731,24 +9710,10 @@
    "status": "passing"
   },
   {
-   "id": "cs7-howto-from-mirror-6",
-   "phase": "cs7-howto-from-mirror",
-   "name": "render makes one self contained html with the images inline",
-   "run": ".venv/bin/pytest tests/test_howto.py::test_render_makes_one_self_contained_html_with_the_images_inline",
-   "status": "passing"
-  },
-  {
    "id": "cs7-howto-from-mirror-7",
    "phase": "cs7-howto-from-mirror",
    "name": "render refuses a missing or escaping image and escapes text",
    "run": ".venv/bin/pytest tests/test_howto.py::test_render_refuses_a_missing_or_escaping_image_and_escapes_text",
-   "status": "passing"
-  },
-  {
-   "id": "cs7-howto-from-mirror-8",
-   "phase": "cs7-howto-from-mirror",
-   "name": "the command line drafts renders and pdf waits",
-   "run": ".venv/bin/pytest tests/test_howto.py::test_the_command_line_drafts_renders_and_pdf_waits",
    "status": "passing"
   },
   {
@@ -9763,13 +9728,6 @@
    "phase": "cs7-howto-from-mirror",
    "name": "the work user reads the published copy and cannot publish",
    "run": ".venv/bin/pytest tests/test_howto.py::test_the_work_user_reads_the_published_copy_and_cannot_publish",
-   "status": "passing"
-  },
-  {
-   "id": "cs7-howto-from-mirror-11",
-   "phase": "cs7-howto-from-mirror",
-   "name": "a page with embedded pictures crosses only as an image",
-   "run": ".venv/bin/pytest tests/test_howto.py::test_a_page_with_embedded_pictures_crosses_only_as_an_image",
    "status": "passing"
   },
   {
@@ -9855,8 +9813,78 @@
    "name": "the repository README has the disclaimer under the title and the Unofficial badge first",
    "run": ".venv/bin/pytest tests/test_dataset_px.py::test_the_repository_readme_has_the_disclaimer_under_the_title_and_the_unofficial_badge_first",
    "status": "passing"
+  },
+  {
+   "id": "st-screenshots-internal-1",
+   "phase": "st-screenshots-internal",
+   "name": "the default draft has no image link and no mirror citation",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_the_default_draft_has_no_image_link_and_no_mirror_citation",
+   "status": "passing"
+  },
+  {
+   "id": "st-screenshots-internal-2",
+   "phase": "st-screenshots-internal",
+   "name": "the default draft puts the citations and the walk date into sources",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_the_default_draft_puts_the_citations_and_the_walk_date_into_sources",
+   "status": "passing"
+  },
+  {
+   "id": "st-screenshots-internal-3",
+   "phase": "st-screenshots-internal",
+   "name": "the internal draft has the citations and the image links",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_the_internal_draft_has_the_citations_and_the_image_links",
+   "status": "passing"
+  },
+  {
+   "id": "st-screenshots-internal-4",
+   "phase": "st-screenshots-internal",
+   "name": "a step the reference does not hold is marked in both versions",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_a_step_the_reference_does_not_hold_is_marked_in_both_versions",
+   "status": "passing"
+  },
+  {
+   "id": "st-screenshots-internal-5",
+   "phase": "st-screenshots-internal",
+   "name": "render refuses a draft with images unless internal",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_render_refuses_a_draft_with_images_unless_internal",
+   "status": "passing"
+  },
+  {
+   "id": "st-screenshots-internal-6",
+   "phase": "st-screenshots-internal",
+   "name": "render of the outward draft has no image and no banner",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_render_of_the_outward_draft_has_no_image_and_no_banner",
+   "status": "passing"
+  },
+  {
+   "id": "st-screenshots-internal-7",
+   "phase": "st-screenshots-internal",
+   "name": "the command line drafts renders and pdf waits",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_the_command_line_drafts_renders_and_pdf_waits",
+   "status": "passing"
+  },
+  {
+   "id": "st-screenshots-internal-8",
+   "phase": "st-screenshots-internal",
+   "name": "xchg put refuses a file that embeds or links a mirror image",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_xchg_put_refuses_a_file_that_embeds_or_links_a_mirror_image",
+   "status": "passing"
+  },
+  {
+   "id": "st-screenshots-internal-9",
+   "phase": "st-screenshots-internal",
+   "name": "the internal image flag is the owners alone",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_the_internal_image_flag_is_the_owners_alone",
+   "status": "passing"
+  },
+  {
+   "id": "st-screenshots-internal-10",
+   "phase": "st-screenshots-internal",
+   "name": "the generated docs do not say the console reference holds screenshots",
+   "run": ".venv/bin/pytest tests/test_howto.py::test_the_generated_docs_do_not_say_the_console_reference_holds_screenshots",
+   "status": "passing"
   }
  ],
- "total_tests": 1408,
- "checked": "2026-10-20"
+ "total_tests": 1412,
+ "checked": "2026-10-21"
 }

@@ -1,4 +1,4 @@
-"""The console screen mirror: the owner's private walk over the TCP console as a searchable source.
+"""The private console reference: the owner's own searchable source for console how-tos, read only here.
 
     awb mirror console find WORDS [--service SVC] [--limit N] [--walk DATE]
     awb mirror console show SVC/NN-slug [--walk DATE]
@@ -12,8 +12,8 @@ never in git. It is read only here, so the work user reads it too; the owner sid
 
 find ranks the screens by word overlap (the words of `awb kb find`) over the note, the menu path, the title and the
 text, and prints service, file, menu path, URL path and the first matching line. A walk is the newest unless --walk
-names one. show prints the INDEX line, the text and the image path. A how-to cites the screens with the date of the
-walk (`SVC/NN-slug, walk DATE`; `awb howto draft` writes it).
+names one. show prints the INDEX line, the text and the image path. `awb howto draft` keeps the sources of a how-to
+in the internal note reviews/<name>/sources.md and never in the text it writes.
 
 publish copies the newest walk from the owner's ~/tcp-mirrors to <place>/console/<date>/ (folders 0750, files 0640,
 group of the work user), where the work user reads it: the place is --to, AWB_MIRRORS_PUBLISH or the `mirrors` of

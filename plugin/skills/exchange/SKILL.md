@@ -15,6 +15,6 @@ The owner drops files into an inbox in the OBS console and names one in his prom
    and ask him to drop it into the owner inbox.
 4. Name a deliverable `<project code>-<kind word>-<language>.<ext>` from the start (`tcp-q7m4-mapping-de.md`); when the
    name check refuses a name, `awb xchg put` proposes one. Results go out with `awb xchg put FILE` into `<project>/from-session/<date>/`; he gets a mail. Codes only, no ids
-   in logs. A screenshot only with `--image --reason "what it shows, checked for names and ids"`. A deliverable of
+   in logs. An image only with `--image --reason "what it shows, checked for names and ids"`, a console image never. A deliverable of
    a customer project leaves only with a valid review.
 5. `awb xchg list` shows what you put; `awb inbox list` shows the lab inbox.

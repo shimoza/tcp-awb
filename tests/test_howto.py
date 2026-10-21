@@ -64,20 +64,6 @@ def project(tmp_path):
     return p
 
 
-def test_the_draft_orders_the_steps_by_menu_path_and_number(tmp_path, project):
-    base = make_mirror(tmp_path)
-    path, n, lacking = howto.draft("create widget", base=base, project=project, service="zorbal")
-    text = path.read_text(encoding="utf-8")
-    assert path == project / "deliverables" / "howto-create-widget.md"
-    assert text.startswith("# How to: create widget\n")
-    assert "## Before you start" in text and "walk of %s" % DAY in text
-    order = [text.index(x) for x in ("zorbal/01-widget-list, console mirror", "zorbal/02-widget-create, console mirror",
-                                     "zorbal/03-widget-confirm, console mirror")]
-    assert order == sorted(order)
-    assert text.index("1. **Widget list**") < text.index("2. **Create widget**") < text.index("3. **Confirm widget**")
-    assert "Menu path: Zorbal > Widgets > Create" in text
-    assert (n, lacking) == (3, 1)
-
 
 def test_the_draft_keeps_the_labels_as_the_screen_spells_them(tmp_path, project):
     base = make_mirror(tmp_path)
@@ -87,32 +73,7 @@ def test_the_draft_keeps_the_labels_as_the_screen_spells_them(tmp_path, project)
     assert "Buttons: `Create widget`, `Delete`" in text
 
 
-def test_the_draft_copies_only_the_cited_images(tmp_path, project):
-    base = make_mirror(tmp_path)
-    path = howto.draft("create widget", base=base, project=project, service="zorbal")[0]
-    copied = sorted(p.name for p in (project / "deliverables" / "images").iterdir())
-    assert copied == ["zorbal-01-widget-list.png", "zorbal-02-widget-create.png"]
-    text = path.read_text(encoding="utf-8")
-    assert "![Widget list](images/zorbal-01-widget-list.png)" in text
-    assert "zorbal-04-settings" not in text and "quimble" not in text
-    src = base / "console" / DAY / "zorbal" / "01-widget-list.png"
-    assert (project / "deliverables" / "images" / "zorbal-01-widget-list.png").read_bytes() == src.read_bytes()
 
-
-def test_a_step_the_mirror_does_not_hold_is_marked(tmp_path, project):
-    base = make_mirror(tmp_path)
-    path, n, lacking = howto.draft("widgets", base=base, project=project, steps=["widget list", "teleport sprocket"])
-    text = path.read_text(encoding="utf-8")
-    assert (n, lacking) == (2, 1)
-    assert "2. **teleport sprocket**\n   - Screen: not in the mirror yet: check on screen" in text
-    # a screen whose image was dropped keeps its labels and marks only the screenshot
-    path2 = howto.draft("confirm", base=base, project=project, steps=["confirm widget"], name="two")[0]
-    text2 = path2.read_text(encoding="utf-8")
-    assert "Buttons: `Confirm`" in text2 and "Screenshot: not in the mirror yet: check on screen" in text2
-    assert "![" not in text2
-    # a topic the mirror knows nothing about gives one marked step
-    none = howto.draft("nothingmatches", base=base, project=project)
-    assert none[1:] == (1, 1)
 
 
 def test_a_draft_is_never_overwritten_without_force_and_needs_a_project(tmp_path, project):
@@ -132,18 +93,6 @@ def test_a_draft_is_never_overwritten_without_force_and_needs_a_project(tmp_path
         howto.draft("create widget", base=base, project=project, walk="2020-01-01", name="x")
 
 
-def test_render_makes_one_self_contained_html_with_the_images_inline(tmp_path, project):
-    base = make_mirror(tmp_path)
-    path = howto.draft("create widget", base=base, project=project, service="zorbal")[0]
-    out, _, lacking = howto.render(path)
-    page = out.read_text(encoding="utf-8")
-    assert out == path.with_suffix(".html") and lacking == 1
-    assert page.count("data:image/png;base64,") == 2 and "images/" not in page
-    inline = page.split("data:image/png;base64,")[1].split('"')[0]
-    assert base64.b64decode(inline) == (project / "deliverables" / "images" / "zorbal-01-widget-list.png").read_bytes()
-    assert "<h1>How to: create widget</h1>" in page and "<ol>" in page and "<code>Create now</code>" in page
-    assert "src=\"http" not in page and "<script" not in page
-
 
 def test_render_refuses_a_missing_or_escaping_image_and_escapes_text(tmp_path, project):
     d = project / "deliverables"
@@ -161,21 +110,6 @@ def test_render_refuses_a_missing_or_escaping_image_and_escapes_text(tmp_path, p
     with pytest.raises(howto.HowtoError):
         howto.render(d / "missing.md")
 
-
-def test_the_command_line_drafts_renders_and_pdf_waits(tmp_path, project, monkeypatch, capsys):
-    base = make_mirror(tmp_path)
-    monkeypatch.setenv("AWB_MIRRORS", str(base))
-    monkeypatch.chdir(project)
-    assert howto.main(["draft", "create widget", "--service", "zorbal", "--step", "widget list", "--name", "w"]) == 0
-    assert "1 step(s), 0 not in the mirror yet" in capsys.readouterr().out
-    assert howto.main(["draft", "create widget", "--name", "w"]) == 2          # exists
-    md = project / "deliverables" / "howto-w.md"
-    assert howto.main(["render", str(md)]) == 0
-    out = capsys.readouterr().out
-    assert "howto-w.html" in out and "xchg put" in out
-    assert howto.main(["render", str(md), "--pdf"]) == 1
-    assert "no PDF yet" in capsys.readouterr().err and md.with_suffix(".html").is_file()
-    assert howto.main([]) == 2
 
 
 def test_publish_copies_the_newest_walk_read_only_and_only_what_is_cited(tmp_path):
@@ -229,13 +163,168 @@ def test_the_work_user_reads_the_published_copy_and_cannot_publish(tmp_path, mon
     assert mirror.root() == dest
 
 
-def test_a_page_with_embedded_pictures_crosses_only_as_an_image(tmp_path):
-    page = tmp_path / "howto.html"
-    page.write_text('<html><img src="data:image/png;base64,AAAA"></html>', encoding="utf-8")
-    plain = tmp_path / "plain.html"
-    plain.write_text("<html><p>no picture</p></html>", encoding="utf-8")
+# Task ST: console screenshots stay internal. The default draft is the outward text; --internal is the image version.
+
+def test_the_default_draft_has_no_image_link_and_no_mirror_citation(tmp_path, project):
+    base = make_mirror(tmp_path)
+    path, n, lacking = howto.draft("create widget", base=base, project=project, service="zorbal")
+    text = path.read_text(encoding="utf-8")
+    assert path == project / "deliverables" / "howto-create-widget.md"
+    assert text.startswith("# How to: create widget\n") and "## Before you start" in text
+    assert "![" not in text and "images/" not in text and not (project / "deliverables" / "images").exists()
+    for word in ("mirror", "screenshot", "walk", "zorbal/01-widget-list", DAY):
+        assert word not in text.lower()
+    # the steps keep the order, the menu path and the labels as the screen spells them
+    assert text.index("1. **Widget list**") < text.index("2. **Create widget**") < text.index("3. **Confirm widget**")
+    assert "Menu path: Zorbal > Widgets > Create" in text
+    assert "Fields: `Widget name`, `Size`" in text and "Buttons: `Create now`, `Cancel`" in text
+    assert "Buttons: `Create widget`, `Delete`" in text and "zorbal-04-settings" not in text
+    assert (n, lacking) == (3, 0)
+
+
+def test_the_default_draft_puts_the_citations_and_the_walk_date_into_sources(tmp_path, project):
+    base = make_mirror(tmp_path)
+    howto.draft("create widget", base=base, project=project, service="zorbal")
+    note = (project / "reviews" / "howto-create-widget" / "sources.md").read_text(encoding="utf-8")
+    assert "internal, never publish" in note and "Console walk: %s" % DAY in note
+    order = [note.index(x) for x in ("zorbal/01-widget-list, console mirror %s" % DAY,
+                                     "zorbal/02-widget-create, console mirror %s" % DAY,
+                                     "zorbal/03-widget-confirm, console mirror %s" % DAY)]
+    assert order == sorted(order)
+    assert "quimble" not in note and "04-settings" not in note
+
+
+def test_the_internal_draft_has_the_citations_and_the_image_links(tmp_path, project):
+    base = make_mirror(tmp_path)
+    path, n, lacking = howto.draft("create widget", base=base, project=project, service="zorbal", internal=True)
+    text = path.read_text(encoding="utf-8")
+    assert "walk of %s" % DAY in text
+    order = [text.index(x) for x in ("zorbal/01-widget-list, console mirror", "zorbal/02-widget-create, console mirror",
+                                     "zorbal/03-widget-confirm, console mirror")]
+    assert order == sorted(order)
+    assert "![Widget list](images/zorbal-01-widget-list.png)" in text
+    assert "![Create widget](images/zorbal-02-widget-create.png)" in text
+    assert "Screenshot: not in the mirror yet: check on screen" in text       # the dropped image
+    copied = sorted(p.name for p in (project / "deliverables" / "images").iterdir())
+    assert copied == ["zorbal-01-widget-list.png", "zorbal-02-widget-create.png"]
+    src = base / "console" / DAY / "zorbal" / "01-widget-list.png"
+    assert (project / "deliverables" / "images" / "zorbal-01-widget-list.png").read_bytes() == src.read_bytes()
+    assert (n, lacking) == (3, 1) and not (project / "reviews").exists()
+
+
+def test_a_step_the_reference_does_not_hold_is_marked_in_both_versions(tmp_path, project):
+    base = make_mirror(tmp_path)
+    path, n, lacking = howto.draft("widgets", base=base, project=project, steps=["widget list", "teleport sprocket"])
+    text = path.read_text(encoding="utf-8")
+    assert (n, lacking) == (2, 1)
+    assert "2. **teleport sprocket**\n   - Not confirmed yet: check on screen" in text and "mirror" not in text.lower()
+    note = (project / "reviews" / "howto-widgets" / "sources.md").read_text(encoding="utf-8")
+    assert "2. teleport sprocket: not in the mirror yet" in note
+    inner = howto.draft("widgets", base=base, project=project, steps=["widget list", "teleport sprocket"],
+                        name="inner", internal=True)[0].read_text(encoding="utf-8")
+    assert "2. **teleport sprocket**\n   - Screen: not in the mirror yet: check on screen" in inner
+    # a screen whose image was dropped keeps its labels
+    text2 = howto.draft("confirm", base=base, project=project, steps=["confirm widget"], name="two")[0].read_text(
+        encoding="utf-8")
+    assert "Buttons: `Confirm`" in text2 and "![" not in text2
+    none = howto.draft("nothingmatches", base=base, project=project)
+    assert none[1:] == (1, 1)
+
+
+def test_render_refuses_a_draft_with_images_unless_internal(tmp_path, project):
+    base = make_mirror(tmp_path)
+    inner = howto.draft("create widget", base=base, project=project, service="zorbal", internal=True)[0]
+    with pytest.raises(howto.HowtoError, match="--internal"):
+        howto.render(inner)
+    assert not inner.with_suffix(".html").exists()
+    out, _, lacking = howto.render(inner, internal=True)
+    page = out.read_text(encoding="utf-8")
+    assert out == inner.with_suffix(".html") and lacking == 1
+    assert page.index("internal, never publish") < page.index("<h1>")
+    assert page.count("data:image/png;base64,") == 2 and "images/" not in page
+    inline = page.split("data:image/png;base64,")[1].split('"')[0]
+    assert base64.b64decode(inline) == (project / "deliverables" / "images" / "zorbal-01-widget-list.png").read_bytes()
+    assert "<ol>" in page and "<code>Create now</code>" in page and "src=\"http" not in page and "<script" not in page
+
+
+def test_render_of_the_outward_draft_has_no_image_and_no_banner(tmp_path, project):
+    base = make_mirror(tmp_path)
+    path = howto.draft("create widget", base=base, project=project, service="zorbal")[0]
+    out, _, lacking = howto.render(path)
+    page = out.read_text(encoding="utf-8")
+    assert lacking == 0 and "<img" not in page and "data:image" not in page and "internal" not in page
+    assert "<h1>How to: create widget</h1>" in page and "<code>Create now</code>" in page
+
+
+def test_the_command_line_drafts_renders_and_pdf_waits(tmp_path, project, monkeypatch, capsys):
+    base = make_mirror(tmp_path)
+    monkeypatch.setenv("AWB_MIRRORS", str(base))
+    monkeypatch.chdir(project)
+    assert howto.main(["draft", "create widget", "--service", "zorbal", "--step", "widget list", "--name", "w"]) == 0
+    assert "1 step(s), 0 not confirmed yet" in capsys.readouterr().out
+    assert howto.main(["draft", "create widget", "--name", "w"]) == 2          # exists
+    md = project / "deliverables" / "howto-w.md"
+    assert "![" not in md.read_text(encoding="utf-8")
+    assert howto.main(["render", str(md)]) == 0
+    out = capsys.readouterr().out
+    assert "howto-w.html" in out and "xchg put" in out and "--image" not in out
+    assert howto.main(["render", str(md), "--pdf"]) == 1
+    assert "no PDF yet" in capsys.readouterr().err and md.with_suffix(".html").is_file()
+    # the image version: --internal to draft and to render, and the render says it never leaves
+    assert howto.main(["draft", "create widget", "--service", "zorbal", "--name", "i", "--internal"]) == 0
+    capsys.readouterr()
+    inner = project / "deliverables" / "howto-i.md"
+    assert howto.main(["render", str(inner)]) == 2
+    assert "--internal" in capsys.readouterr().err
+    assert howto.main(["render", str(inner), "--internal"]) == 0
+    out = capsys.readouterr().out
+    assert "internal, never publish" in out and "xchg put" not in out
+    assert howto.main([]) == 2
+
+
+def test_xchg_put_refuses_a_file_that_embeds_or_links_a_mirror_image(tmp_path):
     reg = tmp_path / "register.tsv"
     reg.write_text("code\tkind\tform\tadded\tstatus\n", encoding="utf-8")
-    assert xchg.check_problems(page, register=reg) == ["a page with embedded pictures crosses only with --image and a reason"]
-    assert xchg.check_problems(page, image=True, register=reg) == []
-    assert xchg.check_problems(plain, register=reg) == []
+    files = {
+        "page.html": '<html><img src="data:image/png;base64,AAAA"></html>',
+        "link.html": '<html><img src="images/zorbal-01-widget-list.png"></html>',
+        "draft.md": "# T\n\n![Widget list](images/zorbal-01-widget-list.png)\n",
+        "plain.html": "<html><p>no picture</p></html>",
+        "plain.md": "# T\n\n1. **Widget list**\n   - Buttons: `Delete`\n",
+    }
+    for name, body in files.items():
+        (tmp_path / name).write_text(body, encoding="utf-8")
+    for name in ("page.html", "link.html", "draft.md"):
+        for image in (False, True):          # --image and a reason do not open it
+            got = xchg.check_problems(tmp_path / name, image=image, register=reg)
+            assert len(got) == 1 and "never crosses" in got[0], name
+        assert xchg.check_problems(tmp_path / name, register=reg, mirror_image=True) == [], name
+    for name in ("plain.html", "plain.md"):
+        assert xchg.check_problems(tmp_path / name, register=reg) == []
+
+
+def test_the_internal_image_flag_is_the_owners_alone(tmp_path, monkeypatch):
+    page = tmp_path / "howto.html"
+    page.write_text('<html><img src="data:image/png;base64,AAAA"></html>', encoding="utf-8")
+    monkeypatch.setenv("CLAUDECODE", "1")
+    with pytest.raises(xchg.XchgError, match="owner"):
+        xchg.put(page, mirror_image=True)
+    monkeypatch.delenv("CLAUDECODE")
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+    monkeypatch.setattr(config, "is_work_user", lambda: True)
+    with pytest.raises(xchg.XchgError, match="owner"):
+        xchg.put(page, mirror_image=True)
+
+
+def test_the_generated_docs_do_not_say_the_console_reference_holds_screenshots():
+    root = Path(__file__).resolve().parent.parent
+    for name in ("README.md", "COMMANDS.md", "docs/commands-guide.md"):
+        for n, line in enumerate((root / name).read_text(encoding="utf-8").splitlines(), start=1):
+            low = line.lower()
+            if "howto" in low or "mirror console" in low or "console reference" in low:
+                for word in ("screenshot", "console mirror", "mirror walk"):
+                    assert word not in low, "%s:%d says %r" % (name, n, word)
+    for name in ("plugin/skills/drafting/SKILL.md", "seal/work-claude/skills/drafting/SKILL.md",
+                 "seal/work-claude/CLAUDE.md"):
+        text = (root / name).read_text(encoding="utf-8")
+        assert "screenshot" not in text.lower().replace("no mention of screenshots, images, a mirror or a walk", "")

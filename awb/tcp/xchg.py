@@ -5,6 +5,7 @@
     awb inbox take --all | --id ID...                                 every file of both inboxes, or the ones named
     awb inbox list                                                    both inboxes: id, kind, size, time
     awb xchg put FILE [--as NAME] [--image --reason TEXT]         a result into <code>/from-session/<date>/<id>
+                  [--internal-image]                              owner only: an HTML or Markdown file with an image
     awb xchg list                                                 what this project put
     awb xchg clean CODE [--older-than DATE] --dry-run|--go        delete what this project put, rows in RESOURCES.md
 
@@ -316,29 +317,36 @@ def name_problems(name: str, register: Path | None = None) -> list[str]:
     return []
 
 
+_PICTURE_RE = re.compile(rb"data:image/|<img[\s/>]|!\[[^\]]*\]\s*[(\[]", re.I)
+
+
 def _embeds_picture(path: Path) -> bool:
-    """A page that carries a picture as a data URI (`awb howto render`) is a picture for the rule of --image."""
+    """A page or a text that embeds a picture as a data URI, an img tag or a Markdown image (`awb howto render`,
+    `awb howto draft --internal`) or links one."""
     tail = b""
     try:
         with open(path, "rb") as fh:
             while chunk := fh.read(1 << 20):
-                if b"data:image/" in tail + chunk:
+                if _PICTURE_RE.search(tail + chunk):
                     return True
-                tail = chunk[-16:]
+                tail = chunk[-64:]
     except OSError:
         return False
     return False
 
 
-def check_problems(path: Path, image: bool = False, register: Path | None = None) -> list[str]:
-    """Why a file must not cross: a name check hit, a file that cannot be read as text."""
+def check_problems(path: Path, image: bool = False, register: Path | None = None,
+                   mirror_image: bool = False) -> list[str]:
+    """Why a file must not cross: a name check hit, a file that cannot be read as text, an HTML or Markdown file that
+    embeds or links an image unless the owner passed `mirror_image` (--internal-image)."""
     from awb import check
 
     suffix = path.suffix.lower()
     if suffix in IMAGE_SUFFIXES:
         return [] if image else ["a picture crosses only with --image and a reason"]
-    if suffix in (".html", ".htm") and not image and _embeds_picture(path):
-        return ["a page with embedded pictures crosses only with --image and a reason"]
+    if suffix in (".html", ".htm", ".md", ".markdown") and not mirror_image and _embeds_picture(path):
+        return ["a page or text that embeds or links an image never crosses; console images stay internal "
+                "(only the owner passes --internal-image)"]
     try:
         hits = check.check_file(path, register if register is not None else config.paths().register, code=True)
     except Exception as err:
@@ -495,9 +503,12 @@ def inbox_list() -> list[str]:
 
 
 def put(path: Path, as_name: str | None = None, image: bool = False, reason: str | None = None,
-        kind_word: str | None = None, lang: str | None = None) -> str:
+        kind_word: str | None = None, lang: str | None = None, mirror_image: bool = False) -> str:
     from awb import projects, review
 
+    if mirror_image and (config.is_work_user() or os.environ.get("CLAUDECODE")
+                         or os.environ.get("CLAUDE_CODE_ENTRYPOINT")):
+        raise XchgError("--internal-image is for the owner's own terminal, never a session")
     root, code, customer = _project()
     path = Path(os.path.realpath(path))
     if not path.is_file():
@@ -508,7 +519,7 @@ def put(path: Path, as_name: str | None = None, image: bool = False, reason: str
     if image and not (reason and len(reason.strip()) >= 10):
         raise XchgError("--image needs a reason of one line: what it shows and that you checked it for names")
     named = name_problems(name)
-    problems = named or check_problems(path, image=image)
+    problems = named or check_problems(path, image=image, mirror_image=mirror_image)
     if problems:
         raise XchgError("; ".join(problems) + (name_hint(root, name, path, kind_word, lang) if named else ""))
     if customer not in (projects.NO_CUSTOMER, "", None):
@@ -653,6 +664,8 @@ def main_xchg(argv: list[str] | None = None) -> int:
     pt.add_argument("--as", dest="as_name", default=None)
     pt.add_argument("--image", action="store_true")
     pt.add_argument("--reason", default=None)
+    pt.add_argument("--internal-image", dest="mirror_image", action="store_true",
+                    help="owner only: let an HTML or Markdown file with an embedded or linked image cross")
     pt.add_argument("--kind", dest="kind_word", default=None, metavar="WORD",
                     help="the kind word of the neutral name proposed when the file name is refused (default doc)")
     pt.add_argument("--lang", default=None, metavar="XX",
@@ -674,7 +687,7 @@ def main_xchg(argv: list[str] | None = None) -> int:
         return 2
     try:
         if args.command == "put":
-            print(put(Path(args.file), args.as_name, args.image, args.reason, args.kind_word, args.lang))
+            print(put(Path(args.file), args.as_name, args.image, args.reason, args.kind_word, args.lang, args.mirror_image))
         elif args.command == "clean":
             for line in clean(args.code, args.older_than, args.go):
                 print(line)
