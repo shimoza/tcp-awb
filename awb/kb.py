@@ -72,6 +72,7 @@ The intake, `awb gate` and every other path of customer material keep the plain 
     awb kb scope [--scope S] TAG
     awb kb expired
     awb kb index
+    awb kb import [--update] [--release L] [--dry-run] FILE
     awb kb export --out FILE [--scope S] [--grade G]... [--tag T]... [--include-expired] [--force]
     awb kb review [--out DIR] [--date D]       the facts of the built dataset added or amended since the last
                                                release, with source and grade; writes the mark `awb dataset put`
@@ -1685,6 +1686,16 @@ def _cmd_scope(args, today: date) -> int:
     return 0
 
 
+def _cmd_import(args, today: date) -> int:
+    from awb import kbimport
+
+    result = kbimport.import_facts(kbimport.read_source(args.file), release=args.release, update=args.update,
+                                   dry_run=args.dry_run, today=today)
+    for line in kbimport.summary(result, args.dry_run):
+        print(line, file=sys.stderr if line.startswith("refused by") else sys.stdout)
+    return 1 if result["refused"] else 0
+
+
 def _cmd_export(args, today: date) -> int:
     out = Path(args.out)
     if out.exists() and not args.force:
@@ -1828,6 +1839,14 @@ def _parser():
     s.add_argument("--include-expired", action="store_true", help="also entries past their expiry, marked expired")
     s.add_argument("--force", action="store_true", help="replace an existing output file")
     s.set_defaults(func=_cmd_export)
+
+    s = sub.add_parser("import", help="the facts of a TCP Facts release (facts.jsonl or the zip) into this knowledge base")
+    s.add_argument("--update", action="store_true",
+                   help="replace an entry that came from the same dataset and has an older check date")
+    s.add_argument("--release", default=None, help="the label recorded in the source (default: the date of the release)")
+    s.add_argument("--dry-run", action="store_true", help="count what would happen and write nothing")
+    s.add_argument("file", type=Path, help="facts.jsonl of a release, or its zip")
+    s.set_defaults(func=_cmd_import)
 
     s = sub.add_parser("review", help="the facts of the built dataset added or amended since the last release, "
                                       "with source and grade; the mark awb dataset put needs")

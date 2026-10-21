@@ -383,6 +383,16 @@ When the interpreter does not import this tree by itself, `tests/conftest.py` gi
 throw-away interpreter that does (one `.pth` line in a temporary folder), and a copy a test makes of the tree is
 writable for it; nothing is written into the tree.
 
+### On a laptop
+
+For the partner who wants the Workbench on a laptop without the sealed host, install `awb` as above, run `awb init`,
+then `awb kb import facts.jsonl` from the latest TCP Facts release (github.com/shimoza/tcp-facts; the zip of the
+release works too). The new knowledge base starts empty and the import fills it: every fact is checked as `awb kb add`
+checks it, an id that is already there is skipped and the counts say what was imported, skipped and refused. It
+needs no vault daemon, no key service and no work user. Run it again with `--update` after a newer release.
+
+Without `awb` at all, the light plugin `tcp-facts-lite` answers from the files of a release (see below).
+
 ### As a plugin for Claude Code
 
 The skills, the workers and the checkpoints also come as a plugin, with this repository as its marketplace. Install
@@ -407,6 +417,20 @@ claude plugin install awb@tcp-awb
 
 On a sealed host (below) the seal installs the hooks for the work user already. Do not install the plugin there as
 well: every hook would run twice.
+
+### The light plugin for partners
+
+`plugin-lite/` holds `tcp-facts-lite`, a plugin with two skills (`tcp-facts` and `tcp-price`) and no `awb` command, no
+hook and no network access. It answers from the `facts.md` and the price CSV of a TCP Facts release the user
+downloaded, cites the fact id and its checked date, says "not in the facts" when nothing matches and never states a
+price from memory.
+
+```bash
+claude plugin marketplace add shimoza/tcp-awb
+claude plugin install tcp-facts-lite@tcp-awb
+```
+
+Its README is `plugin-lite/README.md`.
 
 ## The main commands
 
@@ -969,7 +993,8 @@ The agent's free text stays out of your sessions: add one line to the `deny` lis
 | `hooks-build/` | the commit gate of the build clones: every check but the name check, which the runner makes with the register |
 | `seal/` | setup and verification of the two-user seal, the service units, the work user's client settings |
 | `plugin/` | the Claude Code plugin: skills, workers and hooks, its manifest in `plugin/.claude-plugin/plugin.json` |
-| `.claude-plugin/` | `marketplace.json` makes this repository the marketplace of the plugin |
+| `plugin-lite/` | the light plugin `tcp-facts-lite` for partners: two skills over the files of a TCP Facts release, no hooks |
+| `.claude-plugin/` | `marketplace.json` makes this repository the marketplace of both plugins |
 | `workflows/` | the review and refresh workflows for Claude Code |
 | `recipes/` | the lab recipes of `awb lab`, one live check on a test tenant per file; the format in `recipes/README.md` |
 | `calibration/` | the review calibration set, the red-team pack and the records of the red team and the security review |
