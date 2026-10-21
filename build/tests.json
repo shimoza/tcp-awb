@@ -9831,88 +9831,11 @@
   {
    "id": "pg-kb-import-and-lite-plugin-9",
    "phase": "pg-kb-import-and-lite-plugin",
-   "name": "the marketplace lists the kit next to awb and says nothing of a release",
-   "run": ".venv/bin/pytest tests/test_fieldkit.py::test_the_marketplace_lists_the_kit_next_to_awb_and_says_nothing_of_a_release",
-   "status": "passing"
-  },
-  {
-   "id": "pg-kb-import-and-lite-plugin-10",
-   "phase": "pg-kb-import-and-lite-plugin",
-   "name": "the kit has two skills and no hook agent or command",
-   "run": ".venv/bin/pytest tests/test_fieldkit.py::test_the_kit_has_two_skills_and_no_hook_agent_or_command",
-   "status": "passing"
-  },
-  {
-   "id": "pg-kb-import-and-lite-plugin-11",
-   "phase": "pg-kb-import-and-lite-plugin",
-   "name": "every skill names itself and uses no awb command",
-   "run": ".venv/bin/pytest tests/test_fieldkit.py::test_every_skill_names_itself_and_uses_no_awb_command",
-   "status": "passing"
-  },
-  {
-   "id": "pg-kb-import-and-lite-plugin-12",
-   "phase": "pg-kb-import-and-lite-plugin",
-   "name": "the facts skill answers from the files only",
-   "run": ".venv/bin/pytest tests/test_fieldkit.py::test_the_facts_skill_answers_from_the_files_only",
-   "status": "passing"
-  },
-  {
-   "id": "pg-kb-import-and-lite-plugin-13",
-   "phase": "pg-kb-import-and-lite-plugin",
-   "name": "the price skill looks up live and reads no csv or price folder",
-   "run": ".venv/bin/pytest tests/test_fieldkit.py::test_the_price_skill_looks_up_live_and_reads_no_csv_or_price_folder",
-   "status": "passing"
-  },
-  {
-   "id": "pg-kb-import-and-lite-plugin-14",
-   "phase": "pg-kb-import-and-lite-plugin",
-   "name": "the price script uses the standard library only",
-   "run": ".venv/bin/pytest tests/test_fieldkit.py::test_the_price_script_uses_the_standard_library_only",
-   "status": "passing"
-  },
-  {
-   "id": "pg-kb-import-and-lite-plugin-15",
-   "phase": "pg-kb-import-and-lite-plugin",
-   "name": "the price script prints region flavor price unit and the date",
-   "run": ".venv/bin/pytest tests/test_fieldkit.py::test_the_price_script_prints_region_flavor_price_unit_and_the_date",
-   "status": "passing"
-  },
-  {
-   "id": "pg-kb-import-and-lite-plugin-16",
-   "phase": "pg-kb-import-and-lite-plugin",
-   "name": "the price script says not found and gives no price",
-   "run": ".venv/bin/pytest tests/test_fieldkit.py::test_the_price_script_says_not_found_and_gives_no_price",
-   "status": "passing"
-  },
-  {
-   "id": "pg-kb-import-and-lite-plugin-17",
-   "phase": "pg-kb-import-and-lite-plugin",
-   "name": "the price script gives no price when the api does not answer",
-   "run": ".venv/bin/pytest tests/test_fieldkit.py::test_the_price_script_gives_no_price_when_the_api_does_not_answer",
-   "status": "passing"
-  },
-  {
-   "id": "pg-kb-import-and-lite-plugin-18",
-   "phase": "pg-kb-import-and-lite-plugin",
-   "name": "the readme installs the kit and disclaims the operator",
-   "run": ".venv/bin/pytest tests/test_fieldkit.py::test_the_readme_installs_the_kit_and_disclaims_the_operator",
-   "status": "passing"
-  },
-  {
-   "id": "pg-kb-import-and-lite-plugin-19",
-   "phase": "pg-kb-import-and-lite-plugin",
-   "name": "nothing of the kit mentions screenshots a console mirror or a walk",
-   "run": ".venv/bin/pytest tests/test_fieldkit.py::test_nothing_of_the_kit_mentions_screenshots_a_console_mirror_or_a_walk",
-   "status": "passing"
-  },
-  {
-   "id": "pg-kb-import-and-lite-plugin-20",
-   "phase": "pg-kb-import-and-lite-plugin",
-   "name": "the import does not expect a prices folder",
-   "run": ".venv/bin/pytest tests/test_fieldkit.py::test_the_import_does_not_expect_a_prices_folder",
+   "name": "a release without a prices folder imports and the module expects none",
+   "run": ".venv/bin/pytest tests/test_kb_import.py::test_a_release_without_a_prices_folder_imports_and_the_module_expects_none",
    "status": "passing"
   }
  ],
- "total_tests": 1416,
+ "total_tests": 1405,
  "checked": "2026-10-20"
 }

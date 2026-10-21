@@ -1,8 +1,0 @@
-{
-  "name": "tcp-fieldkit",
-  "description": "An independent, community-made toolkit for T Cloud Public (TCP): answers from the files of a TCP Facts release you downloaded and looks prices up live in the public price API.",
-  "version": "0.1.0",
-  "author": {
-    "name": "shimoza"
-  }
-}

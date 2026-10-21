@@ -391,8 +391,6 @@ release works too). The new knowledge base starts empty and the import fills it:
 checks it, an id that is already there is skipped and the counts say what was imported, skipped and refused. It
 needs no vault daemon, no key service and no work user. Run it again with `--update` after a newer release.
 
-Without `awb` at all, the light plugin `tcp-fieldkit` answers from the files of a release and looks prices up live (see below).
-
 ### As a plugin for Claude Code
 
 The skills, the workers and the checkpoints also come as a plugin, with this repository as its marketplace. Install
@@ -417,22 +415,6 @@ claude plugin install awb@tcp-awb
 
 On a sealed host (below) the seal installs the hooks for the work user already. Do not install the plugin there as
 well: every hook would run twice.
-
-### The light plugin for partners
-
-`fieldkit/` holds `tcp-fieldkit`, an independent, community-made toolkit with two skills (`tcp-facts` and `tcp-price`) and
-no `awb` command and no hook. `tcp-facts` answers from the `facts.md` of a TCP Facts release the user downloaded,
-cites the fact id and its checked date and says "not in the facts" when nothing matches. `tcp-price` looks a price up
-live in the public price API with a small standard-library script and states region, flavor, price, unit and the date
-of the lookup; it says "not found" when the API has no row and never states a price from memory. A release carries
-no price list.
-
-```bash
-claude plugin marketplace add shimoza/tcp-awb
-claude plugin install tcp-fieldkit@tcp-awb
-```
-
-Its README is `fieldkit/README.md`.
 
 ## The main commands
 
@@ -995,8 +977,7 @@ The agent's free text stays out of your sessions: add one line to the `deny` lis
 | `hooks-build/` | the commit gate of the build clones: every check but the name check, which the runner makes with the register |
 | `seal/` | setup and verification of the two-user seal, the service units, the work user's client settings |
 | `plugin/` | the Claude Code plugin: skills, workers and hooks, its manifest in `plugin/.claude-plugin/plugin.json` |
-| `fieldkit/` | the light plugin `tcp-fieldkit` for partners: facts from a TCP Facts release and a live price lookup, no hooks |
-| `.claude-plugin/` | `marketplace.json` makes this repository the marketplace of both plugins |
+| `.claude-plugin/` | `marketplace.json` makes this repository the marketplace of the plugin |
 | `workflows/` | the review and refresh workflows for Claude Code |
 | `recipes/` | the lab recipes of `awb lab`, one live check on a test tenant per file; the format in `recipes/README.md` |
 | `calibration/` | the review calibration set, the red-team pack and the records of the red team and the security review |
