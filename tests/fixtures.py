@@ -72,6 +72,11 @@ def assert_no_fixture_name(text: str, where: str = "") -> None:
     assert not hits, "%d registered fixture forms found in %s" % (len(hits), where or "text")
 
 
+# invented tenant aliases of the dataset tests; they have the form of a real alias (test- and five digits) because the
+# scrub of the dataset matches that form, and they belong to no account
+TENANT_ONE = "test-00001"
+TENANT_TWO = "test-00002"
+
 # the invented form the gate selftest plants into its own temporary folder (awb/gate.py carries the same
 # string); it is not in the fixture register above
 SELFTEST_FORM = "Qwxzv Probefirma"

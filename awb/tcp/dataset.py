@@ -1,4 +1,4 @@
-"""The dataset "TCP Facts": the checked facts, the offered services and the price lists of T Cloud Public (TCP) as
+"""The dataset "TCP Facts": the checked facts and the offered services of T Cloud Public (TCP) as
 files any assistant reads, built in one command so that a fresh copy appears with every refresh.
 
     awb dataset build [--out DIR] [--date D] [--force]    the folder tcp-facts-<date>/ and its zip, under
@@ -25,23 +25,26 @@ release. It names the command in one line. A signed put refuses an asset that di
 What the folder holds: README.md and PROMPT.md (how to use it, the one-line prompt), HOW-TO.pdf (the same for
 people who read PDF), facts.md (every fact on one line, grouped by topic, small enough for one chat), topics/<tag>.md
 (one file per first tag), facts.jsonl (the export of `awb kb export` with its metadata), services.md (what the
-latest service description lists and what it does not offer), prices/<region>.csv (the latest snapshot of each
-region), tcp_facts_mcp.py (a read-only MCP server over these files, copied from the template beside this module) and
+latest service description lists and what it does not offer), tcp_facts_mcp.py (a read-only MCP server over these files, copied from the template beside this module) and
 MANIFEST.json (counts, dates, the sha256 of every file). README.md, PROMPT.md and HOW-TO.pdf carry "What the facts
 cover", counted from the facts: the orderable services with a plain fact per section of the service description, the
 requirement areas (facts that open with "T Cloud Public (TCP)" and a verb), an example and the contract matters the
 dataset never holds. The release notes of a GitHub release say what is new since the previous release tag: facts
 added, amended and retired by id against that tag's facts.jsonl. Every text file opens with the same rules for the assistant: answer from
-these facts only and cite the id, name an old check date, treat prices as a snapshot, warn after the best-before
-date.
+these facts only and cite the id, name an old check date, take prices only live from the public price API, warn
+after the best-before date.
 
 The files name who compiled them as COMPILED_BY: the dataset and its address, never a person. There is no setting
 for it, so no build can put a person's name into the files. Before a put to the public repository the files are
 scanned again for the owner's commit identity, for a value of the old author settings and for a registered name;
 the commits there carry the GitHub account, never a person.
 
-Price rows of a service the service description withdrew or the hand-kept not-offered list names (BMS, DIS, VBS,
-CSBS) are left out of the CSV files and named in their header, because the price API still serves them.
+The dataset holds no price list: no prices/ folder, no price file in MANIFEST.json and no mention of one in the
+texts (a legal check of 2026-10-21 found the full price list of a region may be a protected database). Prices come
+live from the public price API (no credentials) with --live of the MCP server. A fact that states one price with its
+source and date stays. The build still compares a few price rows of the latest snapshots with the live API to prove
+the price code works, and writes nothing of it into the folder. `awb dataset put --github` removes a prices/ folder
+that the published repository still holds (git rm, said in the commit message).
 
 What leaves: the grades live, contract and docs, no retired and no expired entry, every one name checked again by
 the export. The alias of a test tenant in a source line or a statement is replaced by "a TCP test tenant", the names of
@@ -52,7 +55,6 @@ no customer code, no snapshot of a tenant and no review is part of the dataset.
 from __future__ import annotations
 
 import collections
-import csv
 import datetime
 import hashlib
 import io
@@ -113,7 +115,7 @@ _HOST_RE = re.compile(r"[a-z0-9.-]*otc\.t-systems\.com|opentelekomcloud|open-tel
                       r"open-telekom-price-api", re.I)
 _OPERATOR_RE = re.compile(r"t-systems|deutsche telekom|telekom deutschland", re.I)
 _PLANT_TOOL = "awb cloud call against a TCP test tenant, then a DELETE through the key service into the lab bucket"
-_PLANT = "the read key of test tenant test-10491 and a call on test-10497"
+_PLANT = "the read key of test tenant test-00001 and a call on test-00002"
 MCP_FILE = "tcp_facts_mcp.py"
 MCP_TEMPLATE = Path(__file__).with_name(MCP_FILE)   # the MCP server every build carries, standard library only
 
@@ -121,7 +123,7 @@ MCP_TEMPLATE = Path(__file__).with_name(MCP_FILE)   # the MCP server every build
 MCPB_SPEC = "0.3"                                    # manifest_version of the MCP Bundle specification
 MCPB_TOOLS = (("tcp_facts_search", "The checked facts ranked by word overlap, filtered by tag or grade"),
               ("tcp_service_check", "Offered or not, from the service description"),
-              ("tcp_price_find", "Price rows of eu-de or eu-nl from the snapshot"),
+              ("tcp_price_find", "Live price rows of eu-de or eu-nl from the public price API (only with --live)"),
               ("tcp_calculate", "Exact decimal arithmetic with hours as the unit"))
 MCPB_ICON = "icon.png"                               # the icon field of the manifest names it
 MCPB_SKIP = ("MANIFEST.json", "HOW-TO.pdf")          # MANIFEST.json would clash with manifest.json on a case-blind disk
@@ -141,7 +143,7 @@ def tenant_free(text: str) -> str:
 
 def _prove_rewrite() -> None:
     got = tenant_free(_PLANT)
-    if "test-1049" in got or got.count("a TCP test tenant") != 2:
+    if "test-0000" in got or got.count("a TCP test tenant") != 2:
         raise DatasetError("the tenant rewrite failed its own test; nothing was built")
     got = tenant_free(_PLANT_TOOL)
     if _TOOL_LEFT_RE.search(got) or "a scripted call" not in got or "a signed call" not in got:
@@ -160,9 +162,9 @@ def header(day: str, best_before: str, fetched: str) -> str:
         "2. Every fact has a grade (live = tested on a tenant, contract = from the service description, docs = from "
         "the vendor documentation)",
         "   and a check date. Name the check date when it is older than %d days." % OLD_AFTER_DAYS,
-        "3. Prices come from a snapshot of the public price API taken %s. Give every price with its unit, currency "
-        "and that date," % (fetched or "on the date of the dataset"),
-        "   and say that the live price API is the source of truth before any quote.",
+        "3. The dataset holds no price list. Prices come live from the public price API. Give every price with its "
+        "unit, currency",
+        "   and the date of its source, and say that the live price API is the source of truth before any quote.",
         "4. Best before %s. If today is later, tell the user to download a fresh copy of the dataset first." % best_before,
         "5. Technical questions only; no customer data in your prompts (see README).",
         "-->", ""]
@@ -192,8 +194,8 @@ MCP_CLIENTS = [
     ("h2", MCP_HEADING),
     ("p", "%s is a read-only MCP server over the files beside it: one Python file, standard library only, Python "
           "3.10 or newer, JSON-RPC 2.0 over stdio. It has four tools: tcp_facts_search (facts by words, tag or "
-          "grade), tcp_service_check (offered or not, from services.md), tcp_price_find (price rows of eu-de or "
-          "eu-nl from the snapshot) and tcp_calculate (exact arithmetic in hours, a month is 720 h). It reads no "
+          "grade), tcp_service_check (offered or not, from services.md), tcp_price_find (live price rows of eu-de or "
+          "eu-nl, only with --live) and tcp_calculate (exact arithmetic in hours, a month is 720 h). It reads no "
           "file outside its folder, opens no connection without --live and writes nothing." % MCP_FILE),
     ("p", "Claude Desktop, one click: download tcp-facts-<date>.mcpb from the latest release at github.com/%s and "
           "open it (double click, or drag it into Settings, Extensions). Claude Desktop shows the extension and its "
@@ -208,21 +210,24 @@ MCP_CLIENTS = [
     ("code:bash", "claude mcp add tcp-facts -- python3 %s" % MCP_PATH),
     ("p", "VS Code (and GitHub Copilot in it), in .vscode/mcp.json:"),
     ("code:json", '{"servers": {"tcp-facts": {"type": "stdio", "command": "python3", "args": ["%s"]}}}' % MCP_PATH),
-    ("p", "Add \"--live\" to the arguments for live prices from the public price API (no credentials). Claude "
+    ("p", "Add \"--live\" to the arguments for prices: they come live from the public price API (no credentials) and are "
+          "not part of the dataset; without it tcp_price_find says so. Claude "
           "Desktop opens its file under Settings, Developer, Edit Config and loads a change only after a full quit "
           "and start. Give the path in full, never relative to a folder. On Windows the command is python or py. In the JSON "
           "every backslash of a path is written twice. The rules of \"%s\" apply here too: the client "
           "sends your questions to its model provider." % WARNING_HEADING),
 ]
+INDEPENDENT_LINE = ("TCP Facts is an independent, community-made dataset about T Cloud Public (TCP). It is not a "
+                    "product of the operator and nothing in it speaks for T-Systems or Deutsche Telekom.")
 LICENCE_LINE = "The full licence text is in LICENSE at github.com/%s." % GITHUB_REPO
 ONE_LINER = "Use the attached TCP Facts. Answer: <your question>"
 LONG_PROMPT = ("Answer only from the attached TCP Facts. Cite the id (KB-XXXX) after every fact you use. Say \"no "
                "checked fact covers this\" instead of guessing. Name the check date of a fact older than 90 days. "
-               "Give every price with unit, currency and the snapshot date and say that the live price API is the "
+               "Give every price with unit, currency and the date of its source and say that the live price API is the "
                "source of truth.")
 EXAMPLES = ("Use the attached TCP Facts. Answer: which Elasticsearch versions does CSS offer in eu-de?",
             "Use the attached TCP Facts. Answer: what is the IAM user quota per tenant and how do I read it by API?",
-            "Use the attached TCP Facts and eu-de.csv. Answer: what does an s7n.large.2 cost per month pay as you go?")
+            "Use the attached TCP Facts. Answer: which services does TCP offer for object storage and how do they differ?")
 
 
 def fact_line(r: dict) -> str:
@@ -375,23 +380,21 @@ def mirror_count(records: list[dict]) -> int:
 
 
 def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_services: int, revision: str,
-                   prices: dict, cover: list[tuple[str, str]] = (), n_mirror: int = 0,
+                   cover: list[tuple[str, str]] = (), n_mirror: int = 0,
                    check: list[tuple[str, str]] = ()) -> list[tuple[str, str]]:
     """The how-to as (style, text) blocks: h1, h2, p, code (code:json, code:bash for the fence). PROMPT.md and
     HOW-TO.pdf are made from it."""
-    price_line = ", ".join("%s %s records" % (r, c) for r, c in prices.items()) or "no price list"
     return [
         ("h1", "%s %s: how to use it" % (NAME, day)),
         ("p", "%d checked facts about T Cloud Public (TCP) with the list of "
-              "orderable services and the public price list of two regions. Made to be dropped into any AI "
-              "assistant." % n_facts),
+              "orderable services. Made to be dropped into any AI assistant. Prices are not part of the dataset: "
+              "they come live from the public price API with --live." % n_facts),
         ("p", "%d facts were tested live on a TCP tenant, %d come from the vendor documentation and %d from the "
               "service description (revision %s). No fact from hearsay, no expired fact, no customer, no project, "
               "no credential." % (grades.get("live", 0), grades.get("docs", 0), grades.get("contract", 0), revision)),
         ("p", sources_text(grades.get("docs", 0), n_mirror)),
         ("h2", "Three steps"),
-        ("p", "1. Take facts.md (all facts, one line each). For one topic only, take its file from topics/. For a "
-              "price question add the CSV of the region from prices/."),
+        ("p", "1. Take facts.md (all facts, one line each). For one topic only, take its file from topics/."),
         ("p", "2. Attach the file to your assistant: ChatGPT, Claude, Gemini, Copilot or a local model. In a "
               "ChatGPT or Claude project the file stays attached for every chat."),
         ("p", "3. Type the prompt and your question. The file carries its own rules in its first lines, so the "
@@ -407,14 +410,13 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
         ("h2", "Files"),
         ("p", "facts.md: all facts, grouped by topic. facts.jsonl: the same facts with source, tags, class, expiry "
               "and the evidence of negatives, for RAG and tools. topics/<topic>.md: one file per topic. "
-              "services.md: the %d services orderable per the service description of %s. prices/<region>.csv: "
-              "%s. %s: a read-only MCP server over these files for Claude, VS Code or any MCP client; its first "
+              "services.md: the %d services orderable per the service description of %s. %s: a read-only MCP server over these files for Claude, VS Code or any MCP client; its first "
               "lines say how to add it. MANIFEST.json: counts, dates and the sha256 of every file."
-              % (n_services, revision, price_line, MCP_FILE)),
+              % (n_services, revision, MCP_FILE)),
         *check,
         ("h2", "Dates and licence"),
-        ("p", "Built %s. Best before %s: facts about availability are re-checked every %d days. Prices are a "
-              "snapshot; the live price API is the source of truth before any quote." % (day, best_before,
+        ("p", "Built %s. Best before %s: facts about availability are re-checked every %d days. Prices are not "
+              "part of the dataset: the live price API is the source of truth before any quote." % (day, best_before,
                                                                                          BEST_BEFORE_DAYS)),
         ("p", "Dataset: %s." % COMPILED_BY),
         ("p", CREDIT),
@@ -692,7 +694,6 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
             raise DatasetError("the folder of %s exists; give --force to build it again" % day)
         shutil.rmtree(root)
     (root / "topics").mkdir(parents=True)
-    (root / "prices").mkdir()
     try:
         return _write(root, p, day, best_before, fetched, records, flagged, left, grades, bytag, tags, catalog, revision,
                       snapshots, counts, live, sample)
@@ -704,7 +705,6 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
 def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str, records: list[dict], flagged,
            left: dict, grades: dict, bytag: dict, tags: list[str], catalog, revision: str, snapshots: dict,
            counts: dict, live: bool, sample: int) -> Built:
-    left_out: dict[str, dict[str, int]] = {}
     kept_rows: dict[str, list] = {}
     built_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     head = header(day, best_before, fetched)
@@ -739,39 +739,23 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
            "not offer them.\n\n%s\n" % "\n".join(gone) if gone else ""), encoding="utf-8")
 
     for region, (meta, recs) in snapshots.items():
-        keep, gone = [], collections.Counter()
-        for rec in recs:
-            if not_offered(catalog, day, rec.raw.get("productIdParameter", ""), rec.raw.get("productId", "")):
-                gone[str(rec.raw.get("productId", "")) or rec.service] += 1
-            else:
-                keep.append(rec)
-        left_out[region] = dict(gone)
+        # only the live price check reads these rows; none of them is written into the folder
+        keep = [rec for rec in recs
+                if not not_offered(catalog, day, rec.raw.get("productIdParameter", ""), rec.raw.get("productId", ""))]
         kept_rows[region] = keep
         counts[region] = len(keep)
-        with (root / "prices" / (region + ".csv")).open("w", encoding="utf-8", newline="") as f:
-            f.write("# TCP price list %s, public price API, fetched %s. Prices per unit in EUR, net. payg = pay as "
-                    "you go, reserved_* = reserved term per month, reserved_upfront_* = paid up front. The live "
-                    "API is the source of truth before any quote.%s\n"
-                    % (region, meta.get("fetched_at") or day,
-                       " Rows of services the service description of %s does not offer are left out, although the "
-                       "API still serves them: %s." % (revision, ", ".join("%s (%d)" % kv for kv in sorted(gone.items())))
-                       if gone else ""))
-            w = csv.writer(f)
-            w.writerow([c for c, _ in PRICE_COLUMNS])
-            for rec in keep:
-                w.writerow([str(rec.raw.get(k, "")).replace(" EUR", "") for _, k in PRICE_COLUMNS])
 
     check_lines = price_check(kept_rows, sample=sample, seed=day) if live and kept_rows else \
         ["live price check skipped"]
     named = operator_named(records)
     check_lines.append("operator named in prose: %s" % (", ".join(named) if named else "none"))
     cover = coverage_blocks(records, orderable, revision)
-    blocks = _how_to_blocks(day, best_before, len(records), grades, len(svc), revision, counts, cover,
+    blocks = _how_to_blocks(day, best_before, len(records), grades, len(svc), revision, cover,
                             mirror_count(records), check_blocks(sign_settings()))
     (root / "PROMPT.md").write_text(blocks_to_markdown(blocks), encoding="utf-8")
     (root / "HOW-TO.pdf").write_bytes(pdf_bytes(blocks, "%s %s: how to use it" % (NAME, day)))
     (root / "README.md").write_text(blocks_to_markdown(
-        [("h1", "%s %s" % (NAME, day)), ("p", "Build of %s. A later build of the same day replaces this one under the same "
+        [("h1", "%s %s" % (NAME, day)), ("p", INDEPENDENT_LINE), ("p", "Build of %s. A later build of the same day replaces this one under the same "
                                               "name; the manifest carries the build time." % built_at)]
         + blocks[1:4] + [("h2", "Use"), ("p", "Attach facts.md and type:"),
                                                           ("code", ONE_LINER), ("p", "PROMPT.md has the rest.")]
@@ -790,8 +774,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
     manifest = {"dataset": NAME, "date": day, "built_at": built_at, "best_before": best_before, "facts": len(records),
                 "grades": grades,
                 "topics": {t: len(bytag[t]) for t in tags}, "services": len(svc), "service_description": revision,
-                "prices": {"fetched": fetched, "records": counts, "left_out": left_out},
-                "facts_left_out": [{"id": i, "names": n} for i, n in flagged], "licence": LICENCE, "compiled_by": COMPILED_BY,
+                                "facts_left_out": [{"id": i, "names": n} for i, n in flagged], "licence": LICENCE, "compiled_by": COMPILED_BY,
                 "files": {str(x.relative_to(root)): {"bytes": x.stat().st_size, "sha256": _sha(x)} for x in files}}
     (root / "MANIFEST.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -825,8 +808,9 @@ def mcpb_manifest(day: str, best_before: str, facts: int) -> dict:
     return {"manifest_version": MCPB_SPEC, "name": SLUG, "display_name": NAME, "version": version,
             "description": "%d checked facts about T Cloud Public as a read-only MCP server. Best before %s."
                            % (facts, best_before),
-            "long_description": "Four read-only tools over the dataset %s of %s: facts, offered or not, prices and "
-                                "exact arithmetic. No network without a live price request, nothing written."
+            "long_description": "Four read-only tools over the dataset %s of %s: facts, offered or not, live prices "
+                                "(only with --live) and exact arithmetic. No network without --live, nothing "
+                                "written."
                                 % (NAME, day),
             "author": {"name": NAME}, "repository": {"type": "git", "url": "https://github.com/%s.git" % GITHUB_REPO},
             "homepage": "https://github.com/%s" % GITHUB_REPO, "license": MCPB_LICENCE,
@@ -835,7 +819,7 @@ def mcpb_manifest(day: str, best_before: str, facts: int) -> dict:
                        "mcp_config": {**entry, "platform_overrides": {"win32": {"command": "python",
                                                                                  "args": entry["args"]}}}},
             "tools": [{"name": n, "description": d} for n, d in MCPB_TOOLS],
-            "keywords": ["t-cloud-public", "facts", "prices"],
+            "keywords": ["t-cloud-public", "facts"],
             "compatibility": {"platforms": ["darwin", "win32", "linux"], "runtimes": {"python": ">=3.10"}}}
 
 
@@ -888,7 +872,8 @@ def put(c: obs.Client, folder: Path, *, replace: bool = False) -> list[str]:
 # --------------------------------------------------------------------------- the public repository (owner side)
 
 # into the root, README.md over the one there; LICENSE is the repository's own, the put never touches it
-GITHUB_FILES = ("README.md", "facts.md", "facts.jsonl", "services.md", "topics", "prices", MCP_FILE)
+GITHUB_FILES = ("README.md", "facts.md", "facts.jsonl", "services.md", "topics", MCP_FILE)
+STALE_PRICES = "prices"                     # a folder of an older release; the put removes it from the repository
 GITHUB_ASSETS = ("HOW-TO.pdf", "MANIFEST.json")                                    # with the zip, on the release
 PERSON_ENV = "AWB_DATASET_AUTHOR"           # the old settings: gone, but a value still set is searched for
 PERSON_CONF = "dataset_author"
@@ -1103,6 +1088,39 @@ def _sign_sums(folder: Path, zpath: Path, sign: dict[str, str], pinned: dict[str
     return [folder / SUMS_FILE, folder / (SUMS_FILE + ".sig")]
 
 
+def _remote_ref(clone: Path) -> str:
+    branch = _run(_git(clone, "symbolic-ref", "--short", "HEAD"), cwd=clone).stdout.strip()
+    return "origin/" + branch
+
+
+def sync_clone(clone: Path) -> bool:
+    """Fetch the remote fresh (branches and tags, the tags as the remote has them now) and bring the clone to the
+    remote branch: a fast-forward when the clone is behind or level, a hard reset to the remote branch when the
+    local history diverged (the owner rewrote the published history). Returns True when it had to reset. Nothing
+    of an old local history survives to be committed on or pushed back."""
+    _run(_git(clone, "fetch", "-q", "origin", "+refs/heads/*:refs/remotes/origin/*", "+refs/tags/*:refs/tags/*",
+              "--prune"), cwd=clone)
+    ref = _remote_ref(clone)
+    ahead_ok = _run(_git(clone, "merge-base", "--is-ancestor", "HEAD", ref), cwd=clone, check=False).returncode == 0
+    if ahead_ok:
+        _run(_git(clone, "merge", "-q", "--ff-only", ref), cwd=clone)
+    else:
+        _run(_git(clone, "reset", "-q", "--hard", ref), cwd=clone)
+    _run(_git(clone, "clean", "-fdq"), cwd=clone)
+    return not ahead_ok
+
+
+def _push_branch(clone: Path) -> None:
+    """Push HEAD to the remote branch, never forced: fetch again, refuse unless the remote branch is an ancestor of
+    HEAD (a non-fast-forward push), then a plain push."""
+    _run(_git(clone, "fetch", "-q", "origin", "+refs/heads/*:refs/remotes/origin/*"), cwd=clone)
+    if _run(_git(clone, "merge-base", "--is-ancestor", _remote_ref(clone), "HEAD"), cwd=clone,
+            check=False).returncode:
+        raise DatasetError("the published history moved or was rewritten since the clone was synced; nothing was "
+                           "pushed: run the put again")
+    _run(_git(clone, "push", "-q", "origin", "HEAD"), cwd=clone)
+
+
 def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: Path | None = None,
                pinned: dict[str, str] | None = None) -> list[str]:
     """The files of a build into the root of the public repository, committed as the GitHub account, and a release
@@ -1119,7 +1137,7 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
         check_clone(clone)
     else:
         check_clone(clone)
-        _run(_git(clone, "pull", "--ff-only", "--tags", "--force"), cwd=clone)
+        sync_clone(clone)
     _account_identity(clone)
     tagged = bool(_run(_git(clone, "tag", "--list", day), cwd=clone).stdout.strip())
     if tagged and not replace:
@@ -1128,6 +1146,11 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
     if sign and SUMS_FILE + ".sig" not in (folder / "PROMPT.md").read_text(encoding="utf-8"):
         raise DatasetError("the how-to of %s has no \"check a download\" block; run awb dataset build --force" % day)
     prev = previous_release(clone, day)            # read before the files of this build land in the clone
+    stale = (clone / STALE_PRICES).exists() or bool(
+        _run(_git(clone, "ls-files", "--", STALE_PRICES), cwd=clone).stdout.strip())
+    if stale:
+        _run(_git(clone, "rm", "-r", "-q", "-f", "--ignore-unmatch", "--", STALE_PRICES), cwd=clone)
+        shutil.rmtree(clone / STALE_PRICES, ignore_errors=True)
     for name in GITHUB_FILES:
         dst = clone / name
         if dst.is_dir():
@@ -1147,7 +1170,8 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
         raise DatasetError("refused, nothing was published: " + "; ".join(problems))
     _run(_git(clone, "add", "-A", "--", *GITHUB_FILES), cwd=clone)
     if _run(_git(clone, "diff", "--cached", "--quiet"), cwd=clone, check=False).returncode:
-        _run(_git(clone, "commit", "-q", "-m", "%s %s" % (NAME, day)), cwd=clone)
+        _run(_git(clone, "commit", "-q", "-m", "%s %s%s" % (
+            NAME, day, "; removed prices/ (the dataset holds no price list)" if stale else "")), cwd=clone)
     signed: list[Path] = []
     check_clone(clone)                                             # again before the key and the push
     if sign:
@@ -1156,10 +1180,11 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
         _run(_git(clone, *tag, *(["-f"] if replace else []), day), cwd=clone)
     else:
         _run(_git(clone, "tag", "-f", day) if replace else _git(clone, "tag", day), cwd=clone)
-    _run(_git(clone, "push", "-q", "origin", "HEAD"), cwd=clone)
+    _push_branch(clone)
     if tagged:
         _run(["gh", "release", "delete", day, "--repo", GITHUB_REPO, "--yes"], cwd=clone, check=False)
-    _run(_git(clone, "push", "-q", *(["--force"] if replace else []), "origin", "refs/tags/" + day), cwd=clone)
+        _run(_git(clone, "push", "-q", "origin", ":refs/tags/" + day), cwd=clone, check=False)   # a tag moves by delete and push, never --force
+    _run(_git(clone, "push", "-q", "origin", "refs/tags/" + day), cwd=clone)
     manifest = json.loads((folder / "MANIFEST.json").read_text(encoding="utf-8"))
     if _sha(folder / "HOW-TO.pdf") != manifest["files"]["HOW-TO.pdf"]["sha256"]:
         raise DatasetError("HOW-TO.pdf differs from its sum in MANIFEST.json; run awb dataset build --force")

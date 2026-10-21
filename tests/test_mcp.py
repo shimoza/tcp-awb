@@ -159,14 +159,10 @@ def test_service_check_answers_offered_or_not_with_the_revision(client, built):
     assert "## Not offered" in services_md and "(BMS)" in services_md and "CCE Turbo" in services_md
 
 
-def test_price_find_reads_the_snapshot_with_its_date(client):
+def test_price_find_without_live_says_prices_are_live_only(client, built):
     got = client.answer("tcp_price_find", query="s3.large.2 linux")
-    assert got["count"] == 1 and got["region"] == "eu-de"
-    row = got["rows"][0]
-    assert row["id"] == "OTC_ECS_S3L2" and row["payg"] == "0.051000" and row["unit"] == "h"
-    assert "fetched 2026-10-07 06:00 UTC" in got["source"] and "source of truth" in got["note"]
-    assert client.answer("tcp_price_find", query="s3.large.2", region="eu-nl")["count"] == 0
-    assert client.answer("tcp_price_find", query="s3.large.2 windows")["count"] == 0
+    assert got["count"] == 0 and got["rows"] == [] and "live only" in got["note"] and "--live" in got["note"]
+    assert not (built[0] / "prices").exists()
 
 
 class FakePriceAPI(BaseHTTPRequestHandler):
@@ -201,7 +197,7 @@ def test_no_network_without_live_and_the_price_api_with_it(built, price_api):
     c = Client("--data", str(built[0]), "--price-api", price_api)
     try:
         got = c.answer("tcp_price_find", query="s3.large.2", service="ecs")
-        assert got["rows"][0]["payg"] == "0.051000" and "snapshot" in got["source"]
+        assert got["rows"] == [] and "live only" in got["note"]
         assert FakePriceAPI.seen == []
     finally:
         c.close()
@@ -210,8 +206,8 @@ def test_no_network_without_live_and_the_price_api_with_it(built, price_api):
         got = c.answer("tcp_price_find", query="s3.large.2", service="ecs")
         assert got["source"].startswith("live public price API, fetched ") and got["rows"][0]["payg"] == "0.052000"
         assert len(FakePriceAPI.seen) == 1 and "sn=ecs" in FakePriceAPI.seen[0] and "rn=eu-de" in FakePriceAPI.seen[0]
-        snap = c.answer("tcp_price_find", query="s3.large.2")              # no service: the snapshot, and why
-        assert "snapshot" in snap["source"] and "service short name" in snap["live"]
+        none = c.answer("tcp_price_find", query="s3.large.2")              # no service: no request, and why
+        assert none["rows"] == [] and "service short name" in none["note"] and len(FakePriceAPI.seen) == 1
     finally:
         c.close()
 
@@ -260,10 +256,10 @@ def test_a_path_outside_the_dataset_is_refused(client, built, tmp_path):
     assert got["error"]["code"] == -32602
     outside = tmp_path / "outside.csv"
     outside.write_text("# planted, fetched 2026-01-01. Prices\nid,service\nPLANTED,planted\n")
-    csv_path = folder / "prices" / "eu-de.csv"
+    csv_path = folder / "services.md"
     csv_path.unlink()
     csv_path.symlink_to(outside)
-    got = client.request("tools/call", {"name": "tcp_price_find", "arguments": {"query": "planted"}})
+    got = client.request("tools/call", {"name": "tcp_service_check", "arguments": {"name": "planted"}})
     assert got["error"] == {"code": -32050, "message": "refused: a file outside the dataset folder"}
     assert "PLANTED" not in json.dumps(got)
     flag = sys.dont_write_bytecode
@@ -272,7 +268,7 @@ def test_a_path_outside_the_dataset_is_refused(client, built, tmp_path):
     finally:
         sys.dont_write_bytecode = flag
     ds = server.Dataset(folder)
-    for rel in ("../outside.csv", str(outside), "prices/../../outside.csv", "prices/eu-de.csv"):
+    for rel in ("../outside.csv", str(outside), "topics/../../outside.csv", "services.md"):
         with pytest.raises(server.RpcError) as err:
             ds.path(rel)
         assert err.value.code == -32050, rel
@@ -334,7 +330,7 @@ def test_the_build_carries_the_server_and_scans_it(home, built, tmp_path, monkey
         assert "%s/%s" % (folder.name, dataset.MCP_FILE) in z.namelist()
     assert dataset.MCP_FILE in dataset.GITHUB_FILES
     assert dataset.MCP_FILE in (folder / "PROMPT.md").read_text()
-    for plant, why in (("# a call on test-10491\n", "a tenant alias was left in tcp_facts_mcp.py"),
+    for plant, why in (("# a call on test-00001\n", "a tenant alias was left in tcp_facts_mcp.py"),
                        ("# made with awb dataset build\n", "a name of the tooling was left in tcp_facts_mcp.py")):
         bad = tmp_path / ("bad-%d" % len(plant)) / dataset.MCP_FILE
         bad.parent.mkdir()
@@ -550,7 +546,7 @@ def test_live_reads_the_price_answer_up_to_a_bound(built):
     c = Client("--data", str(built[0]), "--live", "--price-api", "http://127.0.0.1:%d/api/" % srv.server_port)
     try:
         got = c.answer("tcp_price_find", query="s3.large.2", service="ecs")
-        assert "snapshot" in got["source"] and got["rows"][0]["payg"] == "0.051000"
+        assert got["rows"] == [] and "no usable answer" in got["note"]
     finally:
         c.close()
         srv.shutdown()

@@ -1,5 +1,7 @@
 <h1 align="center">Architect Workbench</h1>
 
+<p align="center">An independent, open-source harness for work on T Cloud Public (TCP). Not a product of the operator; it speaks for nobody but its author.</p>
+
 <p align="center"><b>A harness for cloud architecture work on T Cloud Public (TCP)</b></p>
 
 <p align="center">
@@ -576,7 +578,8 @@ awb dataset build
 
 That writes `~/tcp-shared/datasets/tcp-facts-<date>/`, its zip and `tcp-facts-<date>.mcpb` (the one-click extension for Claude Desktop): `facts.md` with every fact on one line, grouped
 by topic and small enough for one chat, one file per topic under `topics/`, `facts.jsonl` with the metadata, the
-list of orderable services, the price list of each region as CSV, a `PROMPT.md` and a `HOW-TO.pdf`. Every text file
+list of orderable services, a `PROMPT.md` and a `HOW-TO.pdf`. The dataset holds no price list (no `prices/` folder, no
+price file in `MANIFEST.json`): prices come live from the public price API with `--live` of the MCP server. Every text file
 opens with the rules for the assistant that reads it, so a person attaches `facts.md` to ChatGPT, Claude or a local
 model and types `Use the attached TCP Facts. Answer: <question>`. The dataset carries a best-before date of 30 days. Its README, PROMPT.md and HOW-TO.pdf warn against customer data in prompts to a public model.
 Its README, PROMPT.md and HOW-TO.pdf also carry "What the facts cover", counted from the facts at each build: how

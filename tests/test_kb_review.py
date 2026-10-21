@@ -55,7 +55,7 @@ def test_the_first_review_lists_every_fact_with_source_and_grade_and_lets_the_pu
     assert len(added) == 3 and len(sources) == 3
     assert any("(live, checked 2026-10-08): " + S_ECS in l for l in added)
     assert any("(docs, checked 2026-10-08): " + S_OBS in l for l in added)
-    assert any("a TCP test tenant" in s for s in sources) and not any("test-1049" in s for s in sources)
+    assert any("a TCP test tenant" in s for s in sources) and not any("test-0000" in s for s in sources)
     assert lines[-1].startswith("reviewed: awb dataset put may release tcp-facts-2026-10-08")
     mark = json.loads(kbreview.review_path(built.folder).read_text())
     assert mark["since"] == "" and mark["added"] == 3 and len(mark["facts_sha256"]) == 64
