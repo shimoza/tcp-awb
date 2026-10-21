@@ -696,7 +696,8 @@ customer data out of the model as far as it can:
 
 - `awb import CODE` turns documents into working copies with a code (`CUST-XXXX`) in place of every registered
   name and a token (`[person 1]`, `[company 1]`, `[place 1]`, `[name 1]`) in place of every other name the rules
-  recognise, without a stop and without a review. It also takes out bank data, tax ids, phone numbers, addresses,
+  recognise, without a stop and without a review. While it runs it prints `checking 13 files` and then one line per
+  file (`file 3 of 13: F-XXXX, 0.8 s`) on standard error, with the file id and never a name. It also takes out bank data, tax ids, phone numbers, addresses,
   secrets and hidden text. What the rules do not recognise passes (a first name alone in prose, a name in a picture),
   and the limits are written down. It is tested with 1,188 invented cases of structured data and written forms and
   405 cases of unregistered names in mails, transcripts, decks, code, tables, German and Russian text

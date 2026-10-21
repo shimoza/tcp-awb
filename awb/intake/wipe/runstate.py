@@ -99,6 +99,7 @@ class WipeState:
         self.numbers: Counter = Counter()
         self.learned = _Learned()
         self.run_exempt: set[str] = set()
+        self.span_cache: dict = {}   # candidate_spans, see there
         self.keep: tuple[str, ...] = tuple(keep)
         self.sources: dict[str, str] = {}   # learned word (case folded) -> the value it came from, private report
 
@@ -142,9 +143,27 @@ def token_for(state: WipeState, span: Span, value: str) -> str:
 
 def candidate_spans(state: WipeState, text: str, known: list[Span]) -> list[Span]:
     """The candidate spans of `text` with their classes and rules (in `form`), without overlaps, keep phrases dropped,
-    codes, tokens and product-label values never inside."""
+    codes, tokens and product-label values never inside.
+    The same text comes back many times in one import (detection, learning, sanitising, both final checks). The
+    answer depends on the text, the known spans and what the run has learned so far (the version of its learned
+    forms, its product-label words and its keep list), so it is remembered under those and handed out as copies."""
     if not text:
         return []
+    key = (text, tuple((k.start, k.end, k.cls, k.code, k.form) for k in known), state.learned.version,
+           len(state.run_exempt), state.keep)
+    cache = state.span_cache
+    hit = cache.get(key)
+    if hit is None:
+        if len(cache) >= _SPAN_CACHE_MAX:
+            cache.clear()
+        hit = cache[key] = tuple((s.start, s.end, s.cls, s.code, s.form) for s in _candidate_spans(state, text, known))
+    return [Span(a, b, cls, code, form) for a, b, cls, code, form in hit]
+
+
+_SPAN_CACHE_MAX = 256
+
+
+def _candidate_spans(state: WipeState, text: str, known: list[Span]) -> list[Span]:
     bind(state)
     raw = text
     text = _blank_marks(text)

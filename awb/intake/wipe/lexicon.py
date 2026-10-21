@@ -5,6 +5,7 @@ awb/intake/wipe/__init__.py.
 """
 from __future__ import annotations
 
+import functools
 import re
 
 from awb import codes
@@ -228,17 +229,28 @@ def _code_spans(text: str) -> list[Span]:
     or a pipe). They give no candidates (the register still replaces a registered form in them)."""
     if not text:
         return []
-    out = [Span(m.start(), m.end(), "code") for m in _CODE_FENCE_RE.finditer(text)]
-    out += [Span(m.start(), m.end(), "code") for m in _CODE_BACKTICK_RE.finditer(text)]
+    return [Span(a, b, "code") for a, b in _code_ranges(text)]
+
+
+@functools.lru_cache(maxsize=64)
+def _code_ranges(text: str) -> tuple[tuple[int, int], ...]:
+    out = [(m.start(), m.end()) for m in _CODE_FENCE_RE.finditer(text)]
+    out += [(m.start(), m.end()) for m in _CODE_BACKTICK_RE.finditer(text)]
     for m in _CODE_LINE_RE.finditer(text):
         end = text.find("\n", m.end())
-        out.append(Span(m.start(), len(text) if end < 0 else end, "code"))
-    return out
+        out.append((m.start(), len(text) if end < 0 else end))
+    return tuple(out)
 
 
 def _tech_spans(text: str) -> list[Span]:
     """The spans of the vendor and technical terms of rules/tech-terms.txt in a text (Sapphire Rapids, KVM)."""
-    return [Span(m.start(), m.end(), "tech") for m in _TECH_RE.finditer(text)] if text else []
+    return [Span(a, b, "tech") for a, b in _tech_ranges(text)] if text else []
+
+
+@functools.lru_cache(maxsize=64)
+def _tech_ranges(text: str) -> tuple[tuple[int, int], ...]:
+    # the same text comes back many times in one intake and the answer depends on the text alone
+    return tuple((m.start(), m.end()) for m in _TECH_RE.finditer(text))
 
 
 def _common_word(word: str) -> bool:

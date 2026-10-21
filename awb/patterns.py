@@ -16,6 +16,7 @@ one of them is a planted case now.
 """
 from __future__ import annotations
 
+import functools
 import ipaddress
 import re
 from pathlib import Path
@@ -445,8 +446,15 @@ def find_structured(text: str, code: bool = False) -> list[Span]:
     """All structured-data spans in `text`, sorted by position, never overlapping. A value that is broken by
     markup (a comment or an empty tag pair inside it) or spread out letter by letter is found through a view
     of the text and reported at its place in `text`, markup included. `code` reads the text in the code view."""
-    spans = _find_structured(text)
+    spans = [Span(start=a, end=b, cls=cls) for a, b, cls in _find_structured_cached(text)]
     return code_view(text, spans) if code else spans
+
+
+@functools.lru_cache(maxsize=256)
+def _find_structured_cached(text: str) -> tuple[tuple[int, int, str], ...]:
+    """The same text is searched many times in one intake (detection, learning, sanitising, the final checks); the
+    answer depends on the text alone, so the last texts are remembered as plain tuples (a Span can be changed)."""
+    return tuple((s.start, s.end, s.cls) for s in _find_structured(text))
 
 
 def _find_structured(text: str) -> list[Span]:
