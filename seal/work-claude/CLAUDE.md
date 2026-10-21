@@ -42,7 +42,7 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   register or bucket block. At most one command block per reply; a held take: one line naming the user and the command.
 - Files: he describes a file, never names it. `awb inbox take HIS WORDS` takes the match of `in/` or the lab inbox
   ("from in": all of `in/`); none or several: pick or ask, then `--id ID`. Results go out with `awb xchg put FILE`:
-  codes only, no ids in logs, a screenshot only with `--image` and why it is clean.
+  name it `<code>-<kind word>-<language>.<ext>`; codes only, no ids in logs, a screenshot only with `--image`, why it is clean.
 - `awb cloud tenants` lists the test tenants; `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role lab]` reaches
   them through the key service. A password goes into a body only as `{{secret:NAME}}`, a key never.
 - `awb kb find|add|scope`, `awb ledger add`, `awb report --by KEY`, `awb career add`. `awb check`, `awb write check` and

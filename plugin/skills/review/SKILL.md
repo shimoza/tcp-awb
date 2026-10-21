@@ -7,8 +7,9 @@ description: Review a deliverable (architecture, migration concept, offer text, 
 
 A deliverable lives under `deliverables/` of a Workbench project. It leaves only with a valid review record.
 
-1. Set the contract first: `awb review init deliverables/FILE --request REQUEST.md --tier N --budget WORDS`. A text
-   for a customer or a partner is tier 3. The budget is set from the request and does not grow later.
+1. Set the contract first: `awb review init deliverables/FILE --request REQUEST.md [--tier N] --budget WORDS`. A deliverable
+   takes the review tier of its project (`- review-tier:` of SCOPE.md, 3 unless he set it); only he raises it for a file.
+   A text for a customer or a partner is not reviewed below the tier of its project. The budget is set from the request and does not grow later.
 2. List every checkable statement with its evidence: `awb review claims deliverables/FILE`, then fill evidence and
    verdict in `reviews/FILE/claims.tsv`. Facts come from `awb kb find`, prices from `awb price`. A computed number
    (a total, a sum, a saving, 20 x 8) needs its calculation: run `awb calc` and give `calc:K-N` as evidence.
