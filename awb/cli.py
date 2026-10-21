@@ -720,7 +720,7 @@ DELEGATED = {
     "english": ("english", "the English notes the sessions wrote: list"),
     "ask": ("tcp.ask", "questions in plain words, answered only from the checked sources (the Ask page)"),
     "inbox": ("tcp.inbox", "take a file the owner dropped into an inbox into this project"),
-    "howto": ("howto", "step-by-step console how-tos from the console mirror: draft, render"),
+    "howto": ("tcp.howto", "step-by-step console how-tos from the console mirror: draft, render"),
     "xchg": ("tcp.xchg", "put a result of this project into the owner's from-session folder"),
     "start": ("start", "a piece of work in one command: register, spawn, grant, import, the open line (owner side)"),
     "fetch": ("tcp.fetch", "what a project put for you, in one folder with the names back (owner side)"),

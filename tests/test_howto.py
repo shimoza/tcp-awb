@@ -11,7 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from awb import config, howto
+from awb import config
+from awb.tcp import howto
 from awb.tcp import console_mirror, mirror, xchg
 
 HEADER = "service\tfile\tmenu\turl\ttitle\tdate\tnote"
