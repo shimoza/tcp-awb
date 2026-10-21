@@ -1581,6 +1581,7 @@ check_mirror() {
 
 step_mirrors() {
     local src target
+    step_console_mirror          # also on a deploy: the folder is made once, the rest of this step needs --mirrors
     [ "$mirrors" -eq 1 ] || return 0
     info "read-only bind mounts of the public doc mirrors under $MIRROR_ROOT"
     run mkdir -p "$MIRROR_ROOT"
@@ -1645,7 +1646,6 @@ steps() {
     step_managed
     step_build
     step_mirrors
-    step_console_mirror
 }
 
 task_units_active() {
@@ -1694,7 +1694,6 @@ update_steps() {
     step_managed
     step_build
     step_mirrors
-    step_console_mirror
 }
 
 # --------------------------------------------------------------------------- run

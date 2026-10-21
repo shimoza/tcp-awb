@@ -223,7 +223,9 @@ def test_the_work_user_reads_the_published_copy_and_cannot_publish(tmp_path, mon
     assert "quimble\t01-gadget-list.png" in capsys.readouterr().out
     assert mirror.main(["console", "publish"]) == 2
     assert "never updates" in capsys.readouterr().err
-    assert not os.access(dest / "console" / DAY / "INDEX.tsv", os.W_OK) or os.geteuid() == 0
+    # read only by the mode bits, whoever runs the test: nobody but the owner has a write bit
+    for f in (dest / "console" / DAY).rglob("*"):
+        assert stat.S_IMODE(f.stat().st_mode) & 0o022 == 0
     assert mirror.root() == dest
 
 
