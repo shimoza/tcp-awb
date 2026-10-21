@@ -196,7 +196,9 @@ words which one you mean ("the pdf", "the newest", a part of its name). The sess
 Every project also has its own folder `<YYYY-MM>/<code>/in/` in the owner bucket. `awb spawn` makes it through
 the key service. The console puts files there, each of at most 25 MiB and of a kind the console reads; the key
 service moves at most `max_mb` of keys.conf (default 100) in one object. `awb/bucket_layout.py` sets the folders, the
-kinds and both limits for every side. The owner's own commands (`awb bucket`, `awb import`, `awb dataset put`) reach
+kinds and both limits for every side. Each project folder holds a small file `.keep` in `in/` and `out/` (one line of text) so
+that S3 clients which cannot open an empty folder open it; `awb bucket folder` and `awb bucket sync` write it when
+missing, and every reader of `in/` and `out/` (pull, fetch, import, the inbox and the console listing) ignores it. The owner's own commands (`awb bucket`, `awb import`, `awb dataset put`) reach
 the owner bucket through the admin socket of the key service (list, get and put inside these folders, the same limit
 and the owner's user id only); there is no bucket key in the environment, and a locked or stopped service stops
 them with one line that names `awb keys unlock`. `awb bucket move` needs a copy and a delete that the service does

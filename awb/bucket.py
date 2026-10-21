@@ -39,7 +39,7 @@ from datetime import date
 from pathlib import Path
 
 from awb import config, obs
-from awb.bucket_layout import IN, MONTH, OUT, OWNER_BUCKET, REGION, folder_of
+from awb.bucket_layout import IN, KEEP, KEEP_TEXT, MONTH, OUT, OWNER_BUCKET, REGION, folder_of, is_keep
 
 PULLED = "bucket-pulled.tsv"
 ORIGINALS = ("pull", "move")
@@ -222,8 +222,8 @@ def _project(p: config.Paths, code: str):
 
 
 def ensure_folder(c: obs.Client, project) -> tuple[str, bool]:
-    """The folder of `project` with its in/ and out/, created under the month of the project when missing.
-    Returns (folder, created)."""
+    """The folder of `project` with its in/ and out/ and a .keep file in each (some S3 clients cannot open an empty
+    folder), created under the month of the project when missing. Returns (folder, created)."""
     folder = find_folder(c, project.code)
     created = folder is None
     if created:
@@ -231,6 +231,9 @@ def ensure_folder(c: obs.Client, project) -> tuple[str, bool]:
     for key in (folder, folder + IN, folder + OUT):
         if c.head(key) is None:
             c.put_bytes(key, b"")
+    for key in (folder + IN + KEEP, folder + OUT + KEEP):
+        if c.head(key) is None:
+            c.put_bytes(key, KEEP_TEXT)
     return folder, created
 
 
@@ -307,7 +310,7 @@ def fetch(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> 
     folder = find_folder(c, code)
     if folder is None:
         raise BucketError("%s has no folder in the bucket; awb bucket folder %s creates it" % (code, code))
-    objects = [o for o in c.list(folder).objects if not o[0].endswith("/")]
+    objects = [o for o in c.list(folder).objects if not o[0].endswith("/") and not is_keep(o[0])]
     incoming = [o for o in objects if o[0].startswith(folder + IN)]
     outside = [o for o in objects if not o[0].startswith((folder + IN, folder + OUT))]
     done = set() if again else pulled(p)

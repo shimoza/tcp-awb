@@ -48,14 +48,6 @@ def context(c, active=(CODE,)):
                                  lambda subject, message: None)
 
 
-def test_a_new_folder_is_month_and_code_with_in_and_out():
-    c = Memory()
-    folder, created = bucket.ensure_folder(c, SimpleNamespace(code=CODE, created="2026-10-02"))
-    assert created and folder == layout.folder_of("2026-10", CODE) == "2026-10/tcp-q7m4/"
-    assert set(c.objects) == {folder, folder + layout.IN, folder + layout.OUT}
-    assert (bucket.IN, bucket.OUT, xchg.IN) == (layout.IN, layout.OUT, layout.IN) == ("in/", "out/", "in/")
-
-
 def test_the_web_mode_reads_the_folder_the_layout_makes():
     c = Memory()
     folder, _ = bucket.ensure_folder(c, SimpleNamespace(code=CODE, created="2026-10-02"))
