@@ -36,6 +36,7 @@ import base64
 import os
 import re
 import shutil
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -382,7 +383,7 @@ def selftest() -> list[str]:
 
 
 def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = False, edit=None,
-        confirm=None, redo: dict | None = None, trusted: bool = False) -> IntakeResult:
+        confirm=None, redo: dict | None = None, trusted: bool = False, progress=None) -> IntakeResult:
     """Take `files` in for `customer` (a CUST code, "new" or the code of a project without a customer, tcp-xxxx)
     in wipe mode. See the module text for the steps.
     Nothing is read before the self-test passed. With `review` the run first stops on the candidates and hands
@@ -390,7 +391,9 @@ def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = Fal
     stand in for the editor and the question in the tests), then goes on in wipe mode with the register and the
     keep list of after the review: a candidate left for later is wiped like any other. `redo` maps each file to
     (file id, its original in the vault): a copy of an original taken out of the vault runs again under its file id,
-    its output replaces the one in the outbox, and nothing moves into the vault (`awb import --redo`)."""
+    its output replaces the one in the outbox, and nothing moves into the vault (`awb import --redo`).
+    `progress` is called with one line of text when the slow part starts ("checking 13 files") and after each file
+    ("file 3 of 13: F-XXXX, 0.8 s"); a line carries the file id and never the name of the original."""
     files = [Path(f) for f in files]
     if not files:
         raise IntakeError("no files given")
@@ -424,7 +427,7 @@ def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = Fal
                 except candidates.ReviewError as err:
                     raise IntakeError("review: %s" % err) from None
         with vault.vault_lock(p):
-            return _run(files, customer, p, reviewed=reviewed, redo=redo, trusted=trusted)
+            return _run(files, customer, p, reviewed=reviewed, redo=redo, trusted=trusted, progress=progress)
     except vault.VaultError as err:
         raise IntakeError(str(err)) from None
 
@@ -494,9 +497,11 @@ def _review_stop(files: list[Path], customer: str, p: config.Paths) -> tuple[str
 
 
 def _run(files: list[Path], customer: str, p: config.Paths, *, reviewed: int = 0,
-         redo: dict | None = None, trusted: bool = False) -> IntakeResult:
+         redo: dict | None = None, trusted: bool = False, progress=None) -> IntakeResult:
     # an encrypted register is read through the vault daemon; originals and private reports are then sealed
     encrypted = vault_encrypted(p)
+    if progress:
+        progress("checking %d file%s" % (len(files), "" if len(files) == 1 else "s"))
     cust, engine, rec, extractions, now = _detect_all(files, customer, p, redo, trusted)
     rec.reviewed = reviewed
     stamp = now.strftime("%Y-%m-%d-%H%M%S")
@@ -508,7 +513,8 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, reviewed: int = 0
     outputs: list[Path] = []
     check_failed: set[str] = set()
     try:
-        _write_outputs(rec, extractions, engine, outdir, outputs, check_failed, replace=redo is not None)
+        _write_outputs(rec, extractions, engine, outdir, outputs, check_failed, replace=redo is not None,
+                       progress=progress)
     except BaseException:
         # never leave a half run behind: the outputs of this run go, the originals stay in the inbox
         for out in outputs:
@@ -674,49 +680,58 @@ def _public_text(rec: _report.Run, engine: _Engine) -> str:
 
 
 def _write_outputs(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Path],
-                   check_failed: set[str], replace: bool = False) -> None:
+                   check_failed: set[str], replace: bool = False, progress=None) -> None:
     """Steps 6 and 7: sanitise every file, write its output and check it before and after writing: the
     registered forms, the structured data and the second check over the whole text, the candidate rules and the
     learned forms over the body."""
-    for fr in rec.files:
-        bodies: dict[str, str] = {}
-        by_id = dict(extractions[fr.file_id])
-        for part in fr.parts:
-            pex = by_id[part.part_id]
-            body, counts = engine.sanitize(pex.text or "", "%s output" % part.part_id)
-            bodies[part.part_id] = body
-            part.counts.update(counts)
-            for note in part.notes:
-                clean, _ = engine.sanitize(note, "%s note" % part.part_id)
-                part.public_notes.append(clean)
-        if not any(b.strip() for b in bodies.values()):
-            fr.reasons.append("no text to write, no output")
-            continue
-        out = outdir / ("%s.md" % fr.file_id)
-        text = _output_text(fr, bodies)
-        hits = engine.leaks(text, candidates=False) + _body_hits(engine, text)
-        if not hits:
-            if replace:
-                written = _report.write_replace(out, text, 0o640, 0o750)
-            else:
-                written = _report.write_new(out, text, 0o640, 0o750)
-            if written != out:  # the file id was taken meanwhile: never write under another name
-                written.unlink(missing_ok=True)
-                raise IntakeError("output %s already exists" % fr.file_id)
-            outputs.append(out)   # from here on a failure of the run removes it again
-            written_text = out.read_text(encoding="utf-8")
-            hits = engine.leaks(written_text, candidates=False) + _body_hits(engine, written_text)
-            if hits:
-                out.unlink(missing_ok=True)
-                outputs.remove(out)
+    for number, fr in enumerate(rec.files, start=1):
+        started = time.monotonic()
+        _write_one(rec, extractions, engine, outdir, outputs, check_failed, replace, fr)
+        if progress:
+            progress("file %d of %d: %s, %.1f s" % (number, len(rec.files), fr.file_id, time.monotonic() - started))
+
+
+def _write_one(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Path], check_failed: set[str],
+               replace: bool, fr) -> None:
+    """Steps 6 and 7 for one file."""
+    bodies: dict[str, str] = {}
+    by_id = dict(extractions[fr.file_id])
+    for part in fr.parts:
+        pex = by_id[part.part_id]
+        body, counts = engine.sanitize(pex.text or "", "%s output" % part.part_id)
+        bodies[part.part_id] = body
+        part.counts.update(counts)
+        for note in part.notes:
+            clean, _ = engine.sanitize(note, "%s note" % part.part_id)
+            part.public_notes.append(clean)
+    if not any(b.strip() for b in bodies.values()):
+        fr.reasons.append("no text to write, no output")
+        return
+    out = outdir / ("%s.md" % fr.file_id)
+    text = _output_text(fr, bodies)
+    hits = engine.leaks(text, candidates=False) + _body_hits(engine, text)
+    if not hits:
+        if replace:
+            written = _report.write_replace(out, text, 0o640, 0o750)
+        else:
+            written = _report.write_new(out, text, 0o640, 0o750)
+        if written != out:  # the file id was taken meanwhile: never write under another name
+            written.unlink(missing_ok=True)
+            raise IntakeError("output %s already exists" % fr.file_id)
+        outputs.append(out)   # from here on a failure of the run removes it again
+        written_text = out.read_text(encoding="utf-8")
+        hits = engine.leaks(written_text, candidates=False) + _body_hits(engine, written_text)
         if hits:
-            check_failed.add(fr.file_id)
-            fr.state = "failed"
-            classes = _report.counts_text(Counter(h.cls for h in hits))
-            fr.reasons.append("final check found %s, output deleted" % classes)
-            fr.parts[0].public_notes.append("final check failed, output deleted")
-            continue
-        fr.output = out
+            out.unlink(missing_ok=True)
+            outputs.remove(out)
+    if hits:
+        check_failed.add(fr.file_id)
+        fr.state = "failed"
+        classes = _report.counts_text(Counter(h.cls for h in hits))
+        fr.reasons.append("final check found %s, output deleted" % classes)
+        fr.parts[0].public_notes.append("final check failed, output deleted")
+        return
+    fr.output = out
 
 
 def wipe_text(text: str, p: config.Paths) -> str:

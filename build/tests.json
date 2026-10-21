@@ -9505,8 +9505,29 @@
    "name": "verify sh runs the status for the runner",
    "run": ".venv/bin/pytest tests/test_runner_restart.py::test_verify_sh_runs_the_status_for_the_runner",
    "status": "passing"
+  },
+  {
+   "id": "ip-import-progress-speed-1",
+   "phase": "ip-import-progress-speed",
+   "name": "import: a first line and one line per file on standard error, carrying the file id and no name",
+   "run": ".venv/bin/pytest tests/test_import_progress.py::test_the_import_prints_a_first_line_and_one_line_per_file_on_standard_error_without_a_name",
+   "status": "passing"
+  },
+  {
+   "id": "ip-import-progress-speed-2",
+   "phase": "ip-import-progress-speed",
+   "name": "import: one file says checking 1 file",
+   "run": ".venv/bin/pytest tests/test_import_progress.py::test_a_single_file_says_checking_1_file",
+   "status": "passing"
+  },
+  {
+   "id": "ip-import-progress-speed-3",
+   "phase": "ip-import-progress-speed",
+   "name": "import: 13 synthetic Markdown files within the time bound",
+   "run": ".venv/bin/pytest tests/test_import_progress.py::test_the_synthetic_set_of_13_markdown_files_imports_within_the_time_bound",
+   "status": "passing"
   }
  ],
- "total_tests": 1358,
+ "total_tests": 1361,
  "checked": "2026-10-20"
 }
