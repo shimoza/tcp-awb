@@ -31,5 +31,5 @@ search, not another file.
 - When two facts disagree, give both with their dates and let the newer one lead.
 - `services.md` lists the services that can be ordered. A service that is not in it is not offered, whatever
   other texts say.
-- A question about a price is not answered from a fact. Use the `tcp-price` skill.
+- A question about a price is not answered from a fact. Use the `tcp-price` skill, which looks it up live.
 - Quote the fact as it stands. Do not make it stronger, do not merge two facts into a third.

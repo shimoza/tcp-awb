@@ -12,9 +12,9 @@
       "version": "0.2.0"
     },
     {
-      "name": "tcp-facts-lite",
-      "source": "./plugin-lite",
-      "description": "Light plugin for partners: answers about TCP from the files of a downloaded TCP Facts release, with fact ids, check dates and price rows",
+      "name": "tcp-fieldkit",
+      "source": "./fieldkit",
+      "description": "An independent, community-made toolkit for T Cloud Public (TCP): facts from downloaded TCP Facts files and live price lookups",
       "version": "0.1.0"
     }
   ]
