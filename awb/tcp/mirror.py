@@ -5,6 +5,7 @@
     awb mirror rn [--pages N] [--pause SECONDS]
     awb mirror console find WORDS [--service SVC] [--limit N]
     awb mirror console show SVC/NN-slug
+    awb mirror console publish [--to DIR] [--walk DATE]
     awb mirror status
 
 docs: every repository of the GitHub organisation opentelekomcloud-docs that is not archived, cloned shallow into
@@ -28,7 +29,8 @@ day they were first seen. A note that is in the index is never written again. Un
 page that brings nothing new, so a later run reads page 1.
 
 console: the owner's private mirror of the console screens, read only here (awb/tcp/console_mirror.py); it is never
-in the public dataset and never in git.
+in the public dataset and never in git. `console publish` (owner side) copies the newest walk to <mirrors>/console
+for the work user.
 
 <root> is AWB_MIRRORS or ~/tcp-mirrors on the owner side. The work user of the seal reads /srv/tcp-mirrors, where
 the seal mounts them read-only (seal/setup.sh --mirrors <root>/docs <root>/service-description), and never updates
@@ -540,6 +542,9 @@ def main(argv: list[str] | None = None) -> int:
     cf.add_argument("--service", default=None, help="only this service")
     cf.add_argument("--limit", type=int, default=console_mirror.DEFAULT_LIMIT, help="at most this many screens")
     cf.add_argument("--walk", default=None, help="a walk date (default: the newest)")
+    cp = csub.add_parser("publish", help="copy the newest walk where the work user reads it (owner side)")
+    cp.add_argument("--to", default=None, help="the place (default: AWB_MIRRORS_PUBLISH or the mirrors of the host file)")
+    cp.add_argument("--walk", default=None, help="a walk date (default: the newest)")
     cs = csub.add_parser("show", help="the INDEX line, the text and the image path of one screen")
     cs.add_argument("ref", help="SERVICE/NN-slug")
     cs.add_argument("--walk", default=None, help="a walk date (default: the newest)")

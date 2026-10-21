@@ -2,6 +2,7 @@
 
     awb mirror console find WORDS [--service SVC] [--limit N] [--walk DATE]
     awb mirror console show SVC/NN-slug [--walk DATE]
+    awb mirror console publish [--to DIR] [--walk DATE]            (owner side)
 
 <root>/console/<date>/ is one walk. It holds INDEX.tsv, one line per screen with seven tab-separated columns (service,
 file name, menu path, URL path with ids as {id}, page title, date, a note listing the visible field labels, tabs and
@@ -12,11 +13,19 @@ never in git. It is read only here, so the work user reads it too; the owner sid
 find ranks the screens by word overlap (the words of `awb kb find`) over the note, the menu path, the title and the
 text, and prints service, file, menu path, URL path and the first matching line. A walk is the newest unless --walk
 names one. show prints the INDEX line, the text and the image path. A how-to cites the screens with the date of the
-walk (`SVC/NN-slug, walk DATE`).
+walk (`SVC/NN-slug, walk DATE`; `awb howto draft` writes it).
+
+publish copies the newest walk from the owner's ~/tcp-mirrors to <place>/console/<date>/ (folders 0750, files 0640,
+group of the work user), where the work user reads it: the place is --to, AWB_MIRRORS_PUBLISH or the `mirrors` of
+the host file (/srv/tcp-mirrors), the same root `find` and `show` read for the work user. seal/setup.sh makes
+<place>/console owned by the owner with the group of the work user and the setgid bit, so the work user can read
+and cannot write there.
 """
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import NamedTuple
@@ -152,9 +161,87 @@ def status(base: Path) -> str:
         len(have), have[-1], len(screens), len({s.service for s in screens}), base / CONSOLE)
 
 
-def main(args, base: Path) -> int:
-    """`awb mirror console find|show`; `args` is the parsed namespace of awb.tcp.mirror."""
+# --------------------------------------------------------------------------- publish (owner side)
+
+PUBLISH_ENV = "AWB_MIRRORS_PUBLISH"
+_COPY_EXT = (".jpg", ".png", ".txt")
+
+
+def publish_root() -> Path:
+    """Where the work user reads the console mirror: AWB_MIRRORS_PUBLISH, else the `mirrors` of the host file,
+    else /srv/tcp-mirrors. seal/setup.sh makes <that>/console owned by the owner, group of the work user, so the
+    work user reads it and cannot write into it."""
+    from awb import config
+    from awb.tcp import mirror
+
+    env = os.environ.get(PUBLISH_ENV)
+    return Path(env).expanduser() if env else Path(config.host_conf().get("mirrors") or mirror.SEALED_ROOT)
+
+
+def publish(src: Path, dest: Path, *, walk: str | None = None) -> tuple[str, int]:
+    """Copy the newest walk (or `walk`) of `src` to <dest>/console/<date>/: folders 0750, files 0640, only INDEX.tsv
+    and the jpg, png and txt files below a service folder, no link followed. The copy is built beside the target
+    and renamed into place, so a reader never sees half a walk and a second run replaces the walk. Returns (date,
+    files copied)."""
+    from awb import config
+
+    day = pick_walk(src, walk)
+    if src.resolve() == dest.resolve():
+        raise ConsoleError("the published place is the mirror itself")
+    top = dest / CONSOLE
+    if not top.is_dir():
+        raise ConsoleError("no %s: run seal/setup.sh (it makes the folder) or name another place with --to" % top)
+    walk_dir = src / CONSOLE / day
+    stage = top / (".%s.new" % day)
+    old = top / (".%s.old" % day)
+    for leftover in (stage, old):
+        if leftover.exists():
+            shutil.rmtree(leftover)
+    config.make_dir(stage, 0o750, shared=True)
+    count = 0
     try:
+        for entry in sorted(os.scandir(walk_dir), key=lambda e: e.name):
+            if entry.is_symlink():
+                continue
+            if entry.is_file() and entry.name == INDEX_TSV:
+                _copy_file(Path(entry.path), stage / entry.name)
+                count += 1
+            elif entry.is_dir() and _SVC_RE.match(entry.name):
+                sdir = config.make_dir(stage / entry.name, 0o750, shared=True)
+                for f in sorted(os.scandir(entry.path), key=lambda e: e.name):
+                    if f.is_file(follow_symlinks=False) and f.name.lower().endswith(_COPY_EXT):
+                        _copy_file(Path(f.path), sdir / f.name)
+                        count += 1
+        final = top / day
+        if final.exists():
+            os.rename(final, old)
+        os.rename(stage, final)
+    except BaseException:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
+    shutil.rmtree(old, ignore_errors=True)
+    return day, count
+
+
+def _copy_file(src: Path, dst: Path) -> None:
+    shutil.copyfile(src, dst)
+    os.chmod(dst, 0o640)
+
+
+def main(args, base: Path) -> int:
+    """`awb mirror console find|show|publish`; `args` is the parsed namespace of awb.tcp.mirror."""
+    try:
+        if args.console_command == "publish":
+            from awb.tcp import mirror
+
+            try:
+                mirror.owner_side()
+            except mirror.MirrorError as err:
+                raise ConsoleError(str(err)) from None
+            dest = Path(args.to).expanduser() if args.to else publish_root()
+            day, n = publish(base, dest, walk=args.walk)
+            print("published the walk %s: %d files to %s" % (day, n, dest / CONSOLE / day))
+            return 0
         if args.console_command == "find":
             day, hits = find(base, " ".join(args.words), service=args.service, limit=args.limit, walk=args.walk)
             if not hits:

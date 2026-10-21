@@ -1601,6 +1601,20 @@ step_mirrors() {
     done
 }
 
+step_console_mirror() {
+    # the published console screens (awb mirror console publish): the owner writes, the work user only reads.
+    # Made when missing and never chowned again, so a deploy leaves a filled folder alone.
+    info "the console screen mirror: $MIRROR_ROOT/console, the owner writes, the work user reads"
+    run mkdir -p "$MIRROR_ROOT"
+    if [ "$dry_run" -eq 0 ] && [ -d "$MIRROR_ROOT/console" ]; then
+        skip "already there" mkdir "$MIRROR_ROOT/console"
+        return 0
+    fi
+    run mkdir "$MIRROR_ROOT/console"
+    run chown "$owner:$WORK_GROUP" "$MIRROR_ROOT/console"
+    run chmod 2750 "$MIRROR_ROOT/console"
+}
+
 steps() {
     if [ "$test_root" -eq 1 ]; then
         step_code
@@ -1631,6 +1645,7 @@ steps() {
     step_managed
     step_build
     step_mirrors
+    step_console_mirror
 }
 
 task_units_active() {
@@ -1679,6 +1694,7 @@ update_steps() {
     step_managed
     step_build
     step_mirrors
+    step_console_mirror
 }
 
 # --------------------------------------------------------------------------- run

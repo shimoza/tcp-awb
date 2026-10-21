@@ -9,7 +9,7 @@ prints the side and the lock state.
 In their own module (DELEGATED below, each with main(argv)): awb check, awb gate, awb vault, awb kb, awb ledger,
 awb report, awb career, awb write, awb voice, awb review, awb calc, awb hook, awb images, awb seal, awb egress,
 awb bucket, awb import, awb words, awb reveal, awb price, awb pricebook, awb cloud, awb mirror, awb refresh,
-awb dataset, awb english, awb ask, awb inbox, awb xchg, awb start, awb fetch, awb paste, awb material, awb keys,
+awb dataset, awb english, awb ask, awb inbox, awb xchg, awb howto, awb start, awb fetch, awb paste, awb material, awb keys,
 awb migrate, awb lab, awb tenant, awb api, awb service, awb board, awb web, awb owner, awb ui, awb build, awb pr,
 awb deploy.
 
@@ -720,6 +720,7 @@ DELEGATED = {
     "english": ("english", "the English notes the sessions wrote: list"),
     "ask": ("tcp.ask", "questions in plain words, answered only from the checked sources (the Ask page)"),
     "inbox": ("tcp.inbox", "take a file the owner dropped into an inbox into this project"),
+    "howto": ("howto", "step-by-step console how-tos from the console mirror: draft, render"),
     "xchg": ("tcp.xchg", "put a result of this project into the owner's from-session folder"),
     "start": ("start", "a piece of work in one command: register, spawn, grant, import, the open line (owner side)"),
     "fetch": ("tcp.fetch", "what a project put for you, in one folder with the names back (owner side)"),

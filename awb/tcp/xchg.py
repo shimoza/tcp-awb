@@ -316,6 +316,20 @@ def name_problems(name: str, register: Path | None = None) -> list[str]:
     return []
 
 
+def _embeds_picture(path: Path) -> bool:
+    """A page that carries a picture as a data URI (`awb howto render`) is a picture for the rule of --image."""
+    tail = b""
+    try:
+        with open(path, "rb") as fh:
+            while chunk := fh.read(1 << 20):
+                if b"data:image/" in tail + chunk:
+                    return True
+                tail = chunk[-16:]
+    except OSError:
+        return False
+    return False
+
+
 def check_problems(path: Path, image: bool = False, register: Path | None = None) -> list[str]:
     """Why a file must not cross: a name check hit, a file that cannot be read as text."""
     from awb import check
@@ -323,6 +337,8 @@ def check_problems(path: Path, image: bool = False, register: Path | None = None
     suffix = path.suffix.lower()
     if suffix in IMAGE_SUFFIXES:
         return [] if image else ["a picture crosses only with --image and a reason"]
+    if suffix in (".html", ".htm") and not image and _embeds_picture(path):
+        return ["a page with embedded pictures crosses only with --image and a reason"]
     try:
         hits = check.check_file(path, register if register is not None else config.paths().register, code=True)
     except Exception as err:
