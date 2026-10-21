@@ -28,7 +28,8 @@
 # task's session reaches the model endpoint (and with build_model = login the token host of his login) while a TCP
 # API host and GitHub stay closed. A probe counts only after the unit was shown to run as the build user. The
 # oneshot awb-task-failed@.service that every task unit names in OnFailure= is installed; awb-build-nudge.timer is
-# enabled and its unit runs awb build nudge as the owner (A6).
+# enabled and its unit runs awb build nudge as the owner (A6). An idle runner runs the live release (`awb deploy
+# status`, which names the release of the runner's process from <build_root>/runs/runner.state).
 # One line per check, PASS or FAIL; exit 1 on any FAIL.
 # --dry-run lists the checks and runs none (it works without root). Paths come from /etc/awb/paths.conf when it
 # is there, home folders from getent passwd. No line names a folder of the owner: they are counted.
@@ -627,6 +628,9 @@ build_checks() {
     done
     report "$out" "the build hooks of the release run the gate --no-register by the installed interpreter"
     allowed "the build runner's unit is installed" test "$(systemctl show -p LoadState --value awb-buildd.service)" = loaded
+    # awb deploy status fails when the runner idles on a release older than the live one (2026-10-20: six days)
+    allowed "the build runner, while idle, runs the live release (awb deploy status)" runuser -u "$owner" -- \
+        /usr/local/bin/awb deploy status
     allowed "the oneshot $BUILD_FAILED_UNIT of a failed task unit is installed and writes the board line as the owner" \
         sh -c 'test "$(stat -c "%U %a" -- "$1")" = "root 644" && grep -qx "Type=oneshot" "$1" && grep -qx "User=$2" "$1" &&
         grep -qx "ExecStart=/usr/local/bin/awb build failed %i" "$1"' verify "/etc/systemd/system/$BUILD_FAILED_UNIT" "$owner"

@@ -9421,8 +9421,92 @@
    "name": "K4: across two uids a session reaches its own project and never another",
    "run": ".venv/bin/pytest tests/test_keys_scope_across_users.py::test_across_two_uids_a_session_reaches_its_own_project_and_never_another",
    "status": "passing"
+  },
+  {
+   "id": "fix-runner-restart-1",
+   "phase": "fix-runner-restart",
+   "name": "every module of the runner restarts awb buildd",
+   "run": ".venv/bin/pytest tests/test_runner_restart.py::test_every_module_of_the_runner_restarts_awb_buildd",
+   "status": "passing"
+  },
+  {
+   "id": "fix-runner-restart-2",
+   "phase": "fix-runner-restart",
+   "name": "every part named in parts join is in the closure of its door",
+   "run": ".venv/bin/pytest tests/test_runner_restart.py::test_every_part_named_in_parts_join_is_in_the_closure_of_its_door",
+   "status": "passing"
+  },
+  {
+   "id": "fix-runner-restart-3",
+   "phase": "fix-runner-restart",
+   "name": "install sh names no build runner so systemctl restarts it",
+   "run": ".venv/bin/pytest tests/test_runner_restart.py::test_install_sh_names_no_build_runner_so_systemctl_restarts_it",
+   "status": "passing"
+  },
+  {
+   "id": "fix-runner-restart-4",
+   "phase": "fix-runner-restart",
+   "name": "a live web side still restarts the build runner",
+   "run": ".venv/bin/pytest tests/test_runner_restart.py::test_a_live_web_side_still_restarts_the_build_runner",
+   "status": "passing"
+  },
+  {
+   "id": "fix-runner-restart-5",
+   "phase": "fix-runner-restart",
+   "name": "the plan names the units of install sh and validates them",
+   "run": ".venv/bin/pytest tests/test_runner_restart.py::test_the_plan_names_the_units_of_install_sh_and_validates_them",
+   "status": "passing"
+  },
+  {
+   "id": "fix-runner-restart-6",
+   "phase": "fix-runner-restart",
+   "name": "running release is the commit folder of the code",
+   "run": ".venv/bin/pytest tests/test_runner_restart.py::test_running_release_is_the_commit_folder_of_the_code",
+   "status": "passing"
+  },
+  {
+   "id": "fix-runner-restart-7",
+   "phase": "fix-runner-restart",
+   "name": "an idle runner exits when the live release is newer",
+   "run": ".venv/bin/pytest tests/test_runner_restart.py::test_an_idle_runner_exits_when_the_live_release_is_newer",
+   "status": "passing"
+  },
+  {
+   "id": "fix-runner-restart-8",
+   "phase": "fix-runner-restart",
+   "name": "the runner exits after a check and records busy then removes its record",
+   "run": ".venv/bin/pytest tests/test_runner_restart.py::test_the_runner_exits_after_a_check_and_records_busy_then_removes_its_record",
+   "status": "passing"
+  },
+  {
+   "id": "fix-runner-restart-9",
+   "phase": "fix-runner-restart",
+   "name": "a check in its own process writes no runner record",
+   "run": ".venv/bin/pytest tests/test_runner_restart.py::test_a_check_in_its_own_process_writes_no_runner_record",
+   "status": "passing"
+  },
+  {
+   "id": "fix-runner-restart-10",
+   "phase": "fix-runner-restart",
+   "name": "the status names the runner release and fails for an old idle one",
+   "run": ".venv/bin/pytest tests/test_runner_restart.py::test_the_status_names_the_runner_release_and_fails_for_an_old_idle_one",
+   "status": "passing"
+  },
+  {
+   "id": "fix-runner-restart-11",
+   "phase": "fix-runner-restart",
+   "name": "the runner record round trips",
+   "run": ".venv/bin/pytest tests/test_runner_restart.py::test_the_runner_record_round_trips",
+   "status": "passing"
+  },
+  {
+   "id": "fix-runner-restart-12",
+   "phase": "fix-runner-restart",
+   "name": "verify sh runs the status for the runner",
+   "run": ".venv/bin/pytest tests/test_runner_restart.py::test_verify_sh_runs_the_status_for_the_runner",
+   "status": "passing"
   }
  ],
- "total_tests": 1346,
+ "total_tests": 1358,
  "checked": "2026-10-20"
 }

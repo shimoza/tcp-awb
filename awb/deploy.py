@@ -93,6 +93,8 @@ COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 UNIT_RE = re.compile(r"^awb-[a-z0-9-]+\.(service|socket)$")
 TASK_UNIT_RE = re.compile(r"^awb-task-[A-Za-z0-9-]{1,40}\.service$")
 RESTART_WANTED = "restart-wanted"   # in <build_root>/runs: the build runner exits between two tasks
+RUNNER_STATE = "runner.state"       # in <build_root>/runs: `pid release idle|busy since` of the serving runner
+RUNNER_GRACE = 120.0                # an idle runner on an older release past this long after the flip fails the status
 BUILD_PENDING = "BUILD-PENDING"     # in the install root: the build side a deploy left out (seal/setup.sh reads it)
 WAIT_BUILD_TOTAL = 3600.0           # --wait-build waits this long at most for the task units to end
 WAIT_BUILD_POLL = 10.0
@@ -685,6 +687,83 @@ def build_runner_action(show: dict, runner: Callable, reason: str) -> tuple[str,
     return "restart", reason, False
 
 
+def install_sh_units(text: str) -> set[str]:
+    """Every unit a `restart VERB UNIT...` line of seal/web/install.sh names: the units `install.sh --only` restarts."""
+    out = set()
+    for line in text.splitlines():
+        if line.startswith("restart "):
+            out |= {w for w in line.split() if UNIT_RE.match(w)}
+    return out
+
+
+def split_services(web_live: bool, services: list[dict], web: list[dict],
+                   named: set[str] | list[str] | None) -> tuple[list[dict], list[dict]]:
+    """(the units for `install.sh --only`, the units for `systemctl restart`). With the web side live install.sh
+    restarts the web units and the services it names; it skips any other unit it is given, so a service it does not
+    name (the build runner, the egress filter) goes to systemctl (2026-10-20: awb-buildd ran six days through about
+    thirty deploys that marked it restarted). `named` None (a plan of before this rule) keeps the old split."""
+    if not web_live:
+        return [], services
+    if named is None:
+        return services + web, []
+    named = set(named)
+    return [u for u in services if u["unit"] in named] + web, [u for u in services if u["unit"] not in named]
+
+
+def runner_state_path(host: "Host") -> Path:
+    return restart_wanted_path(host).parent / RUNNER_STATE
+
+
+def read_runner_state(path: Path) -> dict | None:
+    """The record of the serving build runner (awb/buildrun.py Runner.record): pid, release, idle or busy, since.
+    None when there is none or it does not parse."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        return None
+    try:
+        text = os.read(fd, 4096).decode("ascii", "replace")
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    parts = text.strip().split("\t")
+    if len(parts) != 4 or not parts[0].isdigit() or parts[2] not in ("idle", "busy"):
+        return None
+    release = parts[1] if COMMIT_RE.match(parts[1]) else None
+    return {"pid": int(parts[0]), "release": release, "state": parts[2], "since": parts[3]}
+
+
+def runner_alive(pid: int) -> bool:
+    """The pid runs `awb build serve` (its command line read from /proc, so a reused pid does not count)."""
+    try:
+        with open("/proc/%d/cmdline" % pid, "rb") as fh:
+            argv = fh.read().split(b"\0")
+    except OSError:
+        return False
+    return is_build_runner([a.decode("utf-8", "replace") for a in argv if a])
+
+
+def build_runner_line(record: dict | None, live: str | None, flipped: float | None, now: float,
+                      alive: Callable[[int], bool] = runner_alive) -> tuple[str, bool]:
+    """(the status line of the build runner, True when it fails): an idle runner whose release is not the live one
+    RUNNER_GRACE after the flip has missed its restart. A busy runner exits after its step; one that is not running
+    starts with the live release."""
+    if record is None:
+        return "build runner: no record (not running or started before %s)" % RUNNER_STATE, False
+    if not alive(record["pid"]):
+        return "build runner: not running; it starts with release %s" % short(live), False
+    release = record["release"]
+    text = "build runner: release %s, %s since %s" % (short(release), record["state"], record["since"])
+    if live is None or not COMMIT_RE.match(live) or release == live:
+        return text, False
+    if record["state"] == "busy":
+        return text + "; it exits for release %s after this step" % short(live), False
+    if flipped is not None and now - flipped < RUNNER_GRACE:
+        return text + "; it exits for release %s at its next poll" % short(live), False
+    return text + ", older than the live release %s: sudo systemctl restart awb-buildd.service" % short(live), True
+
+
 def has_takeover(tree, rel: str) -> bool:
     """The module of a daemon in the target tree knows `--takeover` (the hand-over of T2)."""
     if rel not in tree.files():
@@ -1218,6 +1297,8 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
         "keep": keep,
         "build_restart_wanted": build_wanted,
         "build_busy": active_task_units(run),
+        "install_units": sorted(install_sh_units(tree.read("seal/web/install.sh"))
+                                if "seal/web/install.sh" in tree.files() else ()),
     }
 
 
@@ -1426,6 +1507,9 @@ def validate_plan(plan, allowed_units: set[str]) -> dict:
     if busy is not None and not (isinstance(busy, list) and all(isinstance(x, str) and TASK_UNIT_RE.match(x)
                                                                for x in busy)):
         bad("build_busy")
+    inst = plan.get("install_units", [])
+    if not (isinstance(inst, list) and all(isinstance(x, str) and UNIT_RE.match(x) for x in inst)):
+        bad("install_units")
     for key in ("changed", "unmapped", "notes", "pending_last", "keep"):
         if not isinstance(plan.get(key), list) or not all(_plain(x) for x in plan[key]):
             bad(key)
@@ -1714,11 +1798,11 @@ def program_lines(plan: dict, opts: Options, host: Host, owner_name: str, work_n
             host.root / BUILD_PENDING, ", if a task unit still runs after the wait" if opts.wait_build else ""))
     for u in daemons:
         out.append("+ systemctl %s %s" % (u["action"], u["unit"]))
-    if plan["web"] and (services or web):
-        out.append("+ " + cmdline([str(rel / "seal" / "web" / "install.sh"), "--only"] +
-                                  [u["unit"] for u in services + web]))
-    elif services:
-        out.append("+ systemctl restart %s" % " ".join(u["unit"] for u in services))
+    by_script, by_systemctl = split_services(plan["web"], services, web, plan.get("install_units"))
+    if by_script:
+        out.append("+ " + cmdline([str(rel / "seal" / "web" / "install.sh"), "--only"] + [u["unit"] for u in by_script]))
+    if by_systemctl:
+        out.append("+ systemctl restart %s" % " ".join(u["unit"] for u in by_systemctl))
     socket_services = {u["unit"][:-len(".socket")] + ".service" for u in acting if u["unit"].endswith(".socket")}
     socket_services |= set(plan.get("activated", []))
     watch = [u["unit"] for u in acting if u["unit"] not in socket_services]
@@ -1977,16 +2061,21 @@ class Run:
         acting = [u for u in self.plan["units"] if u["action"] in ("restart", "reload")]
         services = [u for u in acting if u["kind"] == "service"]
         web = [u for u in acting if u["kind"] == "web"]
-        if self.plan["web"] and (services or web):
-            script = self.host.releases / self.target / "seal" / "web" / "install.sh"
-            res = self.sh([str(script), "--only"] + [u["unit"] for u in services + web])
+        script = self.host.releases / self.target / "seal" / "web" / "install.sh"
+        try:
+            named = install_sh_units(script.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            named = set()
+        by_script, by_systemctl = split_services(self.plan["web"], services, web, named)
+        if by_script:
+            res = self.sh([str(script), "--only"] + [u["unit"] for u in by_script])
             self.restarted_at = self.host.clock()
-            for u in services + web:
+            for u in by_script:
                 self.mark(u["unit"], "restarted" if res.returncode == 0 else "failed")
-        elif services:
-            res = self.sh(["systemctl", "restart", *[u["unit"] for u in services]])
+        if by_systemctl:
+            res = self.sh(["systemctl", "restart", *[u["unit"] for u in by_systemctl]])
             self.restarted_at = self.host.clock()
-            for u in services:
+            for u in by_systemctl:
                 self.mark(u["unit"], "restarted" if res.returncode == 0 else "failed")
 
     def wait(self) -> None:
@@ -2348,10 +2437,16 @@ def owner_status(host: Host) -> int:
     for line in status_lines(j, validate_status(owner_daemon_states()), systemd_show(host.runner, units)):
         print(line)
     print(build_pending_line(host.root) or "build side: nothing pending")
+    try:
+        flipped = os.lstat(host.root / "src").st_mtime
+    except OSError:
+        flipped = None
+    line, stale = build_runner_line(read_runner_state(runner_state_path(host)), live, flipped, time.time())
+    print(line)
     from awb import egress
     for line in egress.status_lines():
         print(line)
-    return 0
+    return 1 if stale else 0
 
 
 def _owner_main(argv: list[str], host: Host, opts: Options | None = None) -> int:
