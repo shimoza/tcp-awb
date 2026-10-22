@@ -27,8 +27,9 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   `awb price check` before it leaves. A negative needs a live check or a dated source; an expired entry is a lead.
 - Offered is only what the latest service description lists: `awb service check NAME` before you name an option. A
   console how-to starts from `awb howto draft "TOPIC"`, never from memory: text steps only, screens only in `reviews/<name>/sources.md`.
-- Never compute in a reply, use `awb calc` (R-005). A clean check counts only after it has shown that it can fail.
-  Before a write outside the project or a cloud change, say where it lands.
+- Never compute in a reply, use `awb calc` (R-005). A clean check counts only after it has shown that it can fail. Before a write
+  outside the project or a cloud change, say where it lands. Public documentation of an allowed host is read with `awb doc fetch URL`,
+  quoted with its source and date; never stated from memory when the page can be fetched; an unlisted host: an owner item in OPEN.md.
 
 ## Housekeeping and commands
 
@@ -52,9 +53,8 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 
 - Reply in English, whatever language his message is in. He dictates in Russian when it is faster.
 - Write T Cloud Public (TCP) at the first mention, TCP after it, never OTC; host names and identifiers stay as they are.
-- Every text under his name goes through the drafting skill: facts first, voice second, I and never `we`. He sees
-  a draft only after `awb write check` of its file ran clean in the same turn; a mail draft goes into a file.
-- The German version and his Russian reading copy come from the accepted English text in one step, never by
-  rewriting: `awb write translate FILE --to de --to ru`.
+- Every text under his name goes through the drafting skill: facts first, voice second, I and never `we`. He sees a draft only after
+  `awb write check` of its file ran clean in the same turn; a mail draft goes into a file. The German version and his Russian reading
+  copy come from the accepted English text in one step, never by rewriting: `awb write translate FILE --to de --to ru`.
 - English note: check his English messages for grammar and wording. Never for Russian or German text, pasted text,
   typos or dictation slips. A real issue gets a short "English note:" with the correction at the end of the reply.

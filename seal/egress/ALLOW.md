@@ -123,6 +123,12 @@ First match wins, in this order. `awb egress status` shows the counts of the las
 - `code.claude.com`: the client's documentation lookups; optional. Counted as `web`.
 - the owner's bucket, the exchange buckets and the mirrors of the documentation: reached by the owner and the key
   service, never by the work user.
+- the documentation hosts of `rules/allow-domains.txt` (`learn.microsoft.com`, the LLM Hub hosts and the rest): a
+  session could send data out to any of them, so none is opened. A session reads a page with `awb doc fetch URL`:
+  the key service (the owner's uid) fetches it by GET with the op `doc_get` of the call socket, https only, the host
+  exactly a line of the file, no query string, redirects only to listed hosts, at most 5 MB of text, 30 fetches a
+  minute and 500 a day per project, one line per fetch in `<vault>/log/doc-YYYY-MM.tsv` (awb/tcp/doc.py). What a
+  session can still send out that way is the path of a URL (at most 300 URL-safe characters) to a listed host.
 
 ## How it was measured
 
