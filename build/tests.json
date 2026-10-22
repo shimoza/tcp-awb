@@ -10527,8 +10527,29 @@
    "name": "the README of this repository carries both statements",
    "run": ".venv/bin/pytest tests/test_public_statements.py::test_the_readme_of_this_repository_carries_both_statements",
    "status": "passing"
+  },
+  {
+   "id": "pd1-review-manual-claims-1",
+   "phase": "pd1-review-manual-claims",
+   "name": "a manual claim row survives a re-run of review claims with its verdict",
+   "run": ".venv/bin/pytest tests/test_review.py::test_pd1_a_manual_row_survives_a_re_run_with_its_verdict",
+   "status": "passing"
+  },
+  {
+   "id": "pd1-review-manual-claims-2",
+   "phase": "pd1-review-manual-claims",
+   "name": "a review with manual rows and closed findings passes and judges them like generated rows",
+   "run": ".venv/bin/pytest tests/test_review.py::test_pd1_a_review_with_only_manual_rows_closing_the_findings_passes",
+   "status": "passing"
+  },
+  {
+   "id": "pd1-review-manual-claims-3",
+   "phase": "pd1-review-manual-claims",
+   "name": "a manual row whose sentence is gone is reported by its id",
+   "run": ".venv/bin/pytest tests/test_review.py::test_pd1_a_manual_row_whose_sentence_is_gone_is_reported_by_its_id",
+   "status": "passing"
   }
  ],
- "total_tests": 1504,
- "checked": "2026-10-21"
+ "total_tests": 1507,
+ "checked": "2026-10-22"
 }
