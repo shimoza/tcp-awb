@@ -2258,7 +2258,7 @@ def learn_owner(draft: Path, project: str | None = None, p: config.Paths | None 
     if not codes.is_project_code(project):
         raise WritingError("a project code reads tcp-xxxx")
     pr = next((r for r in rows if r.code == project), None)
-    if pr is None or pr.state != "active":
+    if pr is None or pr.state not in projects.LIVE_STATES:
         raise WritingError("%s is not an active project" % project)
     folder = Path(pr.path)       # a draft that lies in the project folder by its own path has no link on the way
     try:

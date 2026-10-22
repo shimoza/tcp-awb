@@ -135,7 +135,7 @@ def sync(p: config.Paths, codes: list[str] | None = None) -> list[tuple[str, lis
 
     out = []
     for r in projects.load(p):
-        if r.state != "active" or (codes and r.code not in codes):
+        if r.state not in projects.LIVE_STATES or (codes and r.code not in codes):
             continue
         out.append((r.code, sync_project(Path(r.path))))
     return out

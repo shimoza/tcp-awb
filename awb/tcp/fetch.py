@@ -91,7 +91,7 @@ def fetch(p: config.Paths, code: str, folder: Path | None = None, *, again: bool
 
     _owner_side(code)
     project = next((r for r in projects.load(p) if r.code == code), None)
-    if project is None or project.state != "active":
+    if project is None or project.state not in projects.LIVE_STATES:
         raise FetchError("%s is not an active project" % code)
     objects = listing(code)
     done = set() if again else {k for k, mark in bucket.pulled(p) if mark == MARK}

@@ -517,7 +517,7 @@ def _schemas() -> dict:
         "code": ref("ProjectCode"),
         "kind": ref("Kind"),
         "customer": ref("CustomerOrNone"),
-        "state": string("Deleted projects are not listed.", enum=["active", "closed"]),
+        "state": string("Deleted projects are not listed.", enum=["active", "parked", "closed"]),
         "created": string("The day the project was created.", format="date"),
         "goal": string("The goal line of SCOPE.md after the data check. A withheld part reads [withheld]; a goal "
                        "the check still refuses reads [Content withheld by the data check.]"),
@@ -685,9 +685,16 @@ def _schemas() -> dict:
                 "without_status": integer("Projects whose STATE.md has no Status: line yet."),
             }),
             "projects": array(ref("BoardProject"), "Active projects, latest change first."),
+            "parked": array(obj({
+                "code": string(), "kind": string(), "customer": string(),
+                "reason": string("After the data check; empty without one."),
+                "since": string("The day the project was parked; null when not recorded.", nullable=True),
+                "board_redacted": boolean(),
+            }), "Parked projects (awb projects park) by code: their OPEN.md items are in no count."),
             "build": string("The build line of the self-build from <shared>/build/state.tsv: the tasks, live, main and "
                             "how many are not deployed. Ids, state words, short hashes and times only."),
-        }, description="The status of every active project for management, codes only."),
+        }, required=["source", "generated_at", "summary", "projects", "build"],
+            description="The status of every active project for management, codes only."),
         "ProjectOptions": obj({
             "kinds": array(string(), "The kinds the running backend accepts, in the order to show. Deployed: "
                                      "engagement, lab, topic, code. Repository: query, project."),

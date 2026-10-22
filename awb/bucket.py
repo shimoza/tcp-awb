@@ -252,7 +252,7 @@ def sync(p: config.Paths, c: obs.Client) -> list[str]:
     known = {r.code for r in rows}
     lines = []
     for r in rows:
-        if r.state != "active":
+        if r.state not in projects.LIVE_STATES:
             continue
         folder, created = ensure_folder(c, r)
         lines.append("%s  %s%s" % (r.code, folder, "  created" if created else ""))

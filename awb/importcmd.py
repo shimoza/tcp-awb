@@ -191,7 +191,7 @@ def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None =
     if not codes.is_project_code(code or ""):
         raise ImportRefused("a project code reads tcp-xxxx")
     project = next((pr for pr in projects.load(p) if pr.code == code), None)
-    if project is None or project.state != "active":
+    if project is None or project.state not in projects.LIVE_STATES:
         raise ImportRefused("%s is not an active project" % code)
     own = project.customer if project.customer != projects.NO_CUSTOMER else None
     if customer == "new":
@@ -328,7 +328,7 @@ def run_paste(p: config.Paths, code: str, kind: str | None = None, *, stdin=None
     if not codes.is_project_code(code or ""):
         raise ImportRefused("a project code reads tcp-xxxx")
     project = next((pr for pr in projects.load(p) if pr.code == code), None)
-    if project is None or project.state != "active":
+    if project is None or project.state not in projects.LIVE_STATES:
         raise ImportRefused("%s is not an active project" % code)
     own = project.customer if project.customer != projects.NO_CUSTOMER else None
     cust = own or code
