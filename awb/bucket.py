@@ -19,8 +19,9 @@ client gives no file of `in/` (review R6: the key service cannot tell the peer's
 client as it does for `awb import`, `awb fetch` and `awb vault show`). `pull` and `put --reveal` read the vault, so
 he runs them in his own shell.
 
-The key service takes list, get and put only, inside the folders of the layout (awb/bucket_layout.py). `move` needs
-a copy and a delete and stops with a line saying so. A locked or stopped key service stops every command with one
+The key service takes list, get and put, inside the folders of the layout (awb/bucket_layout.py), and one delete:
+`drop_in`, a file of in/ of an active project after `awb import --auto` took it into the vault. `move` needs a copy
+and a delete and stops with a line saying so. A locked or stopped key service stops every command with one
 line that names `awb keys unlock`. Output carries codes, months, counts and sizes, never the name of a file of in/
 and never the name of a folder that matches no project.
 """
@@ -182,6 +183,14 @@ class KeyServiceClient:
     def delete(self, key: str) -> None:
         raise BucketError("the key service has no delete: move a folder in the object storage console")
 
+    def drop_in(self, key: str) -> None:
+        """Delete one file of a project's in/ after `awb import --auto` took it into the vault (the one delete the
+        key service offers, `bucket_drop_in`: a file of in/ of an active project and nothing else)."""
+        if not _is_original(key):
+            raise BucketError("only a file of in/ is dropped after its import")
+        owner_terminal("a drop of a file of in/")
+        self._ask({"op": "bucket_drop_in", "key": key})
+
 
 def client() -> KeyServiceClient:
     settings()      # the work user is refused here
@@ -313,7 +322,7 @@ def fetch(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> 
     done = set() if again else pulled(p)
     fresh = [o for o in incoming if (o[0], o[2]) not in done and "\t" not in o[0] and "\n" not in o[0]]
     result = {"new": len(fresh), "known": len(incoming) - len(fresh), "outside": len(outside), "intake": None,
-              "files": []}
+              "files": [], "keys": []}
     if not fresh:
         return result
     config.ensure_layout(p)
@@ -323,6 +332,7 @@ def fetch(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> 
         c.get(key, dst)
         os.chmod(dst, 0o600)
         files.append(dst)
+        result["keys"].append(key)
         _remember(p, key, etag)
     result["files"] = files
     return result

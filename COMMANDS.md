@@ -36,6 +36,7 @@ session of the project.
 | `awb import tcp-xxxx [FILE...]` | the one door for customer material: takes the FILE arguments, else every new file of the project's `in/` folder in the bucket, else everything in `~/tcp-vault/inbox`, and runs the intake for the project's customer in wipe mode. The copies go to `~/tcp-shared/outbox/CUST-XXXX/` (for a project without a customer to `~/tcp-shared/outbox/tcp-xxxx/`, with no customer code) and carry the customer as its code and every other name the rules recognise as a token (`[person 1]`, `[company 1]`, `[place 1]`, `[name 1]`, numbered within the import); nothing stops, no editor opens. It prints the files taken, the copies written, the values wiped per class, the pictures held and the files withheld, never a name, and the sessions of the project read "new input" at their next prompt. Your own terminal only |
 | `awb import tcp-xxxx --customer CUST-XXXX` or `--customer new` | only when a project without a customer is to get one (without it such a project imports with no customer code): `new` issues `CUST-` and the project's four characters (refused when that code is taken: the project keeps its code, so there is no second one to draw). A customer without a registered form is asked for its written forms on the terminal, one per line, an empty line ends; for a project without a customer an empty first line issues the code without a form |
 | `awb import tcp-xxxx --redo` | the repair of a wiped term: after `awb register keep "the term"`, the originals of the customer's last import run again from the vault and the copies replace the earlier ones under the same file ids; the session reads "replaced" |
+| `awb import --auto` | the owner's job of the timer `awb-import-auto` (every 10 minutes): the new files of `in/` of every active project whose import is not running; a clean copy of `awb clean` (`*.clean.md`, `*.clean.log` ...) with `--trusted`, any other file in wipe mode; the original into the vault and out of `in/` (the key service's `bucket_drop_in`, a file of `in/` of an active project only), the "new input" notice, one line per run in the journal and in `~/tcp-vault/import-auto.log` with codes and counts. A project whose customer has no form yet stays for `awb import CODE` in your own terminal. Every import holds the lock of its project, so a second one at the same time is refused with one line |
 | `awb import tcp-xxxx --trusted [FILE...]` | you vouch that the files hold no name (your own anonymous material): no name is guessed, so technical words stay as they are; registered forms, secrets, mail addresses and phones are still wiped; with `--redo` it redoes the last import that way |
 | `awb import tcp-xxxx --review` | the rare case where a person, a partner or a place must keep a code: the run stops once, an editor opens with the candidates (`p` person, `o` company, `c` this customer, `s` place, `+` one more form, `-` later, no mark: keep), then it goes on in wipe mode and a candidate left for later is a token |
 | `awb vault show` | the newest private report (what was wiped, by class and rule, and the forms the run learned) of `--customer CUST-XXXX` or of the only customer with a report of the last day; a FILE shows that file. Your own terminal only, never to a pipe or inside an assistant session |
@@ -79,6 +80,24 @@ The pieces behind `awb import`, one line each:
 | `awb bucket pull CODE` | new files of `in/` into the vault inbox, then the intake |
 | `awb register review CUST-XXXX [--report REPORT]` | the review of the newest stop of `--review` by hand; `--report` names another private report of the customer |
 
+## The laptop (`awb clean`, Ubuntu under WSL)
+
+The anonymization before the host, on your own laptop, offline. No vault daemon, no key service, no work user. The
+customer of a project is `CUST-` and its four characters.
+
+| command | what it does |
+|---|---|
+| `awb init --laptop` or `awb clean init` | `~/awb-laptop` (or `AWB_LAPTOP_HOME`) with `vault/` (700), an empty register and `tmp/` |
+| `awb clean register CUST-XXXX` | the written forms of the customer, typed once on the terminal, one per line, an empty line ends (an empty first line: no form); nothing is echoed; they stay in the laptop's vault folder |
+| `awb clean FILE... --project tcp-xxxx --kind docs [--out DIR]` | documents (docx, pptx, xlsx, odt, pdf, Markdown, text, html, mail): the body text with the customer as its code and every other person, company, place, mail address, phone and secret as a token; pictures, properties, headers, footers and comments left out; one `<name>.clean.md` each in `./clean/` or `--out` |
+| `awb clean FILE... --project tcp-xxxx --kind logs [--out DIR]` | logs, configs and tickets: users, hosts, IP addresses, mail addresses, phones, keys, tokens and passwords wiped, no name guessed, the technical words kept; one `<name>.clean.<suffix>` each |
+| `--put` | the clean copies (never the originals) into `<YYYY-MM>/tcp-xxxx/in/` of the bucket `awb` with your own key in `AWB_OBS_AK` and `AWB_OBS_SK`; the folder under any month, else a new one under this month; a name already in `in/` is not replaced |
+| `awb clean update` | the newest lists of public words from github.com/shimoza/tcp-awb (`git pull --ff-only` of the clone, or a download checked against the blob ids of the tree); prints what changed in counts and sends nothing of your files |
+
+Each run writes `clean-report-<stamp>.md` (kinds and counts per file, never a value) into the output folder and the
+mapping of tokens and values into `~/awb-laptop/vault/maps/tcp-xxxx/`. A copy that fails the final check of the
+intake is not written. On the host `awb import --auto` takes the copies in.
+
 ## The bucket (owner side)
 
 One folder per project in the bucket `awb`: `<YYYY-MM>/<project-code>/in/` for your originals and `out/` for
@@ -92,7 +111,7 @@ project was created. A drifted folder is renamed in the bucket, never the projec
 | `awb bucket pull CODE` | new files of `in/` into the vault inbox, then the intake for the project's customer (for a project without one under the project code), in wipe mode; it prints the values wiped per class. A file is taken once (`--again` takes it again). `awb import CODE` does the same and more. Your own terminal, never an assistant session: the client gives no file of `in/` to one |
 | `awb bucket put CODE FILE` | FILE into `out/`; `--replace` overwrites, `--reveal` puts the real names back first (your own shell). The send gate runs first: for a project with a customer or partner it refuses a deliverable without a valid review at tier 3 (or a tier he lowered) and a tier 3 review without the request check; an internal file leaves with a warning |
 | `awb dataset put [--out DIR] [--date D] [--replace] [--github \| --github-only]` | the zip, the how-to PDF and the manifest of the newest built dataset (or the one of `--date`) into `datasets/tcp-facts/<date>/` of the bucket (`--out` names the folder that holds the built datasets, default `~/tcp-shared/datasets`) and the date into `datasets/tcp-facts/LATEST`. `--github` also copies facts.md, facts.jsonl, services.md, topics/ and tcp_facts_mcp.py into the root of github.com/shimoza/tcp-facts through a clone under `~/tcp-shared/datasets/tcp-facts.git` (made on first use with gh), commits them as the GitHub account, tags the date and makes a release of it with the zip, HOW-TO.pdf and MANIFEST.json, the counts as notes. A `prices/` folder the repository still holds is removed in the new commit (git rm) and the commit message says so. The clone is fetched fresh before the commit and reset to the remote branch when its history diverged (a rewritten remote); a non-fast-forward push is refused and no push uses `--force`. Every git call on the clone carries `-c safe.directory=<the clone>` (that path only), so you put from a clone the work user owns without a global git setting; the owner's commit identity, an old author setting or a registered name in any file refuses it, and a date already tagged needs `--replace`. `--github-only` does the GitHub part alone, without the bucket and without the key service. Your own shell, it goes through the key service (unlocked; not with `--github-only`) and takes your gh login. Refused in one line without the mark of `awb kb review` for that folder, with a mark of other facts (built again since) or of another release (G6); a successful put writes `RELEASED.jsonl` beside the folders, the `facts.jsonl` of the release the next review compares with |
-| `awb bucket move <YYYY-MM>/<NAME>/ CODE` | rename a drifted folder: copy inside the object storage, compare names and sizes, then delete the old objects. Through the key service it stops at once with a line saying so, because the service offers list, get and put only: rename the folder in the object storage console. Your own terminal, never an assistant session |
+| `awb bucket move <YYYY-MM>/<NAME>/ CODE` | rename a drifted folder: copy inside the object storage, compare names and sizes, then delete the old objects. Through the key service it stops at once with a line saying so, because the service offers list, get and put (and the drop of a file of `in/` after `awb import --auto` took it): rename the folder in the object storage console. Your own terminal, never an assistant session |
 
 These commands hold no bucket key. They call the admin socket of the key service (`awb keys unlock` loads the lab
 key of `bucket_tenant` in keys.conf; the bucket is `owner_bucket` there). A locked or stopped service stops them with
@@ -525,9 +544,10 @@ sealed host (fail closed); run it as the work user.
 Taken from the parsers of the code. A command with a hand-written explanation above is described there in full;
 this list is complete and cannot fall behind the code.
 
-### `awb init`
+### `awb init [--laptop]`
 
 create the shared side, the vault side and an empty register
+- `--laptop`: the laptop edition instead: the folder of awb clean (AWB_LAPTOP_HOME or ~/awb-laptop) with its vault folder and an empty register
 
 ### `awb intake [FILE...] --customer CODE|new [--review]`
 
@@ -1002,14 +1022,24 @@ rename a drifted folder to <month>/<code>/ (your own terminal, never an assistan
 - `FOLDER`
 - `CODE`
 
-### `awb import CODE [FILE...] [--customer CUST-XXXX|new] [--review] [--trusted] [--redo] [--paste] [--kind KIND]`
+### `awb clean FILE... --project tcp-xxxx --kind KIND [--out DIR] [--put]`
+
+clean project material on the laptop, offline: docs or logs; register, init, update
+- `FILE...`: the files to clean; the originals are never changed
+- `--project tcp-xxxx`: the project code; its customer is CUST- and the four characters
+- `--kind KIND`: docs: body text of documents, logos, properties, headers, footers and comments out, names wiped; logs: users, hosts, addresses and secrets wiped, technical words kept, no name guessed
+- `--out DIR`: the folder of the clean copies (default ./clean/)
+- `--put`: put the clean copies into <YYYY-MM>/tcp-xxxx/in/ of the bucket awb with the key of AWB_OBS_AK and AWB_OBS_SK
+
+### `awb import [CODE] [FILE...] [--customer CUST-XXXX|new] [--review] [--trusted] [--auto] [--redo] [--paste] [--kind KIND]`
 
 customer material into a project in one command: the bucket, the vault inbox, files or pasted text (--paste)
-- `CODE`: the project code, tcp-xxxx
+- `[CODE]`: the project code, tcp-xxxx (none with --auto)
 - `[FILE...]`: files to take in (default: the bucket folder in/, then the vault inbox)
 - `--customer CUST-XXXX|new`: only when a project without a customer gets one: new issues CUST- and the project's four characters; without it such a project runs with no customer code
 - `--review`: stop once on the candidates and review them in an editor
 - `--trusted`: the owner vouches that the files hold no name: no name is guessed; the registered forms, the secret check, mail addresses and phones still apply
+- `--auto`: the owner's job of the timer awb-import-auto: the new files of in/ of every active project, the clean copies of awb clean with --trusted, the rest in wipe mode; the originals into the vault and out of the bucket, one log line per run
 - `--redo`: run the originals of the last import again with the keep list of now, the copies replace the earlier ones
 - `--paste`: take pasted text from standard input instead of files: pbpaste | awb import CODE --paste (wl-paste or xclip -o -selection clipboard on Linux) or paste into the terminal and end with Ctrl-D; a secret refuses the whole paste
 - `--kind KIND`: with --paste: a mail (signature and quoted header wiped as a whole), a meeting transcript (speakers as [person 1], timestamps kept, filler dropped) or a table copied from a spreadsheet (tab-separated, people and mail columns wiped as a whole); without it plain text

@@ -394,6 +394,42 @@ release works too). The new knowledge base starts empty and the import fills it:
 checks it, an id that is already there is skipped and the counts say what was imported, skipped and refused. It
 needs no vault daemon, no key service and no work user. Run it again with `--update` after a newer release.
 
+### Clean material on your laptop first (`awb clean`)
+
+The anonymization of customer material can run on your own laptop (Ubuntu under WSL on Windows 11), so the host gets
+clean files only and imports them in seconds. The same laptop edition: no vault daemon, no key service, no work user.
+`awb init --laptop` (or `awb clean init`) makes `~/awb-laptop` (`AWB_LAPTOP_HOME` names another folder) with its
+vault folder (700). `awb clean register CUST-XXXX` asks the written forms of the customer once on the terminal, as
+`awb import` does; they stay in that vault folder and nowhere else.
+
+    awb clean FILE... --project tcp-xxxx --kind docs|logs [--out DIR] [--put]
+
+- `--kind docs` for customer documentation (docx, pptx, xlsx, odt, pdf, also Markdown, text, html and mail files):
+  the body text only. Pictures (logos), document properties, headers, footers, comments and tracked changes are read
+  for detection and never written. The customer's forms become `CUST-XXXX`, persons, companies, places, mail
+  addresses and phones become tokens by the rules of wipe mode, secrets `[secret]`. One `<name>.clean.md` per file.
+- `--kind logs` for the dump of a technical problem (logs, configs, tickets: text, log, csv, json, yaml, conf):
+  mail addresses, phone numbers, user names (user fields, sshd and PAM lines, DN, `-u`, home folders), IP addresses,
+  internal host names and FQDNs that are no public product or service host, keys, tokens and passwords are wiped.
+  No name is guessed from the shape of a word, so services, errors, versions, product names and stack traces stay.
+  One `<name>.clean.<suffix>` per file.
+- The report `clean-report-<stamp>.md` in the output folder gives kinds and counts per file, never a value. The
+  mapping (token, class, value) of each run goes into `~/awb-laptop/vault/maps/tcp-xxxx/` and stays there.
+- Nothing in this path opens a network connection. `--put` is the one exception: the clean copies (never the
+  originals) go into `<YYYY-MM>/tcp-xxxx/in/` of the bucket `awb` (eu-de) with your own key from `AWB_OBS_AK` and
+  `AWB_OBS_SK` (`AWB_OBS_BUCKET` and `AWB_OBS_REGION` name another bucket or region). The folder is looked for
+  under every month and created under this month when missing.
+- `awb clean update` fetches the newest lists of public words (rules/common-words.txt, tech-terms.txt,
+  allowed-terms.txt, allow-domains.txt and the other allow lists) from github.com/shimoza/tcp-awb: a
+  `git pull --ff-only` of the clone, or for an install without git a download checked against the blob ids of the
+  repository tree. It sends nothing of your files and prints what changed in counts. Run it now and then.
+
+On the host the timer `awb-import-auto` (seal/setup.sh, every 10 minutes) runs `awb import --auto`: the new files of
+`in/` of every active project come in, a clean copy with `--trusted` (no name guessed, the registered forms, the
+secret check, mail addresses and phones still apply) and any other file in wipe mode. The original moves into the
+vault and is deleted from `in/`, the sessions read "new input", a project whose import runs is skipped and each run
+writes one line to the journal and to `~/tcp-vault/import-auto.log`.
+
 ### As a plugin for Claude Code
 
 The skills, the workers and the checkpoints also come as a plugin, with this repository as its marketplace. Install
@@ -758,6 +794,9 @@ customer data out of the model as far as it can:
   written. On a pass the text lands in `input/` of the project as `note-<date>-<n>.md` (`mail-`, `transcript-` with `.md`,
   `table-` with `.csv` by kind) and one line goes to the ledger. Nothing is wiped or rewritten, so a text that may hold
   names still goes in through `awb import CODE --paste` in your own terminal, which stays as it is.
+- `awb clean FILE --project tcp-xxxx --kind docs|logs` does the same anonymization on the owner's laptop before
+  anything reaches the host, offline, and `--put` drops the clean copies into the project's `in/`, where the timer
+  of `awb import --auto` takes them with `--trusted` (see "Clean material on your laptop first").
 - The register of names lives in a vault on the owner's side. The sealed setup runs every session as a separate
   system user that cannot read it.
 - Six hooks check every prompt, every written file, every file or shell call and the start and end of every

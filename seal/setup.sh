@@ -86,6 +86,7 @@ INSTALL_ONLY="awb-buildd.service"     # installed, never enabled here: the steer
 BUILD_FAILED_UNIT=awb-task-failed@.service   # OnFailure= of every task unit (awb/build_units.py FAILED_UNIT, SB5)
 BUILD_NUDGE_UNIT=awb-build-nudge          # .service and .timer: awb build nudge as the owner every 15 minutes (A6)
 RECHECK_WATCH_UNIT=awb-kb-recheck-watch   # .service and .timer: awb kb recheck-watch as the owner every 15 minutes (F5)
+IMPORT_AUTO_UNIT=awb-import-auto          # .service and .timer: awb import --auto as the owner every 10 minutes (lc-laptop-clean)
 BUILD_MODEL_DEFAULT=login             # D-S7 changed: his subscription login; build_model = key in the host file is the fallback
 BUILD_MODEL_KEY=/etc/awb/build-model.key     # the owner's copy for the runner (build_model = key), never printed
 BUILD_MODEL_KEY_SOURCE=/etc/awb/anthropic.key   # the default source; build_model_key_source in the host file wins
@@ -846,6 +847,7 @@ step_units() {
     [ "$units_only" -eq 1 ] || build_failed_unit
     [ "$units_only" -eq 1 ] || build_nudge_unit
     [ "$units_only" -eq 1 ] || recheck_watch_unit
+    [ "$units_only" -eq 1 ] || import_auto_unit
     retire_portal_unit
     run systemctl daemon-reload
     [ "$units_only" -eq 0 ] || return 0
@@ -859,6 +861,7 @@ step_units() {
     done
     try_run systemctl enable --now "$BUILD_NUDGE_UNIT.timer"
     try_run systemctl enable --now "$RECHECK_WATCH_UNIT.timer"
+    try_run systemctl enable --now "$IMPORT_AUTO_UNIT.timer"
 }
 
 step_egress() {
@@ -1537,6 +1540,64 @@ OnBootSec=15min
 OnUnitActiveSec=15min
 AccuracySec=1min
 Unit=$RECHECK_WATCH_UNIT.service
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+import_auto_unit() {
+    # written by step_units (not in --units-only) like the watchdog, enabled at the end of step_units
+    info "$IMPORT_AUTO_UNIT.timer: every 10 minutes awb import --auto as the owner takes the new files of in/ of every"
+    info "active project (the clean copies of awb clean with --trusted), moves the originals into the vault and out"
+    info "of the bucket and leaves the new input notice; one line per run in the journal and in the vault"
+    write_file "$UNITS_DIR/$IMPORT_AUTO_UNIT.service" 644 root:root <<EOF
+# Written by seal/setup.sh (task lc-laptop-clean). awb import --auto as the owner: the new files of <YYYY-MM>/<code>/in/
+# of every active project through the key service's admin socket into the vault inbox, the intake (the clean copies
+# of the laptop's awb clean with --trusted, any other file in wipe mode), the original into the vault and out of in/,
+# the new input notice for the sessions. A project whose import runs is skipped. Every call goes over the sockets of
+# the key service and the vault daemon, so no address family but unix. It writes the vault and the shared side.
+[Unit]
+Description=Architect Workbench: import the new files of the bucket folders in/ of every active project
+
+[Service]
+Type=oneshot
+User=$owner
+Group=$WORK_GROUP
+UMask=0027
+Environment=AWB_CONF=$CONF_FILE
+ExecStart=$BIN_LINK import --auto
+TimeoutStartSec=3000
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=$vault -$work_home/tcp-shared
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+LimitCORE=0
+EOF
+    write_file "$UNITS_DIR/$IMPORT_AUTO_UNIT.timer" 644 root:root <<EOF
+# Written by seal/setup.sh (task lc-laptop-clean): $IMPORT_AUTO_UNIT.service every 10 minutes.
+[Unit]
+Description=Architect Workbench: the import of the bucket folders in/, every 10 minutes
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=10min
+AccuracySec=1min
+Unit=$IMPORT_AUTO_UNIT.service
 
 [Install]
 WantedBy=timers.target
