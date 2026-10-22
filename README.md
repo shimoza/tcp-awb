@@ -428,6 +428,11 @@ vault folder (700). `awb clean register CUST-XXXX` asks the written forms of the
   allowed-terms.txt, allow-domains.txt and the other allow lists) from github.com/shimoza/tcp-awb: a
   `git pull --ff-only` of the clone, or for an install without git a download checked against the blob ids of the
   repository tree. It sends nothing of your files and prints what changed in counts. Run it now and then.
+- Behind a corporate proxy `--put` and `awb clean update` use `HTTPS_PROXY` and `https_proxy` (git reads them too).
+  `awb clean doctor` prints the proxy variables (host and port only, never a user or a password), sends one HEAD
+  request through the proxy to the object storage of the region and to github.com and names the fix when one
+  fails: the proxy cannot be reached, it wants a login, or TLS verification failed (a TLS-inspecting proxy: its root
+  certificate through `update-ca-certificates`, then `SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt`).
 
 On the host the timer `awb-import-auto` (seal/setup.sh, every 10 minutes) runs `awb import --auto`: the new files of
 `in/` of every active project come in, a clean copy with `--trusted` (no name guessed, the registered forms, the

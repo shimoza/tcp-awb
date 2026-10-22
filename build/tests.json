@@ -10184,8 +10184,50 @@
    "name": "the key service never drops the .keep file of in/",
    "run": ".venv/bin/pytest tests/test_import_auto.py::test_the_key_service_never_drops_the_keep_file_of_in",
    "status": "passing"
+  },
+  {
+   "id": "lc-doctor-1",
+   "phase": "lc-doctor",
+   "name": "put goes through the proxy of the environment",
+   "run": ".venv/bin/pytest tests/test_clean_proxy.py::test_put_goes_through_the_proxy_of_the_environment",
+   "status": "passing"
+  },
+  {
+   "id": "lc-doctor-2",
+   "phase": "lc-doctor",
+   "name": "update without git goes through the proxy",
+   "run": ".venv/bin/pytest tests/test_clean_proxy.py::test_update_without_git_goes_through_the_proxy",
+   "status": "passing"
+  },
+  {
+   "id": "lc-doctor-3",
+   "phase": "lc-doctor",
+   "name": "update with git goes through the proxy",
+   "run": ".venv/bin/pytest tests/test_clean_proxy.py::test_update_with_git_goes_through_the_proxy",
+   "status": "passing"
+  },
+  {
+   "id": "lc-doctor-4",
+   "phase": "lc-doctor",
+   "name": "doctor names the login fix and never prints the password",
+   "run": ".venv/bin/pytest tests/test_clean_proxy.py::test_doctor_names_the_login_fix_and_never_prints_the_password",
+   "status": "passing"
+  },
+  {
+   "id": "lc-doctor-5",
+   "phase": "lc-doctor",
+   "name": "doctor names an unreachable proxy and a network without one",
+   "run": ".venv/bin/pytest tests/test_clean_proxy.py::test_doctor_names_an_unreachable_proxy_and_a_network_without_one",
+   "status": "passing"
+  },
+  {
+   "id": "lc-doctor-6",
+   "phase": "lc-doctor",
+   "name": "doctor names the certificate fix of a tls inspecting proxy",
+   "run": ".venv/bin/pytest tests/test_clean_proxy.py::test_doctor_names_the_certificate_fix_of_a_tls_inspecting_proxy",
+   "status": "passing"
   }
  ],
- "total_tests": 1455,
+ "total_tests": 1461,
  "checked": "2026-10-21"
 }

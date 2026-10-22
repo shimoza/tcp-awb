@@ -5,6 +5,7 @@ lc-laptop-clean, his yes of 2026-10-22).
     awb clean register CUST-XXXX
     awb clean init
     awb clean update
+    awb clean doctor
 
 It runs on a plain Linux (Ubuntu under WSL) with no vault daemon, no key service and no work user, and opens no
 network connection: the only network use is his own `--put` and `awb clean update`.
@@ -34,6 +35,12 @@ month with its in/ and out/ (awb/bucket_layout.py). On the host `awb import --au
 rules/allowed-terms.txt, rules/allow-domains.txt and the other allow lists) from the public repository: a
 `git pull --ff-only` of the clone, or for an install without git a download of those files over HTTPS checked
 against the blob ids of the repository tree. It sends nothing of his files and prints the counts that changed.
+
+`awb clean doctor` prints the proxy variables (the host and port only, never a user or a password), sends one HEAD
+request through the environment's proxy to the object storage of the region and to github.com and names the fix
+when one fails: the proxy cannot be reached, the proxy wants a login, or TLS verification failed (a TLS-inspecting
+corporate proxy: its root certificate through update-ca-certificates, then SSL_CERT_FILE if Python needs it).
+`--put` and `awb clean update` go through the same proxy (urllib and git read HTTPS_PROXY and https_proxy).
 """
 from __future__ import annotations
 
@@ -384,7 +391,8 @@ def git_blob_id(data: bytes) -> str:
 
 def _fetch(url: str, limit: int = 32 * 1024 * 1024) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    # a fresh opener reads the proxy of the environment as it is now (urlopen keeps the first one it built)
+    with urllib.request.build_opener().open(req, timeout=60) as resp:
         data = resp.read(limit + 1)
     if len(data) > limit:
         raise CleanError("an answer of the public repository is larger than the limit")
@@ -439,6 +447,90 @@ def update(rules: Path | None = None, *, run=subprocess.run, fetch=_fetch) -> li
     return ["update: %s" % how] + (changed or ["the lists are up to date: nothing changed"])
 
 
+# --------------------------------------------------------------------------- awb clean doctor
+
+PROXY_VARS = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy")
+CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
+FIX_UNREACHABLE = ("the proxy cannot be reached: check the host and port in HTTPS_PROXY and https_proxy (ask IT for "
+                   "the proxy of the office network and of the VPN)")
+FIX_NO_ROUTE = ("no direct way out: this network needs a proxy, export HTTPS_PROXY and https_proxy (the proxy "
+                "section of the WSL guide)")
+FIX_LOGIN = ("the proxy wants a login: put user and password into the proxy URL for this shell only "
+             "(read -s, the WSL guide), never into a file")
+FIX_TLS = ("TLS verification failed: a TLS-inspecting corporate proxy. Copy its root certificate (.crt, PEM) to "
+           "/usr/local/share/ca-certificates/, run sudo update-ca-certificates, and if Python still fails export "
+           "SSL_CERT_FILE=%s" % CA_BUNDLE)
+
+
+def proxy_host(value: str | None) -> str:
+    """The host and port of a proxy URL, never the user or the password in it."""
+    import urllib.parse
+
+    if not value:
+        return "not set"
+    try:
+        u = urllib.parse.urlsplit(value if "://" in value else "http://" + value)
+        host = u.hostname or "?"
+        port = u.port
+    except ValueError:
+        return "set, not a URL"
+    login = " (with a login)" if u.username or u.password else ""
+    return "%s%s%s" % (host, ":%d" % port if port else "", login)
+
+
+def classify(err: BaseException) -> str:
+    """The fix for the failure of one doctor request. Never the text of the error: it can carry the proxy URL."""
+    import ssl
+    import urllib.error
+
+    reason = getattr(err, "reason", err) if isinstance(err, urllib.error.URLError) else err
+    text = str(reason)
+    if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in text:
+        return FIX_TLS
+    if "407" in text:
+        return FIX_LOGIN
+    proxied = any(os.environ.get(k) for k in PROXY_VARS[:4])
+    if isinstance(reason, (ConnectionRefusedError, TimeoutError, OSError)) or "timed out" in text:
+        return FIX_UNREACHABLE if proxied else FIX_NO_ROUTE
+    return FIX_UNREACHABLE if proxied else FIX_NO_ROUTE
+
+
+def doctor_targets() -> list[tuple[str, str]]:
+    from awb import bucket_layout, obs
+
+    region = os.environ.get("AWB_OBS_REGION") or bucket_layout.REGION
+    return [("object storage %s" % region, "https://obs.%s.%s/" % (region, obs.DOMAIN)),
+            ("github.com", "https://github.com/")]
+
+
+def doctor(opener=None) -> tuple[list[str], int]:
+    """`awb clean doctor`: the proxy settings and one HEAD request to each target through the environment's proxy.
+    Returns the lines and the exit code (0 all reachable, 1 a target failed)."""
+    import urllib.error
+
+    lines = ["%s: %s" % (k, proxy_host(os.environ.get(k)) if "NO_PROXY" not in k.upper()
+                         else (os.environ.get(k) or "not set")) for k in PROXY_VARS]
+    if os.environ.get("SSL_CERT_FILE"):
+        lines.append("SSL_CERT_FILE: set")
+    opener = opener or urllib.request.build_opener()
+    code = EXIT_OK
+    for label, url in doctor_targets():
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
+        try:
+            with opener.open(req, timeout=20) as resp:
+                lines.append("%s: reachable (HTTP %d)" % (label, resp.status))
+        except urllib.error.HTTPError as err:
+            if err.code == 407:
+                lines.append("%s: failed, %s" % (label, FIX_LOGIN))
+                code = EXIT_HELD
+            else:
+                lines.append("%s: reachable (HTTP %d)" % (label, err.code))
+        except Exception as err:  # noqa: BLE001 - every failure gets its fix, never its text
+            lines.append("%s: failed, %s" % (label, classify(err)))
+            code = EXIT_HELD
+    return lines, code
+
+
 # --------------------------------------------------------------------------- the command
 
 
@@ -447,7 +539,7 @@ def _parser_files():
 
     ap = SafeParser(prog="awb clean", description="Clean project material on the laptop, offline: docs (office "
                     "and pdf files) or logs (logs, configs, tickets); also awb clean register CUST-XXXX, awb clean "
-                    "init and awb clean update.")
+                    "init, awb clean update and awb clean doctor.")
     ap.add_argument("files", nargs="+", metavar="FILE", help="the files to clean; the originals are never changed")
     ap.add_argument("--project", required=True, metavar="tcp-xxxx", help="the project code; its customer is CUST- "
                     "and the four characters")
@@ -478,6 +570,12 @@ def main(argv: list[str] | None = None) -> int:
             SafeParser(prog="awb clean init", description="The folders of the laptop.").parse_args(argv[1:])
             print("\n".join(laptop.init()))
             return EXIT_OK
+        if argv[:1] == ["doctor"]:
+            SafeParser(prog="awb clean doctor", description="The proxy settings and whether the object storage and "
+                       "github.com can be reached through them, with the fix when not.").parse_args(argv[1:])
+            lines, code = doctor()
+            print("\n".join(lines))
+            return code
         if argv[:1] == ["update"]:
             SafeParser(prog="awb clean update", description="The lists of public terms from the public "
                        "repository.").parse_args(argv[1:])
