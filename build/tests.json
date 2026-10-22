@@ -10492,8 +10492,43 @@
    "name": "the support log set measured before and after",
    "run": ".venv/bin/pytest tests/test_fplearn.py::test_the_support_log_set_measured_before_and_after",
    "status": "passing"
+  },
+  {
+   "id": "rs-public-statements-1",
+   "phase": "rs-public-statements",
+   "name": "a README with both public statements passes",
+   "run": ".venv/bin/pytest tests/test_public_statements.py::test_a_readme_with_both_statements_passes",
+   "status": "passing"
+  },
+  {
+   "id": "rs-public-statements-2",
+   "phase": "rs-public-statements",
+   "name": "a missing public statement is named",
+   "run": ".venv/bin/pytest tests/test_public_statements.py::test_a_missing_statement_is_named",
+   "status": "passing"
+  },
+  {
+   "id": "rs-public-statements-3",
+   "phase": "rs-public-statements",
+   "name": "statements far down the README do not count",
+   "run": ".venv/bin/pytest tests/test_public_statements.py::test_statements_far_down_the_readme_do_not_count",
+   "status": "passing"
+  },
+  {
+   "id": "rs-public-statements-4",
+   "phase": "rs-public-statements",
+   "name": "the GitHub put refuses a build without the statements",
+   "run": ".venv/bin/pytest tests/test_public_statements.py::test_the_github_put_refuses_a_build_without_the_statements",
+   "status": "passing"
+  },
+  {
+   "id": "rs-public-statements-5",
+   "phase": "rs-public-statements",
+   "name": "the README of this repository carries both statements",
+   "run": ".venv/bin/pytest tests/test_public_statements.py::test_the_readme_of_this_repository_carries_both_statements",
+   "status": "passing"
   }
  ],
- "total_tests": 1499,
+ "total_tests": 1504,
  "checked": "2026-10-21"
 }

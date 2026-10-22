@@ -1145,6 +1145,19 @@ def _push_branch(clone: Path) -> None:
     _run(_git(clone, "push", "-q", "origin", "HEAD"), cwd=clone)
 
 
+PUBLIC_STATEMENTS = (("unofficial", re.compile(r"(?i)\bunofficial\b.{0,200}\bnot a product of\b", re.S)),
+                     ("public sources and robots.txt",
+                      re.compile(r"(?i)\bonly from public sources\b.{0,300}\brobots\.txt\b", re.S)))
+"""The two statements every public README carries at its top (the owner's rule of 2026-10-22): it is not an official
+product, and it is built only from public sources with respect for robots.txt and similar restrictions."""
+
+
+def public_statements_missing(readme: str, head: int = 3000) -> list[str]:
+    """The names of the public statements missing from the first `head` characters of a README."""
+    top = readme[:head]
+    return [name for name, rx in PUBLIC_STATEMENTS if not rx.search(top)]
+
+
 def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: Path | None = None,
                pinned: dict[str, str] | None = None) -> list[str]:
     """The files of a build into the root of the public repository, committed as the GitHub account, and a release
@@ -1154,6 +1167,9 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
     zpath = folder.parent / (folder.name + ".zip")
     if not (zpath.is_file() and all((folder / n).exists() for n in GITHUB_ASSETS + GITHUB_FILES)):
         raise DatasetError("the folder of %s is not a complete build; run awb dataset build" % day)
+    missing = public_statements_missing((folder / "README.md").read_text(encoding="utf-8"))
+    if missing:
+        raise DatasetError("the README of %s lacks the statement %s; nothing was published" % (day, " and ".join(missing)))
     clone = clone or clone_dir(p)
     if not (clone / ".git").is_dir():
         clone.parent.mkdir(parents=True, exist_ok=True)
