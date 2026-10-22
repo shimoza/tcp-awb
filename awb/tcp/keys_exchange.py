@@ -784,7 +784,10 @@ def serve_bucket(ctx: Context, req: dict, upload: Path | None) -> tuple[dict, Pa
         if not owner_key_ok(ctx, key, "GET" if op in ("bucket_get", "bucket_drop_in") else "PUT"):
             return {"ok": False, "kind": "refused", "error": "refused"}, None
         if op == "bucket_drop_in":
-            # `awb import --auto`: a file of a project's in/ after the vault holds its original (lc-laptop-clean)
+            # `awb import --auto`: a file of a project's in/ after the vault holds its original (lc-laptop-clean);
+            # never the .keep that keeps an empty in/ visible in S3 clients
+            if key.rsplit("/", 1)[-1] == ".keep":
+                return {"ok": False, "kind": "refused", "error": "refused"}, None
             c.delete(key)
             return {"ok": True}, None
         if op == "bucket_get":
