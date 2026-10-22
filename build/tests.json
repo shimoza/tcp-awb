@@ -10184,8 +10184,169 @@
    "name": "the key service never drops the .keep file of in/",
    "run": ".venv/bin/pytest tests/test_import_auto.py::test_the_key_service_never_drops_the_keep_file_of_in",
    "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-1",
+   "phase": "df-doc-reader",
+   "name": "an allowed host passes and html becomes readable text",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_an_allowed_host_passes_and_html_becomes_readable_text",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-2",
+   "phase": "df-doc-reader",
+   "name": "the hosts are the lines of the rules file exactly",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_the_hosts_are_the_lines_of_the_rules_file_exactly",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-3",
+   "phase": "df-doc-reader",
+   "name": "a url outside the rules is refused before anything is sent",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_a_url_outside_the_rules_is_refused_before_anything_is_sent",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-4",
+   "phase": "df-doc-reader",
+   "name": "a redirect is followed on the list and refused off it",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_a_redirect_is_followed_on_the_list_and_refused_off_it",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-5",
+   "phase": "df-doc-reader",
+   "name": "at most three redirects",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_at_most_three_redirects",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-6",
+   "phase": "df-doc-reader",
+   "name": "the size cap",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_the_size_cap",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-7",
+   "phase": "df-doc-reader",
+   "name": "a type that is not text is refused",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_a_type_that_is_not_text_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-8",
+   "phase": "df-doc-reader",
+   "name": "the text types are taken",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_the_text_types_are_taken",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-9",
+   "phase": "df-doc-reader",
+   "name": "an encoded body and an error status are refused",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_an_encoded_body_and_an_error_status_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-10",
+   "phase": "df-doc-reader",
+   "name": "the request carries no cookie no auth and the fixed user agent",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_the_request_carries_no_cookie_no_auth_and_the_fixed_user_agent",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-11",
+   "phase": "df-doc-reader",
+   "name": "the rate limit per minute and per day",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_the_rate_limit_per_minute_and_per_day",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-12",
+   "phase": "df-doc-reader",
+   "name": "the count of the day survives a restart from the ledger",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_the_count_of_the_day_survives_a_restart_from_the_ledger",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-13",
+   "phase": "df-doc-reader",
+   "name": "a fetch through the call socket streams the text and the ledger carries no content",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_a_fetch_through_the_call_socket_streams_the_text_and_the_ledger_carries_no_content",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-14",
+   "phase": "df-doc-reader",
+   "name": "the rate limit through the service",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_the_rate_limit_through_the_service",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-15",
+   "phase": "df-doc-reader",
+   "name": "a session uses the project of its key token not the one it names",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_a_session_uses_the_project_of_its_key_token_not_the_one_it_names",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-16",
+   "phase": "df-doc-reader",
+   "name": "the work user cannot reach the admin ops through the call socket",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_the_work_user_cannot_reach_the_admin_ops_through_the_call_socket",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-17",
+   "phase": "df-doc-reader",
+   "name": "awb doc fetch prints the text with its source and date",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_awb_doc_fetch_prints_the_text_with_its_source_and_date",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-18",
+   "phase": "df-doc-reader",
+   "name": "awb doc fetch refuses with one line naming the rule",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_awb_doc_fetch_refuses_with_one_line_naming_the_rule",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-19",
+   "phase": "df-doc-reader",
+   "name": "awb doc fetch outside a project is refused",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_awb_doc_fetch_outside_a_project_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-20",
+   "phase": "df-doc-reader",
+   "name": "awb doc hosts lists the rules file",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_awb_doc_hosts_lists_the_rules_file",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-21",
+   "phase": "df-doc-reader",
+   "name": "the rules file carries the official documentation hosts",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_the_rules_file_carries_the_official_documentation_hosts",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-22",
+   "phase": "df-doc-reader",
+   "name": "a refusal off the list from the service names the owner item too",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_a_refusal_off_the_list_from_the_service_names_the_owner_item_too",
+   "status": "passing"
+  },
+  {
+   "id": "df-doc-reader-23",
+   "phase": "df-doc-reader",
+   "name": "the work rules and the drafting skill say to fetch documentation",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_the_work_rules_and_the_drafting_skill_say_to_fetch_documentation",
+   "status": "passing"
   }
  ],
- "total_tests": 1455,
+ "total_tests": 1478,
  "checked": "2026-10-21"
 }

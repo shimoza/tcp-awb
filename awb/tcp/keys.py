@@ -22,7 +22,10 @@ Two sockets, one JSON object per line and one answer per connection:
 
     admin  <vault>/keys-admin.sock, mode 600, the owner only     ping, status, load, lock, reload, notify,
                                                                 bucket_list, bucket_get, bucket_put
-    call   /run/awb-keys/cloud.sock, mode 660, group awb         ping, tenants, call
+    call   /run/awb-keys/cloud.sock, mode 660, group awb         ping, tenants, call, doc_get
+
+`doc_get` (task DF) fetches one page of public documentation for a session (awb/tcp/doc.py says what it checks):
+the service runs as the owner and has internet, the work user does not. It needs no unlock and reads no key.
 
 A call names the tenant, the role (read or lab), the method, the service, the path (with {project_id} when
 needed), the region, the query and a JSON body. Checks before anything is sent: the tenant is registered (awb
@@ -266,6 +269,11 @@ class Service:
         self._idle = {True: threading.Event(), False: threading.Event()}
         self._reload_lock = threading.Lock()
         self.accepts = {"admin": 0, "call": 0}
+        from awb.tcp import doc
+
+        self.doc_limiter = doc.Limiter(self._doc_ledger_dir)
+        self.doc_getter = doc.https_get
+        self.doc_hosts = None   # None: rules/allow-domains.txt at each fetch
 
     # sockets
     def start(self, inherited: dict | None = None, accept: bool = True) -> None:
@@ -718,6 +726,8 @@ class Service:
                 return self._lease(req, uid, caller)
             except Refused as err:
                 return {"ok": False, "error": str(err)}
+        if op == "doc_get":
+            return self._doc_get(req, caller)
         if (op == "owner_has" or (op == "take_owner" and req.get("id") is None)) and uid != os.getuid():
             # a name of the owner inbox is asked by the owner alone: for a session an answer to a name it guessed
             # would tell whether the name is there (finding 2 of the review of 2026-10-10); a session takes by id
@@ -776,6 +786,34 @@ class Service:
                   self.settings.get("region") or "eu-de", status if not answer.get("ok") else
                   "%s %s" % (status, size if isinstance(size, int) else ""), project)
         return (answer, stream) if stream is not None else answer
+
+    def _doc_ledger_dir(self) -> Path | None:
+        try:
+            return self.log_dir or (self.paths_fn().vault / "log")
+        except Exception:
+            return None
+
+    def _doc_get(self, req: dict, caller=_NOT_ASKED):
+        """One page of public documentation (task DF). The project is the one the session's key token names; a
+        session of a project without a grant (or the owner) names an active project of the register."""
+        from awb.tcp import doc
+
+        project = caller if isinstance(caller, str) else None
+        named = req.get("project")
+        if project is None and isinstance(named, str) and _PROJECT_RE.match(named) and self._active_project(named):
+            project = named
+        tmp = None
+        try:
+            tmp = self.paths_fn().vault / "tmp"
+            tmp.mkdir(parents=True, exist_ok=True)
+            os.chmod(tmp, 0o700)
+        except Exception:
+            tmp = None
+        try:
+            return doc.serve(req, project, self.doc_limiter, self._doc_ledger_dir(), getter=self.doc_getter,
+                             hosts=self.doc_hosts, tmp_dir=str(tmp) if tmp else None)
+        except Exception as err:
+            return {"ok": False, "error": "failed: the reader stopped (%s)" % type(err).__name__}
 
     def _registered(self) -> dict[str, tuple[str, ...]]:
         from awb.tcp import tenants as _tenants
@@ -1191,9 +1229,9 @@ def own_token(start: Path | None = None) -> str | None:
 def request(sock: Path, obj: dict, timeout: float = CALL_TIMEOUT + 10, *, upload: Path | None = None,
             download: Path | None = None) -> dict:
     """One request. `upload` sends a file's bytes after the request line (a put); `download` receives the bytes
-    that follow an answer carrying a length (a get). A call and a lease carry the key token of the project folder
-    this process works in (K4)."""
-    if isinstance(obj, dict) and obj.get("op") in ("call", "lease") and "token" not in obj:
+    that follow an answer carrying a length (a get). A call, a lease and a doc_get carry the key token of the project
+    folder this process works in (K4)."""
+    if isinstance(obj, dict) and obj.get("op") in ("call", "lease", "doc_get") and "token" not in obj:
         token = own_token()
         if token is not None:
             obj = dict(obj, token=token)

@@ -71,3 +71,14 @@ llm-server.llmhub.t-systems.net
 apikey.llmhub.t-systems.net
 uptime.llmhub.t-systems.net
 api-gateway.ai.t-systems.net
+# official documentation hosts the key service reads for the sessions (awb doc fetch, task DF)
+docs.redhat.com
+access.redhat.com
+documentation.ubuntu.com
+help.ubuntu.com
+www.cisco.com
+techdocs.broadcom.com
+docs.vmware.com
+docs.nvidia.com
+docs.otc.t-systems.com
+docs-beta.otc.t-systems.com

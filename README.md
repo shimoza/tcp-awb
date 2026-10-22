@@ -183,6 +183,25 @@ Five more recipes (`eip-bandwidth-adjust`, `evs-snapshot-restore`, `nat-snat-egr
 `awb lab list` shows the recipes and `awb lab dry-run` the calls a run would make. A resource it cannot delete stays
 in `RESOURCES.md` as live with the line to delete it.
 
+## Public documentation through the key service
+
+A session cannot reach a documentation host: the egress filter of the work user lets it reach the model API, the
+client's hosts and the public price API only, and opening it to the hosts of `rules/allow-domains.txt` would give a
+session a way to send data out. So the key service, which runs as the owner and has internet, reads the page for it.
+`awb doc fetch URL [--out FILE]` sends the op `doc_get` on the call socket and prints the text with the first line
+`source: URL, fetched YYYY-MM-DD HH:MM UTC` (or writes it to FILE inside the project folder). The service fetches by
+GET only, https only, the host exactly a line of `rules/allow-domains.txt` (`awb doc hosts` lists them), no port, no
+user info, no query string, no fragment and a path of at most 300 URL-safe characters. It follows at most 3
+redirects and only to a URL that passes the same checks, takes at most 5 MB and only HTML, Markdown, plain text or
+JSON, and turns HTML into text (headings, paragraphs, lists, code, tables). It sends no cookie and no auth header, and
+its User-Agent names the Workbench. A project gets at most 30 fetches a minute and 500 a day. Each fetch writes one
+line to `<vault>/log/doc-YYYY-MM.tsv`: time, project, host, path, size and status, never page content. The work rules
+say to quote such a page with its source and date and never to state it from memory when it can be fetched. A host
+off the list is refused with one line that tells the session to leave one owner item in OPEN.md under the owner
+heading, `Steering: allow documentation host HOST (vendor, why)`, instead of asking. `rules/allow-domains.txt` now
+also lists the official documentation hosts of Red Hat, Ubuntu, Cisco, Broadcom, VMware, NVIDIA and TCP
+(`docs.otc.t-systems.com`, `docs-beta.otc.t-systems.com`); no forum, blog or Q&A site.
+
 ## The exchange: files in and out
 
 Files come in through two inboxes in object storage (OBS). You drop a file there and tell the session in your own
@@ -484,6 +503,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | a console reference entry | `awb mirror console find "create vpc" --service vpc`, `awb mirror console show vpc/03-create` | the private console reference (`~/tcp-mirrors/console/<date>/`, one folder per dated pass, filled by the owner; never in the public dataset or in git), ranked by word overlap over the INDEX note, menu path, title and text; a how-to keeps its sources in an internal note and writes a step the reference lacks as "not confirmed yet: check on screen"; read only; the work user reads the copy that `awb mirror console publish` (owner side) puts in `/srv/tcp-mirrors/console/<date>/`; `awb mirror status` lists the passes, the newest date, the entries and the services |
 | a console how-to | `awb howto draft "create a vpc" --service vpc`, edit the text, `awb howto render deliverables/howto-create-a-vpc.md` | see "Console how-tos" below |
 | what is new on TCP | `awb mirror rn`, then `awb refresh --part release-notes` | the release notes of T Cloud Public as a mirror (the third public source, next to the docs and the service description; a run reads at most 200 pages of at most 2 MiB each and cuts long titles and tags) and, for each note first seen since the last refresh, the knowledge entries to check again (`recheck: KB-XXXX (release note DATE SERVICE)`; only entries that name the service and share two topic words with the note, most shared first, 15 per note and `--all` for every one; a note dated after today is listed as `announced`) and the services the list does not know (`new service?`; a title or service name from the site shows as printable ASCII cut to 80 characters); it only lists |
+| read public documentation | `awb doc fetch https://learn.microsoft.com/...`, `awb doc hosts` | the page as text with the line `source: URL, fetched YYYY-MM-DD HH:MM UTC`, fetched by the key service on the owner's side (see "Public documentation through the key service") |
 | a price | `awb price find ecs --grep s3.large` | the live records with every term |
 | check a price sheet | `awb price check sheet.csv` | every price fetched again, every total recomputed |
 | a price workbook | `awb pricebook build estimate.txt --lang de` | the workbook (.xlsx) and a summary (.md) for a mail; `awb pricebook diff OLD NEW` compares versions |

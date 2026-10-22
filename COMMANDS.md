@@ -230,6 +230,16 @@ page is read and checked as you; root only keeps the backup and installs.
 The queue itself is only read; the bridge named in `~/.config/awb/ui.conf` (`AWB_UI_CONF` gives another file) is the
 only writer. `AWB_UI_QUEUE` gives another queue folder and `AWB_UI_STATE` another folder for the watch logs.
 
+## Public documentation (inside a project)
+
+The egress filter keeps a session off the documentation hosts, so the key service reads a page for it on the owner's
+side (op `doc_get`). Sessions run these.
+
+| command | what it does |
+|---|---|
+| `awb doc fetch URL [--out FILE]` | one page as text with the first line `source: URL, fetched YYYY-MM-DD HH:MM UTC`; `--out` writes it to a file inside the project folder. Only https, the host exactly a line of `rules/allow-domains.txt`, no port, no user info, no query string, no fragment, a path of at most 300 URL-safe characters; redirects only to such a URL (at most 3); at most 5 MB; HTML, Markdown, plain text or JSON (HTML becomes headings, paragraphs, lists, code and tables as text). No cookie, no auth header, a fixed User-Agent. At most 30 fetches a minute and 500 a day per project; one line per fetch in `<vault>/log/doc-YYYY-MM.tsv` (time, project, host, path, size, status, never content). A refusal is one line naming the rule (exit 1); for a host off the list it says to leave one owner item in OPEN.md under the owner heading, `Steering: allow documentation host HOST (vendor, why)`, instead of a question |
+| `awb doc hosts` | the hosts a page may come from, one per line |
+
 ## Offered services of T Cloud Public (TCP)
 
 Offered is what the latest service description lists, nothing else. The docs, an API that answers, a price record
@@ -1287,6 +1297,16 @@ delete what this project put into <code>/from-session/
 - `--older-than OLDER_THAN`: only date folders before this date (YYYY-MM-DD)
 - `--dry-run`: list what would be deleted
 - `--go`: delete and record the rows in RESOURCES.md
+
+### `awb doc fetch URL [--out FILE]`
+
+one page as text: https, a host of rules/allow-domains.txt, no query string; the first line names the source and the time of the fetch
+- `URL`: https://HOST/PATH, the host exactly a line of awb doc hosts
+- `--out FILE`: write the text to FILE inside the project folder instead of printing it
+
+### `awb doc hosts`
+
+the hosts a page may come from (rules/allow-domains.txt)
 
 ### `awb start KIND --goal GOAL [--customer new] [--tag TAG] [--review-tier 1|2|3]`
 
