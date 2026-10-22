@@ -76,7 +76,7 @@ Chain 1, the customer writes German (his material or request is German): you tal
 is German. The German version and his Russian reading copy are made from the accepted English text in one step, never
 by rewriting: `awb write translate FILE --to de --to ru`. Show him the Russian copy. Chain 2, he asks in Russian or
 English: you talk to him in English and the deliverable is English only, no German or Russian version unless he asks.
-"по-русски" switches the talk to Russian until he switches back; the deliverable stays English. Never comment on his
+He may ask you to talk Russian ("по-русски"): then you talk Russian until he switches back, and the deliverable stays English. Never comment on his
 English, his dictation slips or his punctuation.
 
 The translate command writes
