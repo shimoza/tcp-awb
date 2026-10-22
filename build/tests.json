@@ -7122,8 +7122,8 @@
   {
    "id": "B-026-1",
    "phase": "B-026",
-   "name": "bucket layout: a new folder is <YYYY-MM>/<code>/ with in/ and out/, built by bucket.folder_of",
-   "run": ".venv/bin/pytest tests/test_bucket_layout.py::test_a_new_folder_is_month_and_code_with_in_and_out",
+   "name": "bucket layout: a new folder is <YYYY-MM>/<code>/ with in/ and out/, built by bucket.folder_of (and a .keep file in each; test replaced by bk-keep-files)",
+   "run": ".venv/bin/pytest tests/test_bucket_keep.py::test_a_new_folder_is_month_and_code_with_in_and_out_and_keep",
    "status": "passing"
   },
   {
@@ -9981,8 +9981,50 @@
    "name": "translation check: within one language nothing is read across",
    "run": ".venv/bin/pytest tests/test_translate_facts.py::test_within_one_language_nothing_is_read_across",
    "status": "passing"
+  },
+  {
+   "id": "bk-keep-files-1",
+   "phase": "bk-keep-files",
+   "name": "a new folder gets a .keep file in in/ and out/",
+   "run": ".venv/bin/pytest tests/test_bucket_keep.py::test_a_new_folder_gets_a_keep_file_in_in_and_out",
+   "status": "passing"
+  },
+  {
+   "id": "bk-keep-files-2",
+   "phase": "bk-keep-files",
+   "name": "sync adds .keep to an old folder once and never twice",
+   "run": ".venv/bin/pytest tests/test_bucket_keep.py::test_sync_adds_keep_to_an_old_folder_once_and_never_twice",
+   "status": "passing"
+  },
+  {
+   "id": "bk-keep-files-3",
+   "phase": "bk-keep-files",
+   "name": "bucket pull and fetch never take .keep",
+   "run": ".venv/bin/pytest tests/test_bucket_keep.py::test_pull_and_fetch_never_take_keep",
+   "status": "passing"
+  },
+  {
+   "id": "bk-keep-files-4",
+   "phase": "bk-keep-files",
+   "name": "awb import from the bucket never takes .keep",
+   "run": ".venv/bin/pytest tests/test_bucket_keep.py::test_import_from_the_bucket_never_takes_keep",
+   "status": "passing"
+  },
+  {
+   "id": "bk-keep-files-5",
+   "phase": "bk-keep-files",
+   "name": "the key service takes the .keep files of in/ and out/ and nothing wider; puts outside the layout stay refused",
+   "run": ".venv/bin/pytest tests/test_bucket_keep.py::test_the_key_service_takes_the_keep_files_and_nothing_wider",
+   "status": "passing"
+  },
+  {
+   "id": "bk-keep-files-6",
+   "phase": "bk-keep-files",
+   "name": "sync through the key service writes the .keep files",
+   "run": ".venv/bin/pytest tests/test_bucket_keep.py::test_sync_through_the_key_service_writes_the_keep_files",
+   "status": "passing"
   }
  ],
- "total_tests": 1426,
+ "total_tests": 1432,
  "checked": "2026-10-21"
 }

@@ -315,7 +315,7 @@ def _project_files(ctx: Context, code: str) -> list[dict]:
     listing = c.list(base)
     for key, size, etag in listing.objects:
         rel = key[len(base):]
-        if (key.endswith("/") or not rel or (key, etag) in done or "\t" in key or "\n" in key
+        if (key.endswith("/") or bucket_layout.is_keep(key) or not rel or (key, etag) in done or "\t" in key or "\n" in key
                 or not all(valid_name(part) for part in rel.split("/"))):
             continue
         out.append({"key": key, "rel": rel, "size": size, "etag": etag, "modified": listing.modified.get(key, "")})
@@ -666,7 +666,7 @@ def serve_web_read(ctx: Context, req: dict) -> tuple[dict, Path | None]:
                 if not key.startswith(prefix) or key in seen:
                     return _web_refusal("inconsistent", "the listing named a key twice or outside its folder")
                 seen.add(key)
-                if key.endswith("/"):
+                if key.endswith("/") or bucket_layout.is_keep(key):
                     continue
                 rows.append({"key": key, "size": size, "etag": etag, "modified": listing.modified.get(key, "")})
                 if len(rows) > WEB_MAX_OBJECTS:
@@ -733,7 +733,7 @@ def owner_list_ok(ctx: Context, prefix, delimiter) -> bool:
 
 def owner_key_ok(ctx: Context, key, method: str) -> bool:
     """The keys of the owner bucket the owner's CLI may touch. GET: a file of a project's in/. PUT: the folder
-    marks (an empty put), a file of out/ and the dataset files; the project is active."""
+    marks (an empty put), the .keep of in/, a file of out/ (.keep too) and the dataset files; the project is active."""
     if not _owner_plain(key) or not key or key.endswith("/") and method == "GET":
         return False
     if method == "PUT" and _OWNER_DATASET_RE.match(key):
@@ -744,7 +744,7 @@ def owner_key_ok(ctx: Context, key, method: str) -> bool:
     rest = key[m.end():]
     if method == "GET":
         return rest.startswith(bucket_layout.IN) and len(rest) > len(bucket_layout.IN)
-    if rest in ("", bucket_layout.IN, bucket_layout.OUT):
+    if rest in ("", bucket_layout.IN, bucket_layout.OUT, bucket_layout.IN + bucket_layout.KEEP):
         return True
     return rest.startswith(bucket_layout.OUT) and len(rest) > len(bucket_layout.OUT) and "/" not in rest[len(bucket_layout.OUT):]
 

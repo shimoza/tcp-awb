@@ -10,6 +10,10 @@ from __future__ import annotations
 
 IN = "in/"
 OUT = "out/"
+KEEP = ".keep"
+KEEP_TEXT = b"keeps this folder visible in S3 clients; ignored by awb\n"
+"""The small file in in/ and out/ of every project folder: some S3 clients cannot open an empty folder. Every
+reader of in/ and out/ ignores it (`is_keep`)."""
 OWNER_BUCKET = "awb"
 """The owner bucket when no setting names one: `awb bucket` (`settings()`) and keys.conf (owner_bucket)."""
 REGION = "eu-de"
@@ -32,6 +36,11 @@ TEXT_SUFFIXES = (".md", ".txt", ".csv", ".tsv", ".json", ".yaml", ".yml", ".log"
 """Text files of the exchange (`xchg.TEXT_SUFFIXES`)."""
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
 """Pictures of the exchange: one crosses into from-session/ only with --image and a reason."""
+
+
+def is_keep(key: str) -> bool:
+    """True for the .keep file of a layout folder (by its last segment)."""
+    return key.rsplit("/", 1)[-1] == KEEP
 
 
 def folder_of(month: str, code: str) -> str:
