@@ -279,6 +279,12 @@ def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: b
     _say("wiped: %s" % intake.wiped_text(res.wiped))
     _say("pictures held: %d" % res.pictures)
     _say("files withheld: %d" % len(res.held))
+    if res.held:
+        # the final check withheld files: the count goes to the learning (awb/fplearn.py), the strings stay in the
+        # private report of the intake
+        from awb import fplearn
+
+        fplearn.record("import", extra={"withheld": len(res.held)}, p=p)
     if copies:
         rulesync.post_input(p, res.customer, code, [o.stem for o in copies], replaced=redo)
     return EXIT_HELD if res.held or res.unsealed else EXIT_OK
