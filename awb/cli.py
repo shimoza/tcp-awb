@@ -357,7 +357,7 @@ def _cmd_close(args, p: config.Paths) -> int:
     from awb import intake, ledger, projects
 
     before = {r.code: r for r in projects.load(p)}.get(args.code)
-    if not args.force and before is not None and before.state == "active":
+    if not args.force and before is not None and before.state in projects.LIVE_STATES:
         why = _exchange_leftovers(args.code, Path(before.path))
         if why:
             return _err(why)
@@ -366,7 +366,7 @@ def _cmd_close(args, p: config.Paths) -> int:
     try:
         pr = projects.close(p, args.code, force=args.force)
     except projects.ProjectError:
-        if before is not None and before.state == "active" and not args.force:
+        if before is not None and before.state in projects.LIVE_STATES and not args.force:
             for line in projects.open_item_lines(before.path) + projects.live_resource_lines(before.path):
                 print(line, file=sys.stderr)
         raise
@@ -401,7 +401,7 @@ def _cmd_projects_list(args, p: config.Paths) -> int:
     last = "path" if args.paths else "goal"
     print("code      kind        customer   state   created     owner     %s" % last)
     for i, r in enumerate(rows):
-        held = sessions.owner(p, r.code) if r.state == "active" else None
+        held = sessions.owner(p, r.code) if r.state in projects.LIVE_STATES else None
         if args.paths:
             tail = r.path
         elif unchecked:
@@ -412,6 +412,47 @@ def _cmd_projects_list(args, p: config.Paths) -> int:
             tail = projects.short_goal(goals[i])
         print("%-9s %-11s %-10s %-7s %-11s %-9s %s" % (r.code, r.kind, r.customer, r.state, r.created,
                                                      sessions.short(held["session"]) if held else "-", tail))
+    return EXIT_OK
+
+
+def _cmd_projects_park(args, p: config.Paths) -> int:
+    """Park a project (PD4). Both users may run it: it changes one register row and one line on the shared side,
+    no cloud resource, no folder, no grant."""
+    from awb import ledger, projects
+
+    try:
+        row, before = projects.park(p, args.code, args.reason)
+    except projects.ProjectError as err:
+        print("awb projects: %s" % err, file=sys.stderr)
+        return EXIT_ERROR
+    if before == "parked":
+        print("%s was parked already%s" % (row.code, "; the reason is updated" if args.reason else ""))
+        return EXIT_OK
+    print("parked %s: the board leaves its open items out; folder, grants, bucket folder and tenants stay; "
+          "awb projects unpark %s brings it back" % (row.code, row.code))
+    try:
+        projects.record(p, row, "Parked %s" % row.code)
+    except ledger.LedgerError:
+        print("awb projects: the ledger entry was not written", file=sys.stderr)
+    return EXIT_OK
+
+
+def _cmd_projects_unpark(args, p: config.Paths) -> int:
+    from awb import ledger, projects
+
+    try:
+        row, before = projects.unpark(p, args.code)
+    except projects.ProjectError as err:
+        print("awb projects: %s" % err, file=sys.stderr)
+        return EXIT_ERROR
+    if before == "active":
+        print("%s is active already" % row.code)
+        return EXIT_OK
+    print("unparked %s: it is active again" % row.code)
+    try:
+        projects.record(p, row, "Unparked %s" % row.code)
+    except ledger.LedgerError:
+        print("awb projects: the ledger entry was not written", file=sys.stderr)
     return EXIT_OK
 
 
@@ -435,7 +476,7 @@ def _cmd_projects_kind(args, p: config.Paths) -> int:
 
     if not config.is_work_user():
         # the owner: the grant the key service reads (P0); the work user's row follows where he may write it
-        row = next((r for r in projects.load(p) if r.code == args.code and r.state == "active"), None)
+        row = next((r for r in projects.load(p) if r.code == args.code and r.state in projects.LIVE_STATES), None)
         if row is None:
             print("awb projects: %s is not an active project" % args.code, file=sys.stderr)
             return EXIT_ERROR
@@ -568,7 +609,7 @@ def _grant_findings(p: config.Paths) -> tuple[list[tuple[str, str]], list[str]]:
     recorded = grants.load(p)
     stale, differs = [], []
     for r in projects.load(p):
-        if r.state != "active" or r.code not in recorded:
+        if r.state not in projects.LIVE_STATES or r.code not in recorded:
             continue
         row = r.customer or projects.NO_CUSTOMER
         granted = grants.customer(p, r.code)
@@ -673,6 +714,14 @@ def _build() -> argparse.ArgumentParser:
                    help="the customer the row names; the grant is written only when it matches (needed for a "
                         "customer project)")
     s.set_defaults(func=_cmd_projects_kind)
+    s = psub.add_parser("park", help="park a project that waits on the customer or rests: the board counts it apart, "
+                                     "material may still come in; awb close and awb projects unpark still work")
+    s.add_argument("code")
+    s.add_argument("--reason", default=None, help="one short line, for example: waits on the customer")
+    s.set_defaults(func=_cmd_projects_park)
+    s = psub.add_parser("unpark", help="bring a parked project back to active")
+    s.add_argument("code")
+    s.set_defaults(func=_cmd_projects_unpark)
     s = psub.add_parser("tier", help="set the review tier of a project (owner): deliverables take it, the send gate "
                                      "refuses below it")
     s.add_argument("code")

@@ -95,7 +95,7 @@ def base_record(record,paths):
     goal=next((' '.join(line[7:].split()) for line in scope.splitlines() if line.startswith('- goal:')),'')
     goal,redacted=checked(goal,paths)
     open_source=source['OPEN.md']
-    open_count=sum(line.startswith('- ') for line in open_source['text'].splitlines()) if open_source['status']=='available' else None
+    open_count=len(projects.open_bullets(open_source['text'])) if open_source['status']=='available' else None
     resources=source['RESOURCES.md']
     live=sum(row.get('state','').lower() not in ('deleted','kept','not created') for row in resource_rows(resources['text'])) if resources['status']=='available' else None
     dates=[f['modified'] for f in source.values() if f['modified']]
@@ -165,6 +165,11 @@ BOARD_ITEMS = 5
 WITHHELD = '[Content withheld by the data check.]'
 
 
+def open_items(text):
+    """The open items of OPEN.md: the dash items outside any section whose heading marks it closed or done."""
+    return [' '.join(line[2:].split()) for line in projects.open_bullets(text)]
+
+
 def bullets(text,heading=None):
     """The dash items of a Markdown text, or only those under the ## heading named."""
     out,inside=[],heading is None
@@ -180,15 +185,23 @@ def bullets(text,heading=None):
 def board(paths):
     """Every active project for management: the recorded status with its time and lag, what the project waits on,
     its first open items, its deliverables by review state and its live resources. Codes only; the texts of one
-    project pass the data check in one call."""
-    rows=[]
+    project pass the data check in one call. The open items leave out the sections of OPEN.md under a heading with
+    closed, done, erledigt or abgeschlossen in it (projects.open_bullets). A parked project (awb projects park) is
+    not in `projects` and in no count: it has its own short list `parked` (code, customer, kind, reason, since)."""
+    rows=[];parked=[]
     for record in entries(paths):
+        if record.state=='parked':
+            since,reason=projects.park_info(paths,record.code) or ('','')
+            reason,redacted=checked(reason,paths) if reason else ('',False)
+            parked.append({'code':record.code,'kind':record.kind,'customer':record.customer,
+                           'reason':reason,'since':since or None,'board_redacted':redacted})
+            continue
         if record.state!='active':
             continue
         row,source,root=base_record(record,paths)
         state=source['STATE.md']['text'] if source['STATE.md']['status']=='available' else ''
         opened=source['OPEN.md']['text'] if source['OPEN.md']['status']=='available' else ''
-        waiting,items=bullets(state,'Waiting on'),bullets(opened)
+        waiting,items=bullets(state,'Waiting on'),open_items(opened)
         texts=waiting[:BOARD_ITEMS]+items[:BOARD_ITEMS]
         redacted=False
         if texts:
@@ -211,7 +224,7 @@ def board(paths):
              'without_status':sum(1 for r in rows if not r['status']['summary'])}
     from awb.tcp import board as board_file
     return {'source':'AWB project register','generated_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            'summary':summary,'projects':rows,'build':board_file.build_line(paths)}
+            'summary':summary,'projects':rows,'parked':sorted(parked,key=lambda r:r['code']),'build':board_file.build_line(paths)}
 
 
 def project_detail(code,paths):

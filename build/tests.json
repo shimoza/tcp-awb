@@ -10548,8 +10548,85 @@
    "name": "a manual row whose sentence is gone is reported by its id",
    "run": ".venv/bin/pytest tests/test_review.py::test_pd1_a_manual_row_whose_sentence_is_gone_is_reported_by_its_id",
    "status": "passing"
+  },
+  {
+   "id": "pd4-park-1",
+   "phase": "pd4-parked-state",
+   "name": "park and unpark change the register and keep folder, customer and kind",
+   "run": ".venv/bin/pytest tests/test_parked.py::test_park_and_unpark_change_the_register_and_keep_everything_else",
+   "status": "passing"
+  },
+  {
+   "id": "pd4-park-2",
+   "phase": "pd4-parked-state",
+   "name": "a closed or unknown project is not parked and a bad reason is refused",
+   "run": ".venv/bin/pytest tests/test_parked.py::test_a_closed_or_unknown_project_is_not_parked_and_the_reason_is_checked",
+   "status": "passing"
+  },
+  {
+   "id": "pd4-park-3",
+   "phase": "pd4-parked-state",
+   "name": "the board counts a parked project apart and leaves its items out of every count",
+   "run": ".venv/bin/pytest tests/test_parked.py::test_the_board_counts_a_parked_project_apart_and_leaves_its_items_out",
+   "status": "passing"
+  },
+  {
+   "id": "pd4-park-4",
+   "phase": "pd4-parked-state",
+   "name": "the board header without parked projects says 0 parked",
+   "run": ".venv/bin/pytest tests/test_parked.py::test_the_board_header_without_parked_projects_says_zero",
+   "status": "passing"
+  },
+  {
+   "id": "pd4-park-5",
+   "phase": "pd4-parked-state",
+   "name": "items under a closed heading are out of an active project's counts",
+   "run": ".venv/bin/pytest tests/test_parked.py::test_items_under_a_closed_heading_are_out_of_an_active_projects_counts",
+   "status": "passing"
+  },
+  {
+   "id": "pd4-park-6",
+   "phase": "pd4-parked-state",
+   "name": "the closed heading words work in any case",
+   "run": ".venv/bin/pytest tests/test_parked.py::test_the_closed_heading_words_in_any_case",
+   "status": "passing"
+  },
+  {
+   "id": "pd4-park-7",
+   "phase": "pd4-parked-state",
+   "name": "a closed section ends at a heading of the same or a higher level",
+   "run": ".venv/bin/pytest tests/test_parked.py::test_a_closed_section_ends_at_a_heading_of_the_same_or_a_higher_level",
+   "status": "passing"
+  },
+  {
+   "id": "pd4-park-8",
+   "phase": "pd4-parked-state",
+   "name": "awb close still works on a parked project",
+   "run": ".venv/bin/pytest tests/test_parked.py::test_close_still_works_on_a_parked_project",
+   "status": "passing"
+  },
+  {
+   "id": "pd4-park-9",
+   "phase": "pd4-parked-state",
+   "name": "the commands awb projects park and unpark",
+   "run": ".venv/bin/pytest tests/test_parked.py::test_the_commands_park_and_unpark",
+   "status": "passing"
+  },
+  {
+   "id": "pd4-park-10",
+   "phase": "pd4-parked-state",
+   "name": "material and rules still reach a parked project",
+   "run": ".venv/bin/pytest tests/test_parked.py::test_material_and_rules_still_reach_a_parked_project",
+   "status": "passing"
+  },
+  {
+   "id": "pd4-park-11",
+   "phase": "pd4-parked-state",
+   "name": "the session start line says the project is parked",
+   "run": ".venv/bin/pytest tests/test_parked.py::test_the_session_start_line_says_the_project_is_parked",
+   "status": "passing"
   }
  ],
- "total_tests": 1507,
+ "total_tests": 1518,
  "checked": "2026-10-22"
 }

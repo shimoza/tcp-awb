@@ -134,7 +134,7 @@ function loadOptions(){
 function loadProjects(){
   return api("/api/projects").then(function(d){
     var sel=el("m-project");clear(sel);
-    d.projects.filter(function(p){return p.state==="active";}).forEach(function(p){var o=document.createElement("option");o.value=p.code;o.textContent=p.code;sel.appendChild(o);});
+    d.projects.filter(function(p){return p.state==="active"||p.state==="parked";}).forEach(function(p){var o=document.createElement("option");o.value=p.code;o.textContent=p.code;sel.appendChild(o);});
     if(sel.value){loadHistory();}
   }).catch(function(e){el("m-note").textContent=e.message;});
 }

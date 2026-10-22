@@ -238,7 +238,12 @@ a reply while its commits are newer than that status. `awb board show` turns the
 one page for management: what each project waits on, its open items, its deliverables by review state and its live
 resources, with codes only. It also carries the wipe mode as the last refresh measured it: `awb refresh` runs the
 red-team pack of wipe mode through the installed intake and keeps its leaks and losses in `refresh/wipe.tsv`.
-`awb board write` keeps it as Markdown and as HTML that prints on A4.
+`awb board write` keeps it as Markdown and as HTML that prints on A4. A project that waits on the customer or rests is
+parked with `awb projects park tcp-xxxx --reason "waits on the customer"` and comes back with `awb projects unpark`: the
+board counts it apart ("N active, M parked") in its own short Parked section and leaves its OPEN.md items out of every
+count and list. The items under a heading of OPEN.md that has closed, done, erledigt or abgeschlossen in it are out of
+the counts of an active project as well. A parked project keeps its folder, grants and tenants, takes material, and
+`awb close` still works on it.
 
 The console is the web side of the same work, behind a sign-in. Before the sign-in a request holds one of 64 slots
 (at most 4 per address) and has 5 seconds for its headers and its body; a signed-in request has 20 seconds for its
@@ -499,6 +504,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | start work in one owner command | `awb start project --goal "..." --customer new` (or no customer; `query` the same) | in your own terminal: the customer code is issued with the project code from the same four characters and its written forms are asked at the prompt as `awb import` asks (never an argument, so never in the shell history), `awb spawn` runs as the work user through `sudo -n`, your grant (`awb projects kind`, with the customer code it registered) is written, what lies in the project's `in/` folder is imported; it ends with `open: awb projects open tcp-xxxx` |
 | switch | `awb projects kind tcp-xxxx project` (a customer project: `--customer CUST-XXXX`, the code its row names) | a query that needs a live test becomes a project (or back). The grant records the customer and is written only when you confirm it with `--customer`; without it the command prints `grant not written` and the line to run, another code is refused |
 | see the projects | `awb projects list` | every project with its goal and the session that holds it |
+| park a project | `awb projects park tcp-xxxx --reason "waits on the customer"`, later `awb projects unpark tcp-xxxx` | the board counts it apart and leaves its open items out; nothing else changes, material still comes in |
 | finish a project | `awb close tcp-xxxx`, then `awb projects delete tcp-xxxx` | close waits for open items and live resources and lists them with their commands when it refuses, then writes the fingerprint of the deliverables to the shared side; a session that leaves you an item with an allowed `awb` command in OPEN.md gets you one mail, sent by the 15 minute timer of `awb build nudge` after the name check; delete removes the folder and keeps the code |
 | take a file | `awb inbox take the pdf` | the file you described, from either inbox, into the project |
 | look up a fact | `awb kb find "ecs flavor eu-nl"`, `awb kb show KB-XXXX` | ranked facts with grade, source and check date; `show` also prints how the fact is checked again (its check block) |
@@ -520,7 +526,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | review a text | `awb review init`, `claims`, `l0`, `pass` | the claim list with evidence and a review record |
 | the week | `awb ledger add ...`, `awb report --by customer` | one line per piece of work, reports by customer, technology or project |
 | the half-year | `awb report --period --from 2026-04-01 --to 2026-09-30` | every project with activity in three blocks: active customer work, finished customer work, technical questions; `--reveal --out FILE` puts the names back, owner only |
-| the status | `awb board show`, `awb board write` | the status of every active project on one page |
+| the status | `awb board show`, `awb board write` | the status of every active project on one page, parked projects in a short section after them |
 | bring a commit live | `sudo awb deploy` | the new release, only the changed services restarted, the status at the end |
 | publish the console page | `sudo awb web publish --from-queue ID` | the checked page of a UI run live, the old one kept as a backup |
 | a login for the console | `sudo awb web user add LOGIN [--level owner]` | a random password, shown once (an owner entry also gets a TOTP key for his phone); `reset`, `remove`, `list`; `projects LOGIN CODE...` limits a reader to those project codes (no list: every project); `sudo awb web status` shows failed sign-ins and waits |

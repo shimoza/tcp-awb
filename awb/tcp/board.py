@@ -20,6 +20,11 @@ enough for a mail of awb build nudge (A6) adds "; nudged: B-013 asked 23:30" unt
 The recheck line comes from <shared>/recheck/state.tsv, one line per run of awb kb recheck-run (awb/tcp/recheck.py):
 "recheck: read 2026-10-18 12 confirmed, 1 refuted, 3 undecided; write 2026-11-02 4 confirmed, inventory equal; 9 for
 the owner", the newest run of each tier, counts and fixed words only; a cell outside its form or vocabulary is dropped.
+A parked project (awb projects park CODE, PD4: it waits on the customer or rests) is counted apart: the header reads "N
+active, M parked project(s)", its OPEN.md items are in no count and no list, and the "Parked" section after the
+active projects names code, customer, reason and the day it was parked. For an active project the items of OPEN.md
+under a heading with closed, done, erledigt or abgeschlossen in it (any case) are left out as well
+(projects.open_bullets).
 While the vault is locked both commands open with "locked since <time>" (T3); the project texts wait for the
 unlock, because the data check cannot run.
 """
@@ -80,11 +85,16 @@ def _more(block: dict) -> str:
     return " (and %d more)" % rest if rest > 0 else ""
 
 
+def _parked_since(r: dict) -> str:
+    return r.get("since") or "unknown"
+
+
 def markdown(board: dict) -> str:
     s = board["summary"]
     out = ["# Project status, %s" % when(board["generated_at"]), "",
-           "%d active project(s): %d with a current status, %d lagging behind their work, %d without a status "
-           "line yet." % (s["projects"], s["current"], s["lagging"], s["without_status"]), ""]
+           "%d active, %d parked project(s): %d with a current status, %d lagging behind their work, %d without a "
+           "status line yet." % (s["projects"], len(board.get("parked") or []), s["current"], s["lagging"],
+                                  s["without_status"]), ""]
     if board.get("wipe"):
         out += [board["wipe"], ""]
     for k in ("build", "recheck"):
@@ -116,6 +126,10 @@ def markdown(board: dict) -> str:
         out += ["- Deliverables: %s" % _deliverables(p),
                 "- Live resources in the cloud: %s" % ("unknown" if p["live_resources"] is None
                                                        else p["live_resources"])]
+    if board.get("parked"):
+        out += ["", "## Parked", "", "| Project | Customer | Reason | Since |", "|---|---|---|---|"]
+        out += ["| %s (%s) | %s | %s | %s |" % (r["code"], r["kind"], _customer(r), cell(r.get("reason") or "-"),
+                                               _parked_since(r)) for r in board["parked"]]
     return "\n".join(out) + "\n"
 
 
@@ -168,16 +182,24 @@ def page(board: dict) -> str:
         sections.append("<section><h2>%s: %s</h2><dl>%s</dl></section>" % (
             e(p["code"]), e(p["goal"] or "no goal recorded"),
             "".join("<dt>%s</dt><dd>%s</dd>" % (k, v) for k, v in rows_dl)))
+    parked = ""
+    if board.get("parked"):
+        parked = ("<section><h2>Parked</h2><div class=\"wrap\"><table><thead><tr><th>Project</th><th>Customer</th>"
+                  "<th>Reason</th><th>Since</th></tr></thead><tbody>%s</tbody></table></div></section>" % "".join(
+                      "<tr><td>%s<br><span class=\"none\">%s</span></td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
+                          e(r["code"]), e(r["kind"]), e(_customer(r)), e(r.get("reason") or "-"),
+                          e(_parked_since(r))) for r in board["parked"]))
     return ("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
             "content=\"width=device-width,initial-scale=1\"><title>Project status %s</title><style>%s</style></head>"
-            "<body><h1>Project status, %s</h1><p class=\"lead\">%d active project(s): %d with a current status, "
-            "%d lagging behind their work, %d without a status line yet.</p>%s<div class=\"wrap\"><table><thead><tr>"
+            "<body><h1>Project status, %s</h1><p class=\"lead\">%d active, %d parked project(s): %d with a current "
+            "status, %d lagging behind their work, %d without a status line yet.</p>%s<div class=\"wrap\"><table><thead><tr>"
             "<th>Project</th><th>Customer</th><th>Status</th><th>Next</th><th>Status as of</th><th>Open</th>"
-            "<th>Live</th></tr></thead><tbody>%s</tbody></table></div>%s</body></html>\n" % (
-                e(when(board["generated_at"])), STYLE, e(when(board["generated_at"])), s["projects"], s["current"],
+            "<th>Live</th></tr></thead><tbody>%s</tbody></table></div>%s%s</body></html>\n" % (
+                e(when(board["generated_at"])), STYLE, e(when(board["generated_at"])), s["projects"],
+                len(board.get("parked") or []), s["current"],
                 s["lagging"], s["without_status"],
                 "".join('<p class="lead">%s</p>' % e(board[k]) for k in ("wipe", "build", "recheck") if board.get(k)), rows,
-                "".join(sections)))
+                "".join(sections), parked))
 
 
 def write(board: dict, out: Path) -> tuple[Path, Path]:
@@ -498,8 +520,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     md, page_path = write(board, Path(args.out).expanduser())
     s = board["summary"]
-    print("awb board: %d active project(s), %d current, %d lagging, %d without a status line" % (
-        s["projects"], s["current"], s["lagging"], s["without_status"]))
+    print("awb board: %d active project(s), %d current, %d lagging, %d without a status line%s" % (
+        s["projects"], s["current"], s["lagging"], s["without_status"],
+        ", %d parked" % len(board["parked"]) if board.get("parked") else ""))
     print(md)
     print(page_path)
     return 0

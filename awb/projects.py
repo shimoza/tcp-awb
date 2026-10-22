@@ -52,7 +52,14 @@ def tenant_access(kind: str) -> bool:
     """True when a project of this kind may reach the test tenants."""
     return kind in TENANT_KINDS
 HEADER = ("code", "kind", "customer", "platform", "path", "memory_key", "state", "created")
-STATES = ("active", "closed", "deleted")
+STATES = ("active", "parked", "closed", "deleted")
+LIVE_STATES = ("active", "parked")
+"""A parked project (PD4) waits on the customer or rests: it keeps its folder, grants, bucket folder and tenants, and
+material may still come in. Only the board, the owner's waiting list and the mails leave it out. `awb close` works on
+it, `awb projects unpark` brings it back. Its date and reason live in <shared>/parked.tsv (`park_info`)."""
+PARK_FILE = "parked.tsv"
+MAX_REASON = 80
+_REASON_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 .,;:()/+-]*")
 PLATFORM = "tcp"
 NO_CUSTOMER = "none"
 SUBFOLDERS = ("input", "evidence", "deliverables", "reviews")
@@ -150,7 +157,7 @@ def _check(pr: Project, where: str) -> None:
     if pr.memory_key != memory_key(pr.path):
         raise _fail(where, "memory_key must be the path with every slash turned into a hyphen")
     if pr.state not in STATES:
-        raise _fail(where, "state must be active, closed or deleted")
+        raise _fail(where, "state must be active, parked, closed or deleted")
     if not _DATE_RE.fullmatch(pr.created):
         raise _fail(where, "created is not an ISO date (YYYY-MM-DD)")
     try:
@@ -723,13 +730,38 @@ def bucket_folder(code: str) -> str:
     return "bucket folder %s%s with in/ and out/" % (folder, "" if answer.get("created") else " (there already)")
 
 
+CLOSED_HEADING = re.compile(r"closed|done|erledigt|abgeschlossen", re.IGNORECASE)
+"""A heading of OPEN.md with one of these words marks the items below it as settled (PD4)."""
+
+
+def open_bullets(text: str) -> list[str]:
+    """The lines of an OPEN.md text that start with "- " and count as open: the items under a heading whose text
+    contains closed, done, erledigt or abgeschlossen (any case) are settled and left out, down to the next heading
+    of the same or a higher level."""
+    out: list[str] = []
+    skip_level = 0                      # 0: not inside a closed section, else the level of its heading
+    for line in text.splitlines():
+        m = re.match(r"(#{1,6})\s+(.*)$", line)
+        if m:
+            level = len(m.group(1))
+            if skip_level and level <= skip_level:
+                skip_level = 0
+            if not skip_level and CLOSED_HEADING.search(m.group(2)):
+                skip_level = level
+            continue
+        if line.startswith("- ") and not skip_level:
+            out.append(line)
+    return out
+
+
 def open_items(folder: Path) -> int:
-    """Lines of OPEN.md that start with "- ": one open question or task each."""
+    """Lines of OPEN.md that start with "- ": one open question or task each. Items below a heading that marks them
+    closed or done are not counted (see `open_bullets`)."""
     try:
         text = (Path(folder) / "OPEN.md").read_text(encoding="utf-8")
     except OSError:
         return 0
-    return sum(1 for line in text.splitlines() if line.startswith("- "))
+    return len(open_bullets(text))
 
 
 def _live_rows(folder: Path) -> list[dict[str, str]]:
@@ -788,11 +820,10 @@ def open_item_lines(folder: Path) -> list[str]:
     except OSError:
         return []
     out = []
-    for line in text.splitlines():
-        if line.startswith("- "):
-            item = _plain(line[2:])
-            cmd = item_command(item)
-            out.append("open: %s%s" % (item, " (run: %s)" % cmd if cmd else ""))
+    for line in open_bullets(text):
+        item = _plain(line[2:])
+        cmd = item_command(item)
+        out.append("open: %s%s" % (item, " (run: %s)" % cmd if cmd else ""))
     return out
 
 
@@ -824,7 +855,7 @@ def mail_owner_commands_all(p: _config.Paths, send=None) -> int:
     session hook, where the key service refuses the work user. Returns the count sent."""
     sent = 0
     for r in load(p):
-        if r.state == "active":
+        if r.state == "active":      # a parked project has nothing for the owner
             sent += mail_owner_commands(p, Path(r.path), send)
     return sent
 
@@ -903,6 +934,7 @@ def close(p: _config.Paths, code: str, force: bool = False) -> Project:
                 if pr.state != "closed":
                     rows[i] = _replace(pr, state="closed")
                     _save(p, rows)
+                    _park_write(p, code, None)
                 done = rows[i]
                 break
     if done is None:
@@ -925,6 +957,113 @@ def write_fingerprint(p: _config.Paths, project: Project) -> str:
     return "fingerprint of %d deliverable(s) written" % n
 
 
+def _park_rows(p: _config.Paths) -> dict[str, tuple[str, str]]:
+    try:
+        text = (p.shared / PARK_FILE).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return {}
+    out: dict[str, tuple[str, str]] = {}
+    for line in text.splitlines():
+        cells = line.split("\t")
+        if len(cells) == 3 and _codes.is_project_code(cells[0]) and _DATE_RE.fullmatch(cells[1]):
+            out[cells[0]] = (cells[1], cells[2])
+    return out
+
+
+def park_info(p: _config.Paths, code: str) -> tuple[str, str] | None:
+    """(since, reason) of a parked project from <shared>/parked.tsv; None without a row (the reason may be empty)."""
+    return _park_rows(p).get(code)
+
+
+def _park_write(p: _config.Paths, code: str, row: tuple[str, str] | None) -> None:
+    """Set or (row None) remove the line of `code` in parked.tsv, atomically, mode 640. Call under `locked`."""
+    rows = _park_rows(p)
+    if row is None:
+        if code not in rows:
+            return
+        del rows[code]
+    else:
+        rows[code] = row
+    target = p.shared / PARK_FILE
+    data = "".join("%s\t%s\t%s\n" % (c, v[0], v[1]) for c, v in sorted(rows.items())).encode("utf-8")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".%s." % target.name, suffix=".tmp", dir=target.parent)
+    try:
+        os.fchmod(fd, 0o640)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _clean_reason(reason) -> str:
+    if reason is None:
+        return ""
+    if not isinstance(reason, str):
+        raise ProjectError("reason must be text")
+    reason = " ".join(reason.split())
+    if not reason:
+        return ""
+    if len(reason) > MAX_REASON:
+        raise ProjectError("reason is longer than %d characters" % MAX_REASON)
+    if not _REASON_RE.fullmatch(reason):
+        raise ProjectError("reason takes letters, digits, spaces and . , ; : ( ) / + - only")
+    _word_checks(reason, "reason")
+    return reason
+
+
+def park(p: _config.Paths, code: str, reason: str | None = None, today: date | None = None
+         ) -> tuple[Project, str]:
+    """Park an active project: the row's state becomes parked and <shared>/parked.tsv keeps the date and the reason.
+    Folder, grants, bucket folder and tenants stay as they are. Returns (row, the state before). Parking a parked
+    project changes the reason only when one is given."""
+    if not isinstance(code, str) or not _codes.is_project_code(code):
+        raise ProjectError("not a project code")
+    reason = _clean_reason(reason)
+    with _locked(p):
+        rows = load(p)
+        idx = next((i for i, r in enumerate(rows) if r.code == code), None)
+        if idx is None:
+            raise ProjectError("project %s is not registered" % code)
+        before = rows[idx].state
+        if before not in LIVE_STATES:
+            raise ProjectError("project %s is %s, only an active project is parked" % (code, before))
+        since = (today or date.today()).isoformat()
+        if before == "active":
+            rows[idx] = _replace(rows[idx], state="parked")
+            _save(p, rows)
+            _park_write(p, code, (since, reason))
+        elif reason:
+            _park_write(p, code, ((park_info(p, code) or (since, ""))[0], reason))
+    return rows[idx], before
+
+
+def unpark(p: _config.Paths, code: str) -> tuple[Project, str]:
+    """Bring a parked project back to active and drop its line in parked.tsv. Returns (row, the state before)."""
+    if not isinstance(code, str) or not _codes.is_project_code(code):
+        raise ProjectError("not a project code")
+    with _locked(p):
+        rows = load(p)
+        idx = next((i for i, r in enumerate(rows) if r.code == code), None)
+        if idx is None:
+            raise ProjectError("project %s is not registered" % code)
+        before = rows[idx].state
+        if before not in LIVE_STATES:
+            raise ProjectError("project %s is %s, only a parked project is unparked" % (code, before))
+        if before == "parked":
+            rows[idx] = _replace(rows[idx], state="active")
+            _save(p, rows)
+            _park_write(p, code, None)
+    return rows[idx], before
+
+
 def set_kind(p: _config.Paths, code: str, kind: str) -> tuple[Project, str]:
     """Switch a project between query and project. Returns (row, the kind before). The register row changes and
     the kind line of SCOPE.md follows when the folder can be written."""
@@ -938,7 +1077,7 @@ def set_kind(p: _config.Paths, code: str, kind: str) -> tuple[Project, str]:
         if idx is None:
             raise ProjectError("project %s is not registered" % code)
         before = rows[idx].kind
-        if rows[idx].state != "active":
+        if rows[idx].state not in LIVE_STATES:
             raise ProjectError("project %s is not active" % code)
         rows[idx] = _replace(rows[idx], kind=kind)
         _save(p, rows)
@@ -963,7 +1102,7 @@ def set_review_tier(p: _config.Paths, code: str, tier: int) -> tuple[Project, in
     row = next((r for r in load(p) if r.code == code), None)
     if row is None:
         raise ProjectError("project %s is not registered" % code)
-    if row.state != "active":
+    if row.state not in LIVE_STATES:
         raise ProjectError("project %s is not active" % code)
     scope = Path(row.path) / "SCOPE.md"
     try:

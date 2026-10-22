@@ -1398,6 +1398,29 @@ def owner_session_start(data: dict) -> int:
     return OK
 
 
+def _parked_line(p: config.Paths, root: Path) -> str | None:
+    """"This project is parked since DATE (reason): ..." for a parked project (PD4), else None. The project still
+    takes material and work; the line only says the board counts it apart. The reason shows only after the name
+    check. Never fails the hook."""
+    try:
+        from awb import projects
+
+        row = next((r for r in projects.load(p) if r.code == root.name), None)
+        if row is None or row.state != "parked":
+            return None
+        since, reason = projects.park_info(p, row.code) or ("", "")
+        try:
+            if reason and name_hits(reason, p):
+                reason = ""
+        except Exception:
+            reason = ""
+        return ("This project is parked%s%s: the board counts it apart and leaves its open items out. Material "
+                "may still come in and the work goes on; the owner brings it back with awb projects unpark %s."
+                % (" since %s" % since if since else "", " (%s)" % reason if reason else "", row.code))
+    except Exception:
+        return None
+
+
 def hook_session_start(data: dict) -> int:
     p = config.paths()
     root = project_root(_session_folder(data))
@@ -1435,6 +1458,9 @@ def hook_session_start(data: dict) -> int:
                 return OK
             shown, down = "this project", [str(exc)]
         parts.append("Workbench project %s. Codes only, never a name.\n" % shown)
+        parked = _parked_line(p, root)
+        if parked:
+            parts.append(parked + "\n")
         parts.append(_section(root, "SCOPE.md", None, notes, down))
         parts.append(_section(root, "STATE.md", STATE_LINES, notes, down))
         parts.append(_section(root, "OPEN.md", None, notes, down))

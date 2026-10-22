@@ -1672,7 +1672,7 @@ def project_folder(code: str) -> Path:
         rows = projects.load(p)
     except Exception:
         raise LabError("the project register cannot be read") from None
-    row = next((x for x in rows if x.code == code and x.state == "active"), None)
+    row = next((x for x in rows if x.code == code and x.state in projects.LIVE_STATES), None)
     if row is None:
         raise LabError("%s is not an active project" % code)
     if not projects.tenant_access(row.kind):

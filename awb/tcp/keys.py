@@ -561,7 +561,7 @@ class Service:
         if not isinstance(code, str) or not _PROJECT_RE.match(code):
             return None
         try:
-            return next((r for r in projects.load(self.paths_fn()) if r.code == code and r.state == "active"),
+            return next((r for r in projects.load(self.paths_fn()) if r.code == code and r.state in projects.LIVE_STATES),
                         None)
         except Exception:
             return None
@@ -849,7 +849,7 @@ class Service:
         from awb import projects
 
         try:
-            return any(r.code == code and r.state == "active" for r in projects.load(self.paths_fn()))
+            return any(r.code == code and r.state in projects.LIVE_STATES for r in projects.load(self.paths_fn()))
         except Exception:
             return False
 

@@ -462,7 +462,7 @@ def part_wipe(p: config.Paths, *, today: datetime.date, code_root: Path | None =
 def part_projects(p: config.Paths, *, today: datetime.date, max_age: int) -> Part:
     part = Part("projects")
     try:
-        registered = [r for r in projects.load(p) if r.state == "active"]
+        registered = [r for r in projects.load(p) if r.state in projects.LIVE_STATES]
     except projects.ProjectError as err:
         part.error = str(err)
         return part

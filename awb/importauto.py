@@ -77,7 +77,7 @@ def run(p: config.Paths, client=None, now: datetime | None = None) -> int:
         return importcmd.EXIT_ERROR
     try:
         c = client or bucket.client()
-        active = [pr for pr in projects.load(p) if pr.state == "active"]
+        active = [pr for pr in projects.load(p) if pr.state in projects.LIVE_STATES]
     except (bucket.BucketError, projects.ProjectError) as err:
         _log(p, "%s import --auto: nothing done (%s)" % (stamp, err))
         return importcmd.EXIT_ERROR

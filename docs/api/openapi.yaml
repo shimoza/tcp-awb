@@ -4578,6 +4578,7 @@ components:
           description: Deleted projects are not listed.
           enum:
             - active
+            - parked
             - closed
         created:
           type: string
@@ -4721,6 +4722,7 @@ components:
           description: Deleted projects are not listed.
           enum:
             - active
+            - parked
             - closed
         created:
           type: string
@@ -4815,6 +4817,7 @@ components:
           description: Deleted projects are not listed.
           enum:
             - active
+            - parked
             - closed
         created:
           type: string
@@ -5170,6 +5173,35 @@ components:
           description: Active projects, latest change first.
           items:
             "$ref": "#/components/schemas/BoardProject"
+        parked:
+          type: array
+          description: "Parked projects (awb projects park) by code: their OPEN.md items are in no count."
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+              kind:
+                type: string
+              customer:
+                type: string
+              reason:
+                type: string
+                description: "After the data check; empty without one."
+              since:
+                type:
+                  - string
+                  - "null"
+                description: "The day the project was parked; null when not recorded."
+              board_redacted:
+                type: boolean
+            required:
+              - code
+              - kind
+              - customer
+              - reason
+              - since
+              - board_redacted
         build:
           type: string
           description: "The build line of the self-build from <shared>/build/state.tsv: the tasks, live, main and how many are not deployed. Ids, state words, short hashes and times only."
