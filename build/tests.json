@@ -10100,8 +10100,15 @@
    "name": "trusted learns no form from a guess so the words stay everywhere",
    "run": ".venv/bin/pytest tests/test_import_auto.py::test_trusted_learns_no_form_from_a_guess_so_the_words_stay_everywhere",
    "status": "passing"
+  },
+  {
+   "id": "lc-drop-keep-1",
+   "phase": "lc-laptop-clean",
+   "name": "the key service never drops the .keep file of in/",
+   "run": ".venv/bin/pytest tests/test_import_auto.py::test_the_key_service_never_drops_the_keep_file_of_in",
+   "status": "passing"
   }
  ],
- "total_tests": 1443,
+ "total_tests": 1444,
  "checked": "2026-10-21"
 }

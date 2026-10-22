@@ -140,6 +140,13 @@ def test_the_key_service_drops_a_file_of_in_only(svc, own, home, project):
         bucket.client().drop_in(base + "out/b.md")
 
 
+def test_the_key_service_never_drops_the_keep_file_of_in(svc, own, home, project):
+    base = _base(project)
+    own.objects[base + "in/.keep"] = b"keeps this folder visible"
+    assert keys.request(svc.admin_path, {"op": "bucket_drop_in", "key": base + "in/.keep"})["ok"] is False
+    assert base + "in/.keep" in own.objects
+
+
 def test_auto_is_the_owners_and_takes_no_project(home, monkeypatch, capsys):
     assert cli.main(["import", "--auto", "tcp-q7m4"]) == 2
     assert "--auto takes no CODE" in capsys.readouterr().err
