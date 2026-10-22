@@ -116,5 +116,5 @@ def test_the_drafting_skill_names_both_chains_in_both_copies():
     for rel in ("seal/work-claude/skills/drafting/SKILL.md", "plugin/skills/drafting/SKILL.md"):
         s = " ".join((ROOT / rel).read_text(encoding="utf-8").split())
         assert "Chain 1, the customer writes German" in s and "Chain 2, he asks in Russian or English" in s, rel
-        assert "`awb write translate FILE --to de --to ru`" in s and "Never comment on his English" in s, rel
+        assert "`awb write translate FILE --to de --to ru`" in s and "You never correct his English" in s, rel
         assert "English note" not in s, rel
