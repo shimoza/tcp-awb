@@ -763,7 +763,8 @@ def owner_put_refusal(ctx: Context, req: dict) -> str | None:
 
 def serve_bucket(ctx: Context, req: dict, upload: Path | None) -> tuple[dict, Path | None]:
     """The owner's CLI: `bucket_list`, `bucket_get`, `bucket_put` on the owner bucket (the admin socket checks the
-    peer). OBS GET, PUT and LIST only; the upload limit is max_mb of keys.conf."""
+    peer). OBS GET, PUT and LIST, and the DELETE of `bucket_drop_in`: a file of in/ of an active project, after
+    `awb import --auto` took it into the vault; the upload limit is max_mb of keys.conf."""
     from awb import obs
 
     op = req.get("op")
@@ -780,8 +781,15 @@ def serve_bucket(ctx: Context, req: dict, upload: Path | None) -> tuple[dict, Pa
             return {"ok": True, "objects": [list(o) for o in listing.objects], "prefixes": list(listing.prefixes),
                     "modified": dict(listing.modified)}, None
         key = req.get("key")
-        if not owner_key_ok(ctx, key, "GET" if op == "bucket_get" else "PUT"):
+        if not owner_key_ok(ctx, key, "GET" if op in ("bucket_get", "bucket_drop_in") else "PUT"):
             return {"ok": False, "kind": "refused", "error": "refused"}, None
+        if op == "bucket_drop_in":
+            # `awb import --auto`: a file of a project's in/ after the vault holds its original (lc-laptop-clean);
+            # never the .keep that keeps an empty in/ visible in S3 clients
+            if key.rsplit("/", 1)[-1] == ".keep":
+                return {"ok": False, "kind": "refused", "error": "refused"}, None
+            c.delete(key)
+            return {"ok": True}, None
         if op == "bucket_get":
             head = c.head(key)
             if head is None:

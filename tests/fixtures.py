@@ -123,3 +123,13 @@ def service_lines() -> list[str]:
         "\t".join(("3.1.1", "Elastic Cloud Server", "Computing", "offered", "ECS", "", "")),
         "\t".join(("3.9.1", SERVICE_FORM, "Network", "offered", SERVICE_ALIAS, "", "")),
     ]
+
+
+# the invented values of the logs of `awb clean --kind logs` (lc-laptop-clean): a login, two hosts of an internal
+# network and two addresses of the documentation ranges; the secrets of those tests are built from pieces there, so
+# that the commit gate finds no secret in a test file
+LOG_USER = "qvelmar"
+LOG_HOST = "qvx-db01"
+LOG_INTERNAL_HOST = "app02.qvelnet.local"
+LOG_PUBLIC_IP = "203.0.113.45"
+LOG_PRIVATE_IP = "10.20.30.40"

@@ -12,7 +12,8 @@
 # owned in /etc/ssh/authorized_keys and out of its reach, sshd -T names that file for it, its home holds none,
 # cron.deny names it, crontab -l is refused and it has no crontab, the timers of its two nightly jobs and of the weekly
 # read tier of the fact-check are enabled and run as the work user, the last one the read tier alone (fact-check F9).
-# awb-kb-recheck-watch.timer is enabled and its unit runs awb kb recheck-watch as the owner
+# awb-kb-recheck-watch.timer is enabled and its unit runs awb kb recheck-watch as the owner; awb-import-auto.timer is
+# enabled and its unit runs awb import --auto as the owner
 # (fact-check F5). The egress table of the work user is loaded in the mode of the host file, takes
 # the work user's uid alone, lets an established connection pass only with the mark of the allow rules, counts a
 # planted connection of the work user to 192.0.2.1 (and refuses it in the mode enforce) and leaves one of the owner's
@@ -46,6 +47,7 @@ SSH_KEYS_DIR=/etc/ssh/authorized_keys     # as in setup.sh
 CRON_DENY=/etc/cron.deny
 WORK_JOBS="awb-work-update awb-kb-commit awb-kb-recheck"   # as in setup.sh
 RECHECK_WATCH_UNIT=awb-kb-recheck-watch   # seal/setup.sh writes its .service and .timer (fact-check F5)
+IMPORT_AUTO_UNIT=awb-import-auto          # seal/setup.sh writes its .service and .timer (lc-laptop-clean)
 seal_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 FORBIDDEN_GROUPS=(ubuntu docker adm sudo lxd)
 
@@ -300,6 +302,10 @@ allowed "the timer $RECHECK_WATCH_UNIT.timer is enabled and runs awb kb recheck-
     sh -c 'systemctl is-enabled --quiet "$3.timer" && test "$(stat -c "%U %a" -- "$1")" = "root 644" &&
     grep -qx "Type=oneshot" "$1" && grep -qx "User=$2" "$1" && grep -qx "ExecStart=/usr/local/bin/awb kb recheck-watch" "$1"' \
     verify "/etc/systemd/system/$RECHECK_WATCH_UNIT.service" "$owner" "$RECHECK_WATCH_UNIT"
+allowed "the timer $IMPORT_AUTO_UNIT.timer is enabled and runs awb import --auto as the owner" \
+    sh -c 'systemctl is-enabled --quiet "$3.timer" && test "$(stat -c "%U %a" -- "$1")" = "root 644" &&
+    grep -qx "Type=oneshot" "$1" && grep -qx "User=$2" "$1" && grep -qx "ExecStart=/usr/local/bin/awb import --auto" "$1"' \
+    verify "/etc/systemd/system/$IMPORT_AUTO_UNIT.service" "$owner" "$IMPORT_AUTO_UNIT"
 
 # --------------------------------------------------------------------------- the egress filter (seal/egress)
 

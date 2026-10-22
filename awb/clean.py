@@ -1,0 +1,515 @@
+"""`awb clean`: the anonymization of project material on the owner's laptop, before anything reaches the host (task
+lc-laptop-clean, his yes of 2026-10-22).
+
+    awb clean FILE... --project tcp-xxxx --kind docs|logs [--out DIR] [--put]
+    awb clean register CUST-XXXX
+    awb clean init
+    awb clean update
+
+It runs on a plain Linux (Ubuntu under WSL) with no vault daemon, no key service and no work user, and opens no
+network connection: the only network use is his own `--put` and `awb clean update`.
+
+- `docs` (docx, pptx, xlsx, odt, ods, odp, pdf, and text, Markdown, html and mail files): the body text only.
+  Pictures (logos), document properties, headers, footers, comments, tracked changes and hidden parts are read for
+  detection and never written. The registered forms of his customers become their codes, persons, companies,
+  places, mail addresses and phone numbers their tokens by the rules of wipe mode (awb/intake/wipe), secrets
+  [secret]. One Markdown file per input, `<name>.clean.md`.
+- `logs` (text, log, csv, json, yaml, conf and the like): mail addresses, phone numbers, user names, IP
+  addresses, internal host names and FQDNs that are no public product or service host, keys, tokens and passwords
+  are wiped (awb/cleanlogs.py); no name is guessed from the shape of a word, so the technical words stay. One file
+  per input with its own suffix, `<name>.clean.<suffix>`.
+
+The customer of the project is CUST- and its four characters (one code per project). Its written forms are typed
+once with `awb clean register`; they stay in the laptop's vault folder (awb/laptop.py) with the mapping of every
+run. Every output gets the final check of the intake (the registered forms, the structured data, the second check
+and, for docs, the candidates); an output that fails it is not written. A report per run in the output folder,
+`clean-report-<stamp>.md`, gives kinds and counts per file, never a value.
+
+`--put` puts the clean copies, never the originals, into `<YYYY-MM>/tcp-xxxx/in/` of the bucket awb (region eu-de)
+with his own key from AWB_OBS_AK and AWB_OBS_SK (AWB_OBS_BUCKET and AWB_OBS_REGION name another bucket or region).
+The project's folder is looked for under every month and used where it is; a missing one is created under this
+month with its in/ and out/ (awb/bucket_layout.py). On the host `awb import --auto` takes them in.
+
+`awb clean update` brings the lists of public words up to date (rules/common-words.txt, rules/tech-terms.txt,
+rules/allowed-terms.txt, rules/allow-domains.txt and the other allow lists) from the public repository: a
+`git pull --ff-only` of the clone, or for an install without git a download of those files over HTTPS checked
+against the blob ids of the repository tree. It sends nothing of his files and prints the counts that changed.
+"""
+from __future__ import annotations
+
+import hashlib
+import io
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.request
+from collections import Counter
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from pathlib import Path
+
+from awb import cleanlogs, codes, laptop
+
+EXIT_OK, EXIT_HELD, EXIT_ERROR = 0, 1, 2
+KINDS = ("docs", "logs")
+LOG_SUFFIXES = (".txt", ".log", ".csv", ".tsv", ".json", ".jsonl", ".ndjson", ".yaml", ".yml", ".conf", ".cfg",
+                ".ini", ".xml", ".out", ".err", ".toml", ".properties", ".env", ".trace")
+DOC_EXTRACT_KINDS = ("docx", "xlsx", "pptx", "odt", "ods", "odp", "pdf", "text", "html", "csv", "json", "eml",
+                     "mbox")
+CLEAN_NAME_RE = re.compile(r"\.clean(?: \(\d+\))?(?:\.md|%s)$" % "|".join(re.escape(s) for s in LOG_SUFFIXES))
+"""The name of a clean copy, also after the bucket download renamed it ("x.clean (2).md"): `awb import --auto`
+takes such a file with --trusted."""
+REMOVED_META = (("image_count", "pictures"), ("header_footer_parts", "header and footer parts"),
+                ("comment_count", "comments"), ("deleted_count", "tracked deletions"),
+                ("revision_authors", "revision authors"))
+MAX_LOG_BYTES = 200 * 1024 * 1024
+
+UPDATE_FILES = ("common-words.txt", "tech-terms.txt", "allowed-terms.txt", "allow-domains.txt", "known-words.txt",
+                "known-phrases.txt", "known-words-de.txt", "known-words-ru.txt", "vendor-names.txt", "standards.txt",
+                "source-platforms.txt")
+"""The lists of public terms `awb clean update` fetches: every one only ever keeps a word, none adds a candidate."""
+PUBLIC_REPO = "https://github.com/shimoza/tcp-awb.git"
+PUBLIC_BRANCH = "main"
+TREE_URL = "https://api.github.com/repos/shimoza/tcp-awb/git/trees/main?recursive=1"
+RAW_URL = "https://raw.githubusercontent.com/shimoza/tcp-awb/main/rules/%s"
+USER_AGENT = "tcp-awb-clean-update"
+
+
+class CleanError(Exception):
+    """A run cannot start. The message carries codes, kinds and counts, never a form, a value or a file name."""
+
+
+def is_clean_name(name: str) -> bool:
+    return bool(CLEAN_NAME_RE.search(name or ""))
+
+
+@dataclass
+class FileResult:
+    number: int
+    kind: str
+    output: Path | None = None
+    counts: Counter = field(default_factory=Counter)
+    removed: Counter = field(default_factory=Counter)
+    state: str = "clean"
+    why: str = ""
+
+
+@dataclass
+class RunResult:
+    files: list[FileResult]
+    report: Path | None
+    mapping: Path | None
+    put: list[str] = field(default_factory=list)
+
+    @property
+    def outputs(self) -> list[Path]:
+        return [f.output for f in self.files if f.output is not None]
+
+
+# --------------------------------------------------------------------------- one run
+
+_SAFE_NAME_RE = re.compile(r"[^\w.-]+")
+
+
+def _safe_stem(engine, src: Path, taken: set[str], number: int) -> str:
+    """The stem of the copy: the original stem with its registered forms, names and data replaced, in plain file
+    name characters; `file-N` when the replaced stem still carries something."""
+    clean, _ = engine.sanitize(re.sub(r"[_]+", " ", src.stem), "file name")
+    stem = _SAFE_NAME_RE.sub("-", clean).strip("-.")[:80] or "file-%d" % number
+    if engine.leaks(stem.replace("-", " "), candidates=False):
+        stem = "file-%d" % number
+    base, n = stem, 1
+    while stem.casefold() in taken:
+        n += 1
+        stem = "%s-%d" % (base, n)
+    taken.add(stem.casefold())
+    return stem
+
+
+def _read_log(src: Path) -> str | None:
+    data = src.read_bytes()
+    if b"\x00" in data[:8192] and not data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return None
+    for bom, enc in ((b"\xef\xbb\xbf", "utf-8"), (b"\xff\xfe", "utf-16-le"), (b"\xfe\xff", "utf-16-be")):
+        if data.startswith(bom):
+            return data[len(bom):].decode(enc, errors="replace")
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("cp1252", errors="replace")
+
+
+def _final_hits(engine, text: str, docs: bool) -> Counter:
+    from awb.intake.engine import _body_hits
+
+    hits = engine.leaks(text, candidates=False)
+    if docs:
+        hits += _body_hits(engine, text)
+    return Counter(h.cls for h in hits)
+
+
+def _secret_pass(text: str, counts: Counter) -> str:
+    return cleanlogs.wipe_secrets(text, counts)
+
+
+def run(files: list[Path], project: str, kind: str, out: Path | None = None, *, put: bool = False,
+        say=print) -> RunResult:
+    """Clean `files` for `project` into `out` (default ./clean/). See the module text."""
+    from awb import intake
+    from awb import extract as _extract
+    from awb.intake.engine import _Engine
+
+    if kind not in KINDS:
+        raise CleanError("--kind is docs or logs")
+    customer = laptop.customer_of(project)
+    if not laptop.known(customer):
+        raise CleanError("%s has no form on this laptop yet: run awb clean register %s once" % (customer, customer))
+    files = [Path(f) for f in files]
+    if not files:
+        raise CleanError("no file given")
+    for i, f in enumerate(files, start=1):
+        if f.is_symlink() or not f.is_file():
+            raise CleanError("file %d of %d is not a regular file" % (i, len(files)))
+    failed = intake.selftest()
+    if failed:
+        raise CleanError("the intake failed its self-test, nothing is cleaned: %s" % "; ".join(failed))
+    out = Path(out) if out is not None else Path.cwd() / "clean"
+    out.mkdir(parents=True, exist_ok=True)
+    os.chmod(out, 0o700)
+
+    engine = _Engine(laptop.entries())
+    engine.wipe.trusted = kind == "logs"
+    if kind == "logs":
+        cleanlogs.log_view(engine)
+    tokens = cleanlogs.Tokens()
+    results: list[FileResult] = []
+    sources: list[tuple[FileResult, Path, object]] = []
+
+    # detection over every file first: a name one file teaches (a comment author, a mail header) is wiped in all
+    for number, src in enumerate(files, start=1):
+        fr = FileResult(number=number, kind=kind)
+        results.append(fr)
+        if kind == "logs":
+            if src.suffix.lower() not in LOG_SUFFIXES:
+                fr.state, fr.why = "skipped", "not a log, config or ticket file (its suffix), use --kind docs"
+                continue
+            if src.stat().st_size > MAX_LOG_BYTES:
+                fr.state, fr.why = "skipped", "larger than %d MB" % (MAX_LOG_BYTES // (1024 * 1024))
+                continue
+            text = _read_log(src)
+            if text is None:
+                fr.state, fr.why = "skipped", "not text"
+                continue
+            engine.detect("%d detect" % number, text, names_only=True)
+            sources.append((fr, src, text))
+            continue
+        with _extract.temp_root(laptop.tmp_dir()):
+            ex = _extract.extract(src)
+        fr.kind = ex.kind
+        if ex.kind not in DOC_EXTRACT_KINDS or ex.state == "failed" or not (ex.text or "").strip():
+            fr.state, fr.why = "skipped", "no text could be read (%s)" % ex.kind
+            continue
+        for part_id, pex in intake._walk(ex, str(number)):
+            pieces = [pex.detect_text or ""]
+            if pex.text and pex.text not in pieces[0]:
+                pieces.append(pex.text)
+            pieces.append(intake._meta_text(pex.meta))
+            engine.detect("%s detect" % part_id, "\n".join(t for t in pieces if t))
+            engine.detect("%s raw parts" % part_id, getattr(pex, "scan_text", "") or "", names_only=True)
+            for key, label in REMOVED_META:
+                value = pex.meta.get(key)
+                if isinstance(value, int) and not isinstance(value, bool) and value:
+                    fr.removed[label] += value
+            props = [k for k, v in pex.meta.items() if isinstance(v, str) and v.strip() and k != "extractor"]
+            if props:
+                fr.removed["document properties"] += len(props)
+        sources.append((fr, src, ex))
+
+    taken: set[str] = set()
+    written: list[Path] = []
+    for fr, src, item in sources:
+        stem = _safe_stem(engine, src, taken, fr.number)
+        if kind == "logs":
+            suffix = src.suffix.lower()
+            name = "%s.clean%s" % (stem, suffix)
+            text = _secret_pass(item, fr.counts)
+            text = cleanlogs.wipe_log(text, tokens, fr.counts)
+            body, c = engine.sanitize(text, name)
+            fr.counts.update(c)
+        else:
+            name = "%s.clean.md" % stem
+            bodies = []
+            for i, (part_id, pex) in enumerate(intake._walk(item, str(fr.number))):
+                text = _secret_pass(pex.text or "", fr.counts)
+                clean, c = engine.sanitize(text, name)
+                fr.counts.update(c)
+                if clean.strip():
+                    bodies.append(clean.strip("\n") if i == 0 else "## part %d\n\n%s" % (i, clean.strip("\n")))
+            body = "\n\n".join(bodies) + "\n"
+        body = cleanlogs.drop_secret_lines(body, fr.counts)
+        left = _final_hits(engine, body, kind == "docs")
+        if left:
+            fr.state = "withheld"
+            fr.why = "the final check found %s, no copy written" % ", ".join("%s %d" % kv for kv in sorted(left.items()))
+            continue
+        path = out / name
+        if path.exists():
+            fr.state, fr.why = "skipped", "a copy of that name is in the output folder already"
+            continue
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write(body)
+        fr.output = path
+        written.append(path)
+
+    rows = [(h.token, h.cls, h.value, ",".join(sorted(h.where))) for h in engine.hits.values()]
+    rows += [(tok, cls, value, "") for tok, cls, value in tokens.rows]
+    mapping = laptop.write_map(project, rows)
+    report = _write_report(out, project, customer, kind, results)
+    res = RunResult(files=results, report=report, mapping=mapping)
+    if put and written:
+        res.put = put_files(project, written, say=say)
+    return res
+
+
+def _counts_text(counts: Counter) -> str:
+    return ", ".join("%s %d" % kv for kv in sorted(counts.items()) if kv[1]) or "nothing"
+
+
+def _write_report(out: Path, project: str, customer: str, kind: str, results: list[FileResult]) -> Path:
+    stamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+    path, n = out / ("clean-report-%s.md" % stamp), 1
+    while path.exists():
+        n += 1
+        path = out / ("clean-report-%s-%d.md" % (stamp, n))
+    lines = ["# awb clean %s" % stamp, "", "- project: %s" % project, "- customer: %s" % customer,
+             "- kind: %s" % kind, "- files: %d" % len(results), "", "| file | read as | state | replaced | removed |",
+             "| --- | --- | --- | --- | --- |"]
+    for fr in results:
+        label = fr.output.name if fr.output else "file %d" % fr.number
+        state = fr.state + (" (%s)" % fr.why if fr.why else "")
+        lines.append("| %s | %s | %s | %s | %s |" % (label, fr.kind, state, _counts_text(fr.counts),
+                                                      _counts_text(fr.removed)))
+    lines += ["", "Kinds and counts only. The values and their tokens stay in the vault folder of this laptop."]
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return path
+
+
+# --------------------------------------------------------------------------- the bucket
+
+
+def _client():
+    """His own key from the environment, the bucket awb in eu-de unless the environment names others."""
+    from awb import bucket_layout, obs
+
+    ak, sk = (os.environ.get(k) or "" for k in laptop.PUT_ENV)
+    if not ak or not sk:
+        raise CleanError("--put needs his own key in %s and %s" % laptop.PUT_ENV)
+    return obs.Client(os.environ.get("AWB_OBS_BUCKET") or bucket_layout.OWNER_BUCKET, obs.Keys(ak, sk),
+                      region=os.environ.get("AWB_OBS_REGION") or bucket_layout.REGION)
+
+
+def put_files(project: str, files: list[Path], *, client=None, today: date | None = None, say=print) -> list[str]:
+    """The clean copies into <YYYY-MM>/<project>/in/: the folder under any month, else a new one under this month
+    with its in/ and out/. A copy of a name that is in in/ already is not replaced. Returns the keys written."""
+    from awb import bucket, bucket_layout, obs
+
+    for f in files:
+        if not is_clean_name(f.name):
+            raise CleanError("--put takes the clean copies of awb clean only")
+    c = client or _client()
+    try:
+        folder = bucket.find_folder(c, project)
+        if folder is None:
+            folder = bucket_layout.folder_of((today or date.today()).strftime("%Y-%m"), project)
+            for key in (folder, folder + bucket_layout.IN, folder + bucket_layout.OUT):
+                if c.head(key) is None:
+                    c.put_bytes(key, b"")
+            say("bucket: created %s" % folder)
+        written = []
+        for f in files:
+            key = folder + bucket_layout.IN + f.name
+            if c.head(key) is not None:
+                say("bucket: %s is in %sin/ already, not replaced" % (f.name, folder))
+                continue
+            ctype = "text/markdown" if f.suffix == ".md" else "text/plain"
+            c.put_file(key, f, ctype)
+            written.append(key)
+        say("bucket: %d clean cop%s into %s" % (len(written), "y" if len(written) == 1 else "ies",
+                                                 folder + bucket_layout.IN))
+        return written
+    except (obs.OBSError, bucket.BucketError) as err:
+        raise CleanError("the bucket: %s" % err) from None
+
+
+# --------------------------------------------------------------------------- awb clean update
+
+
+def _list_count(data: bytes) -> int:
+    return sum(1 for line in data.decode("utf-8", errors="replace").splitlines()
+               if line.strip() and not line.lstrip().startswith("#"))
+
+
+def _snapshot(rules: Path) -> dict[str, bytes]:
+    out = {}
+    for name in UPDATE_FILES:
+        try:
+            out[name] = (rules / name).read_bytes()
+        except OSError:
+            out[name] = b""
+    return out
+
+
+def _changes(before: dict[str, bytes], after: dict[str, bytes]) -> list[str]:
+    lines = []
+    for name in UPDATE_FILES:
+        a, b = before.get(name, b""), after.get(name, b"")
+        if a == b:
+            continue
+        old = {x.strip() for x in a.decode("utf-8", "replace").splitlines() if x.strip() and not x.startswith("#")}
+        new = {x.strip() for x in b.decode("utf-8", "replace").splitlines() if x.strip() and not x.startswith("#")}
+        lines.append("%s: %d -> %d entries (%d added, %d removed)" % (name, len(old), len(new), len(new - old),
+                                                                     len(old - new)))
+    return lines
+
+
+def git_blob_id(data: bytes) -> str:
+    return hashlib.sha1(b"blob %d\x00" % len(data) + data).hexdigest()
+
+
+def _fetch(url: str, limit: int = 32 * 1024 * 1024) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        data = resp.read(limit + 1)
+    if len(data) > limit:
+        raise CleanError("an answer of the public repository is larger than the limit")
+    return data
+
+
+def _update_git(repo: Path, run=subprocess.run) -> None:
+    dirty = run(["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"], capture_output=True,
+                text=True)
+    if dirty.returncode != 0:
+        raise CleanError("git cannot read the clone (exit %d)" % dirty.returncode)
+    if dirty.stdout.strip():
+        raise CleanError("the clone has local changes: commit or drop them, then awb clean update")
+    got = run(["git", "-C", str(repo), "pull", "--ff-only", "--quiet", PUBLIC_REPO, PUBLIC_BRANCH],
+              capture_output=True, text=True)
+    if got.returncode != 0:
+        raise CleanError("git pull --ff-only of the public repository failed (exit %d)" % got.returncode)
+
+
+def _update_https(rules: Path, fetch=_fetch) -> None:
+    tree = json.loads(fetch(TREE_URL).decode("utf-8"))
+    blobs = {e.get("path"): e.get("sha") for e in tree.get("tree", []) if isinstance(e, dict)}
+    fresh = {}
+    for name in UPDATE_FILES:
+        want = blobs.get("rules/" + name)
+        if not want:
+            continue
+        data = fetch(RAW_URL % name)
+        if git_blob_id(data) != want:
+            raise CleanError("%s does not match the checksum of the repository tree: nothing was changed" % name)
+        fresh[name] = data
+    for name, data in fresh.items():
+        tmp = rules / (".%s.tmp" % name)
+        tmp.write_bytes(data)
+        os.replace(tmp, rules / name)
+
+
+def update(rules: Path | None = None, *, run=subprocess.run, fetch=_fetch) -> list[str]:
+    """`awb clean update`: the lists of public terms from the public repository. Returns the lines of what changed."""
+    from awb import patterns
+
+    rules = Path(rules or patterns.RULES_DIR)
+    repo = rules.parent
+    before = _snapshot(rules)
+    if (repo / ".git").exists():
+        _update_git(repo, run=run)
+        how = "git pull --ff-only of %s" % PUBLIC_REPO
+    else:
+        _update_https(rules, fetch=fetch)
+        how = "download over HTTPS, checked against the blob ids of the repository tree"
+    changed = _changes(before, _snapshot(rules))
+    return ["update: %s" % how] + (changed or ["the lists are up to date: nothing changed"])
+
+
+# --------------------------------------------------------------------------- the command
+
+
+def _parser_files():
+    from awb.cli import SafeParser
+
+    ap = SafeParser(prog="awb clean", description="Clean project material on the laptop, offline: docs (office "
+                    "and pdf files) or logs (logs, configs, tickets); also awb clean register CUST-XXXX, awb clean "
+                    "init and awb clean update.")
+    ap.add_argument("files", nargs="+", metavar="FILE", help="the files to clean; the originals are never changed")
+    ap.add_argument("--project", required=True, metavar="tcp-xxxx", help="the project code; its customer is CUST- "
+                    "and the four characters")
+    ap.add_argument("--kind", required=True, choices=KINDS, help="docs: body text of documents, logos, properties, "
+                    "headers, footers and comments out, names wiped; logs: users, hosts, addresses and secrets wiped, "
+                    "technical words kept, no name guessed")
+    ap.add_argument("--out", default=None, metavar="DIR", help="the folder of the clean copies (default ./clean/)")
+    ap.add_argument("--put", action="store_true", help="put the clean copies into <YYYY-MM>/tcp-xxxx/in/ of the "
+                    "bucket awb with the key of AWB_OBS_AK and AWB_OBS_SK")
+    return ap
+
+
+def main(argv: list[str] | None = None) -> int:
+    from awb import register
+    from awb.cli import SafeParser
+
+    argv = list(sys.argv[1:] if argv is None else argv)
+    try:
+        if argv[:1] == ["register"]:
+            ap = SafeParser(prog="awb clean register", description="Type the written forms of a customer once, on "
+                            "this laptop only.")
+            ap.add_argument("customer", metavar="CUST-XXXX|tcp-xxxx")
+            args = ap.parse_args(argv[1:])
+            cust = args.customer if not codes.is_project_code(args.customer) else laptop.customer_of(args.customer)
+            laptop.ask_forms(cust)
+            return EXIT_OK
+        if argv[:1] == ["init"]:
+            SafeParser(prog="awb clean init", description="The folders of the laptop.").parse_args(argv[1:])
+            print("\n".join(laptop.init()))
+            return EXIT_OK
+        if argv[:1] == ["update"]:
+            SafeParser(prog="awb clean update", description="The lists of public terms from the public "
+                       "repository.").parse_args(argv[1:])
+            print("\n".join(update()))
+            return EXIT_OK
+        args = _parser_files().parse_args(argv)
+    except SystemExit as exc:
+        return 0 if exc.code in (0, None) else EXIT_ERROR
+    except (laptop.LaptopError, CleanError, register.RegisterError) as err:
+        print("awb clean: %s" % err, file=sys.stderr)
+        return EXIT_ERROR
+    except OSError as err:
+        print("awb clean: %s (operating system error)" % type(err).__name__, file=sys.stderr)
+        return EXIT_ERROR
+    started = time.monotonic()
+    try:
+        res = run([Path(f) for f in args.files], args.project, args.kind, Path(args.out) if args.out else None,
+                  put=args.put)
+    except (laptop.LaptopError, CleanError, register.RegisterError) as err:
+        print("awb clean: %s" % err, file=sys.stderr)
+        return EXIT_ERROR
+    except OSError as err:
+        print("awb clean: %s (operating system error)" % type(err).__name__, file=sys.stderr)
+        return EXIT_ERROR
+    for fr in res.files:
+        label = fr.output.name if fr.output else "file %d" % fr.number
+        print("%s: %s; replaced %s; removed %s%s" % (label, fr.state, _counts_text(fr.counts),
+                                                     _counts_text(fr.removed), " (%s)" % fr.why if fr.why else ""))
+    print("clean copies: %d of %d in %.1f s; report %s" % (len(res.outputs), len(res.files),
+                                                           time.monotonic() - started, res.report))
+    return EXIT_OK if all(fr.output for fr in res.files) else EXIT_HELD
+
+
+if __name__ == "__main__":
+    sys.exit(main())

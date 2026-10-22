@@ -104,9 +104,10 @@ _RANDOM_SPECIAL = "!@%^-_=+"
 """The special characters a drawn password takes: those both the ECS and the RDS password rules allow."""
 LEAVE_WAIT = 70.0
 """Seconds a handed-over service waits for its calls in flight (a cloud call takes at most 60) before it exits."""
-ADMIN_OPS = ("bucket_get", "bucket_list", "bucket_put", "load", "lock", "notify", "ping", "reload", "status")
+ADMIN_OPS = ("bucket_drop_in", "bucket_get", "bucket_list", "bucket_put", "load", "lock", "notify", "ping", "reload", "status")
 EXCHANGE_METHODS = ("GET", "HEAD", "PUT", "DELETE", "LIST", "COPY", "MONTHS", "OBS", "OWNER_HAS", "TAKE_OWNER", "INBOX_FIND",
-                    "WEB_READ", "TAKE_LAB", "OWNER_FOLDER", "WEB_PUT_IN", "BUCKET_GET", "BUCKET_LIST", "BUCKET_PUT")
+                    "WEB_READ", "TAKE_LAB", "OWNER_FOLDER", "WEB_PUT_IN", "BUCKET_GET", "BUCKET_LIST", "BUCKET_PUT",
+                    "BUCKET_DROP_IN")
 NOTIFY_MAX = 4000      # characters of an owner mail through the admin socket (awb ui watch --mail)
 CONSOLE_USER = "awb-console"
 """The system user of the console's tenant inventory (F2, his decision of 2026-10-04): it alone reads a test tenant
@@ -587,7 +588,7 @@ class Service:
         from awb import handover
 
         op = req.get("op")
-        if op in ("bucket_list", "bucket_get", "bucket_put"):
+        if op in ("bucket_list", "bucket_get", "bucket_put", "bucket_drop_in"):
             return self._bucket(op, req, uid, upload)
         if op == "ping":
             return {"ok": True, "ops": list(ADMIN_OPS), "release": handover.release_path()}

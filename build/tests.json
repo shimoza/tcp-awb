@@ -10023,8 +10023,169 @@
    "name": "sync through the key service writes the .keep files",
    "run": ".venv/bin/pytest tests/test_bucket_keep.py::test_sync_through_the_key_service_writes_the_keep_files",
    "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-1",
+   "phase": "lc-laptop-clean",
+   "name": "register asks the forms once echoes none and keeps them on the laptop",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_register_asks_the_forms_once_echoes_none_and_keeps_them_on_the_laptop",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-2",
+   "phase": "lc-laptop-clean",
+   "name": "a customer without a form on the laptop is refused with the register line",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_a_customer_without_a_form_on_the_laptop_is_refused_with_the_register_line",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-3",
+   "phase": "lc-laptop-clean",
+   "name": "docs keep the body and drop logos properties headers footers and names",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_docs_keep_the_body_and_drop_logos_properties_headers_footers_and_names",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-4",
+   "phase": "lc-laptop-clean",
+   "name": "logs wipe users hosts addresses mail and secrets and keep the technical words",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_logs_wipe_users_hosts_addresses_mail_and_secrets_and_keep_the_technical_words",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-5",
+   "phase": "lc-laptop-clean",
+   "name": "logs refuse a binary and a document and say why in the report",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_logs_refuse_a_binary_and_a_document_and_say_why_in_the_report",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-6",
+   "phase": "lc-laptop-clean",
+   "name": "nothing in the laptop path opens a network connection",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_nothing_in_the_laptop_path_opens_a_network_connection",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-7",
+   "phase": "lc-laptop-clean",
+   "name": "pdf is read as a document",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_pdf_is_read_as_a_document",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-8",
+   "phase": "lc-laptop-clean",
+   "name": "the clean name is what the host takes with trusted",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_the_clean_name_is_what_the_host_takes_with_trusted",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-9",
+   "phase": "lc-laptop-clean",
+   "name": "put finds the folder under its month and puts only clean copies",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_put_finds_the_folder_under_its_month_and_puts_only_clean_copies",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-10",
+   "phase": "lc-laptop-clean",
+   "name": "put creates the folder under this month and needs his key from the environment",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_put_creates_the_folder_under_this_month_and_needs_his_key_from_the_environment",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-11",
+   "phase": "lc-laptop-clean",
+   "name": "update pulls the clone and prints the counts that changed",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_update_pulls_the_clone_and_prints_the_counts_that_changed",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-12",
+   "phase": "lc-laptop-clean",
+   "name": "update without git downloads the lists and checks them against the tree",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_update_without_git_downloads_the_lists_and_checks_them_against_the_tree",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-13",
+   "phase": "lc-laptop-clean",
+   "name": "the commands are wired",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_the_commands_are_wired",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-14",
+   "phase": "lc-laptop-clean",
+   "name": "logs keep code names and stack traces and wipe the people in them",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_logs_keep_code_names_and_stack_traces_and_wipe_the_people_in_them",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-15",
+   "phase": "lc-laptop-clean",
+   "name": "a secret field with a plain word is no secret",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_a_secret_field_with_a_plain_word_is_no_secret",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-16",
+   "phase": "lc-laptop-clean",
+   "name": "auto imports clean copies trusted and the rest wiped then drops them from in",
+   "run": ".venv/bin/pytest tests/test_import_auto.py::test_auto_imports_clean_copies_trusted_and_the_rest_wiped_then_drops_them_from_in",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-17",
+   "phase": "lc-laptop-clean",
+   "name": "auto skips a project whose import runs and import refuses meanwhile",
+   "run": ".venv/bin/pytest tests/test_import_auto.py::test_auto_skips_a_project_whose_import_runs_and_import_refuses_meanwhile",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-18",
+   "phase": "lc-laptop-clean",
+   "name": "a project without a form is left in the vault inbox for his terminal",
+   "run": ".venv/bin/pytest tests/test_import_auto.py::test_a_project_without_a_form_is_left_in_the_vault_inbox_for_his_terminal",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-19",
+   "phase": "lc-laptop-clean",
+   "name": "the key service drops a file of in only",
+   "run": ".venv/bin/pytest tests/test_import_auto.py::test_the_key_service_drops_a_file_of_in_only",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-20",
+   "phase": "lc-laptop-clean",
+   "name": "auto is the owners and takes no project",
+   "run": ".venv/bin/pytest tests/test_import_auto.py::test_auto_is_the_owners_and_takes_no_project",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-21",
+   "phase": "lc-laptop-clean",
+   "name": "setup installs the import timer and verify proves it enabled",
+   "run": ".venv/bin/pytest tests/test_import_auto.py::test_setup_installs_the_import_timer_and_verify_proves_it_enabled",
+   "status": "passing"
+  },
+  {
+   "id": "lc-laptop-clean-22",
+   "phase": "lc-laptop-clean",
+   "name": "trusted learns no form from a guess so the words stay everywhere",
+   "run": ".venv/bin/pytest tests/test_import_auto.py::test_trusted_learns_no_form_from_a_guess_so_the_words_stay_everywhere",
+   "status": "passing"
+  },
+  {
+   "id": "lc-drop-keep-1",
+   "phase": "lc-laptop-clean",
+   "name": "the key service never drops the .keep file of in/",
+   "run": ".venv/bin/pytest tests/test_import_auto.py::test_the_key_service_never_drops_the_keep_file_of_in",
+   "status": "passing"
   }
  ],
- "total_tests": 1432,
+ "total_tests": 1455,
  "checked": "2026-10-21"
 }

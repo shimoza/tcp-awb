@@ -23,6 +23,14 @@ class, the pictures held and the files withheld, and leaves a notice for the ses
 Refused for the work user and inside an assistant session with the one line of the work rules (`hold_line`): the
 forms prompt and the review carry names. Nothing here prints a name, a form or a file name.
 
+    awb import --auto
+
+The owner's job of the timer awb-import-auto (seal/setup.sh, every 10 minutes, awb/importauto.py): the new files
+of in/ of every active project whose import is not running, the clean copies of `awb clean` with --trusted and any
+other file in wipe mode; the originals into the vault and out of in/, the "new input" notice, one log line per run.
+An import holds the lock of its project (`<vault>/locks/import-<code>.lock`): a second import of the same project
+at the same time is refused with one line.
+
     awb import CODE --paste [--kind mail|transcript|table]
 
 The same door for text he copies from a mail client, a meeting tool or a spreadsheet (`awb/pastein.py`). The text is
@@ -176,7 +184,7 @@ def _copy_out(p: config.Paths, original: Path, folder: Path) -> Path:
 
 def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None = None, review: bool = False,
         redo: bool = False, read=None, tty=None, edit=None, confirm=None, trusted: bool = False) -> int:
-    from awb import projects, rulesync, vault
+    from awb import projects, vault
 
     if config.is_work_user() or vault.in_assistant_session():
         raise ImportRefused(hold_line(code))
@@ -214,6 +222,21 @@ def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None =
             ask_forms(p, cust, read=read, tty=tty, allow_none=own is None)
     if review and not (tty if tty is not None else (sys.stdin.isatty() and sys.stdout.isatty())) and edit is None:
         raise ImportRefused("--review opens an editor: run it in your own terminal")
+
+    from awb import importauto
+
+    with importauto.project_lock(p, code) as got:
+        if not got:
+            raise ImportRefused("an import of %s is running (awb import --auto or another terminal): try again when "
+                                "it ends" % code)
+        return _take(p, code, files, cust, review=review, redo=redo, edit=edit, confirm=confirm, trusted=trusted)
+
+
+def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: bool, redo: bool, edit, confirm,
+          trusted: bool) -> int:
+    """The files of the import (the arguments, the bucket, the vault inbox or the last import) through the intake,
+    under the import lock of the project."""
+    from awb import rulesync
 
     tmp: Path | None = None
     mapping = None
@@ -327,7 +350,7 @@ def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
     ap = SafeParser(prog="awb import", description="Customer material into a project in one command (owner side).")
-    ap.add_argument("code", metavar="CODE", help="the project code, tcp-xxxx")
+    ap.add_argument("code", metavar="CODE", nargs="?", default=None, help="the project code, tcp-xxxx (none with --auto)")
     ap.add_argument("files", nargs="*", metavar="FILE", help="files to take in (default: the bucket folder in/, then "
                                                                "the vault inbox)")
     ap.add_argument("--customer", default=None, metavar="CUST-XXXX|new",
@@ -336,6 +359,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--review", action="store_true", help="stop once on the candidates and review them in an editor")
     ap.add_argument("--trusted", action="store_true", help="the owner vouches that the files hold no name: no name "
                     "is guessed; the registered forms, the secret check, mail addresses and phones still apply")
+    ap.add_argument("--auto", action="store_true", help="the owner's job of the timer awb-import-auto: the new "
+                    "files of in/ of every active project, the clean copies of awb clean with --trusted, the rest in "
+                    "wipe mode; the originals into the vault and out of the bucket, one log line per run")
     ap.add_argument("--redo", action="store_true", help="run the originals of the last import again with the keep "
                                                          "list of now, the copies replace the earlier ones")
     ap.add_argument("--paste", action="store_true",
@@ -354,6 +380,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if exc.code in (0, None) else EXIT_ERROR
     from awb import projects, vault
 
+    if args.auto:
+        if args.code or args.files or args.customer or args.review or args.redo or args.paste or args.trusted:
+            print("awb import: --auto takes no CODE, FILE or other option", file=sys.stderr)
+            return EXIT_ERROR
+        from awb import importauto
+
+        return importauto.run(config.paths())
+    if not args.code:
+        print("awb import: a project code reads tcp-xxxx", file=sys.stderr)
+        return EXIT_ERROR
     if args.kind and not args.paste:
         print("awb import: --kind goes with --paste", file=sys.stderr)
         return EXIT_ERROR

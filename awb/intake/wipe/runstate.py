@@ -249,9 +249,9 @@ def _candidate_spans(state: WipeState, text: str, known: list[Span]) -> list[Spa
 def wipe_spans(state: WipeState, text: str, names: list[Span], structured: list[Span]) -> list[Span]:
     """The candidates of `text` and the learned forms of the run that stand in it, none over a registered form or a
     piece of structured data."""
-    spans = candidate_spans(state, text, names + structured)
-    if state.trusted:
-        spans = []   # the owner vouches for the files: no guessed name; register forms and structured data stay
+    # the owner vouches for the files (--trusted): no guessed name, so the rules do not even run; register forms and
+    # structured data stay
+    spans = [] if state.trusted else candidate_spans(state, text, names + structured)
     taken_spans = names + structured + spans
 
     def taken(a: int, b: int) -> bool:
@@ -284,6 +284,10 @@ def learn(state: WipeState, text: str, names: list[Span], structured: list[Span]
     labels of its mail and URL hosts become learned forms. Returns the candidate spans."""
     bind(state)
     state.learned.texts.append(text)
+    if state.trusted:
+        # `awb import --trusted` (and the clean copies of `awb clean`): no guessed name, so nothing is learned from
+        # a guess either; a learned form would wipe that guess wherever it stands again
+        return []
     for m in _PRODUCT_LABEL_RE.finditer(text):
         state.run_exempt.update(w.casefold() for w in re.findall(r"[^\W\d_][\w'’-]{2,}", m.group("v"))
                                 if not codes.is_code(w))
