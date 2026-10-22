@@ -1486,13 +1486,120 @@ def _fact_kind(token: str) -> tuple[str, str] | None:
     return None
 
 
+_ACROSS_NUM = (r"\d{1,3}(?:[  ]\d{3})+(?:[.,]\d+)?|\d{1,3}(?: \d{3})+[.,]\d+|\d+(?:[.,]\d+)*")
+_ACROSS_NUM_RE = re.compile(
+    r"(?<![\w.,/:+])(?<!\w-)(?P<num>%s)(?:(?P<sep>[  -]?)(?P<unit>[^\W\d_]+(?:/[^\W\d_]+)?\.?))?" % _ACROSS_NUM)
+_ACROSS_ISO_RE = re.compile(r"(?<![\w.,/:+-])(\d{4})-(\d{2})-(\d{2})(?!\d|[.,-]\d)(?![^\W\d_])")
+_ACROSS_DMY_RE = re.compile(r"(?<![\w.,/:+-])(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2})(?!\d|[.,]\d)(?![^\W\d_])")
+_ACROSS_PER_RE = re.compile(r"(?<![\w/])([^\W\d_]{1,6})/([^\W\d_]{1,8}\.?)(?![^\W\d_])")
+_UNIT_RULES = (
+    ("month", r"months?|mo|monat(?:e|en|s)?|мес(?:яц(?:а|ев|ы|е|у)?)?"),
+    ("week", r"weeks?|wo|woche|wochen|нед(?:ел(?:я|и|ь|ю|е))?"),
+    ("day", r"days?|tag(?:e|en|es)?|д(?:ень|ня|ней|ни|н)"),
+    ("hour", r"hours?|hrs?|h|std|stunden?|час(?:а|ов|у|е)?|ч"),
+    ("year", r"years?|yrs?|jahr(?:e|en|es)?|год(?:а|у|е)?|лет"),
+    ("gb", r"gb|гб"), ("tb", r"tb|тб"), ("mb", r"mb|мб"), ("gib", r"gib"), ("tib", r"tib"), ("mib", r"mib"),
+    ("vcpu", r"vcpus?"), ("mbit/s", r"mbit/s|mbps|мбит/с"), ("gbit/s", r"gbit/s|gbps|гбит/с"),
+)
+_UNIT_RES = tuple((name, re.compile(r"(?:%s)$" % pat)) for name, pat in _UNIT_RULES)
+_PER_UNITS = frozenset(("month", "week", "day", "hour", "year"))
+
+
+def _unit_of(word: str) -> str | None:
+    """The one name of a unit word in English, German or Russian (12 months, 12 Monate, 12 месяцев), None for a
+    word that is no unit of the list."""
+    low = word.lower().rstrip(".")
+    for name, rx in _UNIT_RES:
+        if rx.match(low):
+            return name
+    return None
+
+
+def _number_of(text: str) -> str:
+    """One value of a number in any of the written forms: 1,340.15 and 1.340,15 and 1 340,15 are 1340.15, and
+    2,5 and 2.5 are 2.5. One separator that stands before exactly three digits after one to three (not 0) is a
+    thousands mark (1.000 and 1,000), a number with several points that are no thousands marks is a version and
+    stays as written."""
+    s = re.sub(r"[   ]", "", text)
+    seps = [c for c in s if c in ".,"]
+    if not seps:
+        return s
+    kinds = set(seps)
+    if len(kinds) == 2:
+        dec = seps[-1]
+        thousands = next(iter(kinds - {dec}))
+        if seps.count(dec) != 1 or s.rindex(dec) < s.rindex(thousands):
+            return s
+        return s.replace(thousands, "").replace(dec, ".")
+    sep = seps[0]
+    parts = s.split(sep)
+    if len(seps) > 1:
+        return "".join(parts) if all(len(p) == 3 for p in parts[1:]) and len(parts[0]) <= 3 else s
+    if len(parts[1]) == 3 and 1 <= len(parts[0]) <= 3 and parts[0] != "0":
+        return "".join(parts)
+    return "%s.%s" % (parts[0], parts[1])
+
+
+def _across_scan(line: str) -> tuple[list[tuple[str, str]], str]:
+    """The dates, the numbers with their unit and the per-unit forms (EUR/month) of one line in the form the
+    languages share, and the line with these blanked out. 2026-10-21, 21.10.2026 and 21.10.26 are one date (the
+    day, month and year are read in the fixed order of each form), 12-month, 12 months and 12 Monate one length
+    of time, EUR/month and EUR/Monat one rate, and a number is read by `_number_of`."""
+    facts: list[tuple[str, str]] = []
+
+    def blank(m, start=0, end=None):
+        nonlocal line
+        a, b = m.start(start), m.end(start) if end is None else end
+        line = line[:a] + " " * (b - a) + line[b:]
+
+    def date(y: str, mo: str, d: str) -> str | None:
+        if len(y) == 2:
+            y = "20" + y
+        if 1 <= int(mo) <= 12 and 1 <= int(d) <= 31:
+            return "%s-%02d-%02d" % (y, int(mo), int(d))
+        return None
+
+    for m in list(_ACROSS_ISO_RE.finditer(line)):
+        got = date(m.group(1), m.group(2), m.group(3))
+        if got:
+            facts.append(("number", got))
+            blank(m, 0)
+    for m in list(_ACROSS_DMY_RE.finditer(line)):
+        got = date(m.group(3), m.group(2), m.group(1))
+        if got:
+            facts.append(("number", got))
+            blank(m, 0)
+    for m in list(_ACROSS_PER_RE.finditer(line)):
+        unit = _unit_of(m.group(2))
+        if unit in _PER_UNITS:
+            facts.append(("identifier", "/" + unit))
+            if m.group(1).isascii() or m.group(1).isupper():
+                got = _fact_kind(m.group(1))
+                if got and got[0] == "identifier":
+                    facts.append(got)
+            blank(m, 0)
+    for m in list(_ACROSS_NUM_RE.finditer(line)):
+        value = _number_of(m.group("num"))
+        unit = _unit_of(m.group("unit")) if m.group("unit") else None
+        end = m.end()
+        if unit:
+            facts.append(("number", "%s %s" % (value, unit)))
+        else:
+            end = m.end("num")
+            if re.match(r"[^\W_]|[.,/:+][^\W_]", line[end:end + 2]):
+                continue
+            facts.append(("number", value))
+        line = line[:m.start()] + " " * (end - m.start()) + line[end:]
+    return facts, line
+
+
 def _across(found: tuple[str, str] | None, token: str) -> list[tuple[str, str]]:
-    """The facts of one token when the two texts are in different languages (a comma between digits was read as
-    a point before: 2,5 and 2.5, 1.000 and 1,000 are the same number). An identifier needs a Latin letter or a digit (a Cyrillic abbreviation is a
-    word of the translation) and a hyphenated word that is no fact gives the facts of its parts (TCP-Konto)."""
-    if found is not None:
-        kind, value = found
-        if kind == "identifier" and not re.search(r"[A-Za-z0-9]", value):
+    """The facts of one token when the two texts are in different languages. An identifier needs a Latin letter or
+    a digit (a Cyrillic abbreviation is a word of the translation). A hyphenated word gives the facts of its parts
+    (g7v-Host holds g7v, CAD-Session-Hosts holds CAD, NVIDIA-Lizenz holds NVIDIA), a region such as eu-de stays
+    whole."""
+    if found is not None and (found[0] == "negation" or "-" not in token or _REGION_RE.match(token)):
+        if found[0] == "identifier" and not re.search(r"[A-Za-z0-9]", found[1]):
             return []
         return [found]
     out: list[tuple[str, str]] = []
@@ -1543,6 +1650,9 @@ def facts_of(text: str, across: bool = False) -> dict[str, list[tuple[str, int]]
         if marker:
             rest = " " * marker.end() + rest[marker.end():]
         if across:
+            shared, rest = _across_scan(rest)
+            for kind, value in shared:
+                out[kind].append((value, n))
             rest = re.sub(r"(?<=\d),(?=\d)", ".", rest)
         for m in _KEEP_TOKEN_RE.finditer(rest):
             if m.group(0).lower() == "one":

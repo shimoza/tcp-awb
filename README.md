@@ -335,7 +335,10 @@ A session shows him a draft only after the check ran clean in the same turn.
 `awb voice learn DRAFT -` learns from the sent text piped in on the owner side: it is wiped like a paste first and
 the original is written nowhere.
 `awb write translate` makes the German version and his Russian reading copy from the accepted text in one step and
-proves that every number, identifier and code block is kept.
+proves that every number, identifier and code block is kept. It keeps facts, not English spellings.
+A number with its unit (12-month, 12 Monate), a date (2026-10-21, 21.10.2026) and a number format (1,340.15,
+1.340,15) are the same fact in both languages. An identifier inside a hyphenated word (g7v-Host) counts. A changed
+value is still refused.
 
 **Few questions.** A session asks at most one question per reply, at its end, with the default it takes. Every other
 open decision goes into the project's `OPEN.md` with its default. `awb report --by questions` counts the replies that
