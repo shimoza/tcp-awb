@@ -3,6 +3,10 @@
     awb tenant setup ALIAS --domain-id ID [--region R] [--lab-key | --lab-user] [--alerts [--topic URN]]
                                                                         owner side: a new tenant in one command
     awb tenant add ALIAS --keys pass:ENTRY|file:PATH [--region R]...   owner side: a tenant and its read-only key
+    awb tenant add-readonly ALIAS --domain-id ID [--login | --key] [--region R]...
+                                                                        owner side: a read-only tenant (RT)
+    awb tenant remove ALIAS                                             owner side: forget a read-only tenant
+    awb tenant grant ALIAS CODE, awb tenant revoke ALIAS CODE           owner side: a project reads a read-only tenant
     awb tenant snapshot [ALIAS]...                                      owner side: list the tenant, GET only
     awb tenant list                                                     every tenant, what runs there now
     awb tenant now ALIAS                                                what runs there now, oldest first
@@ -30,6 +34,11 @@ on all projects, the user awb-read-<number of the alias> with programmatic acces
 `awb/tenant/ALIAS/lab/ak|sk`, with --alerts the CTS alert awb_new_access_key to the SMN topic of keys.conf, then
 `add`, `awb keys unlock` and the first snapshot. Only what is missing is made; a second run says nothing to do.
 It prints names and counts, never a value.
+
+`add-readonly` (task RT, awb/tcp/readonly.py) registers a tenant of a customer or partner where nothing may change:
+it checks by name that the pass entries are there (`awb/tenant/ALIAS/ak|sk` for --key, `login/domain|user|password`
+for --login), writes the readonly line of keys.conf and runs `awb keys unlock`. It is not in the register of
+tenants.tsv, so no snapshot and no sweep reads it. `grant` lets one project's sessions read it; nothing else does.
 
 The history is kept for good. The tenants are named by aliases (test-1), never by their ids: a tenant id is an
 identifier the commit gate refuses.
@@ -799,6 +808,22 @@ def main(argv: list[str] | None = None) -> int:
                          "IAM; replaces a lab key of the admin")
     su.add_argument("--alerts", action="store_true", help="the CTS alert of a new access key")
     su.add_argument("--topic", help="the SMN topic urn of the alert (default: notify_topic of keys.conf)")
+    ro = sub.add_parser("add-readonly", help="a read-only tenant of a customer or partner: GET and HEAD only, with a "
+                                             "read key or a console login from pass (owner side)")
+    ro.add_argument("alias")
+    ro.add_argument("--domain-id", required=True)
+    how = ro.add_mutually_exclusive_group()
+    how.add_argument("--login", action="store_true", help="awb/tenant/ALIAS/login/domain, user and password")
+    how.add_argument("--key", action="store_true", help="awb/tenant/ALIAS/ak and sk, a read key")
+    ro.add_argument("--region", action="append", default=[])
+    rm = sub.add_parser("remove", help="forget a read-only tenant and its grants; the pass entries stay (owner side)")
+    rm.add_argument("alias")
+    gr = sub.add_parser("grant", help="let the sessions of one project read a read-only tenant (owner side)")
+    gr.add_argument("alias")
+    gr.add_argument("code")
+    rv = sub.add_parser("revoke", help="take a project's grant of a read-only tenant away (owner side)")
+    rv.add_argument("alias")
+    rv.add_argument("code")
     s = sub.add_parser("snapshot", help="list the tenants now, GET only (owner side)")
     s.add_argument("alias", nargs="*")
     sub.add_parser("list", help="every tenant and what runs there now")
@@ -851,6 +876,8 @@ def main(argv: list[str] | None = None) -> int:
                              lab_user=args.lab_user, alerts=args.alerts, topic=args.topic, loaded=loaded,
                              unlock=unlock)
             print("\n".join(lines))
+        elif args.command in ("add-readonly", "remove", "grant", "revoke"):
+            return _readonly_command(p, args)
         elif args.command == "snapshot":
             if config.is_work_user():
                 raise TenantError("snapshots are taken on the owner side, with the tenant's read-only key")
@@ -899,6 +926,52 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as err:
         print("awb tenant: %s (operating system error)" % type(err).__name__, file=sys.stderr)
         return 1
+    return 0
+
+
+def _readonly_command(p: config.Paths, args) -> int:
+    """The owner's commands of a read-only tenant (RT); the key service is unlocked again after a change."""
+    from awb.tcp import keys as _keys, readonly
+
+    def reload_keys(lines: list[str]) -> None:
+        try:
+            summary = _keys.unlock()
+        except _keys.KeysError as err:
+            lines.append("key service: not unlocked (%s): run awb keys unlock" % err)
+            return
+        t = summary.get(args.alias)
+        lines.append("key service: unlocked, %s %s" % (args.alias, "carries %s (read-only)" % t.get("auth")
+                                                         if t and t.get("kind") == "readonly" else "is not read-only"))
+
+    try:
+        if config.is_work_user():
+            raise readonly.ReadonlyError("read-only tenants are the owner's: he runs this in his own terminal")
+        if args.command == "add-readonly":
+            auth = "login" if args.login else "key" if args.key else None
+            lines = readonly.add(args.alias, args.domain_id, auth, args.region,
+                                 registered={t.alias for t in load(p)})
+            reload_keys(lines)
+            lines.append("next: awb tenant grant %s tcp-xxxx for the project that reads it" % args.alias)
+        elif args.command == "remove":
+            lines = readonly.remove(p, args.alias)
+            reload_keys(lines)
+        elif args.command == "grant":
+            from awb.tcp import xchg
+
+            if args.alias not in readonly.of_settings(xchg.read_settings()):
+                raise readonly.ReadonlyError("%s is not a read-only tenant (awb tenant add-readonly)" % args.alias)
+            new = readonly.grant(p, args.alias, args.code)
+            lines = ["%s reads %s: %s" % (args.code, args.alias, "granted" if new else "granted already")]
+        else:
+            n = readonly.revoke(p, args.alias, args.code)
+            lines = ["%s reads %s: %s" % (args.code, args.alias, "revoked" if n else "was not granted")]
+    except (readonly.ReadonlyError, TenantError) as err:
+        print("awb tenant: %s" % err, file=sys.stderr)
+        return 1
+    except Exception as err:      # xchg.XchgError of a broken keys.conf line, an OS error
+        print("awb tenant: %s" % (err if type(err).__name__ == "XchgError" else type(err).__name__), file=sys.stderr)
+        return 1
+    print("\n".join(lines))
     return 0
 
 
