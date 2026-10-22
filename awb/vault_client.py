@@ -240,6 +240,22 @@ def _check_one(text: str, sock: Path, timeout: float | None = None) -> list[dict
     return out
 
 
+RECORD_TIMEOUT = 5.0
+"""Seconds a hook waits for the daemon to take a record of a block (awb/fplearn.py); the block stands either way."""
+
+
+def record_remote(text: str, sock: Path, source: str, extra: dict | None = None,
+                  timeout: float = RECORD_TIMEOUT) -> bool:
+    """Hand one block to the vault daemon for the learning (awb/fplearn.py): a check request with `record`, which the
+    daemon scans again and writes on the owner's side. True when the daemon took it. Never raises."""
+    try:
+        answer = _request(Path(sock), {"op": "check", "text": text, "record": source, "extra": extra or {}},
+                          timeout=timeout, limit=MAX_CHECK_ANSWER)
+    except VaultError:
+        return False
+    return bool(answer.get("ok"))
+
+
 def ping(sock: Path, timeout: float = 10.0) -> str:
     """The state of the daemon behind a socket: plain, locked or unlocked. Raises VaultUnavailable. Extra keys
     of the answer are left alone, so an older client works with a newer daemon."""

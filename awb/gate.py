@@ -1435,6 +1435,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     for line in lines:
         print(line)
+    if findings and (args.staged or args.pushed or args.message):
+        # a block of the commit gate counts for the weekly line of the learning (awb/fplearn.py): classes alone
+        from awb import fplearn
+
+        fplearn.record("gate", extra=dict(Counter(f.cls for f in findings)))
     if any(f.cls.startswith("candidate-") for f in findings):
         from awb import intake
 

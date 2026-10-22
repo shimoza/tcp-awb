@@ -140,6 +140,9 @@ DYNAMIC: dict[tuple[str, str], object] = {
     ("awb/translate.py", "_ask_module"): ("awb.tcp.ask",),
     # awb voice learn DRAFT - is the owner's command: it loads the paste door of the intake by name and no unit runs it
     ("awb/writing.py", "learn_owner"): (),
+    # awb check learn and awb check allow are the owner's commands (the nightly timer runs a oneshot): the check loads
+    # their module by name and no daemon reaches it
+    ("awb/check.py", "_learning_command"): (),
 }
 
 # Modules no unit imports: they run as a command and in no daemon, so a change of one restarts nothing.
@@ -153,6 +156,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/importauto.py": "awb import --auto, run by the owner's timer awb-import-auto (a oneshot, new code each run)",
     "awb/clean.py": "awb clean, run on the owner's laptop (and awb import --auto reads its name rule)",
     "awb/cleanlogs.py": "the rules of awb clean, run on the owner's laptop",
+    "awb/fplearn_cmd.py": "awb check learn and awb check allow, run by the owner's timer and in his own terminal",
     "awb/pastein.py": "awb import --paste, run by the owner in his own terminal",
     "awb/wipe.py": "the old import path of awb/intake/wipe/ (F1 step 8), which no module of a unit imports",
     "awb/tcp/labwrites.py": "awb keys lab-writes --from-recipes, started by the owner's command as a child process",

@@ -83,6 +83,7 @@ BUILD_CLIENT=/opt/claude-build
 BUILD_CLIENT_VERSION=2.1.296          # the client the build user runs, pinned by version and digest
 BUILD_CLIENT_SHA256=24972e3bc859fab2b46ed4c1e51f7d6130f06d3bd550811a114640de3370d0de
 INSTALL_ONLY="awb-buildd.service"     # installed, never enabled here: the steering session starts it by hand
+CHECK_LEARN_UNIT=awb-check-learn         # .service and .timer: awb check learn as the owner every night (task FP)
 BUILD_FAILED_UNIT=awb-task-failed@.service   # OnFailure= of every task unit (awb/build_units.py FAILED_UNIT, SB5)
 BUILD_NUDGE_UNIT=awb-build-nudge          # .service and .timer: awb build nudge as the owner every 15 minutes (A6)
 RECHECK_WATCH_UNIT=awb-kb-recheck-watch   # .service and .timer: awb kb recheck-watch as the owner every 15 minutes (F5)
@@ -848,6 +849,7 @@ step_units() {
     [ "$units_only" -eq 1 ] || build_nudge_unit
     [ "$units_only" -eq 1 ] || recheck_watch_unit
     [ "$units_only" -eq 1 ] || import_auto_unit
+    [ "$units_only" -eq 1 ] || check_learn_unit
     retire_portal_unit
     run systemctl daemon-reload
     [ "$units_only" -eq 0 ] || return 0
@@ -862,6 +864,7 @@ step_units() {
     try_run systemctl enable --now "$BUILD_NUDGE_UNIT.timer"
     try_run systemctl enable --now "$RECHECK_WATCH_UNIT.timer"
     try_run systemctl enable --now "$IMPORT_AUTO_UNIT.timer"
+    try_run systemctl enable --now "$CHECK_LEARN_UNIT.timer"
 }
 
 step_egress() {
@@ -1540,6 +1543,50 @@ OnBootSec=15min
 OnUnitActiveSec=15min
 AccuracySec=1min
 Unit=$RECHECK_WATCH_UNIT.service
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+check_learn_unit() {
+    # written by step_units (not in --units-only) like import_auto_unit, its timer enabled at the end of step_units
+    info "$CHECK_LEARN_UNIT.timer: every night awb check learn as the owner learns the harmless strings the doors"
+    info "blocked, behind the safety gate of the planted names (task FP)"
+    write_file "$UNITS_DIR/$CHECK_LEARN_UNIT.service" 644 root:root <<EOF
+# The nightly learning of the name check (task FP, awb/fplearn.py): awb check learn as the owner decides the strings
+# the doors blocked, keeps every first name, title, legal form, registered and person-shaped string blocked, runs the
+# safety gate of the planted names and writes the allow list inside the vault; once a week one line of counts goes
+# to the owner by mail. Started by awb-check-learn.timer alone. Installed by seal/setup.sh, which fills in the
+# owner's user name.
+[Unit]
+Description=Architect Workbench name check: learn from the blocked strings, owner side
+After=awb-vaultd.service
+
+[Service]
+Type=oneshot
+User=$owner
+Group=awb
+Environment=AWB_CONF=/etc/awb/paths.conf
+ExecStart=/usr/local/bin/awb check learn
+TimeoutStartSec=1800
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+RestrictAddressFamilies=AF_UNIX
+EOF
+    write_file "$UNITS_DIR/$CHECK_LEARN_UNIT.timer" 644 root:root <<EOF
+# The nightly learning of the name check (awb-check-learn.service). Installed and enabled by seal/setup.sh.
+[Unit]
+Description=Architect Workbench name check learning, every night
+
+[Timer]
+OnCalendar=*-*-* 03:17
+Persistent=true
+AccuracySec=5min
+Unit=awb-check-learn.service
 
 [Install]
 WantedBy=timers.target
