@@ -21,7 +21,7 @@
         ]
       },
       {
-        "matcher": "Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash|Monitor",
+        "matcher": "Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash|Monitor|Workflow",
         "hooks": [
           {
             "type": "command",
@@ -75,7 +75,6 @@
       "SendUserFile",
       "EnterWorktree",
       "ExitWorktree",
-      "Workflow",
       "RemoteTrigger",
       "ListMcpResourcesTool",
       "ReadMcpResourceTool",

@@ -840,7 +840,9 @@ customer data out of the model as far as it can:
   folder, a key folder or the session records is refused before it runs and logged. The shell part reads the command
   line as the shell splits it and refuses a path it cannot read (a variable, a quote or an escape inside it, a cd it
   cannot follow), so a path a program builds at run time still gets past it; the guard keeps an honest session in its
-  lane and is no fence against a hostile one.
+  lane and is no fence against a hostile one. Text is no path: a / of a sed or awk program, of a quoted sentence or of
+  a here-document body passes, and text is refused only when it names a place inside a refused one. The Workflow tool
+  runs only the Workbench's own `review.js` and `request-check.js` of the installed code, by their scriptPath.
 - A gate checks every commit for names, secrets, home paths and the owner's blocklist. A send gate lets only the
   exact reviewed version of a deliverable leave. It refuses a file that carries a deliverable of another project;
   for a project folder the owner cannot read it uses the fingerprint `awb close` wrote (sha256 and salted word
