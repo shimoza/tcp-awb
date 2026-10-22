@@ -598,6 +598,21 @@ awb keys unlock                  # after every start of the service
 By hand the same is `pass insert awb/tenant/test-1/ak` and `sk`, then `awb tenant add test-1 --keys
 pass:awb/tenant/test-1 --region eu-de`.
 
+A tenant of a customer or partner where nothing may change is a read-only tenant. It holds a read key or only a
+console login, which you put into pass yourself; the key service then allows GET and HEAD alone there, for every
+role and caller, and only a project you granted it reaches it:
+
+```bash
+pass insert awb/tenant/cust-1/login/domain   # and user, password (or awb/tenant/cust-1/ak and sk)
+awb tenant add-readonly cust-1 --domain-id ID --login
+awb tenant grant cust-1 tcp-xxxx
+awb cloud call GET ecs "/v1/{project_id}/cloudservers" --tenant cust-1     # in that project's session
+```
+
+For a login the key service takes a token from IAM, keeps it in memory only and renews it before it expires. A
+login with MFA is refused with one line: ask for a read-only AK/SK. `awb cloud tenants` shows the kind and whether
+a key or a login reads it, never a value. `awb tenant revoke` and `awb tenant remove` take it back.
+
 The key service signs a call to `obs` the OBS way (`Authorization: OBS AK:SIGNATURE`, the code of `awb/obs.py`): the
 path is `/BUCKET[/KEY]`, the bucket is reached by its own host and `GET /` lists the buckets. Every other service is
 signed the way of the API gateway (SDK-HMAC-SHA256). An OBS call never reaches the two exchange buckets (they are

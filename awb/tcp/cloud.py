@@ -90,17 +90,19 @@ class Client:
     service."""
 
     def __init__(self, keys: obs.Keys, region: str = "eu-de", *, endpoint: str | None = None,
-                 timeout: float = 30.0, job: jobs.Job | None = None, label: str = "owner"):
+                 timeout: float = 30.0, job: jobs.Job | None = None, label: str = "owner",
+                 token: str | None = None, project_id: str | None = None):
         self.label = label          # the tenant alias in the call log, never an id
         self.keys = keys
         self.region = check_region(region)
         self.endpoint = endpoint.rstrip("/") if endpoint else None
         self.timeout = timeout
         self.job = job
-        self._project_id: str | None = None
+        self.token = token or None  # a login token of a read-only tenant (awb/tcp/readonly.py): X-Auth-Token
+        self._project_id: str | None = project_id
 
     def clean(self, text: str) -> str:
-        for secret, mark in ((self.keys.sk, "<sk>"), (self.keys.ak, "<ak>")):
+        for secret, mark in ((self.token, "<token>"), (self.keys.sk, "<sk>"), (self.keys.ak, "<ak>")):
             if secret:
                 text = text.replace(secret, mark)
         return text
@@ -145,6 +147,8 @@ class Client:
         the API gateway (awb/sign.py)."""
         path = self.expand(path) if "{project_id}" in path else path
         to_obs = service == "obs"
+        if to_obs and self.token:
+            raise CloudError("OBS takes a key, not a login token")
         if to_obs:
             obs_client, key, sub, url = self.obs_call(path, query)
         else:
@@ -164,6 +168,8 @@ class Client:
             if to_obs:
                 signed = dict(hdrs)
                 obs_client.sign(method.upper(), key, signed, sub)
+            elif self.token:
+                signed = dict(hdrs, **{"X-Auth-Token": self.token})
             else:
                 signed = sign.sign(method, url, hdrs, data, self.keys.ak, self.keys.sk)
             req = urllib.request.Request(url, data=data if body is not None else None, method=method.upper())

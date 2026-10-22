@@ -10548,8 +10548,155 @@
    "name": "a manual row whose sentence is gone is reported by its id",
    "run": ".venv/bin/pytest tests/test_review.py::test_pd1_a_manual_row_whose_sentence_is_gone_is_reported_by_its_id",
    "status": "passing"
+  },
+  {
+   "id": "rt-readonly-1",
+   "phase": "rt-readonly-login",
+   "name": "the readonly line of keys.conf parses and a broken one is refused",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_the_readonly_line_parses_and_a_broken_one_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-2",
+   "phase": "rt-readonly-login",
+   "name": "the store layout takes a login and refuses half of one",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_the_store_layout_takes_a_login_and_refuses_half_of_one",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-3",
+   "phase": "rt-readonly-login",
+   "name": "a login gets a token once and signs with X-Auth-Token",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_a_login_gets_a_token_once_and_signs_with_it",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-4",
+   "phase": "rt-readonly-login",
+   "name": "a token close to its expiry is renewed",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_a_token_close_to_its_expiry_is_renewed",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-5",
+   "phase": "rt-readonly-login",
+   "name": "the token cache renews on its clock and forgets on lock",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_the_token_cache_renews_on_its_clock_and_forgets_on_lock",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-6",
+   "phase": "rt-readonly-login",
+   "name": "a token IAM took back is replaced by one new login",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_a_token_iam_took_back_is_replaced_by_one_new_login",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-7",
+   "phase": "rt-readonly-login",
+   "name": "a lock forgets the tokens",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_a_lock_forgets_the_tokens",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-8",
+   "phase": "rt-readonly-login",
+   "name": "MFA is refused with one line and no code is asked",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_mfa_is_refused_with_one_line_and_no_code_is_asked",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-9",
+   "phase": "rt-readonly-login",
+   "name": "a console-only login and a wrong password say so without a value",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_a_console_only_login_and_a_wrong_password_say_so_without_a_value",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-10",
+   "phase": "rt-readonly-login",
+   "name": "OBS needs a key on a login-only tenant",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_obs_needs_a_key_on_a_login_only_tenant",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-11",
+   "phase": "rt-readonly-login",
+   "name": "every non-GET method is refused for every role and caller, the lab role too",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_every_other_method_is_refused_for_every_role_and_caller",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-12",
+   "phase": "rt-readonly-login",
+   "name": "no lab role, no body, no lease, no lab key, no secret",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_no_lab_role_no_body_no_lease_no_lab_key_no_secret",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-13",
+   "phase": "rt-readonly-login",
+   "name": "a read-key tenant reads signed and refuses writes",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_a_read_key_tenant_reads_signed_and_refuses_writes",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-14",
+   "phase": "rt-readonly-login",
+   "name": "a project without the grant of the tenant is refused",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_a_project_without_the_grant_of_the_tenant_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-15",
+   "phase": "rt-readonly-login",
+   "name": "the console never reads a read-only tenant",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_the_console_never_reads_a_readonly_tenant",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-16",
+   "phase": "rt-readonly-login",
+   "name": "a login that is not registered is never used",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_a_login_that_is_not_registered_is_never_used",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-17",
+   "phase": "rt-readonly-login",
+   "name": "grants are the owner's and revoke takes them",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_grants_are_the_owners_and_revoke_takes_them",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-18",
+   "phase": "rt-readonly-login",
+   "name": "the token and the password are in no log line and no answer",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_the_token_and_the_password_are_in_no_log_line_and_no_answer",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-19",
+   "phase": "rt-readonly-login",
+   "name": "the listing shows the kind and the way in, never a value",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_the_listing_shows_the_kind_and_the_way_in_never_a_value",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-20",
+   "phase": "rt-readonly-login",
+   "name": "add-readonly checks the entries by name and writes keys.conf",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_add_readonly_checks_the_entries_by_name_and_writes_keys_conf",
+   "status": "passing"
+  },
+  {
+   "id": "rt-readonly-21",
+   "phase": "rt-readonly-login",
+   "name": "the tenant commands add, grant, revoke and remove",
+   "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_the_tenant_commands_add_grant_and_remove",
+   "status": "passing"
   }
  ],
- "total_tests": 1507,
+ "total_tests": 1528,
  "checked": "2026-10-22"
 }

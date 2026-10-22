@@ -17,6 +17,12 @@ The password store layout, one tenant per alias (the alias of `awb tenant add`):
     awb/tenant/<alias>/ak, awb/tenant/<alias>/sk            the read key: GET and HEAD only
     awb/tenant/<alias>/lab/ak, awb/tenant/<alias>/lab/sk    the lab key: every method, writes need a project code
     awb/tenant/<alias>/secret/<name>                        a login, a password or another secret by name
+    awb/tenant/<alias>/login/domain, login/user, login/password
+                                                            the console login of a read-only tenant (RT)
+
+A read-only tenant (task RT, awb/tcp/readonly.py: the readonly line of keys.conf) allows GET and HEAD only for
+every role and caller, with its read key or with a token of its login that the service takes from IAM, holds in
+memory and renews; a session reaches it only from a project the owner granted it (awb tenant grant).
 
 Two sockets, one JSON object per line and one answer per connection:
 
@@ -67,6 +73,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from awb import codes, config, obs
+from awb.tcp import readonly
 
 CALL_SOCKET_ENV = "AWB_KEYS_SOCKET"
 ADMIN_SOCKET_ENV = "AWB_KEYS_ADMIN"
@@ -169,13 +176,17 @@ def collect(entries: list[str], reader=pass_reader) -> dict:
             t["roles"].setdefault(parts[1], {})[parts[2]] = reader(entry)
         elif len(parts) == 3 and parts[1] == "secret" and _NAME_RE.match(parts[2]):
             t["secrets"][parts[2]] = reader(entry)
+        elif len(parts) == 3 and parts[1] == "login" and parts[2] in readonly.LOGIN_PARTS:
+            t.setdefault("login", {})[parts[2]] = reader(entry)
         else:
-            raise KeysError("entry %d of awb/tenant does not follow the layout (ak, sk, lab/ak, lab/sk, secret/NAME)"
-                            % n)
+            raise KeysError("entry %d of awb/tenant does not follow the layout (ak, sk, lab/ak, lab/sk, secret/NAME, "
+                            "login/domain|user|password)" % n)
     for alias, t in tenants.items():
         for role, pair in t["roles"].items():
             if set(pair) != {"ak", "sk"}:
                 raise KeysError("the %s key of %s lacks its ak or sk" % (role, alias))
+        if "login" in t and set(t["login"]) != set(readonly.LOGIN_PARTS):
+            raise KeysError("the login of %s lacks its domain, user or password" % alias)
     return tenants
 
 
@@ -274,6 +285,7 @@ class Service:
         self.doc_limiter = doc.Limiter(self._doc_ledger_dir)
         self.doc_getter = doc.https_get
         self.doc_hosts = None   # None: rules/allow-domains.txt at each fetch
+        self.tokens = readonly.Tokens()   # the login tokens of read-only tenants, in memory only, never handed over
 
     # sockets
     def start(self, inherited: dict | None = None, accept: bool = True) -> None:
@@ -326,6 +338,7 @@ class Service:
                 t.join(timeout=2)
         with self.lock:
             self.tenants = {}
+        self.tokens.clear()
 
     def leave(self) -> None:
         """The hand-over exit: the successor serves on the same socket files, so they stay; the calls in flight
@@ -345,6 +358,7 @@ class Service:
         with self.lock:
             self.tenants = {}
             self.settings = {}
+        self.tokens.clear()
 
     def serve_forever(self) -> None:
         import signal
@@ -539,6 +553,8 @@ class Service:
         return Path(name)
 
     def _lab_keys(self, alias):
+        if self._readonly(alias) is not None:
+            return None         # RT: a read-only tenant never writes, not even the exchange
         with self.lock:
             pair = (self.tenants.get(alias) or {}).get("roles", {}).get("lab")
         return obs.Keys(pair["ak"], pair["sk"]) if pair else None
@@ -608,6 +624,7 @@ class Service:
                 if self.handing_over.is_set():
                     return {"ok": False, "error": "busy"}
                 self.tenants = {}
+            self.tokens.clear()
             return {"ok": True}
         if op == "load":
             data = req.get("tenants")
@@ -616,8 +633,10 @@ class Service:
             with self.lock:
                 if self.handing_over.is_set():
                     return {"ok": False, "error": "busy"}
-                self.tenants = data
-                self.settings = dict(req.get("settings") or {})
+                settings = dict(req.get("settings") or {})
+                self.tenants = _without_writes(data, settings)
+                self.settings = settings
+            self.tokens.clear()
             return {"ok": True, "tenants": self._summary()}
         if op == "reload":
             return self._reload()
@@ -694,8 +713,28 @@ class Service:
 
     def _summary(self) -> dict:
         with self.lock:
-            return {a: {"roles": sorted(t.get("roles", {})), "secrets": sorted(t.get("secrets", {}))}
-                    for a, t in sorted(self.tenants.items())}
+            held = readonly.of_settings(self.settings)
+            out = {}
+            for a, t in sorted(self.tenants.items()):
+                out[a] = {"roles": sorted(t.get("roles", {})), "secrets": sorted(t.get("secrets", {}))}
+                if a in held:
+                    # RT: the kind and whether a key or a login reads it, never a value
+                    out[a].update(kind="readonly", auth=held[a]["auth"])
+                elif "login" in t:
+                    out[a].update(auth="login")
+            return out
+
+    def _readonly(self, alias) -> dict | None:
+        """The entry of a read-only tenant in the settings (awb/tcp/readonly.py), None for any other tenant."""
+        with self.lock:
+            return readonly.of_settings(self.settings).get(alias) if isinstance(alias, str) else None
+
+    def _readonly_granted(self, alias: str, code: str) -> bool:
+        """The owner's grant of the read-only tenant `alias` to the project `code` (RT)."""
+        try:
+            return readonly.granted(self.paths_fn(), alias, code)
+        except Exception:
+            return False
 
     # the call socket
     def _call_socket(self, req: dict, uid: int, upload: Path | None = None, caller=_NOT_ASKED):
@@ -712,6 +751,9 @@ class Service:
             return {"ok": True, "state": "unlocked" if self.tenants else "locked"}
         if op == "tenants":
             regions = self._registered()
+            with self.lock:
+                for a, e in readonly.of_settings(self.settings).items():
+                    regions.setdefault(a, e["regions"])
             return {"ok": True, "tenants": {a: dict(s, regions=list(regions.get(a, ())))
                                             for a, s in self._summary().items()}}
         if op == "call":
@@ -897,6 +939,11 @@ class Service:
             tenant = self.tenants.get(alias) if isinstance(alias, str) else None
         if tenant is None:
             raise Refused("the key service holds no tenant of that alias")
+        entry = self._readonly(alias)
+        if entry is not None:
+            return self._call_readonly(req, uid, caller, alias, tenant, entry)
+        if "login" in tenant:
+            raise Refused(readonly.UNREGISTERED_LINE % alias)
         if role not in ROLES:
             raise Refused("the role is read or lab")
         pair = tenant.get("roles", {}).get(role)
@@ -976,6 +1023,100 @@ class Service:
             answer = {"ok": True, "status": err.status or 0, "data": None, "text": str(err)}
         self._log(uid, alias, role, method, service, region, answer["status"], project)
         return self._mask(answer, tenant, drawn)
+
+    def _call_readonly(self, req: dict, uid: int, caller, alias: str, tenant: dict, entry: dict) -> dict:
+        """A call to a read-only tenant (RT): GET and HEAD only for every role and caller, no body, the read key or
+        a token of the login; a session only from a project the owner granted this tenant."""
+        from awb.tcp import cloud
+
+        method = str(req.get("method") or "GET").upper()
+        role = req.get("role") or "read"
+        service, path = req.get("service"), req.get("path")
+        if method not in readonly.METHODS:
+            raise Refused(readonly.METHOD_LINE % alias)
+        if role != "read":
+            raise Refused(readonly.ROLE_LINE % alias)
+        if req.get("body") is not None:
+            raise Refused(readonly.BODY_LINE % alias)
+        regions = entry["regions"]
+        region = req.get("region") or regions[0]
+        if region not in regions:
+            raise Refused("the region is not one of the tenant's")
+        project = req.get("project") or ""
+        if uid != os.getuid() and uid == self._console_uid():
+            raise Refused(readonly.CONSOLE_LINE % alias)
+        if uid != os.getuid():
+            from awb import projects as _projects
+
+            if caller is not _NOT_ASKED and caller != project:
+                raise self._unbound(project, caller, "a call to a test tenant runs from the folder of an active "
+                                                     "project")
+            row = self._project_row(project)
+            if row is None:
+                raise Refused("a call to a test tenant runs from the folder of an active project")
+            if not _projects.tenant_access(row.kind) or not self._granted(project):
+                raise Refused("%s has no grant of the owner: he runs awb projects kind %s project in his own "
+                              "terminal" % (project, project))
+            if not self._readonly_granted(alias, project):
+                raise Refused(readonly.GRANT_LINE % (project, alias, alias, project))
+        if not isinstance(service, str) or not re.match(r"^[a-z][a-z0-9-]{1,30}$", service):
+            raise Refused("a service name reads like ecs or vpc")
+        if not isinstance(path, str) or not _PATH_RE.match(path) or ".." in path or "//" in path:
+            raise Refused("a path is plain: /v1/{project_id}/cloudservers")
+        query = req.get("query") or {}
+        if not isinstance(query, dict) or not all(isinstance(k, str) and isinstance(v, (str, list))
+                                                  for k, v in query.items()):
+            raise Refused("a query is an object of strings")
+        if service == "obs":
+            if entry["auth"] == "login":
+                raise Refused(readonly.OBS_LINE % alias)
+            bucket = path[1:].partition("/")[0]
+            if bucket in self.exchange_buckets():
+                raise Refused("the exchange buckets are reached through awb xchg only")
+            if self._session_read(uid) and not self._obs_read_ok(bucket, path[1:].partition("/")[2], query, project):
+                raise Refused("an OBS read reaches only a bucket named after the project (%s-...)" % project)
+        used: list[str] = []
+        if entry["auth"] == "key":
+            pair = tenant.get("roles", {}).get("read")
+            if not pair:
+                raise Refused("the read-only tenant %s holds no read key: the owner puts awb/tenant/%s/ak and sk "
+                              "into pass and runs awb keys unlock" % (alias, alias))
+            makers = [lambda: cloud.Client(obs.Keys(pair["ak"], pair["sk"]), region, endpoint=self.endpoint,
+                                           label=alias, timeout=60.0)]
+        else:
+            login = tenant.get("login")
+            if not login:
+                raise Refused("the read-only tenant %s holds no login: the owner puts awb/tenant/%s/login/domain, "
+                              "user and password into pass and runs awb keys unlock" % (alias, alias))
+
+            def by_login():
+                try:
+                    token, project_id = self.tokens.get(alias, region, login, entry["domain_id"], self.endpoint)
+                except readonly.ReadonlyError as err:
+                    self._log(uid, alias, "read", "LOGIN", "iam", region, "refused", project)
+                    raise Refused(str(err)) from None
+                used.append(token)
+                return cloud.Client(obs.Keys("", ""), region, endpoint=self.endpoint, label=alias, timeout=60.0,
+                                    token=token, project_id=project_id)
+
+            def again():
+                self.tokens.drop(alias, region)
+                return by_login()
+
+            makers = [by_login, again]
+        answer: dict = {}
+        for n, make in enumerate(makers):
+            client = make()
+            try:
+                r = client.request(method, service, path, query=query or None)
+                answer = {"ok": True, "status": r.status, "data": r.data, "text": r.text, "size": r.size,
+                          "cut": r.cut}
+            except cloud.CloudError as err:
+                answer = {"ok": True, "status": err.status or 0, "data": None, "text": client.clean(str(err))}
+            if answer["status"] != 401 or n == len(makers) - 1:
+                break        # a 401 of a token: IAM took it back (a change of the user), one new login
+        self._log(uid, alias, "read", method, service, region, answer["status"], project)
+        return self._mask(answer, tenant, used)
 
     def _session_read(self, uid: int) -> bool:
         """True for a call of a session (the work user), false for the owner's own and the console's."""
@@ -1060,6 +1201,8 @@ class Service:
             tenant = self.tenants.get(alias) if isinstance(alias, str) else None
         if tenant is None:
             raise Refused("the key service holds no tenant of that alias")
+        if self._readonly(alias) is not None:
+            raise Refused(readonly.LEASE_LINE % alias)
         pair = tenant.get("roles", {}).get("lab")
         if not pair:
             raise Refused("the tenant has no lab key")
@@ -1115,6 +1258,8 @@ class Service:
         text = json.dumps(answer, ensure_ascii=False)
         values = [v for pair in tenant.get("roles", {}).values() for v in pair.values()]
         values += list(tenant.get("secrets", {}).values()) + list(drawn)
+        values += [v for k, v in (tenant.get("login") or {}).items() if k == "password"]
+        values += self.tokens.values()
         for value in values:
             for form in _variants(value):
                 text = text.replace(form, MASK)
@@ -1133,6 +1278,18 @@ class Service:
                 fh.write("\t".join(re.sub(r"[\t\r\n]+", " ", str(x)) for x in fields) + "\n")
         except OSError:
             pass
+
+
+def _without_writes(tenants: dict, settings: dict) -> dict:
+    """The tenants with the lab key and the secrets of every read-only tenant left out (RT): what the store holds
+    beside its read key or login is never used."""
+    held = readonly.of_settings(settings)
+    out = {}
+    for alias, t in tenants.items():
+        if alias in held and isinstance(t, dict):
+            t = dict(t, roles={r: v for r, v in (t.get("roles") or {}).items() if r == "read"}, secrets={})
+        out[alias] = t
+    return out
 
 
 def _hold(svc: Service, line: dict) -> None:
@@ -1419,9 +1576,10 @@ def main(argv: list[str] | None = None) -> int:
 def _print_summary(tenants: dict) -> None:
     for alias, t in sorted(tenants.items()):
         regions = ", ".join(t.get("regions", [])) if t.get("regions") is not None else ""
-        print("%-12s keys: %-10s secrets: %s%s" % (alias, ", ".join(t["roles"]) or "-",
-                                                   ", ".join(t["secrets"]) or "-",
-                                                   "  regions: %s" % regions if regions else ""))
+        kind = "  kind: readonly (%s)" % t.get("auth") if t.get("kind") == "readonly" else ""
+        print("%-12s keys: %-10s secrets: %s%s%s" % (alias, ", ".join(t["roles"]) or "-",
+                                                     ", ".join(t["secrets"]) or "-",
+                                                     "  regions: %s" % regions if regions else "", kind))
 
 
 if __name__ == "__main__":
