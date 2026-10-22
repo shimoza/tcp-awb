@@ -62,6 +62,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 
+- The tool guard no longer refuses honest calls inside the own project (PD2, tcp-eqew, 2026-10-22): a / of text (a sed or awk program, a quoted sentence, a division, a here-document or here-string body, a / glued to an option such as `-F/`) was taken for the root, which holds every project, and a path in a folder the session cannot read failed the project lookup as "cannot be determined". Text is now refused only when it names a place inside a refused one; `$(( ))` is arithmetic; the body of `bash <<EOF` is read as commands and the `$(...)` of an unquoted body too; the project is also found from the session's first folder (its transcript folder) when a cd left it. A real path into another project, a key folder or the client's folder, and `ls /` or a search of the home, are refused as before. Tests: `tests/test_pd23_guard.py`.
+- Project sessions can run the review workflows (PD3, tcp-w4pf, tcp-s5i3): the work user's settings no longer deny `Workflow`; the pre-tool hook takes the Workflow tool and passes only `workflows/review.js` and `workflows/request-check.js` of the installed code by their scriptPath (no inline script, no workflow by name, since a script could start another workflow from any file where no hook sees it). Their agents run in the session's client under the same settings, deny rules and hooks. Two tests that pinned the old matcher and deny list are replaced (rows TG-13 and pd23-14).
 - Setup creates the notices folder of the shared side (owner writes, work user reads): `awb import` ended in a
   PermissionError after writing the copies and sessions never saw "new input".
 

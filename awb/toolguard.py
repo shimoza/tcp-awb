@@ -44,32 +44,47 @@ def project_root(start: str | os.PathLike | None) -> Path | None:
     here = Path(start)
     if not here.is_absolute():
         here = Path.cwd() / here
-    if not here.is_dir():
+    try:
+        folder = here.is_dir()
+    except OSError:
+        # a place this user cannot read (a folder of another user, a name too long): no project of its own,
+        # and the session, which runs as the same user, cannot reach it either (PD2)
+        return None
+    if not folder:
         here = here.parent
     return config.scope_root(here, depth=_SCOPE_MAX_DEPTH)
 
 
 # --------------------------------------------------------------------------- pre-tool: a session stays in its project
 
-GUARD_MATCHER = "Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash|Monitor"
-"""The tools whose target paths the pre-tool hook guards: every file tool and every tool of the client that runs a
-shell command (Bash, Monitor)."""
+GUARD_MATCHER = "Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash|Monitor|Workflow"
+"""The tools whose target paths the pre-tool hook guards: every file tool, every tool of the client that runs a
+shell command (Bash, Monitor) and the Workflow tool (PD3)."""
 GUARD_TOOLS = tuple(GUARD_MATCHER.split("|"))
 SHELL_TOOLS = ("Bash", "Monitor")
 """The guarded tools whose `command` runs in a shell."""
+WORKFLOW_TOOL = "Workflow"
+WORKFLOW_DIR = Path(os.path.abspath(__file__)).parent.parent / "workflows"
+WORKFLOW_FILES = ("review.js", "request-check.js")
+"""The workflows a session on a sealed host may run (PD3): the Workbench's own saved scripts in the installed code,
+by their scriptPath. Their agents run in the session's client, so their tool calls meet the same managed settings,
+deny rules and hooks as the session's own. An inline script or a workflow by name is refused: its script could
+start another workflow from any file (`workflow({scriptPath})` reads a file inside the client, where no hook
+sees it)."""
 DENIED_TOOLS = ("mcp__*", "PowerShell", "LSP", "NotebookRead", "Artifact", "ArtifactComments", "ArtifactData",
-                "DesignSync", "SendUserFile", "EnterWorktree", "ExitWorktree", "Workflow", "RemoteTrigger",
+                "DesignSync", "SendUserFile", "EnterWorktree", "ExitWorktree", "RemoteTrigger",
                 "ListMcpResourcesTool", "ReadMcpResourceTool", "ReadMcpResourceDirTool")
 """The deny rules of the work user's settings: the connectors, and every tool of the client that reads or sends a
 file, runs a command or starts work elsewhere and is not guarded. The rest of the client's tools (agents, tasks,
 questions, skills, the web tools, plan mode, schedules of a prompt) reach no path; their prompts and their agents'
-tool calls meet the hooks."""
+tool calls meet the hooks. Workflow left the list with PD3: the guard passes the Workbench's own workflows only."""
 ANOTHER_PROJECT = "another project"
 CLIENT_FOLDER = "the client's folder"
 KEY_FOLDER = "a key folder"
 SESSION_RECORDS = "the session records"
 UNREADABLE = "a path the guard cannot read"
 UNKNOWN_PROJECT = "an unknown project"
+FOREIGN_WORKFLOW = "a workflow other than the Workbench's own"
 """The classes of a refused place; a refusal names the class, never the path."""
 KEY_FOLDERS = (".ssh", ".config")
 _PROJECT_DIR_RE = re.compile(r"^(?:tcp|hcs)-")
@@ -81,10 +96,32 @@ _VAR_RE = re.compile(r"\$[A-Za-z_{(]")
 _START_VAR_RE = re.compile(r"\$(?:\{(HOME|PWD)\}|(HOME|PWD)(?![A-Za-z0-9_]))")
 _DIRSTACK_RE = re.compile(r"~[+-]?\d+")
 _CD_WORDS = ("cd", "pushd")
+_ARITH_RE = re.compile(r"[A-Za-z0-9_ \t+\-*/%<>=!&|^~?:,.$#()]*")
+"""The text of a plain arithmetic expansion: no quote, no backquote, no $( and no brace."""
 
 
 class _Refused(Exception):
     """A tool call the guard refuses; the message is the class of the place."""
+
+
+class _Text:
+    """A place read out of text rather than out of a path argument (PD2): a token of a word with a blank in it (a
+    quoted sentence, a sed or awk program, a python -c line), a token of a here-document or here-string body, a
+    sed or awk expression and a bare / glued to an option (-F/, -d/). Such a place is refused only when it lies
+    inside a refused place (another project, a key folder, the client's folder, the session records), never
+    because it holds one: the / of `s/a/ /` or of `print(a / b)` is no search of the root. A token of text the
+    guard cannot read is left out."""
+
+    __slots__ = ("path",)
+
+    def __init__(self, path: Path):
+        self.path = path
+
+    def __eq__(self, other) -> bool:
+        return isinstance(other, _Text) and other.path == self.path
+
+    def __hash__(self) -> int:
+        return hash(("text", self.path))
 
 
 def _inside(path: Path, folder: Path) -> bool:
@@ -151,9 +188,11 @@ def _one_path(raw: str, cwds: list[Path], home: Path, dirstack: bool) -> list[Pa
     return [_based(os.path.join(str(c), raw)) for c in cwds]
 
 
-def _token_paths(tok: str, cwds: list[Path], home: Path, dirstack: bool) -> list[Path]:
+def _token_paths(tok: str, cwds: list[Path], home: Path, dirstack: bool, text: bool = False) -> list:
     """The places of one token. A token that starts with - or @ (an option, a curl data file) is read from every
-    point where a path may begin: after the option letter, after @, at the first /, ~, $ or `..`."""
+    point where a path may begin: after the option letter, after @, at the first /, ~, $ or `..`. With `text` the
+    token comes out of text (see _Text): its places are _Text and a token the guard cannot read is left out. A
+    bare / glued to an option (-F/, -d/, -t/) is a separator, so it is text as well."""
     tok = tok.strip("{}[]!")
     if not tok:
         return []
@@ -167,10 +206,17 @@ def _token_paths(tok: str, cwds: list[Path], home: Path, dirstack: bool) -> list
         for start in ("/", "~", "$", ".."):
             if start in tok:
                 cands.append(tok[tok.index(start):])
-    out: list[Path] = []
+    out: list = []
     for cand in dict.fromkeys(cands):
         if cand and cand[0] not in "-@":
-            out += _one_path(cand, cwds, home, dirstack)
+            lenient = text or (cand == "/" and tok[0] == "-")
+            try:
+                found = _one_path(cand, cwds, home, dirstack)
+            except _Refused:
+                if lenient:
+                    continue
+                raise
+            out += [_Text(f) for f in found] if lenient else found
     return out
 
 
@@ -265,7 +311,8 @@ class _ShellReader:
                     delim = self.word_at()
                     if delim is None:
                         self.fail()
-                    self.pending.append((delim.value, strip))
+                    quoted = any(u != "plain" for u in delim.units)
+                    self.pending.append((delim.value, strip, quoted, self.feeds_a_shell()))
                 elif s.startswith(("<(", ">("), self.i):
                     self.i += 2
                     self.sub(")")
@@ -294,9 +341,24 @@ class _ShellReader:
             self.unit(w)
         return w
 
+    def feeds_a_shell(self) -> bool:
+        """True when the command a here-document is opened on runs a shell (bash, sh, source, .): its body is a
+        command line then, not data."""
+        words = []
+        for item in reversed(self.items):
+            if not isinstance(item, _Word):
+                break
+            words.append(item)
+        words.reverse()
+        if words and not words[0].dynamic and words[0].value in ("source", "."):
+            return True
+        return any(not w.dynamic and os.path.basename(w.value) in _SHELLS for w in words)
+
     def bodies(self) -> None:
-        """The here-documents opened on the line that just ended: their lines up to the delimiter are data."""
-        for delim, strip in self.pending:
+        """The here-documents opened on the line that just ended, their lines up to the delimiter. The body of a
+        shell (`bash <<EOF`) is read as a command line. Any other body is data (text, see _Text); when its
+        delimiter is unquoted the shell runs its $(...) and backquotes, which are read as commands."""
+        for delim, strip, quoted, shell in self.pending:
             lines = []
             while self.i < len(self.s):
                 nl = self.s.find("\n", self.i)
@@ -305,8 +367,31 @@ class _ShellReader:
                 if (line.lstrip("\t") if strip else line) == delim:
                     break
                 lines.append(line)
-            self.data.append("\n".join(lines))
+            body = "\n".join(lines)
+            if shell:
+                sub = _ShellReader(body, self.home)
+                sub.read()
+                self.nested += [sub.items] + sub.nested
+                self.data += sub.data
+                continue
+            self.data.append(body)
+            if not quoted:
+                self.substitutions(body)
         self.pending = []
+
+    def substitutions(self, body: str) -> None:
+        """The $(...) and backquotes of an unquoted here-document body, read as commands."""
+        sub = _ShellReader(body, self.home)
+        while sub.i < len(body):
+            c = body[sub.i]
+            if c == "\\":
+                sub.i += 2
+            elif c == "`" or body.startswith("$(", sub.i):
+                sub.expansion(_Word())
+            else:
+                sub.i += 1
+        self.nested += sub.nested
+        self.data += sub.data
 
     def unit(self, w: _Word) -> None:
         """One unit of a word at the current position."""
@@ -367,6 +452,25 @@ class _ShellReader:
                 self.i += 1
         self.fail()
 
+    def arithmetic_end(self, j: int) -> int | None:
+        """The index of the `))` that closes the arithmetic $(( opened before `j`, when what lies between is plain
+        arithmetic (numbers, names, operators, $NAME): its / divides and names no path (PD2). None for anything
+        else, which is then read as a command substitution."""
+        s, depth = self.s, 0
+        while j < len(s):
+            c = s[j]
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                if depth == 0:
+                    inner = s[self.i + 3:j]
+                    if s.startswith("))", j) and _ARITH_RE.fullmatch(inner) and "$(" not in inner:
+                        return j
+                    return None
+                depth -= 1
+            j += 1
+        return None
+
     def expansion(self, w: _Word, start: bool | None = None) -> str:
         """A $ or a backquote at the current position. $HOME and $PWD at the start of a word are read (the home,
         the folder the command stands in); every other variable and every substitution makes the word one the
@@ -379,6 +483,12 @@ class _ShellReader:
             self.sub("`")
             return ""
         nxt = s[self.i + 1:self.i + 2]
+        if s.startswith("$((", self.i):
+            close = self.arithmetic_end(self.i + 3)
+            if close is not None:
+                self.i = close + 2
+                w.dynamic = True
+                return ""
         if nxt == "(":
             self.i += 2
             w.dynamic = True
@@ -464,6 +574,70 @@ def _cd_target(words: list, n: int) -> int | None:
     return None
 
 
+_SED = ("sed", "gsed")
+_AWK = ("awk", "gawk", "mawk", "nawk")
+
+
+def _programs(words: list) -> set[int]:
+    """The indexes of the words that are a sed or awk program, not a path (PD2): the value of sed -e and
+    --expression, of awk -F and -v, and the first operand when no -e, -f or --file names the program. A program
+    file (-f FILE) and every input file stay paths."""
+    out: set[int] = set()
+    for n, (w, _, cmd) in enumerate(words):
+        if not cmd or w.dynamic:
+            continue
+        name = os.path.basename(w.value)
+        if name not in _SED + _AWK:
+            continue
+        sed, given, expect, m = name in _SED, False, None, n + 1
+        while m < len(words) and not words[m][2]:
+            t = words[m][0]
+            v = "" if t.dynamic else t.value
+            if expect is not None:
+                if expect == "text":
+                    out.add(m)
+                expect = None
+            elif v == "--":
+                if not given and m + 1 < len(words) and not words[m + 1][2]:
+                    out.add(m + 1)
+                break
+            elif v.startswith("--"):
+                key = v[2:].split("=", 1)[0]
+                if key in ("expression", "source", "field-separator", "assign"):
+                    given = given or key in ("expression", "source")
+                    if "=" in v:
+                        out.add(m)
+                    else:
+                        expect = "text"
+                elif key == "file":
+                    given = True
+                    expect = None if "=" in v else "file"
+            elif v.startswith("-") and len(v) > 1:
+                letters = v[1:]
+                if sed and not letters.startswith("i"):
+                    for k, ch in enumerate(letters):
+                        if ch in "ef":
+                            given = True
+                            if k + 1 < len(letters):
+                                if ch == "e":
+                                    out.add(m)
+                            else:
+                                expect = "text" if ch == "e" else "file"
+                            break
+                elif not sed and letters[0] in "Fvf":
+                    given = given or letters[0] == "f"
+                    if len(letters) > 1:
+                        if letters[0] != "f":
+                            out.add(m)
+                    else:
+                        expect = "file" if letters[0] == "f" else "text"
+            elif not given:
+                out.add(m)
+                given = True
+            m += 1
+    return out
+
+
 def _shell_checks(command: str, cwd: Path, home: Path) -> list:
     """The checks of a shell command in their order: a Path to classify, or a class to refuse at once. A relative
     path is taken against the folder the command stands in at that point: the folder of the call, changed by each
@@ -494,6 +668,7 @@ def _shell_checks(command: str, cwd: Path, home: Path) -> list:
     cds = [n for n, (w, _, cmd) in enumerate(words) if cmd and not w.dynamic and not w.mixed and w.value in _CD_WORDS]
     exact = len(lists) == 1 and all(i in _ShellReader.EXACT for i in reader.items if isinstance(i, str))
     targets = {n: _cd_target(words, n) for n in cds}
+    programs = _programs(words)
     visited, here = [cwd], [cwd]
 
     def move(n: int, base: list[Path]) -> list[Path]:
@@ -524,13 +699,19 @@ def _shell_checks(command: str, cwd: Path, home: Path) -> list:
             if "/" in w.value or ".." in w.value:
                 checks.append(UNREADABLE)
             continue
+        text = n in programs or any(c in w.value for c in " \t\n")
+        if text and n not in programs and w.value.startswith(("/", "~", "./", "../")):
+            try:                                # a path with a blank in it is still a path, as a whole
+                checks += _one_path(w.value, here, home, dirstack)
+            except _Refused:
+                pass
         for tok in _SPLIT_RE.split(w.value):
-            checks += _token_paths(tok, here, home, dirstack)
+            checks += _token_paths(tok, here, home, dirstack, text)
         if w.mixed and "/" in w.value:
             checks.append(UNREADABLE)
-    for text in data:
-        for tok in _SPLIT_RE.split(text):
-            checks += _token_paths(tok, visited, home, dirstack)
+    for body in data:
+        for tok in _SPLIT_RE.split(body):
+            checks += _token_paths(tok, visited, home, dirstack, text=True)
     return checks + visited
 
 
@@ -564,13 +745,14 @@ def _tool_paths(tool: str, tool_input: dict, cwd: Path, home: Path) -> list:
     return out
 
 
-def place_class(path: Path, own: Path, p: config.Paths, home: Path) -> str | None:
+def place_class(path: Path, own: Path, p: config.Paths, home: Path, text: bool = False) -> str | None:
     """The class of a refused place for `path`, or None when a session may reach it. The path is taken as written
     and through its links, each link resolved before a `..` after it climbs, as the kernel does; both must pass.
     The session records (<shared>/sessions: the receipt marks and guard.log) are refused to every call. The own
     project, the rest of the shared folder (outbox, datasets) and the knowledge base pass; another project, the
     client's folder and the key folders of `home` do not, and neither does a folder that holds one of them (a
-    search from it would reach them)."""
+    search from it would reach them). With `text` (a place read out of text, see _Text) only a place inside a
+    refused one is refused, not a folder that holds one."""
     literal = Path(os.path.normpath(str(path)))
     try:
         real = Path(os.path.realpath(str(path)))
@@ -583,7 +765,7 @@ def place_class(path: Path, own: Path, p: config.Paths, home: Path) -> str | Non
     client = Path(os.path.realpath(home / ".claude"))
     keys = [Path(os.path.realpath(home / k)) for k in KEY_FOLDERS]
     for t in dict.fromkeys((literal, real)):
-        if _inside(t, records) or (_inside(records, t) and not _inside(own_real, t)):
+        if _inside(t, records) or (not text and _inside(records, t) and not _inside(own_real, t)):
             return SESSION_RECORDS
         if any(_inside(t, a) for a in allowed):
             continue
@@ -599,6 +781,8 @@ def place_class(path: Path, own: Path, p: config.Paths, home: Path) -> str | Non
         found = project_root(t)
         if found is not None and Path(os.path.realpath(found)) != own_real:
             return ANOTHER_PROJECT
+        if text:
+            continue
         if any(_inside(r, t) for r in roots) or _inside(own_real, t):
             return ANOTHER_PROJECT
         if any(_inside(k, t) for k in keys):
@@ -608,10 +792,46 @@ def place_class(path: Path, own: Path, p: config.Paths, home: Path) -> str | Non
     return None
 
 
-def _own_project(data: dict) -> Path | None:
-    """The project of the session: the folder the client started in, else the session folder of the call."""
+_ENCODE_RE = re.compile(r"[^A-Za-z0-9]")
+"""The client names the transcript folder of a session after its first folder, every other character a -."""
+
+
+def _first_folder(data: dict, p: config.Paths | None) -> Path | None:
+    """The project the session started in, read from the name of its transcript folder
+    (<home>/.claude/projects/<first folder with - for / and .>/...): the one project folder under the projects root
+    whose name it is, or whose name it starts with (a start in a subfolder). None when none or more than one fit."""
+    raw = data.get("transcript_path")
+    if not isinstance(raw, str) or not raw or p is None:
+        return None
+    parts = Path(raw).parts
+    names = [parts[i + 1] for i in range(1, len(parts) - 1) if parts[i] == "projects" and parts[i - 1] == ".claude"]
+    if not names:
+        return None
+    name = names[0]
+    try:
+        cands = [d for d in Path(p.projects_root).iterdir() if _PROJECT_DIR_RE.match(d.name)]
+    except OSError:
+        return None
+    fits = []
+    for d in cands:
+        enc = _ENCODE_RE.sub("-", str(d))
+        if name == enc or name.startswith(enc + "-"):
+            try:
+                if (d / "SCOPE.md").is_file():
+                    fits.append(d)
+            except OSError:
+                continue
+    return fits[0] if len(fits) == 1 else None
+
+
+def _own_project(data: dict, p: config.Paths | None = None) -> Path | None:
+    """The project of the session: the folder the client started in (CLAUDE_PROJECT_DIR), else the first folder
+    of the session from its transcript, else the session folder of the call. The first two hold when a cd moved
+    the session folder out of the project (PD2)."""
     started = os.environ.get("CLAUDE_PROJECT_DIR")
     root = project_root(started) if started else None
+    if root is None:
+        root = _first_folder(data, p)
     return root if root is not None else project_root(data.get("cwd") if isinstance(data.get("cwd"), str) else None)
 
 
@@ -638,6 +858,20 @@ def _log_refusal(p: config.Paths, data: dict, tool: str, cls: str, own: Path | N
         pass
 
 
+def _workflow_class(tool_input: dict, home: Path, folder: Path | None = None) -> str | None:
+    """None when a Workflow call runs one of WORKFLOW_FILES of `folder` (WORKFLOW_DIR) by its scriptPath, also to
+    resume a run of it; FOREIGN_WORKFLOW for an inline script, a workflow by name or any other file."""
+    folder = WORKFLOW_DIR if folder is None else folder
+    if tool_input.get("script") or tool_input.get("name"):
+        return FOREIGN_WORKFLOW
+    raw = tool_input.get("scriptPath")
+    if not isinstance(raw, str) or not raw or "\x00" in raw:
+        return FOREIGN_WORKFLOW
+    real = os.path.realpath(_expand(raw, home))
+    allowed = {os.path.realpath(folder / name) for name in WORKFLOW_FILES}
+    return None if real in allowed and os.path.isfile(real) else FOREIGN_WORKFLOW
+
+
 def guard(data: dict, p: config.Paths | None = None, home: Path | None = None,
           sealed: bool | None = None) -> str | None:
     """The class of the place a tool call reaches outside its project, or None when it may run. Fails closed:
@@ -650,7 +884,7 @@ def guard(data: dict, p: config.Paths | None = None, home: Path | None = None,
     try:
         p = p or config.paths()
         home = home or Path.home()
-        own = _own_project(data)
+        own = _own_project(data, p)
         if own is None:
             return UNKNOWN_PROJECT if (_sealed() if sealed is None else sealed) else None
         cwd_raw = data.get("cwd")
@@ -658,8 +892,17 @@ def guard(data: dict, p: config.Paths | None = None, home: Path | None = None,
         tool_input = data.get("tool_input")
         if not isinstance(tool_input, dict):
             return UNKNOWN_PROJECT
+        if tool == WORKFLOW_TOOL:
+            if not (_sealed() if sealed is None else sealed):
+                return None             # the plugin on an architect's own machine: Workflow was never denied there
+            return _workflow_class(tool_input, home)
         for check in dict.fromkeys(_tool_paths(tool, tool_input, cwd, home)):
-            cls = check if isinstance(check, str) else place_class(check, own, p, home)
+            if isinstance(check, str):
+                cls = check
+            elif isinstance(check, _Text):
+                cls = place_class(check.path, own, p, home, True)
+            else:
+                cls = place_class(check, own, p, home)
             if cls:
                 return cls
     except _Refused as exc:
@@ -676,6 +919,9 @@ def refusal(cls: str) -> str:
     if cls == UNREADABLE:
         return ("refused: the guard cannot tell where this call goes (a variable, a substitution, a quote or an escape "
                 "inside a path, or a change of folder it cannot follow). Write the path plainly, inside the project.")
+    if cls == FOREIGN_WORKFLOW:
+        return ("refused: a project session runs only the Workbench's own workflows (%s) by their scriptPath in %s, "
+                "never an inline script or a workflow by name." % (", ".join(WORKFLOW_FILES), WORKFLOW_DIR))
     return "refused: this call reaches %s. A session stays inside its own project folder." % cls
 
 
@@ -692,7 +938,7 @@ def hook_pre_tool(data: dict) -> int:
         p = None
     if p is not None:
         _log_refusal(p, data, str(data.get("tool_name")) if data.get("tool_name") in GUARD_TOOLS else "other", cls,
-                     _own_project(data))
+                     _own_project(data, p))
     print(refusal(cls), file=sys.stderr)
     return BLOCK
 
@@ -814,7 +1060,11 @@ def build_guard(data: dict, root: Path | None = None, home: Path | None = None, 
         tool_input = data.get("tool_input")
         if not isinstance(tool_input, dict):
             return NO_CLONE
+        if tool == WORKFLOW_TOOL:
+            return OUTSIDE_BUILD        # the build settings deny Workflow; the guard refuses it as well
         for check in dict.fromkeys(_tool_paths(tool, tool_input, cwd, home)):
+            if isinstance(check, _Text):
+                check = check.path      # the build user's guard passes only its own places: text is no exception
             cls = check if isinstance(check, str) else build_place_class(check, own, root,
                                                                          tool in BUILD_WRITE_TOOLS, tmp)
             if cls:
@@ -877,6 +1127,9 @@ def selftest() -> list[str]:
                 ({"tool_name": "Bash", "tool_input": {"command": "cat %s/STATE.md" % other}}, ANOTHER_PROJECT),
                 ({"tool_name": "Read", "tool_input": {"file_path": str(home / ".ssh" / "id_ed25519")}}, KEY_FOLDER),
                 ({"tool_name": "Read", "tool_input": {"file_path": str(own / "STATE.md")}}, None),
+                ({"tool_name": "Bash", "tool_input": {"command": "sed -i 's/a/ /' STATE.md"}}, None),
+                ({"tool_name": "Workflow", "tool_input": {"script": "export const meta = {name: 'x'}"}},
+                 FOREIGN_WORKFLOW),
             ]
             for payload, want in cases:
                 payload["cwd"] = str(own)
