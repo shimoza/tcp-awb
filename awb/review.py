@@ -6,7 +6,8 @@ Per deliverable `<project>/deliverables/<name>` the review lives in `<project>/r
                    (a checklist he fills), what is out of scope, the word budget, the tier, the writing mode and,
                    when he lowered the tier of a text for a customer or partner, his words
     claims.tsv     written by `claims`: every sentence that carries a checkable claim, with evidence, grade and
-                   verdict filled by hand or from the review workflow
+                   verdict filled by hand or from the review workflow. A row added by hand stays on a re-run while
+                   its sentence is in the text; one whose sentence is gone is dropped and named by its id
     kb.tsv         written by `claims` next to it: per claim the knowledge entries `kb find` returns (V-04)
     lenses/*.json  written by the review workflow (workflows/review.js) for tier 2 and 3 and by the request check
                    (workflows/request-check.js, kind "request")
@@ -83,7 +84,7 @@ import sys
 import tempfile
 from collections import Counter
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date
 from pathlib import Path
 
@@ -773,7 +774,12 @@ def _key(sentence: str) -> str:
 
 def _pair(fresh: list[Claim], old: list[Claim]) -> tuple[list[tuple[Claim, Claim | None]], int]:
     """Each fresh claim with the old row of the same sentence (in order for repeated sentences), and the count of
-    old rows whose sentence is gone."""
+    old rows that no fresh claim took (see `_unpaired` for what becomes of them)."""
+    pairs, left = _pair_rows(fresh, old)
+    return pairs, len(left)
+
+
+def _pair_rows(fresh: list[Claim], old: list[Claim]) -> tuple[list[tuple[Claim, Claim | None]], list[Claim]]:
     pool: dict[str, list[Claim]] = {}
     for row in old:
         pool.setdefault(_key(row.sentence), []).append(row)
@@ -781,7 +787,34 @@ def _pair(fresh: list[Claim], old: list[Claim]) -> tuple[list[tuple[Claim, Claim
     for c in fresh:
         rows = pool.get(_key(c.sentence))
         pairs.append((c, rows.pop(0) if rows else None))
-    return pairs, sum(len(v) for v in pool.values())
+    left = [r for r in old if any(r is x for v in pool.values() for x in v)]
+    return pairs, left
+
+
+def is_manual(row: Claim) -> bool:
+    """A row the session added by hand: marked `manual` in the kind column, or a sentence the generator would
+    not list."""
+    return "manual" in row.kinds() or not find_claims(row.sentence)
+
+
+def _unpaired(left: list[Claim], text: str) -> tuple[list[Claim], list[Claim]]:
+    """(kept, gone) of the old rows no fresh claim took. A row whose sentence is still in the text is kept as it
+    is, with its line brought up to date; a row whose sentence is gone is dropped."""
+    lines: dict[str, int] = {}
+    for line, sentence in _units(text):
+        lines.setdefault(_key(sentence), line)
+    whole = _key(text)
+    kept: list[Claim] = []
+    gone: list[Claim] = []
+    for r in left:
+        k = _key(r.sentence)
+        if k in lines:
+            kept.append(replace(r, line=lines[k]))
+        elif k and k in whole:
+            kept.append(r)
+        else:
+            gone.append(r)
+    return kept, gone
 
 
 def _id_number(claim_id: str) -> int:
@@ -789,10 +822,21 @@ def _id_number(claim_id: str) -> int:
     return int(m.group(1)) if m else 0
 
 
-def merge_claims(fresh: list[Claim], old: list[Claim]) -> tuple[list[Claim], int, int]:
+def merge_claims(fresh: list[Claim], old: list[Claim], text: str | None = None
+                 ) -> tuple[list[Claim], int, int]:
     """(rows, kept, dropped): fresh claims, where a sentence already listed keeps its id, evidence, grade and
-    verdict; new sentences get new ids after the highest old one."""
-    pairs, dropped = _pair(fresh, old)
+    verdict; new sentences get new ids after the highest old one. With `text`, an old row no fresh claim took
+    (a row added by hand) stays while its sentence is in the text, with its evidence and verdict; `dropped` then
+    counts the rows whose sentence is gone. See `merge_claims_report` for the ids of the dropped manual rows."""
+    rows, kept, gone = merge_claims_report(fresh, old, text)
+    return rows, kept, len(gone)
+
+
+def merge_claims_report(fresh: list[Claim], old: list[Claim], text: str | None = None
+                        ) -> tuple[list[Claim], int, list[Claim]]:
+    """(rows, kept, gone): as `merge_claims`, with the dropped old rows themselves."""
+    pairs, left = _pair_rows(fresh, old)
+    keep_manual, gone = _unpaired(left, text) if text is not None else ([], left)
     nxt = max([_id_number(r.id) for r in old] + [0]) + 1
     out: list[Claim] = []
     kept = 0
@@ -803,7 +847,10 @@ def merge_claims(fresh: list[Claim], old: list[Claim]) -> tuple[list[Claim], int
         else:
             out.append(replace(c, id="C-%d" % nxt, evidence="", grade="", verdict=""))
             nxt += 1
-    return out, kept, dropped
+    if keep_manual:
+        kept += len(keep_manual)
+        out = sorted(out + keep_manual, key=lambda r: r.line)
+    return out, kept, gone
 
 
 def render_claims(rows: list[Claim]) -> str:
@@ -854,6 +901,7 @@ class ClaimsResult:
     rows: list[Claim]
     kept: int
     dropped: int
+    dropped_manual: list[str] = field(default_factory=list)   # ids of hand-added rows whose sentence is gone
     kb_path: Path | None = None
     kb_rows: int = 0      # claims with at least one knowledge entry that may settle them (V-04)
 
@@ -900,13 +948,16 @@ def write_claims(deliverable, register_path=None, kb_where=None, today: date | N
                       "listed" % len(names))
     target = review_dir(project, rel) / CLAIMS
     old = load_claims(target) if target.exists() else []
-    rows, kept, dropped = merge_claims(find_claims(text), old)
+    rows, kept, gone = merge_claims_report(find_claims(text), old, text)
+    dropped = len(gone)
+    dropped_manual = [r.id for r in gone if is_manual(r)]
     _write_atomic(target, render_claims(rows))
     scope = _platform(project)
     candidates = {r.id: kb_candidates(r.sentence, scope, kb_where, today) for r in rows}
     kb_path = review_dir(project, rel) / KB_FILE
     _write_atomic(kb_path, render_kb(rows, candidates))
-    return ClaimsResult(path=target, rows=rows, kept=kept, dropped=dropped, kb_path=kb_path,
+    return ClaimsResult(path=target, rows=rows, kept=kept, dropped=dropped, dropped_manual=dropped_manual,
+                        kb_path=kb_path,
                         kb_rows=sum(1 for v in candidates.values() if v))
 
 
@@ -1149,7 +1200,9 @@ def _l0_of(path: Path, source: Path, rel: str, project: Path, folder: Path, cont
         if fresh:
             problems.append("claims.tsv is missing: run awb review claims")
     else:
-        pairs, stale = _pair(fresh, load_claims(cpath))
+        pairs, left = _pair_rows(fresh, load_claims(cpath))
+        manual, gone = _unpaired(left, text)
+        stale = len(gone)
         missing = [c for c, row in pairs if row is None]
         if missing:
             problems.append("claims.tsv misses %d claims of the current text (lines %s): run awb review claims "
@@ -1157,6 +1210,10 @@ def _l0_of(path: Path, source: Path, rel: str, project: Path, folder: Path, cont
         for c, row in pairs:
             if row is not None:
                 problems.extend(_claim_problems(c, row, project, path, contract.tier, kb_where))
+        for row in manual:
+            # a row added by hand is checked like a generated one: its verdict, grade and evidence count
+            c = replace(row, risk=row.risk if row.risk in ("high", "medium", "low") else "medium")
+            problems.extend(_claim_problems(c, c, project, path, contract.tier, kb_where))
     return L0Result(blocked=bool(problems), problems=problems, tier=contract.tier, mode=contract.mode, words=words,
                     budget=contract.budget, tells=tell_count, name_hits=len(hits), claims=len(fresh), high=high,
                     stale_rows=stale, sha256=digest)
@@ -2000,6 +2057,9 @@ def _cmd_claims(args) -> int:
     print("review claims: %d claims of %s (high %d, medium %d, low %d); %d rows kept their evidence, %d rows of "
           "sentences that are gone were dropped" % (len(res.rows), _label(rel, _register(None)), risks["high"],
                                                    risks["medium"], risks["low"], res.kept, res.dropped))
+    if res.dropped_manual:
+        print("review claims: %d rows added by hand were dropped because their sentence is gone: %s"
+              % (len(res.dropped_manual), ", ".join(res.dropped_manual)))
     print("review claims: %d claims have knowledge entries to read first, listed in kb.tsv; cite one as "
           "kb:KB-XXXX" % res.kb_rows)
     return EXIT_OK

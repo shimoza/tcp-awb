@@ -784,3 +784,75 @@ def test_workflow_skips_below_tier_2(project, tmp_path):
     out = run_workflow(tmp_path, scenario(project, tier=1))
     assert out["result"]["skipped"] is True and out["files"] == []
     assert [c["phase"] for c in out["calls"] if c["kind"] == "agent"] == ["Prepare"]
+
+
+# --------------------------------------------------------------------------- PD1: rows added by hand
+
+SENT_HAND = "It fits the landing zone of tcp-q7m4."
+SENT_HAND_2 = "Backups run every night at the customer site."
+
+
+def add_row(project: Path, row_id: str, sentence: str, line: int, verdict: str = "supported",
+            evidence: str = "evidence/source.md", kind: str = "manual", risk: str = "medium") -> None:
+    (project / "evidence").mkdir(exist_ok=True)
+    (project / "evidence" / "source.md").write_text("source notes for the claims\n", encoding="utf-8")
+    with claims_path(project).open("a", encoding="utf-8") as fh:
+        fh.write("\t".join([row_id, str(line), kind, risk, sentence, evidence, "docs", verdict]) + "\n")
+
+
+def test_pd1_a_manual_row_survives_a_re_run_with_its_verdict(project, tmp_path, capsys):
+    d = start(project, tmp_path)
+    add_row(project, "C-20", SENT_HAND, 10)
+    add_row(project, "C-21", "Snapshots run every night at the customer site.", 11, kind="")  # no marker at all
+    text = DELIVERABLE_TEXT + "Snapshots run every night at the customer site.\n"
+    deliver(project, text)
+    res = review.write_claims(d)
+    assert res.dropped_manual == []
+    hand = row_with(project, "landing zone")
+    assert (hand["id"], hand["evidence"], hand["grade"], hand["verdict"]) == ("C-20", "evidence/source.md", "docs",
+                                                                           "supported")
+    assert row_with(project, "Snapshots")["id"] == "C-21"
+    # the generated rows still follow the text: a changed sentence is new, the old generated row is gone
+    deliver(project, text.replace("0.12 EUR", "0.15 EUR"))
+    res = review.write_claims(d)
+    assert res.dropped == 1 and res.dropped_manual == []
+    assert not [r for r in rows_of(project) if "0.12" in r["sentence"]]
+    assert row_with(project, "0.15")["verdict"] == ""
+    assert row_with(project, "landing zone")["verdict"] == "supported"
+    code, out, _ = run(["review", "claims", str(d)], capsys)
+    assert code == 0 and "dropped because" not in out
+
+
+def test_pd1_a_review_with_only_manual_rows_closing_the_findings_passes(project, tmp_path, writing):
+    d = start(project, tmp_path, tier=3)
+    fill(project)
+    add_row(project, "C-20", SENT_HAND, 10)
+    lens(project, "partner", [{"id": "partner-1", "severity": "blocking", "blocking": True, "outcome": "open"}])
+    assert not review.run_pass(d).passed
+    review.write_claims(d)  # the re-run keeps the manual row, before it threw it away
+    assert row_with(project, "landing zone")["verdict"] == "supported"
+    lens(project, "partner", [{"id": "partner-1", "severity": "blocking", "blocking": True,
+                               "outcome": "confirmed-fixed"}])
+    res = review.run_pass(d)
+    assert res.passed, res.problems
+    # a manual row is judged like a generated one: a contradicted verdict blocks, a high row needs a verdict
+    fill(project, verdict="contradicted", which=lambda r: "landing zone" in r["sentence"])
+    res = review.run_pass(d)
+    assert not res.passed and any("contradicted" in p and "C-20" in p for p in res.problems)
+    fill(project, verdict="supported", which=lambda r: "landing zone" in r["sentence"])
+    add_row(project, "C-22", SENT_HAND_2, 11, verdict="", evidence="", risk="high")
+    deliver(project, DELIVERABLE_TEXT + SENT_HAND_2 + "\n")
+    res = review.run_pass(d)
+    assert not res.passed and any("C-22" in p for p in res.problems)
+
+
+def test_pd1_a_manual_row_whose_sentence_is_gone_is_reported_by_its_id(project, tmp_path, capsys):
+    d = start(project, tmp_path)
+    add_row(project, "C-20", SENT_HAND, 10)
+    code, out, _ = run(["review", "claims", str(d)], capsys)
+    assert code == 0 and "dropped because" not in out
+    deliver(project, DELIVERABLE_TEXT.replace(SENT_HAND, "Nothing else changed."))
+    code, out, _ = run(["review", "claims", str(d)], capsys)
+    assert code == 0
+    assert "1 rows added by hand were dropped because their sentence is gone: C-20" in out
+    assert not [r for r in rows_of(project) if r["id"] == "C-20"]
