@@ -10387,8 +10387,113 @@
    "name": "doctor names the certificate fix of a tls inspecting proxy",
    "run": ".venv/bin/pytest tests/test_clean_proxy.py::test_doctor_names_the_certificate_fix_of_a_tls_inspecting_proxy",
    "status": "passing"
+  },
+  {
+   "id": "fp-check-learns-1",
+   "phase": "fp-check-learns",
+   "name": "a log line is blocked before learning and passes after",
+   "run": ".venv/bin/pytest tests/test_fplearn.py::test_a_log_line_is_blocked_before_learning_and_passes_after",
+   "status": "passing"
+  },
+  {
+   "id": "fp-check-learns-2",
+   "phase": "fp-check-learns",
+   "name": "a planted name in the same line stays blocked",
+   "run": ".venv/bin/pytest tests/test_fplearn.py::test_a_planted_name_in_the_same_line_stays_blocked",
+   "status": "passing"
+  },
+  {
+   "id": "fp-check-learns-3",
+   "phase": "fp-check-learns",
+   "name": "a first name is never learned",
+   "run": ".venv/bin/pytest tests/test_fplearn.py::test_a_first_name_is_never_learned",
+   "status": "passing"
+  },
+  {
+   "id": "fp-check-learns-4",
+   "phase": "fp-check-learns",
+   "name": "a title a legal form and a registered form stay blocked",
+   "run": ".venv/bin/pytest tests/test_fplearn.py::test_a_title_a_legal_form_and_a_registered_form_stay_blocked",
+   "status": "passing"
+  },
+  {
+   "id": "fp-check-learns-5",
+   "phase": "fp-check-learns",
+   "name": "the public corpus teaches a string the log rules do not",
+   "run": ".venv/bin/pytest tests/test_fplearn.py::test_the_public_corpus_teaches_a_string_the_log_rules_do_not",
+   "status": "passing"
+  },
+  {
+   "id": "fp-check-learns-6",
+   "phase": "fp-check-learns",
+   "name": "the string never reaches a work user file",
+   "run": ".venv/bin/pytest tests/test_fplearn.py::test_the_string_never_reaches_a_work_user_file",
+   "status": "passing"
+  },
+  {
+   "id": "fp-check-learns-7",
+   "phase": "fp-check-learns",
+   "name": "the daemon applies the learned list for the work user",
+   "run": ".venv/bin/pytest tests/test_fplearn.py::test_the_daemon_applies_the_learned_list_for_the_work_user",
+   "status": "passing"
+  },
+  {
+   "id": "fp-check-learns-8",
+   "phase": "fp-check-learns",
+   "name": "the safety gate drops a list change that loses a planted name",
+   "run": ".venv/bin/pytest tests/test_fplearn.py::test_the_safety_gate_drops_a_list_change_that_loses_a_planted_name",
+   "status": "passing"
+  },
+  {
+   "id": "fp-check-learns-9",
+   "phase": "fp-check-learns",
+   "name": "the safety gate runs the red team pack and the planted sets",
+   "run": ".venv/bin/pytest tests/test_fplearn.py::test_the_safety_gate_runs_the_red_team_pack_and_the_planted_sets",
+   "status": "passing"
+  },
+  {
+   "id": "fp-check-learns-10",
+   "phase": "fp-check-learns",
+   "name": "a missing red team pack drops the change",
+   "run": ".venv/bin/pytest tests/test_fplearn.py::test_a_missing_red_team_pack_drops_the_change",
+   "status": "passing"
+  },
+  {
+   "id": "fp-check-learns-11",
+   "phase": "fp-check-learns",
+   "name": "the list never relaxes a name or a mail",
+   "run": ".venv/bin/pytest tests/test_fplearn.py::test_the_list_never_relaxes_a_name_or_a_mail",
+   "status": "passing"
+  },
+  {
+   "id": "fp-check-learns-12",
+   "phase": "fp-check-learns",
+   "name": "the weekly line counts only and goes once a week",
+   "run": ".venv/bin/pytest tests/test_fplearn.py::test_the_weekly_line_counts_only_and_goes_once_a_week",
+   "status": "passing"
+  },
+  {
+   "id": "fp-check-learns-13",
+   "phase": "fp-check-learns",
+   "name": "allow by hand and the list are the owners terminal alone",
+   "run": ".venv/bin/pytest tests/test_fplearn.py::test_allow_by_hand_and_the_list_are_the_owners_terminal_alone",
+   "status": "passing"
+  },
+  {
+   "id": "fp-check-learns-14",
+   "phase": "fp-check-learns",
+   "name": "awb check and the gate record their blocks",
+   "run": ".venv/bin/pytest tests/test_fplearn.py::test_awb_check_and_the_gate_record_their_blocks",
+   "status": "passing"
+  },
+  {
+   "id": "fp-check-learns-15",
+   "phase": "fp-check-learns",
+   "name": "the support log set measured before and after",
+   "run": ".venv/bin/pytest tests/test_fplearn.py::test_the_support_log_set_measured_before_and_after",
+   "status": "passing"
   }
  ],
- "total_tests": 1484,
+ "total_tests": 1499,
  "checked": "2026-10-21"
 }

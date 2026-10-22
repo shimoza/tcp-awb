@@ -40,6 +40,7 @@ import os
 import re
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 from typing import NamedTuple
 
@@ -124,13 +125,14 @@ def register_source(register_path: Path | None) -> tuple[str, list[register.Entr
 
 
 class LocalCheck:
-    """The check over a register read here."""
+    """The check over a register read here, with the learned allow list of its vault (awb/fplearn.py)."""
 
-    def __init__(self, matcher: Matcher):
+    def __init__(self, matcher: Matcher, allow: frozenset = frozenset()):
         self.matcher = matcher
+        self.allow = allow
 
     def scan(self, text: str) -> list[dict]:
-        return _scan(text, self.matcher)
+        return _scan(text, self.matcher, self.allow)
 
     def name_spans(self, text: str) -> list[Span]:
         """Name hits of `text`, positions in its normalised form."""
@@ -198,10 +200,17 @@ def checker(register_path: Path | None, rate_wait: float = 0.0) -> LocalCheck | 
     RemoteCheck over the check socket of the vault daemon."""
     kind, entries = register_source(register_path)
     if kind == LOCAL:
-        return LocalCheck(Matcher(register.forms_for_matching(entries)))
+        return LocalCheck(Matcher(register.forms_for_matching(entries)), _allow_of(register_path))
     if kind == MISSING:
-        return LocalCheck(Matcher([]))
+        return LocalCheck(Matcher([]), _allow_of(register_path))
     return RemoteCheck(remote_socket(), rate_wait)
+
+
+def _allow_of(register_path: Path | None) -> frozenset:
+    """The learned allow list of the vault the register lies in (awb/fplearn.py); empty when there is none."""
+    from awb import fplearn
+
+    return fplearn.load_allow(Path(register_path).parent) if register_path is not None else frozenset()
 
 
 def _as_checker(obj) -> LocalCheck | RemoteCheck:
@@ -231,9 +240,10 @@ def with_hidden_views(text: str) -> str:
     return text + "".join("\n\n" + v for v in extra)
 
 
-def _scan(text: str, matcher: Matcher) -> list[dict]:
+def _scan(text: str, matcher: Matcher, allow: frozenset = frozenset()) -> list[dict]:
     """Name and structured hits of `text`, positions in its normalised form, public view only. A run under a
-    bidi override is read reversed as well."""
+    bidi override is read reversed as well. A structured hit whose whole text is on the learned allow list `allow`
+    for its class is left out (awb/fplearn.py: one exact string of a LEARNABLE class, never a name)."""
     views = _bidi_views(text)
     if views:
         text = text + "".join("\n\n" + v for v in views)
@@ -245,7 +255,12 @@ def _scan(text: str, matcher: Matcher) -> list[dict]:
             continue
         spans.append(s)
     spans.sort(key=lambda s: (s.start, s.end))
-    return public(spans)
+    hits = public(spans)
+    if allow:
+        from awb import fplearn
+
+        hits = [h for h in hits if not fplearn.allowed(h["cls"], n.text[h["start"]:h["start"] + h["length"]], allow)]
+    return hits
 
 
 def check_text(text: str, register_path: Path | None) -> list[dict]:
@@ -480,9 +495,36 @@ def printable_path(path, index: int, matcher) -> str:
     return "file %d" % index if _as_checker(matcher).name_spans(str(path)) else str(path)
 
 
+def _learning_command(argv: list[str]) -> int:
+    """`awb check learn` and `awb check allow`: the owner's command module awb/fplearn_cmd.py, loaded by name so that
+    no unit imports it (deploy.DYNAMIC)."""
+    import importlib
+
+    return importlib.import_module("awb.fplearn_cmd").main(argv)
+
+
+def _record(path: Path, found: list[dict]) -> None:
+    """Record a block of `awb check` for the learning (awb/fplearn.py): the text of a plain text file goes with its
+    hits, any other file gives its classes alone."""
+    from awb import fplearn
+
+    try:
+        text, _ = _plain_text(Path(path), Path(path).read_bytes())
+    except OSError:
+        text = None
+    hits = [h for h in found if h["length"] > 0] if text is not None else []
+    extra = dict(Counter(h["cls"] for h in found if text is None or h["length"] <= 0))
+    fplearn.record("check", text, hits, extra)
+
+
 def main(argv: list[str] | None = None) -> int:
-    """`awb check [--register PATH] [--no-register] FILE...`. Exit 0 clean, 1 on any hit, 2 on an error."""
+    """`awb check [--register PATH] [--no-register] FILE...`. Exit 0 clean, 1 on any hit, 2 on an error. `awb check
+    learn` and `awb check allow WORD|--list` are the learning of awb/fplearn.py."""
     from awb.cli import SafeParser
+
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] in ("learn", "allow"):
+        return _learning_command(list(argv))
 
     ap = SafeParser(
         prog="awb check",
@@ -531,6 +573,8 @@ def main(argv: list[str] | None = None) -> int:
             out.extend(json.dumps({"file": shown, "start": h["start"], "length": h["length"], "cls": h["cls"]})
                        for h in found)
             hits += len(found)
+            if found and not args.no_register:
+                _record(f, found)
     except register.RegisterError as err:   # CheckUnavailable included
         print("awb check: %s" % err, file=sys.stderr)
         return 2

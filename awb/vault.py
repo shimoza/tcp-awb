@@ -62,7 +62,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from awb import check, codes, config, parts, register
+from awb import check, codes, config, fplearn, parts, register
 from awb.handover import (HANDOVER_DEADLINE, RELOAD_CLIENT_TIMEOUT, _adopt, _bind, _inherited, _Pair, _peer_uid,
                           hand_over, no_dump, release_path, sd_notify)
 from awb.matcher import Matcher
@@ -834,10 +834,21 @@ class Daemon:
             self._log(uid, len(text), None, "busy")
             return _error("rate")
         try:
-            hits = check._scan(text, matcher)
+            allow = fplearn.load_allow(self.p.vault)
+            hits = check._scan(text, matcher, allow) if allow else check._scan(text, matcher)
         finally:
             self._scan_slots.release()
         self._log(uid, len(text), len(hits), "ok")
+        source = req.get("record")
+        if source in fplearn.SOURCES:
+            # a block of a door of the work user: the strings are written here, on the owner's side, from this scan
+            # and never from what the client says (awb/fplearn.py)
+            with self._log_lock:
+                try:
+                    fplearn.write_items(self.p.vault, source,
+                                        fplearn.items_of(text, hits, fplearn.valid_extra(req.get("extra"))))
+                except OSError:
+                    pass
         return {"ok": True, "hits": [{"start": h["start"], "length": h["length"], "cls": h["cls"]} for h in hits]}
 
     # ----------------------------------------------------------------- admin socket ops

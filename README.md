@@ -845,6 +845,16 @@ customer data out of the model as far as it can:
   exact reviewed version of a deliverable leave. It refuses a file that carries a deliverable of another project;
   for a project folder the owner cannot read it uses the fingerprint `awb close` wrote (sha256 and salted word
   hashes, no text) and refuses when there is none, naming the project code.
+- The name check learns from its false positives without your marking anything. Every block of the prompt hook,
+  the gate, `awb check` and `awb import` is recorded inside the vault (`<vault>/log/fp/`, yours alone); the work side
+  keeps the count and the class only. Each night `awb check learn` (the timer awb-check-learn.timer) takes a blocked
+  host name, id, error code, status line, path, timestamp or service name for harmless when it stands in the public
+  corpus (the mirrors, the kb, rules/tech-terms.txt, rules/common-words.txt) or fits a log rule, and keeps it
+  blocked when it carries a first name, a title, a legal form, a registered form or a person's name. A learned entry
+  relaxes one exact string of one class (web address, IP, MAC, phone), never a name, a mail or a secret. Before the
+  list changes, the planted names and the red team wipe pack run against it; one planted name that would pass drops
+  the change. Once a week one line of counts reaches you by mail. `awb check allow WORD` releases a word by hand and
+  `awb check allow --list` shows the list, in your own terminal only.
 
 These checks are a safeguard, not a guarantee. The architect stays responsible for what goes into a session. Give
 the model only technical tasks and keep them simple: a detailed description of a customer's project carries metadata

@@ -627,6 +627,7 @@ def hook_prompt(data: dict) -> int:
         rerun = " Run the agent again with the rule \"codes only\"." if kind == "agent" else ""
         print("%s was not delivered: it carries %s.%s" % (_event_source(text, kind), _counts(blocked), rerun),
               file=sys.stderr)
+        _record_block(text, hits, secrets)
         return BLOCK
     parts: list[str] = []
     if names:
@@ -644,7 +645,22 @@ def hook_prompt(data: dict) -> int:
     if kind == "paste":
         parts.append(_paste_door(data))
     print(" ".join(parts), file=sys.stderr)
+    _record_block(text, hits, secrets)
     return BLOCK
+
+
+def _record_block(text: str, hits: list[dict], secrets: list[dict]) -> None:
+    """Record the block for the learning of the name check (awb/fplearn.py): the strings go to the owner's side only
+    (here when the register is read here, else through the vault daemon); never fails the hook."""
+    try:
+        from awb import check, fplearn
+
+        extra: dict[str, int] = {}
+        for h in secrets:
+            extra[h["cls"]] = extra.get(h["cls"], 0) + 1
+        fplearn.record("prompt", check.with_hidden_views(text), hits, extra)
+    except Exception:
+        pass
 
 
 def _paste_door(data: dict) -> str:
