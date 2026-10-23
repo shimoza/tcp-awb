@@ -122,9 +122,10 @@ def read_settings(path: Path | None = None) -> dict:
         if key == "tf_services" and not tf_services_ok(value):
             raise XchgError("line %d of keys.conf: tf_services is a comma-separated list of service names, iam never"
                             % n)
-        if key == "lab_writes" and lab_writes_parse(value) is None:
-            raise XchgError("line %d of keys.conf: lab_writes is a comma-separated list of service:path-prefix, "
-                            "a lower case service (iam never) and a path that starts with / and has no .." % n)
+        if key == "lab_writes" and lab_writes_parse(value) is None and not lab_writes_old_form(value):
+            raise XchgError("line %d of keys.conf: lab_writes is a comma-separated list of METHOD service path, "
+                            "a write method, a lower case service (iam never) and a path that starts with /, has no "
+                            ".. and whole {name} segments; awb keys lab-writes --from-recipes prints it" % n)
         if key == "readonly":
             from awb.tcp import readonly
 
@@ -135,21 +136,72 @@ def read_settings(path: Path | None = None) -> dict:
     return out
 
 
-_PREFIX_RE = re.compile(r"^/[A-Za-z0-9_{}.:/-]{0,500}$")
+LAB_WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
+"""The methods of a lab_writes triple: the write methods of the key service (keys.WRITE_METHODS)."""
+_LAB_PATH_RE = re.compile(r"^/[A-Za-z0-9_{}.:/-]{0,500}$")
+_LAB_SEGMENT_RE = re.compile(r"^(?:[A-Za-z0-9_.:-]+|\{[a-z_][a-z0-9_]{0,40}\})$")
+"""One segment of a lab_writes path: plain, or a whole {name} that stands for exactly one segment."""
+_LAB_QUERY_RE = re.compile(r"^[a-z][a-z0-9_-]{0,40}$")
 
 
-def lab_writes_parse(value: str) -> list[tuple[str, str]] | None:
-    """The lab_writes of keys.conf: service:path-prefix pairs separated by commas. None when the line is not a
-    list of valid pairs (an empty list too); a service is lower case and never iam, a prefix starts with / and
-    has no .. and no //."""
+def lab_writes_parse(value: str) -> list[tuple[str, str, str]] | None:
+    """The lab_writes of keys.conf (K9 of the review of 2026-10-20): `METHOD service path` triples separated by
+    commas, each matched whole. None when the line is not a list of valid triples (an empty list too). The method
+    is a write method, the service lower case and never iam, the path starts with /, has no .., no // and no empty
+    segment, a segment is plain or a whole {name}; the path may end in ?key or ?key&key, the query keys a write
+    carries (without ? it carries none)."""
     out = []
     for item in value.split(","):
-        service, sep, prefix = item.strip().partition(":")
-        if not sep or not _SERVICE_RE.match(service) or service == "iam" or not _PREFIX_RE.match(prefix) or \
-                ".." in prefix or "//" in prefix:
+        parts = item.split()
+        if len(parts) != 3:
             return None
-        out.append((service, prefix))
-    return out
+        method, service, full = parts
+        path, sep, query = full.partition("?")
+        if method not in LAB_WRITE_METHODS or not _SERVICE_RE.match(service) or service == "iam" or \
+                not _LAB_PATH_RE.match(path) or ".." in path or "//" in path:
+            return None
+        if path != "/" and not all(_LAB_SEGMENT_RE.match(s) for s in path[1:].split("/")):
+            return None
+        if sep and not all(_LAB_QUERY_RE.match(k) for k in query.split("&")):
+            return None
+        out.append((method, service, full))
+    return out or None
+
+
+def lab_writes_old_form(value: str) -> bool:
+    """True when the line is the old service:path-prefix form of before K9: the unlock goes on (a deploy must not
+    take TCP from every session), the key service reports it in one line and signs no lab write."""
+    items = [item.strip() for item in value.split(",")]
+    for item in items:
+        service, sep, prefix = item.partition(":")
+        if not sep or not _SERVICE_RE.match(service) or service == "iam" or not _LAB_PATH_RE.match(prefix) or \
+                ".." in prefix or "//" in prefix:
+            return False
+    return bool(items)
+
+
+def lab_write_matches(triple: tuple[str, str, str], method: str, service: str, path: str, query) -> bool:
+    """True when the write `method service path` with the query object `query` is the triple: the same method,
+    the same service, the same number of segments, each plain segment equal and each {name} one non-empty segment
+    (never a prefix), and the query keys exactly the ones the triple names."""
+    t_method, t_service, full = triple
+    t_path, _sep, t_query = full.partition("?")
+    if method != t_method or service != t_service or not isinstance(path, str):
+        return False
+    if query is None:
+        query = {}
+    if not isinstance(query, dict) or set(query) != (set(t_query.split("&")) if t_query else set()):
+        return False
+    want, got = t_path.split("/"), path.split("/")
+    if len(want) != len(got):
+        return False
+    for w, g in zip(want, got):
+        if w.startswith("{"):
+            if not g:
+                return False
+        elif w != g:
+            return False
+    return True
 
 
 def tf_services_ok(value: str) -> bool:

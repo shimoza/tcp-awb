@@ -86,6 +86,12 @@ _NOT_ASKED = object()
 """The caller's project was not looked up: the owner, the console or a direct call of a test (K4)."""
 LAB_WRITE_LINE = "refused: lab write outside the lab_writes list of keys.conf, service %s"
 """The one line of a lab write the lab_writes list does not name: the class and the service, never the path."""
+LAB_WRITES_MISSING_LINE = ("refused: keys.conf has no lab_writes line, so the lab key signs no write; the owner "
+                           "adds the line of awb keys lab-writes --from-recipes and runs awb keys unlock")
+"""The one line of a lab write when keys.conf has no lab_writes line (K9 of the review of 2026-10-20)."""
+LAB_WRITES_OLD_LINE = ("lab_writes has the old form: no lab write is signed until `awb keys lab-writes "
+                       "--from-recipes` writes the new line")
+"""The one line of an old service:path-prefix lab_writes line: the unlock goes on, reads work, no lab write."""
 # the lease (T12 part 3, Variant B): a temporary AK/SK of the lab key for the services a project's Terraform set may
 # use (keys.conf tf_services), IAM denied, 15 to 60 minutes
 TF_SERVICES = ("ecs", "evs", "vpc", "elb", "nat", "dns", "obs", "ims")
@@ -637,6 +643,8 @@ class Service:
                 self.tenants = _without_writes(data, settings)
                 self.settings = settings
             self.tokens.clear()
+            if _old_lab_writes(settings):
+                print(LAB_WRITES_OLD_LINE, file=sys.stderr, flush=True)       # the journal of the unit
             return {"ok": True, "tenants": self._summary()}
         if op == "reload":
             return self._reload()
@@ -989,8 +997,15 @@ class Service:
                           % service)
         if not isinstance(path, str) or not _PATH_RE.match(path) or ".." in path or "//" in path:
             raise Refused("a path is plain: /v1/{project_id}/cloudservers")
-        if method in WRITE_METHODS and not self._lab_write_allowed(service, path):
-            raise Refused(LAB_WRITE_LINE % service)
+        if method in WRITE_METHODS:
+            # K9: the write is one METHOD service path triple of the lab_writes line, matched whole with its query
+            # keys; without the line no write is signed
+            if self.settings.get("lab_writes") is None:
+                raise Refused(LAB_WRITES_MISSING_LINE)
+            if _old_lab_writes(self.settings):
+                raise Refused(LAB_WRITES_OLD_LINE)
+            if not self._lab_write_allowed(method, service, path, req.get("query")):
+                raise Refused(LAB_WRITE_LINE % service)
         if service == "obs":
             # OBS is signed its own way and works: the exchange buckets stay with awb xchg, a write stays on the
             # buckets of the project (<code>-...), the rule of the lease policy
@@ -1132,15 +1147,16 @@ class Service:
             return True
         return isinstance(project, str) and bool(_PROJECT_RE.match(project)) and bucket.startswith(project + "-")
 
-    def _lab_write_allowed(self, service: str, path: str) -> bool:
-        """True when keys.conf has no lab_writes line, or one of its service:path-prefix pairs matches."""
+    def _lab_write_allowed(self, method: str, service: str, path: str, query=None) -> bool:
+        """True when one METHOD service path triple of the lab_writes line of keys.conf is this write, matched
+        whole (xchg.lab_write_matches); False without the line or with a line that does not parse."""
         from awb.tcp import xchg
 
         value = self.settings.get("lab_writes")
         if value is None:
-            return True
-        pairs = xchg.lab_writes_parse(str(value)) or []
-        return any(service == s and path.startswith(p) for s, p in pairs)
+            return False
+        triples = xchg.lab_writes_parse(str(value)) or []
+        return any(xchg.lab_write_matches(t, method, service, path, query) for t in triples)
 
     def exchange_buckets(self) -> list[str]:
         """The lab bucket and the owner bucket of keys.conf (or their defaults): a leased key never reaches them."""
@@ -1278,6 +1294,14 @@ class Service:
                 fh.write("\t".join(re.sub(r"[\t\r\n]+", " ", str(x)) for x in fields) + "\n")
         except OSError:
             pass
+
+
+def _old_lab_writes(settings: dict) -> bool:
+    """True when the lab_writes line of the settings is the old service:path-prefix form (K9)."""
+    from awb.tcp import xchg
+
+    value = settings.get("lab_writes")
+    return value is not None and xchg.lab_writes_parse(str(value)) is None and xchg.lab_writes_old_form(str(value))
 
 
 def _without_writes(tenants: dict, settings: dict) -> dict:
@@ -1529,8 +1553,12 @@ def main(argv: list[str] | None = None) -> int:
             from awb.tcp import xchg
 
             value = xchg.read_settings().get("lab_writes")
-            if value is not None:
-                print("lab_writes: %d pairs" % len(xchg.lab_writes_parse(value) or []))
+            if value is not None and _old_lab_writes({"lab_writes": value}):
+                print(LAB_WRITES_OLD_LINE)
+            elif value is not None:
+                print("lab_writes: %d triples" % len(xchg.lab_writes_parse(value) or []))
+            else:
+                print("lab_writes: no line, the lab key signs no write (awb keys lab-writes --from-recipes)")
             return 0
         if args.command == "lab-writes":
             # a child process and no import: lab.py and recheckwatch.py belong to no unit, so a change of them must

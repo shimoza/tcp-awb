@@ -1120,9 +1120,10 @@ phase), `next_phase(state)`, `done(project, name) -> list[str]` (the gate; empty
 `awb/tcp/keys.py`: `store_entries(root=None)`, `collect(entries, reader)`, `Service(admin_path, call_path,
 endpoint=None, paths_fn=config.paths, log_dir=None)` with `start()`, `stop()`, `serve_forever()`;
 `fill(body, secrets)`, `request(sock, obj)`, `unlock(sock=None, entries=None, reader=pass_reader)`, `main(argv)`.
-The keys.conf setting `lab_writes` (`service:path-prefix[,...]`, read and validated by `xchg.read_settings`,
-parsed by `xchg.lab_writes_parse`) limits the writes of the lab role: `Service._lab_write_allowed(service, path)`,
-refusal `LAB_WRITE_LINE`; `labwrites.pairs()` (module `awb/tcp/labwrites.py`, started as a child by the command so that the key service imports neither lab nor recheckwatch) is the union of the write calls of `recipes/` and
+The keys.conf setting `lab_writes` (`METHOD service path[,...]`, read and validated by `xchg.read_settings`,
+parsed by `xchg.lab_writes_parse` into triples, one call matched by `xchg.lab_write_matches(triple, method, service,
+path, query)`) limits the writes of the lab role: `Service._lab_write_allowed(method, service, path, query)`,
+refusals `LAB_WRITE_LINE` and, without the line, `LAB_WRITES_MISSING_LINE` (K9); `labwrites.triples()` (module `awb/tcp/labwrites.py`, started as a child by the command so that the key service imports neither lab nor recheckwatch) is the union of the write calls of `recipes/` and
 `recheckwatch.DELETES` behind `awb keys lab-writes --from-recipes`.
 `send_mail(subject, message) -> str` (F1 step 7) is the one notify request of the owner's processes: it answers
 "sent" or "not sent: " and why; `ui.send_mail` and the build runner's `build_units.send_mail` (True when sent) go
