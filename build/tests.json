@@ -8298,8 +8298,8 @@
   {
    "id": "n20-grant-customer-confirm-1",
    "phase": "n20-grant-customer-confirm",
-   "name": "kind without customer on a customer project writes no grant and prints the line",
-   "run": ".venv/bin/pytest tests/test_grant_customer_confirm.py::test_kind_without_customer_on_a_customer_project_writes_no_grant_and_prints_the_line",
+   "name": "the grant refusal shows the row but prints no ready command",
+   "run": ".venv/bin/pytest tests/test_grant_customer_confirm.py::test_kind_without_customer_shows_the_row_but_prints_no_ready_command",
    "status": "passing"
   },
   {
@@ -11024,8 +11024,15 @@
    "name": "an old-form lab_writes line unlocks, reads pass and no lab write is signed",
    "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_an_old_form_line_unlocks_reads_and_signs_no_write",
    "status": "passing"
+  },
+  {
+   "id": "k14-no-session-value-1",
+   "phase": "k14-no-session-value",
+   "name": "the refusal carries no command with a value the session wrote",
+   "run": ".venv/bin/pytest tests/test_grant_customer_confirm.py::test_the_refusal_carries_no_command_with_a_value_the_session_wrote",
+   "status": "passing"
   }
  ],
- "total_tests": 1575,
+ "total_tests": 1576,
  "checked": "2026-10-23"
 }
