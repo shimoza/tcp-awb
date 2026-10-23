@@ -8501,15 +8501,15 @@
   {
    "id": "n17-lab-write-allow-1",
    "phase": "n17-lab-write-allow",
-   "name": "a write that matches a pair is signed",
-   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_a_write_that_matches_a_pair_is_signed",
+   "name": "a write that matches a triple is signed",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_a_write_that_matches_a_triple_is_signed",
    "status": "passing"
   },
   {
    "id": "n17-lab-write-allow-2",
    "phase": "n17-lab-write-allow",
-   "name": "a write outside the pairs is refused with one fixed line",
-   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_a_write_outside_the_pairs_is_refused_with_one_fixed_line",
+   "name": "a write outside the triples is refused with one fixed line",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_a_write_outside_the_triples_is_refused_with_one_fixed_line",
    "status": "passing"
   },
   {
@@ -8522,8 +8522,8 @@
   {
    "id": "n17-lab-write-allow-4",
    "phase": "n17-lab-write-allow",
-   "name": "without the line every write but iam is signed as before",
-   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_without_the_line_every_write_but_iam_is_signed_as_before",
+   "name": "without the lab_writes line no write of the lab key is signed",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_without_the_line_no_write_is_signed",
    "status": "passing"
   },
   {
@@ -8536,22 +8536,22 @@
   {
    "id": "n17-lab-write-allow-6",
    "phase": "n17-lab-write-allow",
-   "name": "a valid lab_writes line is read as pairs",
-   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_a_valid_line_is_read_as_pairs",
+   "name": "a valid lab_writes line is read as triples",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_a_valid_line_is_read_as_triples",
    "status": "passing"
   },
   {
    "id": "n17-lab-write-allow-7",
    "phase": "n17-lab-write-allow",
-   "name": "--from-recipes prints every recipe write once",
-   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_from_recipes_prints_every_recipe_write_once",
+   "name": "--from-recipes prints every recipe write once as a triple",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_from_recipes_prints_every_recipe_write_once_as_a_triple",
    "status": "passing"
   },
   {
    "id": "n17-lab-write-allow-8",
    "phase": "n17-lab-write-allow",
-   "name": "awb keys unlock prints the count of pairs",
-   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_unlock_prints_the_count_of_pairs",
+   "name": "awb keys unlock prints the count of triples or that no write is signed",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_unlock_prints_the_count_of_triples_or_that_no_write_is_signed",
    "status": "passing"
   },
   {
@@ -10898,8 +10898,71 @@
    "name": "the drafting skill names both chains in both copies and no English note",
    "run": ".venv/bin/pytest tests/test_work_rules.py::test_the_drafting_skill_names_both_chains_in_both_copies",
    "status": "passing"
+  },
+  {
+   "id": "k9-lab-writes-triples-1",
+   "phase": "k9-lab-writes-triples",
+   "name": "an ECS v1 write the line does not name is refused",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_an_ecs_v1_write_the_line_does_not_name_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "k9-lab-writes-triples-2",
+   "phase": "k9-lab-writes-triples",
+   "name": "an OBS write the line does not name is refused",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_an_obs_write_the_line_does_not_name_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "k9-lab-writes-triples-3",
+   "phase": "k9-lab-writes-triples",
+   "name": "a write with another method is refused",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_a_write_with_another_method_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "k9-lab-writes-triples-4",
+   "phase": "k9-lab-writes-triples",
+   "name": "a template segment is one segment, never a prefix",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_a_template_segment_is_one_segment_never_a_prefix",
+   "status": "passing"
+  },
+  {
+   "id": "k9-lab-writes-triples-5",
+   "phase": "k9-lab-writes-triples",
+   "name": "every real recipe write passes the line of the recipes",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_every_real_recipe_write_passes_the_line_of_the_recipes",
+   "status": "passing"
+  },
+  {
+   "id": "k9-lab-writes-triples-6",
+   "phase": "k9-lab-writes-triples",
+   "name": "the real recipe writes are signed through the key service",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_the_real_recipe_writes_are_signed_through_the_key_service",
+   "status": "passing"
+  },
+  {
+   "id": "k9-lab-writes-triples-7",
+   "phase": "k9-lab-writes-triples",
+   "name": "a line that is no list of triples refuses the unlock",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_a_line_that_is_no_list_of_triples_refuses_the_unlock",
+   "status": "passing"
+  },
+  {
+   "id": "k9-lab-writes-triples-8",
+   "phase": "k9-lab-writes-triples",
+   "name": "a placeholder inside a segment has no triple",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_a_placeholder_inside_a_segment_has_no_triple",
+   "status": "passing"
+  },
+  {
+   "id": "k9-lab-writes-triples-9",
+   "phase": "k9-lab-writes-triples",
+   "name": "an old-form lab_writes line unlocks, reads pass and no lab write is signed",
+   "run": ".venv/bin/pytest tests/test_keys_lab_writes.py::test_an_old_form_line_unlocks_reads_and_signs_no_write",
+   "status": "passing"
   }
  ],
- "total_tests": 1557,
- "checked": "2026-10-22"
+ "total_tests": 1566,
+ "checked": "2026-10-23"
 }

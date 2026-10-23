@@ -586,11 +586,15 @@ the password store (`pass`), one folder per tenant alias:
 | `awb/tenant/<alias>/lab/ak`, `lab/sk` | the lab key | every method; a write needs the code of an active project |
 | `awb/tenant/<alias>/secret/<name>` | a login or a password | fills a password field of a request, never shown |
 
-With a `lab_writes = <service>:<path-prefix>[,...]` line in `keys.conf` the lab key signs a write (POST, PUT, PATCH,
-DELETE) only when its service and path match one pair by prefix; any other write is refused with one fixed line that
-names the service and never the path. Without the line every write but `iam` is signed as before. `awb keys unlock`
-prints the count of pairs. `awb keys lab-writes --from-recipes` prints the line for every write of the recipes in
-`recipes/` and of the recheck watch, so the owner can paste it (a path is cut before its first `${`).
+The lab key signs a write (POST, PUT, PATCH, DELETE) only when the `lab_writes = METHOD service path[,...]` line in
+`keys.conf` names it: method, service and path are one triple, a `{name}` segment stands for exactly one segment
+(never a prefix) and the query keys are the ones after `?` (`PUT obs /{name}?policy`; none without `?`). Any other
+write is refused with one fixed line that names the service and never the path. Without the line the lab key signs
+no write; with the old `service:path-prefix` line the unlock goes on, reads work and it signs no write until the new
+line is in (one line in the journal and in `awb keys unlock` says so). `awb keys unlock` prints the count of
+triples. `awb keys lab-writes --from-recipes` prints the line for
+every write of the recipes in `recipes/` and of the recheck watch, so the owner can paste it (each `${name}` becomes
+`{name}`).
 
 A new tenant needs its admin login in the store once; one command does the rest (the read group and user, the
 key, the register, the key service and the first snapshot) and a second run changes nothing:
