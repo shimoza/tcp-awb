@@ -8459,8 +8459,8 @@
   {
    "id": "n18-extract-sandbox-1",
    "phase": "n18-extract-sandbox",
-   "name": "extract pdf unit: the argv is the fixed form with the user of paths.conf",
-   "run": ".venv/bin/pytest tests/test_extract_pdf_unit.py::test_the_unit_argv_is_the_fixed_form_with_the_user_of_paths_conf",
+   "name": "extract pdf unit: the argv is the fixed form with the user of paths.conf and the K20 isolation",
+   "run": ".venv/bin/pytest tests/test_extract_pdf_unit.py::test_the_unit_argv_is_the_fixed_form_with_the_k20_isolation",
    "status": "passing"
   },
   {
@@ -10961,8 +10961,50 @@
    "name": "K21: every build unit's own /dev/shm is nosuid,nodev and verify.sh probes the same string",
    "run": ".venv/bin/pytest tests/test_k16_k21_host.py::test_k21_every_unit_shm_is_nosuid_and_nodev_and_verify_probes_the_same",
    "status": "passing"
+  },
+  {
+   "id": "k20-extract-unit-1",
+   "phase": "k20-extract-unit",
+   "name": "K20: the extract unit carries PrivateIPC, its own /dev/shm, ProtectProc=invisible, AF_UNIX only and PrivateDevices, and keeps the fixed uid",
+   "run": ".venv/bin/pytest tests/test_k20_extract_unit.py::test_k20_the_unit_carries_the_isolation_of_the_build_units_and_keeps_the_fixed_uid",
+   "status": "passing"
+  },
+  {
+   "id": "k20-extract-unit-2",
+   "phase": "k20-extract-unit",
+   "name": "K20: each sudoers command of setup.sh is exactly the argv of the unit runner up to the tool",
+   "run": ".venv/bin/pytest tests/test_k20_extract_unit.py::test_k20_the_sudoers_line_is_the_argv_of_the_unit_runner",
+   "status": "passing"
+  },
+  {
+   "id": "k20-extract-unit-3",
+   "phase": "k20-extract-unit",
+   "name": "K20: both extract probes of verify.sh carry every property of the unit",
+   "run": ".venv/bin/pytest tests/test_k20_extract_unit.py::test_k20_both_verify_probes_carry_every_property_of_the_unit",
+   "status": "passing"
+  },
+  {
+   "id": "k20-extract-unit-4",
+   "phase": "k20-extract-unit",
+   "name": "K20: a real pdf extracts through the tool part of the unit argv, the bytes on standard input",
+   "run": ".venv/bin/pytest tests/test_k20_extract_unit.py::test_k20_a_real_pdf_extracts_through_the_tool_part_of_the_unit_argv",
+   "status": "passing"
+  },
+  {
+   "id": "k20-extract-unit-5",
+   "phase": "k20-extract-unit",
+   "name": "K20: under the unit's socket rule no inet, inet6, packet or netlink socket opens, a unix one does (user service manager, no root)",
+   "run": ".venv/bin/pytest tests/test_k20_extract_unit.py::test_k20_the_socket_rule_of_the_unit_opens_no_network_socket",
+   "status": "passing"
+  },
+  {
+   "id": "k20-extract-unit-6",
+   "phase": "k20-extract-unit",
+   "name": "K20: visudo parses the sudoers line of the extract unit",
+   "run": ".venv/bin/pytest tests/test_k20_extract_unit.py::test_k20_visudo_parses_the_sudoers_line",
+   "status": "passing"
   }
  ],
- "total_tests": 1566,
+ "total_tests": 1572,
  "checked": "2026-10-23"
 }
