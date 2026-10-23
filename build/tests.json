@@ -7892,7 +7892,7 @@
   {
    "id": "n10-build-units-ipc-1",
    "phase": "n10-build-units-ipc",
-   "name": "build units, B5: every unit of a task carries PrivateIPC=yes, a TemporaryFileSystem of its own over /dev/shm (64M) and /dev/mqueue inaccessible; the probe units of verify.sh carry the same and verify.sh checks what a unit sees in /dev/shm",
+   "name": "build units, B5: every unit of a task carries PrivateIPC=yes, a TemporaryFileSystem of its own over /dev/shm (64M, mode 1777, nosuid, nodev) and /dev/mqueue inaccessible; the probe units of verify.sh carry the same and verify.sh checks what a unit sees in /dev/shm",
    "run": ".venv/bin/pytest tests/test_build_units_ipc.py::test_every_task_unit_has_private_ipc_and_its_own_shm_and_no_mqueue",
    "status": "passing"
   },
@@ -10898,8 +10898,71 @@
    "name": "the drafting skill names both chains in both copies and no English note",
    "run": ".venv/bin/pytest tests/test_work_rules.py::test_the_drafting_skill_names_both_chains_in_both_copies",
    "status": "passing"
+  },
+  {
+   "id": "k16-k20-host-1",
+   "phase": "k16-k20-host-hardening",
+   "name": "K16: close pins the sha256 of the fingerprint it wrote in the vault, mode 600",
+   "run": ".venv/bin/pytest tests/test_k16_k21_host.py::test_k16_close_pins_the_hash_of_the_fingerprint_in_the_vault",
+   "status": "passing"
+  },
+  {
+   "id": "k16-k20-host-2",
+   "phase": "k16-k20-host-hardening",
+   "name": "K16: a session that empties the fingerprint of a closed project gets a refusal, the copy of its deliverable does not pass",
+   "run": ".venv/bin/pytest tests/test_k16_k21_host.py::test_k16_an_emptied_fingerprint_is_refused_and_the_copy_does_not_pass",
+   "status": "passing"
+  },
+  {
+   "id": "k16-k20-host-3",
+   "phase": "k16-k20-host-hardening",
+   "name": "K16: a closed project whose fingerprint has no pin is refused with the close line",
+   "run": ".venv/bin/pytest tests/test_k16_k21_host.py::test_k16_a_fingerprint_without_a_pin_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "k16-k20-host-4",
+   "phase": "k16-k20-host-hardening",
+   "name": "K16: closing a closed project again writes the same bytes (the old salt) and the pin holds",
+   "run": ".venv/bin/pytest tests/test_k16_k21_host.py::test_k16_closing_again_keeps_the_bytes_and_the_pin",
+   "status": "passing"
+  },
+  {
+   "id": "k16-k20-host-5",
+   "phase": "k16-k20-host-hardening",
+   "name": "K16: a forged fingerprint pinned before the real close makes the code a conflict, the gate refuses",
+   "run": ".venv/bin/pytest tests/test_k16_k21_host.py::test_k16_a_forged_pin_before_close_is_a_conflict_never_a_pass",
+   "status": "passing"
+  },
+  {
+   "id": "k16-k20-host-6",
+   "phase": "k16-k20-host-hardening",
+   "name": "K16: the work user pins through the vault daemon with the code alone; a refused pin is one line",
+   "run": ".venv/bin/pytest tests/test_k16_k21_host.py::test_k16_the_work_user_pins_through_the_daemon_by_code_alone",
+   "status": "passing"
+  },
+  {
+   "id": "k16-k20-host-7",
+   "phase": "k16-k20-host-hardening",
+   "name": "K16: the daemon op pin hashes the shared file itself, ignores a hash of the client, the first pin wins, another hash is a conflict",
+   "run": ".venv/bin/pytest tests/test_k16_k21_host.py::test_k16_the_daemon_hashes_the_shared_file_and_takes_no_hash",
+   "status": "passing"
+  },
+  {
+   "id": "k16-k20-host-8",
+   "phase": "k16-k20-host-hardening",
+   "name": "K16: a link in place of the fingerprint is not read or pinned",
+   "run": ".venv/bin/pytest tests/test_k16_k21_host.py::test_k16_a_link_in_place_of_the_fingerprint_is_not_read",
+   "status": "passing"
+  },
+  {
+   "id": "k16-k20-host-9",
+   "phase": "k16-k20-host-hardening",
+   "name": "K21: every build unit's own /dev/shm is nosuid,nodev and verify.sh probes the same string",
+   "run": ".venv/bin/pytest tests/test_k16_k21_host.py::test_k21_every_unit_shm_is_nosuid_and_nodev_and_verify_probes_the_same",
+   "status": "passing"
   }
  ],
- "total_tests": 1557,
- "checked": "2026-10-22"
+ "total_tests": 1566,
+ "checked": "2026-10-23"
 }

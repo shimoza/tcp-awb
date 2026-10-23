@@ -9,7 +9,7 @@ from tests.test_build_runner import TOKEN, cred, nowhere, plant_login, seeded, w
 
 VERIFY = Path(__file__).parents[1] / "seal" / "verify.sh"
 SHM_PROPS = ["--property=PrivateTmp=yes", "--property=PrivateIPC=yes",
-             "--property=TemporaryFileSystem=/dev/shm:size=64M,mode=1777", "--property=NoNewPrivileges=yes"]
+             "--property=TemporaryFileSystem=/dev/shm:size=64M,mode=1777,nosuid,nodev", "--property=NoNewPrivileges=yes"]
 
 
 def login_json(account: str | None, expires: int, token: str = "fake-login-token-two") -> str:
@@ -31,7 +31,7 @@ def test_every_task_unit_has_private_ipc_and_its_own_shm_and_no_mqueue(world):
     i = argv.index(SHM_PROPS[0])
     assert argv[i:i + 4] == SHM_PROPS and argv.index("--") > i
     assert "--property=InaccessiblePaths=-/etc/awb -/dev/mqueue -/srv/awb-build/runs" in argv
-    assert buildrun.SHM_FS == "/dev/shm:size=64M,mode=1777"
+    assert buildrun.SHM_FS == "/dev/shm:size=64M,mode=1777,nosuid,nodev"
     # the units the runner started in a whole run: the prepare, the session, the handover, the suite and the clean
     # unit, each with the three properties and /dev/mqueue hidden
     run = world.run("good")
@@ -48,7 +48,7 @@ def test_every_task_unit_has_private_ipc_and_its_own_shm_and_no_mqueue(world):
     assert all(p in probe for p in SHM_PROPS) and "-/dev/mqueue" in [x for x in probe if "Inaccessible" in x][0]
     text = VERIFY.read_text(encoding="utf-8")
     func = re.search(r"(?ms)^probe\(\) \{\n.*?^\}\n", text).group(0)
-    for prop in ("PrivateIPC=yes", "TemporaryFileSystem=/dev/shm:size=64M,mode=1777", "InaccessiblePaths=-/dev/mqueue"):
+    for prop in ("PrivateIPC=yes", "TemporaryFileSystem=/dev/shm:size=64M,mode=1777,nosuid,nodev", "InaccessiblePaths=-/dev/mqueue"):
         assert "--property=%s" % prop in func, prop
     want = "the probe unit sees an empty /dev/shm of at most 64 MB and no /dev/mqueue"
     assert text.count('"%s"' % want) == 2     # the dry run's list and the check itself

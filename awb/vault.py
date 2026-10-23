@@ -851,6 +851,16 @@ class Daemon:
                     pass
         return {"ok": True, "hits": [{"start": h["start"], "length": h["length"], "cls": h["cls"]} for h in hits]}
 
+    def _op_pin(self, req: dict, uid: int) -> dict:
+        """K16: pin the shared fingerprint of a closed project. The daemon reads and hashes the file itself and never
+        takes a hash from the client; the first pin of a code wins (awb/fppin.py)."""
+        code = req.get("code")
+        if not isinstance(code, str) or not codes.is_project_code(code):
+            return _error("bad request")
+        from awb import fppin
+
+        return {"ok": True, "pin": fppin.pin_shared(self.p, code)}
+
     # ----------------------------------------------------------------- admin socket ops
 
     def _op_ping_admin(self, req: dict, uid: int) -> dict:
@@ -1023,7 +1033,7 @@ class Daemon:
             if not self.handed_over.is_set():
                 self.handing_over.clear()
 
-    _CHECK_OPS = {"ping": _op_ping, "check": _op_check}
+    _CHECK_OPS = {"ping": _op_ping, "check": _op_check, "pin": _op_pin}
     _ADMIN_OPS = {"ping": _op_ping_admin, "unlock": _op_unlock, "lock": _op_lock, "status": _op_status,
                   "register_load": _op_register_load, "register_save": _op_register_save,
                   "seal_file": _op_seal_file, "open_file": _op_open_file, "reload": _op_reload}

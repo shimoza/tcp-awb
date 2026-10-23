@@ -1735,11 +1735,22 @@ def fingerprint(project: Path, salt: str | None = None) -> dict:
     return {"version": FINGERPRINT_VERSION, "salt": salt, "deliverables": rows}
 
 
+def _old_salt(dest: Path) -> str | None:
+    """The salt of the fingerprint at `dest`, so that closing a closed project again writes the same bytes and its
+    pin on the owner side still holds (awb/fppin.py); None without a valid one."""
+    from awb import fppin
+
+    raw = fppin.read_bytes(Path(dest))
+    data = _parse_fingerprint(raw) if raw is not None else None
+    salt = data.get("salt") if data else None
+    return salt if isinstance(salt, str) and re.fullmatch(r"[0-9a-f]{32}", salt) else None
+
+
 def write_fingerprint(project: Path, dest: Path) -> int:
     """Write the fingerprint of `project` to `dest` (mode 640, replaced whole); the number of deliverables.
     Raises OSError when the project cannot be read or `dest` cannot be written."""
-    data = fingerprint(project)
     dest = Path(dest)
+    data = fingerprint(project, _old_salt(dest))
     config.make_dir(dest.parent, 0o750, shared=True)
     fd, tmp = tempfile.mkstemp(prefix=".fp-", dir=str(dest.parent))
     try:
@@ -1759,8 +1770,17 @@ def write_fingerprint(project: Path, dest: Path) -> int:
 def _load_fingerprint(path: Path) -> dict | None:
     """A fingerprint the gate can use, else None (missing, unreadable, malformed, another version, incomplete)."""
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError):
+        raw = Path(path).read_bytes()
+    except OSError:
+        return None
+    return _parse_fingerprint(raw)
+
+
+def _parse_fingerprint(raw: bytes) -> dict | None:
+    """_load_fingerprint of bytes already read (the gate hashes and parses the same bytes, K16)."""
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError):
         return None
     if not isinstance(data, dict) or data.get("version") != FINGERPRINT_VERSION or not isinstance(data.get("salt"), str):
         return None
@@ -1958,7 +1978,15 @@ def send_check(project: Path, file: Path, for_customer: bool, register_path=None
                 # a folder the owner cannot read: a closed project answers through its fingerprint, anything
                 # else refuses (never a pass, never a traceback)
                 code, state = registered.get(root, (root.name, ""))
-                fp = _load_fingerprint(fingerprint_path(workbench, code)) if state == "closed" else None
+                fp, why = None, ""
+                if state == "closed":
+                    from awb import fppin
+
+                    raw, why = fppin.pinned_bytes(workbench, code)
+                    fp = _parse_fingerprint(raw) if raw is not None else None
+                if why in ("conflict", "changed"):
+                    return SEND_REFUSE, ("the fingerprint of project %s does not match the one pinned at close: "
+                                         "nothing leaves unchecked" % code)
                 if fp is None and state == "closed":
                     return SEND_REFUSE, ("project %s cannot be read here and has no usable fingerprint: run awb "
                                          "close %s as the work user, nothing leaves unchecked" % (code, code))

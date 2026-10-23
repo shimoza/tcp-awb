@@ -576,7 +576,7 @@ def test_the_real_spawn_is_one_fixed_form_and_the_suite_unit_has_its_own_loopbac
         "--setenv=HOME=/srv/awb-build/home/B-012-1", "--setenv=DISABLE_AUTOUPDATER=1",
         "--property=RuntimeMaxSec=5400", "--property=CPUQuota=200%", "--property=MemoryMax=6G",
         "--property=TasksMax=512", "--property=ProtectSystem=strict", "--property=ProtectHome=yes",
-        "--property=PrivateTmp=yes", "--property=PrivateIPC=yes", "--property=TemporaryFileSystem=/dev/shm:size=64M,mode=1777",
+        "--property=PrivateTmp=yes", "--property=PrivateIPC=yes", "--property=TemporaryFileSystem=/dev/shm:size=64M,mode=1777,nosuid,nodev",
         "--property=NoNewPrivileges=yes",
         "--property=ReadWritePaths=/srv/awb-build/wt/B-012-1 /srv/awb-build/home/B-012-1",
         "--property=InaccessiblePaths=-/etc/awb -/dev/mqueue -/srv/awb-build/runs -/srv/awb-build/wt/B-011-1",

@@ -67,11 +67,12 @@ SMALL_MAX = 1 << 20
 CPU_QUOTA = "200%"
 MEMORY_MAX = "6G"
 TASKS_MAX = 512
-SHM_FS = "/dev/shm:size=64M,mode=1777"
+SHM_FS = "/dev/shm:size=64M,mode=1777,nosuid,nodev"
 """Every unit's own /dev/shm (review of 2026-10-13, B5): a tmpfs of its own that goes with the unit, capped, with
 PrivateIPC=yes for the System V and POSIX objects and /dev/mqueue inaccessible. Nothing a task leaves there outlives
 it or reaches the next task. mode=1777 because a tmpfs of systemd is root 0755 otherwise and a task user could not
-create a semaphore there (every check failed the two ledger tests after the runner restart of 2026-10-20, SH)."""
+create a semaphore there (every check failed the two ledger tests after the runner restart of 2026-10-20, SH). nosuid,nodev: no set-uid file and no device
+node a task leaves there works (review of 2026-10-20, K21)."""
 UNIT_HIDDEN = ("/etc/awb", "/dev/mqueue")
 """InaccessiblePaths of every unit, before the clones, homes and records of the other tasks."""
 

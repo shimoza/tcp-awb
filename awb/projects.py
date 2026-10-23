@@ -954,7 +954,9 @@ def write_fingerprint(p: _config.Paths, project: Project) -> str:
     except Exception:          # never a stop: the gate refuses for a closed project it cannot read without one
         return ("fingerprint not written: this user cannot read the deliverables of %s or write the shared side; "
                 "run awb close %s as the work user" % (project.code, project.code))
-    return "fingerprint of %d deliverable(s) written" % n
+    from awb import fppin
+
+    return "fingerprint of %d deliverable(s) written; %s" % (n, fppin.pin(p, project.code))
 
 
 def _park_rows(p: _config.Paths) -> dict[str, tuple[str, str]]:
