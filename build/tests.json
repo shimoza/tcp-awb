@@ -2544,8 +2544,8 @@
   {
    "id": "TG-13",
    "phase": "T-guard",
-   "name": "client settings guard every file and shell tool (Bash, Monitor), the work user denies every tool the guard does not see",
-   "run": ".venv/bin/pytest tests/test_guard.py::test_client_settings_guard_every_file_and_shell_tool_and_the_work_user_denies_the_rest",
+   "name": "client settings guard every file and shell tool and Workflow (PD3), the work user denies every tool the guard does not see; the test of the old deny list replaced",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_client_settings_guard_the_workflow_tool_and_the_work_user_denies_the_rest_but_workflow",
    "status": "passing"
   },
   {
@@ -10772,8 +10772,106 @@
    "name": "the tenant commands add, grant, revoke and remove",
    "run": ".venv/bin/pytest tests/test_readonly_tenants.py::test_rt_the_tenant_commands_add_grant_and_remove",
    "status": "passing"
+  },
+  {
+   "id": "pd23-1",
+   "phase": "pd23",
+   "name": "a sed or awk on resources md of the own project passes",
+   "run": ".venv/bin/pytest tests/test_pd23_guard.py::test_a_sed_or_awk_on_resources_md_of_the_own_project_passes",
+   "status": "passing"
+  },
+  {
+   "id": "pd23-2",
+   "phase": "pd23",
+   "name": "a call that opens a console url passes",
+   "run": ".venv/bin/pytest tests/test_pd23_guard.py::test_a_call_that_opens_a_console_url_passes",
+   "status": "passing"
+  },
+  {
+   "id": "pd23-3",
+   "phase": "pd23",
+   "name": "a remote path in a folder the session cannot read passes",
+   "run": ".venv/bin/pytest tests/test_pd23_guard.py::test_a_remote_path_in_a_folder_the_session_cannot_read_passes",
+   "status": "passing"
+  },
+  {
+   "id": "pd23-4",
+   "phase": "pd23",
+   "name": "a here document script of the own project passes",
+   "run": ".venv/bin/pytest tests/test_pd23_guard.py::test_a_here_document_script_of_the_own_project_passes",
+   "status": "passing"
+  },
+  {
+   "id": "pd23-5",
+   "phase": "pd23",
+   "name": "the project is the first folder when a cd left it",
+   "run": ".venv/bin/pytest tests/test_pd23_guard.py::test_the_project_is_the_first_folder_when_a_cd_left_it",
+   "status": "passing"
+  },
+  {
+   "id": "pd23-6",
+   "phase": "pd23",
+   "name": "the same commands naming a file of another project are refused",
+   "run": ".venv/bin/pytest tests/test_pd23_guard.py::test_the_same_commands_naming_a_file_of_another_project_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "pd23-7",
+   "phase": "pd23",
+   "name": "a here document that writes a file of another project is refused",
+   "run": ".venv/bin/pytest tests/test_pd23_guard.py::test_a_here_document_that_writes_a_file_of_another_project_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "pd23-8",
+   "phase": "pd23",
+   "name": "a search from the root or the home stays refused",
+   "run": ".venv/bin/pytest tests/test_pd23_guard.py::test_a_search_from_the_root_or_the_home_stays_refused",
+   "status": "passing"
+  },
+  {
+   "id": "pd23-9",
+   "phase": "pd23",
+   "name": "the workbench workflows run by their script path",
+   "run": ".venv/bin/pytest tests/test_pd23_guard.py::test_the_workbench_workflows_run_by_their_script_path",
+   "status": "passing"
+  },
+  {
+   "id": "pd23-10",
+   "phase": "pd23",
+   "name": "an inline script a name or another file is refused",
+   "run": ".venv/bin/pytest tests/test_pd23_guard.py::test_an_inline_script_a_name_or_another_file_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "pd23-11",
+   "phase": "pd23",
+   "name": "the hook refuses a foreign workflow with one line",
+   "run": ".venv/bin/pytest tests/test_pd23_guard.py::test_the_hook_refuses_a_foreign_workflow_with_one_line",
+   "status": "passing"
+  },
+  {
+   "id": "pd23-12",
+   "phase": "pd23",
+   "name": "the build guard refuses workflow",
+   "run": ".venv/bin/pytest tests/test_pd23_guard.py::test_the_build_guard_refuses_workflow",
+   "status": "passing"
+  },
+  {
+   "id": "pd23-13",
+   "phase": "pd23",
+   "name": "the generated settings allow workflow and still deny what they denied",
+   "run": ".venv/bin/pytest tests/test_pd23_guard.py::test_the_generated_settings_allow_workflow_and_still_deny_what_they_denied",
+   "status": "passing"
+  },
+  {
+   "id": "pd23-14",
+   "phase": "pd23",
+   "name": "spawn writes client settings whose tool guard takes the Workflow tool (the shell tools test replaced)",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_spawn_writes_client_settings_whose_tool_guard_takes_the_workflow_tool",
+   "status": "passing"
   }
  ],
- "total_tests": 1539,
+ "total_tests": 1553,
  "checked": "2026-10-22"
 }
