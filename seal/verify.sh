@@ -744,6 +744,8 @@ extract_checks() {
             --uid="$EXTRACT_USER" --gid="$EXTRACT_USER" --property=PrivateNetwork=yes \
             --property=ProtectSystem=strict --property=ProtectHome=yes --property=PrivateTmp=yes \
             --property=NoNewPrivileges=yes --property=MemoryMax=512M --property=RuntimeMaxSec=120 \
+            --property=PrivateIPC=yes --property=TemporaryFileSystem=/dev/shm \
+            --property=ProtectProc=invisible --property=RestrictAddressFamilies=AF_UNIX --property=PrivateDevices=yes \
             -- "$(command -v pdftotext)" -layout -enc UTF-8 - - < "$pdf" 2>/dev/null) || text=""
         case "$text" in *"extract probe line"*) out=0 ;; esac
     fi
@@ -754,6 +756,8 @@ extract_checks() {
             --uid="$EXTRACT_USER" --gid="$EXTRACT_USER" --property=PrivateNetwork=yes \
             --property=ProtectSystem=strict --property=ProtectHome=yes --property=PrivateTmp=yes \
             --property=NoNewPrivileges=yes --property=MemoryMax=512M --property=RuntimeMaxSec=120 \
+            --property=PrivateIPC=yes --property=TemporaryFileSystem=/dev/shm \
+            --property=ProtectProc=invisible --property=RestrictAddressFamilies=AF_UNIX --property=PrivateDevices=yes \
             -- "$(command -v pdfinfo)" -enc UTF-8 - < "$pdf" 2>/dev/null) || text=""
         case "$text" in *"Pages:"*) out=0 ;; esac
     fi
