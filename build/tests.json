@@ -199,7 +199,7 @@
   {
    "id": "P1",
    "phase": "P1",
-   "name": "work rules: reply in English, T Cloud Public naming, only the knowledge base crossed over, check before stating, English note for his English only; at most 60 lines, pass the writing check and the gate",
+   "name": "work rules: T Cloud Public naming, only the knowledge base crossed over, check before stating; at most 60 lines, pass the writing check and the gate",
    "run": ".venv/bin/pytest tests/test_work_rules.py tests/test_seal.py",
    "status": "passing"
   },
@@ -10870,8 +10870,36 @@
    "name": "spawn writes client settings whose tool guard takes the Workflow tool (the shell tools test replaced)",
    "run": ".venv/bin/pytest tests/test_projects.py::test_spawn_writes_client_settings_whose_tool_guard_takes_the_workflow_tool",
    "status": "passing"
+  },
+  {
+   "id": "lg2-language-chains-1",
+   "phase": "lg2-language-chains",
+   "name": "chain 1: a German customer gets a German deliverable, he talks and reads Russian, one translate step",
+   "run": ".venv/bin/pytest tests/test_work_rules.py::test_chain_1_a_german_customer_gets_german_and_he_reads_russian",
+   "status": "passing"
+  },
+  {
+   "id": "lg2-language-chains-2",
+   "phase": "lg2-language-chains",
+   "name": "chain 2: he asks in Russian or English, the talk and the deliverables are English, a switch to Russian changes the talk only",
+   "run": ".venv/bin/pytest tests/test_work_rules.py::test_chain_2_he_asks_in_russian_or_english_and_gets_english_only",
+   "status": "passing"
+  },
+  {
+   "id": "lg2-language-chains-3",
+   "phase": "lg2-language-chains",
+   "name": "the work rules carry no English note",
+   "run": ".venv/bin/pytest tests/test_work_rules.py::test_the_work_rules_carry_no_english_note",
+   "status": "passing"
+  },
+  {
+   "id": "lg2-language-chains-4",
+   "phase": "lg2-language-chains",
+   "name": "the drafting skill names both chains in both copies and no English note",
+   "run": ".venv/bin/pytest tests/test_work_rules.py::test_the_drafting_skill_names_both_chains_in_both_copies",
+   "status": "passing"
   }
  ],
- "total_tests": 1553,
+ "total_tests": 1557,
  "checked": "2026-10-22"
 }

@@ -70,8 +70,16 @@ edit short. It does not replace his review and it cannot promise that no reader 
 
 ## German and Russian
 
-He accepts the English text first. The German version and his Russian reading copy are then made from that
-accepted text in one step, never by rewriting: `awb write translate FILE --to de --to ru`. It writes
+He accepts the English text first. Two chains decide what happens next.
+
+Chain 1, the customer writes German (his material or request is German): you talk to him in Russian and the deliverable
+is German. The German version and his Russian reading copy are made from the accepted English text in one step, never
+by rewriting: `awb write translate FILE --to de --to ru`. Show him the Russian copy. Chain 2, he asks in Russian or
+English: you talk to him in English and the deliverable is English only, no German or Russian version unless he asks.
+When he asks for Russian, you talk Russian until he switches back. The deliverable stays English. You never correct his English,
+his dictation slips or his punctuation.
+
+The translate command writes
 `FILE.de.md` and `FILE.ru.md` next to the file, proves with `awb write keep` that every number, identifier and code
 block is still there and runs `awb write check` on the German text. When no model is reachable it writes the prompt
 file and stops: translate along that prompt into the named file, then run the same command with `--verify`.

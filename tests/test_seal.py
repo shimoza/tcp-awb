@@ -341,7 +341,7 @@ def test_work_claude_md_is_short_clean_and_complete(tmp_path):
     fixtures.assert_no_fixture_name(text, "CLAUDE.md of the work user")
     assert "\u2014" not in text
     assert not re.search(r",\s+(and|or)\b", text)
-    for must in ("awb intake", "awb ledger add", "awb career", "awb report", "English note", "never repeat it",
+    for must in ("awb intake", "awb ledger add", "awb career", "awb report", "never repeat it",
                  "~/tcp-shared", "~/tcp-kb", "/opt/tcp-awb"):
         assert must in text, must
 
