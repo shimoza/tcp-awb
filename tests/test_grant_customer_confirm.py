@@ -24,12 +24,21 @@ def _spawn(home, customer):
     return projects.spawn(home, "query", GOAL, customer, home.register)
 
 
-def test_kind_without_customer_on_a_customer_project_writes_no_grant_and_prints_the_line(home, capsys):
+def test_kind_without_customer_shows_the_row_but_prints_no_ready_command(home, capsys):
     pr = _spawn(home, fx.CUSTOMER_CODE)
     assert cli.main(["projects", "kind", pr.code, "project"]) == 1
     err = capsys.readouterr().err
-    assert err.strip() == ("grant not written: the row names %s; run awb projects kind %s project --customer %s"
-                           % (fx.CUSTOMER_CODE, pr.code, fx.CUSTOMER_CODE))
+    assert "grant not written" in err and fx.CUSTOMER_CODE in err
+    assert "--customer CODE" in err and "--customer %s" % fx.CUSTOMER_CODE not in err
+    assert not grants.granted(home, pr.code)
+
+
+def test_the_refusal_carries_no_command_with_a_value_the_session_wrote(home, capsys):
+    pr = _spawn(home, fx.CUSTOMER_CODE)
+    assert cli.main(["projects", "kind", pr.code, "project"]) == 1
+    err = capsys.readouterr().err
+    assert err.strip().endswith("as awb projects kind %s project --customer CODE" % pr.code)
+    assert "run awb projects kind" not in err
     assert not grants.granted(home, pr.code)
 
 

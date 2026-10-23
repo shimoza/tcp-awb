@@ -484,8 +484,10 @@ def _cmd_projects_kind(args, p: config.Paths) -> int:
         if row.customer != projects.NO_CUSTOMER:
             # a session can write the row: the owner confirms the customer the grant will record
             if given is None:
-                print("grant not written: the row names %s; run awb projects kind %s %s --customer %s"
-                      % (row.customer, args.code, args.kind, row.customer), file=sys.stderr)
+                # K14: the row is information only; no ready command carries a value a session wrote
+                print("grant not written: the row says %s (a session can write that row); type the customer code "
+                      "yourself, from awb register or the start output, as awb projects kind %s %s --customer CODE"
+                      % (row.customer, args.code, args.kind), file=sys.stderr)
                 return EXIT_FINDINGS
             if given != row.customer:
                 print("awb projects: --customer %s is not the customer the row of %s names; nothing was written"
