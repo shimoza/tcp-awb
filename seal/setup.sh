@@ -514,7 +514,9 @@ extract_prefix() {
     # the fixed argument list of awb/extract/pdf.py (UnitRunner.argv) up to the tool
     printf '/usr/bin/systemd-run --quiet --wait --pipe --collect --uid=%s --gid=%s' "$EXTRACT_USER" "$EXTRACT_USER"
     printf ' --property=%s' PrivateNetwork=yes ProtectSystem=strict ProtectHome=yes PrivateTmp=yes \
-        NoNewPrivileges=yes MemoryMax=512M RuntimeMaxSec=120
+        NoNewPrivileges=yes MemoryMax=512M RuntimeMaxSec=120 \
+        PrivateIPC=yes TemporaryFileSystem=/dev/shm \
+        ProtectProc=invisible RestrictAddressFamilies=AF_UNIX PrivateDevices=yes
 }
 
 step_homes() {

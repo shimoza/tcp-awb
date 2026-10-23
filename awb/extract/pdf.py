@@ -136,9 +136,20 @@ class Runner:
         return _run([tool, *options, target] + (["-"] if out else []))
 
 
+SHM_FS = "/dev/shm"
+"""The unit's own /dev/shm: an empty tmpfs of systemd (root 0755, nodev), so the throwaway user cannot write there
+at all and no size cap is needed; poppler uses no shared memory. Not the SHM_FS of the build units: its ':' and ','
+are sudoers syntax (visudo refuses the ':', a ',' starts a new command, K7), and this one fixed form is the
+sudoers line."""
 UNIT_PROPERTIES = ("PrivateNetwork=yes", "ProtectSystem=strict", "ProtectHome=yes", "PrivateTmp=yes",
-                   "NoNewPrivileges=yes", "MemoryMax=512M", "RuntimeMaxSec=120")
-"""The isolation of the unit of a sandboxed call, fixed. The sudoers line of seal/setup.sh allows this form only."""
+                   "NoNewPrivileges=yes", "MemoryMax=512M", "RuntimeMaxSec=120", "PrivateIPC=yes",
+                   "TemporaryFileSystem=%s" % SHM_FS, "ProtectProc=invisible", "RestrictAddressFamilies=AF_UNIX",
+                   "PrivateDevices=yes")
+"""The isolation of the unit of a sandboxed call, fixed. The sudoers line of seal/setup.sh allows this form only.
+K20 of the review of 2026-10-20 added the IPC namespace, the own /dev/shm, the hidden processes, no socket but a
+local one (poppler opens none; AF_UNIX leaves the name service of glibc its socket) and no devices. The uid stays
+the fixed awb-extract: DynamicUser=yes with that static user changes nothing, and a truly dynamic uid would drop
+--uid from the one form that sudoers and the K7 test pin."""
 _USER_RE = re.compile(r"[a-z_][a-z0-9_-]{0,31}")
 
 

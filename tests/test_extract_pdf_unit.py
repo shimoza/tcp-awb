@@ -63,7 +63,7 @@ def _direct_forbidden(monkeypatch):
     monkeypatch.setattr(pdf, "_run", refuse)
 
 
-def test_the_unit_argv_is_the_fixed_form_with_the_user_of_paths_conf(pdf_file, conf, monkeypatch):
+def test_the_unit_argv_is_the_fixed_form_with_the_k20_isolation(pdf_file, conf, monkeypatch):
     conf("extract_user = %s\n" % USER)
     fake = FakeUnits()
     monkeypatch.setattr(pdf.subprocess, "run", fake)
@@ -74,7 +74,10 @@ def test_the_unit_argv_is_the_fixed_form_with_the_user_of_paths_conf(pdf_file, c
             "--uid=" + USER, "--gid=" + USER,
             "--property=PrivateNetwork=yes", "--property=ProtectSystem=strict", "--property=ProtectHome=yes",
             "--property=PrivateTmp=yes", "--property=NoNewPrivileges=yes", "--property=MemoryMax=512M",
-            "--property=RuntimeMaxSec=120", "--"]
+            "--property=RuntimeMaxSec=120", "--property=PrivateIPC=yes",
+            "--property=TemporaryFileSystem=/dev/shm",
+            "--property=ProtectProc=invisible", "--property=RestrictAddressFamilies=AF_UNIX",
+            "--property=PrivateDevices=yes", "--"]
     assert fake.calls
     for argv, _ in fake.calls:
         assert argv[:len(head)] == head
