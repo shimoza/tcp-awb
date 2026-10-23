@@ -134,6 +134,13 @@ def writes(fake) -> list[tuple[str, str]]:
 # --------------------------------------------------------------------------- a run that passes
 
 
+def _recipe_lab_writes() -> dict:
+    """The settings of keys.conf with the lab_writes line of the recipes of this test (K9: without the line the lab
+    key signs no write), the line awb keys lab-writes --from-recipes prints."""
+    from awb.tcp import labwrites, xchg
+
+    return dict(xchg.read_settings(), lab_writes=", ".join(" ".join(t) for t in labwrites.triples()))
+
 def test_a_recipe_that_passes_tags_every_resource_records_it_and_proves_it_gone(project):
     fake = FakeKeyService(polls_to_active=2)
     code, lines, errors = run(fake)
@@ -647,7 +654,7 @@ def test_a_run_goes_through_the_real_key_service_with_the_lab_key(project, tmp_p
     write_recipe(Path(os.environ[lab.RECIPES_ENV]), recipe)
     with LabGateway(LAB_AK, LAB_SK) as gw, running_service(gw, tmp_path / "log") as svc:
         svc._active_project = lambda code: code == PROJECT
-        keys.unlock(svc.admin_path, sorted(STORE), reader=lambda e: STORE[e])
+        keys.unlock(svc.admin_path, sorted(STORE), reader=lambda e: STORE[e], settings=_recipe_lab_writes())
         monkeypatch.setenv(keys.CALL_SOCKET_ENV, str(svc.call_path))
         lines: list[str] = []
         errors: list[str] = []
@@ -1402,7 +1409,7 @@ def test_a_random_password_is_drawn_by_the_key_service_and_never_in_the_answer_t
     write_recipe(Path(os.environ[lab.RECIPES_ENV]), recipe)
     with EchoLab(LAB_AK, LAB_SK) as gw, running_service(gw, tmp_path / "log") as svc:
         svc._active_project = lambda code: code == PROJECT
-        keys.unlock(svc.admin_path, sorted(STORE), reader=lambda e: STORE[e])
+        keys.unlock(svc.admin_path, sorted(STORE), reader=lambda e: STORE[e], settings=_recipe_lab_writes())
         monkeypatch.setenv(keys.CALL_SOCKET_ENV, str(svc.call_path))
         lines: list[str] = []
         errors: list[str] = []

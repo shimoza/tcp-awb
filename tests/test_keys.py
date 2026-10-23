@@ -99,8 +99,17 @@ def svc(gw, tmp_path, monkeypatch):
         yield s
 
 
+LAB_WRITES = ("POST ecs /v1/{project_id}/cloudservers, DELETE ecs /v1/{project_id}/cloudservers/{id}, "
+              "PUT obs /{name}, PUT obs /{name}?policy, DELETE obs /{name}")
+"""The lab_writes line of the tests of this module (K9: without the line the lab key signs no write)."""
+
+
 def load(svc):
-    return keys.unlock(svc.admin_path, sorted(STORE), reader=lambda e: STORE[e])
+    from awb.tcp import xchg
+
+    settings = xchg.read_settings()
+    settings.setdefault("lab_writes", LAB_WRITES)
+    return keys.unlock(svc.admin_path, sorted(STORE), reader=lambda e: STORE[e], settings=settings)
 
 
 def call(svc, **req):
@@ -387,7 +396,7 @@ def hold(svc, line):
 keys._hold = hold
 sys.exit(keys.main(["serve", "--takeover", str(fd)]))
 '''
-SETTINGS = {"region": "eu-de", "bucket_tenant": "test-1"}
+SETTINGS = {"region": "eu-de", "bucket_tenant": "test-1", "lab_writes": "POST ecs /v1/{project_id}/cloudservers"}
 
 
 @pytest.fixture
