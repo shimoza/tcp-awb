@@ -41,11 +41,12 @@ def _load_allow_domains() -> tuple[str, ...]:
 
 ALLOW_DOMAINS = _load_allow_domains()
 
-PLATFORM_DOMAINS = (("otc.t-systems.com", 2), ("open-telekom-cloud.com", 1))
+PLATFORM_DOMAINS = (("otc.t-systems.com", 2), ("t-cloud-public.com", 99), ("open-telekom-cloud.com", 1))
 """The public API, console and documentation hosts of the platform the Workbench serves (T Cloud Public), with
 the most labels a host may carry in front of the domain: `iam.eu-de.otc.t-systems.com` and
 `docs.otc.t-systems.com` are the platform, `<bucket>.obs.eu-de.otc.t-systems.com` is not (its first label is a
-bucket name that a customer chose). Built in, because every Workbench text names these hosts."""
+bucket name that a customer chose; since 2026-10-23 every host under t-cloud-public.com is the
+platform, whatever the depth). Built in, because every Workbench text names these hosts."""
 
 KEEP_IP = ("169.254.", "100.125.", "100.64.", "0.0.0.0", "127.", "10.", "192.168.", "255.", "::1", "fe80:",
            "198.18.", "198.19.", "224.")
@@ -106,8 +107,25 @@ def _plain_host(host: str) -> str:
     return _DEFANG_RE.sub(".", host).lower().rstrip(".").lstrip("*.")
 
 
+_TCP_REGION = r"(?:eu-de|eu-nl|eu-ch2)"
+_TCP_SHORT = r"[a-z]{2,12}\.%s" % _TCP_REGION
+_TCP_ENDPOINT = r"com\.t-systems\.otc\.%s\.[a-z][a-z0-9-]{1,20}" % _TCP_REGION
+_TCP_HOST_RE = re.compile(r"(?:%s|%s)" % (_TCP_ENDPOINT, _TCP_SHORT))
+_TCP_IN_TEXT = re.compile(r"(?<![\w.-])(?:%s|%s)(?![\w-]|\.[^\W_])" % (_TCP_ENDPOINT, _TCP_SHORT))
+"""Where such a host stands in a text: not glued to a word, a dot or a hyphen in front and no further label after."""
+"""A public service host name of T Cloud Public that carries no customer value: the API short form
+`<service>.<region>` (`nat.eu-de`) and the VPC endpoint service name `com.t-systems.otc.<region>.<service>`.
+Lower case, the whole host and nothing glued to it."""
+
+
+def _tcp_host(host: str) -> bool:
+    return _TCP_HOST_RE.fullmatch(host.strip().rstrip(":").rstrip(".")) is not None
+
+
 def _allowed_host(host: str) -> bool:
     host = _plain_host(host)
+    if _tcp_host(host):
+        return True
     if any(host == d or host.endswith("." + d) for d in ALLOW_DOMAINS):
         return True
     for domain, depth in PLATFORM_DOMAINS:
@@ -476,6 +494,12 @@ def _find_structured(text: str) -> list[Span]:
     return out
 
 
+def _tcp_cover(text: str, start: int, end: int) -> bool:
+    """Whether the web address at text[start:end] is the TCP service host that starts there (or a part of it)."""
+    m = _TCP_IN_TEXT.match(text, start)
+    return m is not None and end <= m.end()
+
+
 def _find(text: str) -> list[Span]:
     found: list[tuple[int, int, str]] = []
     for kind, rx, ok, label in PATTERNS:
@@ -521,6 +545,11 @@ def _find(text: str) -> list[Span]:
     # the number at the end of a host name in the cell before an IP (srv-db-01 | 10.0.0.5) is no phone number:
     # the address is an IP and the number belongs to the host (xlsx-host-number-before-ip)
     found = [t for t in found if not (t[2] == "PHONE" and _host_number_ip(text[t[0]:t[1]]))]
+    # a public TCP service host (nat.eu-de, com.t-systems.otc.eu-de.dns) is no address: the web address pattern
+    # reads its first labels (nat.eu), so the span that starts at such a host is dropped
+    tcp_starts = {m.start() for m in _TCP_IN_TEXT.finditer(text)}
+    if tcp_starts:
+        found = [t for t in found if not (t[2] == "URL" and t[0] in tcp_starts and _tcp_cover(text, t[0], t[1]))]
     # longer first, then priority, then position; keep a span only when it overlaps nothing kept so far
     found.sort(key=lambda t: (-(t[1] - t[0]), _PRIORITY[t[2]], t[0]))
     kept: list[tuple[int, int, str]] = []

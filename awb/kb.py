@@ -418,6 +418,17 @@ def _without_service_names(text: str, hits: list[dict]) -> list[dict]:
     return [h for h in hits if not (isinstance(h, dict) and h.get("cls") == "name" and inside(h))]
 
 
+def _record_block(text: str, hits: list[dict]) -> None:
+    """Record a block of the name check of the knowledge base (kb add, amend, verify and the commit hook) for the
+    learning of awb/fplearn.py, as the other doors do: the strings go to the owner's side only. Never fails."""
+    try:
+        from awb import fplearn
+
+        fplearn.record("kb", check.with_hidden_views(text), hits)
+    except Exception:
+        pass
+
+
 def text_problems(label: str, text: str, register_path: Path, *, language: bool = True) -> list[str]:
     """Why `text` may not go into the knowledge base, as messages that name `label` and never the text."""
     norm = normalize.normalize(text).text
@@ -430,6 +441,7 @@ def text_problems(label: str, text: str, register_path: Path, *, language: bool 
             out.append("%s is not in English (%d of %d words are German function words)" % (label, german, total))
     hits = _name_hits(text, register_path)
     if hits:
+        _record_block(text, hits)
         by_cls: dict[str, int] = {}
         for h in hits:
             cls = h.get("cls", "unknown") if isinstance(h, dict) else "unknown"

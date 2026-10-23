@@ -54,7 +54,7 @@ FOLDER = "fp"
 BLOCKS_HEAD = "time\tevent\tsource\trule\tclass\tbefore\tstring\n"
 ALLOW_HEAD = ("# The learned allow list of the name check (awb check learn, awb check allow). One exact string of one "
               "class per line.\nclass\tstring\treason\tdate\n")
-SOURCES = ("prompt", "gate", "check", "import")
+SOURCES = ("prompt", "gate", "check", "import", "kb")
 LEARNABLE = ("url", "ip", "mac", "phone")
 """The classes a learned exception may relax. A registered form (name), a mail address, bank data, a register or
 tax number and every secret class are never relaxed."""

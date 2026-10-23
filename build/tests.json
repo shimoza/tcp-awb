@@ -11073,8 +11073,50 @@
    "name": "K20: visudo parses the sudoers line of the extract unit",
    "run": ".venv/bin/pytest tests/test_k20_extract_unit.py::test_k20_visudo_parses_the_sudoers_line",
    "status": "passing"
+  },
+  {
+   "id": "th-tcp-hosts-1",
+   "phase": "th-tcp-hosts",
+   "name": "TH: a public TCP service host is no finding",
+   "run": ".venv/bin/pytest tests/test_tcp_hosts.py::test_a_public_tcp_host_is_no_finding",
+   "status": "passing"
+  },
+  {
+   "id": "th-tcp-hosts-2",
+   "phase": "th-tcp-hosts",
+   "name": "TH: the eight hosts pass statement, source and tried line of a kb entry",
+   "run": ".venv/bin/pytest tests/test_tcp_hosts.py::test_a_public_tcp_host_passes_statement_source_and_tried",
+   "status": "passing"
+  },
+  {
+   "id": "th-tcp-hosts-3",
+   "phase": "th-tcp-hosts",
+   "name": "TH: a host of another domain and an e-mail still block",
+   "run": ".venv/bin/pytest tests/test_tcp_hosts.py::test_other_hosts_and_mails_still_block",
+   "status": "passing"
+  },
+  {
+   "id": "th-tcp-hosts-4",
+   "phase": "th-tcp-hosts",
+   "name": "TH: a name glued into or next to a TCP host still blocks",
+   "run": ".venv/bin/pytest tests/test_tcp_hosts.py::test_a_name_glued_into_a_tcp_host_or_next_to_it_still_blocks",
+   "status": "passing"
+  },
+  {
+   "id": "th-tcp-hosts-5",
+   "phase": "th-tcp-hosts",
+   "name": "TH: the TCP host pattern is exact",
+   "run": ".venv/bin/pytest tests/test_tcp_hosts.py::test_the_pattern_is_exact",
+   "status": "passing"
+  },
+  {
+   "id": "th-tcp-hosts-6",
+   "phase": "th-tcp-hosts",
+   "name": "TH: a kb verify block lands in the FP log and in no work-user file",
+   "run": ".venv/bin/pytest tests/test_tcp_hosts.py::test_a_kb_verify_block_lands_in_the_fp_log_and_in_no_work_user_file",
+   "status": "passing"
   }
  ],
- "total_tests": 1582,
+ "total_tests": 1588,
  "checked": "2026-10-23"
 }
