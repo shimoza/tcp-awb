@@ -87,7 +87,7 @@ CHECK_LEARN_UNIT=awb-check-learn         # .service and .timer: awb check learn 
 BUILD_FAILED_UNIT=awb-task-failed@.service   # OnFailure= of every task unit (awb/build_units.py FAILED_UNIT, SB5)
 BUILD_NUDGE_UNIT=awb-build-nudge          # .service and .timer: awb build nudge as the owner every 15 minutes (A6)
 RECHECK_WATCH_UNIT=awb-kb-recheck-watch   # .service and .timer: awb kb recheck-watch as the owner every 15 minutes (F5)
-IMPORT_AUTO_UNIT=awb-import-auto          # .service and .timer: awb import --auto as the owner every 10 minutes (lc-laptop-clean)
+IMPORT_AUTO_UNIT=awb-import-auto          # .service and .timer: awb import --auto as the owner every 2 minutes (lc-laptop-clean)
 BUILD_MODEL_DEFAULT=login             # D-S7 changed: his subscription login; build_model = key in the host file is the fallback
 BUILD_MODEL_KEY=/etc/awb/build-model.key     # the owner's copy for the runner (build_model = key), never printed
 BUILD_MODEL_KEY_SOURCE=/etc/awb/anthropic.key   # the default source; build_model_key_source in the host file wins
@@ -1597,7 +1597,7 @@ EOF
 
 import_auto_unit() {
     # written by step_units (not in --units-only) like the watchdog, enabled at the end of step_units
-    info "$IMPORT_AUTO_UNIT.timer: every 10 minutes awb import --auto as the owner takes the new files of in/ of every"
+    info "$IMPORT_AUTO_UNIT.timer: every 2 minutes awb import --auto as the owner takes the new files of in/ of every"
     info "active project (the clean copies of awb clean with --trusted), moves the originals into the vault and out"
     info "of the bucket and leaves the new input notice; one line per run in the journal and in the vault"
     write_file "$UNITS_DIR/$IMPORT_AUTO_UNIT.service" 644 root:root <<EOF
@@ -1638,13 +1638,13 @@ CapabilityBoundingSet=
 LimitCORE=0
 EOF
     write_file "$UNITS_DIR/$IMPORT_AUTO_UNIT.timer" 644 root:root <<EOF
-# Written by seal/setup.sh (task lc-laptop-clean): $IMPORT_AUTO_UNIT.service every 10 minutes.
+# Written by seal/setup.sh (task lc-laptop-clean): $IMPORT_AUTO_UNIT.service every 2 minutes.
 [Unit]
-Description=Architect Workbench: the import of the bucket folders in/, every 10 minutes
+Description=Architect Workbench: the import of the bucket folders in/, every 2 minutes
 
 [Timer]
 OnBootSec=10min
-OnUnitActiveSec=10min
+OnUnitActiveSec=2min
 AccuracySec=1min
 Unit=$IMPORT_AUTO_UNIT.service
 

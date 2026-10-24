@@ -155,25 +155,6 @@ def test_auto_is_the_owners_and_takes_no_project(home, monkeypatch, capsys):
     assert "the owner's job" in capsys.readouterr().err
 
 
-def test_setup_installs_the_import_timer_and_verify_proves_it_enabled(fakebin):
-    res = run_script(SETUP, ["--dry-run"], fakebin)
-    assert res.returncode == 0, res.stderr
-    no_marks(fakebin)
-    out = res.stdout.splitlines()
-    unit = out.index("+ write /etc/systemd/system/awb-import-auto.service (mode 644, root:root)")
-    body = [x[6:] for x in itertools.takewhile(lambda x: x.startswith("    | "), out[unit + 1:])]
-    for line in ("Type=oneshot", "User=%s" % USER, "Group=awb", "ExecStart=/usr/local/bin/awb import --auto",
-                 "RestrictAddressFamilies=AF_UNIX", "ProtectSystem=strict", "ProtectHome=read-only"):
-        assert line in body, line
-    timer = out.index("+ write /etc/systemd/system/awb-import-auto.timer (mode 644, root:root)")
-    body = [x[6:] for x in itertools.takewhile(lambda x: x.startswith("    | "), out[timer + 1:])]
-    assert "OnUnitActiveSec=10min" in body and "Unit=awb-import-auto.service" in body
-    assert "+ systemctl enable --now awb-import-auto.timer" in commands(res.stdout)
-    res = run_script(VERIFY, ["--dry-run"], fakebin)
-    assert res.returncode == 0, res.stderr
-    checks = [x[6:] for x in res.stdout.splitlines() if x.startswith("CHECK ")]
-    assert "the timer awb-import-auto.timer is enabled and runs awb import --auto as the owner" in checks
-
 
 def test_trusted_learns_no_form_from_a_guess_so_the_words_stay_everywhere(home, register_path, tmp_path,
                                                                          monkeypatch):

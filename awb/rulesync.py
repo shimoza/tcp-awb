@@ -227,8 +227,16 @@ def notices_dir(p: config.Paths) -> Path:
     return p.shared / "notices"
 
 
-def post_input(p: config.Paths, customer: str, project: str, file_ids: list[str], replaced: bool = False) -> Path:
-    """Leave the notice of one import for the sessions (owner side): codes and file ids only."""
+AUTO_INPUT = "new input: %d files (%s)"
+"""The line of an import of the timer (`awb import --auto`): the count and the file ids that wait, at most
+AUTO_IDS_SHOWN of them."""
+AUTO_IDS_SHOWN = 8
+
+
+def post_input(p: config.Paths, customer: str, project: str, file_ids: list[str], replaced: bool = False,
+               auto: bool = False) -> Path:
+    """Leave the notice of one import for the sessions (owner side): codes and file ids only. `auto` marks the
+    import of the timer: its notice reads "new input: N files (FILE IDS)"."""
     from awb import codes
 
     if not (codes.is_code(customer) or customer == project) or not codes.is_project_code(project):
@@ -238,6 +246,8 @@ def post_input(p: config.Paths, customer: str, project: str, file_ids: list[str]
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     path = folder / ("input-%s-%s.json" % (stamp, secrets.token_hex(4)))
     data = {"customer": customer, "project": project, "ids": ids, "replaced": bool(replaced)}
+    if auto:
+        data["auto"] = True
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(json.dumps(data) + "\n")
@@ -285,7 +295,13 @@ def input_notices(p: config.Paths, session_id: str | None, root: Path | None) ->
                    and (p.outbox / cust / (i if "." in i else "%s.md" % i)).is_file()]
         if not waiting:
             continue
-        out.append((REPLACED if data.get("replaced") else INPUT) % (len(waiting), cust))
+        if data.get("auto") is True:
+            shown = ", ".join(i.rsplit(".", 1)[0] for i in waiting[:AUTO_IDS_SHOWN])
+            if len(waiting) > AUTO_IDS_SHOWN:
+                shown += ", +%d more" % (len(waiting) - AUTO_IDS_SHOWN)
+            out.append(AUTO_INPUT % (len(waiting), shown))
+        else:
+            out.append((REPLACED if data.get("replaced") else INPUT) % (len(waiting), cust))
         seen.append(name)
     if out:
         mark["inputs"] = seen[-200:]

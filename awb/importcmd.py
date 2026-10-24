@@ -25,7 +25,7 @@ forms prompt and the review carry names. Nothing here prints a name, a form or a
 
     awb import --auto
 
-The owner's job of the timer awb-import-auto (seal/setup.sh, every 10 minutes, awb/importauto.py): the new files
+The owner's job of the timer awb-import-auto (seal/setup.sh, every 2 minutes, awb/importauto.py): the new files
 of in/ of every active project whose import is not running, the clean copies of `awb clean` with --trusted and any
 other file in wipe mode; the originals into the vault and out of in/, the "new input" notice, one log line per run.
 An import holds the lock of its project (`<vault>/locks/import-<code>.lock`): a second import of the same project
@@ -183,7 +183,8 @@ def _copy_out(p: config.Paths, original: Path, folder: Path) -> Path:
 
 
 def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None = None, review: bool = False,
-        redo: bool = False, read=None, tty=None, edit=None, confirm=None, trusted: bool = False) -> int:
+        redo: bool = False, read=None, tty=None, edit=None, confirm=None, trusted: bool = False,
+        auto: bool = False) -> int:
     from awb import projects, vault
 
     if config.is_work_user() or vault.in_assistant_session():
@@ -229,11 +230,12 @@ def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None =
         if not got:
             raise ImportRefused("an import of %s is running (awb import --auto or another terminal): try again when "
                                 "it ends" % code)
-        return _take(p, code, files, cust, review=review, redo=redo, edit=edit, confirm=confirm, trusted=trusted)
+        return _take(p, code, files, cust, review=review, redo=redo, edit=edit, confirm=confirm, trusted=trusted,
+                     auto=auto)
 
 
 def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: bool, redo: bool, edit, confirm,
-          trusted: bool) -> int:
+          trusted: bool, auto: bool = False) -> int:
     """The files of the import (the arguments, the bucket, the vault inbox or the last import) through the intake,
     under the import lock of the project."""
     from awb import rulesync
@@ -286,7 +288,7 @@ def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: b
 
         fplearn.record("import", extra={"withheld": len(res.held)}, p=p)
     if copies:
-        rulesync.post_input(p, res.customer, code, [o.stem for o in copies], replaced=redo)
+        rulesync.post_input(p, res.customer, code, [o.stem for o in copies], replaced=redo, auto=auto)
     return EXIT_HELD if res.held or res.unsealed else EXIT_OK
 
 
