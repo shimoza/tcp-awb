@@ -1,6 +1,9 @@
 """The owner level's status file (T9 step 2) and the intake counts behind it.
 
-    awb owner status            the status as the owner-actions service would show it
+    awb owner status            one list of everything that waits on the owner, each item with where it is done and a
+                                ready command block (OPEN.md of the live projects, QUEUE.md, the build list)
+    awb owner status --mail     the same list as one mail (the owner's timer, 08:00 Europe/Berlin)
+    awb owner status --json     the status as the owner-actions service would show it
     awb owner status --write    write it to /var/lib/awb-owner-status/status.json (the timer of the owner, every minute)
 
 The owner-actions service runs as its own system user and reads this one file and nothing else, so everything the
@@ -226,8 +229,11 @@ def main(argv: list[str] | None = None) -> int:
 
     ap = SafeParser(prog="awb owner", description="The owner level's status file.")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    s = sub.add_parser("status", help="the status the owner page shows; --write writes it for owner-actions")
-    s.add_argument("--write", action="store_true")
+    s = sub.add_parser("status", help="everything that waits on the owner, one line each with a ready command; "
+                                      "--mail sends it, --json and --write give the status of the owner page")
+    s.add_argument("--write", action="store_true", help="write the status file for owner-actions")
+    s.add_argument("--json", action="store_true", help="print the status of the owner page as JSON")
+    s.add_argument("--mail", action="store_true", help="send the list as one mail (the owner's timer)")
     s.add_argument("--out", help=argparse.SUPPRESS)
     try:
         a = ap.parse_args(sys.argv[1:] if argv is None else argv)
@@ -236,6 +242,17 @@ def main(argv: list[str] | None = None) -> int:
     if config.is_work_user():
         print("awb owner: the work user has no owner status", file=sys.stderr)
         return 2
+    if not a.write and not a.json:
+        from awb import ownerwait
+        from awb.tcp import keys
+
+        if a.mail:
+            word = ownerwait.mail(send=keys.send_mail)
+            print("awb owner: mail %s" % word)
+            return 0 if word in ("sent", "empty") else 1
+        items, parked = ownerwait.collect()
+        print("\n".join(ownerwait.render(items, parked)))
+        return 0
     status = collect()
     try:
         if a.write:

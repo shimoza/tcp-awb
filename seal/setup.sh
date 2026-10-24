@@ -849,6 +849,7 @@ step_units() {
     done
     [ "$units_only" -eq 1 ] || build_failed_unit
     [ "$units_only" -eq 1 ] || build_nudge_unit
+    [ "$units_only" -eq 1 ] || owner_status_unit
     [ "$units_only" -eq 1 ] || recheck_watch_unit
     [ "$units_only" -eq 1 ] || import_auto_unit
     [ "$units_only" -eq 1 ] || check_learn_unit
@@ -864,6 +865,7 @@ step_units() {
         try_run systemctl enable --now "$name"
     done
     try_run systemctl enable --now "$BUILD_NUDGE_UNIT.timer"
+    try_run systemctl enable --now awb-owner-mail.timer
     try_run systemctl enable --now "$RECHECK_WATCH_UNIT.timer"
     try_run systemctl enable --now "$IMPORT_AUTO_UNIT.timer"
     try_run systemctl enable --now "$CHECK_LEARN_UNIT.timer"
@@ -1485,6 +1487,63 @@ OnBootSec=15min
 OnUnitActiveSec=15min
 AccuracySec=1min
 Unit=$BUILD_NUDGE_UNIT.service
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+owner_status_unit() {
+    # written by step_units (not in --units-only) like the nudge, enabled at the end of step_units (UX change 4)
+    local unit=awb-owner-mail
+    info "$unit.timer: every day at 08:00 Europe/Berlin awb owner status --mail as the owner mails him the one list of"
+    info "what waits on him (OPEN.md owner items, QUEUE.md, the build list), through the key service's notify"
+    write_file "$UNITS_DIR/$unit.service" 644 root:root <<EOF
+# Written by seal/setup.sh (UX review 2026-10-24, change 4). awb owner status --mail as the owner: one mail through the
+# key service's notify, the list of what waits on him, codes only, after the name check; no mail for an empty list.
+# It reads the registers, the OPEN.md files, QUEUE.md and the run folders and writes nothing; the mail goes over the
+# key service's admin socket, so no address family but unix.
+[Unit]
+Description=Architect Workbench: mail the owner the one list of what waits on him
+RequiresMountsFor=$BUILD_ROOT
+
+[Service]
+Type=oneshot
+User=$owner
+Group=$WORK_GROUP
+UMask=0027
+Environment=AWB_CONF=$CONF_FILE
+ExecStart=$BIN_LINK owner status --mail
+TimeoutStartSec=300
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+LimitCORE=0
+EOF
+    write_file "$UNITS_DIR/$unit.timer" 644 root:root <<EOF
+# Written by seal/setup.sh (UX review 2026-10-24, change 4): $unit.service every day at 08:00 Berlin time.
+[Unit]
+Description=Architect Workbench: the owner's list of what waits on him, every day at 08:00 Berlin time
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 Europe/Berlin
+Persistent=true
+AccuracySec=1min
+Unit=$unit.service
 
 [Install]
 WantedBy=timers.target

@@ -374,3 +374,117 @@ def remove(p: config.Paths, alias: str, *, settings_path: Path | None = None) ->
     taken = revoke(p, alias) if load_grants(p).get(alias) else 0
     return ["tenant %s: removed from keys.conf, %d grant(s) taken" % (alias, taken),
             "the pass entries stay: pass rm -r awb/tenant/%s removes them" % alias]
+
+
+# --------------------------------------------------------------------------- the interactive login (UX change 5)
+
+LOGIN_PROMPTS = (("domain", "Account name of the customer (the login's domain name, not the domain id): ", False),
+                 ("user", "User name: ", False),
+                 ("password", "Password (hidden, not shown, not logged): ", True))
+TEST_PATH = "/v3/projects"
+"""The one GET of the test: the projects of the login's domain, by the name of the region."""
+NO_ACCESS_LINE = ("test GET failed (403): the user has no programmatic access: the customer's admin ticks "
+                  "\"Programmatic access\" for the user")
+WRONG_LINE = ("test GET failed (401): the password is wrong or the user must still change it at the first console "
+              "login: the customer's admin or the user fixes it, then enter the password again")
+MFA_NEEDED_LINE = ("test GET failed: login protection by virtual MFA is on: the customer's admin sets login "
+                   "protection off for this user")
+TEST_OK_LINE = "test GET through the key service: ok (the login gets a token and reads IAM)"
+
+
+def terminal_ready() -> bool:
+    """True when the owner sits at a terminal (the questions are asked only then)."""
+    import sys
+
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def read_line(prompt: str) -> str:
+    return input(prompt)
+
+
+def read_secret(prompt: str) -> str:
+    import getpass
+
+    return getpass.getpass(prompt)
+
+
+def ask_login(alias: str, store, *, tty=None, line=None, secret=None) -> list[str]:
+    """Ask on the terminal for the login entries that `pass` lacks and write them to awb/tenant/ALIAS/login/ through
+    the store (standard input of `pass insert`). The password is read hidden and goes nowhere else: no echo, no log,
+    no message. Returns the names of the parts it asked for; nothing when all three are there. Raises ReadonlyError
+    when entries are missing and there is no terminal, or a value is empty."""
+    if config.is_work_user():
+        raise ReadonlyError("read-only tenants are added on the owner side")
+    if not _ALIAS_RE.match(alias or ""):
+        raise ReadonlyError("an alias reads like cust-1: small letters, digits and dashes")
+    entry = "awb/tenant/%s/login" % alias
+    missing = [(k, q, hidden) for k, q, hidden in LOGIN_PROMPTS if not store.has("%s/%s" % (entry, k))]
+    if not missing:
+        return []
+    if not (tty or terminal_ready)():
+        raise ReadonlyError("%s is missing: pass insert it first (or run this in a terminal and it asks)" %
+                            ", ".join("%s/%s" % (entry, k) for k, _, _ in missing))
+    line, secret = line or read_line, secret or read_secret
+    asked = []
+    for key, prompt, hidden in missing:
+        value = (secret if hidden else line)(prompt)
+        value = value.strip("\r\n") if hidden else value.strip()
+        if not value or any(ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ReadonlyError("the %s is empty or carries a control character: nothing was written for it" % key)
+        try:
+            store.insert("%s/%s" % (entry, key), value)
+        finally:
+            value = ""
+        asked.append(key)
+    return asked
+
+
+def explain_test(answer: dict) -> tuple[bool, str]:
+    """(passed, one line) of the answer of the key service to the test GET: 403 no programmatic access, 401 password
+    change pending or wrong, MFA needed. The line names a status and a cause, never a value."""
+    if not isinstance(answer, dict):
+        return False, "test GET failed: no readable answer from the key service"
+    status = answer.get("status")
+    if answer.get("ok") and status == 200:
+        return True, TEST_OK_LINE
+    error = str(answer.get("error") or "")
+    if error == MFA_LINE or (status in (401, 403) and _MFA_RE.search(str(answer.get("text") or ""))):
+        return False, MFA_NEEDED_LINE
+    if error == CONSOLE_ONLY_LINE or "IAM.0081" in error or status == 403 or "HTTP 403" in error:
+        return False, NO_ACCESS_LINE
+    if "HTTP 401" in error or status == 401:
+        return False, WRONG_LINE
+    if answer.get("ok") is False:
+        return False, "test GET failed: %s" % (error[:160] or "the key service refused")
+    return False, "test GET failed (HTTP %s)" % (status if isinstance(status, int) else "?")
+
+
+def check_login(alias: str, region: str, request=None) -> tuple[bool, str]:
+    """One GET of the projects of the region through the key service, as the owner, before any grant."""
+    from awb.tcp import keys
+
+    request = request or keys.request
+    try:
+        answer = request(keys.call_socket(), {"op": "call", "tenant": alias, "role": "read", "method": "GET",
+                                              "service": "iam", "path": TEST_PATH, "region": region,
+                                              "query": {"name": region}}, timeout=90)
+    except keys.KeysError as err:
+        return False, "test GET not run: %s" % err
+    return explain_test(answer)
+
+
+CUSTOMER_TEXT = (
+    "Text for the customer's admin (copy it into a mail):\n\n"
+    "Deutsch:\n"
+    "Bitte legen Sie in Ihrem Konto einen Benutzer an, der nur lesen darf (eine Read-only-Rolle, zum Beispiel "
+    "Tenant Guest). Setzen Sie bei dem Benutzer \"Programmatischer Zugriff\" (Programmatic access), aber erzeugen "
+    "Sie keinen Access Key. Schalten Sie den Anmeldeschutz per virtueller MFA für diesen Benutzer aus. Beim "
+    "ersten Login darf keine Passwortänderung mehr offen sein. Danke.\n\n"
+    "English:\n"
+    "Please create a user in your account that may only read (a read-only role, for example Tenant Guest). "
+    "Tick \"Programmatic access\" for the user, but do not create an access key. Turn login protection by "
+    "virtual MFA off for this user. No password change may be pending for the user. Thank you.")

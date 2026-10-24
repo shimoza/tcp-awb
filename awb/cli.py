@@ -794,7 +794,7 @@ DELEGATED = {
     "service": ("tcp.services", "offered services: the latest service description and nothing else (check, list, update)"),
     "board": ("tcp.board", "the status of every active project for management, as Markdown and HTML"),
     "web": ("tcp.web.publish", "publish the console page with a backup: sudo awb web publish; awb web status"),
-    "owner": ("tcp.owner", "the owner level's status file: awb owner status [--write] (the owner's timer)"),
+    "owner": ("tcp.owner", "what waits on the owner in one list: awb owner status [--mail|--json|--write]"),
     "ui": ("tcp.ui", "the UI queue: submit a task, list the runs, a result note when a run ends (owner side)"),
     "build": ("build", "the self-build: the task queue (add, draft, list, status, show, answer, retry, widen, stop) "
                       "and its runner (serve, selftest, probe)"),
