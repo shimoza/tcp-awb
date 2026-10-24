@@ -112,6 +112,7 @@ flowchart LR
 awb unlock                                   # after a reboot: the vault, then the keys, each asks its passphrase
 awb                                          # which side you are on, what is locked, the first item that waits on you
 awb start project --goal "..." --customer new   # a new piece of work: code, forms, spawn, grant and import in one command
+awb start project --goal "..." --customer new --from DIR --trusted   # the same, the import takes every file of DIR and its subfolders; ends with the app line
 awb projects open                            # the active projects numbered with their Next line; the number opens one
 awb fetch tcp-xxxx                           # what a project put for you, downloaded with the names back
 ```
@@ -459,10 +460,10 @@ vault folder (700). `awb clean register CUST-XXXX` asks the written forms of the
   fails: the proxy cannot be reached, it wants a login, or TLS verification failed (a TLS-inspecting proxy: its root
   certificate through `update-ca-certificates`, then `SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt`).
 
-On the host the timer `awb-import-auto` (seal/setup.sh, every 10 minutes) runs `awb import --auto`: the new files of
+On the host the timer `awb-import-auto` (seal/setup.sh, every 2 minutes) runs `awb import --auto`: the new files of
 `in/` of every active project come in, a clean copy with `--trusted` (no name guessed, the registered forms, the
 secret check, mail addresses and phones still apply) and any other file in wipe mode. The original moves into the
-vault and is deleted from `in/`, the sessions read "new input", a project whose import runs is skipped and each run
+vault and is deleted from `in/`, the session of the project reads "new input: N files (FILE IDS)" at its next prompt, a project whose import runs is skipped and each run
 writes one line to the journal and to `~/tcp-vault/import-auto.log`.
 
 ### As a plugin for Claude Code
@@ -502,7 +503,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | task | command | what you get |
 |---|---|---|
 | start work | `awb spawn query --goal "..."` or `awb spawn project --goal "..."` | a folder with its scope, rules, hooks and git. A query works with the knowledge base, the docs and live prices; a project also reaches the test tenants. `--customer new` on either issues `CUST-XXXX` with the four characters of the project code (`tcp-xxxx`); an existing customer is refused, every project gets its own code |
-| start work in one owner command | `awb start project --goal "..." --customer new` (or no customer; `query` the same) | in your own terminal: the customer code is issued with the project code from the same four characters and its written forms are asked at the prompt as `awb import` asks (never an argument, so never in the shell history), `awb spawn` runs as the work user through `sudo -n`, your grant (`awb projects kind`, with the customer code it registered) is written, what lies in the project's `in/` folder is imported; it ends with `open: awb projects open tcp-xxxx` |
+| start work in one owner command | `awb start project --goal "..." --customer new` (or no customer; `query` the same) | in your own terminal: the customer code is issued with the project code from the same four characters and its written forms are asked at the prompt as `awb import` asks (never an argument, so never in the shell history), `awb spawn` runs as the work user through `sudo -n`, your grant (`awb projects kind`, with the customer code it registered) is written, what lies in the project's `in/` folder is imported; it ends with `open: awb projects open tcp-xxxx`. With `--from DIR` (and `--trusted` for an export that carries no name) the import takes every regular file of DIR and its subfolders instead of `in/` (a link or a special file is skipped and counted) and the last line is `app: SSH host awb-10491, folder WORKHOME/tcp-xxxx` (the folder from the register) |
 | switch | `awb projects kind tcp-xxxx project` (a customer project: `--customer CUST-XXXX`, the code you type from `awb register`) | a query that needs a live test becomes a project (or back). The grant records the customer and is written only when you confirm it with `--customer`; without it the command prints `grant not written`, shows the row as information and asks you to type the code yourself (no ready command), another code is refused |
 | see the projects | `awb projects list` | every project with its goal and the session that holds it |
 | park a project | `awb projects park tcp-xxxx --reason "waits on the customer"`, later `awb projects unpark tcp-xxxx` | the board counts it apart and leaves its open items out; nothing else changes, material still comes in |

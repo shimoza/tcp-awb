@@ -10167,8 +10167,8 @@
   {
    "id": "lc-laptop-clean-21",
    "phase": "lc-laptop-clean",
-   "name": "setup installs the import timer and verify proves it enabled",
-   "run": ".venv/bin/pytest tests/test_import_auto.py::test_setup_installs_the_import_timer_and_verify_proves_it_enabled",
+   "name": "setup installs the import timer every 2 minutes and verify proves it enabled",
+   "run": ".venv/bin/pytest tests/test_ux13.py::test_setup_installs_the_import_timer_every_two_minutes_and_verify_proves_it_enabled",
    "status": "passing"
   },
   {
@@ -11325,8 +11325,71 @@
    "name": "UX2: clean fetch: the host names the laptop step after a revealed put",
    "run": ".venv/bin/pytest tests/test_clean_fetch.py::test_the_host_names_the_laptop_step_after_a_revealed_put",
    "status": "passing"
+  },
+  {
+   "id": "ux13-1",
+   "phase": "ux13-start-from-and-fast-import",
+   "name": "UX13: from walks the subfolders and skips links",
+   "run": ".venv/bin/pytest tests/test_ux13.py::test_from_walks_the_subfolders_and_skips_links",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-2",
+   "phase": "ux13-start-from-and-fast-import",
+   "name": "UX13: from imports the whole folder trusted and ends with the app line",
+   "run": ".venv/bin/pytest tests/test_ux13.py::test_from_imports_every_file_of_the_folder_trusted_and_ends_with_the_app_line",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-3",
+   "phase": "ux13-start-from-and-fast-import",
+   "name": "UX13: from without trusted runs the wipe mode import",
+   "run": ".venv/bin/pytest tests/test_ux13.py::test_from_without_trusted_runs_the_wipe_mode_import",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-4",
+   "phase": "ux13-start-from-and-fast-import",
+   "name": "UX13: from is checked before anything is made",
+   "run": ".venv/bin/pytest tests/test_ux13.py::test_from_is_checked_before_anything_is_made",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-5",
+   "phase": "ux13-start-from-and-fast-import",
+   "name": "UX13: without from the start ends with the open line as before",
+   "run": ".venv/bin/pytest tests/test_ux13.py::test_without_from_the_start_ends_with_the_open_line_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-6",
+   "phase": "ux13-start-from-and-fast-import",
+   "name": "UX13: the command line takes from and trusted",
+   "run": ".venv/bin/pytest tests/test_ux13.py::test_the_command_line_takes_from_and_trusted",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-7",
+   "phase": "ux13-start-from-and-fast-import",
+   "name": "UX13: an auto import posts a notice and the next prompt prints one line",
+   "run": ".venv/bin/pytest tests/test_ux13.py::test_an_auto_import_posts_a_notice_and_the_next_prompt_prints_one_line",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-8",
+   "phase": "ux13-start-from-and-fast-import",
+   "name": "UX13: a manual import keeps its older notice line",
+   "run": ".venv/bin/pytest tests/test_ux13.py::test_a_manual_import_keeps_its_older_notice_line",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-9",
+   "phase": "ux13-start-from-and-fast-import",
+   "name": "UX13: a long auto notice shows eight ids and a count",
+   "run": ".venv/bin/pytest tests/test_ux13.py::test_a_long_auto_notice_shows_eight_ids_and_the_rest_as_a_count",
+   "status": "passing"
   }
  ],
- "total_tests": 1618,
+ "total_tests": 1627,
  "checked": "2026-10-24"
 }

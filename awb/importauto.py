@@ -1,5 +1,5 @@
 """`awb import --auto`: the owner-side job that takes the new files of in/ of every active project (task
-lc-laptop-clean, his yes of 2026-10-22). seal/setup.sh runs it as the owner every 10 minutes
+lc-laptop-clean, his yes of 2026-10-22). seal/setup.sh runs it as the owner every 2 minutes
 (awb-import-auto.timer).
 
 For each active project whose import is not running (a lock per project, which `awb import` takes as well), the new
@@ -107,7 +107,7 @@ def run(p: config.Paths, client=None, now: datetime | None = None) -> int:
                 quiet_out, quiet_err = io.StringIO(), io.StringIO()
                 try:
                     with contextlib.redirect_stdout(quiet_out), contextlib.redirect_stderr(quiet_err):
-                        importcmd.run(p, pr.code, group, tty=False, trusted=trust)
+                        importcmd.run(p, pr.code, group, tty=False, trusted=trust, auto=True)
                 except (importcmd.ImportRefused, intake.IntakeError, register.RegisterError, projects.ProjectError,
                         vault.VaultError, OSError):
                     errors += 1

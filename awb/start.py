@@ -16,19 +16,29 @@ does it today. It ends with the one line that opens the session:
    folder is mostly empty: the line says so and `awb import CODE` takes what he drops there later. The vault inbox is
    never taken here (it may hold files of another customer).
 
+With `--from DIR` (and `--trusted` for an export that carries no name) the import of step 4 takes every regular file
+of DIR and its subfolders (a link or a special file is skipped and counted) instead of the bucket folder, and the run
+ends with the one line `app: SSH host awb-10491, folder WORKHOME/tcp-xxxx`, WORKHOME being the work user's home of the register folder.
+
 Then: `open: awb projects open CODE`. Owner side only: refused for the work user and inside an assistant session.
 A step that fails stops the run with its own message; the steps before it stay done and the line says which.
 """
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 
 from awb import codes, config, importcmd, intake, projects, register
 
 EXIT_OK, EXIT_HELD, EXIT_ERROR = 0, 1, 2
+
+
+APP_SSH_HOST = "awb-10491"
+"""The SSH host of the app: the owner opens a session there, in the folder of the project."""
 
 
 class StartError(Exception):
@@ -107,25 +117,71 @@ def import_step(p: config.Paths, code: str, *, read=None, tty=None) -> int:
     return importcmd.run(p, code, files, read=read, tty=tty)
 
 
+def walk_from(folder: str) -> tuple[list[Path], int]:
+    """The regular files of `folder` and its subfolders (sorted) and the count of the entries skipped because they
+    are links or special files. A link to a folder is not followed."""
+    root = Path(folder)
+    if root.is_symlink() or not root.is_dir():
+        raise StartError("--from takes a folder")
+    files: list[Path] = []
+    skipped = 0
+    for here, dirs, names in os.walk(root, followlinks=False):
+        dirs.sort()
+        for d in list(dirs):
+            if (Path(here) / d).is_symlink():
+                dirs.remove(d)
+                skipped += 1
+        for name in sorted(names):
+            f = Path(here) / name
+            if f.is_symlink() or not f.is_file():
+                skipped += 1
+            else:
+                files.append(f)
+    if not files:
+        raise StartError("--from: no regular file in the folder")
+    return files, skipped
+
+
+def app_line(p: config.Paths, code: str) -> str:
+    """The one line that opens the session in the app: the SSH host and the project's folder from the register."""
+    pr = next((r for r in projects.load(p) if r.code == code), None)
+    folder = pr.path if pr is not None and pr.path else str(Path(p.projects_root) / code)
+    return "app: SSH host %s, folder %s" % (APP_SSH_HOST, folder)
+
+
 def start(p: config.Paths, kind: str, goal: str, customer: str | None = None, tags: list[str] = (), *,
-          run=subprocess.run, read=None, tty=None, review_tier: int | None = None) -> int:
+          run=subprocess.run, read=None, tty=None, review_tier: int | None = None, from_dir: str | None = None,
+          trusted: bool = False) -> int:
     from awb import vault
 
     if config.is_work_user() or vault.in_assistant_session():
         raise StartError("awb start runs on the owner side, in your own terminal")
     if kind not in projects.PROJECT_KINDS:
         raise StartError("a piece of work is a query or a project")
+    if trusted and not from_dir:
+        raise StartError("--trusted goes with --from DIR")
+    taken: list[Path] = []
+    if from_dir:
+        taken, skipped = walk_from(from_dir)
+        if skipped:
+            _say("--from: %d link(s) or special file(s) skipped" % skipped)
     cust, reserved = customer_step(p, customer, read=read, tty=tty)
     code = spawn_step(p, spawn_argv(kind, goal, cust, list(tags), reserved, review_tier), run=run)
     if reserved and code != reserved:
         raise StartError("%s is spawned but not under the reserved code %s" % (code, reserved))
     try:
         grant_step(p, code, kind, cust)
-        result = import_step(p, code, read=read, tty=tty)
+        if from_dir:
+            _say("%s: %d file(s) from the folder given with --from" % (code, len(taken)))
+            result = importcmd.run(p, code, taken, read=read, tty=tty, trusted=trusted)
+        else:
+            result = import_step(p, code, read=read, tty=tty)
     except (StartError, importcmd.ImportRefused, intake.IntakeError, register.RegisterError,
             projects.ProjectError) as err:
         raise StartError("%s is spawned; then: %s" % (code, err)) from None
     _say("open: awb projects open %s" % code)
+    if from_dir:
+        _say(app_line(p, code))
     return result
 
 
@@ -145,12 +201,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--tag", action="append", default=[], help="a tag of rules/tags.txt, as awb spawn takes it")
     ap.add_argument("--review-tier", type=int, choices=projects.REVIEW_TIERS, default=None, metavar="1|2|3",
                     help="the review tier of the project (default 3): written to its SCOPE.md")
+    ap.add_argument("--from", dest="from_dir", default=None, metavar="DIR",
+                    help="import every regular file of DIR and its subfolders inside the start (instead of the "
+                         "bucket folder in/) and end with the app line")
+    ap.add_argument("--trusted", action="store_true",
+                    help="with --from: no name is guessed in the files (an export that carries none); registered "
+                         "forms, secrets, mail addresses and phones are still wiped")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else EXIT_ERROR
     try:
-        return start(config.paths(), args.kind, args.goal, args.customer, args.tag, review_tier=args.review_tier)
+        return start(config.paths(), args.kind, args.goal, args.customer, args.tag, review_tier=args.review_tier,
+                     from_dir=args.from_dir, trusted=args.trusted)
     except (StartError, importcmd.ImportRefused, intake.IntakeError, register.RegisterError, projects.ProjectError,
             vault.VaultError) as err:
         print("awb start: %s" % err, file=sys.stderr)
