@@ -11248,8 +11248,85 @@
    "name": "UX45: write still writes the status file the old unit calls",
    "run": ".venv/bin/pytest tests/test_ux45.py::test_ux4_write_still_writes_the_status_file_the_old_unit_calls",
    "status": "passing"
+  },
+  {
+   "id": "ux2-laptop-fetch-1",
+   "phase": "ux2-laptop-fetch",
+   "name": "UX2: clean fetch: downloads the files of out and prints one line each",
+   "run": ".venv/bin/pytest tests/test_clean_fetch.py::test_fetch_downloads_the_files_of_out_and_prints_one_line_each",
+   "status": "passing"
+  },
+  {
+   "id": "ux2-laptop-fetch-2",
+   "phase": "ux2-laptop-fetch",
+   "name": "UX2: clean fetch: never touches in/",
+   "run": ".venv/bin/pytest tests/test_clean_fetch.py::test_fetch_never_touches_in",
+   "status": "passing"
+  },
+  {
+   "id": "ux2-laptop-fetch-3",
+   "phase": "ux2-laptop-fetch",
+   "name": "UX2: clean fetch: a second run fetches nothing again",
+   "run": ".venv/bin/pytest tests/test_clean_fetch.py::test_a_second_run_fetches_nothing_again",
+   "status": "passing"
+  },
+  {
+   "id": "ux2-laptop-fetch-4",
+   "phase": "ux2-laptop-fetch",
+   "name": "UX2: clean fetch: a file put again comes again next to the first",
+   "run": ".venv/bin/pytest tests/test_clean_fetch.py::test_a_file_put_again_comes_again_next_to_the_first",
+   "status": "passing"
+  },
+  {
+   "id": "ux2-laptop-fetch-5",
+   "phase": "ux2-laptop-fetch",
+   "name": "UX2: clean fetch: an empty out and a missing folder",
+   "run": ".venv/bin/pytest tests/test_clean_fetch.py::test_an_empty_out_and_a_missing_folder",
+   "status": "passing"
+  },
+  {
+   "id": "ux2-laptop-fetch-6",
+   "phase": "ux2-laptop-fetch",
+   "name": "UX2: clean fetch: a failed download is named and not remembered",
+   "run": ".venv/bin/pytest tests/test_clean_fetch.py::test_a_failed_download_is_named_and_not_remembered",
+   "status": "passing"
+  },
+  {
+   "id": "ux2-laptop-fetch-7",
+   "phase": "ux2-laptop-fetch",
+   "name": "UX2: clean fetch: the folder is named once in the laptop config",
+   "run": ".venv/bin/pytest tests/test_clean_fetch.py::test_the_folder_is_named_once_in_the_laptop_config",
+   "status": "passing"
+  },
+  {
+   "id": "ux2-laptop-fetch-8",
+   "phase": "ux2-laptop-fetch",
+   "name": "UX2: clean fetch: main needs the key and the arguments",
+   "run": ".venv/bin/pytest tests/test_clean_fetch.py::test_main_needs_the_key_and_the_arguments",
+   "status": "passing"
+  },
+  {
+   "id": "ux2-laptop-fetch-9",
+   "phase": "ux2-laptop-fetch",
+   "name": "UX2: clean fetch: main prints the lines and exits zero",
+   "run": ".venv/bin/pytest tests/test_clean_fetch.py::test_main_prints_the_lines_and_exits_zero",
+   "status": "passing"
+  },
+  {
+   "id": "ux2-laptop-fetch-10",
+   "phase": "ux2-laptop-fetch",
+   "name": "UX2: clean fetch: goes through the proxy of the environment",
+   "run": ".venv/bin/pytest tests/test_clean_fetch.py::test_fetch_goes_through_the_proxy_of_the_environment",
+   "status": "passing"
+  },
+  {
+   "id": "ux2-laptop-fetch-11",
+   "phase": "ux2-laptop-fetch",
+   "name": "UX2: clean fetch: the host names the laptop step after a revealed put",
+   "run": ".venv/bin/pytest tests/test_clean_fetch.py::test_the_host_names_the_laptop_step_after_a_revealed_put",
+   "status": "passing"
   }
  ],
- "total_tests": 1607,
+ "total_tests": 1618,
  "checked": "2026-10-24"
 }
