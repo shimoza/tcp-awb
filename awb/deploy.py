@@ -154,6 +154,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/paste.py": "awb paste, run in a working session with a terminal output on standard input",
     "awb/importcmd.py": "awb import, run by the owner in his own terminal",
     "awb/importauto.py": "awb import --auto, run by the owner's timer awb-import-auto (a oneshot, new code each run)",
+    "awb/cleanfetch.py": "awb clean fetch, run on the owner's laptop",
     "awb/clean.py": "awb clean, run on the owner's laptop (and awb import --auto reads its name rule)",
     "awb/cleanlogs.py": "the rules of awb clean, run on the owner's laptop",
     "awb/fplearn_cmd.py": "awb check learn and awb check allow, run by the owner's timer and in his own terminal",
