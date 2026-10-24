@@ -4,7 +4,8 @@ and `out/` for results (his decisions of 2026-09-24).
     awb bucket sync                         the folders of every active project; folders that match no project
     awb bucket folder CODE                  the folder of one project, created when missing
     awb bucket pull CODE [--again]          new files of in/ into the vault inbox, then the intake of its customer
-    awb bucket put CODE FILE [--replace] [--reveal]
+    awb bucket put CODE FILE [--replace] [--reveal]   (with --reveal it ends with the line to run
+                                            `awb clean fetch CODE` on the laptop)
                                             FILE into out/; --reveal puts the real names back first
     awb bucket move <YYYY-MM>/<NAME>/ CODE  a folder whose name drifted to <YYYY-MM>/<CODE>/: copy, check, delete
 
@@ -486,6 +487,8 @@ def main(argv: list[str] | None = None) -> int:
             if stats is not None:
                 line += "  (%d codes replaced by names)" % stats["replaced"]
             print(line)
+            if stats is not None:
+                print("on the laptop run: awb clean fetch %s" % args.code)
             return 0
         if args.command == "move":
             r = move(p, c, args.folder, args.code)

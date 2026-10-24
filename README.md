@@ -452,7 +452,8 @@ vault folder (700). `awb clean register CUST-XXXX` asks the written forms of the
   allowed-terms.txt, allow-domains.txt and the other allow lists) from github.com/shimoza/tcp-awb: a
   `git pull --ff-only` of the clone, or for an install without git a download checked against the blob ids of the
   repository tree. It sends nothing of your files and prints what changed in counts. Run it now and then.
-- Behind a corporate proxy `--put` and `awb clean update` use `HTTPS_PROXY` and `https_proxy` (git reads them too).
+- `awb clean fetch tcp-xxxx [--to DIR] [--save]` brings a finished deliverable to the laptop. On the host `awb bucket put CODE FILE --reveal` puts the file with the real names into `out/` and prints `on the laptop run: awb clean fetch CODE`. On the laptop the command lists only `out/` of the project's bucket folder with your key, downloads the files not fetched yet into DIR (`--save` keeps DIR as the default, for example a folder under `/mnt/c/Users/<you>/`) and prints one line per file. What was fetched is remembered by etag in `~/awb-laptop/vault/fetched.tsv`. `in/` is never touched.
+- Behind a corporate proxy `--put`, `awb clean fetch` and `awb clean update` use `HTTPS_PROXY` and `https_proxy` (git reads them too).
   `awb clean doctor` prints the proxy variables (host and port only, never a user or a password), sends one HEAD
   request through the proxy to the object storage of the region and to github.com and names the fix when one
   fails: the proxy cannot be reached, it wants a login, or TLS verification failed (a TLS-inspecting proxy: its root
