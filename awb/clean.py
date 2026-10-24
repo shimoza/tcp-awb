@@ -4,6 +4,7 @@ lc-laptop-clean, his yes of 2026-10-22).
     awb clean FILE... --project tcp-xxxx --kind docs|logs [--out DIR] [--put]
     awb clean register CUST-XXXX
     awb clean init
+    awb clean fetch tcp-xxxx [--to DIR] [--save]
     awb clean update
     awb clean doctor
 
@@ -30,6 +31,9 @@ and, for docs, the candidates); an output that fails it is not written. A report
 with his own key from AWB_OBS_AK and AWB_OBS_SK (AWB_OBS_BUCKET and AWB_OBS_REGION name another bucket or region).
 The project's folder is looked for under every month and used where it is; a missing one is created under this
 month with its in/ and out/ (awb/bucket_layout.py). On the host `awb import --auto` takes them in.
+
+`awb clean fetch tcp-xxxx [--to DIR] [--save]` brings the revealed deliverables of `out/` back to the laptop
+(awb/cleanfetch.py), through the same key and the same proxy as `--put`.
 
 `awb clean update` brings the lists of public words up to date (rules/common-words.txt, rules/tech-terms.txt,
 rules/allowed-terms.txt, rules/allow-domains.txt and the other allow lists) from the public repository: a
@@ -310,13 +314,13 @@ def _write_report(out: Path, project: str, customer: str, kind: str, results: li
 # --------------------------------------------------------------------------- the bucket
 
 
-def _client():
+def _client(what: str = "--put"):
     """His own key from the environment, the bucket awb in eu-de unless the environment names others."""
     from awb import bucket_layout, obs
 
     ak, sk = (os.environ.get(k) or "" for k in laptop.PUT_ENV)
     if not ak or not sk:
-        raise CleanError("--put needs his own key in %s and %s" % laptop.PUT_ENV)
+        raise CleanError("%s needs his own key in %s and %s" % ((what,) + laptop.PUT_ENV))
     return obs.Client(os.environ.get("AWB_OBS_BUCKET") or bucket_layout.OWNER_BUCKET, obs.Keys(ak, sk),
                       region=os.environ.get("AWB_OBS_REGION") or bucket_layout.REGION)
 
@@ -552,6 +556,33 @@ def _parser_files():
     return ap
 
 
+def _fetch_main(argv: list[str]) -> int:
+    from awb import cleanfetch
+    from awb.cli import SafeParser
+
+    ap = SafeParser(prog="awb clean fetch", description="The finished files of out/ of a project from the bucket "
+                    "into a folder of this laptop, with the key of AWB_OBS_AK and AWB_OBS_SK; in/ is never touched.")
+    ap.add_argument("project", metavar="tcp-xxxx")
+    ap.add_argument("--to", default=None, metavar="DIR", help="the folder (default: the one saved with --save)")
+    ap.add_argument("--save", action="store_true", help="keep --to as the default folder")
+    try:
+        args = ap.parse_args(argv)
+    except SystemExit as exc:
+        return 0 if exc.code in (0, None) else EXIT_ERROR
+    if args.save and not args.to:
+        print("awb clean fetch: --save goes with --to DIR", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        failed = cleanfetch.fetch(args.project, Path(args.to) if args.to else None, save=args.save)
+    except (laptop.LaptopError, CleanError, cleanfetch.FetchError) as err:
+        print("awb clean fetch: %s" % err, file=sys.stderr)
+        return EXIT_ERROR
+    except OSError as err:
+        print("awb clean fetch: %s (operating system error)" % type(err).__name__, file=sys.stderr)
+        return EXIT_ERROR
+    return EXIT_HELD if failed else EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     from awb import register
     from awb.cli import SafeParser
@@ -576,6 +607,8 @@ def main(argv: list[str] | None = None) -> int:
             lines, code = doctor()
             print("\n".join(lines))
             return code
+        if argv[:1] == ["fetch"]:
+            return _fetch_main(argv[1:])
         if argv[:1] == ["update"]:
             SafeParser(prog="awb clean update", description="The lists of public terms from the public "
                        "repository.").parse_args(argv[1:])
