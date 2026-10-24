@@ -11115,8 +11115,141 @@
    "name": "TH: a kb verify block lands in the FP log and in no work-user file",
    "run": ".venv/bin/pytest tests/test_tcp_hosts.py::test_a_kb_verify_block_lands_in_the_fp_log_and_in_no_work_user_file",
    "status": "passing"
+  },
+  {
+   "id": "ux45-1",
+   "phase": "ux45",
+   "name": "UX45: open items carry the code the place and a ready block",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux4_open_items_carry_the_code_the_place_and_a_ready_block",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-2",
+   "phase": "ux45",
+   "name": "UX45: a parked project is a count only",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux4_a_parked_project_is_a_count_only",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-3",
+   "phase": "ux45",
+   "name": "UX45: the queue rows that wait on him and a missing file",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux4_the_queue_rows_that_wait_on_him_and_a_missing_file",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-4",
+   "phase": "ux45",
+   "name": "UX45: the build runs that wait on him",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux4_the_build_runs_that_wait_on_him",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-5",
+   "phase": "ux45",
+   "name": "UX45: a text with a name is withheld and the list has no name",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux4_a_text_with_a_name_is_withheld_and_the_list_has_no_name",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-6",
+   "phase": "ux45",
+   "name": "UX45: the mail goes once per call with the list and not when empty",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux4_the_mail_goes_once_per_call_with_the_list_and_not_when_empty",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-7",
+   "phase": "ux45",
+   "name": "UX45: no mail when the name check cannot run",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux4_no_mail_when_the_name_check_cannot_run",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-8",
+   "phase": "ux45",
+   "name": "UX45: the command prints the list and json keeps the old status",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux4_the_command_prints_the_list_and_json_keeps_the_old_status",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-9",
+   "phase": "ux45",
+   "name": "UX45: the setup installs a daily berlin timer after the reload",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux4_the_setup_installs_a_daily_berlin_timer_after_the_reload",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-10",
+   "phase": "ux45",
+   "name": "UX45: it asks the three parts hidden for the password and writes them",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux5_it_asks_the_three_parts_hidden_for_the_password_and_writes_them",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-11",
+   "phase": "ux45",
+   "name": "UX45: only the missing parts are asked and a full set asks nothing",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux5_only_the_missing_parts_are_asked_and_a_full_set_asks_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-12",
+   "phase": "ux45",
+   "name": "UX45: no terminal keeps the old refusal and an empty value writes nothing",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux5_no_terminal_keeps_the_old_refusal_and_an_empty_value_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-13",
+   "phase": "ux45",
+   "name": "UX45: the test answer names what failed",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux5_the_test_answer_names_what_failed",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-14",
+   "phase": "ux45",
+   "name": "UX45: the check asks the key service one iam get as the owner",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux5_the_check_asks_the_key_service_one_iam_get_as_the_owner",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-15",
+   "phase": "ux45",
+   "name": "UX45: the customer text is german and english with the three points",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux5_the_customer_text_is_german_and_english_with_the_three_points",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-16",
+   "phase": "ux45",
+   "name": "UX45: the command asks registers tests and prints the text",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux5_the_command_asks_registers_tests_and_prints_the_text",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-17",
+   "phase": "ux45",
+   "name": "UX45: a failed test says why gives the text and does not point to a grant",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux5_a_failed_test_says_why_gives_the_text_and_does_not_point_to_a_grant",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-18",
+   "phase": "ux45",
+   "name": "UX45: the non interactive path is unchanged",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux5_the_non_interactive_path_is_unchanged",
+   "status": "passing"
+  },
+  {
+   "id": "ux45-19",
+   "phase": "ux45",
+   "name": "UX45: write still writes the status file the old unit calls",
+   "run": ".venv/bin/pytest tests/test_ux45.py::test_ux4_write_still_writes_the_status_file_the_old_unit_calls",
+   "status": "passing"
   }
  ],
- "total_tests": 1588,
- "checked": "2026-10-23"
+ "total_tests": 1607,
+ "checked": "2026-10-24"
 }

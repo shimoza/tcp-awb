@@ -948,9 +948,22 @@ def _readonly_command(p: config.Paths, args) -> int:
             raise readonly.ReadonlyError("read-only tenants are the owner's: he runs this in his own terminal")
         if args.command == "add-readonly":
             auth = "login" if args.login else "key" if args.key else None
+            asked = readonly.ask_login(args.alias, Store()) if args.login else []
+            if asked:
+                print("written to pass under awb/tenant/%s/login/: %s" % (args.alias, ", ".join(asked)))
             lines = readonly.add(args.alias, args.domain_id, auth, args.region,
                                  registered={t.alias for t in load(p)})
             reload_keys(lines)
+            if asked:
+                passed, line = readonly.check_login(args.alias, (args.region or ["eu-de"])[0])
+                lines.append(line)
+                if not passed:
+                    lines.append("no grant yet. To enter the login again: pass rm -r awb/tenant/%s/login, then run "
+                                 "this command again" % args.alias)
+                lines.append(readonly.CUSTOMER_TEXT)
+                if not passed:
+                    print("\n".join(lines))
+                    return 1
             lines.append("next: awb tenant grant %s tcp-xxxx for the project that reads it" % args.alias)
         elif args.command == "remove":
             lines = readonly.remove(p, args.alias)

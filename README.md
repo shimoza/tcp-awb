@@ -531,7 +531,8 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | publish the console page | `sudo awb web publish --from-queue ID` | the checked page of a UI run live, the old one kept as a backup |
 | a login for the console | `sudo awb web user add LOGIN [--level owner]` | a random password, shown once (an owner entry also gets a TOTP key for his phone); `reset`, `remove`, `list`; `projects LOGIN CODE...` limits a reader to those project codes (no list: every project); `sudo awb web status` shows failed sign-ins and waits |
 | the owner host name | `sudo awb web host HOST` | once: the host name of the owner level, kept in `/etc/awb/paths.conf` |
-| the owner level's status | `awb owner status` | what the owner page shows: vault, key service, release, page, UI runs (with each run's summary after the name check, for `GET /api/ui-runs`), intake counts; a timer writes it every minute |
+| what waits on the owner | `awb owner status` | one list of everything that waits on you: the owner items of OPEN.md of the active projects (parked projects as a count), the rows of QUEUE.md whose state waits on you and the build tasks that wait on you; one line each with the project code or label, a few words, where it is done (project session, his terminal, steering session) and a ready command block; `--mail` sends it (the timer `awb-owner-mail` does at 08:00 Europe/Berlin, no mail for an empty list) |
+| the owner level's status | `awb owner status --json` | what the owner page shows: vault, key service, release, page, UI runs (with each run's summary after the name check, for `GET /api/ui-runs`), intake counts; `--write` writes it for owner-actions, a timer runs that every minute |
 | hand a UI task to Codex | `awb ui submit presentations/ui-tasks/ID.txt`, `awb ui status` | the task checked and queued; a result note in `presentations/ui-tasks/` when the run ends |
 
 ## Console how-tos
@@ -614,10 +615,12 @@ role and caller, and only a project you granted it reaches it:
 
 ```bash
 pass insert awb/tenant/cust-1/login/domain   # and user, password (or awb/tenant/cust-1/ak and sk)
-awb tenant add-readonly cust-1 --domain-id ID --login
+awb tenant add-readonly cust-1 --domain-id ID --login   # asks account, user and password when pass lacks them
 awb tenant grant cust-1 tcp-xxxx
 awb cloud call GET ecs "/v1/{project_id}/cloudservers" --tenant cust-1     # in that project's session
 ```
+
+In a terminal `awb tenant add-readonly ALIAS --domain-id ID --login` asks for what pass lacks (account name, user, password; the password is hidden and never echoed or logged), writes the entries under `awb/tenant/ALIAS/login/` itself, registers the tenant, makes one test GET through the key service before any grant and says what failed (403: no programmatic access; 401: password wrong or change pending; MFA needed). It ends with a short text for the customer's admin in German and English: a read-only role, "Programmatic access" ticked, no access key, login protection by virtual MFA off. With the entries in pass already, or without a terminal, it works as before.
 
 For a login the key service takes a token from IAM, keeps it in memory only and renews it before it expires. A
 login with MFA is refused with one line: ask for a read-only AK/SK. `awb cloud tenants` shows the kind and whether
