@@ -143,7 +143,7 @@ CASES = [
     {"id": "s-json-nextline", "cls": "secret", "carrier": "JSON key on one line, value on the next", "path": "conf.json",
      "content": '{\n  "password":\n    "%s"\n}\n' % SECRET},
     {"id": "s-spaces-unquoted", "cls": "secret", "carrier": "unquoted value with spaces (by design low entropy words)", "path": "app.ini",
-     "content": "password = Vb7Qk2Zn9 Lp4Rw8Xm3 Ct6Yd Qz\n"},
+     "content": "password = %s %s %s Qz\n" % (SECRET[:9], SECRET[9:18], SECRET[18:])},
     {"id": "s-de-passwort", "cls": "secret", "carrier": "German key Passwort", "path": "app.ini",
      "content": "Passwort=%s\n" % SECRET},
     {"id": "s-de-kennwort", "cls": "secret", "carrier": "German key Kennwort", "path": "app.ini",

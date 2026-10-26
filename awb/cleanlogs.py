@@ -7,7 +7,8 @@ when its place says what it is.
     secret    [secret]    a private key block, the value of a key-like field (password, secret, token, api_key,
                           access_key, client_secret, passphrase, Passwort, Kennwort ...), an Authorization or token
                           header, a credential with a known prefix (ghp_, glpat-, xox, AKIA, sk-, a JWT) and the
-                          password in the userinfo of a URL; a line the commit gate still finds a secret in after
+                          password in the userinfo of a URL, a password in prose after a password word ("the
+                          admin password is X", the gate's rule); a line the commit gate still finds a secret in after
                           that is removed as a whole
     user      [user 1]    the value of a user field (user=, login:, owner=, upn=, author: ...), the user of sshd and
                           PAM lines ("Failed password for X", "session opened for user X", "logged in as X"),
@@ -221,6 +222,8 @@ def wipe_secrets(text: str, counts: Counter) -> str:
         value = m.group("value")
         if _PLACEHOLDER.match(value.strip()) or len(value.strip()) < 3:
             return m.group(0)
+        if re.fullmatch(r"\[[a-z ]+\d*", value.strip()):
+            return m.group(0)      # a token of a wipe before ("[secret]" of a clean copy), cut at its "]"
         if re.fullmatch(r"[^\W\d_]+", value.strip()) and _plain_word(value.strip()):
             return m.group(0)      # "Password: must have 12 characters", "token: expired" carry no secret
         counts["secret"] += 1
@@ -233,6 +236,19 @@ def wipe_secrets(text: str, counts: Counter) -> str:
     text = _SECRET_FLAG_RE.sub(field, text)
     text = _GLUED_PASSWORD_RE.sub(lambda m: (counts.update(["secret"]), m.group("key") + SECRET)[1], text)
     text = _TOKEN_RE.sub(lambda m: (counts.update(["secret"]), SECRET)[1], text)
+    return wipe_prose_passwords(text, counts)
+
+
+def wipe_prose_passwords(text: str, counts: Counter) -> str:
+    """A password given in prose after a password word ("the admin password is X", "Passwort lautet X") replaced
+    by [secret], the words around it kept. The rule is the gate's (gate.prose_password_spans), so the commit gate,
+    the paste door, awb clean and the intake find the same."""
+    from awb import gate
+
+    spans = gate.prose_password_spans(text)
+    for start, end in reversed(spans):
+        text = text[:start] + SECRET + text[end:]
+        counts["secret"] += 1
     return text
 
 

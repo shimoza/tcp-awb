@@ -11,7 +11,10 @@ Classes of findings:
                  nor a reference; also a password in the userinfo of a URL, after curl -u, in a .pgpass line,
                  after the word password (.netrc), in a credential table, in an Authorization header, a password
                  hash of .htpasswd and a bare access key pair (a key id of 20 capitals and digits within two
-                 lines of a secret of 40 characters)
+                 lines of a secret of 40 characters); and a password in prose after a password word in
+                 English, German or Russian (`prose_password_spans`: one token of 6 or more characters with a
+                 digit, a symbol or mixed case, or a quoted text of 4 or more; no date, placeholder, reference
+                 or word of the public lists)
     private-key  the armour line that opens a private key block (also the ssh.com form with four dashes and
                  spaces), a PuTTY key file, a JWK with its private part, an age secret key and the base64 of an
                  armour line
@@ -177,6 +180,103 @@ _SECRET_SHAPES = (
     (_USER_PW_RE, _MIN_PASSWORD_LENGTH, _MIN_PASSWORD_ENTROPY),
     (_PGPASS_RE, _MIN_PASSWORD_LENGTH, _MIN_PASSWORD_ENTROPY),
 )
+_PROSE_WORD_RE = re.compile(
+    r"(?i)(?<![\w-])(?:pass(?:wor[dt]|wd|phrase)|kennwort|pwd?|парол(?:ь|я|ем|и))(?![\w-])"
+)
+"""A password word of a sentence, in English, German and Russian (written in pieces so the gate's own source
+carries no such word before a value)."""
+_PROSE_CLAUSE_RE = re.compile(
+    r"(?i)[ \t]+(?:for|of|to|für|zum|zur|von|для|от)[ \t]+(?:(?:the|a|an|der|die|das|den|dem|des)[ \t]+)?"
+    r"[^\s:=\"'`]+"
+)
+"""An owner between the word and its value: "for the admin", "für den Server", "от админки"."""
+_PROSE_SEP_RE = re.compile(
+    r"(?i)(?:\*\*|__)?(?:[ \t]*[:=](?:\*\*|__)?[ \t]+|[ \t]+[-\u2013\u2014][ \t]+|[ \t]*[\u2013\u2014][ \t]*"
+    r"|[ \t]+(?:is|was|lautet|ist|war)(?:[ \t]+(?:now|jetzt|still|noch))?(?:[ \t]*:[ \t]*|[ \t]+)|[ \t]+)"
+    r"(?:\*\*|__)?[ \t]*(?P<value>\"[^\"\n]*\"|'[^'\n]*'|`[^`\n]*`|[^\s\"'`]+)"
+)
+"""What may stand between the word (or its owner) and the value, and the value: one token, or a quoted text."""
+_PROSE_MIN_LENGTH = 6
+_PROSE_MIN_QUOTED = 4
+_PROSE_TRAIL = ".,;:)]}"
+_PROSE_NOT_A_PASSWORD_RE = re.compile(
+    r"\d{4}-\d{1,2}-\d{1,2}(?:[T ]\d{1,2}:\d{2}(?::\d{2})?)?|\d{1,2}[./]\d{1,2}[./]\d{2,4}|\d{1,2}:\d{2}(?::\d{2})?"
+    r"|v?\d+(?:\.\d+)+|\[[^\]]*\]|-.*"
+)
+"""A date, a time, a version, a token of the wipe ([secret]) or a command line flag: no password."""
+_PROSE_FORMAT_RE = re.compile(r"%[-+ 0#]*[0-9]*[sdrfx]|\{[0-9A-Za-z_]*\}")
+"""A format field of code ("%s", "{0}", "{}"): the quoted text is a template, not a password."""
+_PROSE_VARIABLE_RE = re.compile(r"[$%@][{(]?[A-Za-z_][A-Za-z0-9_]*[})]?")
+"""A shell or template variable in quotes ("$owner", "${PW}")."""
+_PROSE_EXPRESSION_RE = re.compile(r"[ \t]*(?:[+%*]|\.[A-Za-z_]|\[)")
+"""After a quoted text: an operator, a method or an index of code."""
+_PROSE_CODE_RE = re.compile(r"[\[\](){}|<>]")
+"""Brackets, a pipe or an angle bracket in an unquoted token: code, a table or a placeholder, not a password."""
+_PROSE_PLAIN: list = []
+
+
+def _prose_plain_words() -> frozenset[str]:
+    """The words of the public lists (rules/common-words.txt, rules/tech-terms.txt), case folded."""
+    if not _PROSE_PLAIN:
+        from awb import patterns, words
+
+        _PROSE_PLAIN.append(frozenset(words.load_plain(patterns.RULES_DIR / "common-words.txt")
+                                      | words.load_plain(patterns.RULES_DIR / "tech-terms.txt")))
+    return _PROSE_PLAIN[0]
+
+
+def _prose_value(raw: str, after: str) -> tuple[int, int] | None:
+    """(start, end) of the password inside `raw`, the token after a password word, or None when it is none.
+    `after` is the text that follows `raw` on its line."""
+    if len(raw) >= 2 and raw[0] in "\"'`" and raw[-1] == raw[0]:
+        v = raw[1:-1].strip()
+        if len(v) < _PROSE_MIN_QUOTED or _PROSE_NOT_A_PASSWORD_RE.fullmatch(v) or _PROSE_FORMAT_RE.search(v) \
+                or _PROSE_VARIABLE_RE.fullmatch(v) or _is_placeholder_or_reference(v, quoted=True):
+            return None
+        if _PROSE_EXPRESSION_RE.match(after):
+            return None        # a piece of a string built by code ("Sup" + "..."), not a value
+        return 1, len(raw) - 1
+    if raw[0] in "\"'`":
+        return None
+    v = raw.rstrip(_PROSE_TRAIL)
+    if len(v) < _PROSE_MIN_LENGTH or _PROSE_NOT_A_PASSWORD_RE.fullmatch(v) or _PROSE_CODE_RE.search(v):
+        return None
+    core = re.sub(r"^\W+|\W+$", "", v)          # "store>" is a word with a mark, not a password
+    alnum = sum(c.isalnum() for c in core)
+    if alnum < _PROSE_MIN_QUOTED or 2 * alnum < len(v):
+        return None            # a table border or a row of marks
+    symbol = any(c.isdigit() or not c.isalnum() for c in core)
+    mixed = any(c.islower() for c in core) and any(c.isupper() for c in core[1:])
+    if not (symbol or mixed):
+        return None
+    if _is_placeholder_or_reference(v) or core.casefold() in _prose_plain_words():
+        return None
+    return 0, len(v)
+
+
+def prose_password_spans(text: str) -> list[tuple[int, int]]:
+    """(start, end) of every password given in prose after a password word: "the password for the admin is X",
+    "Passwort lautet X", "Kennwort: X", a Russian "parol X", also in quotes or backticks. The value is one token
+    of 6 or more characters with a digit or a symbol or in mixed case, or a quoted text of 4 or more; a date, a
+    placeholder, a reference and a word of the public lists are none. Shared by the gate and the secret wipe of
+    awb clean and the intake (awb/cleanlogs.py)."""
+    out: list[tuple[int, int]] = []
+    for m in _PROSE_WORD_RE.finditer(text):
+        starts = [m.end()]
+        clause = _PROSE_CLAUSE_RE.match(text, m.end())
+        if clause:
+            starts.insert(0, clause.end())
+        for pos in starts:
+            sep = _PROSE_SEP_RE.match(text, pos)
+            if sep is None:
+                continue
+            found = _prose_value(sep.group("value"), text[sep.end():sep.end() + 8])
+            if found is not None:
+                out.append((sep.start("value") + found[0], sep.start("value") + found[1]))
+                break
+    return out
+
+
 _HASH_LINE_RE = re.compile(
     r"(?m)^[A-Za-z0-9._@-]+:(?P<value>\$(?:apr1|2[abxy]|1|5|6|y|7|argon2(?:id|i|d)|pbkdf2[a-z0-9-]*|sha1|md5)\$"
     r"[^\s]{10,}|\{(?:S?SHA(?:256|512)?|MD5|CRYPT|PLAIN)\}[^\s]{10,})"
@@ -488,6 +588,7 @@ def _detect_secret(text: str) -> list[int]:
             if _secret_value(value, quoted, min_len, min_ent):
                 out.add(m.start("value") + (1 if quoted else 0))
     out.update(m.start("value") for m in _HASH_LINE_RE.finditer(text))
+    out.update(start for start, _ in prose_password_spans(text))
     out.update(_detect_xml_secrets(text))
     out.update(_detect_table_secrets(text))
     out.update(_detect_keypair(text))

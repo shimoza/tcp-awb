@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from awb import codes, config, parts, register
+from awb import cleanlogs, codes, config, parts, register
 from awb import extract as _extract
 from awb import images as _images
 from awb import report as _report
@@ -698,7 +698,12 @@ def _write_one(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Pa
     by_id = dict(extractions[fr.file_id])
     for part in fr.parts:
         pex = by_id[part.part_id]
-        body, counts = engine.sanitize(pex.text or "", "%s output" % part.part_id)
+        # the secret wipe of awb clean (awb/cleanlogs.py) first: a key, a token, a password field and a password
+        # in prose become [secret]; the lines the gate still finds a secret in go after the sanitising
+        wiped: Counter = Counter()
+        body, counts = engine.sanitize(cleanlogs.wipe_secrets(pex.text or "", wiped), "%s output" % part.part_id)
+        body = cleanlogs.drop_secret_lines(body, wiped)
+        counts.update(wiped)
         bodies[part.part_id] = body
         part.counts.update(counts)
         for note in part.notes:
