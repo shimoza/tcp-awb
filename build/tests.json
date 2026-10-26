@@ -11388,8 +11388,64 @@
    "name": "UX13: a long auto notice shows eight ids and a count",
    "run": ".venv/bin/pytest tests/test_ux13.py::test_a_long_auto_notice_shows_eight_ids_and_the_rest_as_a_count",
    "status": "passing"
+  },
+  {
+   "id": "lc3-1",
+   "phase": "lc3-prose-password",
+   "name": "LC3: a password in prose after a password word is a secret of the gate",
+   "run": ".venv/bin/pytest tests/test_lc3_prose.py::test_a_password_in_prose_is_a_secret_of_the_gate",
+   "status": "passing"
+  },
+  {
+   "id": "lc3-2",
+   "phase": "lc3-prose-password",
+   "name": "LC3: the wipe puts [secret] in place of the value and keeps the words",
+   "run": ".venv/bin/pytest tests/test_lc3_prose.py::test_the_wipe_puts_secret_in_place_of_the_value_and_keeps_the_words",
+   "status": "passing"
+  },
+  {
+   "id": "lc3-3",
+   "phase": "lc3-prose-password",
+   "name": "LC3: ordinary prose about passwords is no secret",
+   "run": ".venv/bin/pytest tests/test_lc3_prose.py::test_ordinary_prose_about_passwords_is_no_secret",
+   "status": "passing"
+  },
+  {
+   "id": "lc3-4",
+   "phase": "lc3-prose-password",
+   "name": "LC3: a word of the public lists is no password",
+   "run": ".venv/bin/pytest tests/test_lc3_prose.py::test_a_word_of_the_public_lists_is_no_password",
+   "status": "passing"
+  },
+  {
+   "id": "lc3-5",
+   "phase": "lc3-prose-password",
+   "name": "LC3: the reported line keeps its words and the key is caught too",
+   "run": ".venv/bin/pytest tests/test_lc3_prose.py::test_the_reported_line_keeps_the_words_and_the_key_is_caught_too",
+   "status": "passing"
+  },
+  {
+   "id": "lc3-6",
+   "phase": "lc3-prose-password",
+   "name": "LC3: the span covers the value only",
+   "run": ".venv/bin/pytest tests/test_lc3_prose.py::test_the_span_covers_the_value_only",
+   "status": "passing"
+  },
+  {
+   "id": "lc3-7",
+   "phase": "lc3-prose-password",
+   "name": "LC3: the host import wipes a prose password",
+   "run": ".venv/bin/pytest tests/test_lc3_prose.py::test_the_host_import_wipes_a_prose_password",
+   "status": "passing"
+  },
+  {
+   "id": "lc3-8",
+   "phase": "lc3-prose-password",
+   "name": "LC3: the paste door refuses a prose password",
+   "run": ".venv/bin/pytest tests/test_lc3_prose.py::test_the_paste_door_refuses_a_prose_password",
+   "status": "passing"
   }
  ],
- "total_tests": 1627,
- "checked": "2026-10-24"
+ "total_tests": 1635,
+ "checked": "2026-10-26"
 }

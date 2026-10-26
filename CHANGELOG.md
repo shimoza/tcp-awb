@@ -3,6 +3,12 @@
 What changed in the Architect Workbench, one entry per week (ISO week, Monday to Sunday), newest first. The form
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and projects appear as codes only.
 
+## Week 44, 2026-10-26 to 2026-11-01 (in progress)
+
+### Fixed
+
+- A password written in prose is a secret (task LC3, branch lc3-prose-password, found 2026-10-26: `awb clean --kind docs` wiped the key of a sentence and kept its password). The new rule `prose_password_spans` of awb/gate.py finds the value after a password word in English, German and Russian (is, was, lautet, ist, a colon, an equals sign or a dash with spaces, a plain space, an owner such as "for the admin" between): one token of 6 or more characters with a digit, a symbol or mixed case, or a quoted or backticked text of 4 or more. A date, a version, a placeholder (`[secret]`, `<...>`, `***`, changeme, redacted), a reference, code (brackets, a format field, a string built with `+`) and a word of the public lists are none. The commit gate, the paste door, `awb material add` and the hooks find it as a secret; the secret wipe of `awb clean` (awb/cleanlogs.py) puts `[secret]` in its place and keeps the words around it. The host import (`awb import`, `--auto`, `--trusted`) had no secret wipe at all and wrote keys and passwords into the outbox copy: it now runs the same wipe before the sanitising and removes a line the gate still finds a secret in, as `awb clean` does, so awb/cleanlogs.py is no longer a command-only module of awb/deploy.py (a change of it restarts what the intake restarts). A value already wiped (`password: [secret]`) is left as it is. The red-team case s-spaces-unquoted of calibration/redteam/gate.py builds its value from pieces like the other cases (the same string). Tests: `tests/test_lc3_prose.py`, no row replaced.
+
 ## Week 43, 2026-10-19 to 2026-10-25 (in progress)
 
 ### Added

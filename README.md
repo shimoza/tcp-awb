@@ -437,7 +437,9 @@ vault folder (700). `awb clean register CUST-XXXX` asks the written forms of the
 - `--kind docs` for customer documentation (docx, pptx, xlsx, odt, pdf, also Markdown, text, html and mail files):
   the body text only. Pictures (logos), document properties, headers, footers, comments and tracked changes are read
   for detection and never written. The customer's forms become `CUST-XXXX`, persons, companies, places, mail
-  addresses and phones become tokens by the rules of wipe mode, secrets `[secret]`. One `<name>.clean.md` per file.
+  addresses and phones become tokens by the rules of wipe mode, secrets `[secret]` (keys, tokens, password
+  fields and a password written in prose after a password word, in English, German or Russian). One
+  `<name>.clean.md` per file.
 - `--kind logs` for the dump of a technical problem (logs, configs, tickets: text, log, csv, json, yaml, conf):
   mail addresses, phone numbers, user names (user fields, sshd and PAM lines, DN, `-u`, home folders), IP addresses,
   internal host names and FQDNs that are no public product or service host, keys, tokens and passwords are wiped.
@@ -462,7 +464,8 @@ vault folder (700). `awb clean register CUST-XXXX` asks the written forms of the
 
 On the host the timer `awb-import-auto` (seal/setup.sh, every 2 minutes) runs `awb import --auto`: the new files of
 `in/` of every active project come in, a clean copy with `--trusted` (no name guessed, the registered forms, the
-secret check, mail addresses and phones still apply) and any other file in wipe mode. The original moves into the
+secret wipe, mail addresses and phones still apply) and any other file in wipe mode. Every import runs the secret
+wipe of `awb clean` before the names: keys, tokens, password fields and passwords in prose become `[secret]`. The original moves into the
 vault and is deleted from `in/`, the session of the project reads "new input: N files (FILE IDS)" at its next prompt, a project whose import runs is skipped and each run
 writes one line to the journal and to `~/tcp-vault/import-auto.log`.
 
