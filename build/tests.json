@@ -11493,8 +11493,85 @@
    "name": "T1: the client's copy and its neighbours stay refused to every tool",
    "run": ".venv/bin/pytest tests/test_t1_rules_read.py::test_the_clients_copy_and_its_neighbours_stay_refused_to_every_tool",
    "status": "passing"
+  },
+  {
+   "id": "t2-ro-projects-1",
+   "phase": "t2-readonly-projects",
+   "name": "T2: an old one-region readonly line reads; add-readonly writes eu-de+eu-nl by default",
+   "run": ".venv/bin/pytest tests/test_t2_readonly_projects.py::test_t2_an_old_one_region_line_reads_and_add_readonly_writes_both_regions",
+   "status": "passing"
+  },
+  {
+   "id": "t2-ro-projects-2",
+   "phase": "t2-readonly-projects",
+   "name": "T2: awb tenant regions changes the regions without the login",
+   "run": ".venv/bin/pytest tests/test_t2_readonly_projects.py::test_t2_regions_changes_a_tenant_without_its_login",
+   "status": "passing"
+  },
+  {
+   "id": "t2-ro-projects-3",
+   "phase": "t2-readonly-projects",
+   "name": "T2: a login reads eu-de, eu-nl and a sub-project with one token per project",
+   "run": ".venv/bin/pytest tests/test_t2_readonly_projects.py::test_t2_a_login_reads_both_regions_and_a_sub_project_with_a_token_each",
+   "status": "passing"
+  },
+  {
+   "id": "t2-ro-projects-4",
+   "phase": "t2-readonly-projects",
+   "name": "T2: a project of another domain is refused by name and by id",
+   "run": ".venv/bin/pytest tests/test_t2_readonly_projects.py::test_t2_a_project_of_another_domain_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "t2-ro-projects-5",
+   "phase": "t2-readonly-projects",
+   "name": "T2: a project of a region the tenant does not read is refused",
+   "run": ".venv/bin/pytest tests/test_t2_readonly_projects.py::test_t2_a_region_not_configured_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "t2-ro-projects-6",
+   "phase": "t2-readonly-projects",
+   "name": "T2: a write is refused with a scope; a scope is plain",
+   "run": ".venv/bin/pytest tests/test_t2_readonly_projects.py::test_t2_a_write_is_refused_with_a_scope_and_a_scope_is_plain",
+   "status": "passing"
+  },
+  {
+   "id": "t2-ro-projects-7",
+   "phase": "t2-readonly-projects",
+   "name": "T2: the projects op lists what a granted session reads, with the grant check of a call",
+   "run": ".venv/bin/pytest tests/test_t2_readonly_projects.py::test_t2_the_projects_op_lists_what_a_granted_session_reads",
+   "status": "passing"
+  },
+  {
+   "id": "t2-ro-projects-8",
+   "phase": "t2-readonly-projects",
+   "name": "T2: awb cloud call --scope sends the scope",
+   "run": ".venv/bin/pytest tests/test_t2_readonly_projects.py::test_t2_cloud_call_sends_the_scope",
+   "status": "passing"
+  },
+  {
+   "id": "t2-ro-projects-9",
+   "phase": "t2-readonly-projects",
+   "name": "T2: a read key reads a sub-project by its id, signed",
+   "run": ".venv/bin/pytest tests/test_t2_readonly_projects.py::test_t2_a_read_key_reads_a_sub_project_by_its_id_signed",
+   "status": "passing"
+  },
+  {
+   "id": "t2-ro-projects-10",
+   "phase": "t2-readonly-projects",
+   "name": "T2: the endpoints follow the region of the project",
+   "run": ".venv/bin/pytest tests/test_t2_readonly_projects.py::test_t2_the_endpoints_follow_the_region_of_the_project",
+   "status": "passing"
+  },
+  {
+   "id": "t2-ro-projects-11",
+   "phase": "t2-readonly-projects",
+   "name": "T2: a token per project; a clear forgets the project list",
+   "run": ".venv/bin/pytest tests/test_t2_readonly_projects.py::test_t2_a_token_per_project_and_a_lock_forgets_the_project_list",
+   "status": "passing"
   }
  ],
- "total_tests": 1642,
+ "total_tests": 1653,
  "checked": "2026-10-27"
 }

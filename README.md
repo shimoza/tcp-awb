@@ -623,7 +623,15 @@ pass insert awb/tenant/cust-1/login/domain   # and user, password (or awb/tenant
 awb tenant add-readonly cust-1 --domain-id ID --login   # asks account, user and password when pass lacks them
 awb tenant grant cust-1 tcp-xxxx
 awb cloud call GET ecs "/v1/{project_id}/cloudservers" --tenant cust-1     # in that project's session
+awb tenant projects cust-1                                                 # the projects it can read there
+awb cloud call GET ecs "/v1/{project_id}/cloudservers" --tenant cust-1 --scope eu-de_lab
 ```
+
+A read-only tenant reads eu-de and eu-nl unless `--region` names others; `awb tenant regions ALIAS --region eu-de
+--region eu-nl` changes the regions of one that is registered without asking for its login again (an old keys.conf
+line of one region still works). `--scope` names a region project or a sub-project (eu-de_<suffix>) by name or id:
+the key service checks it against GET /v3/auth/projects (the tenant's domain, one of its regions), takes a token
+for that project and calls the endpoints of its region. `awb tenant projects ALIAS` lists them, GET only.
 
 In a terminal `awb tenant add-readonly ALIAS --domain-id ID --login` asks for what pass lacks (account name, user, password; the password is hidden and never echoed or logged), writes the entries under `awb/tenant/ALIAS/login/` itself, registers the tenant, makes one test GET through the key service before any grant and says what failed (403: no programmatic access; 401: password wrong or change pending; MFA needed). It ends with a short text for the customer's admin in German and English: a read-only role, "Programmatic access" ticked, no access key, login protection by virtual MFA off. With the entries in pass already, or without a terminal, it works as before.
 

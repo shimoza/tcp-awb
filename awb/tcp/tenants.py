@@ -3,7 +3,9 @@
     awb tenant setup ALIAS --domain-id ID [--region R] [--lab-key | --lab-user] [--alerts [--topic URN]]
                                                                         owner side: a new tenant in one command
     awb tenant add ALIAS --keys pass:ENTRY|file:PATH [--region R]...   owner side: a tenant and its read-only key
-    awb tenant add-readonly ALIAS --domain-id ID [--login | --key] [--region R]...
+    awb tenant add-readonly ALIAS --domain-id ID [--login | --key] [--region R]...   (default eu-de and eu-nl)
+    awb tenant regions ALIAS --region R [--region R]...   owner side: the regions of a read-only tenant
+    awb tenant projects ALIAS [--project CODE]            the projects a read-only tenant is read in, GET only
                                                                         owner side: a read-only tenant (RT)
     awb tenant remove ALIAS                                             owner side: forget a read-only tenant
     awb tenant grant ALIAS CODE, awb tenant revoke ALIAS CODE           owner side: a project reads a read-only tenant
@@ -39,6 +41,10 @@ It prints names and counts, never a value.
 it checks by name that the pass entries are there (`awb/tenant/ALIAS/ak|sk` for --key, `login/domain|user|password`
 for --login), writes the readonly line of keys.conf and runs `awb keys unlock`. It is not in the register of
 tenants.tsv, so no snapshot and no sweep reads it. `grant` lets one project's sessions read it; nothing else does.
+Without --region it reads eu-de and eu-nl; `regions` changes the regions of a registered one without asking for its
+login again and runs `awb keys unlock`. `projects` (a session of a granted project, or the owner) lists the region
+projects and sub-projects of the tenant's domain in its regions through the key service (GET /v3/auth/projects);
+`awb cloud call --tenant ALIAS --scope NAME GET ...` reads one of them.
 
 The history is kept for good. The tenants are named by aliases (test-1), never by their ids: a tenant id is an
 identifier the commit gate refuses.
@@ -815,7 +821,15 @@ def main(argv: list[str] | None = None) -> int:
     how = ro.add_mutually_exclusive_group()
     how.add_argument("--login", action="store_true", help="awb/tenant/ALIAS/login/domain, user and password")
     how.add_argument("--key", action="store_true", help="awb/tenant/ALIAS/ak and sk, a read key")
-    ro.add_argument("--region", action="append", default=[])
+    ro.add_argument("--region", action="append", default=[],
+                    help="a region it is read in, once per region (default: eu-de and eu-nl)")
+    rg = sub.add_parser("regions", help="change the regions of a read-only tenant; the login stays (owner side)")
+    rg.add_argument("alias")
+    rg.add_argument("--region", action="append", default=[], required=True,
+                    help="a region it is read in, once per region (the list replaces the one before)")
+    pj = sub.add_parser("projects", help="the projects of a read-only tenant a session can read, GET only")
+    pj.add_argument("alias")
+    pj.add_argument("--project", default=None, help="the project code (default: the project of the working folder)")
     rm = sub.add_parser("remove", help="forget a read-only tenant and its grants; the pass entries stay (owner side)")
     rm.add_argument("alias")
     gr = sub.add_parser("grant", help="let the sessions of one project read a read-only tenant (owner side)")
@@ -876,8 +890,10 @@ def main(argv: list[str] | None = None) -> int:
                              lab_user=args.lab_user, alerts=args.alerts, topic=args.topic, loaded=loaded,
                              unlock=unlock)
             print("\n".join(lines))
-        elif args.command in ("add-readonly", "remove", "grant", "revoke"):
+        elif args.command in ("add-readonly", "remove", "grant", "revoke", "regions"):
             return _readonly_command(p, args)
+        elif args.command == "projects":
+            return _readonly_projects(args)
         elif args.command == "snapshot":
             if config.is_work_user():
                 raise TenantError("snapshots are taken on the owner side, with the tenant's read-only key")
@@ -951,11 +967,12 @@ def _readonly_command(p: config.Paths, args) -> int:
             asked = readonly.ask_login(args.alias, Store()) if args.login else []
             if asked:
                 print("written to pass under awb/tenant/%s/login/: %s" % (args.alias, ", ".join(asked)))
-            lines = readonly.add(args.alias, args.domain_id, auth, args.region,
+            regions = args.region or list(readonly.DEFAULT_REGIONS)
+            lines = readonly.add(args.alias, args.domain_id, auth, regions,
                                  registered={t.alias for t in load(p)})
             reload_keys(lines)
             if asked:
-                passed, line = readonly.check_login(args.alias, (args.region or ["eu-de"])[0])
+                passed, line = readonly.check_login(args.alias, regions[0])
                 lines.append(line)
                 if not passed:
                     lines.append("no grant yet. To enter the login again: pass rm -r awb/tenant/%s/login, then run "
@@ -968,6 +985,10 @@ def _readonly_command(p: config.Paths, args) -> int:
         elif args.command == "remove":
             lines = readonly.remove(p, args.alias)
             reload_keys(lines)
+        elif args.command == "regions":
+            lines = readonly.set_regions(args.alias, args.region)
+            if "changed" in lines[0]:
+                reload_keys(lines)
         elif args.command == "grant":
             from awb.tcp import xchg
 
@@ -985,6 +1006,29 @@ def _readonly_command(p: config.Paths, args) -> int:
         print("awb tenant: %s" % (err if type(err).__name__ == "XchgError" else type(err).__name__), file=sys.stderr)
         return 1
     print("\n".join(lines))
+    return 0
+
+
+def _readonly_projects(args) -> int:
+    """`awb tenant projects ALIAS`: the projects of a read-only tenant, through the key service (T2)."""
+    from awb.tcp import cloud, keys as _keys
+
+    req = {"op": "projects", "tenant": args.alias, "project": cloud._project_code(args.project)}
+    try:
+        answer = _keys.request(_keys.call_socket(), req)
+    except _keys.KeysError as err:
+        print("awb tenant: %s" % err, file=sys.stderr)
+        return 2
+    if not answer.get("ok"):
+        print("awb tenant: %s" % answer.get("error"), file=sys.stderr)
+        return 1
+    rows = [[str(r.get("name")), str(r.get("region")), str(r.get("id"))] for r in answer.get("projects") or []]
+    print("%s: %d project(s) in %s" % (args.alias, len(rows), "+".join(answer.get("regions") or [])))
+    if rows:
+        print("\n".join(table(rows, ["project", "region", "id"])))
+    if answer.get("other"):
+        print("%d more the login sees, of another domain or region (not readable)" % answer["other"])
+    print("read one: awb cloud call GET SERVICE PATH --tenant %s --scope PROJECT" % args.alias)
     return 0
 
 

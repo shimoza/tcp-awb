@@ -4,6 +4,10 @@ What changed in the Architect Workbench, one entry per week (ISO week, Monday to
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and projects appear as codes only.
 
 ## Week 44, 2026-10-26 to 2026-11-01 (in progress)
+### Added
+
+- A read-only tenant reads every project of its domain the login can see (task T2, branch t2-readonly-projects, reported by a project session: the sub-projects of eu-de and eu-nl were not readable). `awb tenant add-readonly` writes eu-de and eu-nl when `--region` names none (the keys.conf line `ALIAS:login:DOMAIN-ID:eu-de+eu-nl`; an old line of one region still works). `awb tenant regions ALIAS --region R [--region R]...` changes the regions of a registered one without asking for its login and runs `awb keys unlock`. `awb cloud call ... --tenant ALIAS --scope NAME|ID` names a region project or a sub-project (eu-de_<suffix>): the key service checks it against GET /v3/auth/projects (kept 5 minutes), refuses a project of another domain, an unknown one and one of a region the tenant does not read, takes a token scoped to that project by its id (one per project, in memory, renewed as before) and calls the endpoints of its region; a read key sends it as X-Project-Id. `awb tenant projects ALIAS` (the new op `projects` of the call socket) lists name, region and id of what a session can read. GET and HEAD only and the grant check of a call are unchanged; a scope on OBS is refused. Tests: `tests/test_t2_readonly_projects.py`, no row replaced.
+
 
 ### Fixed
 

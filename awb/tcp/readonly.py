@@ -1,6 +1,8 @@
 """Read-only tenants (task RT): a tenant of a customer or partner where nothing may change, only read.
 
     awb tenant add-readonly ALIAS --domain-id ID [--login | --key] [--region R]...   owner: register it
+    awb tenant regions ALIAS --region R [--region R]...                             owner: change its regions
+    awb tenant projects ALIAS [--project CODE]                                       a session: what it reads
     awb tenant remove ALIAS                                                          owner: forget it
     awb tenant grant ALIAS CODE, awb tenant revoke ALIAS CODE                        owner: one project reads it
 
@@ -11,7 +13,8 @@ by a session:
     awb/tenant/<alias>/login/domain, login/user, login/password          a console login (--login)
 
 It is registered by one line of keys.conf, `readonly = ALIAS:key|login:DOMAIN-ID:REGION[+REGION]`, entries
-separated by commas, which travels to the key service with `awb keys unlock` like every other setting. The key
+separated by commas (an old line of one region still reads; add-readonly writes eu-de+eu-nl unless --region names
+others, and `awb tenant regions` changes them without the login), which travels to the key service with `awb keys unlock` like every other setting. The key
 service allows GET and HEAD only on such a tenant, for every role and every caller, whatever rights the user has in
 the tenant; any other method, a body, a lease, a lab key and a secret are refused with one line. A session reaches
 it only from a project the owner granted the kind project (awb projects kind) and this tenant
@@ -19,7 +22,12 @@ it only from a project the owner granted the kind project (awb projects kind) an
 enough. The console's inventory never reads it.
 
 For a login the key service asks IAM for a token scoped to the project named like the region (POST /v3/auth/tokens,
-password authentication, `nocatalog`), keeps it in memory only, uses it until RENEW_MARGIN seconds before its
+password authentication, `nocatalog`), or, when the call names a project (`scope`: a region project or a
+sub-project like eu-de_<suffix>, by name or id), scoped to that project by its id, one token per project. Before
+it does, it lists the projects the login or key can see (GET /v3/auth/projects, kept LIST_LIFE seconds) and
+refuses a project of another domain and a project whose region (the name before `_`) is not one of the tenant's;
+the call then goes to the endpoints of that region. A read key sends the project as X-Project-Id. The token is
+kept in memory only, uses it until RENEW_MARGIN seconds before its
 expiry and then asks again; an answer 401 drops it and asks once more. The token goes as X-Auth-Token and is taken
 out of every answer; it is never logged, never handed over in a reload and never shown. IAM refuses a password
 login when login protection with MFA is on: the service then says MFA_LINE and never asks for a code. OBS takes a
@@ -44,6 +52,12 @@ SETTING = "readonly"
 AUTHS = ("key", "login")
 LOGIN_PARTS = ("domain", "user", "password")
 METHODS = ("GET", "HEAD")
+DEFAULT_REGIONS = ("eu-de", "eu-nl")
+"""The regions add-readonly writes when --region names none."""
+PROJECTS_PATH = "/v3/auth/projects"
+"""The projects the login or key can see (IAM): the list a scope is checked against."""
+LIST_LIFE = 300.0
+"""Seconds the key service keeps the project list of a read-only tenant."""
 RENEW_MARGIN = 600.0
 """Seconds before the expiry of a token at which the key service takes a new one."""
 FALLBACK_LIFE = 3600.0
@@ -53,6 +67,7 @@ _ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
 _DOMAIN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _REGION_RE = re.compile(r"^[a-z]{2}-[a-z0-9]{2,10}$")
 _CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
+_SCOPE_NAME_RE = re.compile(r"^[a-z]{2}-[a-z0-9]{2,10}(_[A-Za-z0-9_-]{1,64})?$")
 _IAM_CODE_RE = re.compile(r"^[A-Za-z0-9._]{1,30}$")
 _MFA_RE = re.compile(r"(?i)\bmfa\b|totp|passcode|login protection|verification code|multi-factor|virtual mfa")
 
@@ -66,6 +81,13 @@ GRANT_LINE = ("refused: %s is not granted the read-only tenant %s: the owner run
 OBS_LINE = "refused: %s holds a login only: OBS takes a key, ask for a read-only AK/SK"
 UNREGISTERED_LINE = "refused: %s holds a login but is not a registered read-only tenant (awb tenant add-readonly)"
 MFA_LINE = "this login needs MFA: ask for a read-only AK/SK"
+SCOPE_LINE = "refused: a project is named by its name (eu-de, eu-de_<suffix>) or its id of 32 hex characters"
+UNKNOWN_PROJECT_LINE = ("refused: %s is no project the read-only tenant %s can see: awb tenant projects %s lists "
+                        "them")
+OTHER_DOMAIN_LINE = "refused: the project %s belongs to another domain than the read-only tenant %s"
+NO_REGION_LINE = "refused: the project %s names no region"
+REGION_LINE = ("refused: the project %s is in %s, not a region of the read-only tenant %s (%s): the owner adds it with "
+               "awb tenant regions %s --region ...")
 CONSOLE_ONLY_LINE = ("this login has console access only and IAM refuses it an API token (IAM.0081): ask for "
                      "programmatic access or a read-only AK/SK")
 
@@ -230,14 +252,15 @@ def refusal(status: int, data: dict, raw: bytes) -> str:
 
 
 def fetch_token(login: dict, domain_id: str, region: str, *, endpoint: str | None = None,
-                timeout: float = 30.0) -> tuple[str, str, float]:
-    """(token, project id, seconds it lives) of a password login scoped to the project named like the region. The
-    password goes into the body of this one request only; an error names no value."""
+                timeout: float = 30.0, project_id: str | None = None) -> tuple[str, str, float]:
+    """(token, project id, seconds it lives) of a password login scoped to the project named like the region, or to
+    the project `project_id` (a sub-project) at the IAM of `region`. The password goes into the body of this one
+    request only; an error names no value."""
     if set(login) < set(LOGIN_PARTS):
         raise ReadonlyError("the login lacks its domain, user or password")
     body = {"auth": {"identity": {"methods": ["password"], "password": {"user": {
         "name": login["user"], "password": login["password"], "domain": {"name": login["domain"]}}}},
-        "scope": {"project": {"name": region, "domain": {"id": domain_id}}}}}
+        "scope": {"project": {"id": project_id} if project_id else {"name": region, "domain": {"id": domain_id}}}}}
     url = iam_base(region, endpoint) + "/v3/auth/tokens?nocatalog=true"
     req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), method="POST")
     req.add_header("Content-Type", "application/json;charset=utf8")
@@ -263,14 +286,16 @@ def fetch_token(login: dict, domain_id: str, region: str, *, endpoint: str | Non
     project = tok.get("project") if isinstance(tok.get("project"), dict) else {}
     if (project.get("domain") or {}).get("id") not in (None, domain_id):
         raise ReadonlyError("the login belongs to another domain than --domain-id")
-    project_id = project.get("id")
-    if not isinstance(project_id, str) or not re.match(r"^[0-9a-f]{32}$", project_id):
+    got = project.get("id")
+    if not isinstance(got, str) or not re.match(r"^[0-9a-f]{32}$", got) or (project_id and got != project_id):
         raise ReadonlyError("the token of the login names no project of %s" % region)
-    return token, project_id, _expiry(tok.get("expires_at"))
+    return token, got, _expiry(tok.get("expires_at"))
 
 
 class Tokens:
-    """The tokens of the logins, in memory only, by alias and region; taken again RENEW_MARGIN before expiry."""
+    """The tokens of the logins, in memory only, by alias and region (the region project) or by alias and project
+    id (a project the call names); taken again RENEW_MARGIN before expiry. Beside them the project list of each
+    tenant, kept LIST_LIFE seconds; a clear forgets both."""
 
     def __init__(self, fetch=fetch_token, clock=time.monotonic):
         import threading
@@ -278,29 +303,95 @@ class Tokens:
         self.fetch = fetch
         self.clock = clock
         self._held: dict[tuple[str, str], tuple[str, str, float]] = {}
+        self._lists: dict[str, tuple[list[dict], float]] = {}
         self._lock = threading.Lock()
 
-    def get(self, alias: str, region: str, login: dict, domain_id: str, endpoint: str | None = None) -> tuple[str, str]:
+    def get(self, alias: str, region: str, login: dict, domain_id: str, endpoint: str | None = None,
+            project_id: str | None = None) -> tuple[str, str]:
+        key = (alias, project_id or region)
         with self._lock:
-            held = self._held.get((alias, region))
+            held = self._held.get(key)
             if held and held[2] - self.clock() > RENEW_MARGIN:
                 return held[0], held[1]
-            token, project_id, life = self.fetch(login, domain_id, region, endpoint=endpoint)
-            self._held[(alias, region)] = (token, project_id, self.clock() + max(0.0, life))
-            return token, project_id
+            extra = {"project_id": project_id} if project_id else {}
+            token, got, life = self.fetch(login, domain_id, region, endpoint=endpoint, **extra)
+            self._held[key] = (token, got, self.clock() + max(0.0, life))
+            return token, got
 
-    def drop(self, alias: str, region: str | None = None) -> None:
+    def drop(self, alias: str, scope: str | None = None) -> None:
+        """Forget the tokens of `alias`: the one of a region or of a project id, or all of them for None."""
         with self._lock:
-            for key in [k for k in self._held if k[0] == alias and (region is None or k[1] == region)]:
+            for key in [k for k in self._held if k[0] == alias and (scope is None or k[1] == scope)]:
                 del self._held[key]
+
+    def listing(self, alias: str) -> list[dict] | None:
+        with self._lock:
+            held = self._lists.get(alias)
+            return list(held[0]) if held and held[1] > self.clock() else None
+
+    def keep_listing(self, alias: str, projects: list[dict]) -> None:
+        with self._lock:
+            self._lists[alias] = (list(projects), self.clock() + LIST_LIFE)
 
     def clear(self) -> None:
         with self._lock:
             self._held = {}
+            self._lists = {}
 
     def values(self) -> list[str]:
         with self._lock:
             return [t for t, _, _ in self._held.values()]
+
+
+# --------------------------------------------------------------------------- the projects of a tenant
+
+
+def region_of(name) -> str | None:
+    """The region of a project by its name: eu-de of eu-de and of eu-de_<suffix>; None for any other name."""
+    if not isinstance(name, str) or not _SCOPE_NAME_RE.match(name):
+        return None
+    return name.partition("_")[0]
+
+
+def projects_of(data) -> list[dict]:
+    """[{id, name, region, domain_id}] of an answer of GET /v3/auth/projects; a row without a readable id is
+    left out."""
+    rows = data.get("projects") if isinstance(data, dict) else None
+    out = []
+    for p in rows if isinstance(rows, list) else []:
+        if isinstance(p, dict) and isinstance(p.get("id"), str) and _DOMAIN_ID_RE.match(p["id"]):
+            out.append({"id": p["id"], "name": str(p.get("name") or ""), "region": region_of(p.get("name")),
+                        "domain_id": str(p.get("domain_id") or "")})
+    return out
+
+
+def readable(projects: list[dict], entry: dict) -> list[dict]:
+    """The projects of the tenant's domain in one of its regions, by name."""
+    return sorted((p for p in projects if p["domain_id"] == entry["domain_id"] and p["region"] in entry["regions"]),
+                  key=lambda p: p["name"])
+
+
+def check_scope(scope) -> str:
+    if not isinstance(scope, str) or not (_DOMAIN_ID_RE.match(scope) or _SCOPE_NAME_RE.match(scope)):
+        raise ReadonlyError(SCOPE_LINE)
+    return scope
+
+
+def choose(projects: list[dict], scope: str, alias: str, entry: dict) -> dict:
+    """The project `scope` (a name or an id) of the list, after its domain and its region are checked."""
+    found = ([p for p in projects if p["id"] == scope]
+             or [p for p in projects if p["name"] == scope and p["domain_id"] == entry["domain_id"]]
+             or [p for p in projects if p["name"] == scope])
+    if not found:
+        raise ReadonlyError(UNKNOWN_PROJECT_LINE % (scope, alias, alias))
+    target = found[0]
+    if target["domain_id"] != entry["domain_id"]:
+        raise ReadonlyError(OTHER_DOMAIN_LINE % (scope, alias))
+    if target["region"] is None:
+        raise ReadonlyError(NO_REGION_LINE % scope)
+    if target["region"] not in entry["regions"]:
+        raise ReadonlyError(REGION_LINE % (scope, target["region"], alias, "+".join(entry["regions"]), alias))
+    return target
 
 
 # --------------------------------------------------------------------------- the owner's commands
@@ -350,6 +441,27 @@ def add(alias: str, domain_id: str, auth: str | None, regions: list[str], *, sto
     write_setting(entries, settings_path)
     return ["tenant %s: read-only, %s, %s: %s in keys.conf" % (alias, auth, "+".join(regions),
                                                                  "changed" if before else "registered")]
+
+
+def set_regions(alias: str, regions: list[str], *, settings_path: Path | None = None) -> list[str]:
+    """Change the regions of a registered read-only tenant; its way in and its domain stay, no login is asked.
+    The caller reloads the key service."""
+    from awb.tcp import xchg
+
+    if config.is_work_user():
+        raise ReadonlyError("read-only tenants are changed on the owner side")
+    if not regions or not all(_REGION_RE.match(r or "") for r in regions):
+        raise ReadonlyError("name the regions with --region, each like eu-de")
+    regions = list(dict.fromkeys(regions))
+    entries = of_settings(xchg.read_settings(settings_path))
+    if alias not in entries:
+        raise ReadonlyError("%s is not a read-only tenant (awb tenant add-readonly)" % alias)
+    before = entries[alias]["regions"]
+    if tuple(regions) == tuple(before):
+        return ["tenant %s: regions %s already" % (alias, "+".join(regions))]
+    entries[alias] = dict(entries[alias], regions=tuple(regions))
+    write_setting(entries, settings_path)
+    return ["tenant %s: regions %s, were %s: changed in keys.conf" % (alias, "+".join(regions), "+".join(before))]
 
 
 def _has_secret(store, entry: str) -> bool:
