@@ -7,11 +7,13 @@
     awb cloud usage [--month YYYY-MM]                       calls to the TCP API per day and every 429 (awb/tcp/throttle.py)
     awb cloud tenants                                       the tenants of the key service (awb/tcp/keys.py)
     awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role read|lab] [--region R] [--query K=V]... [--body FILE]
-                   [--project CODE]                         one call through the key service, for every user
+                   [--project CODE] [--scope NAME|ID]       one call through the key service, for every user
     awb cloud lease-check ALIAS [--region R] [--yes] [--no-terraform]
                                                             the live check of a leased key (awb/tcp/leasecheck.py, owner)
 
-PATH may carry `{project_id}`: the id of the project named like the region. `--list KEY` reads a paged list under
+PATH may carry `{project_id}`: the id of the project named like the region, or on a read-only tenant the id of the
+project `--scope` names (a region project or a sub-project like eu-de_<suffix>, by name or id; `awb tenant projects
+ALIAS` lists them), whose region then decides the endpoints. `--list KEY` reads a paged list under
 KEY and answers one of three states (awb/jobs.py): list, empty or unknown. The command line sends GET only: a
 session checks facts here and changes nothing. The library can send other methods for later jobs.
 
@@ -390,6 +392,9 @@ def main(argv: list[str] | None = None) -> int:
     k.add_argument("--query", action="append", default=[], metavar="K=V")
     k.add_argument("--body", default=None, metavar="FILE", help="a JSON file; a password field may hold {{secret:NAME}}")
     k.add_argument("--project", default=None, help="the project code (default: the project of the working folder)")
+    k.add_argument("--scope", default=None, metavar="NAME|ID",
+                   help="a read-only tenant only: the TCP project to read (eu-de, eu-nl, eu-de_<suffix> or its id); "
+                        "its region decides the endpoints")
     lc = sub.add_parser("lease-check", help="the live check of a leased key: P2 and P3 of T12 part 3 (owner side)")
     lc.add_argument("alias")
     lc.add_argument("--region", default=None)
@@ -522,6 +527,8 @@ def _through_service(args) -> int:
         req = {"op": "call", "tenant": args.tenant, "role": args.role, "method": args.method.upper(),
                "service": args.service, "path": args.path, "region": args.region, "query": _pairs(args.query),
                "body": body, "project": _project_code(args.project)}
+        if args.scope:
+            req["scope"] = args.scope
         answer = _keys.request(_keys.call_socket(), req)
     except (_keys.KeysError, CloudError) as err:
         print("awb cloud: %s" % err, file=sys.stderr)
