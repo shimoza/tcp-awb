@@ -22,13 +22,15 @@ The password store layout, one tenant per alias (the alias of `awb tenant add`):
 
 A read-only tenant (task RT, awb/tcp/readonly.py: the readonly line of keys.conf) allows GET and HEAD only for
 every role and caller, with its read key or with a token of its login that the service takes from IAM, holds in
-memory and renews; a session reaches it only from a project the owner granted it (awb tenant grant).
+memory and renews; a session reaches it only from a project the owner granted it (awb tenant grant). A call may
+name a project of the tenant (`scope`: eu-de, eu-de_<suffix> or an id), checked against GET /v3/auth/projects (its
+domain, its region one of the tenant's) and read with a token of that project; the op `projects` lists them.
 
 Two sockets, one JSON object per line and one answer per connection:
 
     admin  <vault>/keys-admin.sock, mode 600, the owner only     ping, status, load, lock, reload, notify,
                                                                 bucket_list, bucket_get, bucket_put
-    call   /run/awb-keys/cloud.sock, mode 660, group awb         ping, tenants, call, doc_get
+    call   /run/awb-keys/cloud.sock, mode 660, group awb         ping, tenants, call, projects, doc_get
 
 `doc_get` (task DF) fetches one page of public documentation for a session (awb/tcp/doc.py says what it checks):
 the service runs as the owner and has internet, the work user does not. It needs no unlock and reads no key.
@@ -771,6 +773,11 @@ class Service:
                 return {"ok": False, "error": str(err)}
             except KeysError as err:
                 return {"ok": False, "error": str(err)}
+        if op == "projects":
+            try:
+                return self._readonly_projects(req, uid, caller)
+            except Refused as err:
+                return {"ok": False, "error": str(err)}
         if op == "lease":
             try:
                 return self._lease(req, uid, caller)
@@ -1039,25 +1046,9 @@ class Service:
         self._log(uid, alias, role, method, service, region, answer["status"], project)
         return self._mask(answer, tenant, drawn)
 
-    def _call_readonly(self, req: dict, uid: int, caller, alias: str, tenant: dict, entry: dict) -> dict:
-        """A call to a read-only tenant (RT): GET and HEAD only for every role and caller, no body, the read key or
-        a token of the login; a session only from a project the owner granted this tenant."""
-        from awb.tcp import cloud
-
-        method = str(req.get("method") or "GET").upper()
-        role = req.get("role") or "read"
-        service, path = req.get("service"), req.get("path")
-        if method not in readonly.METHODS:
-            raise Refused(readonly.METHOD_LINE % alias)
-        if role != "read":
-            raise Refused(readonly.ROLE_LINE % alias)
-        if req.get("body") is not None:
-            raise Refused(readonly.BODY_LINE % alias)
-        regions = entry["regions"]
-        region = req.get("region") or regions[0]
-        if region not in regions:
-            raise Refused("the region is not one of the tenant's")
-        project = req.get("project") or ""
+    def _readonly_caller(self, uid: int, caller, alias: str, project: str) -> None:
+        """Who may reach the read-only tenant `alias` (RT): the owner, never the console, a session only from a
+        project the owner granted the kind project and this tenant."""
         if uid != os.getuid() and uid == self._console_uid():
             raise Refused(readonly.CONSOLE_LINE % alias)
         if uid != os.getuid():
@@ -1074,6 +1065,122 @@ class Service:
                               "terminal" % (project, project))
             if not self._readonly_granted(alias, project):
                 raise Refused(readonly.GRANT_LINE % (project, alias, alias, project))
+
+    def _readonly_makers(self, uid: int, alias: str, tenant: dict, entry: dict, region: str, project: str,
+                         used: list[str], project_id: str | None = None) -> list:
+        """The ways to a client of a read-only tenant in `region`, scoped to the region's project or to
+        `project_id`: the read key, or a token of the login and once more a new one after a 401."""
+        from awb.tcp import cloud
+
+        if entry["auth"] == "key":
+            pair = tenant.get("roles", {}).get("read")
+            if not pair:
+                raise Refused("the read-only tenant %s holds no read key: the owner puts awb/tenant/%s/ak and sk "
+                              "into pass and runs awb keys unlock" % (alias, alias))
+            return [lambda: cloud.Client(obs.Keys(pair["ak"], pair["sk"]), region, endpoint=self.endpoint,
+                                         label=alias, timeout=60.0, project_id=project_id)]
+        login = tenant.get("login")
+        if not login:
+            raise Refused("the read-only tenant %s holds no login: the owner puts awb/tenant/%s/login/domain, "
+                          "user and password into pass and runs awb keys unlock" % (alias, alias))
+
+        def by_login():
+            try:
+                token, got = self.tokens.get(alias, region, login, entry["domain_id"], self.endpoint,
+                                             project_id=project_id)
+            except readonly.ReadonlyError as err:
+                self._log(uid, alias, "read", "LOGIN", "iam", region, "refused", project)
+                raise Refused(str(err)) from None
+            used.append(token)
+            return cloud.Client(obs.Keys("", ""), region, endpoint=self.endpoint, label=alias, timeout=60.0,
+                                token=token, project_id=got)
+
+        def again():
+            self.tokens.drop(alias, project_id or region)
+            return by_login()
+
+        return [by_login, again]
+
+    def _readonly_send(self, makers: list, method: str, service: str, path: str, query: dict,
+                       headers: dict | None = None) -> dict:
+        from awb.tcp import cloud
+
+        answer: dict = {}
+        for n, make in enumerate(makers):
+            client = make()
+            try:
+                r = client.request(method, service, path, query=query or None, headers=headers)
+                answer = {"ok": True, "status": r.status, "data": r.data, "text": r.text, "size": r.size,
+                          "cut": r.cut}
+            except cloud.CloudError as err:
+                answer = {"ok": True, "status": err.status or 0, "data": None, "text": client.clean(str(err))}
+            if answer["status"] != 401 or n == len(makers) - 1:
+                break        # a 401 of a token: IAM took it back (a change of the user), one new login
+        return answer
+
+    def _readonly_listing(self, uid: int, alias: str, tenant: dict, entry: dict, project: str,
+                          used: list[str]) -> list[dict]:
+        """Every project the login or key of `alias` can see (GET /v3/auth/projects in its first region), kept
+        readonly.LIST_LIFE seconds."""
+        held = self.tokens.listing(alias)
+        if held is not None:
+            return held
+        region = entry["regions"][0]
+        makers = self._readonly_makers(uid, alias, tenant, entry, region, project, used)
+        answer = self._readonly_send(makers, "GET", "iam", readonly.PROJECTS_PATH, {})
+        self._log(uid, alias, "read", "GET", "iam", region, answer["status"], project)
+        if answer["status"] != 200:
+            raise Refused("the projects of %s cannot be read: HTTP %d" % (alias, answer["status"]))
+        found = readonly.projects_of(answer.get("data"))
+        self.tokens.keep_listing(alias, found)
+        return found
+
+    def _readonly_projects(self, req: dict, uid: int, caller=_NOT_ASKED) -> dict:
+        """The op projects: the projects a read-only tenant can be read in (its domain, its regions), GET only."""
+        alias = req.get("tenant")
+        with self.lock:
+            if not self.tenants:
+                raise Refused("the key service is locked: the owner runs awb keys unlock")
+            tenant = self.tenants.get(alias) if isinstance(alias, str) else None
+        if tenant is None:
+            raise Refused("the key service holds no tenant of that alias")
+        entry = self._readonly(alias)
+        if entry is None:
+            raise Refused("%s is not a read-only tenant: the projects are listed for read-only tenants only" % alias)
+        project = req.get("project") or ""
+        self._readonly_caller(uid, caller, alias, project)
+        used: list[str] = []
+        found = self._readonly_listing(uid, alias, tenant, entry, project, used)
+        rows = [{"name": p["name"], "id": p["id"], "region": p["region"]} for p in readonly.readable(found, entry)]
+        answer = {"ok": True, "status": 200, "tenant": alias, "regions": list(entry["regions"]), "projects": rows,
+                  "other": len(found) - len(rows)}
+        return self._mask(answer, tenant, used)
+
+    def _call_readonly(self, req: dict, uid: int, caller, alias: str, tenant: dict, entry: dict) -> dict:
+        """A call to a read-only tenant (RT): GET and HEAD only for every role and caller, no body, the read key or
+        a token of the login; a session only from a project the owner granted this tenant. A `scope` names the
+        project of the tenant to read (T2): its region decides the endpoints."""
+        method = str(req.get("method") or "GET").upper()
+        role = req.get("role") or "read"
+        service, path = req.get("service"), req.get("path")
+        if method not in readonly.METHODS:
+            raise Refused(readonly.METHOD_LINE % alias)
+        if role != "read":
+            raise Refused(readonly.ROLE_LINE % alias)
+        if req.get("body") is not None:
+            raise Refused(readonly.BODY_LINE % alias)
+        scope = req.get("scope")
+        if scope is not None:
+            try:
+                readonly.check_scope(scope)
+            except readonly.ReadonlyError as err:
+                raise Refused(str(err)) from None
+        regions = entry["regions"]
+        region = req.get("region") or regions[0]
+        if region not in regions:
+            raise Refused("the region is not one of the tenant's")
+        project = req.get("project") or ""
+        self._readonly_caller(uid, caller, alias, project)
         if not isinstance(service, str) or not re.match(r"^[a-z][a-z0-9-]{1,30}$", service):
             raise Refused("a service name reads like ecs or vpc")
         if not isinstance(path, str) or not _PATH_RE.match(path) or ".." in path or "//" in path:
@@ -1085,51 +1192,28 @@ class Service:
         if service == "obs":
             if entry["auth"] == "login":
                 raise Refused(readonly.OBS_LINE % alias)
+            if scope is not None:
+                raise Refused("refused: an OBS call names no project: the buckets are read by region")
             bucket = path[1:].partition("/")[0]
             if bucket in self.exchange_buckets():
                 raise Refused("the exchange buckets are reached through awb xchg only")
             if self._session_read(uid) and not self._obs_read_ok(bucket, path[1:].partition("/")[2], query, project):
                 raise Refused("an OBS read reaches only a bucket named after the project (%s-...)" % project)
         used: list[str] = []
-        if entry["auth"] == "key":
-            pair = tenant.get("roles", {}).get("read")
-            if not pair:
-                raise Refused("the read-only tenant %s holds no read key: the owner puts awb/tenant/%s/ak and sk "
-                              "into pass and runs awb keys unlock" % (alias, alias))
-            makers = [lambda: cloud.Client(obs.Keys(pair["ak"], pair["sk"]), region, endpoint=self.endpoint,
-                                           label=alias, timeout=60.0)]
-        else:
-            login = tenant.get("login")
-            if not login:
-                raise Refused("the read-only tenant %s holds no login: the owner puts awb/tenant/%s/login/domain, "
-                              "user and password into pass and runs awb keys unlock" % (alias, alias))
-
-            def by_login():
-                try:
-                    token, project_id = self.tokens.get(alias, region, login, entry["domain_id"], self.endpoint)
-                except readonly.ReadonlyError as err:
-                    self._log(uid, alias, "read", "LOGIN", "iam", region, "refused", project)
-                    raise Refused(str(err)) from None
-                used.append(token)
-                return cloud.Client(obs.Keys("", ""), region, endpoint=self.endpoint, label=alias, timeout=60.0,
-                                    token=token, project_id=project_id)
-
-            def again():
-                self.tokens.drop(alias, region)
-                return by_login()
-
-            makers = [by_login, again]
-        answer: dict = {}
-        for n, make in enumerate(makers):
-            client = make()
+        project_id, headers = None, None
+        if scope is not None:
+            listing = self._readonly_listing(uid, alias, tenant, entry, project, used)
             try:
-                r = client.request(method, service, path, query=query or None)
-                answer = {"ok": True, "status": r.status, "data": r.data, "text": r.text, "size": r.size,
-                          "cut": r.cut}
-            except cloud.CloudError as err:
-                answer = {"ok": True, "status": err.status or 0, "data": None, "text": client.clean(str(err))}
-            if answer["status"] != 401 or n == len(makers) - 1:
-                break        # a 401 of a token: IAM took it back (a change of the user), one new login
+                target = readonly.choose(listing, scope, alias, entry)
+            except readonly.ReadonlyError as err:
+                raise Refused(str(err)) from None
+            if req.get("region") and req["region"] != target["region"]:
+                raise Refused("refused: the project %s is in %s, not in %s" % (scope, target["region"], req["region"]))
+            region, project_id = target["region"], target["id"]
+            if entry["auth"] == "key":
+                headers = {"X-Project-Id": project_id}
+        makers = self._readonly_makers(uid, alias, tenant, entry, region, project, used, project_id)
+        answer = self._readonly_send(makers, method, service, path, query, headers)
         self._log(uid, alias, "read", method, service, region, answer["status"], project)
         return self._mask(answer, tenant, used)
 
@@ -1410,9 +1494,9 @@ def own_token(start: Path | None = None) -> str | None:
 def request(sock: Path, obj: dict, timeout: float = CALL_TIMEOUT + 10, *, upload: Path | None = None,
             download: Path | None = None) -> dict:
     """One request. `upload` sends a file's bytes after the request line (a put); `download` receives the bytes
-    that follow an answer carrying a length (a get). A call, a lease and a doc_get carry the key token of the project
-    folder this process works in (K4)."""
-    if isinstance(obj, dict) and obj.get("op") in ("call", "lease", "doc_get") and "token" not in obj:
+    that follow an answer carrying a length (a get). A call, a lease, a doc_get and a projects carry the key token
+    of the project folder this process works in (K4)."""
+    if isinstance(obj, dict) and obj.get("op") in ("call", "lease", "doc_get", "projects") and "token" not in obj:
         token = own_token()
         if token is not None:
             obj = dict(obj, token=token)
