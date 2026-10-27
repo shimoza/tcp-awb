@@ -264,6 +264,11 @@ _PHONE_START = r"(?<!\d:)(?:(?<![\w./,+(\uff0b])|(?<=[A-Za-z]\.)|(?<=\d/))"
 """Where a phone number may begin: not glued to a word or a number, but right after "Tel." or after the slash
 that separates two numbers. Never right after the colon of a clock: the minutes, seconds and fraction of a time
 (`ls -l`, a sub-second timestamp) are not a number to call (T8)."""
+_ERROR_CODE_NUMBER = (r"(?!(?<=[A-Za-z]{2}[.-])(?<!(?i:tel)[.-])(?<!(?i:fax)[.-])(?<!(?i:mob)[.-])(?<!(?i:nr)[.-])"
+                      r"\d{4}(?!\d))")
+"""Not the number of a platform error code (T3): four digits right after a word of letters and a dot or a hyphen
+(Common.0018, APIGW.0301, ECS-0001) are the code, not an area code, unless the word is a phone label (Tel., Fax-,
+Mob., Nr.). Without it the code and the next number (a status, a cell of the table) read as one phone number."""
 _CLOCK_BEFORE = re.compile(r"\d:\d\d(?::\d\d)?(?:[.,]\d{1,9})?[ \t]$")
 """A clock time right before a zone offset: `12:00:00.123456789 +0200` (`ls --full-time`)."""
 
@@ -355,10 +360,10 @@ PATTERNS: list[tuple[str, re.Pattern, Callable[[str], bool] | None, re.Pattern |
      _P(r"(?i)(?:mac|hwaddr|ether|lladdr)[\s:=-]*")),
     ("PHONE", _P(r"(?<![\w+\uff0b])(?:[+\uff0b]\d{1,3}|\(\+\d{1,3}\))%s?(?:\(0?\d{0,5}\)%s?)?\d{1,5}(?:%s?\d{2,}){1,5}(?!\d)"
                  % (_PHONE_SEP, _PHONE_SEP, _PHONE_SEP)), _phone_ok, None),
-    ("PHONE", _P(r"(?<!\d:)(?<![\w+.,/])00[ \t]?[1-9]\d{0,2}%s(?:\(0\)%s?)?\d{1,5}(?:%s?\d{2,}){1,5}(?!\d)"
-                 % (_PHONE_SEP, _PHONE_SEP, _PHONE_SEP)), _phone_ok, None),
-    ("PHONE", _P(r"%s(?:\(0\d{1,5}\)|\(0\)[ \t]?\d{1,5}|0[ \t.]\d{1,5}|0\d{1,5})%s?\d{1,5}+(?:%s?\d{1,5}+){0,12}(?![\d.,]\d)(?!\w)"
-                 % (_PHONE_START, _PHONE_SEP, _PHONE_SEP2)), _phone_ok, None),
+    ("PHONE", _P(r"(?<!\d:)(?<![\w+.,/])%s00[ \t]?[1-9]\d{0,2}%s(?:\(0\)%s?)?\d{1,5}(?:%s?\d{2,}){1,5}(?!\d)"
+                 % (_ERROR_CODE_NUMBER, _PHONE_SEP, _PHONE_SEP, _PHONE_SEP)), _phone_ok, None),
+    ("PHONE", _P(r"%s%s(?:\(0\d{1,5}\)|\(0\)[ \t]?\d{1,5}|0[ \t.]\d{1,5}|0\d{1,5})%s?\d{1,5}+(?:%s?\d{1,5}+){0,12}(?![\d.,]\d)(?!\w)"
+                 % (_PHONE_START, _ERROR_CODE_NUMBER, _PHONE_SEP, _PHONE_SEP2)), _phone_ok, None),
     ("BIC", _P(r"(?i)(?:bic|swift)(?:[\s-]*code)?[\s:.=-]*\b[A-Z]{4}[ ]?[A-Z]{2}[ ]?[A-Z0-9]{2}(?:[ ]?[A-Z0-9]{3})?\b"),
      _bic_ok, _P(_BIC_LABEL)),
     ("BIC", _P(r"\b[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b"), _bic_ok, None),
@@ -488,6 +493,8 @@ def _find_structured(text: str) -> list[Span]:
     for s in spans:
         start = positions[s.start]
         end = positions[s.end - 1] + 1
+        if s.cls == "mac" and "|" in text[start:end]:
+            continue      # short column names over six cells (| c0 | c1 | ... | c5 |) are no MAC address (T3)
         out.append(Span(start=start, end=end, cls=s.cls))
     # a value that lies wholly inside markup (an address in an href, an IP in a comment) is gone from the view:
     # the text as written is searched as well and what the view did not find is added
