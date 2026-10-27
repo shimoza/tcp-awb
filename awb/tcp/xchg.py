@@ -596,7 +596,20 @@ def put(path: Path, as_name: str | None = None, image: bool = False, reason: str
         a = _ok(_call(req, upload=copy))
     if image:
         _log_image(root, ident, reason)
-    return "put: %s as %s (%d bytes); the owner gets a mail" % (name, key, a.get("size", 0))
+    lines = ["put: %s as %s (%d bytes); the owner gets a mail" % (name, key, a.get("size", 0))]
+    page = a.get("page")
+    if isinstance(page, str) and put_key_ok(page, code):
+        lines.append("put: the same text as HTML as %s (open it, select all, paste into the mail)" % page)
+    lines.append(get_it_line(a.get("bucket"), key))
+    return "\n".join(lines)
+
+
+def get_it_line(bucket, key: str) -> str:
+    """Where a put file is and how to get it, in one line (his rule of 2026-10-27: no link to a file). The laptop's
+    awb clean fetch reads out/ of the owner bucket only, never from-session/ of the lab bucket: Total Commander."""
+    name = bucket if isinstance(bucket, str) and re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,62}", bucket) else "the lab bucket"
+    return ("get it: Total Commander, bucket %s, folder %s (awb clean fetch on the laptop reads only out/ of the "
+            "owner bucket)" % (name, key.rsplit("/", 1)[0] + "/"))
 
 
 def _log_image(root: Path, ident: str, reason: str) -> None:

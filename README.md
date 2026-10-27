@@ -229,7 +229,7 @@ only when a customer is registered. A project without one is normal. A file of t
 project's customer. The key service checks every file of the lab inbox before the session gets it.
 
 Results go back with `awb xchg put` into the project's own folder, after the name check and, for a customer
-project, the send gate. The key service runs both again on the bytes it receives. A mail tells you about each file. `awb
+project, the send gate. The key service runs both again on the bytes it receives. A Markdown file arrives as md and as HTML to paste into a mail; the output ends with the line saying where both are (Total Commander, the lab bucket and the folder). A mail tells you about each file. `awb
 fetch tcp-xxxx` in your own terminal downloads what is new into `~/awb-fetch/tcp-xxxx/` with the names back.
 
 ## The board and the console

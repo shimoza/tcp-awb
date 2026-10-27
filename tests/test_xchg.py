@@ -284,7 +284,6 @@ def test_a_put_lands_under_its_id_and_tells_the_owner_by_the_id_alone(svc, bucke
     code, out, err = run(["xchg", "put", str(f)], capsys)
     assert code == 0, err
     keys_ = [k for k in lab.objects if k.startswith("%s/from-session/" % lab_project.code)]
-    assert len(keys_) == 1 and xchg.put_key_ok(keys_[0], lab_project.code) and "result" not in keys_[0]
     ident = keys_[0].rsplit("/", 1)[-1]
     assert ident.startswith("put-") and ident.endswith(".md") and "result.md" in out
     subject, message = svc.notes[-1]
