@@ -41,8 +41,9 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        call. A place read out of text (a sed or awk program, a quoted sentence, a
                                        here-document body) is refused only when it lies inside a refused place
                                        (PD2). On a sealed host a Workflow call passes only for the Workbench's own
-                                       workflows/review.js and request-check.js by their scriptPath (PD3). The
-                                       work user's settings deny the tools of DENIED_TOOLS
+                                       workflows/review.js, request-check.js and final-check.js by their
+                                       scriptPath (PD3, FX). The work user's settings deny the tools of
+                                       DENIED_TOOLS
     post-write      PostToolUse        exit 2 when the written file carries a hit of the name check, a secret, a
                                        bidi override or (under a deliverables folder at any depth) a blocking
                                        tell of the writing check: class and line only; also when a folder on its

@@ -1530,6 +1530,50 @@ def status(project: Path) -> list[dict]:
     return rows
 
 
+FINAL_CHECK = "final-check.json"
+"""The record of a final check (FX, workflows/final-check.js) beside record.json in reviews/<name>/. It binds
+nothing: the record, its state and the send gate of `awb bucket put` never read it."""
+FINAL_CHECK_KIND = "final-check"
+_MODEL_RE = re.compile(r"[A-Za-z][A-Za-z0-9 .-]{0,39}")
+_FC_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+
+def final_name(name: str) -> str:
+    """deliverables/<stem>.final.md, the final text of the deliverable deliverables/<name> (workflows/final-check.js):
+    the stem is the name without the suffix of its last part."""
+    head, _, base = name.rpartition("/")
+    dot = base.rfind(".")
+    stem = base[:dot] if dot > 0 else base
+    return "%s/%s%s.final.md" % (DELIVERABLES, head + "/" if head else "", stem)
+
+
+def final_check(project: Path, name: str) -> dict | None:
+    """The final check of the deliverable deliverables/<name> as {"date", "model", "effort", "final", "table",
+    "open_points"}; None when there is none or its file is not a final check of this deliverable."""
+    path = review_dir(project, name) / FINAL_CHECK
+    try:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 1_000_000:
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("kind") != FINAL_CHECK_KIND \
+            or data.get("deliverable") != "%s/%s" % (DELIVERABLES, name):
+        return None
+    date_ = data.get("date") if isinstance(data.get("date"), str) and _FC_DATE_RE.fullmatch(data["date"]) else ""
+    model = data.get("model") if isinstance(data.get("model"), str) and _MODEL_RE.fullmatch(data["model"]) else ""
+    effort = data.get("effort") if data.get("effort") in _EFFORTS else ""
+    final = data.get("final")
+    if not isinstance(final, str) or not final.startswith(DELIVERABLES + "/") or not final.endswith(".final.md") \
+            or ".." in final.split("/"):
+        final = ""
+    points = data.get("open_points")
+    return {"date": date_, "model": model, "effort": effort, "final": final,
+            "table": "%s/%s/final-check.md" % (REVIEWS, name),
+            "open_points": len(points) if isinstance(points, list) else 0}
+
+
 SEND_OK = "ok"
 SEND_WARN = "warn"
 SEND_REFUSE = "refuse"
@@ -2138,6 +2182,26 @@ def _cmd_status(args) -> int:
     return EXIT_OK if all(r["state"] == VALID for r in rows) else EXIT_FINDINGS
 
 
+def _cmd_show(args) -> int:
+    project, rel = locate(args.deliverable)
+    reg = _register(None)
+    path = project / DELIVERABLES / rel
+    state, tier = _record_state(path, review_dir(project, rel) / RECORD) if path.is_file() else (MISSING, None)
+    print("%s: record %s%s" % (_label(rel, reg), state, " (tier %d)" % tier if tier is not None else ""))
+    fc = final_check(project, rel)
+    if fc is None:
+        print("final check: none")
+    else:
+        # The final text is named after the draft: <stem>.final.md. The name check reads x.final.md as a web
+        # address, so the path is shown when it is the draft's own name with that suffix and the draft's is clean.
+        final = fc["final"] if fc["final"] and (fc["final"] == final_name(rel) and _is_clean(
+            "%s/%s" % (DELIVERABLES, rel), reg) or _is_clean(fc["final"], reg)) else "the final text"
+        print("final check: %s, %s%s, %s; %d open points in %s"
+              % (fc["date"] or "no date", fc["model"] or "no model", " effort " + fc["effort"] if fc["effort"] else "",
+                 final, fc["open_points"], fc["table"] if _is_clean(fc["table"], reg) else "the table"))
+    return EXIT_OK
+
+
 def _cmd_calibrate(args) -> int:
     from awb import calibrate
 
@@ -2160,7 +2224,7 @@ def _positive(value: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """`awb review init|claims|l0|pass|status|calibrate`. Exit 0 ok, 1 blocked or refused, 2 error."""
+    """`awb review init|claims|l0|pass|status|show|calibrate`. Exit 0 ok, 1 blocked or refused, 2 error."""
     from awb.cli import SafeParser
 
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -2192,6 +2256,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("status", help="the record state of every deliverable of a project")
     s.add_argument("project", nargs="?", default=None, type=Path)
     s.set_defaults(func=_cmd_status)
+    s = sub.add_parser("show", help="the record state of one deliverable and its final check (FX) when there is one")
+    s.add_argument("deliverable", type=Path)
+    s.set_defaults(func=_cmd_show)
     s = sub.add_parser("calibrate", help="run the calibration set through the script steps of the review")
     s.add_argument("--json", action="store_true", help="print the result as JSON")
     s.add_argument("--lenses", type=Path, default=None, metavar="PROJECT",

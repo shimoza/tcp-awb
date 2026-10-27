@@ -49,7 +49,12 @@ CLAUDE_ADD = (
      "- Files for him leave with `awb xchg put FILE` (the lab bucket, from-session/<date>/), after the name check "
      "and, for a customer project, the review.",
      "awb xchg put"),
+    ("- Run `awb check FILE` on every deliverable and `awb gate` before every commit.", "",
+     "workflows/final-check.js"),
 )
+"""(anchor, new line, marker): the line goes after the anchor line unless a line carries the marker. An empty new
+line stands for the FX section of the template (projects.FINAL_CHECK_SECTION, 2026-10-27): a file with the anchor
+line gets it at its end, after the project's own lines."""
 STATE_FIXES = (
     ("Where the work stands. Update it at the end of every session. Codes only, never a name.",
      "Where the work stands. Update it and OPEN.md after every step that changes the status, in the same commit. "
@@ -76,6 +81,16 @@ def _fix_lines(text: str, fixes, adds=()) -> str:
         lines = [new if line.rstrip() == old else line for line in lines]
     for anchor, new, marker in adds:
         if any(marker in line for line in lines):
+            continue
+        if not new:
+            if not any(line.rstrip() == anchor for line in lines):
+                continue
+            from awb import projects
+            block = [""] + projects.FINAL_CHECK_SECTION.rstrip("\n").split("\n")
+            end = len(lines) - 1 if lines and lines[-1] == "" else len(lines)
+            while end > 0 and lines[end - 1].strip() == "":
+                end -= 1
+            lines[end:end] = block
             continue
         at = next((i for i, line in enumerate(lines) if line.rstrip() == anchor), None)
         if at is not None:

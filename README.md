@@ -352,7 +352,9 @@ by a worker with only the rights it needs and passes a gate before the next one 
 **Reviewed before it leaves.** `awb review` turns a deliverable into a list of claims, each with its evidence. For an
 important text a review board reads it as an architect of the source platform, an architect of TCP and the partner
 who has to sell it, plus a check for invented facts and a misread question. The answer is rewritten from the
-question, never patched. A send gate lets only the exact reviewed version leave.
+question, never patched. A send gate lets only the exact reviewed version leave. For a high-stakes text he can ask
+for a final check ("final check"): one strong model reads the request, the evidence and the review again and writes
+the answer once more, with every caveat of the research kept (`awb review show` lists the run).
 
 **Texts in the architect's own voice.** `awb write check` measures a text against the architect's style and a
 drafting skill writes mails, offers and PoC documents in that voice, with a check that the voice pass changed no
@@ -897,7 +899,8 @@ customer data out of the model as far as it can:
   cannot follow), so a path a program builds at run time still gets past it; the guard keeps an honest session in its
   lane and is no fence against a hostile one. Text is no path: a / of a sed or awk program, of a quoted sentence or of
   a here-document body passes, and text is refused only when it names a place inside a refused one. The Workflow tool
-  runs only the Workbench's own `review.js` and `request-check.js` of the installed code, by their scriptPath.
+  runs only the Workbench's own `review.js`, `request-check.js` and `final-check.js` of the installed code, by
+  their scriptPath.
 - A gate checks every commit for names, secrets, home paths and the owner's blocklist. A send gate lets only the
   exact reviewed version of a deliverable leave. It refuses a file that carries a deliverable of another project;
   for a project folder the owner cannot read it uses the fingerprint `awb close` wrote (sha256 and salted word

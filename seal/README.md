@@ -42,7 +42,8 @@ The seal keeps the register of names away from every working session. It uses tw
   runs a command or starts work elsewhere and that the tool guard does not see (`DENIED_TOOLS` of `awb/toolguard.py`:
   PowerShell, LSP, the artifact and worktree tools, RemoteTrigger, SendUserFile, the MCP resource tools).
   Connectors of the account would hand raw customer text to a session. Workflow is not denied: the tool guard takes
-  it and passes only the Workbench's own `workflows/review.js` and `workflows/request-check.js` by their scriptPath.
+  it and passes only the Workbench's own `workflows/review.js`, `workflows/request-check.js` and
+  `workflows/final-check.js` by their scriptPath.
 - `work-claude/CLAUDE.md`: the instructions of the work user, at most 60 lines.
 - `work-claude/managed-settings.json`: the six hooks once more, installed as a managed drop-in of the client.
 - `awb-buildd.service`: the runner of the build queue, as the owner with the group `awb`, `NoNewPrivileges=no` (it

@@ -65,7 +65,7 @@ SHELL_TOOLS = ("Bash", "Monitor")
 """The guarded tools whose `command` runs in a shell."""
 WORKFLOW_TOOL = "Workflow"
 WORKFLOW_DIR = Path(os.path.abspath(__file__)).parent.parent / "workflows"
-WORKFLOW_FILES = ("review.js", "request-check.js")
+WORKFLOW_FILES = ("review.js", "request-check.js", "final-check.js")
 """The workflows a session on a sealed host may run (PD3): the Workbench's own saved scripts in the installed code,
 by their scriptPath. Their agents run in the session's client, so their tool calls meet the same managed settings,
 deny rules and hooks as the session's own. An inline script or a workflow by name is refused: its script could
