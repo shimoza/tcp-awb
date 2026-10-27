@@ -144,7 +144,8 @@ def _host_ok(host: str) -> bool:
     if _ABBREVIATION_RE.fullmatch(host.strip("*.")):
         return False
     labels = plain.split(".")
-    if labels[-1] in _FILE_SUFFIX_TLDS and len(labels) < 3:
+    if labels[-1] in _FILE_SUFFIX_TLDS and (len(labels) < 3 or labels[0] != "www"):
+        # a file name, also with dots inside (answer-en.final.md, notes.v2.py); only www. makes it a host (T5)
         return False
     return True
 

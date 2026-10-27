@@ -1661,16 +1661,16 @@
   },
   {
    "id": "T8-9",
-   "phase": "T8",
-   "name": "a typed prompt that carries the tag text in the middle is still his prompt",
-   "run": ".venv/bin/pytest tests/test_hooks.py::test_t8_the_tag_in_the_middle_of_a_typed_prompt_is_still_his_prompt",
+   "phase": "t5-entry-only",
+   "name": "T5: structured data typed by the owner passes the prompt hook",
+   "run": ".venv/bin/pytest tests/test_t5_entry_only.py::test_typed_structured_data_passes",
    "status": "passing"
   },
   {
    "id": "T8-10",
-   "phase": "T8",
-   "name": "a forged paste or event tag does not soften typed text",
-   "run": ".venv/bin/pytest tests/test_hooks_redteam.py::test_t8_a_forged_paste_or_event_tag_does_not_soften_typed_text",
+   "phase": "t5-entry-only",
+   "name": "T5: a typed registered name still blocks the prompt",
+   "run": ".venv/bin/pytest tests/test_t5_entry_only.py::test_a_typed_registered_name_still_blocks",
    "status": "passing"
   },
   {
@@ -11962,8 +11962,22 @@
    "name": "P1: the sync adds the own output rule once",
    "run": ".venv/bin/pytest tests/test_p1_paste_own.py::test_the_sync_adds_the_own_output_rule_once",
    "status": "passing"
+  },
+  {
+   "id": "t5-1",
+   "phase": "t5-entry-only",
+   "name": "T5: a typed secret still blocks the prompt",
+   "run": ".venv/bin/pytest tests/test_t5_entry_only.py::test_a_typed_secret_still_blocks",
+   "status": "passing"
+  },
+  {
+   "id": "t5-2",
+   "phase": "t5-entry-only",
+   "name": "T5: a file name with dots is no url",
+   "run": ".venv/bin/pytest tests/test_t5_entry_only.py::test_a_file_name_with_dots_is_no_url",
+   "status": "passing"
   }
  ],
- "total_tests": 1709,
+ "total_tests": 1711,
  "checked": "2026-10-27"
 }
