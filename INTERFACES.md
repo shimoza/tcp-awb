@@ -834,6 +834,15 @@ def send_check(project, file, for_customer, register_path=None) -> tuple[str, st
   claims.tsv and the text; writes `lenses/request-check.json` with kind "request", the questions (answered, line)
   and findings: an unanswered question and an overclaim are blocking (MISREAD, MISLEADING), extra content is
   major (EXTRA). No answer at all is one blocking finding.
+- `workflows/final-check.js` (FX, 2026-10-27): phases Final check and Record. Args {project, deliverable, date}; a
+  deliverable outside deliverables/ or one that ends in `.final.md` throws. One agent with `model: 'fable'` and
+  `effort: 'max'` reads input/, SCOPE.md, STATE.md, OPEN.md, evidence/, reviews/FILE/ and the draft and writes
+  `deliverables/STEM.final.md` and `reviews/FILE/final-check.md`; the Record agent writes `reviews/FILE/final-check.json`:
+  {kind: "final-check", deliverable, date, model: "Fable 5.1", effort, final, table, final_written,
+  table_written, draft_bytes, final_bytes, questions, answered, dropped, invented, caveats, unsupported, open_points}.
+- `review.final_name(name) -> str` (deliverables/STEM.final.md), `review.final_check(project, name) -> dict | None`
+  ({date, model, effort, final, table, open_points}; None for a missing file, another kind or another deliverable)
+  and `awb review show deliverables/FILE`. `bindings` and the send gate never read final-check.json.
 - `awb/calibrate.py` and `calibration/cases.json` (document 06, section 8): `load(path=None)`, `run(path=None) ->
   Report(rows, caught, missed, not_run, clean, false_alarms, ok)`, `main(argv)`; `awb review calibrate [--json]`.
   Script steps writing, names, l0 and keep run in a temporary folder with a register of the invented names of the

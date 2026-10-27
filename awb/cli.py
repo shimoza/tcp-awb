@@ -759,7 +759,7 @@ DELEGATED = {
     "career": ("career", "the career log: add, update, due"),
     "write": ("writing", "check a text against the house style"),
     "voice": ("writing", "learn from a draft and the version that was sent"),
-    "review": ("review", "review a deliverable: init, claims, l0, pass, status, calibrate"),
+    "review": ("review", "review a deliverable: init, claims, l0, pass, status, show, calibrate"),
     "calc": ("calc", "compute with exact decimals and record it in the project: every total an offer states"),
     "hook": ("hooks", "entry points for the client hooks of working sessions"),
     "images": ("images", "pictures of the intake, held on the vault side: list, release"),

@@ -528,6 +528,7 @@ gate, the gate over what it carries and `awb kb verify --staged`, so a file writ
 | `awb calc "20 * 8"` | exact decimal arithmetic, recorded in `calc/calc.tsv` of the project as K-N (R-005). `--let hours=730`, `--places 2`, `--label TEXT`, `--project DIR`, `--dry`; functions sum, min, max, abs, round, ceil, floor, pct. `awb calc list`, `awb calc show K-N` |
 | `awb review pass deliverables/FILE` | l0 and, for tier 3, the lens results; writes `record.json` with the counts per lens, the claims by verdict, the agent runs and the open points |
 | `awb review status` | valid, stale or missing record for every deliverable (the stop hook uses this) |
+| `awb review show deliverables/FILE` | the record state of one deliverable and its final check when there is one: `final check: DATE, MODEL effort EFFORT, FINAL FILE; N open points in TABLE` |
 | `awb review calibrate [--json]` | the calibration set (`calibration/cases.json`, invented texts with one seeded defect each and five clean ones) through the script steps; lists the cases that need the review workflow |
 | `awb review calibrate --lenses PROJECT` | scores a run of both workflows over `calibration/workflow-cases.json` in a lab project: per case the lenses with open blocking findings (an EXTRA finding counts for the extra-content cases), caught, missed or false alarm |
 
@@ -536,6 +537,14 @@ the blind results; a lens finding without a quote or evidence is dropped and cou
 settle a finding leaves it plausible (soften the sentence, set `softened`). After every fix and the cut to the
 budget, `workflows/request-check.js` is the last check (tier 3): where each question is answered, what nobody asked
 for, what is stated more firmly than its grade. Both workflows are started by him or on his word.
+
+The final check (FX) is a third workflow, `workflows/final-check.js`, for a high-stakes deliverable. A project session
+runs it only on his phrase "final check" or "финальная вычитка" and after one word of his to the cost (one agent on
+Fable 5.1 at effort max, about 200k tokens and 10 to 15 minutes). The agent reads input/, SCOPE.md, STATE.md, OPEN.md,
+evidence/, the review folder and the draft, writes the answer again from the request into `deliverables/STEM.final.md`
+and the table of questions, caveats, cuts and unsupported claims into `reviews/FILE/final-check.md`. The script
+records the run in `reviews/FILE/final-check.json`; `awb review show` lists it. The record binds nothing and
+`awb bucket put` never asks for it; the final text is a new deliverable with its own review.
 
 A text in his name follows the drafting skill (`seal/work-claude/skills/drafting/SKILL.md`, installed by the seal
 for the work user): facts first (the review above), then the checked version is kept as
@@ -959,6 +968,11 @@ l0 and the lenses, then record.json
 
 the record state of every deliverable of a project
 - `[PROJECT]`
+
+### `awb review show DELIVERABLE`
+
+the record state of one deliverable and its final check (FX) when there is one
+- `DELIVERABLE`
 
 ### `awb review calibrate [--json] [--lenses PROJECT]`
 

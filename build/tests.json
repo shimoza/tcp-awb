@@ -11444,8 +11444,92 @@
    "name": "LC3: the paste door refuses a prose password",
    "run": ".venv/bin/pytest tests/test_lc3_prose.py::test_the_paste_door_refuses_a_prose_password",
    "status": "passing"
+  },
+  {
+   "id": "fx-1",
+   "phase": "fx-final-check",
+   "name": "FX: the final check passes node check and its meta is a pure literal",
+   "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_the_final_check_passes_node_check_and_its_meta_is_a_pure_literal",
+   "status": "passing"
+  },
+  {
+   "id": "fx-2",
+   "phase": "fx-final-check",
+   "name": "FX: the final check runs one agent pinned to fable at effort max and records the run",
+   "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_the_final_check_runs_one_agent_pinned_to_fable_at_effort_max_and_records_the_run",
+   "status": "passing"
+  },
+  {
+   "id": "fx-3",
+   "phase": "fx-final-check",
+   "name": "FX: the final check refuses a path outside deliverables or a final text",
+   "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_the_final_check_refuses_a_path_outside_deliverables_or_a_final_text",
+   "status": "passing"
+  },
+  {
+   "id": "fx-4",
+   "phase": "fx-final-check",
+   "name": "FX: the guard runs the final check by its script path",
+   "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_the_guard_runs_the_final_check_by_its_script_path",
+   "status": "passing"
+  },
+  {
+   "id": "fx-5",
+   "phase": "fx-final-check",
+   "name": "FX: the guard still refuses an inline script and any other path",
+   "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_the_guard_still_refuses_an_inline_script_and_any_other_path",
+   "status": "passing"
+  },
+  {
+   "id": "fx-6",
+   "phase": "fx-final-check",
+   "name": "FX: the template carries the phrase and the script path",
+   "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_the_template_carries_the_phrase_and_the_script_path",
+   "status": "passing"
+  },
+  {
+   "id": "fx-7",
+   "phase": "fx-final-check",
+   "name": "FX: the sync adds the final check section to an older project once",
+   "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_the_sync_adds_the_final_check_section_to_an_older_project_once",
+   "status": "passing"
+  },
+  {
+   "id": "fx-8",
+   "phase": "fx-final-check",
+   "name": "FX: a project file without the template lines gets no section",
+   "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_a_project_file_without_the_template_lines_gets_no_section",
+   "status": "passing"
+  },
+  {
+   "id": "fx-9",
+   "phase": "fx-final-check",
+   "name": "FX: review show lists the final check when there is one",
+   "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_review_show_lists_the_final_check_when_there_is_one",
+   "status": "passing"
+  },
+  {
+   "id": "fx-10",
+   "phase": "fx-final-check",
+   "name": "FX: the final name is the stem of the draft with final md",
+   "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_the_final_name_is_the_stem_of_the_draft_with_final_md",
+   "status": "passing"
+  },
+  {
+   "id": "fx-11",
+   "phase": "fx-final-check",
+   "name": "FX: a record of another deliverable or another kind is no final check",
+   "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_a_record_of_another_deliverable_or_another_kind_is_no_final_check",
+   "status": "passing"
+  },
+  {
+   "id": "fx-12",
+   "phase": "fx-final-check",
+   "name": "FX: the final check binds nothing and the status ignores it",
+   "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_the_final_check_binds_nothing_and_the_status_ignores_it",
+   "status": "passing"
   }
  ],
- "total_tests": 1635,
+ "total_tests": 1647,
  "checked": "2026-10-26"
 }

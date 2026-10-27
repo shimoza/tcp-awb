@@ -484,7 +484,23 @@ def _claude(code: str, kind: str, customer: str) -> str:
          "This is a project: it reaches the test tenants through the key service (`awb cloud call`)."
          if tenant_access(kind) else
          "This is a query: knowledge base, docs mirror, live prices and calculations, no test tenant. When an "
-         "answer needs a live test, say so; he switches it with `awb projects kind %s project`." % code)
+         "answer needs a live test, say so; he switches it with `awb projects kind %s project`." % code) \
+        + "\n" + FINAL_CHECK_SECTION
+
+
+FINAL_CHECK_SECTION = (
+    "## Final check (FX)\n\n"
+    "- Only on his phrase \"финальная вычитка\" or \"final check\", never on your own and never as part of another "
+    "step. It may name a deliverable; else take the latest file of deliverables/ that is not `*.final.md` and not a "
+    "translation (`*.de.md`, `*.ru.md`).\n"
+    "- First one line: it runs Fable 5.1 at effort max, costs about 200k tokens and 10-15 minutes. Wait for one word. "
+    "Then run Workflow with scriptPath `/opt/tcp-awb/workflows/final-check.js` and args {project: this folder, "
+    "deliverable: deliverables/<name>, date: today}.\n"
+    "- After it show the path of the final text, the summary of the table and the open points. Add the open points "
+    "to OPEN.md under the heading \"Final check (FX, DATE)\".\n"
+)
+"""The FX section of a project CLAUDE.md (2026-10-27): a final pass on a strong model, started by his phrase only.
+`awb projects sync` adds it to an older project (rulesync.CLAUDE_ADD)."""
 
 
 SETTINGS_FILE = ".claude/settings.json"
