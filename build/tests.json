@@ -11668,8 +11668,50 @@
    "name": "LC4, LC5: put on the page sends the copies of its run",
    "run": ".venv/bin/pytest tests/test_lc45_clean_flow.py::test_put_on_the_page_sends_the_copies_of_its_run",
    "status": "passing"
+  },
+  {
+   "id": "t3-1",
+   "phase": "t3-paste-false-positives",
+   "name": "T3: an error code or a short column name is no phone and no mac",
+   "run": ".venv/bin/pytest tests/test_t3_paste_fp.py::test_an_error_code_or_a_short_column_name_is_no_phone_and_no_mac",
+   "status": "passing"
+  },
+  {
+   "id": "t3-2",
+   "phase": "t3-paste-false-positives",
+   "name": "T3: a real phone or mac is still found",
+   "run": ".venv/bin/pytest tests/test_t3_paste_fp.py::test_a_real_phone_or_mac_is_still_found",
+   "status": "passing"
+  },
+  {
+   "id": "t3-3",
+   "phase": "t3-paste-false-positives",
+   "name": "T3: awb paste keeps the table and the error codes",
+   "run": ".venv/bin/pytest tests/test_t3_paste_fp.py::test_awb_paste_keeps_the_table_and_the_error_codes",
+   "status": "passing"
+  },
+  {
+   "id": "t3-4",
+   "phase": "t3-paste-false-positives",
+   "name": "T3: awb paste still masks real phones and macs",
+   "run": ".venv/bin/pytest tests/test_t3_paste_fp.py::test_awb_paste_still_masks_real_phones_and_macs",
+   "status": "passing"
+  },
+  {
+   "id": "t3-5",
+   "phase": "t3-paste-false-positives",
+   "name": "T3: clean logs keeps the error codes and wipes a phone",
+   "run": ".venv/bin/pytest tests/test_t3_paste_fp.py::test_clean_logs_keeps_the_error_codes_and_wipes_a_phone",
+   "status": "passing"
+  },
+  {
+   "id": "t3-6",
+   "phase": "t3-paste-false-positives",
+   "name": "T3: the host import keeps the error codes and wipes a phone",
+   "run": ".venv/bin/pytest tests/test_t3_paste_fp.py::test_the_host_import_keeps_the_error_codes_and_wipes_a_phone",
+   "status": "passing"
   }
  ],
- "total_tests": 1667,
+ "total_tests": 1673,
  "checked": "2026-10-27"
 }
