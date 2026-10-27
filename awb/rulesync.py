@@ -55,11 +55,15 @@ STATE_FIXES = (
      "Where the work stands. Update it and OPEN.md after every step that changes the status, in the same commit. "
      "Codes only, never a name."),
 )
+RULES_READ = str(Path(__file__).resolve().parent.parent / "seal" / "work-claude" / "CLAUDE.md")
+"""The work rules file the notice asks a session to read again: the installed one (projects.RULES_FILE, the file a
+project's CLAUDE.md imports and the seal copies to the work user's ~/.claude/CLAUDE.md byte for byte). Never the
+copy in ~/.claude: that is the client's folder, which the pre-tool guard refuses to every call (task T1)."""
 NOTICE = ("The Workbench rules or the CLAUDE.md of this project changed since this session started (or the session "
-          "is older than this check). Read ~/.claude/CLAUDE.md and the CLAUDE.md of this project again now and work "
-          "by them: they replace what you loaded at the start. In short: \"the inbox\" is the bucket inboxes of "
-          "`awb inbox take`, files for him leave with `awb xchg put`, and STATE.md keeps its Status: and Next: lines "
-          "current after every step.")
+          "is older than this check). Read %s (the Workbench rules) and the CLAUDE.md of this project again now and "
+          "work by them: they replace what you loaded at the start. In short: \"the inbox\" is the bucket inboxes "
+          "of `awb inbox take`, files for him leave with `awb xchg put`, and STATE.md keeps its Status: and Next: "
+          "lines current after every step." % RULES_READ)
 _SID_RE = re.compile(r"[^A-Za-z0-9_-]")
 
 
