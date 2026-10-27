@@ -11465,8 +11465,36 @@
    "name": "T4: an IBAN before a word is still found",
    "run": ".venv/bin/pytest tests/test_t4_iban_ids.py::test_an_iban_followed_by_a_word_after_a_separator_is_found",
    "status": "passing"
+  },
+  {
+   "id": "t1-1",
+   "phase": "t1-rules-read",
+   "name": "T1: the rules notice names the installed rules file the project imports",
+   "run": ".venv/bin/pytest tests/test_t1_rules_read.py::test_the_notice_names_the_installed_rules_file_the_project_imports",
+   "status": "passing"
+  },
+  {
+   "id": "t1-2",
+   "phase": "t1-rules-read",
+   "name": "T1: the guard lets a session read the file the notice names",
+   "run": ".venv/bin/pytest tests/test_t1_rules_read.py::test_the_guard_lets_a_session_read_the_file_the_notice_names",
+   "status": "passing"
+  },
+  {
+   "id": "t1-3",
+   "phase": "t1-rules-read",
+   "name": "T1: the notice of the prompt hook names a file the guard passes",
+   "run": ".venv/bin/pytest tests/test_t1_rules_read.py::test_the_notice_of_the_prompt_hook_names_a_file_the_guard_passes",
+   "status": "passing"
+  },
+  {
+   "id": "t1-4",
+   "phase": "t1-rules-read",
+   "name": "T1: the client's copy and its neighbours stay refused to every tool",
+   "run": ".venv/bin/pytest tests/test_t1_rules_read.py::test_the_clients_copy_and_its_neighbours_stay_refused_to_every_tool",
+   "status": "passing"
   }
  ],
- "total_tests": 1638,
- "checked": "2026-10-26"
+ "total_tests": 1642,
+ "checked": "2026-10-27"
 }
