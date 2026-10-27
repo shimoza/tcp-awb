@@ -27,10 +27,18 @@ EPOCH = datetime.datetime(2000, 1, 1, tzinfo=datetime.timezone.utc)
 
 
 def prompt(text: str, monkeypatch, capsys) -> tuple[int, str]:
-    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"prompt": text})))
-    code = hooks.main(["prompt"])
-    cap = capsys.readouterr()
-    return code, cap.err + cap.out
+    """The check a door applies to `text`, recorded for the learning as a refusal records it. Since T5 the typed
+    prompt no longer refuses structured data, so the learning is driven through the check itself."""
+    hits = hooks.name_hits(text)
+    if not hits:
+        return hooks.OK, ""
+    hooks._record_block(text, hits, [])
+    counts: dict[str, int] = {}
+    for h in hits:
+        counts[h["cls"]] = counts.get(h["cls"], 0) + 1
+    names = counts.pop("name", 0)
+    say = ("carries a registered name (%d hits) " % names) if names else ""
+    return hooks.BLOCK, say + "carries structured data (%s)" % ", ".join("%s %d" % kv for kv in sorted(counts.items()))
 
 
 def files_with(root: Path, needle: str) -> list[Path]:
