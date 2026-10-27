@@ -88,17 +88,35 @@ customer of a project is `CUST-` and its four characters.
 | command | what it does |
 |---|---|
 | `awb init --laptop` or `awb clean init` | `~/awb-laptop` (or `AWB_LAPTOP_HOME`) with `vault/` (700), an empty register and `tmp/` |
+| `awb clean use tcp-xxxx` | names the project once: it becomes the current project of the laptop (`~/awb-laptop/project`) and its work folder `~/work/tcp-xxxx` is made (`AWB_WORK_HOME` names another root); without a code it prints the current one. Every later `awb clean`, `put` and `fetch` takes `--project` first, then the project whose work folder holds the current directory (or a folder below it), then this one, and prints `project: tcp-xxxx (from ...), customer CUST-XXXX` as its first line |
 | `awb clean register CUST-XXXX` | the written forms of the customer, typed once on the terminal, one per line, an empty line ends (an empty first line: no form); nothing is echoed; they stay in the laptop's vault folder |
-| `awb clean FILE... --project tcp-xxxx --kind docs [--out DIR]` | documents (docx, pptx, xlsx, odt, pdf, Markdown, text, html, mail): the body text with the customer as its code and every other person, company, place, mail address, phone and secret as a token (a secret is also a password written in prose after a password word, the words around it stay); pictures, properties, headers, footers and comments left out; one `<name>.clean.md` each in `./clean/` or `--out` |
-| `awb clean FILE... --project tcp-xxxx --kind logs [--out DIR]` | logs, configs and tickets: users, hosts, IP addresses, mail addresses, phones, keys, tokens and passwords wiped, no name guessed, the technical words kept; one `<name>.clean.<suffix>` each |
+| `awb clean FILE... [--project tcp-xxxx] [--kind docs\|logs] [--out DIR]` | the default kind is logs for a file ending in `.log` and docs for every other file (a call with both makes one run and one report each; the chosen kind is printed); without `--project` the copies go into `clean/` of the work folder, with it into `./clean/`; a Windows path (`D:\Documents\x.docx` or `D:/Documents/x.docx`) is read as `/mnt/d/Documents/x.docx`; a customer not registered on the laptop yet is asked for once on the terminal as `awb clean register` asks (no terminal: refused with the register line); the last line names `awb clean put` |
+| `--kind docs` | documents (docx, pptx, xlsx, odt, pdf, Markdown, text, html, mail): the body text with the customer as its code and every other person, company, place, mail address, phone and secret as a token (a secret is also a password written in prose after a password word, the words around it stay); pictures, properties, headers, footers and comments left out; one `<name>.clean.md` each in `./clean/` or `--out` |
+| `--kind logs` | logs, configs and tickets: users, hosts, IP addresses, mail addresses, phones, keys, tokens and passwords wiped, no name guessed, the technical words kept; one `<name>.clean.<suffix>` each |
 | `--put` | the clean copies (never the originals) into `<YYYY-MM>/tcp-xxxx/in/` of the bucket `awb` with your own key in `AWB_OBS_AK` and `AWB_OBS_SK`; the folder under any month, else a new one under this month; a name already in `in/` is not replaced |
+| `awb clean put [--project tcp-xxxx]` | sends the clean copies of the last run of the project (the rows in state clean of its reports) into `in/` as `--put` does, without cleaning again |
+| `awb clean serve [--port 8765]` | the same flow as a local page: it listens on 127.0.0.1 only and prints `http://localhost:8765/?t=TOKEN` to open in the Windows browser (WSL forwards localhost). The token is new per start and every request carries it; a Host header other than localhost or 127.0.0.1 is refused. The page: the project (prefilled, a button use), files to upload or Windows paths to type, the kind (auto, docs, logs), run (into `~/work/tcp-xxxx/clean/`, then the report and a link per clean copy that opens it as text) and put (needs `AWB_OBS_AK` and `AWB_OBS_SK` in the environment of the serve process: `set -a; . ~/awb-laptop/obs.env; set +a` before the start). Uploaded originals go into a temporary folder (700) that is deleted after the run; no file content is logged. No marking of names, no editor, no review step. Ctrl-C ends it |
 | `awb clean doctor` | the proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` in both cases, the host and port only, never a user or a password), then one HEAD request through the environment's proxy to the object storage of the region and to github.com (no file, nothing of yours); a failure names its fix: the proxy cannot be reached, the proxy wants a login, or TLS verification failed (install the root certificate of a TLS-inspecting proxy with `update-ca-certificates`, then `SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt` if Python does not pick it up). Exit 1 when a target fails |
-| `awb clean fetch tcp-xxxx [--to DIR] [--save]` | the finished files of `<YYYY-MM>/tcp-xxxx/out/` (the real names back, put there on the host with `awb bucket put CODE FILE --reveal`, which ends with the line `on the laptop run: awb clean fetch CODE`) into DIR, or the folder saved before with `--to DIR --save` (for example `/mnt/c/Users/<you>/...`); your key in `AWB_OBS_AK` and `AWB_OBS_SK`, through `HTTPS_PROXY` like `--put`; one line per file (fetched, already fetched, failed); the etags are remembered in `~/awb-laptop/vault/fetched.tsv`; `in/` is never touched. Exit 1 when a download failed |
+| `awb clean fetch [tcp-xxxx] [--to DIR] [--save]` | the finished files of `<YYYY-MM>/tcp-xxxx/out/` (the real names back, put there on the host with `awb bucket put CODE FILE --reveal`, which ends with the line `on the laptop run: awb clean fetch CODE`) into DIR, or the folder saved before with `--to DIR --save` (for example `/mnt/c/Users/<you>/...`); your key in `AWB_OBS_AK` and `AWB_OBS_SK`, through `HTTPS_PROXY` like `--put`; one line per file (fetched, already fetched, failed); the etags are remembered in `~/awb-laptop/vault/fetched.tsv`; `in/` is never touched. Exit 1 when a download failed |
 | `awb clean update` | the newest lists of public words from github.com/shimoza/tcp-awb (`git pull --ff-only` of the clone, or a download checked against the blob ids of the tree); prints what changed in counts and sends nothing of your files |
 
 Each run writes `clean-report-<stamp>.md` (kinds and counts per file, never a value) into the output folder and the
 mapping of tokens and values into `~/awb-laptop/vault/maps/tcp-xxxx/`. A copy that fails the final check of the
 intake is not written. On the host `awb import --auto` takes the copies in.
+
+### Laptop flow
+
+One file of a new project, before LC4: three commands with the project code typed four times and the file path
+twice (`awb clean register CUST-XXXX`; `mkdir -p ~/work/tcp-xxxx && cd ~/work/tcp-xxxx && awb clean FILE --project
+tcp-xxxx --kind docs && cat clean/clean-report-*.md`; `awb clean FILE --project tcp-xxxx --kind docs --out clean-put
+--put`). After: three short commands with the code once and the path once, no mkdir, no cd, no cat, no second
+cleaning:
+
+    awb clean use tcp-xxxx
+    awb clean "D:\Documents\req1.docx"      # asks the forms once if the customer is new, prints the summary
+    awb clean put
+
+Or one command, `awb clean serve`, and the rest in the browser.
 
 ## The bucket (owner side)
 
@@ -1052,13 +1070,13 @@ rename a drifted folder to <month>/<code>/ (your own terminal, never an assistan
 - `FOLDER`
 - `CODE`
 
-### `awb clean FILE... --project tcp-xxxx --kind KIND [--out DIR] [--put]`
+### `awb clean FILE... [--project tcp-xxxx] [--kind KIND] [--out DIR] [--put]`
 
 clean project material on the laptop, offline: docs or logs; register, init, fetch, update
 - `FILE...`: the files to clean; the originals are never changed
-- `--project tcp-xxxx`: the project code; its customer is CUST- and the four characters
-- `--kind KIND`: docs: body text of documents, logos, properties, headers, footers and comments out, names wiped; logs: users, hosts, addresses and secrets wiped, technical words kept, no name guessed
-- `--out DIR`: the folder of the clean copies (default ./clean/)
+- `--project tcp-xxxx`: the project code (default: the work folder of the current directory, else the project of awb clean use); its customer is CUST- and the four characters
+- `--kind KIND`: docs: body text of documents, logos, properties, headers, footers and comments out, names wiped; logs: users, hosts, addresses and secrets wiped, technical words kept, no name guessed (default: logs for a .log file, docs for any other)
+- `--out DIR`: the folder of the clean copies (default: clean/ of the work folder; with --project ./clean/)
 - `--put`: put the clean copies into <YYYY-MM>/tcp-xxxx/in/ of the bucket awb with the key of AWB_OBS_AK and AWB_OBS_SK
 
 ### `awb import [CODE] [FILE...] [--customer CUST-XXXX|new] [--review] [--trusted] [--auto] [--redo] [--paste] [--kind KIND]`

@@ -11570,8 +11570,106 @@
    "name": "T2: a token per project; a clear forgets the project list",
    "run": ".venv/bin/pytest tests/test_t2_readonly_projects.py::test_t2_a_token_per_project_and_a_lock_forgets_the_project_list",
    "status": "passing"
+  },
+  {
+   "id": "lc45-1",
+   "phase": "lc45-clean-flow",
+   "name": "LC4, LC5: use remembers the project makes its folder and a run takes it",
+   "run": ".venv/bin/pytest tests/test_lc45_clean_flow.py::test_use_remembers_the_project_makes_its_folder_and_a_run_takes_it",
+   "status": "passing"
+  },
+  {
+   "id": "lc45-2",
+   "phase": "lc45-clean-flow",
+   "name": "LC4, LC5: the work folder of the current directory is the project and project wins",
+   "run": ".venv/bin/pytest tests/test_lc45_clean_flow.py::test_the_work_folder_of_the_current_directory_is_the_project_and_project_wins",
+   "status": "passing"
+  },
+  {
+   "id": "lc45-3",
+   "phase": "lc45-clean-flow",
+   "name": "LC4, LC5: project still writes into the current folder as before",
+   "run": ".venv/bin/pytest tests/test_lc45_clean_flow.py::test_project_still_writes_into_the_current_folder_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "lc45-4",
+   "phase": "lc45-clean-flow",
+   "name": "LC4, LC5: an unregistered customer is asked once on a terminal and refused without one",
+   "run": ".venv/bin/pytest tests/test_lc45_clean_flow.py::test_an_unregistered_customer_is_asked_once_on_a_terminal_and_refused_without_one",
+   "status": "passing"
+  },
+  {
+   "id": "lc45-5",
+   "phase": "lc45-clean-flow",
+   "name": "LC4, LC5: a windows path is read as its wsl path",
+   "run": ".venv/bin/pytest tests/test_lc45_clean_flow.py::test_a_windows_path_is_read_as_its_wsl_path",
+   "status": "passing"
+  },
+  {
+   "id": "lc45-6",
+   "phase": "lc45-clean-flow",
+   "name": "LC4, LC5: the kind is logs for a log file and docs for any other",
+   "run": ".venv/bin/pytest tests/test_lc45_clean_flow.py::test_the_kind_is_logs_for_a_log_file_and_docs_for_any_other",
+   "status": "passing"
+  },
+  {
+   "id": "lc45-7",
+   "phase": "lc45-clean-flow",
+   "name": "LC4, LC5: put sends the copies of the last run without cleaning again",
+   "run": ".venv/bin/pytest tests/test_lc45_clean_flow.py::test_put_sends_the_copies_of_the_last_run_without_cleaning_again",
+   "status": "passing"
+  },
+  {
+   "id": "lc45-8",
+   "phase": "lc45-clean-flow",
+   "name": "LC4, LC5: the page needs its token",
+   "run": ".venv/bin/pytest tests/test_lc45_clean_flow.py::test_the_page_needs_its_token",
+   "status": "passing"
+  },
+  {
+   "id": "lc45-9",
+   "phase": "lc45-clean-flow",
+   "name": "LC4, LC5: the page refuses another host header",
+   "run": ".venv/bin/pytest tests/test_lc45_clean_flow.py::test_the_page_refuses_another_host_header",
+   "status": "passing"
+  },
+  {
+   "id": "lc45-10",
+   "phase": "lc45-clean-flow",
+   "name": "LC4, LC5: use on the page sets the project and the field is prefilled",
+   "run": ".venv/bin/pytest tests/test_lc45_clean_flow.py::test_use_on_the_page_sets_the_project_and_the_field_is_prefilled",
+   "status": "passing"
+  },
+  {
+   "id": "lc45-11",
+   "phase": "lc45-clean-flow",
+   "name": "LC4, LC5: upload and run write the clean copy and the report and delete the original",
+   "run": ".venv/bin/pytest tests/test_lc45_clean_flow.py::test_upload_and_run_write_the_clean_copy_and_the_report_and_delete_the_original",
+   "status": "passing"
+  },
+  {
+   "id": "lc45-12",
+   "phase": "lc45-clean-flow",
+   "name": "LC4, LC5: a typed windows path is run and the original stays",
+   "run": ".venv/bin/pytest tests/test_lc45_clean_flow.py::test_a_typed_windows_path_is_run_and_the_original_stays",
+   "status": "passing"
+  },
+  {
+   "id": "lc45-13",
+   "phase": "lc45-clean-flow",
+   "name": "LC4, LC5: put on the page without the key says so and how to load it",
+   "run": ".venv/bin/pytest tests/test_lc45_clean_flow.py::test_put_on_the_page_without_the_key_says_so_and_how_to_load_it",
+   "status": "passing"
+  },
+  {
+   "id": "lc45-14",
+   "phase": "lc45-clean-flow",
+   "name": "LC4, LC5: put on the page sends the copies of its run",
+   "run": ".venv/bin/pytest tests/test_lc45_clean_flow.py::test_put_on_the_page_sends_the_copies_of_its_run",
+   "status": "passing"
   }
  ],
- "total_tests": 1653,
+ "total_tests": 1667,
  "checked": "2026-10-27"
 }
