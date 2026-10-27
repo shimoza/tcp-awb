@@ -12046,8 +12046,22 @@
    "name": "DN: the template and the sync carry the two rules once",
    "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_the_template_and_the_sync_carry_the_two_rules_once",
    "status": "passing"
+  },
+  {
+   "id": "dn-11",
+   "phase": "dn-notes-html",
+   "name": "DN: xchg put of a markdown file writes the html beside it and names both",
+   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_xchg_put_of_a_markdown_file_writes_the_html_beside_it_and_names_both",
+   "status": "passing"
+  },
+  {
+   "id": "dn-12",
+   "phase": "dn-notes-html",
+   "name": "DN: xchg put of another file writes no page",
+   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_xchg_put_of_another_file_writes_no_page",
+   "status": "passing"
   }
  ],
- "total_tests": 1721,
+ "total_tests": 1723,
  "checked": "2026-10-27"
 }

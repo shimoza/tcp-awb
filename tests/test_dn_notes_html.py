@@ -13,11 +13,13 @@ from pathlib import Path
 import pytest
 
 from awb import bucket, cleanfetch, clean, cli, devnote, projects, rulesync
+from awb.tcp import xchg
 from tests import fixtures as fx
 from tests.test_bucket import fake as bucket_fake    # noqa: F401  (fixture)
 from tests.test_bucket import project                # noqa: F401  (fixture)
 from tests.test_clean_fetch import BASE, CODE, lap, obs_fake    # noqa: F401  (fixtures)
 from tests.test_lifecycle import run_hook, spawn
+from tests.test_xchg import buckets, lab_project, quiet, svc    # noqa: F401  (fixtures)
 
 OFFER = """# Offer for the lab
 
@@ -110,6 +112,42 @@ def test_the_put_output_names_both_objects_and_the_get_it_line(home, bucket_fake
     assert out[-1].startswith("get it: Total") and out[-1].endswith("or on the laptop: awb clean fetch %s" % project.code)
     assert "bucket awb, folder %s," % folder in out[-1]
     assert len(out) == 3 and "/home/" not in "\n".join(out)
+
+
+# --------------------------------------------------------------------------- awb xchg put
+
+
+def test_xchg_put_of_a_markdown_file_writes_the_html_beside_it_and_names_both(svc, buckets, lab_project, capsys):
+    lab, _ = buckets
+    f = Path(lab_project.path) / "evidence" / ("%s-offer-en.md" % lab_project.code)
+    f.write_text(OFFER, encoding="utf-8")
+    assert cli.main(["xchg", "put", str(f)]) == 0
+    out = capsys.readouterr().out.splitlines()
+    put = sorted(k for k in lab.objects if k.startswith("%s/from-session/" % lab_project.code))
+    assert len(put) == 2 and all(xchg.put_key_ok(k, lab_project.code) for k in put)
+    page, md = put                                   # put-<hex>.html sorts before put-<hex>.md
+    assert page.endswith(".html") and md.endswith(".md") and page[:-5] == md[:-3]
+    assert lab.objects[md] == f.read_bytes()
+    html = lab.objects[page].decode("utf-8")
+    assert "<th>Flavor</th>" in html and "<li>first point" in html and "<title>Offer for the lab</title>" in html
+    folder = md.rsplit("/", 1)[0] + "/"
+    assert out[0].startswith("put: %s-offer-en.md as %s (" % (lab_project.code, md))
+    assert out[1] == "put: the same text as HTML as %s (open it, select all, paste into the mail)" % page
+    assert out[2] == xchg.get_it_line("awb-lab-eu-de", md)
+    assert out[2].startswith("get it: Total") and ("bucket awb-lab-eu-de, folder %s " % folder) in out[2]
+    assert "only out/ of the owner bucket" in out[2] and len(out) == 3
+    assert len(svc.notes) == 1 and md.rsplit("/", 1)[-1] in svc.notes[-1][1], "one mail, by the id of the md"
+
+
+def test_xchg_put_of_another_file_writes_no_page(svc, buckets, lab_project, capsys):
+    lab, _ = buckets
+    f = Path(lab_project.path) / "evidence" / "sizes.csv"
+    f.write_text("flavor,count\ns3.large.2,4\n", encoding="utf-8")
+    assert cli.main(["xchg", "put", str(f)]) == 0
+    out = capsys.readouterr().out.splitlines()
+    put = [k for k in lab.objects if k.startswith("%s/from-session/" % lab_project.code)]
+    assert len(put) == 1 and put[0].endswith(".csv")
+    assert len(out) == 2 and out[1] == xchg.get_it_line("awb-lab-eu-de", put[0])
 
 
 # --------------------------------------------------------------------------- awb clean fetch

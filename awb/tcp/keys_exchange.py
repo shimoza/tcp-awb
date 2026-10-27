@@ -115,7 +115,12 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
         ident = key.rsplit("/", 1)[-1]
         # the mail names the file by its id alone: no text the session chose (finding 18 of the review of 2026-10-10)
         ctx.notify(*exchange_mail("put", project, ident=ident, size=size))
-        return {"ok": True, "size": size}, None
+        answer = {"ok": True, "size": size}
+        page = put_page(c, key, req.get("name"), body_path, project)
+        if page:
+            answer["page"] = page
+        answer["bucket"] = str(ctx.settings.get("lab_bucket") or "")
+        return answer, None
     h = c.head(key)
     if h is None:
         return {"ok": True, "exists": False}, None
@@ -125,6 +130,30 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
     tmp = Path(tempfile.mkstemp(prefix="awb-xchg-", dir=_tmp_dir(ctx))[1])
     c.get(key, tmp)
     return {"ok": True, "exists": True, "size": tmp.stat().st_size}, tmp
+
+
+def put_page(c, key: str, name, body_path: Path, project: str) -> str | None:
+    """A Markdown deliverable goes out as md and HTML (task DN, 2026-10-27): after the put of the judged bytes the
+    service writes the HTML page of the same bytes beside it, `put-<hex>.html`, rendered by bucket.md_to_html. The
+    page is made from the bytes the checks judged and from nothing else. None for any other file and for bytes that
+    are not UTF-8 text."""
+    from awb import bucket
+
+    ident = key.rsplit("/", 1)[-1]
+    stem, ext = os.path.splitext(ident)
+    named = isinstance(name, str) and os.path.splitext(name)[1].lower() in bucket.PAGE_SUFFIXES
+    if not (ext == ".md" or (ext == "" and named)):
+        return None
+    page = key.rsplit("/", 1)[0] + "/" + stem + ".html"
+    if not put_key_ok(page, project):
+        return None
+    try:
+        text = body_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    title = bucket.md_title(text, os.path.splitext(name)[0] if named and valid_name(name) else stem)
+    c.put_bytes(page, bucket.md_to_html(text, title).encode("utf-8"), "text/html")
+    return page
 
 
 _PUT_ID_RE = re.compile(r"^put-[0-9a-f]{12}(?:\.[a-z0-9]{1,5})?$")
