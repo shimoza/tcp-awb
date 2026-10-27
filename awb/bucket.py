@@ -4,9 +4,9 @@ and `out/` for results (his decisions of 2026-09-24).
     awb bucket sync                         the folders of every active project; folders that match no project
     awb bucket folder CODE                  the folder of one project, created when missing
     awb bucket pull CODE [--again]          new files of in/ into the vault inbox, then the intake of its customer
-    awb bucket put CODE FILE [--replace] [--reveal]   (with --reveal it ends with the line to run
-                                            `awb clean fetch CODE` on the laptop)
-                                            FILE into out/; --reveal puts the real names back first
+    awb bucket put CODE FILE [--replace] [--reveal]   FILE into out/; --reveal puts the real names back first;
+                                            a Markdown FILE goes as FILE.md and FILE.html (paste into a mail);
+                                            it ends with the line "get it: ..." (Total Commander or the laptop)
     awb bucket move <YYYY-MM>/<NAME>/ CODE  a folder whose name drifted to <YYYY-MM>/<CODE>/: copy, check, delete
 
 A folder is looked for under every month and used where it is. A new one goes under the month the project was
@@ -28,6 +28,7 @@ and never the name of a folder that matches no project.
 """
 from __future__ import annotations
 
+import html
 import json
 import mimetypes
 import os
@@ -365,7 +366,8 @@ def put(p: config.Paths, c: obs.Client, code: str, file: Path, *, replace: bool 
         print("awb bucket: warning: %s" % message, file=sys.stderr)
     folder, _ = ensure_folder(c, project)
     key = folder + OUT + file.name
-    if not replace and c.head(key) is not None:
+    page = html_key(key)
+    if not replace and any(k and c.head(k) is not None for k in (key, page)):
         raise BucketError("out/ of %s already holds a file of that name; give --replace" % code)
     ctype = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
     # what leaves is a private copy of the bytes the gate judged, never the path again
@@ -378,6 +380,7 @@ def put(p: config.Paths, c: obs.Client, code: str, file: Path, *, replace: bool 
             raise BucketError("the file changed after the send gate judged it, put it again")
         if not reveal:
             c.put_file(key, copy, ctype)
+            _put_page(c, page, copy)
             return key, None
         from awb import reveal as _reveal
         try:
@@ -387,7 +390,36 @@ def put(p: config.Paths, c: obs.Client, code: str, file: Path, *, replace: bool 
         named = Path(tmp) / ("named-" + file.name)
         stats = _reveal.write_named(text, named, p)
         c.put_file(key, named, ctype)
+        _put_page(c, page, named)
     return key, stats
+
+
+PAGE_SUFFIXES = (".md", ".markdown")
+"""A deliverable in Markdown goes out twice (task DN, 2026-10-27): the md to edit and <name>.html beside it, rendered
+by md_to_html below, to open in a browser and paste into a mail."""
+
+
+def html_key(key: str) -> str | None:
+    """The key of the HTML page that goes beside a Markdown deliverable, None for any other file."""
+    stem, dot, ext = key.rpartition(".")
+    return stem + ".html" if dot and "." + ext.lower() in PAGE_SUFFIXES and "/" not in ext else None
+
+
+def _put_page(c, page: str | None, source: Path) -> None:
+    if page is None:
+        return
+    try:
+        text = source.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        raise BucketError("a Markdown deliverable must be UTF-8 text") from None
+    c.put_bytes(page, md_to_html(text, md_title(text, Path(source).stem.removeprefix("named-"))).encode("utf-8"),
+                "text/html")
+
+
+def get_it_line(key: str, code: str) -> str:
+    """The one line that says where a put file is and how to get it (his rule of 2026-10-27: no link to a file)."""
+    return ("get it: Total Commander, bucket %s, folder %s, or on the laptop: awb clean fetch %s"
+            % (OWNER_BUCKET, key.rsplit("/", 1)[0] + "/", code))
 
 
 def move(p: config.Paths, c: obs.Client, old: str, code: str) -> dict:
@@ -415,6 +447,173 @@ def move(p: config.Paths, c: obs.Client, old: str, code: str) -> dict:
     for key, _, _ in objects:
         c.delete(key)
     return {"moved": len(objects), "target": target}
+
+
+# --------------------------------------------------------------------------- Markdown to a mail page
+# A deliverable in Markdown goes out as md and as one HTML page that pastes into a mail (task DN,
+# 2026-10-27): headings, paragraphs, bold, italic, inline code, links as text with the address in brackets,
+# bullet and numbered lists (one level of nesting), tables with borders and fenced code blocks; one
+# inline style block, no asset, no script, no image.
+
+MD_CSS = ("body{font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.4;color:#000;max-width:60rem;"
+          "margin:1rem}"
+          "h1{font-size:16pt}h2{font-size:14pt}h3{font-size:12pt}h4{font-size:11pt}"
+          "table{border-collapse:collapse;margin:.5rem 0}"
+          "th,td{border:1px solid #808080;padding:3px 6px;text-align:left;vertical-align:top}"
+          "th{background:#e7e6e6;font-weight:bold}"
+          "code{font-family:Consolas,monospace;background:#f2f2f2}"
+          "pre{font-family:Consolas,monospace;background:#f2f2f2;border:1px solid #d0d0d0;padding:6px;"
+          "white-space:pre-wrap}")
+
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
+_MD_HEAD_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
+_MD_OL_RE = re.compile(r"^(\s*)(\d{1,4})[.)]\s+(.*)$")
+_MD_UL_RE = re.compile(r"^(\s*)[-*+]\s+(.*)$")
+_MD_FENCE_RE = re.compile(r"^\s*(```|~~~)")
+_MD_RULE_RE = re.compile(r"^\s*([-*_])(\s*\1){2,}\s*$")
+_MD_SEP_RE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
+
+
+def md_inline(text: str) -> str:
+    """One line of markdown as escaped HTML: code first (its content stays literal), then links as text, bold and
+    italic."""
+    out = []
+    for i, part in enumerate(re.split(r"`([^`]+)`", text)):
+        if i % 2:
+            out.append("<code>%s</code>" % html.escape(part, quote=False))
+            continue
+        part = _MD_LINK_RE.sub(lambda m: m.group(1) if m.group(1) == m.group(2) else "%s (%s)" % m.groups(), part)
+        part = html.escape(part, quote=False)
+        part = re.sub(r"\*\*([^*]+)\*\*|__([^_]+)__", lambda m: "<strong>%s</strong>" % (m.group(1) or m.group(2)),
+                      part)
+        part = re.sub(r"(?<![*\w])\*([^*\s][^*]*)\*(?!\w)", r"<em>\1</em>", part)
+        part = re.sub(r"(?<![_\w])_([^_\s][^_]*)_(?!\w)", r"<em>\1</em>", part)
+        out.append(part)
+    return "".join(out)
+
+
+def _md_cells(line: str) -> list[str]:
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|") and not s.endswith("\\|"):
+        s = s[:-1]
+    return [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", s)]
+
+
+def _md_table(rows: list[str]) -> str:
+    head, rows_ = _md_cells(rows[0]), [_md_cells(r) for r in rows[2:]]
+    width = len(head)
+    out = ["<table border=\"1\" cellspacing=\"0\" cellpadding=\"4\">", "<thead><tr>%s</tr></thead>"
+           % "".join("<th>%s</th>" % md_inline(c) for c in head), "<tbody>"]
+    for cells in rows_:
+        cells = (cells + [""] * width)[:width]
+        out.append("<tr>%s</tr>" % "".join("<td>%s</td>" % md_inline(c) for c in cells))
+    out.append("</tbody></table>")
+    return "\n".join(out)
+
+
+def md_body(markdown: str) -> str:
+    """The HTML of the blocks of `markdown`, without the page around it."""
+    lines = markdown.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    out: list[str] = []
+    para: list[str] = []
+    stack: list[tuple[str, int]] = []          # open lists: (tag, indent)
+
+    def flush() -> None:
+        if para:
+            out.append("<p>%s</p>" % md_inline(" ".join(para)))
+            para.clear()
+
+    def close(to: int = 0) -> None:
+        while len(stack) > to:
+            out.append("</li></%s>" % stack.pop()[0])
+
+    i = 0
+    while i < len(lines):
+        line = lines[i].rstrip()
+        fence = _MD_FENCE_RE.match(line)
+        if fence:
+            flush()
+            close()
+            code = []
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith(fence.group(1)):
+                code.append(lines[i])
+                i += 1
+            out.append("<pre><code>%s</code></pre>" % html.escape("\n".join(code), quote=False))
+            i += 1
+            continue
+        if "|" in line and i + 1 < len(lines) and _MD_SEP_RE.match(lines[i + 1]) and "|" in lines[i + 1]:
+            flush()
+            close()
+            rows = [line, lines[i + 1]]
+            i += 2
+            while i < len(lines) and "|" in lines[i] and lines[i].strip():
+                rows.append(lines[i].rstrip())
+                i += 1
+            out.append(_md_table(rows))
+            continue
+        h = _MD_HEAD_RE.match(line)
+        ol = _MD_OL_RE.match(line)
+        ul = None if ol else _MD_UL_RE.match(line)
+        if h:
+            flush()
+            close()
+            n = len(h.group(1))
+            out.append("<h%d>%s</h%d>" % (n, md_inline(h.group(2)), n))
+        elif _MD_RULE_RE.match(line):
+            flush()
+            close()
+            out.append("<hr>")
+        elif ol or ul:
+            flush()
+            tag = "ol" if ol else "ul"
+            indent = len((ol or ul).group(1).expandtabs(4))
+            item = ol.group(3) if ol else ul.group(2)
+            while stack and indent < stack[-1][1]:
+                close(len(stack) - 1)
+            if stack and indent > stack[-1][1] and len(stack) < 2:
+                out.append("<%s>" % tag)
+                stack.append((tag, indent))
+            elif stack and stack[-1][0] != tag:
+                close(len(stack) - 1)
+                out.append("<%s>" % tag)
+                stack.append((tag, indent))
+            elif stack:
+                out.append("</li>")
+            else:
+                out.append("<%s>" % tag)
+                stack.append((tag, indent))
+            out.append("<li>%s" % md_inline(item))
+        elif not line.strip():
+            flush()
+            if stack and not (i + 1 < len(lines) and (_MD_OL_RE.match(lines[i + 1]) or _MD_UL_RE.match(lines[i + 1]))):
+                close()
+        elif stack and lines[i][:1] in " \t":
+            out.append("<br>%s" % md_inline(line.strip()))
+        else:
+            close()
+            para.append(line.strip())
+        i += 1
+    flush()
+    close()
+    return "\n".join(x for x in out if x)
+
+
+def md_title(markdown: str, default: str = "Document") -> str:
+    for line in markdown.splitlines():
+        h = _MD_HEAD_RE.match(line.rstrip())
+        if h:
+            return re.sub(r"[*_`]", "", _MD_LINK_RE.sub(r"\1", h.group(2))).strip() or default
+    return default
+
+
+def md_to_html(markdown: str, title: str | None = None) -> str:
+    """One self-contained HTML page of `markdown`."""
+    name = title or md_title(markdown)
+    return ('<!doctype html>\n<html><head><meta charset="utf-8"><title>%s</title>\n<style>%s</style></head>\n'
+            '<body>\n%s\n</body></html>\n') % (html.escape(name), MD_CSS, md_body(markdown))
 
 
 # --------------------------------------------------------------------------- command line
@@ -487,8 +686,10 @@ def main(argv: list[str] | None = None) -> int:
             if stats is not None:
                 line += "  (%d codes replaced by names)" % stats["replaced"]
             print(line)
-            if stats is not None:
-                print("on the laptop run: awb clean fetch %s" % args.code)
+            if html_key(key):
+                print("%s: %s  (the same text as HTML: open it, select all, paste into the mail)"
+                      % (args.code, html_key(key)))
+            print(get_it_line(key, args.code))
             return 0
         if args.command == "move":
             r = move(p, c, args.folder, args.code)
