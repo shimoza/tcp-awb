@@ -160,9 +160,7 @@ def test_the_host_names_the_laptop_step_after_a_revealed_put(home, bucket_fake, 
     f.write_text("offer for %s\n" % fx.CUSTOMER_CODE, encoding="utf-8")
     assert bucket.main(["put", project.code, str(f), "--reveal"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[-1] == "on the laptop run: awb clean fetch %s" % project.code
     assert fx.CUSTOMER_FORMS[0] not in "\n".join(out)
     f2 = tmp_path / "plain.md"
     f2.write_text("plain\n", encoding="utf-8")
     assert bucket.main(["put", project.code, str(f2)]) == 0
-    assert "awb clean fetch" not in capsys.readouterr().out

@@ -10,7 +10,9 @@ The folder is `--to DIR`, else the one saved before with `--to DIR --save` (the 
 for example a Windows folder under /mnt/c/Users/<him>/... What was fetched is remembered in `vault/fetched.tsv` of the
 laptop (key, etag, day, mode 600): a file counts as fetched while its etag is the same, a file put again with
 `--replace` has a new etag and comes again, next to the first under a name with (2). Nothing here prints a customer
-name: the lines carry file names and counts.
+name: the lines carry file names and counts. A Markdown deliverable is in out/ as md and HTML (task DN): both come,
+and the line of the HTML names its Windows path (D:\\Deliveries\\...) to open it, select all and paste into a mail. A
+Windows `--to` (D:\\Deliveries\\offers) is read as /mnt/d/Deliveries/offers (`clean.windows_path`).
 """
 from __future__ import annotations
 
@@ -62,6 +64,15 @@ def save_dir(folder: Path) -> None:
         fh.write(str(folder) + "\n")
 
 
+def windows_of(path: Path) -> str:
+    """The path as Windows names it: /mnt/d/Deliveries/a.html is D:\\Deliveries\\a.html. A path outside /mnt/<drive>/
+    stays as it is (task DN, 2026-10-27: he opens the HTML from Windows)."""
+    parts = Path(path).parts
+    if len(parts) >= 3 and parts[:2] == ("/", "mnt") and len(parts[2]) == 1 and parts[2].isalpha():
+        return parts[2].upper() + ":\\" + "\\".join(parts[3:])
+    return str(path)
+
+
 def fetch(project: str, to: Path | None, *, client=None, save: bool = False, say=print) -> int:
     """The new files of out/ of `project` into the folder. Returns the number of files that failed."""
     from awb import bucket, bucket_layout, clean, obs
@@ -107,6 +118,8 @@ def fetch(project: str, to: Path | None, *, client=None, save: bool = False, say
                 continue
             _remember(key, etag)
             say("%s: fetched, %d bytes%s" % (label, size, "" if name == label else " as " + name))
+            if name.lower().endswith(".html"):
+                say("open in the browser, select all, paste into the mail: %s" % windows_of(folder / name))
         return failed
     except (obs.OBSError, bucket.BucketError) as err:
         raise FetchError("the bucket: %s" % err) from None

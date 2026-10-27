@@ -11976,8 +11976,92 @@
    "name": "T5: a file name with dots is no url",
    "run": ".venv/bin/pytest tests/test_t5_entry_only.py::test_a_file_name_with_dots_is_no_url",
    "status": "passing"
+  },
+  {
+   "id": "dn-1",
+   "phase": "dn-notes-html",
+   "name": "DN: the renderer writes tables lists and code into one page without assets",
+   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_the_renderer_writes_tables_lists_and_code_into_one_page_without_assets",
+   "status": "passing"
+  },
+  {
+   "id": "dn-2",
+   "phase": "dn-notes-html",
+   "name": "DN: the renderer escapes markup of the text",
+   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_the_renderer_escapes_markup_of_the_text",
+   "status": "passing"
+  },
+  {
+   "id": "dn-3",
+   "phase": "dn-notes-html",
+   "name": "DN: put writes the md and its html page into out",
+   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_put_writes_the_md_and_its_html_page_into_out",
+   "status": "passing"
+  },
+  {
+   "id": "dn-4",
+   "phase": "dn-notes-html",
+   "name": "DN: a revealed put renders the page from the named text",
+   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_a_revealed_put_renders_the_page_from_the_named_text",
+   "status": "passing"
+  },
+  {
+   "id": "dn-5",
+   "phase": "dn-notes-html",
+   "name": "DN: the put output names both objects and the get it line",
+   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_the_put_output_names_both_objects_and_the_get_it_line",
+   "status": "passing"
+  },
+  {
+   "id": "dn-6",
+   "phase": "dn-notes-html",
+   "name": "DN: fetch brings the md and the html and names the windows path",
+   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_fetch_brings_the_md_and_the_html_and_names_the_windows_path",
+   "status": "passing"
+  },
+  {
+   "id": "dn-7",
+   "phase": "dn-notes-html",
+   "name": "DN: the windows path of a folder under mnt",
+   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_the_windows_path_of_a_folder_under_mnt",
+   "status": "passing"
+  },
+  {
+   "id": "dn-8",
+   "phase": "dn-notes-html",
+   "name": "DN: a note lands in the project and the prompt shows it once",
+   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_a_note_lands_in_the_project_and_the_prompt_shows_it_once",
+   "status": "passing"
+  },
+  {
+   "id": "dn-9",
+   "phase": "dn-notes-html",
+   "name": "DN: a note with a secret or without a title is refused",
+   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_a_note_with_a_secret_or_without_a_title_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "dn-10",
+   "phase": "dn-notes-html",
+   "name": "DN: the template and the sync carry the two rules once",
+   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_the_template_and_the_sync_carry_the_two_rules_once",
+   "status": "passing"
+  },
+  {
+   "id": "dn-11",
+   "phase": "dn-notes-html",
+   "name": "DN: xchg put of a markdown file writes the html beside it and names both",
+   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_xchg_put_of_a_markdown_file_writes_the_html_beside_it_and_names_both",
+   "status": "passing"
+  },
+  {
+   "id": "dn-12",
+   "phase": "dn-notes-html",
+   "name": "DN: xchg put of another file writes no page",
+   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_xchg_put_of_another_file_writes_no_page",
+   "status": "passing"
   }
  ],
- "total_tests": 1711,
+ "total_tests": 1723,
  "checked": "2026-10-27"
 }

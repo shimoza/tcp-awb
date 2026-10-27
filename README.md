@@ -229,7 +229,7 @@ only when a customer is registered. A project without one is normal. A file of t
 project's customer. The key service checks every file of the lab inbox before the session gets it.
 
 Results go back with `awb xchg put` into the project's own folder, after the name check and, for a customer
-project, the send gate. The key service runs both again on the bytes it receives. A mail tells you about each file. `awb
+project, the send gate. The key service runs both again on the bytes it receives. A Markdown file arrives as md and as HTML to paste into a mail; the output ends with the line saying where both are (Total Commander, the lab bucket and the folder). A mail tells you about each file. `awb
 fetch tcp-xxxx` in your own terminal downloads what is new into `~/awb-fetch/tcp-xxxx/` with the names back.
 
 ## The board and the console
@@ -472,7 +472,7 @@ vault folder (700). `awb clean register CUST-XXXX` asks the written forms of the
   allowed-terms.txt, allow-domains.txt and the other allow lists) from github.com/shimoza/tcp-awb: a
   `git pull --ff-only` of the clone, or for an install without git a download checked against the blob ids of the
   repository tree. It sends nothing of your files and prints what changed in counts. Run it now and then.
-- `awb clean fetch tcp-xxxx [--to DIR] [--save]` brings a finished deliverable to the laptop. On the host `awb bucket put CODE FILE --reveal` puts the file with the real names into `out/` and prints `on the laptop run: awb clean fetch CODE`. On the laptop the command lists only `out/` of the project's bucket folder with your key, downloads the files not fetched yet into DIR (`--save` keeps DIR as the default, for example a folder under `/mnt/c/Users/<you>/`) and prints one line per file. What was fetched is remembered by etag in `~/awb-laptop/vault/fetched.tsv`. `in/` is never touched.
+- `awb clean fetch tcp-xxxx [--to DIR] [--save]` brings a finished deliverable to the laptop. On the host `awb bucket put CODE FILE --reveal` puts the file with the real names into `out/` (a Markdown file as `.md` and `.html`, the HTML to paste into a mail) and ends with `get it: Total Commander, bucket awb, folder <YYYY-MM>/tcp-xxxx/out/, or on the laptop: awb clean fetch tcp-xxxx`. On the laptop the command lists only `out/` of the project's bucket folder with your key, downloads the files not fetched yet into DIR (`--save` keeps DIR as the default, for example a folder under `/mnt/c/Users/<you>/`) and prints one line per file, for an HTML file also its Windows path to open. `--to C:\Users\<you>\Downloads` is read as `/mnt/c/Users/<you>/Downloads`. What was fetched is remembered by etag in `~/awb-laptop/vault/fetched.tsv`. `in/` is never touched.
 - Behind a corporate proxy `--put`, `awb clean fetch` and `awb clean update` use `HTTPS_PROXY` and `https_proxy` (git reads them too).
   `awb clean doctor` prints the proxy variables (host and port only, never a user or a password), sends one HEAD
   request through the proxy to the object storage of the region and to github.com and names the fix when one

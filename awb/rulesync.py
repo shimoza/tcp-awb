@@ -16,6 +16,9 @@ in <shared>/notices/ with the customer code, the project code and the file ids o
 next prompt of a session of that project or of a project of that customer reads "new input: N copies in the
 outbox of CUST-XXXX, report intake-report.md" once ("replaced" after `awb import --redo`). A notice whose copies
 have all left the outbox is not shown any more.
+
+A third kind is the note from development (awb/devnote.py, `awb projects note`): "note from development: TITLE
+(notes/from-dev/FILE): read it first", once per session.
 """
 from __future__ import annotations
 
@@ -27,7 +30,7 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-from awb import config
+from awb import config, devnote
 from awb.projects import OWN_OUTPUT_RULE
 
 CLAUDE_FIXES = (
@@ -73,6 +76,9 @@ CLAUDE_ADD = (
 """(anchor, new line, marker): the line goes after the anchor line unless a line carries the marker. An empty new
 line stands for the FX section of the template (projects.FINAL_CHECK_SECTION, 2026-10-27): a file with the anchor
 line gets it at its end, after the project's own lines."""
+CLAUDE_ADD += (("- " + OWN_OUTPUT_RULE, devnote.FILE_RULE, "he cannot open it"),
+               (devnote.FILE_RULE, devnote.NOTE_RULE, "notes/from-dev/"))
+"""His rules of 2026-10-27 (task DN): no link to a file, deliverables as HTML and md, notes from development."""
 STATE_FIXES = (
     ("Where the work stands. Update it at the end of every session. Codes only, never a name.",
      "Where the work stands. Update it and OPEN.md after every step that changes the status, in the same commit. "
@@ -228,8 +234,12 @@ def remember(p: config.Paths, session_id: str | None, root: Path | None) -> None
     if not session_id:
         return
     path = _mark(p, session_id)
-    seen = _read_mark(path).get("inputs") or []
-    _write_mark(path, {"digest": digest(root), "inputs": [x for x in seen if isinstance(x, str)][-200:]})
+    mark = _read_mark(path)
+    seen = mark.get("inputs") or []
+    data = {"digest": digest(root), "inputs": [x for x in seen if isinstance(x, str)][-200:]}
+    if isinstance(mark.get("notes"), list):
+        data["notes"] = [x for x in mark["notes"] if isinstance(x, str)][-200:]     # notes told stay told (DN)
+    _write_mark(path, data)
 
 
 def notice(p: config.Paths, session_id: str | None, root: Path | None) -> str | None:
@@ -239,6 +249,8 @@ def notice(p: config.Paths, session_id: str | None, root: Path | None) -> str | 
     if not session_id:
         return None
     said = [t for t in (_rules_changed(p, session_id, root),) if t] + input_notices(p, session_id, root)
+    from awb import devnote
+    said += devnote.notices(p, session_id, root)      # notes from development (task DN), once each
     return "\n".join(said) or None
 
 

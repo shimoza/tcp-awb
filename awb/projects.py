@@ -35,6 +35,7 @@ from pathlib import Path
 
 from awb import codes as _codes
 from awb import config as _config
+from awb import devnote as _devnote
 from awb import register as _register
 
 PROJECT_KINDS = ("query", "project")
@@ -486,6 +487,7 @@ def _claude(code: str, kind: str, customer: str) -> str:
         "start (`%s-mapping-de.md`), never with words of the material.\n"
         "- RESOURCES.md lists what the project uses, with platform ids and codes.\n"
         "- %s\n"
+        + _devnote.FILE_RULE + "\n" + _devnote.NOTE_RULE + "\n"
         "- Run `awb check FILE` on every deliverable and `awb gate` before every commit.\n"
         "- %s\n"
     ) % (code, kind, _rules_ref(), who, code, code, OWN_OUTPUT_RULE,

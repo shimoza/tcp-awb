@@ -573,6 +573,28 @@ def _cmd_projects_sync(args, p: config.Paths) -> int:
     return EXIT_OK
 
 
+def _cmd_projects_note(args, p: config.Paths) -> int:
+    """A note from development into a project (task DN): notes/from-dev/<date>-<n>.md and a notice for the prompt
+    hook of its sessions."""
+    from awb import devnote, projects
+
+    try:
+        if args.file == "-":
+            text = sys.stdin.read()
+        else:
+            text = Path(args.file).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as err:
+        print("awb projects note: cannot read the note (%s)" % type(err).__name__, file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        path = devnote.write(p, args.code, args.title, text)
+    except (devnote.NoteError, projects.ProjectError) as err:
+        print("awb projects note: %s" % err, file=sys.stderr)
+        return EXIT_ERROR
+    print("%s: %s/%s written; its next session prompt shows it" % (args.code, devnote.FOLDER, path.name))
+    return EXIT_OK
+
+
 def _cmd_projects_open(args, p: config.Paths) -> int:
     from awb import projects
 
@@ -743,6 +765,12 @@ def _build() -> argparse.ArgumentParser:
                                      "up to the current rules, every other line kept")
     s.add_argument("codes", nargs="*", metavar="CODE")
     s.set_defaults(func=_cmd_projects_sync)
+    s = psub.add_parser("note", help="a note from development into a project: notes/from-dev/<date>-<n>.md, shown "
+                                     "once at the next prompt of its sessions (run it as the work user)")
+    s.add_argument("code")
+    s.add_argument("file", metavar="FILE|-", help="the note in Markdown, - for standard input")
+    s.add_argument("--title", required=True, help="one line, shown in the notice")
+    s.set_defaults(func=_cmd_projects_note)
     return ap
 
 
