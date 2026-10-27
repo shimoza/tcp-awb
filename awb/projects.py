@@ -458,6 +458,13 @@ def _rules_ref() -> str:
         return str(RULES_FILE)
 
 
+OWN_OUTPUT_RULE = (
+    "When you hand him a command that runs a script of this project, its output goes to a file first and then into "
+    "`awb paste --own`: `python3 evidence/x.py --tenant T > /tmp/x.log; awb paste --own --as x-log < /tmp/x.log`. "
+    "Never pipe a script straight into `awb paste`.")
+"""P1: our own output gets the secret check only; a log kept in a file survives a refused paste."""
+
+
 def _claude(code: str, kind: str, customer: str) -> str:
     who = "customer %s, project %s" % (customer, code) if customer != NO_CUSTOMER else "project %s" % code
     return (
@@ -478,9 +485,10 @@ def _claude(code: str, kind: str, customer: str) -> str:
         "and, for a customer project, the review. Name every deliverable `%s-<kind word>-<language>.<ext>` from the "
         "start (`%s-mapping-de.md`), never with words of the material.\n"
         "- RESOURCES.md lists what the project uses, with platform ids and codes.\n"
+        "- %s\n"
         "- Run `awb check FILE` on every deliverable and `awb gate` before every commit.\n"
         "- %s\n"
-    ) % (code, kind, _rules_ref(), who, code, code,
+    ) % (code, kind, _rules_ref(), who, code, code, OWN_OUTPUT_RULE,
          "This is a project: it reaches the test tenants through the key service (`awb cloud call`)."
          if tenant_access(kind) else
          "This is a query: knowledge base, docs mirror, live prices and calculations, no test tenant. When an "
