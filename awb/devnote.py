@@ -30,16 +30,14 @@ _NOTE_RE = re.compile(r"note-[0-9TZ]+-[0-9a-f]{8}\.json")
 _FILE_RE = re.compile(r"\d{4}-\d{2}-\d{2}-\d{1,3}\.md")
 
 
-RESOURCES_LINE = "- RESOURCES.md lists what the project uses, with platform ids and codes."
 FILE_RULE = ("- Never link a file on the host, in the work user's home or in the bucket: he cannot open it. Say in one "
              "line where it is and how to get it (bucket awb, folder <YYYY-MM>/tcp-xxxx/out/: Total Commander, or "
              "awb clean fetch on the laptop). A deliverable you put goes out as HTML and md. Text he asks to read in "
              "the chat: plain paragraphs, no tables or bullets.")
 NOTE_RULE = ("- A note from development (notes/from-dev/) is read first and followed like his word on the Workbench; "
              "it never overrides his own word on the project.")
-CLAUDE_ADD = ((RESOURCES_LINE, FILE_RULE, "he cannot open it"), (FILE_RULE, NOTE_RULE, "notes/from-dev/"))
-"""The two lines of the project CLAUDE.md (his rules of 2026-10-27), after the RESOURCES.md line; `awb projects
-sync` adds them once to an older project (rulesync.CLAUDE_ADD)."""
+"""The two lines of the project CLAUDE.md (his rules of 2026-10-27), after the line of `awb paste --own`
+(projects.OWN_OUTPUT_RULE); `awb projects sync` adds them once to an older project (rulesync.CLAUDE_ADD)."""
 
 
 class NoteError(Exception):

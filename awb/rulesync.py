@@ -76,7 +76,8 @@ CLAUDE_ADD = (
 """(anchor, new line, marker): the line goes after the anchor line unless a line carries the marker. An empty new
 line stands for the FX section of the template (projects.FINAL_CHECK_SECTION, 2026-10-27): a file with the anchor
 line gets it at its end, after the project's own lines."""
-CLAUDE_ADD += devnote.CLAUDE_ADD
+CLAUDE_ADD += (("- " + OWN_OUTPUT_RULE, devnote.FILE_RULE, "he cannot open it"),
+               (devnote.FILE_RULE, devnote.NOTE_RULE, "notes/from-dev/"))
 """His rules of 2026-10-27 (task DN): no link to a file, deliverables as HTML and md, notes from development."""
 STATE_FIXES = (
     ("Where the work stands. Update it at the end of every session. Codes only, never a name.",
