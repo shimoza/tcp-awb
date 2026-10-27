@@ -8,7 +8,11 @@ One folder holds everything the laptop keeps, `AWB_LAPTOP_HOME` or `~/awb-laptop
       issued.txt      600  the customer codes registered without a form, one per line
       maps/<tcp-xxxx>/<stamp>.tsv
                       600  token, class and value of every replacement of one run of awb clean
-    tmp/              700  the temporary folders of the readers (awb/extract)
+    tmp/              700  the temporary folders of the readers (awb/extract) and of the uploads of the page
+    project                the current project of `awb clean use tcp-xxxx` (task LC4)
+    last-run/<tcp-xxxx>    the reports of the last run of `awb clean` in that project, for `awb clean put`
+
+The work folders of the projects are `AWB_WORK_HOME` or `~/work`, one `tcp-xxxx` folder each.
 
 Nothing here opens a network connection. Nothing here prints a form or a value: lines carry codes and counts.
 """
@@ -24,6 +28,10 @@ from awb import codes, register
 HOME_ENV = "AWB_LAPTOP_HOME"
 DEFAULT_HOME = "~/awb-laptop"
 ISSUED = "issued.txt"
+WORK_ENV = "AWB_WORK_HOME"
+DEFAULT_WORK = "~/work"
+CURRENT = "project"
+LAST_RUN = "last-run"
 PUT_ENV = ("AWB_OBS_AK", "AWB_OBS_SK")
 """The environment variables of `awb clean --put`: the access key and the secret key of his own IAM user."""
 PUT_OPTIONAL_ENV = ("AWB_OBS_BUCKET", "AWB_OBS_REGION")
@@ -82,6 +90,76 @@ def customer_of(project: str) -> str:
     if not codes.is_project_code(project or "") or not project.startswith("tcp-"):
         raise LaptopError("a project code reads tcp-xxxx")
     return "CUST-" + project.split("-", 1)[1].upper()
+
+
+def work_root() -> Path:
+    return Path(os.environ.get(WORK_ENV) or DEFAULT_WORK).expanduser()
+
+
+def work_dir(project: str) -> Path:
+    customer_of(project)
+    return work_root() / project
+
+
+def use(project: str) -> Path:
+    """`awb clean use tcp-xxxx`: the current project of this laptop and its work folder (made when missing)."""
+    customer_of(project)
+    init()
+    folder = work_dir(project)
+    folder.mkdir(parents=True, exist_ok=True)
+    fd = os.open(home() / CURRENT, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(project + "\n")
+    return folder
+
+
+def current() -> str | None:
+    try:
+        text = (home() / CURRENT).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return text if codes.is_project_code(text) and text.startswith("tcp-") else None
+
+
+def project_of_dir(cwd: Path | None = None) -> str | None:
+    """The project whose work folder holds `cwd` (the folder itself or one below it)."""
+    try:
+        rel = Path(os.path.abspath(cwd or Path.cwd())).relative_to(os.path.abspath(work_root()))
+    except ValueError:
+        return None
+    first = rel.parts[0] if rel.parts else ""
+    return first if codes.is_project_code(first) and first.startswith("tcp-") else None
+
+
+def resolve_project(given: str | None, cwd: Path | None = None) -> tuple[str, str]:
+    """The project of a run and where it came from: --project, the work folder of the current directory, or the
+    project of `awb clean use`. Raises when there is none."""
+    if given:
+        customer_of(given)
+        return given, "--project"
+    here = project_of_dir(cwd)
+    if here:
+        return here, "the folder"
+    saved = current()
+    if saved:
+        return saved, "awb clean use"
+    raise LaptopError("no project: name it once with awb clean use tcp-xxxx (or --project tcp-xxxx)")
+
+
+def record_run(project: str, reports: list[Path]) -> None:
+    """The reports of the last run of `project`, for `awb clean put`."""
+    folder = _dir(home() / LAST_RUN)
+    fd = os.open(folder / project, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write("".join("%s\n" % os.path.abspath(r) for r in reports))
+
+
+def last_run(project: str) -> list[Path]:
+    try:
+        text = (home() / LAST_RUN / project).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return [Path(line) for line in text.splitlines() if line.strip()]
 
 
 def _issued() -> set[str]:
