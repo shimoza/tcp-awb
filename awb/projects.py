@@ -488,16 +488,28 @@ def _claude(code: str, kind: str, customer: str) -> str:
         + "\n" + FINAL_CHECK_SECTION
 
 
+WORKFLOWS_INSTALLED = "/opt/tcp-awb/src/workflows"
+"""Where a project session finds the Workbench's workflows: the installed release (deploy.OPT / "src" links to
+releases/<commit>), the folder the tool guard compares a Workflow scriptPath with (T6, 2026-10-27; the template named
+/opt/tcp-awb/workflows before, a path no release creates)."""
+FX_SCRIPT_LINE = (
+    "- First one line: it runs Fable 5.1 at effort max, costs about 200k tokens and 10-15 minutes. Wait for one word. "
+    "Then run Workflow with scriptPath `" + WORKFLOWS_INSTALLED + "/final-check.js` and args {project: this folder, "
+    "deliverable: deliverables/<name>, date: today}.")
+FX_REVIEW_LINE = (
+    "- The final text gets its own review and it costs less (RV2): `awb review init` and `awb review claims` on it, "
+    "then Workflow with scriptPath `" + WORKFLOWS_INSTALLED + "/review.js` and args {..., after_fx: true} (the "
+    "platform lenses and the partner lens only), then `awb review pass`. The final check stands in for the request "
+    "check and the blind verification while the final text is unchanged; after an edit the full review applies.")
 FINAL_CHECK_SECTION = (
     "## Final check (FX)\n\n"
     "- Only on his phrase \"финальная вычитка\" or \"final check\", never on your own and never as part of another "
     "step. It may name a deliverable; else take the latest file of deliverables/ that is not `*.final.md` and not a "
     "translation (`*.de.md`, `*.ru.md`).\n"
-    "- First one line: it runs Fable 5.1 at effort max, costs about 200k tokens and 10-15 minutes. Wait for one word. "
-    "Then run Workflow with scriptPath `/opt/tcp-awb/workflows/final-check.js` and args {project: this folder, "
-    "deliverable: deliverables/<name>, date: today}.\n"
+    + FX_SCRIPT_LINE + "\n"
     "- After it show the path of the final text, the summary of the table and the open points. Add the open points "
     "to OPEN.md under the heading \"Final check (FX, DATE)\".\n"
+    + FX_REVIEW_LINE + "\n"
 )
 """The FX section of a project CLAUDE.md (2026-10-27): a final pass on a strong model, started by his phrase only.
 `awb projects sync` adds it to an older project (rulesync.CLAUDE_ADD)."""

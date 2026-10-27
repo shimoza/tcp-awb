@@ -63,6 +63,13 @@ customer or partner it refuses a deliverable (or a copy of one) without a valid 
 unless the contract carries his words for the lowered tier (decision 14) and a tier 3 record whose lenses hold no
 request check (V-16). Everything else without a valid record leaves with a warning as an internal file.
 
+At tier 3 a blind verification lens (verify.json) that checked 0 claims while the text has high-risk claims whose
+verdict no blind check set refuses the pass (RV1): verdicts set before the review hide the claims from it. The final
+text of a final check (deliverables/<stem>.final.md, named by reviews/<name>/final-check.json with its sha256) needs
+neither the request check nor the blind verification while it is unchanged (RV2): its review runs workflows/review.js
+with after_fx (the platform lenses and the partner lens) and the send gate takes the final check for the request
+check. An edit after the final check or a record without the hash brings the full review back.
+
 `status` lists every file under deliverables/, hidden files too (only an empty .gitkeep is left out). A file
 that no review can read as text (an image, an unknown binary) has the state unreadable: it can never pass and
 belongs somewhere else.
@@ -234,9 +241,21 @@ def _counts(hits: list[dict]) -> str:
     return ", ".join("%s %d" % kv for kv in sorted(c.items()))
 
 
+FINAL_SUFFIX = ".final.md"
+
+
+def _checked_path(rel: str) -> str:
+    """The path of deliverables/<rel> as the name check reads it. The name check takes x.final.md for a web address
+    (the suffix .md is a country domain), so a final text of the final check (FX) is checked under the name of its
+    draft, <stem>.md: the stem, where a name could hide, is checked all the same (RV2)."""
+    if rel.endswith(FINAL_SUFFIX) and len(rel) > len(FINAL_SUFFIX):
+        rel = rel[:-len(FINAL_SUFFIX)] + ".md"
+    return "%s/%s" % (DELIVERABLES, rel)
+
+
 def _label(rel: str, reg: Path) -> str:
     shown = "%s/%s" % (DELIVERABLES, rel)
-    return shown if _is_clean(shown, reg) else "the deliverable"
+    return shown if _is_clean(_checked_path(rel), reg) else "the deliverable"
 
 
 def project_tier(project) -> int:
@@ -365,7 +384,7 @@ def _deliverable_hits(path: Path, rel: str, text: str, plain: bool, reg: Path) -
         except OSError as err:
             raise ReviewError("the deliverable cannot be read (%s)" % type(err).__name__) from None
         hits = [h for h in hits if h.get("cls") != "path"]
-    if _check("%s/%s" % (DELIVERABLES, rel), reg):
+    if _check(_checked_path(rel), reg):
         hits.insert(0, {"start": 0, "length": 0, "cls": "path"})
     return hits
 
@@ -525,7 +544,7 @@ def init(deliverable, request, tier: int | None, budget: int, reader: str | None
         raise ReviewError("contract.md exists already; give --force to write it again")
     body = render_contract(rel, tier, budget, mode, _platform(project), reader, text,
                            today or date.today().isoformat(), lowered)
-    hits = _check(body, reg)
+    hits = _check(body.replace("%s/%s" % (DELIVERABLES, rel), _checked_path(rel)), reg)
     if hits:
         raise Refused("the contract was refused by the name check (%s); nothing was written" % _counts(hits))
     _write_atomic(target, body)
@@ -1378,6 +1397,8 @@ class PassResult:
     record_path: Path
     l0: L0Result
     lenses: dict
+    final_check: str = ""   # RV2: the record of the final check that stands in for the request check and the
+                            # blind verification, "" when none does
 
 
 def _hash_or_none(path: Path) -> str | None:
@@ -1417,6 +1438,9 @@ def run_pass(deliverable, register_path=None, today: str | None = None, kb_where
     res = l0(path, register_path, kb_where)
     lenses, lens_problems = lens_summary(folder / LENSES, res.tier, register_path)
     problems = list(res.problems) + lens_problems
+    fx = fx_exemption(project, rel)
+    if res.tier >= LENSES_REQUIRED_FROM and not fx.exempt:
+        problems.extend(_blind_problems(path, project, folder, rel, res.high, fx.reason))
     try:
         changed = sha256_file(path) != res.sha256
     except OSError:
@@ -1449,8 +1473,91 @@ def run_pass(deliverable, register_path=None, today: str | None = None, kb_where
         "open_points": {"unknown_claims": (claims.get("by_verdict") or {}).get("unknown", 0),
                         "open_findings": sum(r["open_other"] for r in per_lens)},
     }
+    if fx.exempt:
+        record["final_check"] = fx.record
     _write_atomic(record_path, json.dumps(record, indent=2, sort_keys=True) + "\n")
-    return PassResult(True, [], record, record_path, res, lenses)
+    return PassResult(True, [], record, record_path, res, lenses, fx.record if fx.exempt else "")
+
+
+VERIFY_KIND = "verify"
+"""The kind (and the file name) of the blind verification lens of workflows/review.js."""
+BLIND_EVIDENCE = "evidence/review"
+"""Where workflows/review.js writes the blind answers: evidence/review/<slug>/<claim id>.md."""
+BLIND_EMPTY = ("the blind verification checked 0 claims while %d high-risk claims carry a verdict it did not set: "
+               "clear the verdicts set before the review in claims.tsv and run workflows/review.js again")
+"""RV1 (2026-10-27): a session set the verdicts before the tier 3 review, so the blind verification had nothing to
+check and the run looked complete."""
+
+
+def _verify_checked(lens_dir: Path) -> int | None:
+    """How many claims the blind verification lens files in `lens_dir` checked; None when there is none."""
+    if not lens_dir.is_dir():
+        return None
+    checked: int | None = None
+    for f in sorted(lens_dir.glob("*.json")):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue
+        if not isinstance(data, dict) or (data.get("kind") != VERIFY_KIND and f.stem != VERIFY_KIND):
+            continue
+        # every claim the lens checked is in "claims"; a finding exists only for a checked claim
+        claims, findings = data.get("claims"), data.get("findings")
+        checked = (checked or 0) + max(len(claims) if isinstance(claims, list) else 0,
+                                       len(findings) if isinstance(findings, list) else 0)
+    return checked
+
+
+def blind_slug(rel: str) -> str:
+    """The folder name workflows/review.js gives the blind answers of deliverables/<rel> (its SLUG)."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", rel)
+
+
+def _not_blind(path: Path, project: Path, folder: Path, rel: str) -> int:
+    """The high-risk claims of the text (risk from the detector) whose row does not cite the answer of a blind
+    check of an earlier round (evidence/review/<slug>/<claim id>.md, a file that is there)."""
+    data = _read_bytes(path)
+    if _read_plain(data) is not None:
+        text, _ = _deliverable_text(path, data)
+    else:
+        with _snapshot(path, data) as snap:
+            text, _ = _deliverable_text(snap, data)
+    high = [c for c in find_claims(text) if c.risk == "high"]
+    try:
+        rows = load_claims(folder / CLAIMS)
+    except ReviewError:
+        return len(high)
+    pairs, _ = _pair_rows(high, rows)
+    gap = 0
+    for _c, row in pairs:
+        blind = "%s/%s/%s.md" % (BLIND_EVIDENCE, blind_slug(rel), row.id) if row is not None else ""
+        items = [x.strip() for x in (row.evidence if row is not None else "").split(";")]
+        if not blind or blind not in items or not (project / blind).is_file():
+            gap += 1
+    return gap
+
+
+def _blind_problems(path: Path, project: Path, folder: Path, rel: str, high: int, fx_reason: str) -> list[str]:
+    """RV1: at tier 3 a blind verification that checked 0 claims while the text has high-risk claims whose verdict
+    no blind check set refuses the pass. A row whose verdict came from a blind check of an earlier round (V-14) counts
+    as checked. A final text that lost its final check (`fx_reason`) needs the blind verification."""
+    if high <= 0:
+        return []
+    checked = _verify_checked(folder / LENSES)
+    if checked is None:
+        if fx_reason:
+            return ["%s: the full review applies again and the blind verification has not run (workflows/review.js "
+                    "without after_fx)" % fx_reason]
+        return []
+    if checked > 0:
+        return []
+    try:
+        gap = _not_blind(path, project, folder, rel)
+    except (OSError, ReviewError):
+        gap = high
+    if not gap:
+        return []
+    return [("%s: " % fx_reason if fx_reason else "") + BLIND_EMPTY % gap]
 
 
 # --------------------------------------------------------------------------- status
@@ -1532,7 +1639,8 @@ def status(project: Path) -> list[dict]:
 
 FINAL_CHECK = "final-check.json"
 """The record of a final check (FX, workflows/final-check.js) beside record.json in reviews/<name>/. It binds
-nothing: the record, its state and the send gate of `awb bucket put` never read it."""
+nothing of the draft. For the final text it names, with the sha256 of that text (RV2), it stands in for the request
+check and the blind verification while the text is unchanged (`fx_exemption`)."""
 FINAL_CHECK_KIND = "final-check"
 _MODEL_RE = re.compile(r"[A-Za-z][A-Za-z0-9 .-]{0,39}")
 _FC_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -1569,9 +1677,58 @@ def final_check(project: Path, name: str) -> dict | None:
             or ".." in final.split("/"):
         final = ""
     points = data.get("open_points")
+    digest = data.get("final_sha256")
     return {"date": date_, "model": model, "effort": effort, "final": final,
             "table": "%s/%s/final-check.md" % (REVIEWS, name),
-            "open_points": len(points) if isinstance(points, list) else 0}
+            "open_points": len(points) if isinstance(points, list) else 0,
+            "final_sha256": digest if isinstance(digest, str) and _SHA_RE.fullmatch(digest) else ""}
+
+
+_SHA_RE = re.compile(r"[0-9a-f]{64}")
+FX_NO_HASH = "the record of the final check carries no hash of the final text (a run before RV2)"
+FX_CHANGED = "the final text changed after the final check"
+
+
+@dataclass
+class FxState:
+    """RV2 (his decision of 2026-10-27): whether the final check stands in for the request check and the blind
+    verification of the final text deliverables/<rel>. `record` is the record that does; `reason` says why none does
+    when the file is the final text of a recorded final check ("" when it is no such text)."""
+    exempt: bool
+    reason: str = ""
+    record: str = ""
+
+
+def fx_exemption(project: Path, rel: str) -> FxState:
+    """The final check stands in when deliverables/<rel> is the final text <stem>.final.md of a recorded final check
+    (reviews/<name>/final-check.json names it) and the record carries the sha256 of exactly the bytes on disk now.
+    An edit after the check or an old record without the hash gives no exemption: the full review applies."""
+    project = Path(project)
+    target = "%s/%s" % (DELIVERABLES, rel)
+    base = project / REVIEWS
+    if not rel.endswith(".final.md") or not base.is_dir():
+        return FxState(False)
+    found: list[tuple[str, dict]] = []
+    for f in sorted(base.rglob(FINAL_CHECK)):
+        try:
+            name = f.parent.relative_to(base).as_posix()
+        except ValueError:
+            continue
+        if final_name(name) != target:
+            continue
+        fc = final_check(project, name)
+        if fc is not None and fc["final"] == target:
+            found.append((name, fc))
+    if not found:
+        return FxState(False)
+    try:
+        digest = sha256_file(project / DELIVERABLES / rel)
+    except OSError:
+        return FxState(False, FX_CHANGED)
+    for name, fc in found:
+        if fc["final_sha256"] == digest:
+            return FxState(True, "", "%s/%s/%s" % (REVIEWS, name, FINAL_CHECK))
+    return FxState(False, FX_CHANGED if any(fc["final_sha256"] for _, fc in found) else FX_NO_HASH)
 
 
 SEND_OK = "ok"
@@ -1956,7 +2113,8 @@ def send_check(project: Path, file: Path, for_customer: bool, register_path=None
     container (an office file, a pdf, an archive, a mail). Matched, the deliverable's record decides: for a
     project with a customer or partner (`for_customer`) the gate refuses one without a valid record, a changed
     copy, one whose record does not carry the tier of its contract, one reviewed below tier 3 unless he lowered
-    the tier (decision 14) and one at tier 3 whose lenses hold no request check of this deliverable (V-16). The
+    the tier (decision 14) and one at tier 3 whose lenses hold no request check of this deliverable (V-16), unless it
+    is the unchanged final text of a final check, which stands in for the request check (RV2, `fx_exemption`). The
     review material of a project (its reviews/ folder) and a deliverable of another project of the Workbench
     (`workbench`, the Paths) never leave. Anything else is an internal file: it leaves with a warning, unless it
     or its name carries a registered name, which refuses whatever the project (a name in a text a session wrote
@@ -2074,7 +2232,11 @@ def send_check(project: Path, file: Path, for_customer: bool, register_path=None
         return SEND_REFUSE, ("reviewed at tier %d, but a text for a customer or partner needs tier %d unless he "
                              "lowered it (awb review init --lowered)" % (tier, needed))
     if tier >= SEND_TIER and not _request_lens_for(folder, rel):
-        return SEND_REFUSE, "the request check has not run for this deliverable (workflows/request-check.js)"
+        fx = fx_exemption(project, rel)
+        if fx.exempt:
+            return SEND_OK, "reviewed at tier %d, the final check in place of the request check" % tier
+        return SEND_REFUSE, ("the request check has not run for this deliverable (workflows/request-check.js)"
+                             + ("; %s, so the full review applies again" % fx.reason if fx.reason else ""))
     return SEND_OK, "reviewed at tier %d%s" % (tier, ", lowered by him" if contract.lowered else "")
 
 
@@ -2166,6 +2328,9 @@ def _cmd_pass(args) -> int:
         return EXIT_FINDINGS
     print("pass: %s (tier %d): %s; %d lens files, %d blocking findings closed; record.json written"
           % (label, res.l0.tier, _l0_line(res.l0), res.lenses["files"], res.lenses["blocking"]))
+    if res.final_check:
+        print("final check: it stands in for the request check and the blind verification while the final text is "
+              "unchanged")
     return EXIT_OK
 
 

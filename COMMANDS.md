@@ -563,8 +563,16 @@ runs it only on his phrase "final check" or "финальная вычитка" 
 Fable 5.1 at effort max, about 200k tokens and 10 to 15 minutes). The agent reads input/, SCOPE.md, STATE.md, OPEN.md,
 evidence/, the review folder and the draft, writes the answer again from the request into `deliverables/STEM.final.md`
 and the table of questions, caveats, cuts and unsupported claims into `reviews/FILE/final-check.md`. The script
-records the run in `reviews/FILE/final-check.json`; `awb review show` lists it. The record binds nothing and
-`awb bucket put` never asks for it; the final text is a new deliverable with its own review.
+records the run in `reviews/FILE/final-check.json` with the sha256 of the final text; `awb review show` lists it.
+The final text is a new deliverable with its own review. That review costs less: the session runs
+`workflows/review.js` (scriptPath `/opt/tcp-awb/src/workflows/review.js`) with `after_fx: true` in its args, which
+runs only the platform lenses and the partner lens, then `awb review pass`. While the final text has the hash of its
+record, the pass needs no blind verification and `awb bucket put` takes the final check for the request check. After
+an edit or with a record from before the hash the full review applies again and the messages say so.
+
+A tier 3 pass refuses a blind verification that checked 0 claims while the text has high-risk claims whose verdict no
+blind check set: verdicts filled in claims.tsv before the review hide the claims from it. Clear them and run the
+review again; review.js stops after its prepare step in that case.
 
 A text in his name follows the drafting skill (`seal/work-claude/skills/drafting/SKILL.md`, installed by the seal
 for the work user): facts first (the review above), then the checked version is kept as
