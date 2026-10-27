@@ -544,19 +544,6 @@ def fake_review(monkeypatch, rows):
     return calls
 
 
-def test_stop_with_a_stale_record_is_blocked(project, monkeypatch, capsys):
-    calls = fake_review(monkeypatch, [
-        {"file": "deliverables/%s-offer.md" % CODE, "state": "stale"},
-        {"file": "deliverables/%s-sizing.md" % CODE, "state": "valid"},
-        {"file": "deliverables/%s-mail.md" % CODE, "state": "missing"},
-    ])
-    code, out, err = run_hook("stop", {"hook_event_name": "Stop", "cwd": str(project / "deliverables"),
-                                       "stop_hook_active": False}, monkeypatch, capsys)
-    assert code == 2
-    assert err.strip() == "run the review for: %s-offer.md, %s-mail.md" % (CODE, CODE)
-    assert calls == [project]
-
-
 def test_a_refused_ledger_draft_moves_no_marker_and_is_said_once(project, home, monkeypatch, capsys):
     """TM0 item 5: a commit subject the ledger refuses leaves the marker where it was, the stop hook says so once,
     and the next commit is drafted again."""
@@ -594,13 +581,6 @@ def test_stop_hook_active_never_loops(project, monkeypatch, capsys):
 def test_stop_with_valid_records_passes(project, monkeypatch, capsys):
     fake_review(monkeypatch, [{"file": "deliverables/%s-offer.md" % CODE, "state": "valid"}])
     assert run_hook("stop", {"cwd": str(project)}, monkeypatch, capsys) == (0, "", "")
-
-
-def test_stop_masks_a_file_name_that_carries_a_name(project, monkeypatch, capsys):
-    fake_review(monkeypatch, [{"file": "deliverables/offer-%s.md" % fixtures.CUSTOMER_FORMS[1], "state": "stale"}])
-    code, _, err = run_hook("stop", {"cwd": str(project)}, monkeypatch, capsys)
-    assert code == 2
-    assert err.strip() == "run the review for: file 1"
 
 
 def test_stop_without_the_review_module_passes(project, monkeypatch, capsys):
@@ -767,31 +747,6 @@ def test_post_write_runs_the_real_writing_check_on_a_deliverable(project, monkey
     assert "em-dash line 2" in err
     target.write_text("The landing zone is ready.\nThe backup plan is next.\n", encoding="utf-8")
     assert run_hook("post-write", write_payload(target), monkeypatch, capsys) == (0, "", "")
-
-
-def test_stop_reads_the_real_review_status(project, tmp_path, monkeypatch, capsys):
-    from awb import review
-
-    assert hooks._module("review") is review
-    target = project / "deliverables" / "offer.md"
-    target.write_text("The landing zone is ready.\n", encoding="utf-8")
-    code, _, err = run_hook("stop", {"cwd": str(project)}, monkeypatch, capsys)
-    assert code == 2 and err.strip() == "run the review for: offer.md"
-    # review of release 2: a record written by hand with the hash alone is no longer a valid record
-    record = review.review_dir(project, "offer.md") / review.RECORD
-    record.parent.mkdir(parents=True)
-    record.write_text(json.dumps({"sha256": review.sha256_file(target), "tier": 0}), encoding="utf-8")
-    code, _, err = run_hook("stop", {"cwd": str(project)}, monkeypatch, capsys)
-    assert code == 2 and err.strip() == "run the review for: offer.md"
-    # a real pass is
-    request = tmp_path / "request.txt"
-    request.write_text("Is the landing zone ready?\n", encoding="utf-8")
-    review.init(target, request, 0, 50)
-    assert review.run_pass(target).passed
-    assert run_hook("stop", {"cwd": str(project)}, monkeypatch, capsys) == (0, "", "")
-    target.write_text("The landing zone is ready now.\n", encoding="utf-8")
-    code, _, err = run_hook("stop", {"cwd": str(project)}, monkeypatch, capsys)
-    assert code == 2 and "offer.md" in err
 
 
 def test_session_start_counts_with_the_real_kb_and_career(project, home, monkeypatch, capsys):

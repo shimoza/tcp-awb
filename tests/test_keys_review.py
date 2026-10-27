@@ -168,22 +168,6 @@ def test_a_row_never_granted_does_not_choose_the_customer_of_an_owner_take(svc, 
         "the planted row chose the customer of the take: %s" % {k: a.get(k) for k in ("state", "customer")})
 
 
-def test_a_row_never_granted_does_not_loosen_the_send_gate_of_the_service(svc, buckets, home, cust_project):
-    """Promise (39b9af4): the strict form of the service's send gate follows the owner's record, never the row.
-    Attack: a customer project the owner never granted rewrites its row to customer none and puts an unreviewed
-    deliverable; the service judges it as a project without a customer and lets it out."""
-    lab, _ = buckets
-    d = Path(cust_project.path) / "deliverables" / "plan.md"
-    d.write_text("The plan: two clusters on managed k8s.\n", encoding="utf-8")
-    key = "%s/from-session/2026-10-10/put-0123456789ab.md" % cust_project.code
-    req = {"op": "obs", "method": "PUT", "project": cust_project.code, "key": key, "name": "plan.md"}
-    a = keys.request(svc.call_path, dict(req), upload=d)
-    assert not a["ok"] and key not in lab.objects, "control: the row as spawned is refused"
-    _plant_row(home, cust_project.code, projects.NO_CUSTOMER)
-    a = keys.request(svc.call_path, dict(req), upload=d)
-    assert not a["ok"] and key not in lab.objects, "the planted row loosened the send gate: %s" % a
-
-
 def test_the_lab_key_of_the_bucket_tenant_under_another_alias_gives_no_lease(svc, monkeypatch):
     """Finding 1, the same key twice: the owner loads the bucket tenant's lab key under a second alias as well; the
     lease compares the key, not only the alias, and mints nothing."""

@@ -50,12 +50,15 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        path carries a registered name. Also exit 2 when the name check cannot
                                        run (with the time of the lock and the unlock) or the file is over
                                        MAX_WRITE_BYTES (MAX_DELIVERABLE_BYTES under deliverables): the file is
-                                       written (the tool ran) and the session is told that it is unchecked
+                                       written (the tool ran) and the session is told that it is unchecked.
+                                       In a project (task GT) ids and structured data pass, only a registered
+                                       name blocks and the secrets are shortened in place (awb/labsecrets.py)
+                                       with a context line instead of a block
     selftest        (none)             plants refused cases and a pass in a throw-away home; exit 1 when a
                                        planted refusal passes
-    stop            Stop               exit 2 with "run the review for: ..." while a deliverable has no valid
-                                       review record, and while STATE.md lags behind the project's commits or
-                                       lacks its Status: and Next: lines (awb/status.py). Exit 2 as well with
+    stop            Stop               exit 2 while STATE.md lags behind the project's commits or
+                                       lacks its Status: and Next: lines (awb/status.py); never for a review,
+                                       a tier or a request check (task GT). Exit 2 as well with
                                        one line per draft when the reply names a draft (a file under
                                        deliverables/ or a mail draft, outside input/, evidence/ and reviews/)
                                        that this turn changed without a clean `awb write check` of it after the
@@ -759,6 +762,8 @@ def _writing_tells(path: Path, scope: str, mode: str = "doc") -> list[tuple[str,
             continue
         line = _field(t, "line", default=0)
         hint = str(_field(t, "hint", default="") or "")
+        if line == 0 and hint.startswith("file name:"):
+            continue                    # task GT: the name of a file blocks nothing
         out.append((str(_field(t, "cls", default="unknown")), line if isinstance(line, int) else 0, hint))
     return out
 
@@ -789,6 +794,10 @@ def hook_post_write(data: dict, names: bool = True) -> int:
     problems: list[str] = []
     warnings: list[str] = []
     text = _plain_text(path)
+    shortened = ""
+    if text is not None and root is not None:
+        # task GT: a log of our own lab runs keeps every id; its secrets are shortened or replaced in place
+        text, shortened = _shorten_in_place(path, text)
     if text is not None:
         secrets = _secret_hits(text)
         if secrets:
@@ -824,6 +833,8 @@ def hook_post_write(data: dict, names: bool = True) -> int:
             problems.append("the written file is not checked: %s: %s, then run `awb check` on it. Keep every "
                             "name out of it; until then it goes nowhere." % (exc.locked(), UNLOCK_HINT))
         hits = []
+    if root is not None:
+        hits = [h for h in hits if h.get("cls") in NAME_CLASSES]    # task GT: ids and structured data stay
     if hits:
         problems.append("the written file carries %d hits of the name check: %s. Replace them with codes "
                         "(awb check FILE shows the positions)." % (len(hits), _describe(_lines(path, hits))))
@@ -843,7 +854,31 @@ def hook_post_write(data: dict, names: bool = True) -> int:
     if warnings:
         text = "Warning from the Workbench: %s. Check the file again when the check is back." % "; ".join(warnings)
         _emit(EVENTS["post-write"], text, "awb: %s" % "; ".join(warnings))
+    elif shortened:
+        _emit(EVENTS["post-write"], "The written file carried secrets: %s in place (passwords and logins masked, "
+              "temporary tokens and keys shortened to 8 characters, a permanent key replaced). Read it again before "
+              "you edit it." % shortened)
     return OK
+
+
+NAME_CLASSES = ("name", "path")
+"""What the write hook still refuses in a project file (task GT): a registered name in the text or the file name."""
+
+
+def _shorten_in_place(path: Path, text: str) -> tuple[str, str]:
+    """(the text now, the counts) after the secrets of `text` were shortened or replaced in the file itself."""
+    from awb import labsecrets
+
+    new, counts = labsecrets.shorten(text)
+    if new == text:
+        return text, ""
+    try:
+        with open(path, "r+", encoding="utf-8") as fh:     # the same file: its owner and mode stay
+            fh.write(new)
+            fh.truncate()
+    except OSError:
+        return text, ""
+    return new, labsecrets.said(counts)
 
 
 def _safe_names(files: list[str]) -> list[str]:
@@ -1195,39 +1230,12 @@ def hook_stop(data: dict) -> int:
         draft_lines = ["the draft check of the stop hook failed (%s): run awb write check on every draft you show"
                        % type(exc).__name__]
     drafts_msg = "\n".join(draft_lines) if draft_lines else None
-    mod = _module("review")
-    status = getattr(mod, "status", None) if mod is not None else None
-    rows = None
-    if status is not None:
-        try:
-            rows = status(root)
-        except Exception:
-            rows = None
-    pending = []
-    unreadable = []
-    for row in rows or []:
-        state = str(_field(row, "state", "record", "status", default="") or "")
-        if state == "valid":
-            continue
-        name = _field(row, "file", "deliverable", "name", "path", default="")
-        (unreadable if state == "unreadable" else pending).append(Path(str(name)).name or "unnamed")
-    if not pending and not unreadable:
-        said = [m for m in (draft_msg, harvest_msg, late_msg, drafts_msg) if m]
-        if said:
-            print("\n".join(said), file=sys.stderr)
-            return BLOCK
-        return OK
-    shown = _safe_names(pending + unreadable)
-    lines = [m for m in (draft_msg, harvest_msg, late_msg, drafts_msg) if m]
-    if pending:
-        lines.append("run the review for: %s" % ", ".join(shown[:len(pending)]))
-    if unreadable:
-        # an image or another file without text can never pass the review: asking for one would never end
-        lines.append("these files cannot be read as text and can never pass the review, move them out of "
-                     "deliverables/ (a diagram as SVG or as a PDF with a text layer can stay): %s"
-                     % ", ".join(shown[len(pending):]))
-    print("\n".join(lines), file=sys.stderr)
-    return BLOCK
+    # task GT: the stop hook never asks for a review, a tier or a request check
+    said = [m for m in (draft_msg, harvest_msg, late_msg, drafts_msg) if m]
+    if said:
+        print("\n".join(said), file=sys.stderr)
+        return BLOCK
+    return OK
 
 
 def _kb_expired(p: config.Paths) -> int | None:

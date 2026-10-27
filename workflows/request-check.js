@@ -20,8 +20,8 @@ export const meta = {
 // grade allows is a blocking MISLEADING finding, content nobody asked for is a major EXTRA finding and a statement
 // of fact that has no row in the claim list is a major UNSOURCED finding (the author adds the row; the calibration of
 // 2026-09-25 showed that judging such sentences as overclaims blocks every clean text). He fixes the text and sets
-// "confirmed-fixed", or "softened" for a claim he softened. The send gate of `awb bucket put` refuses a tier 3
-// deliverable of a customer or partner whose lenses hold no request check.
+// "confirmed-fixed", or "softened" for a claim he softened. It runs only on his word; a put never waits for it
+// (task GT).
 
 const OUTCOME_OPEN = 'open'
 

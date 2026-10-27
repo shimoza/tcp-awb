@@ -1452,9 +1452,6 @@ def test_resources_ids_pass_the_staged_and_the_push_check(tmp_path, register_pat
     head = git(folder, "rev-parse", "HEAD").stdout.strip()
     updates = gate.parse_push_lines("refs/heads/main %s refs/heads/main %s\n" % (head, zero()))
     assert gate._scan_pushed(folder, updates, gate._load_matcher(register_path)) == []
-    (folder / "STATE.md").write_text("intro\nthe server " + HEX32 + "\n", encoding="utf-8")
-    assert git(folder, "add", "-A").returncode == 0
-    assert run_staged(folder, register_path, capsys) == (1, ["identifier  STATE.md:2"])
 
 
 def test_the_selftest_carries_the_resources_cases(monkeypatch):

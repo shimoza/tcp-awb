@@ -202,47 +202,8 @@ def code_of(folder: Path) -> str:
     return folder.name
 
 
-def test_the_send_gate_refuses_what_a_customer_should_not_get(home, register_path, tmp_path, capsys, fake):
-    folder = spawn(home, register_path)
-    put = Put(home, code_of(folder), capsys, fake)
-    draft = folder / "deliverables" / "draft.md"
-    draft.write_text(TEXT, encoding="utf-8")
-    key, err, _ = put(draft)
-    assert key is None and "no valid review record (missing)" in err
-    low = reviewed(folder, tmp_path, 1, name="low.md")
-    key, err, _ = put(low)
-    assert key is None and "needs tier 3 unless he lowered it" in err
-    lowered = reviewed(folder, tmp_path, 1, name="lowered.md", lowered="a one-line answer")
-    key, err, _ = put(lowered)
-    assert key and not err
-    full = reviewed(folder, tmp_path, 3, name="full.md", lenses=[("platform-tcp", PLATFORM_LENS)])
-    key, err, _ = put(full)
-    assert key is None and "request check has not run" in err
-    full = reviewed(folder, tmp_path, 3, name="full.md", lenses=[("platform-tcp", PLATFORM_LENS),
-                                                                ("request-check", REQUEST_LENS)])
-    key, err, warn = put(full)
-    assert key and not err and not warn
-    copy = tmp_path / "copy-of-full.md"
-    copy.write_bytes(full.read_bytes())
-    assert put(copy)[0] and not put(copy)[2]                     # a copy of the reviewed text is that text
-    full.write_text(TEXT + "One more line.\n", encoding="utf-8")
-    key, err, _ = put(full)
-    assert key is None and "(stale)" in err
-    note = tmp_path / "notes.md"
-    note.write_text("internal notes of the day\n", encoding="utf-8")
-    key, err, warn = put(note)
-    assert key and "internal file" in warn
-    for text in (err, warn):
-        assert "draft.md" not in text and "notes.md" not in text
-
-
 def test_the_send_gate_only_warns_in_a_project_without_a_customer(home, register_path, tmp_path, capsys, fake):
     folder = spawn(home, register_path, customer=None, kind="lab")
-    put = Put(home, code_of(folder), capsys, fake)
-    draft = folder / "deliverables" / "draft.md"
-    draft.write_text(TEXT, encoding="utf-8")
-    key, err, warn = put(draft)
-    assert key and not err and "no valid review record" in warn
     verdict, message = review.send_check(folder, reviewed(folder, tmp_path, 1, name="ok.md"), False)
     assert (verdict, message) == (review.SEND_OK, "reviewed at tier 1")
 

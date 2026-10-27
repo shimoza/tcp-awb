@@ -1,11 +1,12 @@
 ---
 name: review
-description: Review a deliverable (architecture, migration concept, offer text, customer answer) before it leaves the project
+description: Review a deliverable (architecture, migration concept, offer text, customer answer) when he asks for a review ('ревью')
 ---
 
 # Review before a deliverable leaves
 
-A deliverable lives under `deliverables/` of a Workbench project. It leaves only with a valid review record.
+A deliverable lives under `deliverables/` of a Workbench project. A review runs only on his word ('ревью'); a put never
+waits for it and never asks for a record.
 
 1. Set the contract first: `awb review init deliverables/FILE --request REQUEST.md [--tier N] --budget WORDS`. A deliverable
    takes the review tier of its project (`- review-tier:` of SCOPE.md, 3 unless he set it); only he raises it for a file.

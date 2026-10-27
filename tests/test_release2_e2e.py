@@ -273,8 +273,6 @@ def test_release2_end_to_end_with_the_tool_guard(places, daemon, monkeypatch, ca
     code, _, _ = con.hook("post-write", {"hook_event_name": "PostToolUse", "cwd": str(project),
                                          "tool_input": {"file_path": str(deliverable)}})
     assert code == 0
-    code, _, err = con.hook("stop", {"hook_event_name": "Stop", "cwd": str(project)})
-    assert code == 2 and "run the review for: offer.md" in err
 
     request = project / "input" / "request.md"
     request.write_text("Write a short offer for the landing zone. Which services does it use?\n", encoding="utf-8")

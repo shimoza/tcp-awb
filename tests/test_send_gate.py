@@ -129,22 +129,3 @@ def test_review_material_and_another_projects_deliverable_never_leave(home, regi
     assert verdict(a, copy, home=home) == review.SEND_OK
 
 
-def test_put_uploads_the_bytes_the_gate_judged(home, register_path, tmp_path, monkeypatch):
-    folder = spawn(home, register_path)
-    d = tier3(folder, tmp_path)
-    code = folder.name
-    with FakeOBS() as fake:
-        c = fake.client()
-        key, _ = bucket.put(home, c, code, d)
-        assert key.endswith("/out/reply.md") and fake.objects[key] == d.read_bytes()
-        original = review.send_check
-
-        def then_swap(*args, **kwargs):
-            out = original(*args, **kwargs)
-            d.write_text("swapped after the gate\n", encoding="utf-8")
-            return out
-
-        monkeypatch.setattr(review, "send_check", then_swap)
-        with pytest.raises(bucket.BucketError, match="changed after the send gate"):
-            bucket.put(home, c, code, d, replace=True)
-        assert fake.objects[key] != b"swapped after the gate\n"

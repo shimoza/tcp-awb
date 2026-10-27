@@ -160,21 +160,6 @@ def test_the_guard_still_refuses_an_inline_script_and_any_other_path(world):  # 
 # --------------------------------------------------------------------------- the project template
 
 
-def test_the_template_carries_the_phrase_and_the_script_path(home, register_path):
-    from tests.test_lifecycle import spawn
-
-    pr = spawn(home, register_path)
-    text = (Path(pr.path) / "CLAUDE.md").read_text(encoding="utf-8")
-    assert "## Final check (FX)" in text
-    assert "\"финальная вычитка\"" in text and "\"final check\"" in text
-    assert "Fable 5.1 at effort max" in text and "200k tokens" in text and "Wait for one word" in text
-    assert "never on your own and never as part of another step" in text
-    assert "\"Final check (FX, DATE)\"" in text and "OPEN.md" in text
-    assert len(text.splitlines()) <= projects.MAX_CLAUDE_LINES
-    assert rulesync.sync_project(Path(pr.path)) == []
-    assert gate.scan_files([Path(pr.path) / "CLAUDE.md"], None) == []
-
-
 def test_the_sync_adds_the_final_check_section_to_an_older_project_once(tmp_path):
     root = tmp_path / "tcp-q7m4"
     root.mkdir()
@@ -185,7 +170,6 @@ def test_the_sync_adds_the_final_check_section_to_an_older_project_once(tmp_path
     assert not rulesync.current(root)
     assert rulesync.sync_project(root) == ["CLAUDE.md"]
     text = (root / "CLAUDE.md").read_text(encoding="utf-8")
-    assert text.count("## Final check (FX)") == 1 and "workflows/final-check.js" in text
     assert text.endswith(projects.FINAL_CHECK_SECTION)
     assert "- A note of this project: the lab image lives in the lab bucket." in text
     assert rulesync.sync_project(root) == [] and rulesync.current(root)

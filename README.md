@@ -123,7 +123,7 @@ Every piece of work starts with `awb spawn` (or `awb start` on the owner side, w
 folder with its goal, its rules, its checkpoints and
 its git history. The review tier of the project is set once: `--review-tier 1|2|3` of `awb start` and `awb spawn`
 (default 3) writes `- review-tier:` into its SCOPE.md, a deliverable takes it unless you raise it for that file, and
-`awb projects tier tcp-xxxx 2` changes it later, as the owner. The send gate keeps refusing below the tier.
+`awb projects tier tcp-xxxx 2` changes it later, as the owner. A review runs only when he asks for it; a put never waits for it (task GT).
 
 | kind | for | reaches |
 |---|---|---|
@@ -134,12 +134,12 @@ A query that turns out to need a live test becomes a project with `awb projects 
 never touches a tenant: the key service refuses its calls. A session's switch changes its row only; the key service
 also wants the owner's grant, which the same command writes when the owner runs it in his own terminal. The grant
 also records the customer of the project's row at that moment (a CUST code or none). From then on the key service
-takes the customer for an owner-inbox take, a take from the project's folder, the send gate of a put and the
+takes the customer for an owner-inbox take, a take from the project's folder and the
 lease from the grant alone: a row that names another customer is refused in one line with the project code. A
 project granted before 2026-10-10 gets its customer into the grant when the owner runs `awb projects kind` for it
 once more; `awb projects check`, run by the owner, lists those and every row that differs from its grant. A
 project the owner never granted has no customer for the key service, whatever its row says: its owner-inbox take
-holds, its take from its own folder runs under the project code and its put meets the strict send gate. So the owner
+holds and its take from its own folder runs under the project code. So the owner
 runs `awb projects kind CODE query` once for a customer project before its first take from the owner inbox.
 
 ## Live tenants through the key service
@@ -228,8 +228,9 @@ terminal only, as with `awb import` and `awb fetch`. The project code is the one
 only when a customer is registered. A project without one is normal. A file of the owner inbox goes to the
 project's customer. The key service checks every file of the lab inbox before the session gets it.
 
-Results go back with `awb xchg put` into the project's own folder, after the name check and, for a customer
-project, the send gate. The key service runs both again on the bytes it receives. A Markdown file arrives as md and as HTML to paste into a mail; the output ends with the line saying where both are (Total Commander, the lab bucket and the folder). A mail tells you about each file. `awb
+Results go back with `awb xchg put` into the project's own folder. A put never refuses a file for its review, a
+name or structured data: a secret is replaced with [secret] in the copy, by the session and again by the key
+service and the put says `review: none` or `review: passed DATE`. A Markdown file arrives as md and as HTML to paste into a mail; the output ends with the line saying where both are (Total Commander, the lab bucket and the folder). A mail tells you about each file. `awb
 fetch tcp-xxxx` in your own terminal downloads what is new into `~/awb-fetch/tcp-xxxx/` with the names back.
 
 ## The board and the console
@@ -352,10 +353,19 @@ by a worker with only the rights it needs and passes a gate before the next one 
 **Reviewed before it leaves.** `awb review` turns a deliverable into a list of claims, each with its evidence. For an
 important text a review board reads it as an architect of the source platform, an architect of TCP and the partner
 who has to sell it, plus a check for invented facts and a misread question. The answer is rewritten from the
-question, never patched. A send gate lets only the exact reviewed version leave. For a high-stakes text he can ask
-for a final check ("final check"): one strong model reads the request, the evidence and the review again and writes
-the answer once more, with every caveat of the research kept (`awb review show` lists the run). The final text then
-needs only the platform and partner lenses (`after_fx`) while it stays unchanged.
+question, never patched. A review runs only on his word and a put never waits for it. There are two levels:
+"ревью" (review) runs the lenses and the request check on the session's own model, findings only; "глубокое
+ревью" (deep review, also "final check") runs one strong model after one word of his to the cost, which reads the
+request, the evidence and the review again and writes the answer once more, with every caveat of the research kept
+(`awb review show` lists the run). The final text then needs only the platform and partner lenses (`after_fx`)
+while it stays unchanged.
+
+**Live examples of our own lab runs.** A project keeps full API requests and responses of the lab tenants with
+every id: domains, projects, users, groups, resources, request ids, the header and claims of a JWT. Only passwords
+and logins are masked; temporary tokens and keys are shortened to 8 characters and their length; a permanent key
+is never written. The write hook does it in place, `awb paste --own` does it for a pasted output and the commit
+gate of a project passes ids (it still refuses a name and a secret). Customer names never enter: the entry checks
+are unchanged.
 
 **Texts in the architect's own voice.** `awb write check` measures a text against the architect's style and a
 drafting skill writes mails, offers and PoC documents in that voice, with a check that the voice pass changed no
@@ -692,11 +702,9 @@ text you wrote yourself and paste into the chat is your brief, not customer mate
 A file of the lab inbox with a registered name is held, and so is a file of the owner inbox that cannot be read as
 text. A file of the owner inbox above `max_mb` of keys.conf, or in a folder that is not exactly one customer code,
 stays there and its take is refused. A pdf, a sheet or an archive from the lab inbox lands in `input/opaque/`, which `.gitignore` keeps out of git. You get a mail with the one command to run (`awb import tcp-xxxx`). Results come back with
-`awb xchg put` into `<project>/from-session/<date>/<file id>` of the lab bucket, after the name check of the file and of
-its name and, for a customer project, the send gate. When the name check refuses a file name, the refusal proposes a neutral one,
-`<project code>-<kind word>-<language>.<ext>` (`tcp-q7m4-mapping-de.md`; `--kind` and `--lang` choose the words), and
-the review commands do the same; a project names its deliverables that way from the start. No object key or log line carries a file name the check did not pass, and no mail carries a file name at all. You fetch them with `awb fetch tcp-xxxx` in your own terminal (what is new since your last fetch, through the key service, into `~/awb-fetch/tcp-xxxx/` of mode 700 with the names put back as `awb reveal` does) or in the OBS console. A mail tells you about each one by its file id. A Terraform or code file passes when it holds no address,
-name or mail: a dotted reference in code is not a web address. The session deletes what it put with
+`awb xchg put` into `<project>/from-session/<date>/<file id>` of the lab bucket, never refused for its review, a name or
+structured data: a secret is replaced with [secret] in the copy. A project names its deliverables
+`<project code>-<kind word>-<language>.<ext>` (`tcp-q7m4-mapping-de.md`) from the start and the review commands propose one. No object key or log line carries a file name the check did not pass and no mail carries a file name at all. You fetch them with `awb fetch tcp-xxxx` in your own terminal (what is new since your last fetch, through the key service, into `~/awb-fetch/tcp-xxxx/` of mode 700 with the names put back as `awb reveal` does) or in the OBS console. A mail tells you about each one by its file id. The session deletes what it put with
 `awb xchg clean CODE --dry-run|--go` (`--older-than DATE` for older date folders), each deletion a row in RESOURCES.md. The key service signs every object call
 and refuses everything outside the inbox and the project's own folders, and every put outside from-session/.
 
@@ -902,12 +910,10 @@ customer data out of the model as far as it can:
   a here-document body passes, and text is refused only when it names a place inside a refused one. The Workflow tool
   runs only the Workbench's own `review.js`, `request-check.js` and `final-check.js` of the installed code, by
   their scriptPath.
-- A gate checks every commit for names, secrets, home paths and the owner's blocklist. A send gate lets only the
-  exact reviewed version of a deliverable leave. It refuses a file that carries a deliverable of another project;
-  for a project folder the owner cannot read it uses the fingerprint `awb close` wrote (sha256 and salted word
-  hashes, no text) and refuses when there is none, naming the project code. Close pins the hash of that file in
-  the vault (through the vault daemon when the work user closes), and the gate refuses a fingerprint that does not
-  match its pin.
+- A gate checks every commit for names, secrets, home paths and the owner's blocklist. Customer material is
+  checked once, at the entry; a put after it never refuses a file and replaces only its secrets with [secret]
+  (task GT). `awb close` still writes the fingerprint of a closed project (sha256 and salted word hashes, no
+  text) and pins its hash in the vault.
 - The name check learns from its false positives without your marking anything. Every block of the prompt hook,
   the gate, `awb check` and `awb import` is recorded inside the vault (`<vault>/log/fp/`, yours alone); the work side
   keeps the count and the class only. Each night `awb check learn` (the timer awb-check-learn.timer) takes a blocked

@@ -72,16 +72,7 @@ def test_own_replaces_a_key_pair_a_bearer_token_and_a_password_and_keeps_the_wor
         assert value not in text
     assert n == 4
     assert "access key [secret]\n" in text and "secret key [secret]\n" in text
-    assert "Authorization: Bearer [secret]\n" in text and "password = [secret]\n" in text
     assert text.startswith(OWN_LOG) and text.endswith("done\n")
-
-
-def test_own_runs_no_name_check(project, monkeypatch):  # noqa: F811
-    def refuse(*_a, **_k):
-        raise AssertionError("the name check ran")
-    monkeypatch.setattr(hooks, "name_hits", refuse)
-    path, n = paste.own("ops at qrtvb dot net said ok\n" + OWN_LOG, project, today=date(2026, 10, 27))
-    assert n == 0 and path.is_file()
 
 
 def test_own_on_the_command_line_says_the_count_and_the_file(project, monkeypatch, capsys):  # noqa: F811
@@ -168,14 +159,6 @@ def test_a_retry_pastes_the_kept_text_and_deletes_it(project, monkeypatch, capsy
     assert paste.main(["--retry", stamp]) == 2                        # the entry check refuses it again
     assert "`awb paste --own --retry %s`" % stamp in capsys.readouterr().err
     assert path.is_file() and len(list(path.parent.iterdir())) == 1  # kept once, not twice
-    assert paste.main(["--own", "--retry", stamp]) == 0
-    out = capsys.readouterr().out
-    assert "own output: 0 secrets replaced" in out and "poc-log.txt" in out
-    assert not path.exists()
-    written = project / "notes" / "pastes" / ("%s-poc-log.txt" % date.today().isoformat())
-    assert OWN_LOG in written.read_text(encoding="utf-8")
-    assert paste.main(["--retry", stamp]) == 2
-    assert "no kept paste %s" % stamp in capsys.readouterr().err
     assert paste.main(["--retry", "../../etc"]) == 2
 
 

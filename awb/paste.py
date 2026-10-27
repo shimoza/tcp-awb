@@ -11,9 +11,11 @@ The command prints the path and the counts; the session then reads the file. Exi
 error.
 
 --own is for output our own tools made (a PoC script, a lab run on our own tenant, an answer of the key service):
-it carries no new customer data, so only the secret finding of the gate runs (classes secret, private-key, token)
-and each value found becomes `[secret]` in place, the rest of the line kept. No name check, no structured
-pattern, no refusal of the text (the owner's rule of 2026-10-27).
+it carries no new customer data. Every id, address, host and other structured item stays; a registered name still
+refuses it (task GT, 2026-10-27). Its secrets are handled by awb/labsecrets.py: passwords and logins masked,
+temporary tokens and keys shortened to 8 characters and the length, a permanent key pair `[secret]`; what the
+secret finding of the gate (classes secret, private-key, token) still finds after that becomes `[secret]` in place,
+the rest of the line kept.
 
 A refused paste is never lost: the raw text is kept 0600 in the pasting user's own state folder
 (`$XDG_STATE_HOME/awb/refused-pastes/<stamp>-<name>.txt`, default `~/.local/state`, the folder 0700, never inside a
@@ -238,16 +240,30 @@ def own_secrets(text: str) -> tuple[str, int]:
 
 
 def own(text: str, root: Path, name: str | None = None, today: date | None = None) -> tuple[Path, int]:
-    """Our own output into the project at `root`: only the secrets replaced, no name check, no refusal of the
-    text. Returns the path and the number of secrets replaced. Raises PasteError for a usage error only."""
+    """Our own output into the project at `root`: its ids kept, its secrets shortened or replaced, refused only for
+    a registered name (PasteRefused, the text kept for a retry). Returns the path and the number of secrets
+    shortened or replaced. Raises PasteError, hooks.Unavailable."""
+    from awb import hooks, labsecrets
+
     if not text.strip():
         raise PasteError("standard input is empty: pipe the text in")
     if len(text.encode("utf-8")) > OWN_MAX_BYTES:
         raise PasteError("the text is over %d MB: split it" % (OWN_MAX_BYTES // (1024 * 1024)))
     if name is not None and not NAME_RE.fullmatch(name):
         raise PasteError("--as takes lower case letters, digits and hyphens, up to 40")
-    clean, n = own_secrets(text)
-    return _write(root, name, today, clean), n
+    if name is not None and [h for h in hooks.name_hits(name) if h.get("cls") in NAME_CLASSES]:
+        raise PasteRefused("the name of --as carries a registered name: choose a code or a plain word")
+    named = [h for h in hooks.name_hits(text) if h.get("cls") in NAME_CLASSES]
+    if named:
+        raise PasteRefused("the text carries %d registered name(s): nothing was written. A customer name never goes "
+                           "into a project." % len(named))
+    short, counts = labsecrets.shorten(text)
+    clean, n = own_secrets(short)
+    return _write(root, name, today, clean), n + sum(counts.values())
+
+
+NAME_CLASSES = ("name", "path")
+"""What still refuses our own output (task GT): a registered name."""
 
 
 # --------------------------------------------------------------------------- a refused paste is kept
@@ -359,7 +375,8 @@ def main(argv: list[str] | None = None) -> int:
                                                    "of the chat. The text comes on standard input.")
     ap.add_argument("--as", dest="name", default=None, metavar="NAME", help="name of the file instead of a number")
     ap.add_argument("--own", action="store_true",
-                    help="our own output (a script or a lab run of ours): only secrets are replaced, no name check")
+                    help="our own output (a script or a lab run of ours): ids stay, secrets are shortened, only a "
+                         "registered name refuses")
     ap.add_argument("--retry", default=None, metavar="STAMP", help="paste the kept text of a refused paste again")
     try:
         args = ap.parse_args(argv)

@@ -31,7 +31,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from awb import config, devnote
-from awb.projects import OWN_OUTPUT_RULE
+from awb.projects import (FX_AFTER_OLD, FX_HEADING_OLD, FX_PHRASE_OLD, FX_SCRIPT_LINE, LAB_LOGS, LEVEL_2, LEVEL_2_RUN,
+                          OWN_OUTPUT_RULE, REVIEW_L1)
 
 CLAUDE_FIXES = (
     # T6 (2026-10-27): the FX line named /opt/tcp-awb/workflows, a path no release creates
@@ -41,6 +42,10 @@ CLAUDE_FIXES = (
      "- First one line: it runs Fable 5.1 at effort max, costs about 200k tokens and 10-15 minutes. Wait for one "
      "word. Then run Workflow with scriptPath `/opt/tcp-awb/src/workflows/final-check.js` and args {project: this "
      "folder, deliverable: deliverables/<name>, date: today}."),
+    # task GT (2026-10-27): the FX section becomes the review levels
+    (FX_HEADING_OLD, "## Review levels"),
+    (FX_PHRASE_OLD, REVIEW_L1 + "\n" + LEVEL_2),
+    (FX_SCRIPT_LINE, LEVEL_2_RUN),
     ("- Start with SCOPE.md, STATE.md and OPEN.md. Update STATE.md and OPEN.md before the session ends.",
      "- Start with SCOPE.md, STATE.md and OPEN.md. Update STATE.md (with its Status: and Next: lines) and OPEN.md "
      "after every step that changes the status, in the same commit."),
@@ -57,16 +62,14 @@ CLAUDE_FIXES = (
 )
 CLAUDE_ADD = (
     ("- Proof goes to evidence/, results to deliverables/, review records to reviews/.",
-     "- Files for him leave with `awb xchg put FILE` (the lab bucket, from-session/<date>/), after the name check "
-     "and, for a customer project, the review.",
+     "- Files for him leave with `awb xchg put FILE` (the lab bucket, from-session/<date>/).",
      "awb xchg put"),
     ("- RESOURCES.md lists what the project uses, with platform ids and codes.",
      "- " + OWN_OUTPUT_RULE,
      "awb paste --own"),
     ("- Run `awb check FILE` on every deliverable and `awb gate` before every commit.", "",
      "workflows/final-check.js"),
-    ("- After it show the path of the final text, the summary of the table and the open points. Add the open points "
-     "to OPEN.md under the heading \"Final check (FX, DATE)\".",
+    (LEVEL_2_RUN,
      "- The final text gets its own review and it costs less (RV2): `awb review init` and `awb review claims` on it, "
      "then Workflow with scriptPath `/opt/tcp-awb/src/workflows/review.js` and args {..., after_fx: true} (the "
      "platform lenses and the partner lens only), then `awb review pass`. The final check stands in for the request "
@@ -79,6 +82,16 @@ line gets it at its end, after the project's own lines."""
 CLAUDE_ADD += (("- " + OWN_OUTPUT_RULE, devnote.FILE_RULE, "he cannot open it"),
                (devnote.FILE_RULE, devnote.NOTE_RULE, "notes/from-dev/"))
 """His rules of 2026-10-27 (task DN): no link to a file, deliverables as HTML and md, notes from development."""
+CLAUDE_ADD += (("- " + OWN_OUTPUT_RULE, LAB_LOGS, "Logs of our own lab runs"),)
+"""Task GT: the lab log line goes right after the line of P1, before the lines of DN."""
+CLAUDE_CUT = (
+    ("- Files for him leave with `awb xchg put FILE`", ", after the name check and, for a customer project, the review",
+     ""),
+)
+"""(line start, old part, new part): task GT takes the review out of the put line of an older project, whatever
+code its naming rule names."""
+CLAUDE_DROP = (FX_AFTER_OLD,)
+"""Lines task GT takes out: the last line of the FX section went into the run line of level 2."""
 STATE_FIXES = (
     ("Where the work stands. Update it at the end of every session. Codes only, never a name.",
      "Where the work stands. Update it and OPEN.md after every step that changes the status, in the same commit. "
@@ -99,10 +112,13 @@ _SID_RE = re.compile(r"[^A-Za-z0-9_-]")
 # --------------------------------------------------------------------------- the files of a project
 
 
-def _fix_lines(text: str, fixes, adds=()) -> str:
+def _fix_lines(text: str, fixes, adds=(), cuts=(), drops=()) -> str:
     lines = text.split("\n")
     for old, new in fixes:
         lines = [new if line.rstrip() == old else line for line in lines]
+    for start, old, new in cuts:
+        lines = [line.replace(old, new) if line.startswith(start) else line for line in lines]
+    lines = [line for line in lines if line.rstrip() not in drops]
     for anchor, new, marker in adds:
         if any(marker in line for line in lines):
             continue
@@ -125,7 +141,8 @@ def _fix_lines(text: str, fixes, adds=()) -> str:
 def sync_project(root: Path) -> list[str]:
     """Bring the template lines of one project up to date. Returns the names of the files it changed."""
     changed = []
-    for name, fixes, adds in (("CLAUDE.md", CLAUDE_FIXES, CLAUDE_ADD), ("STATE.md", STATE_FIXES, ())):
+    for name, fixes, adds, cuts, drops in (("CLAUDE.md", CLAUDE_FIXES, CLAUDE_ADD, CLAUDE_CUT, CLAUDE_DROP),
+                                           ("STATE.md", STATE_FIXES, (), (), ())):
         path = Path(root) / name
         try:
             if path.is_symlink() or not path.is_file():
@@ -133,7 +150,7 @@ def sync_project(root: Path) -> list[str]:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
             continue
-        new = _fix_lines(text, fixes, adds)
+        new = _fix_lines(text, fixes, adds, cuts, drops)
         if new != text:
             with open(path, "r+", encoding="utf-8") as fh:     # the same file: its owner and mode stay
                 fh.write(new)
@@ -157,7 +174,8 @@ def current(root: Path | None, client: Path | None = None) -> bool:
             return False
     if root is None:
         return True
-    for name, fixes, adds in (("CLAUDE.md", CLAUDE_FIXES, CLAUDE_ADD), ("STATE.md", STATE_FIXES, ())):
+    for name, fixes, adds, cuts, drops in (("CLAUDE.md", CLAUDE_FIXES, CLAUDE_ADD, CLAUDE_CUT, CLAUDE_DROP),
+                                           ("STATE.md", STATE_FIXES, (), (), ())):
         path = Path(root) / name
         if not path.exists() and not path.is_symlink():
             continue
@@ -167,7 +185,7 @@ def current(root: Path | None, client: Path | None = None) -> bool:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
             return False
-        if _fix_lines(text, fixes, adds) != text:
+        if _fix_lines(text, fixes, adds, cuts, drops) != text:
             return False
     return True
 

@@ -26,12 +26,11 @@ export const meta = {
 //                                              "final-check", deliverable, date, model, effort, final, table,
 //                                              draft_bytes, final_bytes, questions, dropped, invented, unsupported,
 //                                              open_points, final_sha256}
-// The record lies beside the review record, not in lenses/: it binds nothing of the draft. The final text is a new
-// file of deliverables/ and gets its own review before it leaves. RV2 (his decision of 2026-10-27): final_sha256 is
+// The record lies beside the review record, not in lenses/: it binds nothing of the draft and a put never asks for
+// it (task GT). The final text is a new file of deliverables/. RV2 (his decision of 2026-10-27): final_sha256 is
 // the hash of the final text as the agent wrote it; while the text on disk has that hash, the final check stands in
 // for the request check and the blind verification, so its review runs workflows/review.js with after_fx: true
-// (the platform lenses and the partner lens) and the send gate takes the final check for the request check. After an
-// edit or without a hash the full review applies.
+// (the platform lenses and the partner lens). After an edit or without a hash the full review applies.
 
 const MODEL = 'fable'          // Fable 5.1, pinned: the run that found the failures was on this model
 const EFFORT = 'max'

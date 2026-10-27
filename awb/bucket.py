@@ -32,7 +32,6 @@ import html
 import json
 import mimetypes
 import os
-import shutil
 import re
 import socket
 import sys
@@ -347,37 +346,32 @@ def fetch(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> 
 
 
 def put(p: config.Paths, c: obs.Client, code: str, file: Path, *, replace: bool = False,
-        reveal: bool = False) -> tuple[str, dict | None]:
+        reveal: bool = False, report: list | None = None) -> tuple[str, dict | None]:
     """`file` into out/ of the project's folder (created when missing). With `reveal` the real names are put back
-    first, in a private temporary file on the vault side that is removed after the upload. The send gate
-    (`review.send_check`, decision 15) runs first: it refuses a deliverable of a customer or partner project that
-    has no valid review at tier 3 and warns for an internal file."""
+    first, in a private temporary file on the vault side that is removed after the upload. A put never refuses a
+    file for its review state, a name or structured data (task GT): a secret is replaced with [secret] in the
+    uploaded copy and `report` receives the one line (`review: none` or `review: passed DATE`, the secrets
+    replaced)."""
     project = _project(p, code)
     file = Path(os.path.realpath(file))
     if not file.is_file():
         raise BucketError("the file to put is not there")
-    from awb import projects, review
-    for_customer = bool(project.customer) and project.customer != projects.NO_CUSTOMER
-    judged: list[str] = []
-    verdict, message = review.send_check(Path(project.path), file, for_customer, workbench=p, digest_out=judged)
-    if verdict == review.SEND_REFUSE:
-        raise BucketError("the send gate refused the file: %s" % message)
-    if verdict == review.SEND_WARN:
-        print("awb bucket: warning: %s" % message, file=sys.stderr)
+    from awb import putcopy
     folder, _ = ensure_folder(c, project)
     key = folder + OUT + file.name
     page = html_key(key)
     if not replace and any(k and c.head(k) is not None for k in (key, page)):
         raise BucketError("out/ of %s already holds a file of that name; give --replace" % code)
     ctype = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
-    # what leaves is a private copy of the bytes the gate judged, never the path again
+    line = putcopy.review_line(Path(project.path), file)
+    # what leaves is a private copy, its secrets replaced, never the path again
     tmp_root = config.make_dir(p.vault / "tmp", 0o700)
     with tempfile.TemporaryDirectory(dir=tmp_root) as tmp:
         copy = Path(tmp) / file.name
-        shutil.copyfile(file, copy)
+        secrets = putcopy.scrub(file, copy)
         os.chmod(copy, 0o600)
-        if not judged or review.sha256_file(copy) != judged[0]:
-            raise BucketError("the file changed after the send gate judged it, put it again")
+        if report is not None:
+            report.append(putcopy.put_line(line, secrets))
         if not reveal:
             c.put_file(key, copy, ctype)
             _put_page(c, page, copy)
@@ -681,7 +675,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             return 0
         if args.command == "put":
-            key, stats = put(p, c, args.code, args.file, replace=args.replace, reveal=args.reveal)
+            said: list[str] = []
+            key, stats = put(p, c, args.code, args.file, replace=args.replace, reveal=args.reveal, report=said)
             line = "%s: %s" % (args.code, key)
             if stats is not None:
                 line += "  (%d codes replaced by names)" % stats["replaced"]
@@ -689,6 +684,8 @@ def main(argv: list[str] | None = None) -> int:
             if html_key(key):
                 print("%s: %s  (the same text as HTML: open it, select all, paste into the mail)"
                       % (args.code, html_key(key)))
+            for one in said:
+                print(one, file=sys.stderr)          # beside the lines of the objects, never between them
             print(get_it_line(key, args.code))
             return 0
         if args.command == "move":

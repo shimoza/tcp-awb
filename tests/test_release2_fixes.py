@@ -400,10 +400,6 @@ def test_status_lists_hidden_deliverables_and_leaves_only_an_empty_gitkeep_out(p
 def test_an_image_is_unreadable_and_the_stop_hook_says_so(project, monkeypatch, capsys):
     (project / "deliverables" / "diagram.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
     assert review.status(project) == [{"file": "deliverables/diagram.png", "state": "unreadable", "tier": None}]
-    code, _, err = run_hook("stop", {"cwd": str(project)}, monkeypatch, capsys)
-    assert code == 2
-    assert "cannot be read as text and can never pass the review" in err and "diagram.png" in err
-    assert "run the review for" not in err
 
 
 # --------------------------------------------------------------------------- code review 1, 2, 6, 8, 9: the vault

@@ -110,24 +110,6 @@ def test_xg2_a_tier_the_project_does_not_name_cannot_lower_the_gate(home, regist
 # ----------------------------------------------------------------------------------------------- XG1: the name
 
 
-def test_xg1_a_refused_put_name_gets_a_neutral_proposal_in_the_language_of_the_text(home, register_path, monkeypatch,
-                                                                                   capsys):
-    pr = projects.spawn(home, "project", GOAL, None, register_path)
-    folder = Path(pr.path)
-    monkeypatch.chdir(folder)
-    for text, lang in ((GERMAN, "de"), (RUSSIAN, "ru"), ("the plan is not ready.\n", "en")):
-        f = folder / "deliverables" / ("mapping %s %s.md" % (FULL, lang))
-        f.write_text(text, encoding="utf-8")
-        with pytest.raises(xchg.XchgError) as err:
-            xchg.put(f)
-        want = "%s-doc-%s.md" % (pr.code, lang)
-        assert "(try --as %s)" % want in str(err.value)
-        fx.assert_no_fixture_name(str(err.value), "the refusal")
-    with pytest.raises(xchg.XchgError) as err:
-        xchg.put(f, kind_word="mapping", lang="de")
-    assert "(try --as %s-mapping-de.md)" % pr.code in str(err.value)
-
-
 def test_xg1_the_name_check_itself_is_unchanged_and_a_neutral_name_passes_it(home, register_path, monkeypatch):
     pr = projects.spawn(home, "project", GOAL, None, register_path)
     monkeypatch.chdir(pr.path)
