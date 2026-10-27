@@ -432,7 +432,21 @@ clean files only and imports them in seconds. The same laptop edition: no vault 
 vault folder (700). `awb clean register CUST-XXXX` asks the written forms of the customer once on the terminal, as
 `awb import` does; they stay in that vault folder and nowhere else.
 
-    awb clean FILE... --project tcp-xxxx --kind docs|logs [--out DIR] [--put]
+    awb clean use tcp-xxxx
+    awb clean FILE... [--project tcp-xxxx] [--kind docs|logs] [--out DIR] [--put]
+    awb clean put
+
+- Name the project once with `awb clean use tcp-xxxx`: it is remembered on the laptop and its work folder
+  `~/work/tcp-xxxx` is made. A run takes `--project` first, then the work folder of the current directory, then
+  that project, and prints it in its first line. Without `--project` the copies go into `clean/` of the work
+  folder. `--kind` defaults to logs for a `.log` file and to docs for any other. A Windows path
+  (`D:\Documents\x.docx`, `D:/Documents/x.docx`) is read as `/mnt/d/Documents/x.docx`. A customer that is not
+  registered yet is asked for once on the terminal. `awb clean put` sends the copies of the last run without
+  cleaning again (`--put` on the run still works).
+- `awb clean serve [--port 8765]` is the same flow as a local page on 127.0.0.1: open the printed
+  `http://localhost:8765/?t=TOKEN` in the Windows browser, upload or type the files, run, read the report, open the
+  copies as text and put them. The token is new per start, another Host header is refused, uploaded originals are
+  deleted after the run. Load `AWB_OBS_AK` and `AWB_OBS_SK` before the start for put.
 
 - `--kind docs` for customer documentation (docx, pptx, xlsx, odt, pdf, also Markdown, text, html and mail files):
   the body text only. Pictures (logos), document properties, headers, footers, comments and tracked changes are read
