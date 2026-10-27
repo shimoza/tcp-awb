@@ -30,6 +30,13 @@ from pathlib import Path
 from awb import config
 
 CLAUDE_FIXES = (
+    # T6 (2026-10-27): the FX line named /opt/tcp-awb/workflows, a path no release creates
+    ("- First one line: it runs Fable 5.1 at effort max, costs about 200k tokens and 10-15 minutes. Wait for one "
+     "word. Then run Workflow with scriptPath `/opt/tcp-awb/workflows/final-check.js` and args {project: this "
+     "folder, deliverable: deliverables/<name>, date: today}.",
+     "- First one line: it runs Fable 5.1 at effort max, costs about 200k tokens and 10-15 minutes. Wait for one "
+     "word. Then run Workflow with scriptPath `/opt/tcp-awb/src/workflows/final-check.js` and args {project: this "
+     "folder, deliverable: deliverables/<name>, date: today}."),
     ("- Start with SCOPE.md, STATE.md and OPEN.md. Update STATE.md and OPEN.md before the session ends.",
      "- Start with SCOPE.md, STATE.md and OPEN.md. Update STATE.md (with its Status: and Next: lines) and OPEN.md "
      "after every step that changes the status, in the same commit."),
@@ -51,6 +58,13 @@ CLAUDE_ADD = (
      "awb xchg put"),
     ("- Run `awb check FILE` on every deliverable and `awb gate` before every commit.", "",
      "workflows/final-check.js"),
+    ("- After it show the path of the final text, the summary of the table and the open points. Add the open points "
+     "to OPEN.md under the heading \"Final check (FX, DATE)\".",
+     "- The final text gets its own review and it costs less (RV2): `awb review init` and `awb review claims` on it, "
+     "then Workflow with scriptPath `/opt/tcp-awb/src/workflows/review.js` and args {..., after_fx: true} (the "
+     "platform lenses and the partner lens only), then `awb review pass`. The final check stands in for the request "
+     "check and the blind verification while the final text is unchanged; after an edit the full review applies.",
+     "after_fx"),
 )
 """(anchor, new line, marker): the line goes after the anchor line unless a line carries the marker. An empty new
 line stands for the FX section of the template (projects.FINAL_CHECK_SECTION, 2026-10-27): a file with the anchor

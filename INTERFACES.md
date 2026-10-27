@@ -839,10 +839,22 @@ def send_check(project, file, for_customer, register_path=None) -> tuple[str, st
   `effort: 'max'` reads input/, SCOPE.md, STATE.md, OPEN.md, evidence/, reviews/FILE/ and the draft and writes
   `deliverables/STEM.final.md` and `reviews/FILE/final-check.md`; the Record agent writes `reviews/FILE/final-check.json`:
   {kind: "final-check", deliverable, date, model: "Fable 5.1", effort, final, table, final_written,
-  table_written, draft_bytes, final_bytes, questions, answered, dropped, invented, caveats, unsupported, open_points}.
+  table_written, draft_bytes, final_bytes, questions, answered, dropped, invented, caveats, unsupported, open_points,
+  final_sha256}. final_sha256 (RV2) is the `sha256sum` of the final text the agent returns, "" when it is not 64 hex.
 - `review.final_name(name) -> str` (deliverables/STEM.final.md), `review.final_check(project, name) -> dict | None`
-  ({date, model, effort, final, table, open_points}; None for a missing file, another kind or another deliverable)
-  and `awb review show deliverables/FILE`. `bindings` and the send gate never read final-check.json.
+  ({date, model, effort, final, table, open_points, final_sha256}; None for a missing file, another kind or another
+  deliverable) and `awb review show deliverables/FILE`. `bindings` never reads final-check.json.
+- RV2: `review.fx_exemption(project, rel) -> FxState(exempt, reason, record)`: exempt when deliverables/REL is the
+  final text named by a final-check.json whose final_sha256 is the hash of the file now; reason `FX_CHANGED` or
+  `FX_NO_HASH` when a record names it but does not stand in. While exempt, `run_pass` skips the blind check of RV1
+  and records `final_check`; `send_check` accepts a tier 3 record without a request lens. `workflows/review.js`
+  takes `after_fx: true` (only for a `.final.md`): no blind verification and no verify.json, the platform lenses and
+  the partner lens only. A final text is name-checked under the name of its draft (`_checked_path`), because the
+  name check takes x.final.md for a web address.
+- RV1: at tier 3 `run_pass` refuses when a verify lens (kind or file name verify) holds 0 claims while the text has
+  high-risk claims whose row does not cite a blind answer of an earlier round (evidence/review/SLUG/C-N.md, a file
+  that exists). The prepare step of review.js returns `preset` and the script stops before the blind phase when no
+  question is left and preset is above 0.
 - `awb/calibrate.py` and `calibration/cases.json` (document 06, section 8): `load(path=None)`, `run(path=None) ->
   Report(rows, caught, missed, not_run, clean, false_alarms, ok)`, `main(argv)`; `awb review calibrate [--json]`.
   Script steps writing, names, l0 and keep run in a temporary folder with a register of the invented names of the

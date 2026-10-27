@@ -11794,8 +11794,99 @@
    "name": "FX: the final check binds nothing and the status ignores it",
    "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_the_final_check_binds_nothing_and_the_status_ignores_it",
    "status": "passing"
+  },
+  {
+   "id": "rv-1",
+   "phase": "rv-review-fx",
+   "name": "RV1: a blind verification of 0 claims over preset verdicts refuses the pass",
+   "run": ".venv/bin/pytest tests/test_rv_review_fx.py::test_rv1_a_blind_verification_of_0_claims_over_preset_verdicts_refuses_the_pass",
+   "status": "passing"
+  },
+  {
+   "id": "rv-2",
+   "phase": "rv-review-fx",
+   "name": "RV1: verdicts of an earlier blind round count as checked",
+   "run": ".venv/bin/pytest tests/test_rv_review_fx.py::test_rv1_verdicts_of_an_earlier_blind_round_count_as_checked",
+   "status": "passing"
+  },
+  {
+   "id": "rv-3",
+   "phase": "rv-review-fx",
+   "name": "RV1: leaves tier 2 a text without high risk claims and a review without verify as before",
+   "run": ".venv/bin/pytest tests/test_rv_review_fx.py::test_rv1_leaves_tier_2_a_text_without_high_risk_claims_and_a_review_without_verify_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "rv-4",
+   "phase": "rv-review-fx",
+   "name": "RV1: the workflow stops after prepare when preset verdicts leave nothing blind",
+   "run": ".venv/bin/pytest tests/test_rv_review_fx.py::test_rv1_the_workflow_stops_after_prepare_when_preset_verdicts_leave_nothing_blind",
+   "status": "passing"
+  },
+  {
+   "id": "rv-5",
+   "phase": "rv-review-fx",
+   "name": "RV2: after fx runs only the platform lenses and the partner lens",
+   "run": ".venv/bin/pytest tests/test_rv_review_fx.py::test_rv2_after_fx_runs_only_the_platform_lenses_and_the_partner_lens",
+   "status": "passing"
+  },
+  {
+   "id": "rv-6",
+   "phase": "rv-review-fx",
+   "name": "RV2: the final check records the hash of the final text",
+   "run": ".venv/bin/pytest tests/test_rv_review_fx.py::test_rv2_the_final_check_records_the_hash_of_the_final_text",
+   "status": "passing"
+  },
+  {
+   "id": "rv-7",
+   "phase": "rv-review-fx",
+   "name": "RV2: a matching hash exempts the final text and the send gate takes the final check",
+   "run": ".venv/bin/pytest tests/test_rv_review_fx.py::test_rv2_a_matching_hash_exempts_the_final_text_and_the_send_gate_takes_the_final_check",
+   "status": "passing"
+  },
+  {
+   "id": "rv-8",
+   "phase": "rv-review-fx",
+   "name": "RV2: an edit after the final check brings the full review back",
+   "run": ".venv/bin/pytest tests/test_rv_review_fx.py::test_rv2_an_edit_after_the_final_check_brings_the_full_review_back",
+   "status": "passing"
+  },
+  {
+   "id": "rv-9",
+   "phase": "rv-review-fx",
+   "name": "RV2: an old record without a hash gives no exemption",
+   "run": ".venv/bin/pytest tests/test_rv_review_fx.py::test_rv2_an_old_record_without_a_hash_gives_no_exemption",
+   "status": "passing"
+  },
+  {
+   "id": "rv-10",
+   "phase": "rv-review-fx",
+   "name": "RV2: the default path is unchanged",
+   "run": ".venv/bin/pytest tests/test_rv_review_fx.py::test_rv2_the_default_path_is_unchanged",
+   "status": "passing"
+  },
+  {
+   "id": "rv-11",
+   "phase": "rv-review-fx",
+   "name": "T6: the template names the installed release and the guard accepts exactly that",
+   "run": ".venv/bin/pytest tests/test_rv_review_fx.py::test_t6_the_template_names_the_installed_release_and_the_guard_accepts_exactly_that",
+   "status": "passing"
+  },
+  {
+   "id": "rv-12",
+   "phase": "rv-review-fx",
+   "name": "T6, RV2: the sync moves an older fx section to the new path and adds the review line",
+   "run": ".venv/bin/pytest tests/test_rv_review_fx.py::test_t6_rv2_the_sync_moves_an_older_fx_section_to_the_new_path_and_adds_the_review_line",
+   "status": "passing"
+  },
+  {
+   "id": "rv-13",
+   "phase": "rv-review-fx",
+   "name": "RV2: a final text can be reviewed and a name in its stem is still refused",
+   "run": ".venv/bin/pytest tests/test_rv_review_fx.py::test_rv2_a_final_text_can_be_reviewed_and_a_name_in_its_stem_is_still_refused",
+   "status": "passing"
   }
  ],
- "total_tests": 1685,
+ "total_tests": 1698,
  "checked": "2026-10-27"
 }

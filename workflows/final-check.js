@@ -25,9 +25,13 @@ export const meta = {
 //   <project>/reviews/<name>/final-check.json  the record of the run that `awb review show` lists: {kind:
 //                                              "final-check", deliverable, date, model, effort, final, table,
 //                                              draft_bytes, final_bytes, questions, dropped, invented, unsupported,
-//                                              open_points}
-// The record lies beside the review record, not in lenses/: it binds nothing and the send gate of `awb bucket put`
-// never asks for it. The final text is a new file of deliverables/ and gets its own review before it leaves.
+//                                              open_points, final_sha256}
+// The record lies beside the review record, not in lenses/: it binds nothing of the draft. The final text is a new
+// file of deliverables/ and gets its own review before it leaves. RV2 (his decision of 2026-10-27): final_sha256 is
+// the hash of the final text as the agent wrote it; while the text on disk has that hash, the final check stands in
+// for the request check and the blind verification, so its review runs workflows/review.js with after_fx: true
+// (the platform lenses and the partner lens) and the send gate takes the final check for the request check. After an
+// edit or without a hash the full review applies.
 
 const MODEL = 'fable'          // Fable 5.1, pinned: the run that found the failures was on this model
 const EFFORT = 'max'
@@ -86,6 +90,7 @@ const RESULT_SCHEMA = {
     caveats: { type: 'integer' },
     unsupported_claims: { type: 'integer' },
     open_points: { type: 'array', items: { type: 'string' } },
+    final_sha256: { type: 'string' },
   },
   required: ['final_written', 'table_written', 'draft_bytes', 'final_bytes', 'questions', 'open_points'],
 }
@@ -119,6 +124,7 @@ function checkPrompt() {
     '   - ' + FINAL + ' : the final text only, nothing about the check.',
     '   - ' + TABLE + ' : a table of each question -> where it is answered -> verdict; a table of each caveat -> its source -> where it is kept; what was cut and why; the draft claims the evidence does not support; the questions contract.md dropped or invented; the bytes of the draft and of the final text; the points you could not decide.',
     '6. Never change any other file. Never run a command that changes anything.',
+    '7. When both files are written, run sha256sum ' + FINAL + ' and return its 64 hex digits as final_sha256. Change nothing in the final text after that.',
     '',
     'Cite a file by its path inside the project (evidence/<file>), never with the home folder in front.',
     'Return the counts of what you did. open_points are the points you could not decide, one short line each, codes only.',
@@ -167,7 +173,9 @@ const record = {
   caveats: count(res.caveats),
   unsupported: count(res.unsupported_claims),
   open_points: lines(res.open_points),
+  final_sha256: typeof res.final_sha256 === 'string' && /^[0-9a-f]{64}$/.test(res.final_sha256) ? res.final_sha256 : '',
 }
+if (!record.final_sha256) log('no hash of the final text: its review is the full review, with the request check and the blind verification')
 if (record.final_bytes > record.draft_bytes) log('the final text is longer than the draft: look at it before it goes on')
 
 phase('Record')
@@ -190,5 +198,8 @@ return {
   draft_bytes: record.draft_bytes,
   final_bytes: record.final_bytes,
   open_points: record.open_points,
-  next: 'show him the final text, the table summary and the open points; add the open points to OPEN.md under "Final check (FX, ' + A.date + ')"',
+  final_sha256: record.final_sha256,
+  next: 'show him the final text, the table summary and the open points; add the open points to OPEN.md under "Final check (FX, ' + A.date + ')"' + (record.final_sha256
+    ? '; review the final text with workflows/review.js and after_fx: true, then awb review pass'
+    : '; the final text gets the full review'),
 }

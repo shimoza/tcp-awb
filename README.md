@@ -354,7 +354,8 @@ important text a review board reads it as an architect of the source platform, a
 who has to sell it, plus a check for invented facts and a misread question. The answer is rewritten from the
 question, never patched. A send gate lets only the exact reviewed version leave. For a high-stakes text he can ask
 for a final check ("final check"): one strong model reads the request, the evidence and the review again and writes
-the answer once more, with every caveat of the research kept (`awb review show` lists the run).
+the answer once more, with every caveat of the research kept (`awb review show` lists the run). The final text then
+needs only the platform and partner lenses (`after_fx`) while it stays unchanged.
 
 **Texts in the architect's own voice.** `awb write check` measures a text against the architect's style and a
 drafting skill writes mails, offers and PoC documents in that voice, with a check that the voice pass changed no

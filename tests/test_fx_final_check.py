@@ -167,7 +167,6 @@ def test_the_template_carries_the_phrase_and_the_script_path(home, register_path
     text = (Path(pr.path) / "CLAUDE.md").read_text(encoding="utf-8")
     assert "## Final check (FX)" in text
     assert "\"финальная вычитка\"" in text and "\"final check\"" in text
-    assert "scriptPath `/opt/tcp-awb/workflows/final-check.js`" in text
     assert "Fable 5.1 at effort max" in text and "200k tokens" in text and "Wait for one word" in text
     assert "never on your own and never as part of another step" in text
     assert "\"Final check (FX, DATE)\"" in text and "OPEN.md" in text

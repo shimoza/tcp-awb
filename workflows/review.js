@@ -1,7 +1,7 @@
 export const meta = {
   name: 'awb-review',
   description: 'Tier 2 and 3 review of one deliverable: blind checks of its high-risk claims, one lens per platform, a partner lens with fixed yes or no questions, a refute agent for every blocking finding, JSON results in reviews/<name>/lenses/',
-  whenToUse: 'After awb review claims and awb review l0 for a tier 2 or tier 3 deliverable, before awb review pass. Args: {project: absolute project folder, deliverable: deliverables/<name>, platforms: ["tcp", "azure"], date: "YYYY-MM-DD", mirrors: "/srv/tcp-mirrors"}',
+  whenToUse: 'After awb review claims and awb review l0 for a tier 2 or tier 3 deliverable, before awb review pass. Args: {project: absolute project folder, deliverable: deliverables/<name>, platforms: ["tcp", "azure"], date: "YYYY-MM-DD", mirrors: "/srv/tcp-mirrors"}; after_fx: true for the final text of a final check, deliverables/<stem>.final.md: only the platform lenses and the partner lens run',
   phases: [
     { title: 'Prepare', detail: 'read contract.md and claims.tsv, turn every high-risk claim into an open question without its answer' },
     { title: 'Blind verification', detail: 'answer each open question from sources without the draft, then compare the answer with the claim' },
@@ -37,7 +37,18 @@ export const meta = {
 // needs a quote (or a claim id) and evidence (or a source), else it is dropped and counted (V-09). The prepare
 // step takes only the high-risk claims without a verdict, so after a rewrite only new and changed claims are
 // checked again (V-14).
+//
+// RV1 (2026-10-27): when no claim is left for the blind verification while high-risk claims carry a verdict that no
+// blind check set (verdicts filled before the review), the run stops after the prepare step: clear those verdicts
+// and run again. `awb review pass` refuses such a run at tier 3 as well.
+//
+// RV2 (his decision of 2026-10-27): args.after_fx true reviews the final text of a final check
+// (deliverables/<stem>.final.md). The final check did the work of the request check and the blind verification,
+// so only the platform lenses and the partner lens run and no verify.json is written. `awb review pass` and the send
+// gate accept that only while the final text has the hash its final-check.json records; after an edit the full
+// review applies again.
 
+const PRESET_STOP = 'the blind verification would check 0 claims while N high-risk claims carry a verdict it did not set: clear the verdicts set before the review in claims.tsv and run again'
 const OUTCOME_OPEN = 'open'
 const OUTCOME_REFUTED = 'refuted'
 const OUTCOME_PLAUSIBLE = 'plausible'
@@ -77,7 +88,9 @@ function readArgs(raw) {
   if (!platforms.length) fail('args.platforms holds no usable platform')
   const date = typeof a.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.date) ? a.date : ''
   const mirrors = typeof a.mirrors === 'string' && /^\/[A-Za-z0-9._\/-]+$/.test(a.mirrors) ? a.mirrors.replace(/\/+$/, '') : '/srv/tcp-mirrors'
-  return { project, deliverable, name, platforms, date, mirrors }
+  const afterFx = a.after_fx === true
+  if (afterFx && !/\.final\.md$/.test(name)) fail('args.after_fx is only for the final text of a final check (deliverables/<stem>.final.md)')
+  return { project, deliverable, name, platforms, date, mirrors, afterFx }
 }
 
 const A = readArgs(args)
@@ -104,6 +117,7 @@ const PREP_SCHEMA = {
   type: 'object',
   properties: {
     tier: { type: 'integer', minimum: 0, maximum: 3 },
+    preset: { type: 'integer', minimum: 0 },
     questions: {
       type: 'array',
       items: {
@@ -237,7 +251,8 @@ function prepPrompt() {
     'Example: for a sentence saying a flavor family is not offered in region eu-nl, ask "Which flavor families are offered in region eu-nl today?".',
     'Give the platform the question is about, one of: ' + A.platforms.join(', ') + '.',
     'Copy id, line, kind and sentence of the row as they are.',
-    'Return the tier and the list. An empty list is right when no row has risk high.',
+    'Also count preset: the rows with risk high whose verdict column is filled and whose evidence column does not name ' + EVIDENCE_REL + '/<the id of the row>.md (the answer file of a blind check of an earlier round).',
+    'Return the tier, preset and the list. An empty list is right when no row has risk high.',
     '',
     RULES,
   ].join('\n')
@@ -297,6 +312,7 @@ function comparePrompt(q, answer) {
 }
 
 function blindSummary(verify) {
+  if (A.afterFx) return 'This is the final text of a final check, which verified its claims against the evidence of the project: there is no blind verification in this run. Check every statement about your platform yourself.'
   const rows = (verify && verify.claims) || []
   if (!rows.length) return 'The blind verification checked no claim.'
   return ['The blind verification ran before you, without the draft. Its verdicts per claim of claims.tsv:']
@@ -532,15 +548,20 @@ if (prep.tier < 2) {
   log('tier ' + prep.tier + ': this workflow is for tier 2 and 3, nothing was written')
   return { skipped: true, tier: prep.tier, lenses: [] }
 }
-const questions = (prep.questions || []).filter((q) => q && q.claim && q.question)
-log(questions.length + ' high-risk claims go to the blind verification, ' + (A.platforms.length + 1) + ' lenses read the deliverable')
+const questions = A.afterFx ? [] : (prep.questions || []).filter((q) => q && q.claim && q.question)
+const preset = Number.isInteger(prep.preset) && prep.preset > 0 ? prep.preset : 0
+if (!A.afterFx && !questions.length && preset) {
+  fail(PRESET_STOP.replace('N', String(preset)))
+}
+if (A.afterFx) log('after the final check: no blind verification, ' + (A.platforms.length + 1) + ' lenses read the final text')
+else log(questions.length + ' high-risk claims go to the blind verification, ' + (A.platforms.length + 1) + ' lenses read the deliverable')
 
 const LENS_JOBS = A.platforms
   .map((p) => ({ id: 'platform-' + p, kind: 'platform', platform: p }))
   .concat([{ id: 'partner', kind: 'partner', platform: 'partner' }])
 
 phase('Blind verification')
-const verify = (await verifyClaims(questions)) || failedLens('verify', 'verify', 'all', 'the blind verification')
+const verify = A.afterFx ? null : (await verifyClaims(questions)) || failedLens('verify', 'verify', 'all', 'the blind verification')
 
 phase('Lenses')
 const lensRuns = await pipeline(
@@ -553,8 +574,8 @@ const lensRuns = await pipeline(
   },
 )
 const lensResults = (lensRuns || []).map((l, i) => l || failedLens(LENS_JOBS[i].id, LENS_JOBS[i].kind, LENS_JOBS[i].platform, 'the lens ' + LENS_JOBS[i].id))
-verify.run = { agents: AGENT_RUNS, tokens: tokensSpent() }
-const lenses = [verify].concat(lensResults)
+const lenses = (verify ? [verify] : []).concat(lensResults)
+lenses[0].run = { agents: AGENT_RUNS, tokens: tokensSpent() }
 
 phase('Record')
 const files = lenses.map((l) => ({ path: LENSES_DIR + l.lens + '.json', content: JSON.stringify(l, null, 2) + '\n' }))
@@ -580,7 +601,10 @@ log(open + ' blocking findings are open')
 return {
   lenses: summary,
   unwritten: unwritten,
-  next: open
-    ? 'fix the confirmed findings and set confirmed-fixed, soften or tag the plausible ones and set softened, then run the request check and awb review pass'
-    : 'fill claims.tsv from verify.json where it helps, run the request check (workflows/request-check.js), then awb review pass',
+  next: A.afterFx
+    ? (open ? 'fix the confirmed findings and set confirmed-fixed, soften or tag the plausible ones and set softened, then awb review pass' : 'awb review pass')
+      + '; the final check stands in for the request check and the blind verification while the final text is unchanged'
+    : open
+      ? 'fix the confirmed findings and set confirmed-fixed, soften or tag the plausible ones and set softened, then run the request check and awb review pass'
+      : 'fill claims.tsv from verify.json where it helps, run the request check (workflows/request-check.js), then awb review pass',
 }
