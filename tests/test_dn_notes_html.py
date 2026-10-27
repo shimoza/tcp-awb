@@ -240,6 +240,6 @@ def test_the_template_and_the_sync_carry_the_two_rules_once(home, register_path,
     (root / "CLAUDE.md").write_text(older, encoding="utf-8")
     assert rulesync.sync_project(root) == ["CLAUDE.md"]
     synced = (root / "CLAUDE.md").read_text(encoding="utf-8").splitlines()
-    at = synced.index(devnote.RESOURCES_LINE)
+    at = synced.index("- " + projects.OWN_OUTPUT_RULE)
     assert synced[at + 1:at + 3] == [devnote.FILE_RULE, devnote.NOTE_RULE]
     assert rulesync.sync_project(root) == [] and rulesync.current(root)
