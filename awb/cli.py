@@ -713,8 +713,8 @@ def _build() -> argparse.ArgumentParser:
                    help="the test tenant of the project: written as the tenant: line of SCOPE.md, the default of "
                         "awb lab run")
     s.add_argument("--review-tier", type=int, choices=(1, 2, 3), default=None, metavar="1|2|3",
-                   help="the review tier of the project, written to its SCOPE.md: a deliverable takes it, the send "
-                        "gate refuses below it (default 3)")
+                   help="the review tier of the project, written to its SCOPE.md: a review he asks for takes it; "
+                        "a put never waits for it (default 3)")
     s.set_defaults(func=_cmd_spawn)
 
     s = sub.add_parser("unlock", help="unlock the vault, then the key service (owner)")
@@ -746,8 +746,8 @@ def _build() -> argparse.ArgumentParser:
     s = psub.add_parser("unpark", help="bring a parked project back to active")
     s.add_argument("code")
     s.set_defaults(func=_cmd_projects_unpark)
-    s = psub.add_parser("tier", help="set the review tier of a project (owner): deliverables take it, the send gate "
-                                     "refuses below it")
+    s = psub.add_parser("tier", help="set the review tier of a project (owner): a review he asks for takes it, a put "
+                                     "never waits for it")
     s.add_argument("code")
     s.add_argument("tier", type=int, choices=(1, 2, 3))
     s.set_defaults(func=_cmd_projects_tier)

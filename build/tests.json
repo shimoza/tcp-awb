@@ -2948,13 +2948,6 @@
    "status": "passing"
   },
   {
-   "id": "R10-8",
-   "phase": "R10",
-   "name": "review 2026-10-10 finding 5: a row never granted does not loosen the send gate of the service",
-   "run": ".venv/bin/pytest tests/test_keys_review.py::test_a_row_never_granted_does_not_loosen_the_send_gate_of_the_service",
-   "status": "passing"
-  },
-  {
    "id": "R10-9",
    "phase": "R10",
    "name": "review 2026-10-10 finding 3: a raw put outside <code>/from-session/<date>/<file id> is refused, every put meets the name check and the send gate of the service",
@@ -9619,13 +9612,6 @@
    "status": "passing"
   },
   {
-   "id": "xg-names-and-review-tier-9",
-   "phase": "xg-names-and-review-tier",
-   "name": "xg1 a refused put name gets a neutral proposal in the language of the text",
-   "run": ".venv/bin/pytest tests/test_xg_names_and_tier.py::test_xg1_a_refused_put_name_gets_a_neutral_proposal_in_the_language_of_the_text",
-   "status": "passing"
-  },
-  {
    "id": "xg-names-and-review-tier-10",
    "phase": "xg-names-and-review-tier",
    "name": "xg1 the name check itself is unchanged and a neutral name passes it",
@@ -11747,13 +11733,6 @@
    "status": "passing"
   },
   {
-   "id": "fx-6",
-   "phase": "fx-final-check",
-   "name": "FX: the template carries the phrase and the script path",
-   "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_the_template_carries_the_phrase_and_the_script_path",
-   "status": "passing"
-  },
-  {
    "id": "fx-7",
    "phase": "fx-final-check",
    "name": "FX: the sync adds the final check section to an older project once",
@@ -11873,13 +11852,6 @@
    "status": "passing"
   },
   {
-   "id": "rv-12",
-   "phase": "rv-review-fx",
-   "name": "T6, RV2: the sync moves an older fx section to the new path and adds the review line",
-   "run": ".venv/bin/pytest tests/test_rv_review_fx.py::test_t6_rv2_the_sync_moves_an_older_fx_section_to_the_new_path_and_adds_the_review_line",
-   "status": "passing"
-  },
-  {
    "id": "rv-13",
    "phase": "rv-review-fx",
    "name": "RV2: a final text can be reviewed and a name in its stem is still refused",
@@ -11898,13 +11870,6 @@
    "phase": "p1-paste-own",
    "name": "P1: own replaces a key pair a bearer token and a password and keeps the words",
    "run": ".venv/bin/pytest tests/test_p1_paste_own.py::test_own_replaces_a_key_pair_a_bearer_token_and_a_password_and_keeps_the_words",
-   "status": "passing"
-  },
-  {
-   "id": "p1-3",
-   "phase": "p1-paste-own",
-   "name": "P1: own runs no name check",
-   "run": ".venv/bin/pytest tests/test_p1_paste_own.py::test_own_runs_no_name_check",
    "status": "passing"
   },
   {
@@ -12060,8 +12025,134 @@
    "name": "DN: xchg put of another file writes no page",
    "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_xchg_put_of_another_file_writes_no_page",
    "status": "passing"
+  },
+  {
+   "id": "gt-1",
+   "phase": "gt-no-gate",
+   "name": "GT: a put of an unreviewed or stale deliverable succeeds with review: none",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_a_put_of_an_unreviewed_or_stale_deliverable_succeeds_with_review_none",
+   "status": "passing"
+  },
+  {
+   "id": "gt-2",
+   "phase": "gt-no-gate",
+   "name": "GT: a tier 3 deliverable without a request check and a file with a name are put",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_a_tier_3_deliverable_without_a_request_check_and_a_named_file_are_put",
+   "status": "passing"
+  },
+  {
+   "id": "gt-3",
+   "phase": "gt-no-gate",
+   "name": "GT: a secret is replaced with [secret] in the uploaded copy and counted",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_a_secret_is_replaced_in_the_uploaded_copy_and_counted",
+   "status": "passing"
+  },
+  {
+   "id": "gt-4",
+   "phase": "gt-no-gate",
+   "name": "GT: the scrub reads text and office files and leaves a binary file as it is",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_scrub_handles_text_office_and_binary_files",
+   "status": "passing"
+  },
+  {
+   "id": "gt-5",
+   "phase": "gt-no-gate",
+   "name": "GT: a session put of a customer deliverable succeeds and its secret is replaced",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_a_session_put_of_a_customer_deliverable_succeeds_and_replaces_the_secret",
+   "status": "passing"
+  },
+  {
+   "id": "gt-6",
+   "phase": "gt-no-gate",
+   "name": "GT: the key service replaces the secret of a raw put and refuses no name",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_the_key_service_replaces_a_secret_of_a_raw_put_and_takes_a_name",
+   "status": "passing"
+  },
+  {
+   "id": "gt-7",
+   "phase": "gt-no-gate",
+   "name": "GT: the stop hook asks nothing about a review or a tier",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_the_stop_hook_asks_nothing_about_a_review",
+   "status": "passing"
+  },
+  {
+   "id": "gt-8",
+   "phase": "gt-no-gate",
+   "name": "GT: the file name of a deliverable blocks nothing",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_the_name_of_a_deliverable_blocks_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "gt-9",
+   "phase": "gt-no-gate",
+   "name": "GT: the template carries the review line and not the old put condition",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_the_template_carries_the_review_line_and_not_the_old_put_condition",
+   "status": "passing"
+  },
+  {
+   "id": "gt-10",
+   "phase": "gt-no-gate",
+   "name": "GT: the sync takes the old put condition out and adds the review line once",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_the_sync_takes_the_old_put_condition_out_and_adds_the_review_line_once",
+   "status": "passing"
+  },
+  {
+   "id": "gt-11",
+   "phase": "gt-no-gate",
+   "name": "GT: the template carries review level 1 and level 2 with their phrases and workflows",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_the_template_carries_both_review_levels_with_their_workflows",
+   "status": "passing"
+  },
+  {
+   "id": "gt-12",
+   "phase": "gt-no-gate",
+   "name": "GT: the sync turns the old FX section into the review levels once",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_the_sync_turns_the_old_fx_section_into_the_review_levels_once",
+   "status": "passing"
+  },
+  {
+   "id": "gt-13",
+   "phase": "gt-no-gate",
+   "name": "GT: a lab log keeps its ids, shortens temporary credentials and never writes a permanent key",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_a_lab_log_keeps_its_ids_and_shortens_its_temporary_credentials",
+   "status": "passing"
+  },
+  {
+   "id": "gt-14",
+   "phase": "gt-no-gate",
+   "name": "GT: the write hook keeps ids and shortens secrets in a project file, a name still blocks",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_the_write_hook_keeps_ids_and_shortens_secrets_in_a_project_file",
+   "status": "passing"
+  },
+  {
+   "id": "gt-15",
+   "phase": "gt-no-gate",
+   "name": "GT: the commit gate of a project passes ids and still refuses a secret",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_the_commit_gate_of_a_project_passes_ids_and_still_refuses_a_secret",
+   "status": "passing"
+  },
+  {
+   "id": "gt-16",
+   "phase": "gt-no-gate",
+   "name": "GT: awb paste --own keeps ids, shortens secrets and refuses a name",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_paste_own_keeps_ids_shortens_secrets_and_refuses_a_name",
+   "status": "passing"
+  },
+  {
+   "id": "gt-17",
+   "phase": "gt-no-gate",
+   "name": "GT: the template carries the lab log line and the sync adds it once",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_the_template_carries_the_lab_log_line_and_the_sync_adds_it_once",
+   "status": "passing"
+  },
+  {
+   "id": "gt-18",
+   "phase": "gt-no-gate",
+   "name": "GT: a paste refused for a mail goes in with --own --retry and its ids stay",
+   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_a_refused_paste_without_a_name_goes_in_with_own_retry_and_ids_stay",
+   "status": "passing"
   }
  ],
- "total_tests": 1723,
+ "total_tests": 1736,
  "checked": "2026-10-27"
 }

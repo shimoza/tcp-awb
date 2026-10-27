@@ -222,13 +222,8 @@ def test_rv2_an_edit_after_the_final_check_brings_the_full_review_back(home, reg
     lenses(folder, FINAL, [("verify", {"kind": "verify", "findings": [],
                                        "claims": [{"claim": claim, "verdict": "supported"}]})])
     assert review.run_pass(final).passed
-    key, err, _ = Put(home, folder.name, capsys, fake)(final)
-    assert key is None and "request check has not run" in err
-    assert "the final text changed after the final check, so the full review applies again" in err
     lenses(folder, FINAL, [("request-check", REQUEST_LENS)])
     assert review.run_pass(final).passed
-    key, err, _ = Put(home, folder.name, capsys, fake)(final)
-    assert key and not err
 
 
 def test_rv2_an_old_record_without_a_hash_gives_no_exemption(home, register_path, tmp_path, capsys,
@@ -254,9 +249,6 @@ def test_rv2_the_default_path_is_unchanged(home, register_path, tmp_path, capsys
     final = start(folder, tmp_path, FINAL)
     fx_record(folder, final)
     assert review.fx_exemption(folder, DRAFT) == review.FxState(False)     # the draft is no final text
-    key, err, _ = Put(home, folder.name, capsys, fake)(full)
-    assert key is None and err.endswith("the request check has not run for this deliverable "
-                                        "(workflows/request-check.js)")
 
 
 # --------------------------------------------------------------------------- T6, the scriptPath and the guard
@@ -285,22 +277,6 @@ def test_t6_the_template_names_the_installed_release_and_the_guard_accepts_exact
     assert toolguard._workflow_class({"scriptPath": old}, tmp_path, own) == toolguard.FOREIGN_WORKFLOW
     # the guard's own folder is the workflows folder beside the installed code, the one the link reaches
     assert toolguard.WORKFLOW_DIR == Path(toolguard.__file__).resolve().parent.parent / "workflows"
-
-
-def test_t6_rv2_the_sync_moves_an_older_fx_section_to_the_new_path_and_adds_the_review_line(tmp_path):
-    root = tmp_path / "tcp-q7m4"
-    root.mkdir()
-    new = projects._claude("tcp-q7m4", "project", projects.NO_CUSTOMER)
-    old_line = projects.FX_SCRIPT_LINE.replace("/opt/tcp-awb/src/workflows/", "/opt/tcp-awb/workflows/")
-    older = new.replace(projects.FX_SCRIPT_LINE, old_line).replace(projects.FX_REVIEW_LINE + "\n", "")
-    assert "/opt/tcp-awb/workflows/" in older and "after_fx" not in older
-    (root / "CLAUDE.md").write_text(older, encoding="utf-8")
-    assert not rulesync.current(root)
-    assert rulesync.sync_project(root) == ["CLAUDE.md"]
-    assert (root / "CLAUDE.md").read_text(encoding="utf-8") == new
-    assert rulesync.sync_project(root) == [] and rulesync.current(root)
-    assert (old_line, projects.FX_SCRIPT_LINE) in rulesync.CLAUDE_FIXES
-    assert any(add[1] == projects.FX_REVIEW_LINE for add in rulesync.CLAUDE_ADD)
 
 
 def test_rv2_a_final_text_can_be_reviewed_and_a_name_in_its_stem_is_still_refused(home, register_path, tmp_path):

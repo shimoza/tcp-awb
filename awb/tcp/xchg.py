@@ -35,16 +35,16 @@ owner_folder; the first take makes it when spawn could not), whose new files a f
 every project; the key service runs the same intake for them, for the project's customer or, without one, under the
 project code with no customer code. "take the files from in" takes every new file of `in/`. Every refusal of a take
 is the one line of the work rules (`hold_line`). Results go back
-with `awb xchg put` into `<lab bucket>/<code>/from-session/<date>/`, after the name check and the send gate of `awb
-bucket put`, both run again by the key service on the bytes it received (F6). The owner gets a mail through the SMN topic of the settings
+with `awb xchg put` into `<lab bucket>/<code>/from-session/<date>/`: never refused for a review state, a name or
+structured data (task GT), its secrets replaced with [secret], again by the key service on the bytes it received (F6). The owner gets a mail through the SMN topic of the settings
 when a session puts a file and when a take holds one.
 
 The service side (`serve_obs`, `serve_take_lab`, `serve_take_owner`, `serve_owner_has`; awb/tcp/keys_exchange.py
 since F1 step 7, still reached through this module) runs inside the key service and is refused everything outside
 the allowed prefixes before anything is signed: `inbox/` of the lab bucket (head and list; a get, a copy and a delete
 only through `serve_take_lab`), `<code>/in/` and `<code>/from-session/` of an active project code. A put goes only to
-`<code>/from-session/<date>/<file id>`, is authorised before its bytes are received (F8) and meets the name check and
-the send gate of the service. Never a policy, an ACL or another bucket.
+`<code>/from-session/<date>/<file id>`, is authorised before its bytes are received (F8), meets the picture rules and
+has its secrets replaced by the service. Never a policy, an ACL or another bucket.
 
 The owner's console puts a file into a project's `in/` under an id (`serve_web_put_in`, the owner's processes only);
 the session's take is the one path from there.
@@ -352,14 +352,6 @@ def _ok(answer: dict) -> dict:
     return answer
 
 
-def name_hint(root: Path, name: str, path: Path, kind_word: str | None = None, lang: str | None = None) -> str:
-    """The neutral name to put a refused file under: ` (try --as tcp-q7m4-mapping-de.md)`, or nothing."""
-    from awb import review
-
-    proposal = review.propose_name(root, name, path, kind_word, lang)
-    return " (try --as %s)" % proposal if proposal else ""
-
-
 def name_problems(name: str, register: Path | None = None) -> list[str]:
     """Why an object name must not cross: a hit of the name check in the name itself (the --as name or the
     source name), whatever kind of file it names."""
@@ -395,9 +387,10 @@ def _embeds_picture(path: Path) -> bool:
 
 
 def check_problems(path: Path, image: bool = False, register: Path | None = None,
-                   mirror_image: bool = False) -> list[str]:
+                   mirror_image: bool = False, names: bool = True) -> list[str]:
     """Why a file must not cross: a name check hit, a file that cannot be read as text, an HTML or Markdown file that
-    embeds or links an image unless the owner passed `mirror_image` (--internal-image)."""
+    embeds or links an image unless the owner passed `mirror_image` (--internal-image). A put passes `names` False
+    (task GT): the picture rules alone."""
     from awb import check
 
     suffix = path.suffix.lower()
@@ -406,6 +399,8 @@ def check_problems(path: Path, image: bool = False, register: Path | None = None
     if suffix in (".html", ".htm", ".md", ".markdown") and not mirror_image and _embeds_picture(path):
         return ["a page or text that embeds or links an image never crosses; console images stay internal "
                 "(only the owner passes --internal-image)"]
+    if not names:
+        return []
     try:
         hits = check.check_file(path, register if register is not None else config.paths().register, code=True)
     except Exception as err:
@@ -563,12 +558,12 @@ def inbox_list() -> list[str]:
 
 def put(path: Path, as_name: str | None = None, image: bool = False, reason: str | None = None,
         kind_word: str | None = None, lang: str | None = None, mirror_image: bool = False) -> str:
-    from awb import projects, review
+    from awb import putcopy
 
     if mirror_image and (config.is_work_user() or os.environ.get("CLAUDECODE")
                          or os.environ.get("CLAUDE_CODE_ENTRYPOINT")):
         raise XchgError("--internal-image is for the owner's own terminal, never a session")
-    root, code, customer = _project()
+    root, code, _ = _project()
     path = Path(os.path.realpath(path))
     if not path.is_file():
         raise XchgError("the file to put is not there")
@@ -577,17 +572,14 @@ def put(path: Path, as_name: str | None = None, image: bool = False, reason: str
         raise XchgError("a name without a folder")
     if image and not (reason and len(reason.strip()) >= 10):
         raise XchgError("--image needs a reason of one line: what it shows and that you checked it for names")
-    named = name_problems(name)
-    problems = named or check_problems(path, image=image, mirror_image=mirror_image)
+    # task GT: no name check, no structured data, no review state; only the picture rule and the secrets
+    problems = check_problems(path, image=image, mirror_image=mirror_image, names=False)
     if problems:
-        raise XchgError("; ".join(problems) + (name_hint(root, name, path, kind_word, lang) if named else ""))
-    if customer not in (projects.NO_CUSTOMER, "", None):
-        verdict, message = review.send_check(root, path, True, name=name)
-        if verdict == review.SEND_REFUSE:
-            raise XchgError("the send gate refused the file: %s" % message)
+        raise XchgError("; ".join(problems))
+    line = putcopy.review_line(root, path)
     with tempfile.TemporaryDirectory(prefix="awb-put-") as tmp:
         copy = Path(tmp) / "upload"
-        shutil.copyfile(path, copy)
+        secrets = putcopy.scrub(path, copy)
         ident = put_id(hashlib.sha256(copy.read_bytes()).hexdigest(), name)
         key = "%s/%s%s/%s" % (code, FROM, datetime.date.today().isoformat(), ident)
         req = {"op": "obs", "method": "PUT", "key": key, "project": code, "name": name}
@@ -596,10 +588,12 @@ def put(path: Path, as_name: str | None = None, image: bool = False, reason: str
         a = _ok(_call(req, upload=copy))
     if image:
         _log_image(root, ident, reason)
+    secrets += int(a.get("secrets", 0) or 0)
     lines = ["put: %s as %s (%d bytes); the owner gets a mail" % (name, key, a.get("size", 0))]
     page = a.get("page")
     if isinstance(page, str) and put_key_ok(page, code):
         lines.append("put: the same text as HTML as %s (open it, select all, paste into the mail)" % page)
+    print(putcopy.put_line(line, secrets), file=sys.stderr)      # beside the lines of the objects
     lines.append(get_it_line(a.get("bucket"), key))
     return "\n".join(lines)
 

@@ -1445,6 +1445,29 @@ def _expand(paths: Iterable[Path]) -> list[Path]:
     return out
 
 
+PROJECT_FREE = ("identifier",)
+"""The classes a commit of a Workbench project passes (task GT, 2026-10-27): a log of our own lab runs keeps its
+ids (domains, projects, users, resources, request ids, 32-hex and UUIDs). Names, secrets, private keys, tokens,
+home paths and the blocklist still refuse."""
+
+
+def in_project(where: Path) -> bool:
+    """True when `where` lies in a Workbench project folder: a folder named by a project code with a SCOPE.md."""
+    from awb import codes
+
+    try:
+        d = Path(os.path.realpath(where))
+    except (OSError, ValueError):
+        return False
+    for c in (d, *d.parents):
+        try:
+            if codes.is_project_code(c.name) and (c / "SCOPE.md").is_file():
+                return True
+        except OSError:
+            return False
+    return False
+
+
 def main(argv: list[str] | None = None) -> int:
     """`awb gate [--staged] [--pushed [--remote NAME]] [--message FILE] [--selftest] [--register PATH]
     [--repo PATH] [PATH...]`. With `awb gate --install [--kb] [--force] [--repo PATH]` it writes the commit,
@@ -1530,6 +1553,8 @@ def main(argv: list[str] | None = None) -> int:
             findings.extend(scan_message(args.message, matcher))
         if args.paths:
             findings.extend(_scan_paths(_expand(args.paths), matcher))
+        if in_project(args.repo if args.repo is not None else Path.cwd()):
+            findings = [f for f in findings if f.cls not in PROJECT_FREE]
         lines = ["%s  %s:%d" % (f.cls, masked_path(f.file, matcher), f.line) for f in findings]
     except (GateError, register.RegisterError) as err:   # check.CheckUnavailable is a RegisterError
         print("awb gate: %s" % err, file=sys.stderr)

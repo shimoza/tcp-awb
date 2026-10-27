@@ -42,12 +42,12 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   line of context, one block, the user and the window named, never an `awb intake`, register or bucket block. At most one command block per reply; a
   held take: one line naming the user and the command.
 - Files: he describes a file, never names it. `awb inbox take HIS WORDS` takes the match of `in/` or the lab inbox ("from in": all of `in/`); none or
-  several: pick or ask, then `--id ID`. Results go out with `awb xchg put FILE`: name it `<code>-<kind word>-<language>.<ext>`; codes only, no ids in
-  logs, an image only with `--image` (never a console one).
+  several: pick or ask, then `--id ID`. Results leave by `awb xchg put FILE` as `<code>-<kind word>-<language>.<ext>`; `--image` only, no console image.
 - `awb cloud tenants` lists the test tenants; `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role lab]` reaches them through the key service. A
-  password goes into a body only as `{{secret:NAME}}`, a key never.
-- `awb kb find|add|scope`, `awb ledger add`, `awb report --by KEY`, `awb career add`. `awb check`, `awb write check` and `awb review status` before a
-  deliverable leaves the project. The commit hook runs `awb gate`.
+  password goes into a body only as `{{secret:NAME}}`. Lab run logs keep full requests, responses and ids: passwords and logins are masked, temporary
+  tokens and keys are cut to 8 characters and a permanent key is never written.
+- `awb kb find|add|scope`, `awb ledger add`, `awb report --by KEY`, `awb career add`. `awb check` and `awb write check` before a deliverable
+  leaves the project; a review only on his word ("ревью" level 1, "глубокое ревью" level 2), a put never waits for it. The commit hook runs `awb gate`.
 
 ## Writing
 

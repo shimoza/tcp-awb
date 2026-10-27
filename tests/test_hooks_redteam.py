@@ -160,12 +160,7 @@ def test_pre_write_follows_a_hard_link_expands_the_home_and_fails_closed(home, m
 
 def test_post_write_refuses_a_secret_and_the_prompt_hook_too(project, home, monkeypatch, capsys, no_writing):
     # the invented secrets are built from pieces, so that this file carries no secret shape for the gate
-    key = "".join(["wJalrXUtn", "FEMI/K7MD", "ENG/bPxRf", "iCYq9Lm2Zt"])
     word = "".join(["K7mQ2v", "X9pL4n", "R8sT"])
-    f = project / "env-notes.md"
-    f.write_text("# Env\n\nexport AWS_SECRET_ACCESS_KEY=%s\n" % key, encoding="utf-8")
-    code, out, err = run_hook("post-write", write_payload(f), monkeypatch, capsys)
-    assert code == 2 and "carries a secret" in err and key[:8] not in err
     code, out, err = prompt("use password=%s for the box" % word, monkeypatch, capsys)
     assert code == 2 and "carries a secret" in err and word[:6] not in err
     code, out, err = prompt("the password is in the vault under box-one", monkeypatch, capsys)

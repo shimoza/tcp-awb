@@ -464,6 +464,14 @@ OWN_OUTPUT_RULE = (
     "`awb paste --own`: `python3 evidence/x.py --tenant T > /tmp/x.log; awb paste --own --as x-log < /tmp/x.log`. "
     "Never pipe a script straight into `awb paste`.")
 """P1: our own output gets the secret check only; a log kept in a file survives a refused paste."""
+LAB_LOGS = ("- Logs of our own lab runs keep full requests and responses with all ids; only passwords and logins are "
+            "masked, temporary tokens and keys are shortened to 8 characters, a permanent key is never written.")
+"""Task GT (2026-10-27): a project keeps live examples of the lab tenants whole; customer names still never enter
+(the entry checks are unchanged). `awb projects sync` adds it after the line of P1 (rulesync.CLAUDE_ADD)."""
+REVIEW_ON_WORD = ("- A review (review.js, request check, final check) runs only on his word ('ревью', 'финальная "
+                  "вычитка'); a put never waits for it; never ask him about tiers.")
+"""The line of task GT (2026-10-27): after the entry nothing stops his work. It opens the review section, on one
+line with level 1 (REVIEW_L1)."""
 
 
 def _claude(code: str, kind: str, customer: str) -> str:
@@ -482,15 +490,16 @@ def _claude(code: str, kind: str, customer: str) -> str:
         "\"new input\" when they come): move them into input/.\n"
         "- Never open an original or the vault.\n"
         "- Proof goes to evidence/, results to deliverables/, review records to reviews/.\n"
-        "- Files for him leave with `awb xchg put FILE` (the lab bucket, from-session/<date>/), after the name check "
-        "and, for a customer project, the review. Name every deliverable `%s-<kind word>-<language>.<ext>` from the "
+        "- Files for him leave with `awb xchg put FILE` (the lab bucket, from-session/<date>/). Name every "
+        "deliverable `%s-<kind word>-<language>.<ext>` from the "
         "start (`%s-mapping-de.md`), never with words of the material.\n"
         "- RESOURCES.md lists what the project uses, with platform ids and codes.\n"
         "- %s\n"
+        "%s\n"
         + _devnote.FILE_RULE + "\n" + _devnote.NOTE_RULE + "\n"
         "- Run `awb check FILE` on every deliverable and `awb gate` before every commit.\n"
         "- %s\n"
-    ) % (code, kind, _rules_ref(), who, code, code, OWN_OUTPUT_RULE,
+    ) % (code, kind, _rules_ref(), who, code, code, OWN_OUTPUT_RULE, LAB_LOGS,
          "This is a project: it reaches the test tenants through the key service (`awb cloud call`)."
          if tenant_access(kind) else
          "This is a query: knowledge base, docs mirror, live prices and calculations, no test tenant. When an "
@@ -502,27 +511,46 @@ WORKFLOWS_INSTALLED = "/opt/tcp-awb/src/workflows"
 """Where a project session finds the Workbench's workflows: the installed release (deploy.OPT / "src" links to
 releases/<commit>), the folder the tool guard compares a Workflow scriptPath with (T6, 2026-10-27; the template named
 /opt/tcp-awb/workflows before, a path no release creates)."""
-FX_SCRIPT_LINE = (
-    "- First one line: it runs Fable 5.1 at effort max, costs about 200k tokens and 10-15 minutes. Wait for one word. "
-    "Then run Workflow with scriptPath `" + WORKFLOWS_INSTALLED + "/final-check.js` and args {project: this folder, "
-    "deliverable: deliverables/<name>, date: today}.")
 FX_REVIEW_LINE = (
     "- The final text gets its own review and it costs less (RV2): `awb review init` and `awb review claims` on it, "
     "then Workflow with scriptPath `" + WORKFLOWS_INSTALLED + "/review.js` and args {..., after_fx: true} (the "
     "platform lenses and the partner lens only), then `awb review pass`. The final check stands in for the request "
     "check and the blind verification while the final text is unchanged; after an edit the full review applies.")
+LEVEL_1 = (
+    "Level 1, \"ревью\" or \"review\": the regular review, the lenses of `workflows/review.js` and the request "
+    "check of `workflows/request-check.js`, on your own model and without a confirmation. It gives findings only "
+    "and never blocks a put.")
+REVIEW_L1 = REVIEW_ON_WORD + " " + LEVEL_1
+LEVEL_2 = (
+    "- Level 2, \"глубокое ревью\" or \"deep review\" (also \"финальная вычитка\" or \"final check\"): the final "
+    "pass of `workflows/final-check.js` on Fable 5.1 at effort max. Neither level runs on its own or as part of "
+    "another step. It may name a deliverable; else take the latest file of deliverables/ that is not `*.final.md` "
+    "and not a translation (`*.de.md`, `*.ru.md`).")
+LEVEL_2_RUN = (
+    "- Before level 2 say the cost in one line (about 200-300k tokens, 10-15 minutes) and wait for one word. Then "
+    "run Workflow with scriptPath `" + WORKFLOWS_INSTALLED + "/final-check.js` and args {project: this folder, "
+    "deliverable: deliverables/<name>, date: today}. After it show the path of the final text, the summary of the "
+    "table and the open points; add the open points to OPEN.md under the heading \"Final check (FX, DATE)\".")
 FINAL_CHECK_SECTION = (
-    "## Final check (FX)\n\n"
+    "## Review levels\n\n"
+    + REVIEW_L1 + "\n" + LEVEL_2 + "\n" + LEVEL_2_RUN + "\n" + FX_REVIEW_LINE + "\n"
+)
+"""The review section of a project CLAUDE.md (task GT, 2026-10-27): two levels with fixed names, started by his
+phrase only. `awb projects sync` adds it to an older project (rulesync.CLAUDE_ADD) and turns the FX section of
+before into it (rulesync.CLAUDE_FIXES)."""
+FX_HEADING_OLD = "## Final check (FX)"
+FX_PHRASE_OLD = (
     "- Only on his phrase \"финальная вычитка\" or \"final check\", never on your own and never as part of another "
     "step. It may name a deliverable; else take the latest file of deliverables/ that is not `*.final.md` and not a "
-    "translation (`*.de.md`, `*.ru.md`).\n"
-    + FX_SCRIPT_LINE + "\n"
+    "translation (`*.de.md`, `*.ru.md`).")
+FX_SCRIPT_LINE = (
+    "- First one line: it runs Fable 5.1 at effort max, costs about 200k tokens and 10-15 minutes. Wait for one word. "
+    "Then run Workflow with scriptPath `" + WORKFLOWS_INSTALLED + "/final-check.js` and args {project: this folder, "
+    "deliverable: deliverables/<name>, date: today}.")
+FX_AFTER_OLD = (
     "- After it show the path of the final text, the summary of the table and the open points. Add the open points "
-    "to OPEN.md under the heading \"Final check (FX, DATE)\".\n"
-    + FX_REVIEW_LINE + "\n"
-)
-"""The FX section of a project CLAUDE.md (2026-10-27): a final pass on a strong model, started by his phrase only.
-`awb projects sync` adds it to an older project (rulesync.CLAUDE_ADD)."""
+    "to OPEN.md under the heading \"Final check (FX, DATE)\".")
+"""The lines of the FX section until task GT; rulesync turns them into the review levels."""
 
 
 SETTINGS_FILE = ".claude/settings.json"
@@ -1134,7 +1162,7 @@ def set_kind(p: _config.Paths, code: str, kind: str) -> tuple[Project, str]:
 
 def set_review_tier(p: _config.Paths, code: str, tier: int) -> tuple[Project, int]:
     """Set the review tier of an active project: the `- review-tier:` line of its SCOPE.md. Returns (row, the tier
-    before). The send gate reads the line; a deliverable takes it unless the owner raises it for that file."""
+    before). A review he asks for reads the line; a put never waits for it (task GT)."""
     if not isinstance(code, str) or not _codes.is_project_code(code):
         raise ProjectError("not a project code")
     if tier not in REVIEW_TIERS:

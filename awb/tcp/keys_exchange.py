@@ -105,18 +105,23 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
     if method == "PUT":
         if body_path is None:
             raise XchgError("a put needs its bytes")
-        # every put of a session: the key of put_key_ok, the name check and the send gate (finding 3)
+        # every put of a session: the key of put_key_ok, the picture rules and the secrets replaced (task GT)
         authorise_put(ctx, req)
         problems = put_problems(ctx, req, body_path)
         if problems:
             raise XchgError("; ".join(problems))
-        c.put_file(key, body_path, "application/octet-stream")
-        size = body_path.stat().st_size
+        body, secrets, scratch = scrub_put(ctx, req, body_path)
+        try:
+            c.put_file(key, body, "application/octet-stream")
+            size = body.stat().st_size
+            # the page is made from the bytes that went up, their secrets replaced
+            page = put_page(c, key, req.get("name"), body, project)
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
         ident = key.rsplit("/", 1)[-1]
         # the mail names the file by its id alone: no text the session chose (finding 18 of the review of 2026-10-10)
         ctx.notify(*exchange_mail("put", project, ident=ident, size=size))
-        answer = {"ok": True, "size": size}
-        page = put_page(c, key, req.get("name"), body_path, project)
+        answer = {"ok": True, "size": size, "secrets": secrets}
         if page:
             answer["page"] = page
         answer["bucket"] = str(ctx.settings.get("lab_bucket") or "")
@@ -186,33 +191,35 @@ def authorise_put(ctx: Context, req: dict) -> None:
 
 
 def put_problems(ctx: Context, req: dict, body_path: Path) -> list[str]:
-    """The checks of a put into from-session/, run by the key service on the bytes it received (F6): the name
-    check of the content (a picture only with image and a reason), then the send gate on the project's folder
-    under the projects root (never the path a row of projects.tsv names), in its strict form unless the owner's
-    grant records no customer (send_gate_strict). A name the name check does not pass never travels (the mail names
-    the id, TM0 item 1), so the bytes are judged under the id then."""
-    from awb import review
-
+    """The checks of a put into from-session/, run by the key service on the bytes it received (F6). Since task GT
+    only the picture rules (a picture only with image and a reason); no name check of the content, no structured
+    data and no review state. The secrets are replaced by `scrub_put` after it."""
     p = ctx.paths_fn()
-    project = ctx.active_project(req["project"])
     ident = req["key"].rsplit("/", 1)[-1]
     name = req.get("name")
     if not (valid_name(name) and not _name_hits([name], p)):
         name = ident
     image = bool(req.get("image")) and isinstance(req.get("reason"), str) and len(req["reason"].strip()) >= 10
     with tempfile.TemporaryDirectory(prefix="awb-check-", dir=_tmp_dir(ctx)) as tmp:
-        # the readers of the name check go by the extension: the received bytes are judged under their own name
+        # the readers go by the extension: the received bytes are judged under their own name
         judged = Path(tmp) / ("upload" + os.path.splitext(name)[1].lower()[:6])
         os.link(body_path, judged)
-        problems = check_problems(judged, image=image, register=p.register)
-        if problems:
-            return problems
-        for_customer = send_gate_strict(ctx, project)
-        verdict, message = review.send_check(p.projects_root / project.code, judged, for_customer,
-                                             register_path=p.register, workbench=p, name=name)
-    if verdict == review.SEND_REFUSE:
-        return ["the send gate refused the file: %s" % message]
-    return []
+        return check_problems(judged, image=image, register=p.register, names=False)
+
+
+def scrub_put(ctx: Context, req: dict, body_path: Path) -> tuple[Path, int, Path | None]:
+    """(the bytes to upload, the secrets replaced, a temporary folder to remove): the received bytes with every
+    secret replaced with [secret] (task GT), judged under the extension of their name."""
+    from awb import putcopy
+
+    name = req.get("name")
+    ext = os.path.splitext(name)[1].lower()[:6] if valid_name(name) else ""
+    tmp = Path(tempfile.mkdtemp(prefix="awb-scrub-", dir=_tmp_dir(ctx)))
+    src = tmp / ("upload" + ext)
+    os.link(body_path, src)
+    out = tmp / ("clean" + ext)
+    n = putcopy.scrub(src, out)
+    return (out if n else body_path), n, tmp
 
 
 def exchange_mail(state: str, project: str, ident: str | None = None, size: int | None = None,
@@ -314,16 +321,6 @@ def _grant_of(ctx: Context, code: str) -> dict | None:
         return grants.load(ctx.paths_fn()).get(code)
     except Exception:
         return None
-
-
-def send_gate_strict(ctx: Context, project) -> bool:
-    """Whether the send gate of a put runs in its strict form: always, unless the owner's grant records that the
-    project has no customer. A project he never granted gets the strict form whatever its row says (finding 5)."""
-    from awb import projects
-
-    if _grant_of(ctx, project.code) is None:
-        return True
-    return project_customer(ctx, project) != projects.NO_CUSTOMER
 
 
 def _project_files(ctx: Context, code: str) -> list[dict]:
