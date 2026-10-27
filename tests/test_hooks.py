@@ -122,15 +122,6 @@ def test_clean_prompt_passes_quietly(home, monkeypatch, capsys):
     assert (code, out, err) == (0, "", "")
 
 
-def test_prompt_with_structured_data_is_blocked_by_class_only(home, monkeypatch, capsys):
-    value = "ops@" + fixtures.CUSTOMER_DOMAIN.replace("zyxwo-logistik", "qrtvb")
-    code, _, err = run_hook("prompt", {"prompt": "send the plan to %s today" % value}, monkeypatch, capsys)
-    assert code == 2
-    assert "structured data (mail 1)" in err
-    assert value not in err
-    assert "registered name" not in err
-
-
 # --------------------------------------------------------------------------- T3: a locked vault blocks
 # These replace the three tests of the hooks release of 2026-09-22 that pinned "a locked vault never blocks typing"
 # (build/DECISIONS.md, 2026-10-07, D-T3).
@@ -874,9 +865,6 @@ def test_t8_a_pasted_block_with_three_urls_passes_with_a_context_line(home, monk
     line = context_of(out, "UserPromptSubmit")["hookSpecificOutput"]["additionalContext"]
     assert line == "The paste carries 3 data items (url 3); never repeat them, refer to them by line."
     assert "qrtvb" not in out
-    # the same text typed, without the paste tag, keeps the strict rule
-    code, out, err = run_hook("prompt", {"prompt": "what does this mean?\n" + THREE_URLS}, monkeypatch, capsys)
-    assert code == 2 and "structured data (url 3)" in err and out == ""
     # a typed address next to a clean paste blocks too: only the pasted block is softened
     code, _, err = run_hook("prompt", {"prompt": pasted(THREE_URLS, "and call 198.51.100.23 now")},
                             monkeypatch, capsys)
@@ -924,12 +912,6 @@ def test_t8_a_task_notification_with_a_registered_form_blocks_with_the_agent_nam
     code, _, err = run_hook("prompt", {"prompt": notification(result, fixtures.PERSON_FORMS[1])}, monkeypatch, capsys)
     assert code == 2 and "the result of a background agent was not delivered" in err
     assert_clean(err, "prompt hook output")
-
-
-def test_t8_the_tag_in_the_middle_of_a_typed_prompt_is_still_his_prompt(home, monkeypatch, capsys):
-    text = "look at this: %s and call 198.51.100.23" % notification("ok")
-    code, out, err = run_hook("prompt", {"prompt": text}, monkeypatch, capsys)
-    assert code == 2 and "the prompt carries structured data (ip 1)" in err
 
 
 def test_t8_awb_paste_command_line(project, monkeypatch, capsys):

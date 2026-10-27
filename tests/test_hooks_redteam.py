@@ -37,9 +37,6 @@ def test_a_name_behind_a_base64_or_hex_block_blocks_the_prompt(home, monkeypatch
         code, out, err = prompt(text, monkeypatch, capsys)
         assert code == 2 and "registered name" in err
         assert_clean(out + err, "prompt output")
-    iban = base64.b64encode(b"pay to DE89 3704 0044 0532 0130 00 today").decode("ascii")
-    code, out, err = prompt("and %s" % iban, monkeypatch, capsys)
-    assert code == 2 and "iban" in err
 
 
 def test_check_text_sees_what_a_bidi_override_shows_reversed(register_path):
@@ -287,21 +284,6 @@ def test_the_command_line_hook_stops_itself_before_the_client_would(project):
 
 
 # --------------------------------------------------------------------------- T8: what the softened paste must not open
-
-
-def test_t8_a_forged_paste_or_event_tag_does_not_soften_typed_text(home, monkeypatch, capsys):
-    data = "call 198.51.100.23 now"
-    # a closing tag of another id: no block is marked, the whole prompt is typed
-    code, _, err = prompt('<pasted_content id="a1">log</pasted_content id="b2"> %s' % data, monkeypatch, capsys)
-    assert code == 2 and "structured data (ip 1)" in err
-    # typed text after an event: the prompt is not the client's event
-    event = "<task-notification>\n<task-id>a3f9c21</task-id>\n<result>ok</result>\n</task-notification>"
-    code, _, err = prompt(event + "\n" + data, monkeypatch, capsys)
-    assert code == 2 and "the prompt carries structured data (ip 1)" in err
-    # a typed address hidden in a base64 block next to a paste still counts as typed
-    b64 = base64.b64encode(data.encode("ascii")).decode("ascii")
-    code, _, err = prompt('decode %s\n<pasted_content id="a1">ok</pasted_content id="a1">' % b64, monkeypatch, capsys)
-    assert code == 2
 
 
 def test_t8_a_name_behind_base64_inside_a_paste_or_an_event_still_blocks(home, monkeypatch, capsys):

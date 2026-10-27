@@ -620,6 +620,11 @@ def hook_prompt(data: dict) -> int:
     other = [h for h in hits if h.get("cls") != "name"]
     kind = _prompt_kind(text)
     soft = [h for h in other if h.get("cls") in SOFT_CLASSES]
+    if kind == "typed" and not names and not secrets:
+        # T5: the owner's own words are no entry of customer material; only a registered name or a secret stops
+        # them (the entry checks run at awb start, intake, import, awb clean and the paste door)
+        _rules_notice(data)
+        return OK
     if (kind != "typed" and not names and not secrets and len(soft) == len(other)
             and (kind != "paste" or not _typed_has_data(text))):
         what = {"paste": "The paste", "agent": "The agent result", "ci": "The CI event"}[kind]
