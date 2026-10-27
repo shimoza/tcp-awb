@@ -1634,8 +1634,8 @@
   {
    "id": "T8-5",
    "phase": "T8",
-   "name": "awb paste masks the softened classes in the file and refuses a text with a name hit",
-   "run": ".venv/bin/pytest tests/test_hooks.py::test_t8_awb_paste_masks_the_soft_classes_and_refuses_a_name",
+   "name": "awb paste masks the softened classes in the file, refuses a text with a name hit and numbers a taken name",
+   "run": ".venv/bin/pytest tests/test_p1_paste_own.py::test_the_default_mode_still_masks_and_refuses_what_it_did",
    "status": "passing"
   },
   {
@@ -11794,8 +11794,85 @@
    "name": "FX: the final check binds nothing and the status ignores it",
    "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_the_final_check_binds_nothing_and_the_status_ignores_it",
    "status": "passing"
+  },
+  {
+   "id": "p1-1",
+   "phase": "p1-paste-own",
+   "name": "P1: own keeps ids error codes tables addresses and hosts",
+   "run": ".venv/bin/pytest tests/test_p1_paste_own.py::test_own_keeps_ids_error_codes_tables_addresses_and_hosts",
+   "status": "passing"
+  },
+  {
+   "id": "p1-2",
+   "phase": "p1-paste-own",
+   "name": "P1: own replaces a key pair a bearer token and a password and keeps the words",
+   "run": ".venv/bin/pytest tests/test_p1_paste_own.py::test_own_replaces_a_key_pair_a_bearer_token_and_a_password_and_keeps_the_words",
+   "status": "passing"
+  },
+  {
+   "id": "p1-3",
+   "phase": "p1-paste-own",
+   "name": "P1: own runs no name check",
+   "run": ".venv/bin/pytest tests/test_p1_paste_own.py::test_own_runs_no_name_check",
+   "status": "passing"
+  },
+  {
+   "id": "p1-4",
+   "phase": "p1-paste-own",
+   "name": "P1: own on the command line says the count and the file",
+   "run": ".venv/bin/pytest tests/test_p1_paste_own.py::test_own_on_the_command_line_says_the_count_and_the_file",
+   "status": "passing"
+  },
+  {
+   "id": "p1-5",
+   "phase": "p1-paste-own",
+   "name": "P1: a taken name is said in one line and written with a number",
+   "run": ".venv/bin/pytest tests/test_p1_paste_own.py::test_a_taken_name_is_said_in_one_line_and_written_with_a_number",
+   "status": "passing"
+  },
+  {
+   "id": "p1-6",
+   "phase": "p1-paste-own",
+   "name": "P1: a refused paste is kept owner only outside the project and names the retry",
+   "run": ".venv/bin/pytest tests/test_p1_paste_own.py::test_a_refused_paste_is_kept_owner_only_outside_the_project_and_names_the_retry",
+   "status": "passing"
+  },
+  {
+   "id": "p1-7",
+   "phase": "p1-paste-own",
+   "name": "P1: a retry pastes the kept text and deletes it",
+   "run": ".venv/bin/pytest tests/test_p1_paste_own.py::test_a_retry_pastes_the_kept_text_and_deletes_it",
+   "status": "passing"
+  },
+  {
+   "id": "p1-8",
+   "phase": "p1-paste-own",
+   "name": "P1: a paste the name check could not run on is kept",
+   "run": ".venv/bin/pytest tests/test_p1_paste_own.py::test_a_paste_the_name_check_could_not_run_on_is_kept",
+   "status": "passing"
+  },
+  {
+   "id": "p1-9",
+   "phase": "p1-paste-own",
+   "name": "P1: a kept file older than seven days goes at the next paste",
+   "run": ".venv/bin/pytest tests/test_p1_paste_own.py::test_a_kept_file_older_than_seven_days_goes_at_the_next_paste",
+   "status": "passing"
+  },
+  {
+   "id": "p1-10",
+   "phase": "p1-paste-own",
+   "name": "P1: a new project carries the own output rule and stays within its lines",
+   "run": ".venv/bin/pytest tests/test_p1_paste_own.py::test_a_new_project_carries_the_own_output_rule_and_stays_within_its_lines",
+   "status": "passing"
+  },
+  {
+   "id": "p1-11",
+   "phase": "p1-paste-own",
+   "name": "P1: the sync adds the own output rule once",
+   "run": ".venv/bin/pytest tests/test_p1_paste_own.py::test_the_sync_adds_the_own_output_rule_once",
+   "status": "passing"
   }
  ],
- "total_tests": 1685,
+ "total_tests": 1696,
  "checked": "2026-10-27"
 }

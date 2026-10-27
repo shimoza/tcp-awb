@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from awb import config
+from awb.projects import OWN_OUTPUT_RULE
 
 CLAUDE_FIXES = (
     ("- Start with SCOPE.md, STATE.md and OPEN.md. Update STATE.md and OPEN.md before the session ends.",
@@ -49,6 +50,9 @@ CLAUDE_ADD = (
      "- Files for him leave with `awb xchg put FILE` (the lab bucket, from-session/<date>/), after the name check "
      "and, for a customer project, the review.",
      "awb xchg put"),
+    ("- RESOURCES.md lists what the project uses, with platform ids and codes.",
+     "- " + OWN_OUTPUT_RULE,
+     "awb paste --own"),
     ("- Run `awb check FILE` on every deliverable and `awb gate` before every commit.", "",
      "workflows/final-check.js"),
 )

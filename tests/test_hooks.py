@@ -932,37 +932,6 @@ def test_t8_the_tag_in_the_middle_of_a_typed_prompt_is_still_his_prompt(home, mo
     assert code == 2 and "the prompt carries structured data (ip 1)" in err
 
 
-def test_t8_awb_paste_masks_the_soft_classes_and_refuses_a_name(project, monkeypatch, capsys):
-    from awb import paste
-
-    listing = ("-rw-r----- 1 awb awb     0 2026-10-07 06:02 0001-req.txt\n"
-               "last login 2026-10-07 06:02:11 from 198.51.100.23\n" + THREE_URLS +
-               "eth0 ether 52:54:00:12:34:56 and call +49 30 1234567\n")
-    path, counts, outside = paste.paste(listing, project, today=date(2026, 10, 8))
-    assert path == project / "notes" / "pastes" / "2026-10-08-1.txt"
-    assert counts == {"ip": 1, "url": 3, "mac": 1, "phone": 1} and outside == 0
-    text = path.read_text(encoding="utf-8")
-    assert "[ip]" in text and text.count("[url]") == 3 and "[phone]" in text and "[mac]" in text
-    for value in ("198.51.100.23", "qrtvb", "52:54:00", "1234567"):
-        assert value not in text
-    assert "0001-req.txt" in text and "06:02:11" in text
-    second, _, _ = paste.paste("plain text\n", project, today=date(2026, 10, 8))
-    assert second.name == "2026-10-08-2.txt"
-    named, _, _ = paste.paste("plain text\n", project, name="tf-error", today=date(2026, 10, 8))
-    assert named.name == "2026-10-08-tf-error.txt"
-    with pytest.raises(paste.PasteError):
-        paste.paste("plain text\n", project, name="tf-error", today=date(2026, 10, 8))
-    before = sorted(p.name for p in path.parent.iterdir())
-    with pytest.raises(paste.PasteError) as err:
-        paste.paste("the offer for %s\n%s" % (fixtures.CUSTOMER_FORMS[0], THREE_URLS), project,
-                    today=date(2026, 10, 8))
-    assert "registered name 1" in str(err.value)
-    assert_clean(str(err.value), "paste message")
-    with pytest.raises(paste.PasteError):
-        paste.paste("write to ops@qrtvb.net\n", project, today=date(2026, 10, 8))
-    assert sorted(p.name for p in path.parent.iterdir()) == before
-
-
 def test_t8_awb_paste_command_line(project, monkeypatch, capsys):
     from awb import paste
 
