@@ -11444,8 +11444,29 @@
    "name": "LC3: the paste door refuses a prose password",
    "run": ".venv/bin/pytest tests/test_lc3_prose.py::test_the_paste_door_refuses_a_prose_password",
    "status": "passing"
+  },
+  {
+   "id": "t4-1",
+   "phase": "t4-iban-boundary",
+   "name": "T4: the head of a hex id that passes mod 97 is no IBAN",
+   "run": ".venv/bin/pytest tests/test_t4_iban_ids.py::test_a_hex_id_whose_head_passes_mod_97_is_no_iban",
+   "status": "passing"
+  },
+  {
+   "id": "t4-2",
+   "phase": "t4-iban-boundary",
+   "name": "T4: real IBANs are still found",
+   "run": ".venv/bin/pytest tests/test_t4_iban_ids.py::test_real_ibans_are_still_found",
+   "status": "passing"
+  },
+  {
+   "id": "t4-3",
+   "phase": "t4-iban-boundary",
+   "name": "T4: an IBAN before a word is still found",
+   "run": ".venv/bin/pytest tests/test_t4_iban_ids.py::test_an_iban_followed_by_a_word_after_a_separator_is_found",
+   "status": "passing"
   }
  ],
- "total_tests": 1635,
+ "total_tests": 1638,
  "checked": "2026-10-26"
 }

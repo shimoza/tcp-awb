@@ -245,6 +245,10 @@ def _iban_ok(s: str) -> int | bool:
             return False
     if len(chars) != want or not "".join(chars[2:4]).isdigit():
         return False
+    if end < len(s) and s[end].isalnum():
+        # the number would end inside a word: the head of a longer token (a 32 hex id such as ba40b7...)
+        # is no IBAN, even when its first letters and digits pass mod 97 by chance
+        return False
     iban = "".join(chars)
     moved = iban[4:] + iban[:4]
     digits = "".join(str(int(c, 36)) for c in moved)
