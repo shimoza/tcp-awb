@@ -326,7 +326,7 @@ a meeting. In the Workbench every fact carries its weight:
 A negative ("this is not possible") needs two recorded attempts. Facts that go stale (availability, flavors,
 regions) carry an expiry date and are checked again by the fact-check service: a check block on the fact says
 which calls or which recipe prove it, what confirms it, what refutes it and the control that tells the two apart.
-A read tier runs every Sunday as the work user, a write tier runs a recipe on the test tenant on the owner's word
+A read tier runs every Saturday evening as the work user, a write tier runs a recipe on the test tenant on the owner's word
 and a watchdog deletes what a run left behind. A run never raises a grade; a refuted fact stays expired for a
 person.
 
@@ -540,7 +540,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | finish a project | `awb close tcp-xxxx`, then `awb projects delete tcp-xxxx` | close waits for open items and live resources and lists them with their commands when it refuses, then writes the fingerprint of the deliverables to the shared side and pins its hash in the vault; a session that leaves you an item with an allowed `awb` command in OPEN.md gets you one mail, sent by the 15 minute timer of `awb build nudge` after the name check; delete removes the folder and keeps the code |
 | take a file | `awb inbox take the pdf` | the file you described, from either inbox, into the project |
 | look up a fact | `awb kb find "ecs flavor eu-nl"`, `awb kb show KB-XXXX` | ranked facts with grade, source and check date; `show` also prints how the fact is checked again (its check block) |
-| check facts again | `awb kb recheck-run --tier read --tenant ALIAS` (`--dry-run` first; without `--tenant` the tenant `recheck_tenant` of the host file names); the read tier also runs by itself every Sunday at 02:30 UTC as the work user (`awb-kb-recheck.timer`, on the tenant of `recheck_tenant`) | the expired entries whose check block a run can send, checked on the test tenant and written back: confirmed ones are fresh again with their grade kept (a run never raises a grade; an entry whose grade is not live is listed for you), the rest stays expired and is listed in the run's RESULT.md |
+| check facts again | `awb kb recheck-run --tier read --tenant ALIAS` (`--dry-run` first; without `--tenant` the tenant `recheck_tenant` of the host file names); the read tier also runs by itself every Saturday at 19:00 UTC as the work user (`awb-kb-recheck.timer`, on the tenant of `recheck_tenant`) | the entries due (expired or expiring within 8 days, task KS) whose check block a run can send, checked on the test tenant and written back: confirmed ones are fresh again with their grade kept (a run never raises a grade; an entry whose grade is not live is listed for you), the rest stays expired and is listed in the run's RESULT.md; a refuted one is also written to `~/tcp-shared/recheck/refuted.tsv` and leaves the next dataset |
 | clean up after a check | nothing: `awb-kb-recheck-watch.timer` runs `awb kb recheck-watch` as you every 15 minutes | every resource of the service project whose expiry has passed is deleted and proven gone (by its `awb-project` tag, or for a service whose listing carries no tags by its lab name with the code and the expiry marker; a name match alone is listed and left alone) and its row in RESOURCES.md says so; one mail for a resource it cannot delete and one for each recheck run that ended |
 | offered or not | `awb service check dms rds` | the section and revision of the latest service description |
 | a console reference entry | `awb mirror console find "create vpc" --service vpc`, `awb mirror console show vpc/03-create` | the private console reference (`~/tcp-mirrors/console/<date>/`, one folder per dated pass, filled by the owner; never in the public dataset or in git), ranked by word overlap over the INDEX note, menu path, title and text; a how-to keeps its sources in an internal note and writes a step the reference lacks as "not confirmed yet: check on screen"; read only; the work user reads the copy that `awb mirror console publish` (owner side) puts in `/srv/tcp-mirrors/console/<date>/`; `awb mirror status` lists the passes, the newest date, the entries and the services |
@@ -563,7 +563,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | publish the console page | `sudo awb web publish --from-queue ID` | the checked page of a UI run live, the old one kept as a backup |
 | a login for the console | `sudo awb web user add LOGIN [--level owner]` | a random password, shown once (an owner entry also gets a TOTP key for his phone); `reset`, `remove`, `list`; `projects LOGIN CODE...` limits a reader to those project codes (no list: every project); `sudo awb web status` shows failed sign-ins and waits |
 | the owner host name | `sudo awb web host HOST` | once: the host name of the owner level, kept in `/etc/awb/paths.conf` |
-| what waits on the owner | `awb owner status` | one list of everything that waits on you: the owner items of OPEN.md of the active projects (parked projects as a count), the rows of QUEUE.md whose state waits on you and the build tasks that wait on you; one line each with the project code or label, a few words, where it is done (project session, his terminal, steering session) and a ready command block; `--mail` sends it (the timer `awb-owner-mail` does at 08:00 Europe/Berlin, no mail for an empty list) |
+| what waits on the owner | `awb owner status` | one list of everything that waits on you: the owner items of OPEN.md of the active projects (parked projects as a count), the rows of QUEUE.md whose state waits on you the build tasks that wait on you and a failed weekly publish of the dataset; one line each with the project code or label, a few words, where it is done (project session, his terminal, steering session) and a ready command block; `--mail` sends it (the timer `awb-owner-mail` does at 08:00 Europe/Berlin, no mail for an empty list); the line of a weekly publish of the last 24 hours comes after the list and is mailed even when nothing waits on you |
 | the owner level's status | `awb owner status --json` | what the owner page shows: vault, key service, release, page, UI runs (with each run's summary after the name check, for `GET /api/ui-runs`), intake counts; `--write` writes it for owner-actions, a timer runs that every minute |
 | hand a UI task to Codex | `awb ui submit presentations/ui-tasks/ID.txt`, `awb ui status` | the task checked and queued; a result note in `presentations/ui-tasks/` when the run ends |
 
@@ -721,7 +721,7 @@ awb dataset build
 
 That writes `~/tcp-shared/datasets/tcp-facts-<date>/`, its zip and `tcp-facts-<date>.mcpb` (the one-click extension for Claude Desktop): `facts.md` with every fact on one line, grouped
 by topic and small enough for one chat, one file per topic under `topics/`, `facts.jsonl` with the metadata, the
-list of orderable services, a `PROMPT.md` and a `HOW-TO.pdf`. The dataset holds no price list (no `prices/` folder, no
+list of orderable services, a `PROMPT.md` and a `HOW-TO.pdf`. A fact leaves the dataset only when something invalidates it (retired or superseded, refuted by a recheck, a service the service description no longer offers), never for its date: an expired fact stays, marked `recheck due` with its check date in `facts.md` and in the README table "Facts with a recheck due". The dataset holds no price list (no `prices/` folder, no
 price file in `MANIFEST.json`): prices come live from the public price API with `--live` of the MCP server. Every text file
 opens with the rules for the assistant that reads it, so a person attaches `facts.md` to ChatGPT, Claude or a local
 model and types `Use the attached TCP Facts. Answer: <question>`. The dataset carries a best-before date of 30 days. Its README, PROMPT.md and HOW-TO.pdf warn against customer data in prompts to a public model.
@@ -761,6 +761,12 @@ and `gpg.ssh.program=ssh-keygen` through `GIT_CONFIG_COUNT` (the scope of `git -
 put refuses a clone that is not yours alone: the clone, its `.git` or anything in `.git` owned by another user, a
 link or writable by group or others. Remove such a clone; the next put clones it again (git runs with umask 022).
 `--github-only` does the GitHub part alone, without the bucket and without calling the key service.
+Once a week this runs by itself: `awb-dataset-weekly.timer` starts `awb dataset weekly` as you every Monday 06:00
+UTC (07:00 Berlin in winter), after the read tier of the fact-check on Saturday 19:00 UTC. It runs `awb dataset
+build`, `awb kb review` (your mark, refused for the work user as before) and `awb dataset put --github`, each step
+only after the one before succeeded, so a failed step publishes nothing after it and the put keeps all its checks.
+A failure shows in `awb owner status` as `dataset: weekly publish failed: <step>: <reason>` until a publish succeeds;
+a success is the line `dataset tcp-facts-<date>: N added, M amended, K retired` in the 08:00 mail.
 The release notes say what is new since the previous release: the facts added, amended (same id, changed statement
 or source) and retired, compared by id with the `facts.jsonl` of the previous release tag in the local clone, and the
 requirement areas and service sections the added facts touch. The first release has no such part.

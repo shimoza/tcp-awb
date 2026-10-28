@@ -1079,9 +1079,10 @@ def test_the_nightly_jobs_run_as_the_work_user_in_a_hardened_oneshot(name, famil
 
 def test_the_weekly_recheck_job_runs_the_read_tier_alone_as_the_work_user_and_is_installed_and_verified(fakebin):
     """Fact-check F9. awb-kb-recheck.service runs awb kb recheck-run --tier read as the work user in the hardened
-    oneshot of the nightly jobs, unix sockets only, after the kb commit; its timer fires Sunday 02:30 UTC, at most 10
-    minutes late, no catch-up. setup.sh writes and enables both, verify.sh proves the timer enabled, the work user and
-    the read tier. Planted: a unit that names the write tier, a second ExecStart or another time fails."""
+    oneshot of the nightly jobs, unix sockets only, after the kb commit; its timer fires once a week, no catch-up (the
+    time is pinned by test_ks_the_recheck_timer_fires_saturday_19_utc_at_most_15_minutes_late, task KS). setup.sh
+    writes and enables both, verify.sh proves the timer enabled, the work user and the read tier. Planted: a unit that
+    names the write tier or a second ExecStart fails."""
     service = (WORK_JOBS / "awb-kb-recheck.service").read_text(encoding="utf-8")
     keys = _service_keys(WORK_JOBS / "awb-kb-recheck.service")
     assert keys["ExecStart"] == ["/usr/local/bin/awb kb recheck-run --tier read"]
@@ -1095,10 +1096,8 @@ def test_the_weekly_recheck_job_runs_the_read_tier_alone_as_the_work_user_and_is
     assert keys["RestrictAddressFamilies"] == ["AF_UNIX"]
     assert re.search(r"(?m)^After=.*\bawb-kb-commit\.service\b", service)
     timer = (WORK_JOBS / "awb-kb-recheck.timer").read_text(encoding="utf-8").splitlines()
-    assert "OnCalendar=Sun *-*-* 02:30:00 UTC" in timer and "Persistent=false" in timer
+    assert "Persistent=false" in timer
     assert "Unit=awb-kb-recheck.service" in timer and "WantedBy=timers.target" in timer
-    delay = [line.split("=", 1)[1] for line in timer if line.startswith("RandomizedDelaySec=")]
-    assert len(delay) == 1 and re.fullmatch(r"([1-9]|10)min", delay[0])
     assert "awb-kb-recheck" in setup_value("WORK_JOBS").split()
     res = run_script(SETUP, ["--dry-run"], fakebin)
     assert res.returncode == 0, res.stderr

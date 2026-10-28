@@ -13,7 +13,8 @@
 # cron.deny names it, crontab -l is refused and it has no crontab, the timers of its two nightly jobs and of the weekly
 # read tier of the fact-check are enabled and run as the work user, the last one the read tier alone (fact-check F9).
 # awb-kb-recheck-watch.timer is enabled and its unit runs awb kb recheck-watch as the owner; awb-import-auto.timer is
-# enabled and its unit runs awb import --auto as the owner
+# enabled and its unit runs awb import --auto as the owner; the weekly read tier fires Saturday 19:00 UTC and
+# awb-dataset-weekly.timer is enabled, fires Monday 06:00 UTC and its unit runs awb dataset weekly as the owner (task KS)
 # (fact-check F5). The egress table of the work user is loaded in the mode of the host file, takes
 # the work user's uid alone, lets an established connection pass only with the mark of the allow rules, counts a
 # planted connection of the work user to 192.0.2.1 (and refuses it in the mode enforce) and leaves one of the owner's
@@ -48,6 +49,7 @@ CRON_DENY=/etc/cron.deny
 WORK_JOBS="awb-work-update awb-kb-commit awb-kb-recheck"   # as in setup.sh
 RECHECK_WATCH_UNIT=awb-kb-recheck-watch   # seal/setup.sh writes its .service and .timer (fact-check F5)
 IMPORT_AUTO_UNIT=awb-import-auto          # seal/setup.sh writes its .service and .timer (lc-laptop-clean)
+DATASET_WEEKLY_UNIT=awb-dataset-weekly    # seal/setup.sh writes its .service and .timer (task KS)
 seal_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 FORBIDDEN_GROUPS=(ubuntu docker adm sudo lxd)
 
@@ -306,6 +308,15 @@ allowed "the timer $IMPORT_AUTO_UNIT.timer is enabled and runs awb import --auto
     sh -c 'systemctl is-enabled --quiet "$3.timer" && test "$(stat -c "%U %a" -- "$1")" = "root 644" &&
     grep -qx "Type=oneshot" "$1" && grep -qx "User=$2" "$1" && grep -qx "ExecStart=/usr/local/bin/awb import --auto" "$1"' \
     verify "/etc/systemd/system/$IMPORT_AUTO_UNIT.service" "$owner" "$IMPORT_AUTO_UNIT"
+allowed "awb-kb-recheck.timer fires Saturday 19:00 UTC, at most 15 minutes late" \
+    sh -c 'grep -qx "OnCalendar=Sat \*-\*-\* 19:00:00 UTC" "$1" && test "$(grep -c "^OnCalendar=" "$1")" = 1 &&
+    grep -Eqx "RandomizedDelaySec=([1-9]|1[0-5])min" "$1"' verify /etc/systemd/system/awb-kb-recheck.timer
+allowed "the timer $DATASET_WEEKLY_UNIT.timer is enabled, fires Monday 06:00 UTC and runs awb dataset weekly as the owner" \
+    sh -c 'systemctl is-enabled --quiet "$3.timer" && test "$(stat -c "%U %a" -- "$1")" = "root 644" &&
+    grep -qx "Type=oneshot" "$1" && grep -qx "User=$2" "$1" && grep -qx "ExecStart=/usr/local/bin/awb dataset weekly" "$1" &&
+    grep -qx "OnCalendar=Mon \*-\*-\* 06:00:00 UTC" "$4"' \
+    verify "/etc/systemd/system/$DATASET_WEEKLY_UNIT.service" "$owner" "$DATASET_WEEKLY_UNIT" \
+    "/etc/systemd/system/$DATASET_WEEKLY_UNIT.timer"
 
 # --------------------------------------------------------------------------- the egress filter (seal/egress)
 

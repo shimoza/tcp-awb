@@ -9,12 +9,14 @@ repository; with neither it stops.
 
 The steps, each a line of the run's RESULT.md:
 
-1. Pick: the expired entries (`kb.expired`) with a check block of the tier (default read), oldest expiry first;
+1. Pick: the entries that expire before the next weekly run (`kb.due`: expired or expiring within DUE_DAYS, the
+   7 days to the next run plus 1 day of margin, task KS) with a check block of the tier (default read), oldest
+   expiry first;
    `--id` narrows them to the ids given. An entry without a block, with another tier or whose block is a decision
    tier or needs what the host cannot give goes to the lists "no block", "other tier" and "for the owner" and is not
    touched; so does an entry whose grade is not live: a run checks live facts again and never raises a grade, so a
    statement of the grade said, docs or contract with a check block waits for the owner (review of 2026-10-16,
-   finding R3). An id given that has not expired goes to "not expired". `--dry-run` stops here and prints the calls
+   finding R3). An id given that is not due goes to "not expired". `--dry-run` stops here and prints the calls
    or the recipe and its parameters of every entry it would check.
 2. Inventory before, for a write run: `sweep.inventory` over the sources the key service can list (every source of
    the sweep and the named sources, but the ELB and NAT v2.0 listings, which need a header the key service does not
@@ -36,6 +38,9 @@ The steps, each a line of the run's RESULT.md:
    confirmed or refuted with an event is `kb.amend` with one more line "On DATE the state is: ..." (the confirms or
    the refutes line) and the run's date as the check date, the oldest such line dropped when there are three already;
    refuted or undecided without an event writes nothing: the entry stays expired and the result lists it (D2).
+   A refuted entry also gets a line `ID<TAB>DATE` in `<shared>/recheck/refuted.tsv`: `awb dataset build` leaves an
+   entry out whose refute is not older than its check date (task KS: a fact leaves the dataset only when something
+   invalidates it).
 
 A test of a read tier reads `[N:]PATH OP VALUE`: N the number of the call (1 when left out), PATH `status` or a
 dotted path into the call's answer in which `list[key=value]` picks the first item whose key has that value (a dot
@@ -77,6 +82,9 @@ ANSWER_CHARS = 1500
 ERROR_CHARS = 200
 MAX_STATE_SENTENCES = 3
 STATE_TSV = ("recheck", "state.tsv")
+REFUTED_TSV = ("recheck", "refuted.tsv")
+DUE_DAYS = 8
+"""A weekly run takes every entry that expires within the 7 days to the next run plus 1 day of margin (task KS)."""
 VERDICTS = ("confirmed", "refuted", "undecided")
 _TEST_RE = re.compile(r"^(?:(?P<n>[1-9]):)?(?P<path>\S+) (?P<op>is not|is|has|lacks) (?P<value>.+)$")
 _STATE_RE = re.compile(r"^On \d{4}-\d{2}-\d{2} the state is: ")
@@ -108,11 +116,11 @@ class Pick:
 
 
 def pick(tier: str, ids=(), *, where=None, today: datetime.date | None = None) -> Pick:
-    """Step 1: the expired entries sorted into the run and the lists that are not touched. An entry whose grade is
-    not live goes to the owner's list whatever its block says: a run never raises a grade. An id that is not in the
-    knowledge base raises KBError."""
+    """Step 1: the entries due (expired or expiring within DUE_DAYS) sorted into the run and the lists that are not
+    touched. An entry whose grade is not live goes to the owner's list whatever its block says: a run never raises a
+    grade. An id that is not in the knowledge base raises KBError."""
     today = today or datetime.date.today()
-    expired = kb.expired(where, today)
+    expired = kb.due(where, today, DUE_DAYS)
     if ids:
         for i in ids:
             kb.get(i, where)
@@ -504,6 +512,8 @@ class Recheck:
                 o.written = "rechecked, grade %s kept" % e.grade
             else:
                 o.written = "stays expired"
+            if o.verdict == "refuted":
+                record_refuted(e.id, self.today)
         except kb.Refused as ref:
             o.written = "stays expired: the knowledge base refused the write-back (%s)" % "; ".join(ref.reasons)
         except kb.KBError as exc:
@@ -603,6 +613,34 @@ class Recheck:
         n = {v: sum(1 for o in outcomes if o.verdict == v) for v in VERDICTS}
         self.out("recheck: %d confirmed, %d refuted, %d undecided, %d for the owner; evidence %s"
                  % (n["confirmed"], n["refuted"], n["undecided"], len(p.owner), self.rel(self.dir)))
+
+
+def refuted_path():
+    from awb import config
+
+    return config.paths().shared.joinpath(*REFUTED_TSV)
+
+
+def record_refuted(entry_id: str, day: datetime.date) -> None:
+    """One line `ID<TAB>DATE` for a refuted entry; the dataset build reads it (task KS)."""
+    path = refuted_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write("%s\t%s\n" % (entry_id, day.isoformat()))
+
+
+def refuted(path=None) -> dict[str, str]:
+    """The newest refute date by id from refuted.tsv; empty when the file is missing."""
+    out: dict[str, str] = {}
+    try:
+        text = (path or refuted_path()).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return out
+    for line in text.splitlines():
+        bits = line.split("\t")
+        if len(bits) == 2 and re.fullmatch(codes.KB, bits[0]) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", bits[1]):
+            out[bits[0]] = max(out.get(bits[0], ""), bits[1])
+    return out
 
 
 def run(tier: str, ids, project: str, tenant: str | None, *, dry_run: bool = False, send=None,

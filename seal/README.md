@@ -176,14 +176,20 @@ that `awb egress status`, `awb seal check` and `awb deploy status` read; never t
    carries `seal/work-jobs/nightly-kb-commit`; it does not today, so the setup says so and the timer runs
    `<work-home>/.local/bin/nightly-kb-commit` where the crontab ran it. Then `/etc/cron.deny` names `awb` (other
    lines stay) and the crontab of the work user goes; a line in it other than the two jobs is named first. Beside
-   them `awb-kb-recheck.timer` runs the weekly read tier of the fact-check, Sunday 02:30 UTC up to 10 minutes later
-   and no catch-up at boot: `awb kb recheck-run --tier read` as the work user, unix sockets only,
+   them `awb-kb-recheck.timer` runs the weekly read tier of the fact-check, Saturday 19:00 UTC (20:00 Berlin in winter, his decision of
+   2026-10-28: his token allowance renews Sunday 02:00) up to 15 minutes later and no catch-up at boot: `awb kb recheck-run --tier read` as the work user, unix sockets only,
    after `awb-kb-commit.service`, never the write tier (fact-check F9). The unit names no tenant: the run takes
    `recheck_tenant` of `/etc/awb/paths.conf`, which the owner sets and `setup.sh` keeps when it rewrites the file.
    `verify.sh` proves the root owned key file, the file `sshd -T -C user=awb` names, no key file in the work home,
    `cron.deny`, a refused `crontab -l` as the work user, no crontab, the three timers enabled with their services as
    the work user and the recheck service running the read tier alone; a missing or empty `recheck_tenant` is one
    WARN line, not a failure.
+   On the owner's side `awb-dataset-weekly.timer` runs `awb dataset weekly` as the owner every Monday 06:00 UTC
+   (07:00 Berlin in winter, a missed run made up at boot): `awb dataset build`, `awb kb review` and `awb dataset put
+   --github` of the dataset TCP Facts, one step after the other (task KS). Its unit needs the network for the
+   price check, gh and git, and writes its result to `/var/lib/awb-dataset-weekly` (the owner's, 700), which `awb
+   owner status` reads. `verify.sh` proves the recheck timer at Saturday 19:00 UTC and the publish timer enabled
+   at Monday 06:00 UTC with its unit running `awb dataset weekly` as the owner.
 9. Installs `work-claude/settings.json` and `work-claude/CLAUDE.md` into the `.claude` folder of the work home,
    owned by root, readable for the work user and immutable (`chattr +i`): the folder is the work user's own
    (the client keeps its login and history there), so without the flag it could rename them and put its own

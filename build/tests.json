@@ -6765,7 +6765,7 @@
   {
    "id": "fk-recheck-job-F9-1",
    "phase": "FK9",
-   "name": "kb recheck job: the weekly read tier as the work user, Sunday 02:30 UTC, installed by setup and proven by verify",
+   "name": "kb recheck job: the weekly read tier as the work user, installed by setup and proven by verify (its time: ks-1)",
    "run": ".venv/bin/pytest tests/test_seal.py::test_the_weekly_recheck_job_runs_the_read_tier_alone_as_the_work_user_and_is_installed_and_verified",
    "status": "passing"
   },
@@ -12221,8 +12221,85 @@
    "name": "KF: awb review claims writes known_before yes/no into kb.tsv",
    "run": ".venv/bin/pytest tests/test_kf_kb_first.py::test_the_review_claims_say_which_claim_was_known_before",
    "status": "passing"
+  },
+  {
+   "id": "ks-1",
+   "phase": "ks-fact-schedule",
+   "name": "KS: the weekly fact-check timer fires Saturday 19:00 UTC, at most 15 minutes late and verify checks it",
+   "run": ".venv/bin/pytest tests/test_ks_fact_schedule.py::test_ks_the_recheck_timer_fires_saturday_19_utc_at_most_15_minutes_late",
+   "status": "passing"
+  },
+  {
+   "id": "ks-2",
+   "phase": "ks-fact-schedule",
+   "name": "KS: the weekly publish unit runs awb dataset weekly as the owner, its timer Monday 06:00 UTC, verify proves it enabled",
+   "run": ".venv/bin/pytest tests/test_ks_fact_schedule.py::test_ks_the_publish_unit_runs_as_the_owner_monday_06_utc_and_verify_proves_it_enabled",
+   "status": "passing"
+  },
+  {
+   "id": "ks-3",
+   "phase": "ks-fact-schedule",
+   "name": "KS: awb dataset weekly builds, reviews and puts to GitHub; the 08:00 mail carries the success line",
+   "run": ".venv/bin/pytest tests/test_ks_fact_schedule.py::test_ks_weekly_builds_reviews_and_puts_to_github_and_the_mail_carries_the_line",
+   "status": "passing"
+  },
+  {
+   "id": "ks-4",
+   "phase": "ks-fact-schedule",
+   "name": "KS: the success line of a weekly publish is left out after 24 hours",
+   "run": ".venv/bin/pytest tests/test_ks_fact_schedule.py::test_ks_the_success_line_is_left_out_after_24_hours",
+   "status": "passing"
+  },
+  {
+   "id": "ks-5",
+   "phase": "ks-fact-schedule",
+   "name": "KS: a failed put records no release and shows in owner status until a publish succeeds",
+   "run": ".venv/bin/pytest tests/test_ks_fact_schedule.py::test_ks_a_failed_put_publishes_nothing_more_and_shows_in_owner_status",
+   "status": "passing"
+  },
+  {
+   "id": "ks-6",
+   "phase": "ks-fact-schedule",
+   "name": "KS: a failed build stops before the review and the put and shows in owner status",
+   "run": ".venv/bin/pytest tests/test_ks_fact_schedule.py::test_ks_a_failed_build_stops_before_the_review_and_the_put",
+   "status": "passing"
+  },
+  {
+   "id": "ks-7",
+   "phase": "ks-fact-schedule",
+   "name": "KS: the work user may not run the weekly publish and the review refusal stays",
+   "run": ".venv/bin/pytest tests/test_ks_fact_schedule.py::test_ks_the_work_user_may_not_run_the_weekly_publish",
+   "status": "passing"
+  },
+  {
+   "id": "ks-8",
+   "phase": "ks-fact-schedule",
+   "name": "KS: an expired fact stays in the build, marked recheck due in facts.jsonl, facts.md, the README table and the manifest",
+   "run": ".venv/bin/pytest tests/test_ks_fact_schedule.py::test_ks_an_expired_fact_stays_in_the_build_marked_recheck_due",
+   "status": "passing"
+  },
+  {
+   "id": "ks-9",
+   "phase": "ks-fact-schedule",
+   "name": "KS: a retired, superseded or refuted fact leaves the build; a later check brings a refuted one back",
+   "run": ".venv/bin/pytest tests/test_ks_fact_schedule.py::test_ks_a_retired_superseded_or_refuted_fact_leaves_the_build",
+   "status": "passing"
+  },
+  {
+   "id": "ks-10",
+   "phase": "ks-fact-schedule",
+   "name": "KS: a refuted verdict is recorded in refuted.tsv with its newest date",
+   "run": ".venv/bin/pytest tests/test_ks_fact_schedule.py::test_ks_a_refuted_verdict_is_recorded_for_the_build",
+   "status": "passing"
+  },
+  {
+   "id": "ks-11",
+   "phase": "ks-fact-schedule",
+   "name": "KS: the recheck takes a fact expiring in 3 days and skips one expiring in 20",
+   "run": ".venv/bin/pytest tests/test_ks_fact_schedule.py::test_ks_the_recheck_takes_a_fact_expiring_in_3_days_and_skips_one_in_20",
+   "status": "passing"
   }
  ],
- "total_tests": 1746,
- "checked": "2026-10-27"
+ "total_tests": 1757,
+ "checked": "2026-10-28"
 }
