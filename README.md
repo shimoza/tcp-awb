@@ -910,6 +910,12 @@ customer data out of the model as far as it can:
   a here-document body passes, and text is refused only when it names a place inside a refused one. The Workflow tool
   runs only the Workbench's own `review.js`, `request-check.js` and `final-check.js` of the installed code, by
   their scriptPath.
+- Knowledge base first (task KF): when a prompt starts a new task (the first prompt of a session, a prompt after
+  more than two hours of silence or one that names a run, a customer question or a deliverable, such as "прогони",
+  "run" or "проверь"), the prompt hook adds "Known from the knowledge base (N facts on this topic ...)" with the
+  closest facts of `awb kb find` to the prompt and to SCOPE.md, at most ten and about 1500 characters, once per task.
+  When the base cannot be read it adds nothing. `awb review claims` marks each claim in kb.tsv as known before the
+  work or not; the final check carries the same yes/no column, so you see what was known and what is new.
 - A gate checks every commit for names, secrets, home paths and the owner's blocklist. Customer material is
   checked once, at the entry; a put after it never refuses a file and replaces only its secrets with [secret]
   (task GT). `awb close` still writes the fingerprint of a closed project (sha256 and salted word hashes, no

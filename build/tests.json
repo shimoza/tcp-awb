@@ -12151,8 +12151,78 @@
    "name": "GT: a paste refused for a mail goes in with --own --retry and its ids stay",
    "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_a_refused_paste_without_a_name_goes_in_with_own_retry_and_ids_stay",
    "status": "passing"
+  },
+  {
+   "id": "kf-1",
+   "phase": "kf-kb-first",
+   "name": "KF: the prompt hook adds the kb block on the first prompt and on a run prompt with new facts, not on the next ordinary prompt",
+   "run": ".venv/bin/pytest tests/test_kf_kb_first.py::test_the_first_prompt_and_a_run_prompt_get_the_block_and_an_ordinary_prompt_does_not",
+   "status": "passing"
+  },
+  {
+   "id": "kf-2",
+   "phase": "kf-kb-first",
+   "name": "KF: a run prompt about OBS 403 lists the OBS delay fact of a fake kb first",
+   "run": ".venv/bin/pytest tests/test_kf_kb_first.py::test_a_run_prompt_in_a_new_session_lists_the_obs_delay_fact_first",
+   "status": "passing"
+  },
+  {
+   "id": "kf-3",
+   "phase": "kf-kb-first",
+   "name": "KF: the block stays within 10 facts and 1500 characters; a prompt after two hours starts a new task",
+   "run": ".venv/bin/pytest tests/test_kf_kb_first.py::test_the_block_stays_within_its_size_and_after_two_hours_a_prompt_starts_a_new_task",
+   "status": "passing"
+  },
+  {
+   "id": "kf-4",
+   "phase": "kf-kb-first",
+   "name": "KF: a kb that cannot be read adds nothing and blocks nothing",
+   "run": ".venv/bin/pytest tests/test_kf_kb_first.py::test_a_knowledge_base_that_cannot_be_read_adds_nothing_and_blocks_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "kf-5",
+   "phase": "kf-kb-first",
+   "name": "KF: an empty kb and a short prompt add nothing",
+   "run": ".venv/bin/pytest tests/test_kf_kb_first.py::test_an_empty_base_and_a_short_prompt_add_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "kf-6",
+   "phase": "kf-kb-first",
+   "name": "KF: the session mark keeps the facts told across a rules notice",
+   "run": ".venv/bin/pytest tests/test_kf_kb_first.py::test_the_rules_notice_keeps_the_facts_told",
+   "status": "passing"
+  },
+  {
+   "id": "kf-7",
+   "phase": "kf-kb-first",
+   "name": "KF: the project template and the sync carry the kb-first line once",
+   "run": ".venv/bin/pytest tests/test_kf_kb_first.py::test_the_template_and_the_sync_carry_the_kb_first_line_once",
+   "status": "passing"
+  },
+  {
+   "id": "kf-8",
+   "phase": "kf-kb-first",
+   "name": "KF: the work rules ask for the knowledge base first",
+   "run": ".venv/bin/pytest tests/test_kf_kb_first.py::test_the_work_rules_ask_for_the_base_first",
+   "status": "passing"
+  },
+  {
+   "id": "kf-9",
+   "phase": "kf-kb-first",
+   "name": "KF: the final-check prompt asks for the known-before column",
+   "run": ".venv/bin/pytest tests/test_kf_kb_first.py::test_the_final_check_prompt_asks_for_the_known_before_column",
+   "status": "passing"
+  },
+  {
+   "id": "kf-10",
+   "phase": "kf-kb-first",
+   "name": "KF: awb review claims writes known_before yes/no into kb.tsv",
+   "run": ".venv/bin/pytest tests/test_kf_kb_first.py::test_the_review_claims_say_which_claim_was_known_before",
+   "status": "passing"
   }
  ],
- "total_tests": 1736,
+ "total_tests": 1746,
  "checked": "2026-10-27"
 }

@@ -8,7 +8,9 @@ Per deliverable `<project>/deliverables/<name>` the review lives in `<project>/r
     claims.tsv     written by `claims`: every sentence that carries a checkable claim, with evidence, grade and
                    verdict filled by hand or from the review workflow. A row added by hand stays on a re-run while
                    its sentence is in the text; one whose sentence is gone is dropped and named by its id
-    kb.tsv         written by `claims` next to it: per claim the knowledge entries `kb find` returns (V-04)
+    kb.tsv         written by `claims` next to it: per claim the knowledge entries `kb find` returns (V-04) and
+                   whether the base knew it before the work (column known_before, task KF: yes when an entry of
+                   those shares KNOWN_SHARE of the claim and was checked before the project was created)
     lenses/*.json  written by the review workflow (workflows/review.js) for tier 2 and 3 and by the request check
                    (workflows/request-check.js, kind "request")
     record.json    written by `pass`: the sha256 of the deliverable, tier, date, the l0 result, the lens summary
@@ -122,6 +124,8 @@ UNKNOWN_BLOCKS_FROM = 2
 LENSES_REQUIRED_FROM = 3
 KB_FILE = "kb.tsv"
 KB_CANDIDATES = 3
+KNOWN_SHARE = 0.5
+"""The share of a claim (the score of `kb find`) an entry must carry to count as known before the work (KF)."""
 SETTLING_GRADES = ("live", "contract")
 """A knowledge entry settles a high-risk claim only with one of these grades (V-04)."""
 SEND_TIER = 3
@@ -923,6 +927,7 @@ class ClaimsResult:
     dropped_manual: list[str] = field(default_factory=list)   # ids of hand-added rows whose sentence is gone
     kb_path: Path | None = None
     kb_rows: int = 0      # claims with at least one knowledge entry that may settle them (V-04)
+    known_before: int = 0  # claims the base knew before the work (KF)
 
 
 def kb_candidates(sentence: str, scope: str = "tcp", kb_where=None, today: date | None = None,
@@ -935,21 +940,39 @@ def kb_candidates(sentence: str, scope: str = "tcp", kb_where=None, today: date 
         found = kb.find(sentence, where=kb_where, scope=scope)
     except (kb.KBError, OSError):
         return []
-    return [{"id": e.id, "grade": e.grade, "checked": e.checked, "expired": e.is_expired(today)}
-            for _, e in found[:limit]]
+    return [{"id": e.id, "grade": e.grade, "checked": e.checked, "expired": e.is_expired(today), "score": score}
+            for score, e in found[:limit]]
 
 
-def render_kb(rows: list[Claim], candidates: dict[str, list[dict]]) -> str:
+def _created(project: Path) -> str:
+    """The created date of the project's SCOPE.md (ISO), empty when there is none."""
+    try:
+        text = (Path(project) / "SCOPE.md").read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return ""
+    m = re.search(r"(?m)^- created: (\d{4}-\d{2}-\d{2})", text)
+    return m.group(1) if m else ""
+
+
+def known_before(found: list[dict], created: str) -> bool:
+    """True when one of the entries carries KNOWN_SHARE of the claim and was checked before the project was
+    created (before today when the date is not known): the base knew it before the work (task KF)."""
+    start = created or date.today().isoformat()
+    return any(c.get("score", 0) >= KNOWN_SHARE and str(c.get("checked", "")) < start for c in found)
+
+
+def render_kb(rows: list[Claim], candidates: dict[str, list[dict]], created: str = "") -> str:
     """kb.tsv: per claim the knowledge entries to read first. An entry that could settle a high-risk claim alone
-    (grade live or contract, not expired) is marked "settles"."""
-    lines = ["\t".join(("id", "risk", "entries"))]
+    (grade live or contract, not expired) is marked "settles". The last column says yes or no: known from the base
+    before the work (KF)."""
+    lines = ["\t".join(("id", "risk", "entries", "known_before"))]
     for r in rows:
         found = candidates.get(r.id) or []
         cells = []
         for c in found:
             state = "expired" if c["expired"] else ("settles" if c["grade"] in SETTLING_GRADES else "lead")
             cells.append("%s %s %s %s" % (c["id"], c["grade"], c["checked"], state))
-        lines.append("\t".join((r.id, r.risk, "; ".join(cells))))
+        lines.append("\t".join((r.id, r.risk, "; ".join(cells), "yes" if known_before(found, created) else "no")))
     return "\n".join(lines) + "\n"
 
 
@@ -974,10 +997,12 @@ def write_claims(deliverable, register_path=None, kb_where=None, today: date | N
     scope = _platform(project)
     candidates = {r.id: kb_candidates(r.sentence, scope, kb_where, today) for r in rows}
     kb_path = review_dir(project, rel) / KB_FILE
-    _write_atomic(kb_path, render_kb(rows, candidates))
+    created = _created(project)
+    _write_atomic(kb_path, render_kb(rows, candidates, created))
     return ClaimsResult(path=target, rows=rows, kept=kept, dropped=dropped, dropped_manual=dropped_manual,
                         kb_path=kb_path,
-                        kb_rows=sum(1 for v in candidates.values() if v))
+                        kb_rows=sum(1 for v in candidates.values() if v),
+                        known_before=sum(1 for v in candidates.values() if known_before(v, created)))
 
 
 # --------------------------------------------------------------------------- level 0
@@ -2296,6 +2321,8 @@ def _cmd_claims(args) -> int:
               % (len(res.dropped_manual), ", ".join(res.dropped_manual)))
     print("review claims: %d claims have knowledge entries to read first, listed in kb.tsv; cite one as "
           "kb:KB-XXXX" % res.kb_rows)
+    print("review claims: %d of %d claims were known from the base before the work (kb.tsv, column known_before)"
+          % (res.known_before, len(res.rows)))
     return EXIT_OK
 
 

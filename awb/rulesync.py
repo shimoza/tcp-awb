@@ -19,6 +19,9 @@ have all left the outbox is not shown any more.
 
 A third kind is the note from development (awb/devnote.py, `awb projects note`): "note from development: TITLE
 (notes/from-dev/FILE): read it first", once per session.
+
+A fourth kind is the knowledge base block (awb/kbfirst.py, task KF): "Known from the knowledge base (N facts on this
+topic ...)" with the closest facts, once per task.
 """
 from __future__ import annotations
 
@@ -31,8 +34,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from awb import config, devnote
-from awb.projects import (FX_AFTER_OLD, FX_HEADING_OLD, FX_PHRASE_OLD, FX_SCRIPT_LINE, LAB_LOGS, LEVEL_2, LEVEL_2_RUN,
-                          OWN_OUTPUT_RULE, REVIEW_L1)
+from awb.projects import (FX_AFTER_OLD, FX_HEADING_OLD, FX_PHRASE_OLD, FX_SCRIPT_LINE, KB_FIRST, LAB_LOGS, LEVEL_2,
+                          LEVEL_2_RUN, OWN_OUTPUT_RULE, REVIEW_L1, START_RULE)
 
 CLAUDE_FIXES = (
     # T6 (2026-10-27): the FX line named /opt/tcp-awb/workflows, a path no release creates
@@ -49,6 +52,8 @@ CLAUDE_FIXES = (
     ("- Start with SCOPE.md, STATE.md and OPEN.md. Update STATE.md and OPEN.md before the session ends.",
      "- Start with SCOPE.md, STATE.md and OPEN.md. Update STATE.md (with its Status: and Next: lines) and OPEN.md "
      "after every step that changes the status, in the same commit."),
+    # task KF (2026-10-28): knowledge base first, on the start line
+    ("- " + START_RULE, "- " + START_RULE + " " + KB_FIRST),
     ("- Customer material comes in only through `awb intake` and moves from the outbox into input/.",
      "- Files from him come through the bucket inboxes: when he says a file is in the inbox, run `awb inbox take "
      "<his words>`, never look in the vault. Copies of his own `awb import` wait in the outbox (the prompt says "
@@ -257,6 +262,8 @@ def remember(p: config.Paths, session_id: str | None, root: Path | None) -> None
     data = {"digest": digest(root), "inputs": [x for x in seen if isinstance(x, str)][-200:]}
     if isinstance(mark.get("notes"), list):
         data["notes"] = [x for x in mark["notes"] if isinstance(x, str)][-200:]     # notes told stay told (DN)
+    if isinstance(mark.get("kb"), dict):
+        data["kb"] = mark["kb"]          # the facts told and the last prompt stay (task KF, awb/kbfirst.py)
     _write_mark(path, data)
 
 
