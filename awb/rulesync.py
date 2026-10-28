@@ -34,8 +34,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from awb import config, devnote
-from awb.projects import (FX_AFTER_OLD, FX_HEADING_OLD, FX_PHRASE_OLD, FX_SCRIPT_LINE, KB_FIRST, LAB_LOGS, LEVEL_2,
-                          LEVEL_2_RUN, OWN_OUTPUT_RULE, REVIEW_L1, START_RULE)
+from awb.projects import (FX_AFTER_OLD, FX_HEADING_OLD, FX_PHRASE_OLD, FX_SCRIPT_LINE, KB_FIRST, LAB_LOGS,
+                          LAB_RUN_RULE, LEVEL_2, LEVEL_2_RUN, OWN_OUTPUT_RULE, PROJECT_LINE, REVIEW_L1, START_RULE)
 
 CLAUDE_FIXES = (
     # T6 (2026-10-27): the FX line named /opt/tcp-awb/workflows, a path no release creates
@@ -64,6 +64,8 @@ CLAUDE_FIXES = (
      "- Files from him come through the bucket inboxes: when he says a file is in the inbox, run `awb inbox take "
      "<his words>`, never look in the vault. Copies of his own `awb import` wait in the outbox (the prompt says "
      "\"new input\" when they come): move them into input/."),
+    # task LR (2026-10-28): the lab run rule joins the line of the kind project
+    ("- " + PROJECT_LINE, "- " + PROJECT_LINE + " " + LAB_RUN_RULE),
 )
 CLAUDE_ADD = (
     ("- Proof goes to evidence/, results to deliverables/, review records to reviews/.",

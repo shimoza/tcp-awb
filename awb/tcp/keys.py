@@ -30,7 +30,13 @@ Two sockets, one JSON object per line and one answer per connection:
 
     admin  <vault>/keys-admin.sock, mode 600, the owner only     ping, status, load, lock, reload, notify,
                                                                 bucket_list, bucket_get, bucket_put
-    call   /run/awb-keys/cloud.sock, mode 660, group awb         ping, tenants, call, projects, doc_get
+    call   /run/awb-keys/cloud.sock, mode 660, group awb         ping, tenants, call, projects, doc_get,
+                                                                lab_run, lab_call
+
+`lab_run` and `lab_call` (task LR, awb/tcp/labadmin.py) reach the two lab tenants of the lab_admin line of keys.conf
+with their admin login (awb/admin/<alias>/domain, user, password in pass, loaded at `awb keys unlock`): any method on
+any service, IAM, STS and OBS included, only inside an open run of the calling project, every create recorded and
+deleted at the end of the run. The session never gets the password or a whole token.
 
 `doc_get` (task DF) fetches one page of public documentation for a session (awb/tcp/doc.py says what it checks):
 the service runs as the owner and has internet, the work user does not. It needs no unlock and reads no key.
@@ -156,10 +162,11 @@ def store_entries(root: Path | None = None) -> list[str]:
     return sorted(str(f.relative_to(base))[:-4] for f in base.rglob("*.gpg") if f.is_file())
 
 
-def pass_reader(entry: str) -> str:
-    """The first line of a password store entry under awb/tenant."""
+def pass_reader(entry: str, prefix: str = STORE_PREFIX) -> str:
+    """The first line of a password store entry under awb/tenant (or under `prefix`: awb/admin for the admin
+    logins of the lab tenants, task LR)."""
     try:
-        r = subprocess.run(["pass", "show", "%s/%s" % (STORE_PREFIX, entry)], capture_output=True, text=True,
+        r = subprocess.run(["pass", "show", "%s/%s" % (prefix, entry)], capture_output=True, text=True,
                            timeout=60, stdin=subprocess.DEVNULL, check=False)
     except (OSError, subprocess.SubprocessError) as err:
         raise KeysError("the password store cannot be read (%s)" % type(err).__name__) from None
@@ -294,6 +301,9 @@ class Service:
         self.doc_getter = doc.https_get
         self.doc_hosts = None   # None: rules/allow-domains.txt at each fetch
         self.tokens = readonly.Tokens()   # the login tokens of read-only tenants, in memory only, never handed over
+        from awb.tcp import labadmin
+
+        self.lab = labadmin.State()       # LR: the admin tokens and the held values of the lab runs, memory only
 
     # sockets
     def start(self, inherited: dict | None = None, accept: bool = True) -> None:
@@ -347,6 +357,7 @@ class Service:
         with self.lock:
             self.tenants = {}
         self.tokens.clear()
+        self.lab.clear()
 
     def leave(self) -> None:
         """The hand-over exit: the successor serves on the same socket files, so they stay; the calls in flight
@@ -367,6 +378,7 @@ class Service:
             self.tenants = {}
             self.settings = {}
         self.tokens.clear()
+        self.lab.clear()
 
     def serve_forever(self) -> None:
         import signal
@@ -633,6 +645,7 @@ class Service:
                     return {"ok": False, "error": "busy"}
                 self.tenants = {}
             self.tokens.clear()
+            self.lab.clear()
             return {"ok": True}
         if op == "load":
             data = req.get("tenants")
@@ -645,6 +658,7 @@ class Service:
                 self.tenants = _without_writes(data, settings)
                 self.settings = settings
             self.tokens.clear()
+            self.lab.clear()
             if _old_lab_writes(settings):
                 print(LAB_WRITES_OLD_LINE, file=sys.stderr, flush=True)       # the journal of the unit
             return {"ok": True, "tenants": self._summary()}
@@ -732,6 +746,8 @@ class Service:
                     out[a].update(kind="readonly", auth=held[a]["auth"])
                 elif "login" in t:
                     out[a].update(auth="login")
+                if "admin" in t:
+                    out[a].update(admin=True)     # LR: an admin login of a lab tenant is held, never its value
             return out
 
     def _readonly(self, alias) -> dict | None:
@@ -785,6 +801,16 @@ class Service:
                 return {"ok": False, "error": str(err)}
         if op == "doc_get":
             return self._doc_get(req, caller)
+        if op in ("lab_call", "lab_run"):
+            # LR: a call with the admin login of a lab tenant inside an open run of the project (awb/tcp/labadmin.py)
+            from awb.tcp import labadmin
+
+            try:
+                return (labadmin.serve_call if op == "lab_call" else labadmin.serve_run)(self, req, uid, caller)
+            except KeysError as err:
+                return {"ok": False, "error": str(err)}
+            except labadmin.LabAdminError as err:
+                return {"ok": False, "error": str(err)}
         if (op == "owner_has" or (op == "take_owner" and req.get("id") is None)) and uid != os.getuid():
             # a name of the owner inbox is asked by the owner alone: for a session an answer to a name it guessed
             # would tell whether the name is there (finding 2 of the review of 2026-10-10); a session takes by id
@@ -1359,7 +1385,8 @@ class Service:
         values = [v for pair in tenant.get("roles", {}).values() for v in pair.values()]
         values += list(tenant.get("secrets", {}).values()) + list(drawn)
         values += [v for k, v in (tenant.get("login") or {}).items() if k == "password"]
-        values += self.tokens.values()
+        values += [v for k, v in (tenant.get("admin") or {}).items() if k == "password"]
+        values += self.tokens.values() + self.lab.values()
         for value in values:
             for form in _variants(value):
                 text = text.replace(form, MASK)
@@ -1390,14 +1417,16 @@ def _old_lab_writes(settings: dict) -> bool:
 
 def _without_writes(tenants: dict, settings: dict) -> dict:
     """The tenants with the lab key and the secrets of every read-only tenant left out (RT): what the store holds
-    beside its read key or login is never used."""
+    beside its read key or login is never used. An admin login stays only for a tenant of the lab_admin line (LR)."""
+    from awb.tcp import labadmin
+
     held = readonly.of_settings(settings)
     out = {}
     for alias, t in tenants.items():
         if alias in held and isinstance(t, dict):
             t = dict(t, roles={r: v for r, v in (t.get("roles") or {}).items() if r == "read"}, secrets={})
         out[alias] = t
-    return out
+    return labadmin.only_allowed(out, settings, held)
 
 
 def _hold(svc: Service, line: dict) -> None:
@@ -1496,7 +1525,8 @@ def request(sock: Path, obj: dict, timeout: float = CALL_TIMEOUT + 10, *, upload
     """One request. `upload` sends a file's bytes after the request line (a put); `download` receives the bytes
     that follow an answer carrying a length (a get). A call, a lease, a doc_get and a projects carry the key token
     of the project folder this process works in (K4)."""
-    if isinstance(obj, dict) and obj.get("op") in ("call", "lease", "doc_get", "projects") and "token" not in obj:
+    if isinstance(obj, dict) and obj.get("op") in ("call", "lease", "doc_get", "projects", "lab_call", "lab_run") \
+            and "token" not in obj:
         token = own_token()
         if token is not None:
             obj = dict(obj, token=token)
@@ -1567,16 +1597,25 @@ def send_mail(subject: str, message: str) -> str:
 
 
 def unlock(sock: Path | None = None, entries: list[str] | None = None, reader=pass_reader,
-           settings: dict | None = None) -> dict:
+           settings: dict | None = None, admin_reader=None) -> dict:
     """Load every tenant of the password store into the service. Returns the summary (aliases, roles, secret
-    names)."""
+    names). The admin login of each tenant of the lab_admin line (LR) comes from awb/admin/<alias>/domain, user and
+    password; `admin_reader` takes the entry below awb/admin."""
     tenants = collect(store_entries() if entries is None else entries, reader)
+    from awb.tcp import labadmin, xchg
+
+    settings = xchg.read_settings() if settings is None else settings
+    aliases = labadmin.of_settings(settings)
+    if aliases:
+        try:
+            logins = labadmin.load_logins(aliases, admin_reader or (lambda e: pass_reader(e, labadmin.ADMIN_PREFIX)))
+        except labadmin.LabAdminError as err:
+            raise KeysError(str(err)) from None
+        for alias, login in logins.items():
+            tenants.setdefault(alias, {"roles": {}, "secrets": {}})["admin"] = login
     if not tenants:
         raise KeysError("the password store holds nothing under awb/tenant")
-    from awb.tcp import xchg
-
-    answer = request(sock or admin_socket(), {"op": "load", "tenants": tenants,
-                                              "settings": xchg.read_settings() if settings is None else settings},
+    answer = request(sock or admin_socket(), {"op": "load", "tenants": tenants, "settings": settings},
                      timeout=30)
     if not answer.get("ok"):
         raise KeysError("the key service refused the load: %s" % answer.get("error"))
@@ -1643,6 +1682,9 @@ def main(argv: list[str] | None = None) -> int:
                 print("lab_writes: %d triples" % len(xchg.lab_writes_parse(value) or []))
             else:
                 print("lab_writes: no line, the lab key signs no write (awb keys lab-writes --from-recipes)")
+            admins = sorted(a for a, t in summary.items() if t.get("admin"))
+            print("lab_admin: %s" % ("admin logins of %s, lab runs on them (awb lab run)" % ", ".join(admins)
+                                     if admins else "no line, no lab run (lab_admin = test-10491 test-10497)"))
             return 0
         if args.command == "lab-writes":
             # a child process and no import: lab.py and recheckwatch.py belong to no unit, so a change of them must
@@ -1689,6 +1731,7 @@ def _print_summary(tenants: dict) -> None:
     for alias, t in sorted(tenants.items()):
         regions = ", ".join(t.get("regions", [])) if t.get("regions") is not None else ""
         kind = "  kind: readonly (%s)" % t.get("auth") if t.get("kind") == "readonly" else ""
+        kind += "  admin login: lab runs" if t.get("admin") else ""
         print("%-12s keys: %-10s secrets: %s%s%s" % (alias, ", ".join(t["roles"]) or "-",
                                                      ", ".join(t["secrets"]) or "-",
                                                      "  regions: %s" % regions if regions else "", kind))

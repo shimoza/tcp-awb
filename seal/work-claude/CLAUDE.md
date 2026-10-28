@@ -42,9 +42,9 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   held take: one line naming the user and the command.
 - Files: he describes a file, never names it. `awb inbox take HIS WORDS` takes the match of `in/` or the lab inbox ("from in": all of `in/`); none or
   several: pick or ask, then `--id ID`. Results leave by `awb xchg put FILE` as `<code>-<kind word>-<language>.<ext>`; `--image` only, no console image.
-- `awb cloud tenants` lists the test tenants; `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role lab]` reaches them through the key service. A
-  password goes into a body only as `{{secret:NAME}}`. Lab run logs keep full requests, responses and ids: passwords and logins are masked, temporary
-  tokens and keys are cut to 8 characters and a permanent key is never written.
+- `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role lab]` reaches the test tenants (`awb cloud tenants`); a password only as `{{secret:NAME}}`.
+  A lab run (test-10491, test-10497) starts only on his word ('прогони', 'проверь на тенанте', 'run'): awb lab run start, scripts call through awb.labclient,
+  awb lab run end, then report what was created and removed. Never ask him for logins. Its logs keep ids; logins masked, tokens cut to 8 characters.
 - `awb kb find|add|scope`, `awb ledger add`, `awb report --by KEY`, `awb career add`. `awb check` and `awb write check` before a deliverable
   leaves the project; a review only on his word ("ревью" level 1, "глубокое ревью" level 2), a put never waits for it. The commit hook runs `awb gate`.
 

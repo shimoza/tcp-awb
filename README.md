@@ -184,6 +184,28 @@ Five more recipes (`eip-bandwidth-adjust`, `evs-snapshot-restore`, `nat-snat-egr
 `awb lab list` shows the recipes and `awb lab dry-run` the calls a run would make. A resource it cannot delete stays
 in `RESOURCES.md` as live with the line to delete it.
 
+### Lab runs of a project's own scripts (LR)
+
+A project session may test its own scripts on the two lab tenants test-10491 and test-10497 with their admin
+login, only on his word in the session. The owner sets it up once: the logins in pass as
+`awb/admin/<alias>/domain`, `user` and `password`, the line `lab_admin = test-10491 test-10497` in keys.conf, then
+`awb keys unlock`. Any other alias in the line refuses the unlock; test-10498, a customer tenant and a read-only
+tenant are refused. The session runs `awb lab run start --tenant test-10491 [--note TEXT]`, its scripts call
+through the key service with
+
+    /opt/tcp-awb/venv/bin/python3 evidence/<folder>/poc.py      # the script: from awb import labclient
+    status, headers, body = labclient.call("POST", "iam", "/v3/users", body={...})
+
+and `awb lab run end` deletes what the run made, newest first, and reports created, removed and failed (`awb lab
+run status` lists the open runs and their leftovers). Every call needs the open run of its project and tenant. The
+key service takes the token itself (domain scoped for iam, project scoped for the other services, a temporary key
+for obs), answers in full and never hands over the password, the login or a whole token: tokens, temporary keys and
+security tokens come shortened to 8 characters, "..." and the length, and such a shortened value of the run works
+again as `X-Auth-Token` or `credential=`. Every create is recorded with its delete (a POST whose answer names a new
+id or name, a PUT or PATCH of a path a read before did not find). The call log is
+`notes/lab-runs/<run>.log` of the project. A run open for more than two hours or ended with failed deletes shows in
+`awb owner status` and the 08:00 mail. The module docs are in `awb/tcp/labadmin.py` and `awb/labclient.py`.
+
 ## Public documentation through the key service
 
 A session cannot reach a documentation host: the egress filter of the work user lets it reach the model API, the

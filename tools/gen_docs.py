@@ -76,7 +76,9 @@ def _parsers() -> list[tuple[str, str, argparse.ArgumentParser]]:
                 if name not in cli.DELEGATED:
                     found.append((name, helps.get(name, ""), sub))
     for name in cli.DELEGATED:
-        for extra in ([[]] if name != "kb" else [[], ["recheck-run"], ["recheck-watch"]]):
+        extras = {"kb": [[], ["recheck-run"], ["recheck-watch"]],
+                  "lab": [[], ["run", "start"], ["run", "end"], ["run", "status"]]}
+        for extra in extras.get(name, [[]]):
             parser = _harvest(name, extra)
             if parser is None:  # a command that reads its own arguments: the line of the root help only
                 parser = argparse.ArgumentParser(prog="awb " + name, description=cli.DELEGATED[name][1], add_help=False)

@@ -166,6 +166,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/start.py": "awb start, run by the owner in his own terminal",
     "awb/tcp/migrate.py": "awb migrate, run in a working session",
     "awb/tcp/lab.py": "awb lab list|dry-run|run, run in a working session",
+    "awb/labclient.py": "awb lab run start|end|status and the scripts of a project session (task LR)",
     "awb/tcp/recheck.py": "awb kb recheck-run, run in a working session or by the steering session",
     "awb/tcp/recheckwatch.py": "awb kb recheck-watch, run by the owner's timer awb-kb-recheck-watch every 15 minutes",
     "awb/tcp/refresh.py": "awb refresh, run by the owner or a timer of his",

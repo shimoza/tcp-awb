@@ -4,6 +4,8 @@
     awb lab dry-run RECIPE [--param K=V]... [--project CODE] [--tenant ALIAS]
                                                              the calls a run would make; no call is made
     awb lab run RECIPE [--project CODE] [--tenant ALIAS] [--param K=V]...
+    awb lab run start --tenant T [--note TEXT] | awb lab run end [--tenant T] | awb lab run status
+                                                             a lab run with the admin login (awb/labclient.py, LR)
 
 A recipe is a JSON file under `recipes/` of the repository (recipes/README.md holds the format). It names the
 question it answers, its parameters with their defaults, the steps as calls through the key service with the lab
@@ -1781,6 +1783,12 @@ def scope_defaults(start: Path | None = None) -> tuple[str | None, str | None]:
 def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["run"] and argv[1:2] in (["start"], ["end"], ["status"]):
+        # LR: a lab run of a session's own scripts with the admin login of a lab tenant (no recipe has these names)
+        from awb import labclient
+
+        return labclient.run_main(argv[1:])
     ap = SafeParser(prog="awb lab", description="Lab recipes: a live check on a test tenant in one command.")
     sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
     sub.add_parser("list", help="the recipes, their question and their cost guard")
@@ -1789,7 +1797,8 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--param", action="append", default=[], metavar="K=V")
     d.add_argument("--project", default="tcp-xxxx")
     d.add_argument("--tenant", default="ALIAS")
-    rn = sub.add_parser("run", help="raise, check, write the evidence and always tear down")
+    rn = sub.add_parser("run", help="raise, check, write the evidence and always tear down; awb lab run "
+                                    "start|end|status is a lab run of the session's own scripts")
     rn.add_argument("recipe")
     rn.add_argument("--project", default=None, help="default: the code of this folder's project")
     rn.add_argument("--tenant", default=None, help="default: the tenant: line of this folder's SCOPE.md")
