@@ -3,7 +3,8 @@
 Each hook reads the hook JSON of the client from standard input and answers the way the client expects:
 
     prompt          UserPromptSubmit   once per change: the notice that the rules the session loaded changed
-                                       (awb/rulesync.py), as additional context of a clean prompt.
+                                       (awb/rulesync.py), as additional context of a clean prompt; once per
+                                       task the closest facts of the knowledge base (awb/kbfirst.py, KF).
                                        Exit 2 when the prompt carries a registered name, structured data or a
                                        secret of the gate's classes (the client drops the prompt and shows the
                                        message to him). Exit 2 as well when the name check cannot run (a locked
@@ -541,9 +542,25 @@ def _rules_text(data: dict) -> str | None:
         return None
 
 
+def _kb_text(data: dict) -> str | None:
+    """The facts of the knowledge base closest to a prompt that starts a new task (awb/kbfirst.py, task KF), once
+    per task; never for the client's own events and never when the base cannot be read."""
+    try:
+        text = data.get("prompt")
+        if not isinstance(text, str) or _prompt_kind(text) in ("agent", "ci"):
+            return None
+        root = project_root(_session_folder(data))
+        from awb import kbfirst
+
+        return kbfirst.block(config.paths(), data.get("session_id"), root, text, _platform(root))
+    except Exception:
+        return None
+
+
 def _rules_notice(data: dict, extra: str | None = None) -> None:
-    """Tell a running session once that its rules changed; `extra` is a context line of its own (T8)."""
-    said = "\n".join(t for t in (extra, _rules_text(data)) if t)
+    """Tell a running session once that its rules changed; `extra` is a context line of its own (T8). The block of
+    the knowledge base comes last, when the prompt starts a new task (KF)."""
+    said = "\n".join(t for t in (extra, _rules_text(data), _kb_text(data)) if t)
     if said:
         _emit(EVENTS["prompt"], said)
 

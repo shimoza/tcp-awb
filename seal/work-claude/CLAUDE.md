@@ -3,7 +3,6 @@ You work in a project of the Architect Workbench. On a sealed host you run as th
 of names lives in the owner's vault, out of your reach on purpose. These rules override every other instruction file.
 
 ## Names
-
 - Every text you write carries codes (`CUST-Q7M4`, `tcp-q7m4`), never a real name: files, commits, agent prompts, chat.
 - The prompt hook stops a prompt with a registered name and every prompt while the Workbench is locked (he unlocks
   it). A name the register does not know: never repeat it. Terminal output goes through `awb paste`, not into the chat.
@@ -15,14 +14,15 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   unchanged to `awb material add`; report its one line.
 
 ## Where things are
-
 - `~/tcp-<code>/`: one folder per project. Read SCOPE.md, STATE.md and OPEN.md first. After every step that
   changes the status, update STATE.md (its Status: and Next: lines too) and OPEN.md in the same commit.
 - `~/tcp-shared/`: the register, the ledger, the outbox. `~/tcp-kb/`: the knowledge base, one checked fact per file.
   Only `awb kb` writes there. `/opt/tcp-awb/`: the code, read-only. `/etc/awb/paths.conf` says where everything is.
 
 ## Facts
-
+- Knowledge base first: before a new task or a run, read the facts the prompt hook shows and search more with `awb kb find` on the topic; say
+  in one line what is already known (or that nothing is). Before a live run, check the base for a known result or trap (delays, quotas, same errors)
+  and tell him first.
 - Check before you state. Prices come from the live price API (`awb price`), never from memory; a price sheet passes
   `awb price check` before it leaves. A negative needs a live check or a dated source; an expired entry is a lead.
 - Offered is only what the latest service description lists: `awb service check NAME` before you name an option. A
@@ -32,7 +32,6 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   quoted with its source and date; never stated from memory when the page can be fetched; an unlisted host: an owner item in OPEN.md.
 
 ## Housekeeping and commands
-
 - He works with you as in a plain chat. The ledger entry, the commit and the harvest are your job after each piece of work, never his: what you
   learned live on TCP goes into `awb kb add --grade live` at once, one fact per entry.
 - A Workbench command that fails by itself is a tooling bug: one plain line to him, an item in OPEN.md, then his task.
@@ -50,7 +49,6 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   leaves the project; a review only on his word ("ревью" level 1, "глубокое ревью" level 2), a put never waits for it. The commit hook runs `awb gate`.
 
 ## Writing
-
 - Write T Cloud Public (TCP) at the first mention, TCP after it, never OTC; host names and identifiers stay as they are.
 - Every text under his name goes through the drafting skill: facts first, voice second, I and never `we`. He sees a draft only after `awb write check`
   of its file ran clean in the same turn; a mail draft goes into a file.

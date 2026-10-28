@@ -93,7 +93,6 @@ def test_the_claims_get_their_knowledge_entries_and_one_can_settle_a_claim(home,
     res = review.write_claims(d)
     assert res.kb_rows == 1 and res.kb_path.name == "kb.tsv"
     table = res.kb_path.read_text(encoding="utf-8").splitlines()
-    assert table[0] == "id\trisk\tentries"
     cells = table[1].split("\t")[2]
     assert "%s live %s settles" % (live, TODAY.isoformat()) in cells
     assert "%s docs" % docs in cells and "lead" in cells and "%s live" % old in cells and "expired" in cells

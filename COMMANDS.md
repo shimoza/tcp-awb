@@ -541,7 +541,7 @@ gate, the gate over what it carries and `awb kb verify --staged`, so a file writ
 | command | what it does |
 |---|---|
 | `awb review init deliverables/FILE --request REQUEST.md [--tier 2] --budget 400` | the contract: request, reader, questions, budget, tier. Also `--reader`, `--mode mail` (default doc), `--force` to write the contract again. A text for a customer or partner is tier 3; `--lowered "his words"` records that he lowered it |
-| `awb review claims deliverables/FILE` | every checkable statement into `reviews/FILE/claims.tsv`; fill evidence and verdict there. `kb.tsv` next to it lists the knowledge entries per claim; one of grade live or contract that has not expired settles a claim as evidence `kb:KB-XXXX` |
+| `awb review claims deliverables/FILE` | every checkable statement into `reviews/FILE/claims.tsv`; fill evidence and verdict there. `kb.tsv` next to it lists the knowledge entries per claim and in its column `known_before` yes or no: an entry that carries half of the claim was checked before the project was created (task KF); one of grade live or contract that has not expired settles a claim as evidence `kb:KB-XXXX` |
 | `awb review l0 deliverables/FILE` | the level-0 check: style, names, budget, claims with evidence; a computed number (a total, a sum, a saving, 20 x 8) needs `calc:K-N` as evidence |
 | `awb migrate init --from azure` | start a migration in the project (every `awb migrate` command takes `--project DIR` before its name for another project); `awb migrate status` and `awb migrate next` show the phases (discover, map, estimate, plan, review), the next phase file and its worker |
 | `awb migrate inventory input/FILE [--table N]` | the machines of a CSV or a sanitised copy into `migration/inventory.json` as R-1, R-2 ...; vCPU from the Azure size name when the column is missing; `--table N` picks one table of a sanitised copy that holds several |
@@ -567,7 +567,8 @@ workflow, `workflows/final-check.js`, for a high-stakes deliverable. A project s
 first (one agent on Fable 5.1 at effort max, about 200-300k tokens and 10 to 15 minutes) and runs it after one word
 of his. Neither level runs on its own. The agent reads input/, SCOPE.md, STATE.md, OPEN.md,
 evidence/, the review folder and the draft, writes the answer again from the request into `deliverables/STEM.final.md`
-and the table of questions, caveats, cuts and unsupported claims into `reviews/FILE/final-check.md`. The script
+and the table of questions, caveats, cuts and unsupported claims into `reviews/FILE/final-check.md`; each caveat and
+claim says whether it was known from the base before the work (yes/no). The script
 records the run in `reviews/FILE/final-check.json` with the sha256 of the final text; `awb review show` lists it.
 The final text is a new deliverable with its own review. That review costs less: the session runs
 `workflows/review.js` (scriptPath `/opt/tcp-awb/src/workflows/review.js`) with `after_fx: true` in its args, which

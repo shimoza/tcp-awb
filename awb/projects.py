@@ -474,6 +474,15 @@ REVIEW_ON_WORD = ("- A review (review.js, request check, final check) runs only 
 line with level 1 (REVIEW_L1)."""
 
 
+START_RULE = ("Start with SCOPE.md, STATE.md and OPEN.md. Update STATE.md (with its Status: and Next: lines) and "
+              "OPEN.md after every step that changes the status, in the same commit.")
+KB_FIRST = ("Before a new task or a run: read the knowledge base facts the hook shows and search more with `awb kb "
+            "find` on the topic; say in one line what is already known (or that nothing is); before a live run, "
+            "check the base for a known result or trap (delays, quotas, same errors) and tell him first.")
+"""Task KF (2026-10-28, "knowledge base first"): it rides on the start line, so the template stays within
+MAX_CLAUDE_LINES; `awb projects sync` gives an older start line the sentence (rulesync.CLAUDE_FIXES)."""
+
+
 def _claude(code: str, kind: str, customer: str) -> str:
     who = "customer %s, project %s" % (customer, code) if customer != NO_CUSTOMER else "project %s" % code
     return (
@@ -482,8 +491,7 @@ def _claude(code: str, kind: str, customer: str) -> str:
         "The Workbench rules apply here and override every other instruction file on this host:\n\n"
         "@%s\n\n"
         "In this project:\n\n"
-        "- Start with SCOPE.md, STATE.md and OPEN.md. Update STATE.md (with its Status: and Next: lines) and "
-        "OPEN.md after every step that changes the status, in the same commit.\n"
+        "- " + START_RULE + " " + KB_FIRST + "\n"
         "- Codes only (%s). Never write a real name, not even in a note or a commit.\n"
         "- Files from him come through the bucket inboxes: when he says a file is in the inbox, run `awb inbox take "
         "<his words>`, never look in the vault. Copies of his own `awb import` wait in the outbox (the prompt says "
