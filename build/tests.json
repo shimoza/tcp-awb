@@ -12298,8 +12298,106 @@
    "name": "KS: the recheck takes a fact expiring in 3 days and skips one expiring in 20",
    "run": ".venv/bin/pytest tests/test_ks_fact_schedule.py::test_ks_the_recheck_takes_a_fact_expiring_in_3_days_and_skips_one_in_20",
    "status": "passing"
+  },
+  {
+   "id": "lr-1",
+   "phase": "lr-lab-runs",
+   "name": "LR: the lab admin line names the two lab tenants only",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_the_lab_admin_line_names_the_two_lab_tenants_only",
+   "status": "passing"
+  },
+  {
+   "id": "lr-2",
+   "phase": "lr-lab-runs",
+   "name": "LR: the unlock loads the admin logins and no value leaves the service",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_the_unlock_loads_the_admin_logins_and_no_value_leaves_the_service",
+   "status": "passing"
+  },
+  {
+   "id": "lr-3",
+   "phase": "lr-lab-runs",
+   "name": "LR: the admin login comes from awb admin of pass",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_the_admin_login_comes_from_awb_admin_of_pass",
+   "status": "passing"
+  },
+  {
+   "id": "lr-4",
+   "phase": "lr-lab-runs",
+   "name": "LR: a call without an open run is refused",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_a_call_without_an_open_run_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "lr-5",
+   "phase": "lr-lab-runs",
+   "name": "LR: test 10498 and a customer tenant are refused",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_test_10498_and_a_customer_tenant_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "lr-6",
+   "phase": "lr-lab-runs",
+   "name": "LR: a tenant not on the line is refused and another project is refused",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_a_tenant_not_on_the_line_is_refused_and_another_project_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "lr-7",
+   "phase": "lr-lab-runs",
+   "name": "LR: a run records its creates and the end removes them newest first",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_a_run_records_its_creates_and_the_end_removes_them_newest_first",
+   "status": "passing"
+  },
+  {
+   "id": "lr-8",
+   "phase": "lr-lab-runs",
+   "name": "LR: a failed delete stays and a second end tries it again",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_a_failed_delete_stays_and_a_second_end_tries_it_again",
+   "status": "passing"
+  },
+  {
+   "id": "lr-9",
+   "phase": "lr-lab-runs",
+   "name": "LR: no password login or whole admin token reaches the answer or a file",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_no_password_login_or_whole_admin_token_reaches_the_answer_or_a_file",
+   "status": "passing"
+  },
+  {
+   "id": "lr-10",
+   "phase": "lr-lab-runs",
+   "name": "LR: a held token or key of the run works in its shortened form",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_a_held_token_or_key_of_the_run_works_in_its_shortened_form",
+   "status": "passing"
+  },
+  {
+   "id": "lr-11",
+   "phase": "lr-lab-runs",
+   "name": "LR: obs goes with a temporary key of the admin token",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_obs_goes_with_a_temporary_key_of_the_admin_token",
+   "status": "passing"
+  },
+  {
+   "id": "lr-12",
+   "phase": "lr-lab-runs",
+   "name": "LR: an old open run and a failed delete show in the owner status",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_an_old_open_run_and_a_failed_delete_show_in_the_owner_status",
+   "status": "passing"
+  },
+  {
+   "id": "lr-13",
+   "phase": "lr-lab-runs",
+   "name": "LR: labclient and the commands work through the socket",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_labclient_and_the_commands_work_through_the_socket",
+   "status": "passing"
+  },
+  {
+   "id": "lr-14",
+   "phase": "lr-lab-runs",
+   "name": "LR: the work rules carry the lab run rule and sync adds it",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_the_work_rules_carry_the_lab_run_rule_and_sync_adds_it",
+   "status": "passing"
   }
  ],
- "total_tests": 1757,
+ "total_tests": 1771,
  "checked": "2026-10-28"
 }

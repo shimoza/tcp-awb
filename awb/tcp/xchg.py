@@ -79,7 +79,7 @@ IN = bucket_layout.IN
 DEFAULTS = {"lab_bucket": "awb-lab-eu-de", "owner_bucket": bucket_layout.OWNER_BUCKET,
             "region": bucket_layout.REGION, "max_mb": str(bucket_layout.MAX_MB)}
 SETTING_KEYS = ("bucket_tenant", "lab_bucket", "owner_bucket", "region", "max_mb", "notify_topic", "tf_services",
-                "lab_writes", "readonly")
+                "lab_writes", "readonly", "lab_admin")
 _SERVICE_RE = re.compile(r"^[a-z][a-z0-9]{1,20}$")
 """One service of tf_services: the short name of the lease policy's actions (ecs, evs, vpc)."""
 _NAME_RE = re.compile(r"^[^/\\\x00-\x1f\x7f]{1,200}$")
@@ -132,6 +132,12 @@ def read_settings(path: Path | None = None) -> dict:
             if readonly.parse(value) is None:
                 raise XchgError("line %d of keys.conf: readonly is a comma-separated list of "
                                 "ALIAS:key|login:DOMAIN-ID:REGION[+REGION]" % n)
+        if key == "lab_admin":
+            from awb.tcp import labadmin
+
+            if labadmin.parse(value) is None:
+                raise XchgError("line %d of keys.conf: lab_admin names the lab tenants %s only, each once"
+                                % (n, " and ".join(labadmin.ALLOWED)))
         out[key] = value
     return out
 

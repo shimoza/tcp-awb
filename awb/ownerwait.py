@@ -1,6 +1,6 @@
 """`awb owner status`: one list of everything that waits on the owner (UX review 2026-10-24, change 4).
 
-Four sources, read on the owner's side only:
+Five sources, read on the owner's side only:
 
 - the owner items of OPEN.md of every active project (a parked project is a count, nothing more);
 - the rows of presentations/work-profile/QUEUE.md of the owner's repository whose state says it waits on him
@@ -9,6 +9,8 @@ Four sources, read on the owner's side only:
 - the last weekly publish of the dataset TCP Facts (task KS, awb-dataset-weekly.timer, Monday 06:00 UTC): a failed
   one is the item "dataset: weekly publish failed: <reason>" until a publish succeeds; a successful one is a note
   "dataset tcp-facts-<date>: N added, M amended, K retired" for 24 hours, so the 08:00 mail after it carries it.
+- the lab runs of the projects (task LR, awb/labruns.py) open for more than two hours or ended with failed
+  deletes, with what is left (kinds only, never an id).
 
 Each item is one line: the project code or the label, a few words, where it is done (project session, his terminal,
 steering session) and a ready command block where one exists. Codes only: every text passes the name check as
@@ -222,6 +224,30 @@ def notes(path: Path | None = None, now: datetime.datetime | None = None, p: con
     return [line]
 
 
+def lab_run_items(p: config.Paths, now: float | None = None) -> list[Item]:
+    """The lab runs that need him: open for more than two hours or ended with failed deletes (labruns.attention),
+    each with its leftovers by kind and the command the project session runs."""
+    from awb import labruns
+
+    try:
+        found = labruns.attention(p, now)
+    except Exception:
+        return []
+    out: list[Item] = []
+    for run in found:
+        left = run.get("left") or []
+        kinds = ", ".join(sorted({str(c.get("label") or "resource") for c in left})) or "nothing"
+        if run["why"] == "open":
+            text = "lab run on %s open %d h, %d left: %s" % (run["tenant"], run.get("hours", 2), len(left), kinds)
+        else:
+            failed = sum(1 for c in left if c.get("state") == "failed")
+            text = "lab run on %s ended with %d failed delete%s: %s" % (run["tenant"], failed,
+                                                                       "" if failed == 1 else "s", kinds)
+        out.append(Item(str(run.get("project") or "?"), _short(text), WHERE_SESSION,
+                        "awb lab run end --tenant %s" % run["tenant"]))
+    return out
+
+
 def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path | None = None
             ) -> tuple[list[Item], int]:
     """All items after the name check, and the count of parked projects."""
@@ -232,6 +258,7 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
     items += queue_items(queue)
     items += build_items(runs)
     items += dataset_items()
+    items += lab_run_items(p)
     texts = []
     for it in items:
         texts += [it.text, it.block or "", it.label]

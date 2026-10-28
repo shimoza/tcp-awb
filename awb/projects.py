@@ -483,6 +483,14 @@ KB_FIRST = ("Before a new task or a run: read the knowledge base facts the hook 
 MAX_CLAUDE_LINES; `awb projects sync` gives an older start line the sentence (rulesync.CLAUDE_FIXES)."""
 
 
+PROJECT_LINE = "This is a project: it reaches the test tenants through the key service (`awb cloud call`)."
+LAB_RUN_RULE = ("A lab run (test-10491, test-10497) starts only on his word in the session ('прогони', 'проверь на "
+                "тенанте', 'run'): awb lab run start, scripts call through awb.labclient, awb lab run end, then "
+                "report what was created and removed. Never ask him for logins.")
+"""Task LR (2026-10-28): his own lab tenants with their admin login, on his word only; on the line of the kind
+project, so the template keeps its 30 lines. `awb projects sync` adds it (rulesync.CLAUDE_FIXES)."""
+
+
 def _claude(code: str, kind: str, customer: str) -> str:
     who = "customer %s, project %s" % (customer, code) if customer != NO_CUSTOMER else "project %s" % code
     return (
@@ -508,7 +516,7 @@ def _claude(code: str, kind: str, customer: str) -> str:
         "- Run `awb check FILE` on every deliverable and `awb gate` before every commit.\n"
         "- %s\n"
     ) % (code, kind, _rules_ref(), who, code, code, OWN_OUTPUT_RULE, LAB_LOGS,
-         "This is a project: it reaches the test tenants through the key service (`awb cloud call`)."
+         PROJECT_LINE + " " + LAB_RUN_RULE
          if tenant_access(kind) else
          "This is a query: knowledge base, docs mirror, live prices and calculations, no test tenant. When an "
          "answer needs a live test, say so; he switches it with `awb projects kind %s project`." % code) \
