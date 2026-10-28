@@ -3,7 +3,7 @@
 # key over the key service's sockets, so no address family but unix. A run needs a tenant: the unit names none, awb
 # takes recheck_tenant of the host file, which the owner sets (verify.sh warns without it). It writes the knowledge
 # base, the evidence of the service project and the recheck state.tsv, all in the work home. After= the nightly kb commit: systemd orders
-# the two when both start at once, and the commit (01:40, at most 15 minutes) ends well before 02:30.
+# the two when both start at once (the commit runs at 01:40, the recheck Saturday 19:00 UTC).
 [Unit]
 Description=Architect Workbench weekly fact-check of the knowledge base, read tier
 After=awb-kb-commit.service

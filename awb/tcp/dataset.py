@@ -13,6 +13,9 @@ files any assistant reads, built in one command so that a fresh copy appears wit
                                                           root of the public repository, tags the date and makes
                                                           a release of it; --github-only does that without the
                                                           bucket and does not call the key service
+    awb dataset weekly                                    build, kb review and put --github in one run, the owner's
+                                                          timer awb-dataset-weekly.timer every Monday 06:00 UTC (task
+                                                          KS); a failure stops the run and shows in awb owner status
 
 The review before a release: `awb kb review` compares the facts.jsonl of the folder with RELEASED.jsonl beside the
 folders (the facts.jsonl of the last release, written by every successful put) and prints every fact added, amended
@@ -46,8 +49,12 @@ source and date stays. The build still compares a few price rows of the latest s
 the price code works, and writes nothing of it into the folder. `awb dataset put --github` removes a prices/ folder
 that the published repository still holds (git rm, said in the commit message).
 
-What leaves: the grades live, contract and docs, no retired and no expired entry, every one name checked again by
-the export. The alias of a test tenant in a source line or a statement is replaced by "a TCP test tenant", the names of
+What leaves: the grades live, contract and docs, no retired entry, every one name checked again by the export. A
+fact leaves the dataset only when something invalidates it, never for its date (task KS): an expired fact stays,
+marked "recheck_due": true in facts.jsonl, "recheck due" after its check date in facts.md and topics/ and listed in
+the README table "Facts with a recheck due"; a retired fact (a superseded one is retired for its successor), one a
+recheck refuted (refuted.tsv of the recheck, not older than its check date) and one that names a service the service
+description no longer offers stay out. The alias of a test tenant in a source line or a statement is replaced by "a TCP test tenant", the names of
 the Workbench's own commands and parts (awb ..., the key service, the lab bucket) by plain words; the build proves
 both rewrites on planted text first and refuses to write a folder in which one is left. No project,
 no customer code, no snapshot of a tenant and no review is part of the dataset.
@@ -76,7 +83,7 @@ from pathlib import Path
 from awb import bucket, bucket_layout, config, gate, kb, kbreview, obs, offered, register
 from awb.kbreview import (changes, datasets_dir, latest, read_facts, record_release, released, released_path,  # noqa: F401
                           require_review, review, review_path)
-from awb.tcp import price
+from awb.tcp import price, recheck
 
 NAME = "TCP Facts"
 SLUG = kbreview.SLUG
@@ -254,8 +261,27 @@ EXAMPLES = ("Use the attached TCP Facts. Answer: which Elasticsearch versions do
             "Use the attached TCP Facts. Answer: which services does TCP offer for object storage and how do they differ?")
 
 
+RECHECK_DUE = "recheck due"
+
+
 def fact_line(r: dict) -> str:
-    return "- %s (%s, %s, checked %s)" % (tenant_free(r["statement"]), r["id"], r["grade"], r["checked"])
+    return "- %s (%s, %s, checked %s%s)" % (tenant_free(r["statement"]), r["id"], r["grade"], r["checked"],
+                                           ", " + RECHECK_DUE if r.get("recheck_due") else "")
+
+
+def recheck_due_blocks(records: list[dict]) -> list[tuple[str, str]]:
+    """The README table of the facts past their expiry date that wait for their recheck (task KS): they stay in the
+    dataset with their check date until a recheck confirms, amends or refutes them."""
+    due = sorted((r for r in records if r.get("recheck_due")), key=lambda r: (r["checked"], r["id"]))
+    if not due:
+        return []
+    rows = ["| fact | grade | checked | state |", "|---|---|---|---|"]
+    rows += ["| %s | %s | %s | %s |" % (r["id"], r["grade"], r["checked"], RECHECK_DUE) for r in due]
+    return [("h2", "Facts with a recheck due"),
+            ("p", "%d facts are past their expiry date and wait for their weekly recheck. They stay in the dataset "
+                  "until something invalidates them: a recheck that refutes them, a newer fact that replaces them or "
+                  "a change of the service description. Name the check date when you use one." % len(due)),
+            ("p", "\n".join(rows))]
 
 
 # --------------------------------------------------------------------------- what the facts cover
@@ -678,7 +704,20 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
     today = today or datetime.date.today()
     day = today.isoformat()
     best_before = (today + datetime.timedelta(days=BEST_BEFORE_DAYS)).isoformat()
-    records, left = kb.export(p, today=today)
+    # task KS: a fact leaves only when something invalidates it, never for its date. An expired fact stays with
+    # recheck_due; retired (and so superseded) facts never come out of the export, a refuted one is left out here
+    # and one that names a service the service description no longer offers by facts_check below.
+    records, left = kb.export(p, today=today, include_expired=True)
+    refutes = recheck.refuted()
+    left["contradicted by a recheck"] = 0
+    kept = []
+    for r in records:
+        if refutes.get(r["id"], "") >= r["checked"]:
+            left["contradicted by a recheck"] += 1
+            continue
+        r["recheck_due"] = bool(r.get("expired"))
+        kept.append(r)
+    records = kept
     if not records:
         raise DatasetError("no fact fit to leave: nothing to build")
     catalog = offered.load()
@@ -783,7 +822,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
                                               "name; the manifest carries the build time." % built_at)]
         + blocks[1:4] + [("h2", "Use"), ("p", "Attach facts.md and type:"),
                                                           ("code", ONE_LINER), ("p", "PROMPT.md has the rest.")]
-        + cover + WARNING + MCP_CLIENTS + blocks[blocks.index(("h2", "Files")):]), encoding="utf-8")
+        + cover + recheck_due_blocks(records) + WARNING + MCP_CLIENTS + blocks[blocks.index(("h2", "Files")):]), encoding="utf-8")
 
     shutil.copyfile(MCP_TEMPLATE, root / MCP_FILE)
     for path in sorted(root.rglob("*")):
@@ -796,7 +835,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
 
     files = sorted(x for x in root.rglob("*") if x.is_file())
     manifest = {"dataset": NAME, "date": day, "built_at": built_at, "best_before": best_before, "facts": len(records),
-                "grades": grades,
+                "grades": grades, "recheck_due": sum(1 for r in records if r.get("recheck_due")),
                 "topics": {t: len(bytag[t]) for t in tags}, "services": len(svc), "service_description": revision,
                                 "facts_left_out": [{"id": i, "names": n} for i, n in flagged], "licence": LICENCE, "compiled_by": COMPILED_BY,
                 "files": {str(x.relative_to(root)): {"bytes": x.stat().st_size, "sha256": _sha(x)} for x in files}}
@@ -1245,6 +1284,64 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
             "github.com/%s/releases/tag/%s with %s" % (GITHUB_REPO, day, ", ".join([zpath.name, *GITHUB_ASSETS, mpath.name, *(x.name for x in signed)]))]
 
 
+def put_folder(p: config.Paths, folder: Path, *, github: bool = False, github_only: bool = False,
+               replace: bool = False) -> list[str]:
+    """`awb dataset put` of one built folder: its review mark first, then the bucket (unless `github_only`), then
+    the public repository (with `github` or `github_only`), then RELEASED.jsonl. The keys and pages it wrote."""
+    client = None if github_only else bucket.client()
+    mark = require_review(folder)               # G6: nothing leaves that the owner has not read
+    keys = [] if github_only else put(client, folder, replace=replace)
+    if github or github_only:
+        keys += github_put(p, folder, replace=replace, pinned=mark["assets"])
+    record_release(folder)
+    return keys
+
+
+_WEEKLY_ERRORS = (DatasetError, kbreview.ReviewError, kb.KBError, price.PriceError, obs.OBSError, bucket.BucketError,
+                  ValueError)
+
+
+def weekly(p: config.Paths, *, today: datetime.date | None = None, state: Path | None = None) -> int:
+    """The weekly publish of the owner's timer (task KS, Monday 06:00 UTC after the Saturday recheck): awb dataset
+    build of today (again over a folder of today), awb kb review of that folder (the owner's mark; refused for the
+    work user as before) and awb dataset put --github. A step that fails stops the run: nothing after it runs, a
+    failed build leaves no folder and the put keeps its own checks (the review mark, the two README statements, no
+    price data, the person scan). The result goes into the state file that `awb owner status` reads: a failure is
+    the item "dataset: weekly publish failed: <reason>", a success the note "dataset tcp-facts-<date>: N added, M
+    amended, K retired" of the next 08:00 mail. Exit 0 published, 1 failed, 2 refused for the work user."""
+    from awb import ownerwait
+
+    if config.is_work_user():
+        print("awb dataset: the weekly publish is the owner's; the work user may not review or publish",
+              file=sys.stderr)
+        return 2
+    step = "build"
+    try:
+        built = build(p, today=today, force=True)
+        for line in built.lines:
+            print("awb dataset build: " + line)
+        day = built.day
+        step = "review"
+        print("awb kb review: " + review(p, day=day)[0])
+        mark = require_review(built.folder)
+        step = "put"
+        for key in put_folder(p, built.folder, github=True):
+            print("awb dataset put: " + key)
+    except _WEEKLY_ERRORS as err:
+        reason = "%s: %s" % (step, err)
+    except OSError as err:
+        reason = "%s: %s (operating system error)" % (step, type(err).__name__)
+    else:
+        result = {"state": "published", "dataset": built.folder.name, "added": mark.get("added", 0),
+                  "amended": mark.get("amended", 0), "retired": mark.get("retired", 0)}
+        ownerwait.write_dataset_state(result, state)
+        print("awb dataset weekly: " + ownerwait.dataset_line(result))
+        return 0
+    ownerwait.write_dataset_state({"state": "failed", "reason": reason}, state)
+    print("awb dataset weekly: failed, %s" % reason, file=sys.stderr)
+    return 1
+
+
 # --------------------------------------------------------------------------- the command
 
 
@@ -1267,6 +1364,7 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--github", action="store_true", help="also commit, tag and release it in github.com/%s" % GITHUB_REPO)
     u.add_argument("--github-only", action="store_true",
                    help="only commit, tag and release it in github.com/%s, without the bucket" % GITHUB_REPO)
+    sub.add_parser("weekly", help="build, review and put --github in one run, the owner's weekly timer (task KS)")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -1275,6 +1373,8 @@ def main(argv: list[str] | None = None) -> int:
         ap.print_usage(sys.stderr)
         return 2
     p = config.paths()
+    if args.command == "weekly":
+        return weekly(p)
     try:
         if args.date is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.date):
             raise DatasetError("the date reads YYYY-MM-DD")
@@ -1290,12 +1390,7 @@ def main(argv: list[str] | None = None) -> int:
         folder = latest(p, args.out, args.date)
         if folder is None:
             raise DatasetError("no built dataset%s; run awb dataset build" % (" of that date" if args.date else ""))
-        client = None if args.github_only else bucket.client()
-        mark = require_review(folder)               # G6: nothing leaves that the owner has not read
-        keys = [] if args.github_only else put(client, folder, replace=args.replace)
-        if args.github or args.github_only:
-            keys += github_put(p, folder, replace=args.replace, pinned=mark["assets"])
-        record_release(folder)
+        keys = put_folder(p, folder, github=args.github, github_only=args.github_only, replace=args.replace)
         for key in keys:
             print("awb dataset put: " + key)
         return 0

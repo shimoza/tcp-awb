@@ -5,7 +5,10 @@ Four sources, read on the owner's side only:
 - the owner items of OPEN.md of every active project (a parked project is a count, nothing more);
 - the rows of presentations/work-profile/QUEUE.md of the owner's repository whose state says it waits on him
   (the file may be missing: then the rows are skipped);
-- the build runs that wait on him (asked, red, held, green), with the commands of `awb build nudge`.
+- the build runs that wait on him (asked, red, held, green), with the commands of `awb build nudge`;
+- the last weekly publish of the dataset TCP Facts (task KS, awb-dataset-weekly.timer, Monday 06:00 UTC): a failed
+  one is the item "dataset: weekly publish failed: <reason>" until a publish succeeds; a successful one is a note
+  "dataset tcp-facts-<date>: N added, M amended, K retired" for 24 hours, so the 08:00 mail after it carries it.
 
 Each item is one line: the project code or the label, a few words, where it is done (project session, his terminal,
 steering session) and a ready command block where one exists. Codes only: every text passes the name check as
@@ -14,6 +17,9 @@ mail is not sent.
 """
 from __future__ import annotations
 
+import datetime
+import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,13 +35,17 @@ _WAITING_STATE = re.compile(r"^\s*(waiting|asked)\b|\bwaits? on (him|you|the own
 _SEPARATOR = re.compile(r"^\|?[\s:|-]+\|?$")
 _TASK_ID = re.compile(r"B-[0-9]{3,4}")
 _BUILD_WAITING = ("asked", "red", "held", "green", "hung", "stopped", "interrupted", "stale")
+DATASET_DIR = Path("/var/lib/awb-dataset-weekly")   # StateDirectory= of awb-dataset-weekly.service, the owner's (700)
+DATASET_ENV = "AWB_DATASET_WEEKLY"                   # another folder for the tests
+DATASET_FILE = "last.json"
+NOTE_HOURS = 24
 
 
 @dataclass
 class Item:
     label: str
     text: str
-    where: str
+    where: str            # empty: the item renders as one line "label: text"
     block: str | None = None
 
 
@@ -144,6 +154,74 @@ def build_items(runs: Path | None = None) -> list[Item]:
     return out
 
 
+def dataset_state_path() -> Path:
+    """The file the weekly publish writes after each run: <state folder>/last.json."""
+    return Path(os.environ.get(DATASET_ENV) or DATASET_DIR) / DATASET_FILE
+
+
+def write_dataset_state(state: dict, path: Path | None = None) -> Path | None:
+    """The result of one weekly publish into the state file, atomically; None when its folder is missing or not
+    writable (a run by hand outside the unit): the publish itself is not changed by that."""
+    path = path or dataset_state_path()
+    state = dict(state, at=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    tmp = path.with_name(".%s.new" % path.name)
+    try:
+        tmp.write_text(json.dumps(state, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        return None
+    return path
+
+
+def _dataset_state(path: Path | None) -> dict:
+    try:
+        state = json.loads((path or dataset_state_path()).read_text(encoding="utf-8")[:4096])
+    except (OSError, UnicodeDecodeError, ValueError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def dataset_line(state: dict) -> str:
+    """The success line of a weekly publish."""
+    return "dataset %s: %d added, %d amended, %d retired" % (
+        state.get("dataset", "?"), int(state.get("added", 0)), int(state.get("amended", 0)),
+        int(state.get("retired", 0)))
+
+
+def dataset_items(path: Path | None = None) -> list[Item]:
+    """The failed weekly publish as one item; nothing when the last run succeeded or none ran."""
+    state = _dataset_state(path)
+    if state.get("state") != "failed":
+        return []
+    return [Item("dataset", "weekly publish failed: %s" % _short(str(state.get("reason") or "unknown")), "")]
+
+
+def notes(path: Path | None = None, now: datetime.datetime | None = None, p: config.Paths | None = None
+          ) -> list[str]:
+    """The lines that tell him something without waiting on him: the weekly publish of the last 24 hours, after the
+    name check (a line with a hit or a check that cannot run gives nothing)."""
+    from awb import ledger
+
+    state = _dataset_state(path)
+    if state.get("state") != "published":
+        return []
+    try:
+        at = datetime.datetime.strptime(str(state.get("at", "")), "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=datetime.timezone.utc)
+        line = dataset_line(state)
+    except (ValueError, TypeError):
+        return []
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if not datetime.timedelta(0) <= now - at <= datetime.timedelta(hours=NOTE_HOURS):
+        return []
+    try:
+        if ledger.hit_indexes([line], ledger.register_path(p or config.paths())):
+            return []
+    except ledger.LedgerError:
+        return []
+    return [line]
+
+
 def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path | None = None
             ) -> tuple[list[Item], int]:
     """All items after the name check, and the count of parked projects."""
@@ -153,6 +231,7 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
     items, parked = open_items(p)
     items += queue_items(queue)
     items += build_items(runs)
+    items += dataset_items()
     texts = []
     for it in items:
         texts += [it.text, it.block or "", it.label]
@@ -180,19 +259,20 @@ def check_ran(p: config.Paths | None = None) -> bool:
     return True
 
 
-def render(items: list[Item], parked: int) -> list[str]:
-    """The list: one line per item, the block indented under it."""
+def render(items: list[Item], parked: int, note_lines: list[str] | tuple = ()) -> list[str]:
+    """The list: one line per item, the block indented under it, then the notes."""
     if not items:
         head = ["nothing waits on you"]
     else:
         head = ["%d item%s wait on you" % (len(items), "" if len(items) == 1 else "s")]
     lines = list(head)
     for it in items:
-        lines.append("%s  %s  [%s]" % (it.label, it.text, it.where))
+        lines.append("%s  %s  [%s]" % (it.label, it.text, it.where) if it.where else "%s: %s" % (it.label, it.text))
         for ln in (it.block or "").splitlines():
             lines.append("    %s" % ln)
     if parked:
         lines.append("%d parked project%s not listed" % (parked, "" if parked == 1 else "s"))
+    lines += list(note_lines)
     return lines
 
 
@@ -204,13 +284,16 @@ def mail(p: config.Paths | None = None, send=None, queue: Path | None = None, ru
     if not check_ran(p):
         return "not sent: the name check cannot run"
     items, parked = collect(p, queue, runs)
-    if not items:
+    note_lines = notes(p=p)
+    if not items and not note_lines:
         return "empty"
     if send is None:
         return "not sent: no mail path"      # `awb owner status --mail` (awb/tcp/owner.py) passes the key service's
-    body = "\n".join(render(items, parked)) + "\n"
+    body = "\n".join(render(items, parked, note_lines)) + "\n"
+    subject = ("Workbench: %d item%s wait on you" % (len(items), "" if len(items) == 1 else "s") if items
+               else "Workbench: nothing waits on you, %d note%s" % (len(note_lines), "" if len(note_lines) == 1 else "s"))
     try:
-        word = send("Workbench: %d item%s wait on you" % (len(items), "" if len(items) == 1 else "s"), body)
+        word = send(subject, body)
     except Exception as err:
         return "not sent: %s" % type(err).__name__
     return "sent" if word == "sent" or word is True else "not sent: %s" % (word if isinstance(word, str) else "refused")

@@ -169,7 +169,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/recheck.py": "awb kb recheck-run, run in a working session or by the steering session",
     "awb/tcp/recheckwatch.py": "awb kb recheck-watch, run by the owner's timer awb-kb-recheck-watch every 15 minutes",
     "awb/tcp/refresh.py": "awb refresh, run by the owner or a timer of his",
-    "awb/tcp/dataset.py": "awb dataset build|put, run by the owner or by the refresh",
+    "awb/tcp/dataset.py": "awb dataset build|put|weekly, run by the owner, the refresh or his timer awb-dataset-weekly",
     "awb/tcp/tcp_facts_mcp.py": "the MCP server of the dataset, copied into every build and run by its recipient",
     "awb/tcp/web/contract.py": "awb api write|check, writes and checks docs/api/openapi.yaml",
     "awb/tcp/ui.py": "awb ui submit|status|watch, run by the owner; a watch runs as his own background process",

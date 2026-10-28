@@ -251,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
             print("awb owner: mail %s" % word)
             return 0 if word in ("sent", "empty") else 1
         items, parked = ownerwait.collect()
-        print("\n".join(ownerwait.render(items, parked)))
+        print("\n".join(ownerwait.render(items, parked, ownerwait.notes())))
         return 0
     status = collect()
     try:

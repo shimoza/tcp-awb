@@ -40,7 +40,8 @@
 # waits on it writes one board line; awb-build-nudge.timer, which runs awb build nudge as the owner every 15 minutes, so
 # a task that waits on his answer or word reaches him by mail (automation review A6); awb-kb-recheck-watch.timer,
 # which runs awb kb recheck-watch as the owner every 15 minutes, so a resource of the fact-check service project is
-# deleted once its expiry has passed (fact-check design F5). /etc/awb and its two files go to root:awb (751, paths.conf and blocklist.txt
+# deleted once its expiry has passed (fact-check design F5); awb-dataset-weekly.timer, which runs awb dataset weekly as
+# the owner every Monday 06:00 UTC (build, kb review, put --github of the dataset TCP Facts, task KS). /etc/awb and its two files go to root:awb (751, paths.conf and blocklist.txt
 # 640): the build user reads neither, the owner, the work user and the Ask page do.
 #
 # The egress filter of the work user (seal/egress/ALLOW.md) is an nftables table that root loads with `awb egress
@@ -88,6 +89,7 @@ BUILD_FAILED_UNIT=awb-task-failed@.service   # OnFailure= of every task unit (aw
 BUILD_NUDGE_UNIT=awb-build-nudge          # .service and .timer: awb build nudge as the owner every 15 minutes (A6)
 RECHECK_WATCH_UNIT=awb-kb-recheck-watch   # .service and .timer: awb kb recheck-watch as the owner every 15 minutes (F5)
 IMPORT_AUTO_UNIT=awb-import-auto          # .service and .timer: awb import --auto as the owner every 2 minutes (lc-laptop-clean)
+DATASET_WEEKLY_UNIT=awb-dataset-weekly    # .service and .timer: awb dataset weekly as the owner, Monday 06:00 UTC (task KS)
 BUILD_MODEL_DEFAULT=login             # D-S7 changed: his subscription login; build_model = key in the host file is the fallback
 BUILD_MODEL_KEY=/etc/awb/build-model.key     # the owner's copy for the runner (build_model = key), never printed
 BUILD_MODEL_KEY_SOURCE=/etc/awb/anthropic.key   # the default source; build_model_key_source in the host file wins
@@ -853,6 +855,7 @@ step_units() {
     [ "$units_only" -eq 1 ] || recheck_watch_unit
     [ "$units_only" -eq 1 ] || import_auto_unit
     [ "$units_only" -eq 1 ] || check_learn_unit
+    [ "$units_only" -eq 1 ] || dataset_weekly_unit
     retire_portal_unit
     run systemctl daemon-reload
     [ "$units_only" -eq 0 ] || return 0
@@ -869,6 +872,7 @@ step_units() {
     try_run systemctl enable --now "$RECHECK_WATCH_UNIT.timer"
     try_run systemctl enable --now "$IMPORT_AUTO_UNIT.timer"
     try_run systemctl enable --now "$CHECK_LEARN_UNIT.timer"
+    try_run systemctl enable --now "$DATASET_WEEKLY_UNIT.timer"
 }
 
 step_egress() {
@@ -942,7 +946,7 @@ step_work_jobs() {
     info "the nightly jobs of the work user (F2 G3): root owned timers that run them as the work user, at the times"
     info "of its crontab, 01:35 claude update (into .local/state/claude-update.log) and 01:40 the commit of the"
     info "knowledge base. Then $CRON_DENY names the work user and its crontab goes, so a session cannot persist there."
-    info "Beside them the weekly read tier of the fact-check, Sunday 02:30 UTC: awb kb recheck-run --tier read (F9)"
+    info "Beside them the weekly read tier of the fact-check, Saturday 19:00 UTC: awb kb recheck-run --tier read (F9)"
     if [ -f "$src" ]; then
         run install -d -o root -g root -m 755 "$(dirname "$KB_COMMIT")"
         run install -o root -g root -m 755 "$src" "$KB_COMMIT"
@@ -1648,6 +1652,63 @@ OnCalendar=*-*-* 03:17
 Persistent=true
 AccuracySec=5min
 Unit=awb-check-learn.service
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+dataset_weekly_unit() {
+    # written by step_units (not in --units-only) like import_auto_unit, its timer enabled at the end of step_units
+    info "$DATASET_WEEKLY_UNIT.timer: every Monday 06:00 UTC (07:00 Berlin in winter) awb dataset weekly as the owner"
+    info "builds the dataset TCP Facts, reviews it with his mark and puts it into the bucket and the public repository"
+    info "(task KS); a failure stops the run and shows in awb owner status, a success is one line of the 08:00 mail"
+    write_file "$UNITS_DIR/$DATASET_WEEKLY_UNIT.service" 644 root:root <<EOF
+# Written by seal/setup.sh (task KS, his decision of 2026-10-28). awb dataset weekly as the owner: awb dataset build,
+# awb kb review (his own mark, refused for the work user) and awb dataset put --github, the next step only after the
+# last one succeeded. It writes the dataset folders and the clone beside them, the bucket through the key service and
+# the public repository through gh and git, so it needs the network; its result goes to its state folder
+# /var/lib/$DATASET_WEEKLY_UNIT (his, 700), which awb owner status reads.
+[Unit]
+Description=Architect Workbench: build, review and publish the dataset TCP Facts, owner side
+After=network-online.target awb-vaultd.service awb-keyd.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=$owner
+Group=$WORK_GROUP
+UMask=0022
+Environment=AWB_CONF=$CONF_FILE
+Environment=AWB_DATASET_WEEKLY=/var/lib/$DATASET_WEEKLY_UNIT
+StateDirectory=$DATASET_WEEKLY_UNIT
+StateDirectoryMode=0700
+ExecStart=$BIN_LINK dataset weekly
+TimeoutStartSec=3600
+NoNewPrivileges=yes
+ProtectSystem=full
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+LimitCORE=0
+EOF
+    write_file "$UNITS_DIR/$DATASET_WEEKLY_UNIT.timer" 644 root:root <<EOF
+# Written by seal/setup.sh (task KS): $DATASET_WEEKLY_UNIT.service every Monday 06:00 UTC, after the fact-check of
+# Saturday 19:00 UTC and before the owner's mail of 08:00 Berlin time. A missed run is made up at the next boot.
+[Unit]
+Description=Architect Workbench: the weekly publish of the dataset TCP Facts, Monday 06:00 UTC
+
+[Timer]
+OnCalendar=Mon *-*-* 06:00:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=$DATASET_WEEKLY_UNIT.service
 
 [Install]
 WantedBy=timers.target

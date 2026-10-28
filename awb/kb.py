@@ -1402,6 +1402,14 @@ def expired(where=None, today: date | None = None) -> list[Entry]:
                   key=lambda e: (e.expires, e.id))
 
 
+def due(where=None, today: date | None = None, days: int = 0) -> list[Entry]:
+    """Entries that expire before `today` plus `days` (the expired ones among them), the oldest expiry first: what a
+    weekly recheck must take so that no entry expires before its next run (task KS)."""
+    limit = (today or date.today()) + timedelta(days=days)
+    return sorted((e for e in load(where) if not e.is_retired and e.is_expired(limit)),
+                  key=lambda e: (e.expires, e.id))
+
+
 def screen(entries: Sequence[Entry], register_path: Path | None = None) -> tuple[list[Entry], int]:
     """(entries that pass the checks of add now, count withheld). An entry that carries a name registered after it
     was added is withheld, and so is one that carries what kb add refuses (a mail address or other structured data,
