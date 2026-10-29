@@ -1,0 +1,24 @@
+# The report workbook never leaves the laptop
+
+The rule: report.xlsx on the work laptop and every copy of it that carries the Names sheet never go to the host, a
+session or a bucket. The Workbench writes only the codes file projects.csv (and projects.previous.csv) into the
+report folder; no command opens or writes report.xlsx.
+
+Reason: the Names sheet maps each customer code to the customer's real name. It is the one place where codes and
+names meet outside the vault, so a copy of it on the host or in a bucket is a full register of names in plain text.
+The weekly status needs the names only on the laptop, in Excel, so they never have to cross.
+
+The fingerprint: a workbook (any suffix) whose xl/workbook.xml names both a sheet Names and a sheet Projects
+(awb/reportbook.py). The report folder: the folder saved with awb clean report --dir DIR --save or any folder named
+awb-report (awb/cleanreport.py).
+
+Enforced by:
+- the laptop: awb clean FILE, --put, awb clean put and the page of awb clean serve refuse a file in the report folder
+  and any workbook with the fingerprint; awb clean fetch --to refuses the report folder; the one line is "the report
+  workbook never leaves the laptop" (awb/clean.py, awb/cleanfetch.py)
+- the direction: awb clean report and awb clean fetch only download (awb/cleanreport.py)
+- the host: awb import and its timer awb import --auto hold a workbook with the fingerprint, import nothing of it,
+  leave it in in/ and mail the owner once per file to remove it (awb/importcmd.py)
+- behind them: the intake wipe turns registered forms into codes anyway; the prompt hook stops a registered name
+  pasted into a session
+- the tests: tests/test_r2_clean_report.py proves each of these walls can fail

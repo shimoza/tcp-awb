@@ -8,6 +8,7 @@ lc-laptop-clean, his yes of 2026-10-22).
     awb clean register CUST-XXXX
     awb clean init
     awb clean fetch [tcp-xxxx] [--to DIR] [--save]
+    awb clean report [--dir DIR] [--save]
     awb clean update
     awb clean doctor
 
@@ -48,6 +49,12 @@ month with its in/ and out/ (awb/bucket_layout.py). On the host `awb import --au
 
 `awb clean fetch tcp-xxxx [--to DIR] [--save]` brings the revealed deliverables of `out/` back to the laptop
 (awb/cleanfetch.py), through the same key and the same proxy as `--put`.
+
+`awb clean report [--dir DIR] [--save]` brings the codes file of the report workbook, `reports/projects.csv` of the
+bucket, into the report folder (awb/cleanreport.py), through the same key and the same proxy; it never uploads. The
+report workbook never leaves the laptop (rules/report-workbook.txt): a run, `--put`, `awb clean put`, the page and
+`awb clean fetch --to` refuse a path in the report folder; a run and the puts refuse a workbook with both sheets
+Names and Projects, with the one line of `reportbook.REFUSED`.
 
 `awb clean update` brings the lists of public words up to date (rules/common-words.txt, rules/tech-terms.txt,
 rules/allowed-terms.txt, rules/allow-domains.txt and the other allow lists) from the public repository: a
@@ -161,6 +168,16 @@ def put_last(project: str, *, client=None, say=print) -> list[str]:
     return put_files(project, files, client=client, say=say)
 
 
+def _refuse_report(files: list[Path]) -> None:
+    """The laptop refusal of rules/report-workbook.txt: nothing of the report folder and no workbook with both sheets
+    Names and Projects is cleaned or sent."""
+    from awb import cleanreport, reportbook
+
+    for i, f in enumerate(files, start=1):
+        if cleanreport.refused(f):
+            raise CleanError("file %d of %d: %s" % (i, len(files), reportbook.REFUSED))
+
+
 def keys_present() -> bool:
     return all(os.environ.get(k) for k in laptop.PUT_ENV)
 
@@ -260,6 +277,7 @@ def run(files: list[Path], project: str, kind: str, out: Path | None = None, *, 
     for i, f in enumerate(files, start=1):
         if f.is_symlink() or not f.is_file():
             raise CleanError("file %d of %d is not a regular file" % (i, len(files)))
+    _refuse_report(files)
     failed = intake.selftest()
     if failed:
         raise CleanError("the intake failed its self-test, nothing is cleaned: %s" % "; ".join(failed))
@@ -409,6 +427,7 @@ def put_files(project: str, files: list[Path], *, client=None, today: date | Non
     for f in files:
         if not is_clean_name(f.name):
             raise CleanError("--put takes the clean copies of awb clean only")
+    _refuse_report([Path(f) for f in files])
     c = client or _client()
     try:
         folder = bucket.find_folder(c, project)
@@ -619,7 +638,7 @@ def _parser_files():
 
     ap = SafeParser(prog="awb clean", description="Clean project material on the laptop, offline: docs (office "
                     "and pdf files) or logs (logs, configs, tickets); also awb clean use tcp-xxxx, put, serve, "
-                    "register CUST-XXXX, init, fetch, update and doctor.")
+                    "register CUST-XXXX, init, fetch, report, update and doctor.")
     ap.add_argument("files", nargs="+", metavar="FILE", help="the files to clean; the originals are never changed")
     ap.add_argument("--project", default=None, metavar="tcp-xxxx", help="the project code (default: the work "
                     "folder of the current directory, else the project of awb clean use); its customer is CUST- and "
@@ -664,6 +683,38 @@ def _fetch_main(argv: list[str]) -> int:
     return EXIT_HELD if failed else EXIT_OK
 
 
+def _report_main(argv: list[str]) -> int:
+    from awb import cleanreport
+    from awb.cli import SafeParser
+
+    ap = SafeParser(prog="awb clean report", description="The codes file of the report workbook (reports/projects.csv "
+                    "of the bucket) into the report folder, with the key of AWB_OBS_AK and AWB_OBS_SK; the sha256 "
+                    "of projects.meta.json is checked, the file before is kept as projects.previous.csv. It never "
+                    "uploads.")
+    ap.add_argument("--dir", default=None, metavar="DIR", help="the report folder (default: the one saved with "
+                    "--save), for example \"C:\\Users\\<you>\\awb-report\"")
+    ap.add_argument("--save", action="store_true", help="keep --dir as the report folder")
+    try:
+        args = ap.parse_args(argv)
+    except SystemExit as exc:
+        return 0 if exc.code in (0, None) else EXIT_ERROR
+    if args.save and not args.dir:
+        print("awb clean report: --save goes with --dir DIR", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        cleanreport.fetch(Path(windows_path(args.dir)) if args.dir else None, save=args.save)
+    except cleanreport.Held as err:
+        print("awb clean report: %s" % err, file=sys.stderr)
+        return EXIT_HELD
+    except (CleanError, cleanreport.ReportError) as err:
+        print("awb clean report: %s" % err, file=sys.stderr)
+        return EXIT_ERROR
+    except OSError as err:
+        print("awb clean report: %s (operating system error)" % type(err).__name__, file=sys.stderr)
+        return EXIT_ERROR
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     from awb import register
     from awb.cli import SafeParser
@@ -690,6 +741,8 @@ def main(argv: list[str] | None = None) -> int:
             return code
         if argv[:1] == ["fetch"]:
             return _fetch_main(argv[1:])
+        if argv[:1] == ["report"]:
+            return _report_main(argv[1:])
         if argv[:1] == ["use"]:
             return _use_main(argv[1:])
         if argv[:1] == ["put"]:
