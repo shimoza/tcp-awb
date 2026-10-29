@@ -12522,8 +12522,64 @@
    "name": "T7: f the gate reads the text of a pdf and a pdf without text stays opaque",
    "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_f_the_gate_reads_the_text_of_a_pdf_and_a_pdf_without_text_stays_opaque",
    "status": "passing"
+  },
+  {
+   "id": "t8p-1",
+   "phase": "t8-pdf-findings",
+   "name": "T8: awb check of the call log pdf has no finding",
+   "run": ".venv/bin/pytest tests/test_t8_pdf_findings.py::test_t8_awb_check_of_the_call_log_pdf_has_no_finding",
+   "status": "passing"
+  },
+  {
+   "id": "t8p-2",
+   "phase": "t8-pdf-findings",
+   "name": "T8: a foreign web address cut in a pdf is still found",
+   "run": ".venv/bin/pytest tests/test_t8_pdf_findings.py::test_t8_a_foreign_web_address_cut_in_a_pdf_is_still_found",
+   "status": "passing"
+  },
+  {
+   "id": "t8p-3",
+   "phase": "t8-pdf-findings",
+   "name": "T8: a tcp host cut at the line end is no finding",
+   "run": ".venv/bin/pytest tests/test_t8_pdf_findings.py::test_t8_a_tcp_host_cut_at_the_line_end_is_no_finding",
+   "status": "passing"
+  },
+  {
+   "id": "t8p-4",
+   "phase": "t8-pdf-findings",
+   "name": "T8: a foreign web address is still found whole or cut",
+   "run": ".venv/bin/pytest tests/test_t8_pdf_findings.py::test_t8_a_foreign_web_address_is_still_found_whole_or_cut",
+   "status": "passing"
+  },
+  {
+   "id": "t8p-5",
+   "phase": "t8-pdf-findings",
+   "name": "T8: a whole tcp host before a line break is not joined to the next word",
+   "run": ".venv/bin/pytest tests/test_t8_pdf_findings.py::test_t8_a_whole_tcp_host_before_a_line_break_is_not_joined_to_the_next_word",
+   "status": "passing"
+  },
+  {
+   "id": "t8p-6",
+   "phase": "t8-pdf-findings",
+   "name": "T8: digits of separate cells are no phone",
+   "run": ".venv/bin/pytest tests/test_t8_pdf_findings.py::test_t8_digits_of_separate_cells_are_no_phone",
+   "status": "passing"
+  },
+  {
+   "id": "t8p-7",
+   "phase": "t8-pdf-findings",
+   "name": "T8: a real phone in a sentence is still found",
+   "run": ".venv/bin/pytest tests/test_t8_pdf_findings.py::test_t8_a_real_phone_in_a_sentence_is_still_found",
+   "status": "passing"
+  },
+  {
+   "id": "t8p-8",
+   "phase": "t8-pdf-findings",
+   "name": "T8: a phone over two cells is still found inside a longer row",
+   "run": ".venv/bin/pytest tests/test_t8_pdf_findings.py::test_t8_a_phone_over_two_cells_is_still_found_inside_a_longer_row",
+   "status": "passing"
   }
  ],
- "total_tests": 1789,
+ "total_tests": 1797,
  "checked": "2026-10-29"
 }

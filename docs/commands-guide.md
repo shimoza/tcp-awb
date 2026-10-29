@@ -455,7 +455,7 @@ creating or not created, the last two from `awb lab run`) and a note.
 
 | command | what it does |
 |---|---|
-| `awb check [--register FILE] FILE...` | registered names and structured data (mail, IP, IBAN, phone...) in files; positions and classes only. A PDF is read through pdftotext (`opaque` only when that fails or it has no text layer); an id (16, 32, 40 or 64 hex digits, a uuid) is no encoded block and no finding |
+| `awb check [--register FILE] FILE...` | registered names and structured data (mail, IP, IBAN, phone...) in files; positions and classes only. A PDF is read through pdftotext (`opaque` only when that fails or it has no text layer); a TCP host cut by the line wrap of the PDF is read joined and is no finding; digits of separate table cells (a cell border, a tab, three blanks) are no phone number; an id (16, 32, 40 or 64 hex digits, a uuid) is no encoded block and no finding |
 | `awb check --no-register FILE...` | structured data only |
 | `awb gate [--register FILE \| --no-register] PATH...` | names, secrets, private keys, tokens, home paths, blocklist words and ids in files |
 | `awb gate --staged` | the same over what a commit will carry (the pre-commit hook runs this) |

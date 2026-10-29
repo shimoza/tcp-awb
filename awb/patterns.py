@@ -258,9 +258,11 @@ def _iban_ok(s: str) -> int | bool:
     return end
 
 
-_PHONE_SEP = r"(?:\\?[ \t\u00a0./\-\u2010\u2011\u2013]{1,3}|\n)"
-_PHONE_SEP2 = r"(?:\\?[ \t\u00a0.\-\u2010\u2011\u2013]{1,3}|\n)"
-"""Between the groups of the subscriber number: no slash, which separates one number from the next."""
+_PHONE_SEP = r"(?:\\?(?![ \u00a0]{3})[ \u00a0./\-\u2010\u2011\u2013]{1,3}|\n)"
+_PHONE_SEP2 = r"(?:\\?(?![ \u00a0]{3})[ \u00a0.\-\u2010\u2011\u2013]{1,3}|\n)"
+"""Between the groups of the subscriber number: no slash, which separates one number from the next. Neither
+separator takes a tab or three blanks in a row: that is the gap between two columns of a table as pdftotext
+-layout writes it, and numbers of separate cells are not one number to call (T8)."""
 _PHONE_START = r"(?<!\d:)(?:(?<![\w./,+(\uff0b])|(?<=[A-Za-z]\.)|(?<=\d/))"
 """Where a phone number may begin: not glued to a word or a number, but right after "Tel." or after the slash
 that separates two numbers. Never right after the colon of a clock: the minutes, seconds and fraction of a time
@@ -410,11 +412,33 @@ two cells (an area code and a number, the groups of an IBAN in boxes, one half i
 across it."""
 
 
-def _view(text: str) -> tuple[str, list[int] | None]:
-    """`text` with markup inside a value taken out, letter spaced runs closed up and cell borders between two
-    values read as one space, and the position in `text` of every view character. (text, None) when nothing
-    changes."""
+_WRAP_RE = re.compile(r"(?i)(?<![\w.:/@%-])((?:[a-z][a-z0-9+.-]{0,9}://)?(?:[^\s/@]{1,64}@)?[^\W_][\w-]*(?:\.[\w-]*)+)"
+                      r"(\n[ \t]*)([\w-]+(?:\.[\w-]+)*)")
+"""A host name cut at the end of a line (a URL wrapped by the layout of a PDF: `https://obs.otc.t-systems.c` and
+`om/...` on the next line), the scheme and a user part allowed in front: group 1 the head, 2 the break, 3 the
+rest of the host on the next line."""
+
+
+def _wrap_joins(text: str) -> list[tuple[int, int, int, int]]:
+    """Every host name cut by a line break that only joined is an allowed host (a public TCP endpoint or another host
+    the patterns never report, T8): the start of the host, the start and end of the break (the blanks after it
+    included) and the end of the host. A foreign host is not joined, so its cut head is still found."""
+    if "\n" not in text:
+        return []
+    out: list[tuple[int, int, int, int]] = []
+    for m in _WRAP_RE.finditer(text):
+        head = re.sub(r"(?i)^[a-z][a-z0-9+.-]*://", "", m.group(1)).split("@")[-1]
+        if not _allowed_host(head) and _allowed_host(head + m.group(3)):
+            out.append((m.start(1), m.start(2), m.end(2), m.end(3)))
+    return out
+
+
+def _view(text: str, wraps: list[tuple[int, int, int, int]] = ()) -> tuple[str, list[int] | None]:
+    """`text` with markup inside a value taken out, letter spaced runs closed up, cell borders between two values
+    read as one space and a TCP host cut by a line break joined, and the position in `text` of every view
+    character (`wraps`: the cut hosts of `_wrap_joins`). (text, None) when nothing changes."""
     edits: list[tuple[int, int, str]] = [(m.start(), m.end(), "") for m in _MARKUP_RE.finditer(text)]
+    edits.extend((b, c, "") for _, b, c, _ in wraps)
     for m in _SPACED_RUN_RE.finditer(text):
         a = m.start()
         edits.extend((a + g.start(), a + g.end(), "") for g in re.finditer(r" {1,3}", m.group(0)))
@@ -490,8 +514,43 @@ def _find_structured_cached(text: str) -> tuple[tuple[int, int, str], ...]:
     return tuple((s.start, s.end, s.cls) for s in _find_structured(text))
 
 
+_CELL_TRIM = " \t*_`~"
+_CELL_PHONE_TAIL = 4
+"""The digits the cell right of a border must hold for a phone number over two cells: a subscriber number."""
+
+
+def _cell_phones(text: str, start: int, end: int) -> list[Span]:
+    """The phone numbers of a phone-shaped span that crosses table cell borders (T8). A number typed over two
+    cells (an area code, then a subscriber number of at least `_CELL_PHONE_TAIL` digits) is one; digits of three
+    cells (`018 | 018 | 3`) or a short number in the right cell are separate values, not a number to call."""
+    cells: list[tuple[int, int]] = []
+    a = start
+    for i in [i for i in range(start, end) if text[i] == "|"] + [end]:
+        b = i
+        while a < b and text[a] in _CELL_TRIM:
+            a += 1
+        while b > a and text[b - 1] in _CELL_TRIM:
+            b -= 1
+        cells.append((a, b))
+        a = i + 1
+    out: list[Span] = []
+    for (la, lb), (ra, rb) in zip(cells, cells[1:]):
+        if la == lb or sum(c.isdigit() for c in text[ra:rb]) < _CELL_PHONE_TAIL:
+            continue
+        if out and out[-1].end > la:
+            continue
+        left, right = text[la:lb], text[ra:rb]
+        joined = left + " " + right
+        for p in _find(joined):
+            if p.cls == "phone" and p.start < len(left) and p.end > len(left) + 1:
+                out.append(Span(start=la + p.start, end=ra + p.end - len(left) - 1, cls="phone"))
+                break
+    return out
+
+
 def _find_structured(text: str) -> list[Span]:
-    view, positions = _view(text)
+    wraps = _wrap_joins(text)
+    view, positions = _view(text, wraps)
     spans = _find(view)
     if positions is None:
         return spans
@@ -501,10 +560,17 @@ def _find_structured(text: str) -> list[Span]:
         end = positions[s.end - 1] + 1
         if s.cls == "mac" and "|" in text[start:end]:
             continue      # short column names over six cells (| c0 | c1 | ... | c5 |) are no MAC address (T3)
+        if s.cls == "phone" and "|" in text[start:end]:
+            out.extend(_cell_phones(text, start, end))
+            continue
         out.append(Span(start=start, end=end, cls=s.cls))
+    # a TCP host cut by a line break is joined in the view; its cut pieces in the text as written are no address
+    wrapped = [(a, d) for a, _, _, d in wraps]
     # a value that lies wholly inside markup (an address in an href, an IP in a comment) is gone from the view:
     # the text as written is searched as well and what the view did not find is added
     for s in _find(text):
+        if s.cls == "url" and any(a < s.end and s.start < d for a, d in wrapped):
+            continue
         if not any(a.start < s.end and s.start < a.end for a in out):
             out.append(s)
     out.sort(key=lambda s: (s.start, s.end))
