@@ -181,7 +181,7 @@ def test_k3_the_review_pins_every_release_asset(home, facts, tmp_path, capsys):
     built = dataset.build(home, out=ds, today=TODAY)
     _review(ds, capsys)
     mark = json.loads(kbreview.review_path(built.folder).read_text())
-    names = ["tcp-facts-2026-10-08.zip", "HOW-TO.pdf", "MANIFEST.json", "tcp-facts-2026-10-08.mcpb"]
+    names = ["tcp-facts-2026-10-08.zip", "HOW-TO.pdf", "MANIFEST.json", "tcp-facts-2026-10-08.mcpb", "tcp-facts.mcpb"]
     assert sorted(mark["assets"]) == sorted(names)
     assert mark["assets"]["HOW-TO.pdf"] == kbreview.sha256_of(built.folder / "HOW-TO.pdf")
     assert mark["assets"] == kbreview.asset_sums(built.folder)

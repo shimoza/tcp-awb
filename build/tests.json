@@ -12788,8 +12788,57 @@
    "name": "R1: the hourly unit runs as the owner and the seal and the update install it",
    "run": ".venv/bin/pytest tests/test_r1_report_codes.py::test_r1_the_hourly_unit_runs_as_the_owner_and_the_seal_and_the_update_install_it",
    "status": "passing"
+  },
+  {
+   "id": "dx-mcpb-1",
+   "phase": "dx-mcpb-findable",
+   "name": "DX: the stable link points at the latest release of the public repository",
+   "run": ".venv/bin/pytest tests/test_dx_mcpb_findable.py::test_the_stable_link_points_at_the_latest_release_of_the_public_repository",
+   "status": "passing"
+  },
+  {
+   "id": "dx-mcpb-2",
+   "phase": "dx-mcpb-findable",
+   "name": "DX: the asset list holds the dated and the stable bundle with equal bytes",
+   "run": ".venv/bin/pytest tests/test_dx_mcpb_findable.py::test_the_asset_list_holds_the_dated_and_the_stable_bundle_with_equal_bytes",
+   "status": "passing"
+  },
+  {
+   "id": "dx-mcpb-3",
+   "phase": "dx-mcpb-findable",
+   "name": "DX: the stable copy is not packed into the bundle or the zip",
+   "run": ".venv/bin/pytest tests/test_dx_mcpb_findable.py::test_the_stable_copy_is_not_packed_into_the_bundle_or_the_zip",
+   "status": "passing"
+  },
+  {
+   "id": "dx-mcpb-4",
+   "phase": "dx-mcpb-findable",
+   "name": "DX: the release uploads both bundles and the signed sums list both",
+   "run": ".venv/bin/pytest tests/test_dx_mcpb_findable.py::test_the_release_uploads_both_bundles_and_the_signed_sums_list_both",
+   "status": "passing"
+  },
+  {
+   "id": "dx-mcpb-5",
+   "phase": "dx-mcpb-findable",
+   "name": "DX: a stable copy that differs from the dated bundle stops the release",
+   "run": ".venv/bin/pytest tests/test_dx_mcpb_findable.py::test_a_stable_copy_that_differs_from_the_dated_bundle_stops_the_release",
+   "status": "passing"
+  },
+  {
+   "id": "dx-mcpb-6",
+   "phase": "dx-mcpb-findable",
+   "name": "DX: the readme carries the stable link near its top and keeps the statements",
+   "run": ".venv/bin/pytest tests/test_dx_mcpb_findable.py::test_the_readme_carries_the_stable_link_near_its_top_and_keeps_the_statements",
+   "status": "passing"
+  },
+  {
+   "id": "dx-mcpb-7",
+   "phase": "dx-mcpb-findable",
+   "name": "DX: the how to names the stable link",
+   "run": ".venv/bin/pytest tests/test_dx_mcpb_findable.py::test_the_how_to_names_the_stable_link",
+   "status": "passing"
   }
  ],
- "total_tests": 1827,
+ "total_tests": 1834,
  "checked": "2026-10-29"
 }
