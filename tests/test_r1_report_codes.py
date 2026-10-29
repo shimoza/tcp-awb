@@ -120,6 +120,18 @@ def test_r1_the_file_has_one_quoted_row_per_project_sorted_by_code(planted, tmp_
     fixtures.assert_no_fixture_name(out.read_text(encoding="utf-8") + stdout + err, "the codes file")
 
 
+def test_r1_the_sidecar_names_sha256_and_written_for_the_laptop(planted, tmp_path, capsys):
+    """The laptop side (task R2) reads two keys of projects.meta.json by these names: "sha256", the hex sha256 of
+    the exact bytes of projects.csv, and "written", the time in UTC in ISO 8601."""
+    out = tmp_path / "projects.csv"
+    assert run(["report", "--codes", "--out", str(out)], capsys)[0] == 0
+    meta = json.loads((tmp_path / "projects.meta.json").read_text(encoding="utf-8"))
+    assert meta["sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
+    assert len(meta["sha256"]) == 64 and set(meta["sha256"]) <= set("0123456789abcdef")
+    written = dt.datetime.fromisoformat(meta["written"].replace("Z", "+00:00"))
+    assert meta["written"].endswith("Z") and written.utcoffset() == dt.timedelta(0)
+
+
 def test_r1_a_quote_in_a_text_is_doubled_and_a_cell_never_breaks_the_row():
     row = reportcodes.Row("tcp-q7m4", "none", 'the "fast" path,\tnow', "=1+1", "session", "2026-10-28")
     text = reportcodes.render([row]).decode("utf-8")
