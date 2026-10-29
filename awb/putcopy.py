@@ -66,9 +66,19 @@ def _scrub_office(src: Path, dst: Path) -> int:
     return n
 
 
+def is_binary(name: str, data: bytes) -> bool:
+    """A file that is not text, by the gate's rule: a NUL byte early, the magic of a PDF, a ZIP or a gzip, or the
+    suffix of a document, an archive, an image or a key store (task T7: a PDF of ASCII streams decodes as UTF-8,
+    and its stream lines were taken for tokens)."""
+    from awb import gate
+
+    return gate.is_opaque(name, data)
+
+
 def scrub(src: Path, dst: Path) -> int:
-    """Copy `src` to `dst` with every secret replaced: a text file (UTF-8) as text, an office file part by part,
-    anything else as it is. The number of secrets replaced."""
+    """Copy `src` to `dst` with every secret replaced: a text file (UTF-8) as text, an office file part by part
+    (the copy is rewritten only when one of its XML parts holds a secret), any other binary file (pdf, image,
+    archive) byte for byte. The number of secrets replaced."""
     src, dst = Path(src), Path(dst)
     if src.suffix.lower() in OFFICE_SUFFIXES and zipfile.is_zipfile(src):
         try:
@@ -80,6 +90,9 @@ def scrub(src: Path, dst: Path) -> int:
         shutil.copyfile(src, dst)
         return 0
     data = src.read_bytes()
+    if is_binary(src.name, data):
+        shutil.copyfile(src, dst)
+        return 0
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:

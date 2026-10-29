@@ -12396,8 +12396,134 @@
    "name": "LR: the work rules carry the lab run rule and sync adds it",
    "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_the_work_rules_carry_the_lab_run_rule_and_sync_adds_it",
    "status": "passing"
+  },
+  {
+   "id": "t7-1",
+   "phase": "t7-tooling",
+   "name": "T7: a scrub copies a pdf a picture and a docx without secrets byte for byte",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_a_scrub_copies_a_pdf_a_picture_and_a_docx_without_secrets_byte_for_byte",
+   "status": "passing"
+  },
+  {
+   "id": "t7-2",
+   "phase": "t7-tooling",
+   "name": "T7: a the ascii pdf reproduces the loss of the text scrub",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_a_the_ascii_pdf_reproduces_the_loss_of_the_text_scrub",
+   "status": "passing"
+  },
+  {
+   "id": "t7-3",
+   "phase": "t7-tooling",
+   "name": "T7: a a session put sends binary files byte for byte",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_a_a_session_put_sends_binary_files_byte_for_byte",
+   "status": "passing"
+  },
+  {
+   "id": "t7-4",
+   "phase": "t7-tooling",
+   "name": "T7: a the service put keeps binary files byte for byte",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_a_the_service_put_keeps_binary_files_byte_for_byte",
+   "status": "passing"
+  },
+  {
+   "id": "t7-5",
+   "phase": "t7-tooling",
+   "name": "T7: a an office file is rewritten only for a real secret",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_a_an_office_file_is_rewritten_only_for_a_real_secret",
+   "status": "passing"
+  },
+  {
+   "id": "t7-6",
+   "phase": "t7-tooling",
+   "name": "T7: a the write hook never rewrites a pdf",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_a_the_write_hook_never_rewrites_a_pdf",
+   "status": "passing"
+  },
+  {
+   "id": "t7-7",
+   "phase": "t7-tooling",
+   "name": "T7: b code lines keep their text in the lab shortening and the put scrub",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_b_code_lines_keep_their_text_in_the_lab_shortening_and_the_put_scrub",
+   "status": "passing"
+  },
+  {
+   "id": "t7-8",
+   "phase": "t7-tooling",
+   "name": "T7: b a real password is still masked",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_b_a_real_password_is_still_masked",
+   "status": "passing"
+  },
+  {
+   "id": "t7-9",
+   "phase": "t7-tooling",
+   "name": "T7: b the write hook leaves a new python script as written",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_b_the_write_hook_leaves_a_new_python_script_as_written",
+   "status": "passing"
+  },
+  {
+   "id": "t7-10",
+   "phase": "t7-tooling",
+   "name": "T7: c a lab log of 2000 hex ids is not opaque",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_c_a_lab_log_of_2000_hex_ids_is_not_opaque",
+   "status": "passing"
+  },
+  {
+   "id": "t7-11",
+   "phase": "t7-tooling",
+   "name": "T7: c more than 1000 base64 blocks that hide text stay opaque",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_c_more_than_1000_base64_blocks_that_hide_text_stay_opaque",
+   "status": "passing"
+  },
+  {
+   "id": "t7-12",
+   "phase": "t7-tooling",
+   "name": "T7: g request ids of every shape are no finding",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_g_request_ids_of_every_shape_are_no_finding",
+   "status": "passing"
+  },
+  {
+   "id": "t7-13",
+   "phase": "t7-tooling",
+   "name": "T7: g a name hidden in hex is still found",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_g_a_name_hidden_in_hex_is_still_found",
+   "status": "passing"
+  },
+  {
+   "id": "t7-14",
+   "phase": "t7-tooling",
+   "name": "T7: d the api path of a cloud call passes and the root stays refused",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_d_the_api_path_of_a_cloud_call_passes_and_the_root_stays_refused",
+   "status": "passing"
+  },
+  {
+   "id": "t7-15",
+   "phase": "t7-tooling",
+   "name": "T7: e total in a quoted raw answer is no computed claim",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_e_total_in_a_quoted_raw_answer_is_no_computed_claim",
+   "status": "passing"
+  },
+  {
+   "id": "t7-16",
+   "phase": "t7-tooling",
+   "name": "T7: f the work user runs pdftotext direct",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_f_the_work_user_runs_pdftotext_direct",
+   "status": "passing"
+  },
+  {
+   "id": "t7-17",
+   "phase": "t7-tooling",
+   "name": "T7: f awb check reads the text of a pdf",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_f_awb_check_reads_the_text_of_a_pdf",
+   "status": "passing"
+  },
+  {
+   "id": "t7-18",
+   "phase": "t7-tooling",
+   "name": "T7: f the gate reads the text of a pdf and a pdf without text stays opaque",
+   "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_f_the_gate_reads_the_text_of_a_pdf_and_a_pdf_without_text_stays_opaque",
+   "status": "passing"
   }
  ],
- "total_tests": 1771,
- "checked": "2026-10-28"
+ "total_tests": 1789,
+ "checked": "2026-10-29"
 }
