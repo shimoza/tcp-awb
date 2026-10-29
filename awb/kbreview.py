@@ -75,10 +75,14 @@ REVIEW_FIELDS = ("statement", "source", "grade")
 REVIEW_HINT = "run awb kb review first"
 
 
+STABLE_MCPB = SLUG + ".mcpb"          # in the folder: the same bytes as the dated .mcpb under a name with no date
+
+
 def release_assets(folder: Path) -> list[Path]:
-    """The files a release uploads and the signed SHA256SUMS lists: the zip, HOW-TO.pdf, MANIFEST.json, the .mcpb."""
+    """The files a release uploads and the signed SHA256SUMS lists: the zip, HOW-TO.pdf, MANIFEST.json, the .mcpb
+    and its copy tcp-facts.mcpb, so releases/latest/download/tcp-facts.mcpb is always the newest bundle."""
     return [folder.parent / (folder.name + ".zip"), folder / "HOW-TO.pdf", folder / "MANIFEST.json",
-            folder.parent / (folder.name + ".mcpb")]
+            folder.parent / (folder.name + ".mcpb"), folder / STABLE_MCPB]
 
 
 def asset_sums(folder: Path) -> dict[str, str]:

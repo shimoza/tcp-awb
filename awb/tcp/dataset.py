@@ -28,7 +28,8 @@ release. It names the command in one line. A signed put refuses an asset that di
 What the folder holds: README.md and PROMPT.md (how to use it, the one-line prompt), HOW-TO.pdf (the same for
 people who read PDF), facts.md (every fact on one line, grouped by topic, small enough for one chat), topics/<tag>.md
 (one file per first tag), facts.jsonl (the export of `awb kb export` with its metadata), services.md (what the
-latest service description lists and what it does not offer), tcp_facts_mcp.py (a read-only MCP server over these files, copied from the template beside this module) and
+latest service description lists and what it does not offer), tcp-facts.mcpb (the same bytes as the
+tcp-facts-<date>.mcpb beside the folder, the release asset with a stable name), tcp_facts_mcp.py (a read-only MCP server over these files, copied from the template beside this module) and
 MANIFEST.json (counts, dates, the sha256 of every file). README.md, PROMPT.md and HOW-TO.pdf carry "What the facts
 cover", counted from the facts: the orderable services with a plain fact per section of the service description, the
 requirement areas (facts that open with "T Cloud Public (TCP)" and a verb), an example and the contract matters the
@@ -133,7 +134,7 @@ MCPB_TOOLS = (("tcp_facts_search", "The checked facts ranked by word overlap, fi
               ("tcp_price_find", "Live price rows of eu-de or eu-nl from the public price API (only with --live)"),
               ("tcp_calculate", "Exact decimal arithmetic with hours as the unit"))
 MCPB_ICON = "icon.png"                               # the icon field of the manifest names it
-MCPB_SKIP = ("MANIFEST.json", "HOW-TO.pdf")          # MANIFEST.json would clash with manifest.json on a case-blind disk
+MCPB_SKIP = ("MANIFEST.json", "HOW-TO.pdf", kbreview.STABLE_MCPB)   # MANIFEST.json would clash with manifest.json on a case-blind disk
 
 
 class DatasetError(Exception):
@@ -196,6 +197,7 @@ WARNING = [
     ("p", WARNING_RESPONSIBILITY + " The dataset gives you checked facts and nothing else."),
 ]
 MCP_HEADING = "MCP clients"
+MCPB_LATEST_URL = "https://github.com/%s/releases/latest/download/%s" % (GITHUB_REPO, kbreview.STABLE_MCPB)
 MCP_PATH = "/path/to/tcp-facts/" + MCP_FILE
 MCP_CLIENTS = [
     ("h2", MCP_HEADING),
@@ -204,10 +206,10 @@ MCP_CLIENTS = [
           "grade), tcp_service_check (offered or not, from services.md), tcp_price_find (live price rows of eu-de or "
           "eu-nl, only with --live) and tcp_calculate (exact arithmetic in hours, a month is 720 h). It reads no "
           "file outside its folder, opens no connection without --live and writes nothing." % MCP_FILE),
-    ("p", "Claude Desktop, one click: download tcp-facts-<date>.mcpb from the latest release at github.com/%s and "
-          "open it (double click, or drag it into Settings, Extensions). Claude Desktop shows the extension and its "
-          "four tools; press Install. The file carries the server and the data of that build. It needs Python 3.10 "
-          "or newer on the machine." % GITHUB_REPO),
+    ("p", "Claude Desktop, one click: download %s (the newest release, the same bytes as its "
+          "tcp-facts-<date>.mcpb) and open it (double click, or drag it into Settings, Extensions). Claude Desktop "
+          "shows the extension and its four tools; press Install. The file carries the server and the data of that "
+          "build. It needs Python 3.10 or newer on the machine." % MCPB_LATEST_URL),
     ("p", "Any other client: unpack the zip of the latest release or clone github.com/%s, then add the server by "
           "hand. Replace /path/to/tcp-facts with that folder, the one that holds facts.jsonl and %s."
           % (GITHUB_REPO, MCP_FILE)),
@@ -234,7 +236,8 @@ BADGE_COLOURS = {"unofficial": "c64a3d", "facts": "2f6fd1", "before": "e0b43a", 
 
 
 def readme_header(day: str, best_before: str, n_facts: int) -> list[tuple[str, str]]:
-    """The top of the README: a centred title and subtitle, the disclaimer and a row of badges (shields.io, no logo)."""
+    """The top of the README: a centred title and subtitle, the disclaimer, the one-click line with the stable link of
+    the bundle and a row of badges (shields.io, no logo)."""
     def badge(alt: str, label: str, value: str, key: str, href: str = "") -> str:
         img = '<img alt="%s" src="https://img.shields.io/badge/%s-%s-%s">' % (
             alt, label, value.replace("-", "--").replace(" ", "_"), BADGE_COLOURS[key])
@@ -247,6 +250,8 @@ def readme_header(day: str, best_before: str, n_facts: int) -> list[tuple[str, s
     return [("p", '<h1 align="center">%s</h1>' % NAME),
             ("p", '<p align="center"><b>Checked facts about T Cloud Public (TCP) for any AI assistant, dataset of %s</b></p>' % day),
             ("p", DISCLAIMER),
+            ("p", '<p align="center">Claude Desktop, one click: <a href="%s">%s</a> (needs Python 3.10 or newer)</p>'
+                  % (MCPB_LATEST_URL, kbreview.STABLE_MCPB)),
             ("p", '<p align="center">\n%s\n</p>' % row)]
 
 
@@ -513,7 +518,7 @@ def pdf_bytes(blocks: list[tuple[str, str]], title: str) -> bytes:
 
     for style, text in blocks:
         font, size, lead, width = _STYLES[style.split(":")[0]]
-        wrapped = textwrap.wrap(text, width) or [""]
+        wrapped = textwrap.wrap(text, width, break_on_hyphens=False) or [""]   # a link stays whole on its line
         if y - lead * (len(wrapped) + 1) < _MARGIN and pages[-1]:
             pages.append([])
             y = _PAGE_H - _MARGIN
@@ -898,7 +903,8 @@ def icon_png() -> bytes:
 
 
 def pack_mcpb(root: Path, day: str, best_before: str, facts: int) -> Path:
-    """tcp-facts-<date>.mcpb beside the folder: a zip with manifest.json, the server and the data files."""
+    """tcp-facts-<date>.mcpb beside the folder: a zip with manifest.json, the server and the data files. Its copy
+    tcp-facts.mcpb (the same bytes) goes into the folder, the release asset with a stable name."""
     path = root.parent / (root.name + ".mcpb")
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("manifest.json", json.dumps(mcpb_manifest(day, best_before, facts), indent=2) + "\n")
@@ -906,6 +912,7 @@ def pack_mcpb(root: Path, day: str, best_before: str, facts: int) -> Path:
         for x in sorted(root.rglob("*")):
             if x.is_file() and x.name not in MCPB_SKIP:
                 z.write(x, x.relative_to(root).as_posix())
+    shutil.copyfile(path, root / kbreview.STABLE_MCPB)
     return path
 
 
@@ -1134,7 +1141,11 @@ def _sign_sums(folder: Path, zpath: Path, sign: dict[str, str], pinned: dict[str
     mpath = folder.parent / (folder.name + ".mcpb")
     if not mpath.is_file():
         raise DatasetError("the folder of %s has no %s; run awb dataset build --force" % (folder.name, mpath.name))
-    assets = [zpath, folder / "HOW-TO.pdf", folder / "MANIFEST.json", mpath]
+    stable = folder / kbreview.STABLE_MCPB
+    if not stable.is_file() or _sha(stable) != _sha(mpath):
+        raise DatasetError("the folder of %s has no %s equal to %s; run awb dataset build --force"
+                           % (folder.name, stable.name, mpath.name))
+    assets = kbreview.release_assets(folder)
     sums = [(_sha(a), a.name) for a in assets]
     if pinned is not None and any(pinned.get(name) != sha for sha, name in sums):
         raise DatasetError("an asset of %s changed since the review; nothing was signed, %s"
@@ -1270,17 +1281,22 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
     mpath = folder.parent / (folder.name + ".mcpb")
     if not mpath.is_file():
         raise DatasetError("the folder of %s has no %s; run awb dataset build --force" % (day, mpath.name))
+    stable = folder / kbreview.STABLE_MCPB
+    if not stable.is_file() or _sha(stable) != _sha(mpath):
+        raise DatasetError("the folder of %s has no %s equal to %s; run awb dataset build --force"
+                           % (day, stable.name, mpath.name))
     sums = {zpath.name: _sha(zpath), "MANIFEST.json": _sha(folder / "MANIFEST.json")}
     new = ""
     if prev is not None:
         catalog = offered.load()
         new = whats_new(prev[1], read_facts(folder / "facts.jsonl"),
                         [s for s in catalog.services if not s.ends or s.ends > day], prev[0])
-    _run(["gh", "release", "create", day, str(zpath), *(str(folder / n) for n in GITHUB_ASSETS), str(mpath),
+    _run(["gh", "release", "create", day, str(zpath), *(str(folder / n) for n in GITHUB_ASSETS), str(mpath), str(stable),
           *map(str, signed), "--repo",
           GITHUB_REPO, "--verify-tag", "--title", "%s %s" % (NAME, day), "--notes", release_notes(manifest, sums, new, sign)],
          cwd=clone)
     return ["github.com/%s commit and tag %s" % (GITHUB_REPO, day),
+            "%s, the same bytes as %s, for %s" % (stable.name, mpath.name, MCPB_LATEST_URL),
             "github.com/%s/releases/tag/%s with %s" % (GITHUB_REPO, day, ", ".join([zpath.name, *GITHUB_ASSETS, mpath.name, *(x.name for x in signed)]))]
 
 
