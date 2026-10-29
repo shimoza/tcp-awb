@@ -20,6 +20,11 @@ class, the pictures held and the files withheld, and leaves a notice for the ses
 - `--redo` takes the originals of the customer's last import out of the vault and runs them again under their file
   ids with the keep list of now; the copies replace the earlier ones in the outbox.
 
+The report workbook of his laptop (a workbook with both sheets Names and Projects, awb/reportbook.py and
+rules/report-workbook.txt) is held: nothing of it is imported, it stays where it is (in/ of the bucket, the vault
+inbox or the path given), the run says `file N of M held: the report workbook never leaves the laptop` and he gets
+one mail per file to remove it from in/ (`awb import --auto` the same, through its timer).
+
 Refused for the work user and inside an assistant session with the one line of the work rules (`hold_line`): the
 forms prompt and the review carry names. Nothing here prints a name, a form or a file name.
 
@@ -268,6 +273,9 @@ def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: b
             _say("%s: no new file in the bucket folder in/ and none in the vault inbox" % code)
             return EXIT_OK
         _say("%s: %d file(s) from %s" % (code, len(files), where))
+        files = _hold_report_workbooks(p, code, files)
+        if not files:
+            return EXIT_HELD
         if trusted:
             _say("trusted: no name is guessed; registered forms, secrets, mail addresses and phones are still wiped")
         res = intake.run(files, cust, p, review=review, edit=edit, confirm=confirm, redo=mapping, trusted=trusted,
@@ -290,6 +298,65 @@ def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: b
     if copies:
         rulesync.post_input(p, res.customer, code, [o.stem for o in copies], replaced=redo, auto=auto)
     return EXIT_HELD if res.held or res.unsealed else EXIT_OK
+
+
+HELD_MARK = "report-workbook.mailed"
+
+
+def _send_mail(subject: str, message: str) -> bool:
+    """A mail through the key service's notify, as the owner's commands send it (projects.mail_owner_commands)."""
+    import importlib
+
+    keys = importlib.import_module("awb.tcp.keys")      # the core reaches the platform package this way
+    return keys.send_mail(subject, message) == "sent"
+
+
+def _hold_report_workbooks(p: config.Paths, code: str, files: list[Path]) -> list[Path]:
+    """The files without the report workbook (rules/report-workbook.txt). A held file is not imported and not
+    moved; one mail per file and project (its sha256 in `<vault>/report-workbook.mailed`, written when it was sent)
+    asks him to remove it from in/. Nothing here names the file."""
+    import hashlib
+
+    from awb import reportbook
+
+    keep, held = [], []
+    for i, f in enumerate(files, start=1):
+        if reportbook.is_report_workbook(f):
+            held.append(f)
+            _say("file %d of %d held: %s; nothing of it is imported, remove it from in/ of %s"
+                 % (i, len(files), reportbook.REFUSED, code))
+        else:
+            keep.append(f)
+    if not held:
+        return keep
+    mark = Path(p.vault) / HELD_MARK
+    try:
+        done = set(mark.read_text(encoding="utf-8").split())
+    except OSError:
+        done = set()
+    sent = []
+    for f in held:
+        try:
+            key = "%s:%s" % (code, hashlib.sha256(f.read_bytes()).hexdigest()[:16])
+        except OSError:
+            continue
+        if key in done:
+            continue
+        body = ("Project %s: a file in in/ of its bucket folder is the report workbook (both sheets Names and "
+                "Projects). Nothing of it was imported. The report workbook never leaves the laptop: delete it from "
+                "in/ in the OBS console or Total Commander.\n" % code)
+        try:
+            ok = bool(_send_mail("Workbench %s: the report workbook is in in/" % code, body))
+        except Exception:  # noqa: BLE001 - a mail that fails is tried again at the next import
+            ok = False
+        if ok:
+            done.add(key)
+            sent.append(key)
+    if sent:
+        fd = os.open(mark, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(sorted(done)) + "\n")
+    return keep
 
 
 def read_stdin(stdin=None) -> bytes:

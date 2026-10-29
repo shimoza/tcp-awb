@@ -137,6 +137,7 @@ DYNAMIC: dict[tuple[str, str], object] = {
     ("awb/hooks.py", "_module"): ("awb.check", "awb.gate", "awb.writing", "awb.review", "awb.kb", "awb.career"),
     ("awb/deploy.py", "owner_keys"): ("awb.tcp.keys",),
     ("awb/projects.py", "mail_owner_commands"): ("awb.tcp.keys",),
+    ("awb/importcmd.py", "_send_mail"): ("awb.tcp.keys",),
     ("awb/translate.py", "_ask_module"): ("awb.tcp.ask",),
     # awb voice learn DRAFT - is the owner's command: it loads the paste door of the intake by name and no unit runs it
     ("awb/writing.py", "learn_owner"): (),
@@ -156,6 +157,8 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/importauto.py": "awb import --auto, run by the owner's timer awb-import-auto (a oneshot, new code each run)",
     "awb/cleanfetch.py": "awb clean fetch, run on the owner's laptop",
     "awb/cleanserve.py": "awb clean serve, the local page of the owner's laptop",
+    "awb/cleanreport.py": "awb clean report, run on the owner's laptop",
+    "awb/reportbook.py": "the fingerprint of the report workbook, read by awb clean on the laptop and awb import",
     "awb/clean.py": "awb clean, run on the owner's laptop (and awb import --auto reads its name rule)",
     "awb/fplearn_cmd.py": "awb check learn and awb check allow, run by the owner's timer and in his own terminal",
     "awb/pastein.py": "awb import --paste, run by the owner in his own terminal",

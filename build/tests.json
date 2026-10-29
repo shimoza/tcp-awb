@@ -12599,8 +12599,113 @@
    "name": "T8: a phone over two cells is still found inside a longer row",
    "run": ".venv/bin/pytest tests/test_t8_pdf_findings.py::test_t8_a_phone_over_two_cells_is_still_found_inside_a_longer_row",
    "status": "passing"
+  },
+  {
+   "id": "r2-1",
+   "phase": "r2-clean-report",
+   "name": "R2: the fingerprint is both sheets names and projects whatever the suffix",
+   "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_the_fingerprint_is_both_sheets_names_and_projects_whatever_the_suffix",
+   "status": "passing"
+  },
+  {
+   "id": "r2-2",
+   "phase": "r2-clean-report",
+   "name": "R2: report downloads checks and prints the line",
+   "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_report_downloads_checks_and_prints_the_line",
+   "status": "passing"
+  },
+  {
+   "id": "r2-3",
+   "phase": "r2-clean-report",
+   "name": "R2: a second report keeps the previous and replaces the file",
+   "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_a_second_report_keeps_the_previous_and_replaces_the_file",
+   "status": "passing"
+  },
+  {
+   "id": "r2-4",
+   "phase": "r2-clean-report",
+   "name": "R2: a wrong sha256 replaces nothing",
+   "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_a_wrong_sha256_replaces_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "r2-5",
+   "phase": "r2-clean-report",
+   "name": "R2: a missing codes file names the host step",
+   "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_a_missing_codes_file_names_the_host_step",
+   "status": "passing"
+  },
+  {
+   "id": "r2-6",
+   "phase": "r2-clean-report",
+   "name": "R2: excel holding the file gets three tries then the line",
+   "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_excel_holding_the_file_gets_three_tries_then_the_line",
+   "status": "passing"
+  },
+  {
+   "id": "r2-7",
+   "phase": "r2-clean-report",
+   "name": "R2: the command saves the folder and takes a windows path",
+   "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_the_command_saves_the_folder_and_takes_a_windows_path",
+   "status": "passing"
+  },
+  {
+   "id": "r2-8",
+   "phase": "r2-clean-report",
+   "name": "R2: the header is pinned to the six names",
+   "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_the_header_is_pinned_to_the_six_names",
+   "status": "passing"
+  },
+  {
+   "id": "r2-9",
+   "phase": "r2-clean-report",
+   "name": "R2: awb clean refuses the workbook and the report folder",
+   "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_awb_clean_refuses_the_workbook_and_the_report_folder",
+   "status": "passing"
+  },
+  {
+   "id": "r2-10",
+   "phase": "r2-clean-report",
+   "name": "R2: the puts refuse the workbook and the report folder",
+   "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_the_puts_refuse_the_workbook_and_the_report_folder",
+   "status": "passing"
+  },
+  {
+   "id": "r2-11",
+   "phase": "r2-clean-report",
+   "name": "R2: the page refuses an uploaded workbook and deletes the upload",
+   "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_the_page_refuses_an_uploaded_workbook_and_deletes_the_upload",
+   "status": "passing"
+  },
+  {
+   "id": "r2-12",
+   "phase": "r2-clean-report",
+   "name": "R2: fetch refuses the report folder",
+   "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_fetch_refuses_the_report_folder",
+   "status": "passing"
+  },
+  {
+   "id": "r2-13",
+   "phase": "r2-clean-report",
+   "name": "R2: import holds the workbook mails once and takes the rest",
+   "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_import_holds_the_workbook_mails_once_and_takes_the_rest",
+   "status": "passing"
+  },
+  {
+   "id": "r2-14",
+   "phase": "r2-clean-report",
+   "name": "R2: import auto leaves the workbook in in",
+   "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_import_auto_leaves_the_workbook_in_in",
+   "status": "passing"
+  },
+  {
+   "id": "r2-15",
+   "phase": "r2-clean-report",
+   "name": "R2: the rule file names the line and its walls",
+   "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_the_rule_file_names_the_line_and_its_walls",
+   "status": "passing"
   }
  ],
- "total_tests": 1800,
+ "total_tests": 1815,
  "checked": "2026-10-29"
 }

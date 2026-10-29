@@ -505,7 +505,8 @@ vault folder (700). `awb clean register CUST-XXXX` asks the written forms of the
   `git pull --ff-only` of the clone, or for an install without git a download checked against the blob ids of the
   repository tree. It sends nothing of your files and prints what changed in counts. Run it now and then.
 - `awb clean fetch tcp-xxxx [--to DIR] [--save]` brings a finished deliverable to the laptop. On the host `awb bucket put CODE FILE --reveal` puts the file with the real names into `out/` (a Markdown file as `.md` and `.html`, the HTML to paste into a mail) and ends with `get it: Total Commander, bucket awb, folder <YYYY-MM>/tcp-xxxx/out/, or on the laptop: awb clean fetch tcp-xxxx`. On the laptop the command lists only `out/` of the project's bucket folder with your key, downloads the files not fetched yet into DIR (`--save` keeps DIR as the default, for example a folder under `/mnt/c/Users/<you>/`) and prints one line per file, for an HTML file also its Windows path to open. `--to C:\Users\<you>\Downloads` is read as `/mnt/c/Users/<you>/Downloads`. What was fetched is remembered by etag in `~/awb-laptop/vault/fetched.tsv`. `in/` is never touched.
-- Behind a corporate proxy `--put`, `awb clean fetch` and `awb clean update` use `HTTPS_PROXY` and `https_proxy` (git reads them too).
+- `awb clean report [--dir DIR] [--save]` brings the codes file of the report workbook to the laptop (section "Report workbook" below).
+- Behind a corporate proxy `--put`, `awb clean fetch`, `awb clean report` and `awb clean update` use `HTTPS_PROXY` and `https_proxy` (git reads them too).
   `awb clean doctor` prints the proxy variables (host and port only, never a user or a password), sends one HEAD
   request through the proxy to the object storage of the region and to github.com and names the fix when one
   fails: the proxy cannot be reached, it wants a login, or TLS verification failed (a TLS-inspecting proxy: its root
@@ -517,6 +518,25 @@ secret wipe, mail addresses and phones still apply) and any other file in wipe m
 wipe of `awb clean` before the names: keys, tokens, password fields and passwords in prose become `[secret]`. The original moves into the
 vault and is deleted from `in/`, the session of the project reads "new input: N files (FILE IDS)" at its next prompt, a project whose import runs is skipped and each run
 writes one line to the journal and to `~/tcp-vault/import-auto.log`.
+
+### Report workbook
+
+The weekly status per project lives in his own workbook `report.xlsx` on the work laptop (sheets Projects, Names and
+Status), in `C:\Users\<you>\awb-report\`. The Workbench writes only the codes file beside it, `projects.csv` (six
+columns, codes only) and `projects.previous.csv`; no command opens or writes the workbook. Excel links to the codes
+file with Power Query and the Names sheet turns the customer codes into names on the laptop alone.
+
+    awb clean report --dir "C:\Users\<you>\awb-report" --save      # once
+    awb clean report                                                 # each time
+
+It downloads `reports/projects.csv` and `reports/projects.meta.json` of the bucket with your key through the proxy,
+checks the sha256, keeps the file before and replaces the new one in one step with three tries while Excel holds it.
+It never uploads.
+
+The report workbook never leaves the laptop (`rules/report-workbook.txt`): `awb clean`, `--put`, `awb clean put` and
+the page refuse a file in the report folder and any workbook with both sheets Names and Projects, `awb clean fetch
+--to` refuses the report folder; on the host `awb import` and its timer hold such a workbook, import nothing of
+it and mail you to delete it from `in/`.
 
 ### As a plugin for Claude Code
 

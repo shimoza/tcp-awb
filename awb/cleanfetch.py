@@ -12,7 +12,8 @@ laptop (key, etag, day, mode 600): a file counts as fetched while its etag is th
 `--replace` has a new etag and comes again, next to the first under a name with (2). Nothing here prints a customer
 name: the lines carry file names and counts. A Markdown deliverable is in out/ as md and HTML (task DN): both come,
 and the line of the HTML names its Windows path (D:\\Deliveries\\...) to open it, select all and paste into a mail. A
-Windows `--to` (D:\\Deliveries\\offers) is read as /mnt/d/Deliveries/offers (`clean.windows_path`).
+Windows `--to` (D:\\Deliveries\\offers) is read as /mnt/d/Deliveries/offers (`clean.windows_path`). A `--to` in the
+report folder of `awb clean report` is refused (rules/report-workbook.txt).
 """
 from __future__ import annotations
 
@@ -82,6 +83,10 @@ def fetch(project: str, to: Path | None, *, client=None, save: bool = False, say
     if folder is None:
         raise FetchError("give the folder with --to DIR (add --save to keep it for the next time)")
     folder = Path(os.path.abspath(folder.expanduser()))
+    from awb import cleanreport
+
+    if cleanreport.in_report_folder(folder):
+        raise FetchError("the report folder takes projects.csv of awb clean report only: give another --to")
     c = client or clean._client("fetch")
     try:
         base = bucket.find_folder(c, project)
