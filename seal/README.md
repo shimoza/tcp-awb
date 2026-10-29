@@ -190,6 +190,11 @@ that `awb egress status`, `awb seal check` and `awb deploy status` read; never t
    price check, gh and git, and writes its result to `/var/lib/awb-dataset-weekly` (the owner's, 700), which `awb
    owner status` reads. `verify.sh` proves the recheck timer at Saturday 19:00 UTC and the publish timer enabled
    at Monday 06:00 UTC with its unit running `awb dataset weekly` as the owner.
+   `seal/work-jobs/` also holds the one job of the owner, `awb-report-codes` (task R1): every hour at minute 50 it
+   runs `awb report --codes --put --if-changed` as the owner, unix sockets only; it writes the codes file of his
+   report workbook to `/var/lib/awb-report-codes` (his, 700) and under `reports/` of the owner bucket. The seal and
+   `setup.sh --update` install it with the work jobs (rendered with the owner, the work group and the host file);
+   `verify.sh` proves its timer enabled and its unit running as the owner with that one command.
 9. Installs `work-claude/settings.json` and `work-claude/CLAUDE.md` into the `.claude` folder of the work home,
    owned by root, readable for the work user and immutable (`chattr +i`): the folder is the work user's own
    (the client keeps its login and history there), so without the flag it could rename them and put its own

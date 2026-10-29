@@ -467,6 +467,8 @@ def invented_blocklist(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("AWB_BUILD_ROOT", str(none / "build-root"))
     # never the state of the weekly dataset publish of the host (task KS)
     monkeypatch.setenv("AWB_DATASET_WEEKLY", str(own / "dataset-weekly"))
+    # never the state folder of the hourly codes file of the host (awb report --codes, task R1)
+    monkeypatch.setenv("AWB_REPORT_CODES", str(own / "report-codes"))
     monkeypatch.setenv("AWB_PRICE_API", DEAD_URL)
     from awb.tcp import mirror
     monkeypatch.setattr(mirror, "ORG_API", DEAD_URL + "orgs/%s/repos?page=%d")

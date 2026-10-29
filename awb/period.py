@@ -26,14 +26,14 @@ from __future__ import annotations
 import html
 import os
 import re
-import subprocess
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 from awb import codes, config, ledger, projects
+from awb.projectfacts import git_dates as _git_dates, mtime_date as _mtime_date, status_of, withhold
 
 RECENT_DAYS = 30
 """The last days of the period that decide between active and finished customer work."""
@@ -86,44 +86,6 @@ class Item:
 
 
 # --------------------------------------------------------------------------- what a project folder holds
-
-
-def _git_dates(folder: Path, *paths: str) -> list[date]:
-    """Committer dates of the project's own repository (never a repository above it), optionally of some paths."""
-    if not (folder / ".git").exists():
-        return []
-    try:
-        out = subprocess.run(["git", "-c", "safe.directory=%s" % folder, "-C", str(folder), "log", "--format=%cs",
-                              "--", *paths], capture_output=True, text=True, timeout=30,
-                             stdin=subprocess.DEVNULL).stdout
-    except (OSError, subprocess.SubprocessError):
-        return []
-    days = []
-    for line in out.split():
-        try:
-            days.append(date.fromisoformat(line))
-        except ValueError:
-            pass
-    return days
-
-
-def _mtime_date(path: Path) -> date | None:
-    try:
-        return datetime.fromtimestamp(path.stat().st_mtime).date()
-    except OSError:
-        return None
-
-
-def status_of(folder: Path) -> str:
-    """The text of the Status line of STATE.md, empty when there is none."""
-    try:
-        text = (folder / "STATE.md").read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return ""
-    for line in text.splitlines():
-        if line.startswith("Status:"):
-            return " ".join(line[len("Status:"):].split())
-    return ""
 
 
 def deliverable_types(folder: Path) -> Counter:
@@ -257,23 +219,6 @@ def gather(p: config.Paths, start: date | None, end: date) -> tuple[list[Item], 
         it.block = block_of(it.kind, it.customer, it.state, it.last, end)
     ordered = sorted(items.values(), key=lambda it: (it.block, -it.last.toordinal(), it.code))
     return ordered, entries
-
-
-def withhold(items: list[Item], reg: Path) -> int:
-    """Goal and status of every item through the name check; a text that carries a name becomes WITHHELD."""
-    texts, where = [], []
-    for it in items:
-        for name in ("goal", "status"):
-            if getattr(it, name):
-                texts.append(getattr(it, name))
-                where.append((it, name))
-    if not texts:
-        return 0
-    ledger.ensure_checkable(reg)
-    hits = ledger.hit_indexes(texts, reg)
-    for i in hits:
-        setattr(where[i][0], where[i][1], ledger.WITHHELD)
-    return len(hits)
 
 
 # --------------------------------------------------------------------------- rendering

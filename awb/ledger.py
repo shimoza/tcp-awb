@@ -6,6 +6,7 @@
     awb report --by customer|tech|kind|project [--from D] [--to D] [--format md|html]
     awb report --by questions                     the monthly count of replies that end with a question
     awb report --period [--from D] [--to D] ...   the period report in three blocks (awb/period.py)
+    awb report --codes [--out FILE] [--put] ...   the codes file of the report workbook (awb/reportcodes.py)
 
 One file per ISO week, `<shared>/ledger/YYYY-Www.jsonl` (the ISO year and week of the entry's date), one JSON
 object per line with the fields of `FIELDS`. A line is appended under an exclusive `fcntl` lock on the week file
@@ -740,12 +741,22 @@ def _cmd_list(args, p: config.Paths) -> int:
     return EXIT_OK
 
 
+def _codes_module():
+    """awb/reportcodes.py, loaded by name: a command of the owner and his timer, which no daemon reaches (it holds
+    the bucket client; awb/deploy.py DYNAMIC)."""
+    import importlib
+
+    return importlib.import_module("awb.reportcodes")
+
+
 def _main_report(argv: list[str]) -> int:
     from awb.cli import SafeParser
 
     if "--period" in argv:                   # the period report in three blocks
         from awb import period
         return period.main(argv)
+    if "--codes" in argv:                    # the codes file of the report workbook, one row per project
+        return _codes_module().main(argv)
     prog = "awb report"
     ap = SafeParser(prog=prog, description="A report from the ledger, grouped by a key. Codes only.")
     ap.add_argument("--by", required=True, choices=BY + ("questions",))

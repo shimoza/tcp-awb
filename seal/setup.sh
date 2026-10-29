@@ -101,6 +101,7 @@ SSHD_MATCH="Match User"                  # the two sshd keywords of the drop-in;
 SSHD_KEYS_FILE=AuthorizedKeysFile
 CRON_DENY=/etc/cron.deny
 WORK_JOBS="awb-work-update awb-kb-commit awb-kb-recheck"   # seal/work-jobs/NAME.service and NAME.timer, the jobs of the work user
+OWNER_JOBS="awb-report-codes"   # seal/work-jobs/NAME.service and NAME.timer that run as the owner (task R1, hourly codes file)
 KB_COMMIT=/usr/local/libexec/awb/nightly-kb-commit   # the root owned copy of seal/work-jobs/nightly-kb-commit
 KB_COMMIT_OLD=.local/bin/nightly-kb-commit           # where the crontab ran it, in the work home
 BUILD_PENDING=/opt/tcp-awb/BUILD-PENDING   # awb/deploy.py BUILD_PENDING: the build side a deploy left out
@@ -943,12 +944,25 @@ EOF
     run rm -f -- "$work_home/.ssh/authorized_keys"
 }
 
+render_job() {
+    # NAME KIND KB_EXEC: the unit seal/work-jobs/NAME.KIND with its placeholders filled. A job of the work user takes
+    # the work home and the kb commit script, a job of OWNER_JOBS the owner, the work group and the host file (the
+    # snippets of the tests that render the work jobs alone carry no OWNER_JOBS)
+    if [[ " ${OWNER_JOBS:-} " == *" $1 "* ]]; then
+        sed -e "s|@OWNER@|$owner|g" -e "s|@WORK_GROUP@|$WORK_GROUP|g" -e "s|@CONF_FILE@|$CONF_FILE|g" \
+            "$seal_dir/work-jobs/$1.$2"
+    else
+        sed -e "s|@WORK_HOME@|$work_home|g" -e "s|@KB_COMMIT@|$3|g" "$seal_dir/work-jobs/$1.$2"
+    fi
+}
+
 step_work_jobs() {
     local name kind kb_exec src="$seal_dir/work-jobs/nightly-kb-commit" line
     info "the nightly jobs of the work user (F2 G3): root owned timers that run them as the work user, at the times"
     info "of its crontab, 01:35 claude update (into .local/state/claude-update.log) and 01:40 the commit of the"
     info "knowledge base. Then $CRON_DENY names the work user and its crontab goes, so a session cannot persist there."
     info "Beside them the weekly read tier of the fact-check, Saturday 19:00 UTC: awb kb recheck-run --tier read (F9)"
+    info "and, as the owner, the hourly codes file of his report workbook: awb report --codes --put --if-changed (R1)"
     if [ -f "$src" ]; then
         run install -d -o root -g root -m 755 "$(dirname "$KB_COMMIT")"
         run install -o root -g root -m 755 "$src" "$KB_COMMIT"
@@ -958,14 +972,13 @@ step_work_jobs() {
         info "is, a file the work user can still change (it runs as the work user, never as root)"
         kb_exec="$work_home/$KB_COMMIT_OLD"
     fi
-    for name in $WORK_JOBS; do
+    for name in $WORK_JOBS ${OWNER_JOBS:-}; do
         for kind in service timer; do
-            write_file "$UNITS_DIR/$name.$kind" 644 root:root < <(sed -e "s|@WORK_HOME@|$work_home|g" \
-                -e "s|@KB_COMMIT@|$kb_exec|g" "$seal_dir/work-jobs/$name.$kind")
+            write_file "$UNITS_DIR/$name.$kind" 644 root:root < <(render_job "$name" "$kind" "$kb_exec")
         done
     done
     run systemctl daemon-reload
-    for name in $WORK_JOBS; do
+    for name in $WORK_JOBS ${OWNER_JOBS:-}; do
         try_run systemctl enable --now "$name.timer"
     done
     append_line "$CRON_DENY" "$WORK_USER"
@@ -993,14 +1006,15 @@ step_work_units() {
     # next run from the new file. A service is never started here: its timer starts it. An unchanged unit is neither
     # written nor reloaded nor restarted. cron.deny and the crontab stay the seal's
     local name kind target tmp kb_exec="$work_home/$KB_COMMIT_OLD" changed=0 timers=()
-    info "the units of the nightly jobs of the work user and of the weekly fact-check (seal/work-jobs), installed"
+    info "the units of the nightly jobs of the work user, the weekly fact-check and the hourly codes file of the owner"
+    info "(seal/work-jobs), installed"
     info "where they differ from the installed ones; a changed timer is enabled and restarted, its service is not started"
     if [ -f "$seal_dir/work-jobs/nightly-kb-commit" ]; then
         run install -d -o root -g root -m 755 "$(dirname "$KB_COMMIT")"
         run install -o root -g root -m 755 "$seal_dir/work-jobs/nightly-kb-commit" "$KB_COMMIT"
         kb_exec=$KB_COMMIT
     fi
-    for name in $WORK_JOBS; do
+    for name in $WORK_JOBS ${OWNER_JOBS:-}; do
         for kind in service timer; do
             target="$UNITS_DIR/$name.$kind"
             if [ "$dry_run" -eq 1 ]; then
@@ -1008,8 +1022,7 @@ step_work_units() {
                 continue
             fi
             tmp=$(mktemp)
-            printf '%s\n' "$(sed -e "s|@WORK_HOME@|$work_home|g" -e "s|@KB_COMMIT@|$kb_exec|g" \
-                "$seal_dir/work-jobs/$name.$kind")" >"$tmp"
+            printf '%s\n' "$(render_job "$name" "$kind" "$kb_exec")" >"$tmp"
             if cmp -s -- "$tmp" "$target"; then
                 rm -f -- "$tmp"
                 skip "unchanged" install -o root -g root -m 0644 "<rendered>" "$target"
@@ -1023,7 +1036,7 @@ step_work_units() {
     done
     if [ "$dry_run" -eq 1 ]; then
         printf '+ systemctl daemon-reload  # if a unit changed\n'
-        for name in $WORK_JOBS; do
+        for name in $WORK_JOBS ${OWNER_JOBS:-}; do
             printf '+ systemctl enable --now %s.timer  # if it changed\n' "$name"
             printf '+ systemctl try-restart %s.timer  # if it changed\n' "$name"
         done
