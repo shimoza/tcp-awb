@@ -1177,6 +1177,17 @@ withheld` (through `projectfacts.export_hits`), `finish(rows, stamp)` (`inventor
 of `reports/inventory/<place>-<stamp>[-<label>].tsv` (`bucket_layout.INVENTORY_PREFIX`), the laptop inventories the
 plan reads; nothing else of `reports/` is read.
 
+## The move plan (2026-10-29, R5)
+
+`awb/filesplan.py` is `awb files plan` (a subcommand of the parser of `awb/filesinv.py`): `make(p, laptop, host,
+buckets, put=False, client=None, now=None) -> dict` (folder, laptop counts, listed, pairs, unassigned, notes, key,
+stamp), `plan(p, rows, stamp) -> (plan rows, probable pairs, facts)`, `identical(rows)`, `probable(rows, root)`,
+`clean_rows(rows, places)`, `newest_name(names, place)`, `laptop_rows(specs, client, tmp)`, `tsv(plan_rows)`,
+`markdown(...)`, `add_parser(sub)`, `run(args)`. `PLAN.tsv` has the columns `filesplan.COLUMNS` (id, place, action,
+target, project, path, keeper, reason). `bucket_layout.PLAN_PREFIX` is `reports/plan/`, `plan_key(stamp)` is
+`reports/plan/<stamp>/PLAN.tsv`; `keys_exchange.owner_key_ok` allows a PUT of that key and nothing else under
+`reports/plan/`.
+
 ## The deploy (2026-10-07, T1)
 
 `awb/deploy.py`, `awb deploy` (DELEGATED, refused for the work user). `main(argv, *, root=OPT, etc=Path("/etc"),

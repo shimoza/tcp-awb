@@ -26,6 +26,16 @@ REPORT_KEYS = frozenset(REPORTS_PREFIX + n for n in ("projects.csv", "projects.m
 INVENTORY_PREFIX = REPORTS_PREFIX + "inventory/"
 """Where the coded inventories of the move plan lie (awb/inventory.py): the laptop's of `awb clean inventory --put`
 with his own key, the host's and the buckets' of `awb files inventory`."""
+PLAN_PREFIX = REPORTS_PREFIX + "plan/"
+"""Where `awb files plan --put` writes the laptop part of the move plan: <stamp>/PLAN.tsv, the one file there."""
+PLAN_FILE = "PLAN.tsv"
+
+
+def plan_key(stamp: str) -> str:
+    """reports/plan/<stamp>/PLAN.tsv, the key of the laptop part of a move plan (`awb files plan --put`)."""
+    return "%s%s/%s" % (PLAN_PREFIX, stamp, PLAN_FILE)
+
+
 MONTH = r"[0-9]{4}-(?:0[1-9]|1[0-2])"
 """A month folder of the top of the owner bucket, <YYYY-MM>, without its slash (`awb bucket`)."""
 WEB_MONTH = r"\d{4}-(?:0[1-9]|1[0-2])"

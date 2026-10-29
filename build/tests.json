@@ -13026,8 +13026,113 @@
    "name": "R4: the work user gets no bucket inventory",
    "run": ".venv/bin/pytest tests/test_r4_files_inventory.py::test_r4_the_work_user_gets_no_bucket_inventory",
    "status": "passing"
+  },
+  {
+   "id": "r5-1",
+   "phase": "r5-files-plan",
+   "name": "R5: the keeper of identical laptop copies is the one in its layout place",
+   "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_the_keeper_of_identical_laptop_copies_is_the_one_in_its_layout_place",
+   "status": "passing"
+  },
+  {
+   "id": "r5-2",
+   "phase": "r5-files-plan",
+   "name": "R5: else the shallowest path else the newest",
+   "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_else_the_shallowest_path_else_the_newest",
+   "status": "passing"
+  },
+  {
+   "id": "r5-3",
+   "phase": "r5-files-plan",
+   "name": "R5: a laptop file without a project takes the project of its host copy",
+   "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_a_laptop_file_without_a_project_takes_the_project_of_its_host_copy",
+   "status": "passing"
+  },
+  {
+   "id": "r5-4",
+   "phase": "r5-files-plan",
+   "name": "R5: older versions go to the archive and the newest into its kind",
+   "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_older_versions_go_to_the_archive_and_the_newest_into_its_kind",
+   "status": "passing"
+  },
+  {
+   "id": "r5-5",
+   "phase": "r5-files-plan",
+   "name": "R5: the month is that of the bucket folder else of the register",
+   "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_the_month_is_that_of_the_bucket_folder_else_of_the_register",
+   "status": "passing"
+  },
+  {
+   "id": "r5-6",
+   "phase": "r5-files-plan",
+   "name": "R5: host and buckets are listed and never moved",
+   "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_host_and_buckets_are_listed_and_never_moved",
+   "status": "passing"
+  },
+  {
+   "id": "r5-7",
+   "phase": "r5-files-plan",
+   "name": "R5: a multipart object is a probable copy listed only",
+   "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_a_multipart_object_is_a_probable_copy_listed_only",
+   "status": "passing"
+  },
+  {
+   "id": "r5-8",
+   "phase": "r5-files-plan",
+   "name": "R5: empty files match nothing",
+   "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_empty_files_match_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "r5-9",
+   "phase": "r5-files-plan",
+   "name": "R5: a laptop name is withheld at entry and a bad row is dropped",
+   "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_a_laptop_name_is_withheld_at_entry_and_a_bad_row_is_dropped",
+   "status": "passing"
+  },
+  {
+   "id": "r5-10",
+   "phase": "r5-files-plan",
+   "name": "R5: the plan files and their format",
+   "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_the_plan_files_and_their_format",
+   "status": "passing"
+  },
+  {
+   "id": "r5-11",
+   "phase": "r5-files-plan",
+   "name": "R5: no inventory at all is refused",
+   "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_no_inventory_at_all_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "r5-12",
+   "phase": "r5-files-plan",
+   "name": "R5: the command reads the newest inventories and puts the laptop part",
+   "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_the_command_reads_the_newest_inventories_and_puts_the_laptop_part",
+   "status": "passing"
+  },
+  {
+   "id": "r5-13",
+   "phase": "r5-files-plan",
+   "name": "R5: without a laptop inventory in the bucket one line",
+   "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_without_a_laptop_inventory_in_the_bucket_one_line",
+   "status": "passing"
+  },
+  {
+   "id": "r5-14",
+   "phase": "r5-files-plan",
+   "name": "R5: a local laptop file needs no bucket and missing places are said",
+   "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_a_local_laptop_file_needs_no_bucket_and_missing_places_are_said",
+   "status": "passing"
+  },
+  {
+   "id": "r5-15",
+   "phase": "r5-files-plan",
+   "name": "R5: the owner may put the laptop part of a plan and nothing else there",
+   "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_the_owner_may_put_the_laptop_part_of_a_plan_and_nothing_else_there",
+   "status": "passing"
   }
  ],
- "total_tests": 1861,
+ "total_tests": 1876,
  "checked": "2026-10-29"
 }

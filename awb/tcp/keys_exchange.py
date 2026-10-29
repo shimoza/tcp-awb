@@ -742,6 +742,9 @@ _OWNER_INVENTORY_RE = re.compile("^" + re.escape(bucket_layout.INVENTORY_PREFIX)
                                  + r"(?:laptop|host|owner-bucket|lab-bucket)-[0-9]{8}-[0-9]{6}"
                                  + r"(?:-[a-z0-9][a-z0-9-]{0,31})?\.tsv$")
 """A coded inventory under reports/inventory/ (awb/inventory.py file_name): the one read of reports/."""
+_OWNER_PLAN_RE = re.compile("^" + re.escape(bucket_layout.PLAN_PREFIX) + r"[0-9]{8}-[0-9]{6}/"
+                            + re.escape(bucket_layout.PLAN_FILE) + "$")
+"""The laptop part of a move plan (`awb files plan --put`, bucket_layout.plan_key): a put of the owner's CLI."""
 _OWNER_DATASET_RE = re.compile("^" + re.escape(bucket_layout.DATASET_PREFIX) + r"(?:\d{4}-\d{2}-\d{2}/)?[^/]+$")
 
 
@@ -779,11 +782,13 @@ def lab_list_ok(prefix, delimiter) -> bool:
 def owner_key_ok(ctx: Context, key, method: str) -> bool:
     """The keys of the owner bucket the owner's CLI may touch. GET: a file of a project's in/ and a laptop
     inventory of reports/inventory/ (the plan of R5 reads it). DELETE (`bucket_drop_in`): a file of a project's in/.
-    PUT: the folder marks (an empty put), the .keep of in/, a file of out/ (.keep too), the dataset files and the two
-    files of reports/ (bucket_layout.REPORT_KEYS); the project is active."""
+    PUT: the folder marks (an empty put), the .keep of in/, a file of out/ (.keep too), the dataset files, the two
+    files of reports/ (bucket_layout.REPORT_KEYS) and the laptop part of a move plan (reports/plan/<stamp>/PLAN.tsv,
+    the plan of R5); the project is active."""
     if not _owner_plain(key) or not key or key.endswith("/") and method in ("GET", "DELETE"):
         return False
-    if method == "PUT" and (_OWNER_DATASET_RE.match(key) or key in bucket_layout.REPORT_KEYS):
+    if method == "PUT" and (_OWNER_DATASET_RE.match(key) or key in bucket_layout.REPORT_KEYS
+                            or _OWNER_PLAN_RE.match(key)):
         return True
     if method == "GET" and _OWNER_INVENTORY_RE.match(key):
         return True
