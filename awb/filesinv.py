@@ -251,8 +251,9 @@ def make(p: config.Paths, kind: str, out: Path | None, client=None,
 
 
 def main(argv: list[str]) -> int:
-    """`awb files inventory --host|--buckets [--out FILE]`. Exit 0 written, 2 refused or an error."""
-    from awb import bucket, obs
+    """`awb files inventory --host|--buckets [--out FILE]` and `awb files plan` (awb/filesplan.py). Exit 0 written,
+    2 refused or an error."""
+    from awb import bucket, filesplan, obs
     from awb.cli import SafeParser
 
     ap = SafeParser(prog="awb files", description="The files of the projects in every place, without their content.")
@@ -266,10 +267,13 @@ def main(argv: list[str]) -> int:
     s.add_argument("--out", type=Path, default=None, metavar="FILE",
                    help="one file for all rows of the run; default <shared>/files/host-<stamp>.tsv or "
                         "owner-bucket-<stamp>.tsv and lab-bucket-<stamp>.tsv")
+    filesplan.add_parser(sub)
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
         return ledger._exit_code(exc)
+    if args.command == "plan":
+        return filesplan.run(args)
     if args.command != "inventory":
         ap.print_usage(sys.stderr)
         return EXIT_ERROR
