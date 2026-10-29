@@ -1226,6 +1226,10 @@ never a value), as is a gate that cannot run. The root path imports neither
   statements, so a running process keeps importing from the release it started on.
 - `seal/setup.sh --update [--units-only] [--mirrors DIR...]` from a release folder; `AWB_SETUP_OPT` and
   `AWB_SETUP_BIN` move the install root and the bin link for the tests (refused as root; only the code step runs).
+  Without `--units-only` the update also runs `step_work_units` after `step_units` (task SU): each unit of
+  `seal/work-jobs` is rendered as in the seal and installed with `install -m 0644` only where it differs from the
+  installed file; then one `systemctl daemon-reload` and `systemctl enable --now` and `systemctl try-restart` of each changed timer. A
+  service is never started, an unchanged unit causes no write, reload or restart, cron.deny and the crontab stay.
 - `seal/setup.sh [--dry-run] --suite-venv DIR`: the function `suite_venv`, the venv the suite runs with from a
   read-only export (`python3 -m venv --system-site-packages DIR`, then pip with the `test` extras of `pyproject.toml`,
   never the package), run alone by any user; DIR absolute, outside the repository, `$HOME` and the home of root and of

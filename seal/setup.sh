@@ -6,8 +6,10 @@
 #
 # --update is what `sudo awb deploy` runs, from the release folder it has just extracted, never from a working
 # tree. Its steps are an explicit allow list (update_steps): the code, the host file, the units, the needrestart
-# rule, the package holds of cloudflared and terraform, the egress filter, the client files and the managed drop-in. The users, the homes, the moves, the ssh keys, the nightly jobs of the work user and (without
-# --mirrors) the mirrors are left alone, so a deploy never chowns the shared tree again. --units-only renders and
+# rule, the package holds of cloudflared and terraform, the egress filter, the client files and the managed drop-in.
+# The units of the work jobs (seal/work-jobs) are installed where they differ, and only a changed timer is restarted
+# (step_work_units). The users, the homes, the moves, the ssh keys, cron.deny and the crontab of the work user and
+# (without --mirrors) the mirrors are left alone, so a deploy never chowns the shared tree again. --units-only renders and
 # installs the unit templates and reloads systemd, nothing else (the flip back of a failed reload uses it).
 # --no-build leaves the build side out (step_build): `sudo awb deploy` passes it while a build task unit runs (that
 # unit binds files of the home template) and leaves the root owned marker $OPT/BUILD-PENDING. --pending-build runs
@@ -984,6 +986,60 @@ step_work_jobs() {
     fi
 }
 
+step_work_units() {
+    # the update side of step_work_jobs (task SU): the unit files of WORK_JOBS rendered as in the seal and installed
+    # only where their content differs; one daemon-reload when one changed, then each changed timer enabled (and
+    # started when it was not running) and restarted when it was running (try-restart), so the timer computes its
+    # next run from the new file. A service is never started here: its timer starts it. An unchanged unit is neither
+    # written nor reloaded nor restarted. cron.deny and the crontab stay the seal's
+    local name kind target tmp kb_exec="$work_home/$KB_COMMIT_OLD" changed=0 timers=()
+    info "the units of the nightly jobs of the work user and of the weekly fact-check (seal/work-jobs), installed"
+    info "where they differ from the installed ones; a changed timer is enabled and restarted, its service is not started"
+    if [ -f "$seal_dir/work-jobs/nightly-kb-commit" ]; then
+        run install -d -o root -g root -m 755 "$(dirname "$KB_COMMIT")"
+        run install -o root -g root -m 755 "$seal_dir/work-jobs/nightly-kb-commit" "$KB_COMMIT"
+        kb_exec=$KB_COMMIT
+    fi
+    for name in $WORK_JOBS; do
+        for kind in service timer; do
+            target="$UNITS_DIR/$name.$kind"
+            if [ "$dry_run" -eq 1 ]; then
+                printf '+ %s  # if it differs\n' "$(quote_args install -o root -g root -m 0644 "<rendered>" "$target")"
+                continue
+            fi
+            tmp=$(mktemp)
+            printf '%s\n' "$(sed -e "s|@WORK_HOME@|$work_home|g" -e "s|@KB_COMMIT@|$kb_exec|g" \
+                "$seal_dir/work-jobs/$name.$kind")" >"$tmp"
+            if cmp -s -- "$tmp" "$target"; then
+                rm -f -- "$tmp"
+                skip "unchanged" install -o root -g root -m 0644 "<rendered>" "$target"
+                continue
+            fi
+            run install -o root -g root -m 0644 "$tmp" "$target"
+            rm -f -- "$tmp"
+            changed=1
+            [ "$kind" = service ] || timers+=("$name.timer")
+        done
+    done
+    if [ "$dry_run" -eq 1 ]; then
+        printf '+ systemctl daemon-reload  # if a unit changed\n'
+        for name in $WORK_JOBS; do
+            printf '+ systemctl enable --now %s.timer  # if it changed\n' "$name"
+            printf '+ systemctl try-restart %s.timer  # if it changed\n' "$name"
+        done
+        return 0
+    fi
+    if [ "$changed" -eq 0 ]; then
+        skip "no unit changed" systemctl daemon-reload
+        return 0
+    fi
+    run systemctl daemon-reload
+    for name in "${timers[@]}"; do
+        try_run systemctl enable --now "$name"
+        try_run systemctl try-restart "$name"
+    done
+}
+
 clear_target() {
     # clear_target PATH f|d: a root owned regular file (f) or folder (d) loses its immutable flag as before;
     # anything else at PATH (a link, a file or folder of the work user, another type) is removed first, so a
@@ -1916,6 +1972,7 @@ update_steps() {
     step_code
     step_conf
     step_units
+    step_work_units
     step_egress
     step_needrestart
     step_holds
