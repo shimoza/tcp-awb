@@ -12522,8 +12522,29 @@
    "name": "T7: f the gate reads the text of a pdf and a pdf without text stays opaque",
    "run": ".venv/bin/pytest tests/test_t7_tooling.py::test_t7_f_the_gate_reads_the_text_of_a_pdf_and_a_pdf_without_text_stays_opaque",
    "status": "passing"
+  },
+  {
+   "id": "su-1",
+   "phase": "su-setup-update",
+   "name": "SU: the update path calls the work unit step after the units",
+   "run": ".venv/bin/pytest tests/test_su_setup_update.py::test_su_the_update_path_calls_the_work_unit_step_after_the_units",
+   "status": "passing"
+  },
+  {
+   "id": "su-2",
+   "phase": "su-setup-update",
+   "name": "SU: an unchanged unit is not rewritten and causes no reload or restart",
+   "run": ".venv/bin/pytest tests/test_su_setup_update.py::test_su_an_unchanged_unit_is_not_rewritten_and_causes_no_reload_or_restart",
+   "status": "passing"
+  },
+  {
+   "id": "su-3",
+   "phase": "su-setup-update",
+   "name": "SU: a changed timer is reinstalled and restarted and nothing else",
+   "run": ".venv/bin/pytest tests/test_su_setup_update.py::test_su_a_changed_timer_is_reinstalled_and_restarted_and_nothing_else",
+   "status": "passing"
   }
  ],
- "total_tests": 1789,
+ "total_tests": 1792,
  "checked": "2026-10-29"
 }

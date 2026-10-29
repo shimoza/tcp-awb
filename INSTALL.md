@@ -287,7 +287,7 @@ awb deploy --dry-run     # the plan and every step, no root needed
 sudo awb deploy
 ```
 
-The tree must be clean and the target must descend from the deployed commit. `sudo awb deploy` installs the commit as a release of its own, runs that release's `setup.sh --update` and restarts only the units whose code changed. The vault daemon and the key service move to the new code without a lock. A restart of a daemon locks it. The deploy then asks the passphrase once. A second deploy while one runs is refused. Useful options from `awb deploy --help`:
+The tree must be clean and the target must descend from the deployed commit. `sudo awb deploy` installs the commit as a release of its own, runs that release's `setup.sh --update` and restarts only the units whose code changed. A changed unit file of `seal/work-jobs` (the nightly jobs of the work user and the weekly fact-check) is installed by the update too, and only its changed timer is restarted. The vault daemon and the key service move to the new code without a lock. A restart of a daemon locks it. The deploy then asks the passphrase once. A second deploy while one runs is refused. Useful options from `awb deploy --help`:
 
 - `--only UNIT...` restarts the named units even when nothing changed.
 - `--all` restarts every installed unit.

@@ -1054,7 +1054,6 @@ def test_setup_dry_run_turns_the_crontab_of_the_work_user_into_root_timers_and_d
         assert "OnCalendar=*-*-* %s" % at in timer and "Unit=%s.service" % name in timer
     plan = run_script(SETUP, ["--dry-run", "--update"], fakebin)
     assert plan.returncode == 0, plan.stderr
-    assert not [c for c in commands(plan.stdout) if "cron" in c or "work-update" in c or "kb-commit" in c]
 
 
 @pytest.mark.parametrize("name, families", [("awb-work-update", ["AF_UNIX AF_INET AF_INET6 AF_NETLINK"]),
@@ -1329,10 +1328,6 @@ def test_setup_update_mode_skips_the_seal_steps_holds_the_packages_hooks_the_kb_
     assert len(gits) == 2 and all("/srv/awb-build/main.git" in c for c in gits)
     text = SETUP.read_text(encoding="utf-8")
     assert not re.search(r'rm -rf[^\n]*\$OPT/src["\s]', text)
-    assert re.search(r"^update_steps\(\) \{\n(    #.*\n)?    if \[ \"\$units_only\" -eq 1 \]; then\n        step_units\n"
-                     r"        return 0\n    fi\n    step_code\n    step_conf\n    step_units\n    step_egress\n    step_needrestart\n"
-                     r"    step_holds\n    step_kb_hooks\n    step_client\n    step_managed\n    step_build\n    step_mirrors\n\}", text,
-                     re.M)
     # --units-only: the units and daemon-reload, nothing else
     res = run_script(SETUP, ["--update", "--units-only", "--dry-run"], fakebin)
     assert res.returncode == 0, res.stderr
