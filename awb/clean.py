@@ -1,7 +1,8 @@
 """`awb clean`: the anonymization of project material on the owner's laptop, before anything reaches the host (task
 lc-laptop-clean, his yes of 2026-10-22).
 
-    awb clean use tcp-xxxx
+    awb clean use tcp-xxxx [--month YYYY-MM]
+    awb clean layout [ROOT] [--save]
     awb clean FILE... [--project tcp-xxxx] [--kind docs|logs] [--out DIR] [--put]
     awb clean put [--project tcp-xxxx]
     awb clean serve [--port 8765]
@@ -10,6 +11,9 @@ lc-laptop-clean, his yes of 2026-10-22).
     awb clean fetch [tcp-xxxx] [--to DIR] [--save]
     awb clean report [--dir DIR] [--save]
     awb clean inventory ROOT... [--project tcp-xxxx] [--label LABEL] [--put] [--include-onedrive]
+    awb clean files plan [STAMP|latest]
+    awb clean files apply [STAMP] [--go] [--include-onedrive]
+    awb clean files undo [STAMP]
     awb clean update
     awb clean doctor
 
@@ -62,6 +66,16 @@ the row format of awb/inventory.py): the full list with the real paths stays in 
 coded copy carries every path segment through the same name machinery and `[withheld]` for a path that still
 carries something; `--put` sends the coded copy alone to `reports/inventory/` of the bucket with the same key and
 proxy. The report folder and the report workbook are skipped.
+
+`awb clean layout ROOT` sets the layout root of presentations/reports-design/DESIGN.md §3.3 once (a Windows path
+D:\\Work is read as /mnt/d/Work; replacing one set before needs `--save`; without ROOT it prints the one set). After
+it a project lives in `<root>/YYYY-MM/tcp-xxxx/` with private/, clean/, out/ and _archive/: `awb clean use` makes
+private/, clean/ and out/ and takes clean/ as the work folder (the month of the folder found under the root, else
+`--month`, else that of the project's bucket folder when his key is set, else this month), `awb clean FILE` writes
+its copies into clean/ and `awb clean fetch` without `--to` lands in out/. `awb clean files plan|apply|undo` carry out
+the move plan of the host on the laptop (awb/cleanfiles.py): the plan printed with the real paths, a dry run, the
+moves with `--go` (never a delete, never an overwrite, each file checked against the sha256 of the inventory) and
+the undo from the journal in the vault folder.
 
 `awb clean update` brings the lists of public words up to date (rules/common-words.txt, rules/tech-terms.txt,
 rules/allowed-terms.txt, rules/allow-domains.txt and the other allow lists) from the public repository: a
@@ -645,7 +659,7 @@ def _parser_files():
 
     ap = SafeParser(prog="awb clean", description="Clean project material on the laptop, offline: docs (office "
                     "and pdf files) or logs (logs, configs, tickets); also awb clean use tcp-xxxx, put, serve, "
-                    "register CUST-XXXX, init, fetch, report, inventory, update and doctor.")
+                    "register CUST-XXXX, init, fetch, report, inventory, layout, files, update and doctor.")
     ap.add_argument("files", nargs="+", metavar="FILE", help="the files to clean; the originals are never changed")
     ap.add_argument("--project", default=None, metavar="tcp-xxxx", help="the project code (default: the work "
                     "folder of the current directory, else the project of awb clean use); its customer is CUST- and "
@@ -789,6 +803,12 @@ def main(argv: list[str] | None = None) -> int:
             return _inventory_main(argv[1:])
         if argv[:1] == ["use"]:
             return _use_main(argv[1:])
+        if argv[:1] == ["layout"]:
+            return _layout_main(argv[1:])
+        if argv[:1] == ["files"]:
+            from awb import cleanfiles
+
+            return cleanfiles.main(argv[1:])
         if argv[:1] == ["put"]:
             return _put_main(argv[1:])
         if argv[:1] == ["serve"]:
@@ -815,7 +835,7 @@ def main(argv: list[str] | None = None) -> int:
         elif source == "--project":
             out = Path.cwd() / "clean"                        # as before LC4
         else:
-            out = laptop.work_dir(project) / "clean"
+            out = laptop.clean_dir(project)
         print(_project_line(project, source))
         customer = laptop.customer_of(project)
         if not laptop.known(customer) and _interactive():
@@ -872,9 +892,11 @@ def _use_main(argv: list[str]) -> int:
     from awb.cli import SafeParser
 
     ap = SafeParser(prog="awb clean use", description="Name the project once: it becomes the current project of "
-                    "this laptop and its work folder ~/work/tcp-xxxx is made; without a code it prints the current "
-                    "one.")
+                    "this laptop and its work folder ~/work/tcp-xxxx is made (with a layout root clean/ of "
+                    "<root>/YYYY-MM/tcp-xxxx/ next to private/ and out/); without a code it prints the current one.")
     ap.add_argument("project", metavar="tcp-xxxx", nargs="?", default=None)
+    ap.add_argument("--month", default=None, metavar="YYYY-MM", help="the month of a project that has no folder "
+                    "under the layout root yet (default: that of its bucket folder, else this month)")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -884,15 +906,93 @@ def _use_main(argv: list[str]) -> int:
             project, source = laptop.resolve_project(None)
             print(_project_line(project, source))
             return EXIT_OK
-        folder = laptop.use(args.project)
-    except laptop.LaptopError as err:
+        laptop.customer_of(args.project)
+        month, note = args.month, None
+        if laptop.layout_root() is not None and laptop.layout_project(args.project) is None and not month:
+            month, note = _bucket_month(args.project)
+        folder = laptop.use(args.project, month)
+    except (laptop.LaptopError, CleanError) as err:
         print("awb clean use: %s" % err, file=sys.stderr)
+        return EXIT_ERROR
+    except OSError as err:
+        print("awb clean use: %s (operating system error)" % type(err).__name__, file=sys.stderr)
         return EXIT_ERROR
     customer = laptop.customer_of(args.project)
     print(_project_line(args.project, "awb clean use"))
     print("folder: %s" % folder)
+    if note:
+        print(note)
     print("customer: %s" % ("registered on this laptop" if laptop.known(customer)
                             else "not registered yet, the first run asks its forms"))
+    return EXIT_OK
+
+
+def _bucket_month(project: str) -> tuple[str | None, str]:
+    """The month of the project's bucket folder when his key is set, else None (this month); also the line that
+    says which."""
+    from awb import bucket, obs
+
+    if not keys_present():
+        return None, "month: this month (no key to ask the bucket; --month YYYY-MM names another)"
+    try:
+        base = bucket.find_folder(_client("awb clean use"), project)
+    except (obs.OBSError, bucket.BucketError) as err:
+        raise CleanError("the bucket cannot tell the month (%s): give --month YYYY-MM" % err) from None
+    if base is None:
+        return None, "month: this month (no folder in the bucket yet; --month YYYY-MM names another)"
+    return base[:7], "month: %s, that of the bucket folder" % base[:7]
+
+
+def _layout_main(argv: list[str]) -> int:
+    from awb import cleanreport
+    from awb.cli import SafeParser
+
+    ap = SafeParser(prog="awb clean layout", description="Set the layout root once: every project then lives in "
+                    "<root>/YYYY-MM/tcp-xxxx/ with private/, clean/, out/ and _archive/; without ROOT it prints the "
+                    "one set.")
+    ap.add_argument("root", nargs="?", default=None, metavar="ROOT", help="the folder, for example \"D:\\Work\"")
+    ap.add_argument("--save", action="store_true", help="replace a layout root set before")
+    try:
+        args = ap.parse_args(argv)
+    except SystemExit as exc:
+        return 0 if exc.code in (0, None) else EXIT_ERROR
+    current = laptop.layout_root()
+    if not args.root:
+        print("layout root: %s" % current if current else "layout root: not set; awb clean layout ROOT sets it")
+        return EXIT_OK
+    root = Path(os.path.abspath(Path(windows_path(args.root)).expanduser()))
+    refusal = None
+    if current is not None and Path(os.path.abspath(current)) != root and not args.save:
+        refusal = "a layout root is set already: add --save to replace it"
+    elif cleanreport.in_report_folder(root):
+        refusal = "the report folder takes projects.csv of awb clean report only: choose another root"
+    elif os.path.realpath(root).startswith(os.path.realpath(laptop.home())):
+        refusal = "the laptop folder is no layout root: choose another"
+    elif root.exists() and (root.is_symlink() or not root.is_dir()):
+        refusal = "the root is not a folder"
+    elif not root.parent.is_dir():
+        refusal = "the folder above the root does not exist"
+    if refusal:
+        print("awb clean layout: %s" % refusal, file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        root.mkdir(exist_ok=True)
+        laptop.save_layout(root)
+    except OSError as err:
+        print("awb clean layout: %s (operating system error)" % type(err).__name__, file=sys.stderr)
+        return EXIT_ERROR
+    print("layout root: %s" % root)
+    print("a project lives in YYYY-MM/tcp-xxxx/ there with private/, clean/, out/ and _archive/: awb clean use "
+          "tcp-xxxx makes them, awb clean fetch lands in out/")
+    try:
+        old = sorted(d.name for d in laptop.work_root().iterdir()
+                     if d.is_dir() and codes.is_project_code(d.name) and d.name.startswith("tcp-"))
+    except OSError:
+        old = []
+    if old:
+        print("%d work folder%s under %s stay%s where %s: awb clean inventory and the move plan bring the files "
+              "under the layout" % (len(old), "" if len(old) == 1 else "s", laptop.work_root(),
+                                     "s" if len(old) == 1 else "", "it is" if len(old) == 1 else "they are"))
     return EXIT_OK
 
 

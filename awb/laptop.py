@@ -11,8 +11,12 @@ One folder holds everything the laptop keeps, `AWB_LAPTOP_HOME` or `~/awb-laptop
     tmp/              700  the temporary folders of the readers (awb/extract) and of the uploads of the page
     project                the current project of `awb clean use tcp-xxxx` (task LC4)
     last-run/<tcp-xxxx>    the reports of the last run of `awb clean` in that project, for `awb clean put`
+    layout-root            the layout root of `awb clean layout` (task R6), one line
 
-The work folders of the projects are `AWB_WORK_HOME` or `~/work`, one `tcp-xxxx` folder each.
+The work folders of the projects are `AWB_WORK_HOME` or `~/work`, one `tcp-xxxx` folder each. Once a layout root is
+set (presentations/reports-design/DESIGN.md §3.3) a project lives in `<root>/YYYY-MM/tcp-xxxx/` with `private/`,
+`clean/`, `out/` and `_archive/`: its work folder is `clean/` there, the month is that of the folder found under the
+root, else the one `awb clean use` was given or found in the bucket.
 
 Nothing here opens a network connection. Nothing here prints a form or a value: lines carry codes and counts.
 """
@@ -31,6 +35,9 @@ ISSUED = "issued.txt"
 WORK_ENV = "AWB_WORK_HOME"
 DEFAULT_WORK = "~/work"
 CURRENT = "project"
+LAYOUT = "layout-root"
+LAYOUT_KINDS = ("private", "clean", "out")
+"""The folders of a project in the layout; `_archive` is made by the apply of a move plan only."""
 LAST_RUN = "last-run"
 PUT_ENV = ("AWB_OBS_AK", "AWB_OBS_SK")
 """The environment variables of `awb clean --put`: the access key and the secret key of his own IAM user."""
@@ -96,17 +103,86 @@ def work_root() -> Path:
     return Path(os.environ.get(WORK_ENV) or DEFAULT_WORK).expanduser()
 
 
-def work_dir(project: str) -> Path:
+def layout_root() -> Path | None:
+    """The layout root of `awb clean layout`, None when none is set."""
+    try:
+        text = (home() / LAYOUT).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return Path(text) if text else None
+
+
+def save_layout(root: Path) -> None:
+    init()
+    fd = os.open(home() / LAYOUT, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(str(root) + "\n")
+
+
+def _month(text: str) -> bool:
+    return len(text) == 7 and text[4] == "-" and text[:4].isdigit() and text[5:].isdigit() and "01" <= text[5:] <= "12"
+
+
+def layout_project(project: str) -> Path | None:
+    """The folder of `project` under the layout root (`<root>/YYYY-MM/tcp-xxxx/`), the newest month when there are
+    several; None without a layout root or without such a folder."""
     customer_of(project)
+    root = layout_root()
+    if root is None:
+        return None
+    try:
+        months = sorted((d.name for d in root.iterdir() if d.is_dir() and _month(d.name)), reverse=True)
+    except OSError:
+        return None
+    for m in months:
+        if (root / m / project).is_dir():
+            return root / m / project
+    return None
+
+
+def layout_dir(project: str, month: str | None = None) -> Path:
+    """The folder of `project` in the layout: the one found, else under `month`, else under this month."""
+    found = layout_project(project)
+    if found is not None:
+        return found
+    root = layout_root()
+    if root is None:
+        raise LaptopError("no layout root: set it once with awb clean layout ROOT")
+    if month is not None and not _month(month):
+        raise LaptopError("a month reads YYYY-MM")
+    return root / (month or datetime.now().strftime("%Y-%m")) / project
+
+
+def work_dir(project: str) -> Path:
+    """The work folder of `project`: `clean/` of its layout folder once a layout root is set, else
+    `~/work/tcp-xxxx`."""
+    customer_of(project)
+    if layout_root() is not None:
+        return layout_dir(project) / "clean"
     return work_root() / project
 
 
-def use(project: str) -> Path:
-    """`awb clean use tcp-xxxx`: the current project of this laptop and its work folder (made when missing)."""
+def clean_dir(project: str) -> Path:
+    """Where `awb clean` writes the clean copies of `project` by default: the work folder itself in the layout, else
+    `clean/` of the work folder."""
+    folder = work_dir(project)
+    return folder if layout_root() is not None else folder / "clean"
+
+
+def use(project: str, month: str | None = None) -> Path:
+    """`awb clean use tcp-xxxx`: the current project of this laptop and its work folder (made when missing). In the
+    layout the folders private/, clean/ and out/ of the project are made, under `month` when the project has no
+    folder there yet."""
     customer_of(project)
     init()
-    folder = work_dir(project)
-    folder.mkdir(parents=True, exist_ok=True)
+    if layout_root() is not None:
+        base = layout_dir(project, month)
+        for kind in LAYOUT_KINDS:
+            (base / kind).mkdir(parents=True, exist_ok=True)
+        folder = base / "clean"
+    else:
+        folder = work_dir(project)
+        folder.mkdir(parents=True, exist_ok=True)
     fd = os.open(home() / CURRENT, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(project + "\n")
@@ -122,9 +198,21 @@ def current() -> str | None:
 
 
 def project_of_dir(cwd: Path | None = None) -> str | None:
-    """The project whose work folder holds `cwd` (the folder itself or one below it)."""
+    """The project whose work folder holds `cwd` (the folder itself or one below it) or whose layout folder
+    `<root>/YYYY-MM/tcp-xxxx/` holds it."""
+    here = os.path.abspath(cwd or Path.cwd())
+    root = layout_root()
+    if root is not None:
+        try:
+            rel = Path(here).relative_to(os.path.abspath(root))
+        except ValueError:
+            rel = None
+        if rel is not None and len(rel.parts) >= 2 and _month(rel.parts[0]):
+            code = rel.parts[1]
+            if codes.is_project_code(code) and code.startswith("tcp-"):
+                return code
     try:
-        rel = Path(os.path.abspath(cwd or Path.cwd())).relative_to(os.path.abspath(work_root()))
+        rel = Path(here).relative_to(os.path.abspath(work_root()))
     except ValueError:
         return None
     first = rel.parts[0] if rel.parts else ""
