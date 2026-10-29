@@ -1,0 +1,14 @@
+# The timer of awb-report-codes.service: every hour at minute 50, up to 5 minutes later at random (the default D2 of
+# presentations/reports-design: put every hour when changed). A missed run is not made up at boot: the next hour
+# writes the file anyway. Installed and enabled by seal/setup.sh.
+[Unit]
+Description=Architect Workbench: the codes file of the report workbook, every hour
+
+[Timer]
+OnCalendar=*-*-* *:50:00
+RandomizedDelaySec=5min
+Persistent=false
+Unit=awb-report-codes.service
+
+[Install]
+WantedBy=timers.target
