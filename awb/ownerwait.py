@@ -1,6 +1,6 @@
 """`awb owner status`: one list of everything that waits on the owner (UX review 2026-10-24, change 4).
 
-Five sources, read on the owner's side only:
+Six sources, read on the owner's side only:
 
 - the owner items of OPEN.md of every active project (a parked project is a count, nothing more);
 - the rows of presentations/work-profile/QUEUE.md of the owner's repository whose state says it waits on him
@@ -11,6 +11,9 @@ Five sources, read on the owner's side only:
   "dataset tcp-facts-<date>: N added, M amended, K retired" for 24 hours, so the 08:00 mail after it carries it.
 - the lab runs of the projects (task LR, awb/labruns.py) open for more than two hours or ended with failed
   deletes, with what is left (kinds only, never an id).
+- the last put of the codes file of his report workbook (`awb report --codes --put`, awb-report-codes.timer, every
+  hour): a failed one is the item "reports: ..." with its reason until a put succeeds; it says
+  "projects.csv older than 24 h" when the last good put is that old or there was none.
 
 Each item is one line: the project code or the label, a few words, where it is done (project session, his terminal,
 steering session) and a ready command block where one exists. Codes only: every text passes the name check as
@@ -41,6 +44,9 @@ DATASET_DIR = Path("/var/lib/awb-dataset-weekly")   # StateDirectory= of awb-dat
 DATASET_ENV = "AWB_DATASET_WEEKLY"                   # another folder for the tests
 DATASET_FILE = "last.json"
 NOTE_HOURS = 24
+REPORT_DIR = Path("/var/lib/awb-report-codes")   # StateDirectory= of awb-report-codes.service, the owner's (700)
+REPORT_ENV = "AWB_REPORT_CODES"                  # another folder for the tests
+REPORT_STATE = "last.json"
 
 
 @dataclass
@@ -198,6 +204,34 @@ def dataset_items(path: Path | None = None) -> list[Item]:
     return [Item("dataset", "weekly publish failed: %s" % _short(str(state.get("reason") or "unknown")), "")]
 
 
+def report_dir() -> Path:
+    """The state folder of `awb report --codes`: the codes file, its sidecar and last.json."""
+    return Path(os.environ.get(REPORT_ENV) or REPORT_DIR)
+
+
+def report_state_path() -> Path:
+    return report_dir() / REPORT_STATE
+
+
+def report_items(path: Path | None = None, now: datetime.datetime | None = None) -> list[Item]:
+    """The failed put of the codes file as one item; nothing when the last put succeeded or none ran. The state is
+    read here, not through awb/reportcodes.py, so the owner's timer never imports the bucket client."""
+    state = _dataset_state(path or report_state_path())
+    if state.get("state") != "failed":
+        return []
+    reason = _short(str(state.get("reason") or "unknown"))
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    try:
+        last = datetime.datetime.strptime(str(state.get("last_put", "")), "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=datetime.timezone.utc)
+        old = now - last > datetime.timedelta(hours=NOTE_HOURS)
+    except ValueError:
+        old = True
+    if old:
+        return [Item("reports", "projects.csv older than 24 h, the last put failed: %s" % reason, "")]
+    return [Item("reports", "the last put of projects.csv failed: %s" % reason, "")]
+
+
 def notes(path: Path | None = None, now: datetime.datetime | None = None, p: config.Paths | None = None
           ) -> list[str]:
     """The lines that tell him something without waiting on him: the weekly publish of the last 24 hours, after the
@@ -258,6 +292,7 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
     items += queue_items(queue)
     items += build_items(runs)
     items += dataset_items()
+    items += report_items()
     items += lab_run_items(p)
     texts = []
     for it in items:

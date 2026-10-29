@@ -139,6 +139,8 @@ DYNAMIC: dict[tuple[str, str], object] = {
     ("awb/projects.py", "mail_owner_commands"): ("awb.tcp.keys",),
     ("awb/importcmd.py", "_send_mail"): ("awb.tcp.keys",),
     ("awb/translate.py", "_ask_module"): ("awb.tcp.ask",),
+    # awb report --codes is the owner's command and his hourly oneshot awb-report-codes: no daemon reaches it
+    ("awb/ledger.py", "_codes_module"): (),
     # awb voice learn DRAFT - is the owner's command: it loads the paste door of the intake by name and no unit runs it
     ("awb/writing.py", "learn_owner"): (),
     # awb check learn and awb check allow are the owner's commands (the nightly timer runs a oneshot): the check loads
@@ -173,6 +175,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/recheck.py": "awb kb recheck-run, run in a working session or by the steering session",
     "awb/tcp/recheckwatch.py": "awb kb recheck-watch, run by the owner's timer awb-kb-recheck-watch every 15 minutes",
     "awb/tcp/refresh.py": "awb refresh, run by the owner or a timer of his",
+    "awb/reportcodes.py": "awb report --codes, run by the owner or his hourly timer awb-report-codes (a oneshot)",
     "awb/tcp/dataset.py": "awb dataset build|put|weekly, run by the owner, the refresh or his timer awb-dataset-weekly",
     "awb/tcp/tcp_facts_mcp.py": "the MCP server of the dataset, copied into every build and run by its recipient",
     "awb/tcp/web/contract.py": "awb api write|check, writes and checks docs/api/openapi.yaml",

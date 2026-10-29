@@ -12704,8 +12704,92 @@
    "name": "R2: the rule file names the line and its walls",
    "run": ".venv/bin/pytest tests/test_r2_clean_report.py::test_r2_the_rule_file_names_the_line_and_its_walls",
    "status": "passing"
+  },
+  {
+   "id": "r1-1",
+   "phase": "r1-report-codes",
+   "name": "R1: the six headers are pinned",
+   "run": ".venv/bin/pytest tests/test_r1_report_codes.py::test_r1_the_six_headers_are_pinned",
+   "status": "passing"
+  },
+  {
+   "id": "r1-2",
+   "phase": "r1-report-codes",
+   "name": "R1: the file has one quoted row per project sorted by code",
+   "run": ".venv/bin/pytest tests/test_r1_report_codes.py::test_r1_the_file_has_one_quoted_row_per_project_sorted_by_code",
+   "status": "passing"
+  },
+  {
+   "id": "r1-3",
+   "phase": "r1-report-codes",
+   "name": "R1: the sidecar names sha256 and written for the laptop",
+   "run": ".venv/bin/pytest tests/test_r1_report_codes.py::test_r1_the_sidecar_names_sha256_and_written_for_the_laptop",
+   "status": "passing"
+  },
+  {
+   "id": "r1-4",
+   "phase": "r1-report-codes",
+   "name": "R1: a quote in a text is doubled and a cell never breaks the row",
+   "run": ".venv/bin/pytest tests/test_r1_report_codes.py::test_r1_a_quote_in_a_text_is_doubled_and_a_cell_never_breaks_the_row",
+   "status": "passing"
+  },
+  {
+   "id": "r1-5",
+   "phase": "r1-report-codes",
+   "name": "R1: a text with a name or a detector hit is withheld",
+   "run": ".venv/bin/pytest tests/test_r1_report_codes.py::test_r1_a_text_with_a_name_or_a_detector_hit_is_withheld",
+   "status": "passing"
+  },
+  {
+   "id": "r1-6",
+   "phase": "r1-report-codes",
+   "name": "R1: a check that cannot run writes nothing",
+   "run": ".venv/bin/pytest tests/test_r1_report_codes.py::test_r1_a_check_that_cannot_run_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "r1-7",
+   "phase": "r1-report-codes",
+   "name": "R1: the default place is the state folder and without it the command says so",
+   "run": ".venv/bin/pytest tests/test_r1_report_codes.py::test_r1_the_default_place_is_the_state_folder_and_without_it_the_command_says_so",
+   "status": "passing"
+  },
+  {
+   "id": "r1-8",
+   "phase": "r1-report-codes",
+   "name": "R1: if changed writes nothing for the same rows",
+   "run": ".venv/bin/pytest tests/test_r1_report_codes.py::test_r1_if_changed_writes_nothing_for_the_same_rows",
+   "status": "passing"
+  },
+  {
+   "id": "r1-9",
+   "phase": "r1-report-codes",
+   "name": "R1: put sends both files to reports and the key service allows nothing else there",
+   "run": ".venv/bin/pytest tests/test_r1_report_codes.py::test_r1_put_sends_both_files_to_reports_and_the_key_service_allows_nothing_else_there",
+   "status": "passing"
+  },
+  {
+   "id": "r1-10",
+   "phase": "r1-report-codes",
+   "name": "R1: a failed put is an owner item until a put succeeds",
+   "run": ".venv/bin/pytest tests/test_r1_report_codes.py::test_r1_a_failed_put_is_an_owner_item_until_a_put_succeeds",
+   "status": "passing"
+  },
+  {
+   "id": "r1-11",
+   "phase": "r1-report-codes",
+   "name": "R1: the period report reads the shared module",
+   "run": ".venv/bin/pytest tests/test_r1_report_codes.py::test_r1_the_period_report_reads_the_shared_module",
+   "status": "passing"
+  },
+  {
+   "id": "r1-12",
+   "phase": "r1-report-codes",
+   "name": "R1: the hourly unit runs as the owner and the seal and the update install it",
+   "run": ".venv/bin/pytest tests/test_r1_report_codes.py::test_r1_the_hourly_unit_runs_as_the_owner_and_the_seal_and_the_update_install_it",
+   "status": "passing"
   }
  ],
- "total_tests": 1815,
+ "total_tests": 1827,
  "checked": "2026-10-29"
 }

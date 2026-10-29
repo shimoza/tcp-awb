@@ -1,0 +1,40 @@
+# The hourly codes file of the owner's report workbook (presentations/reports-design, task 1), rendered by
+# seal/setup.sh with the owner, the work group and the host file. It runs awb report --codes --put --if-changed as the
+# owner: one row per project, codes only, every text checked again; the file goes to its state folder
+# /var/lib/awb-report-codes (his, 700) and, when it changed or its last put failed, under reports/ of the owner
+# bucket through the admin socket of the key service. The result of the put goes to last.json there, which awb owner
+# status reads. Every call goes over the sockets of the key service and the vault daemon, so no address family but
+# unix. While the key service is locked the run skips the put with one journal line.
+[Unit]
+Description=Architect Workbench: the codes file of the report workbook, every hour, owner side
+After=awb-vaultd.service awb-keyd.service
+
+[Service]
+Type=oneshot
+User=@OWNER@
+Group=@WORK_GROUP@
+UMask=0027
+Environment=AWB_CONF=@CONF_FILE@
+Environment=AWB_REPORT_CODES=/var/lib/awb-report-codes
+StateDirectory=awb-report-codes
+StateDirectoryMode=0700
+ExecStart=/usr/local/bin/awb report --codes --put --if-changed
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+LimitCORE=0
+TimeoutStartSec=15min

@@ -731,7 +731,8 @@ def serve_web_read(ctx: Context, req: dict) -> tuple[dict, Path | None]:
         return _web_refusal("too_large", str(err))
 
 
-# The owner's CLI (`awb bucket`, `awb import`, `awb dataset put`) reaches the owner bucket through the admin socket
+# The owner's CLI (`awb bucket`, `awb import`, `awb dataset put`, `awb report --codes --put`) reaches the owner
+# bucket through the admin socket
 # (F1 step 11): three calls, list, get and put, each inside the folders of the layout of awb/bucket_layout.py.
 _OWNER_PROJECT = "^" + bucket_layout.MONTH + "/(" + codes.TCP_PROJECT + ")/"
 _OWNER_MONTH_RE = re.compile("^" + bucket_layout.MONTH + "/$")
@@ -746,12 +747,13 @@ def _owner_plain(path) -> bool:
 
 
 def owner_list_ok(ctx: Context, prefix, delimiter) -> bool:
-    """A listing of the top, of a month, or of anything inside the folder of an active project or the dataset."""
+    """A listing of the top, of a month or of anything inside the folder of an active project, the dataset or the
+    reports."""
     if not _owner_plain(prefix) or delimiter not in ("", "/"):
         return False
     if prefix == "" or _OWNER_MONTH_RE.match(prefix):
         return delimiter == "/"
-    if prefix.startswith(bucket_layout.DATASET_PREFIX):
+    if prefix.startswith((bucket_layout.DATASET_PREFIX, bucket_layout.REPORTS_PREFIX)):
         return True
     m = _OWNER_FOLDER_RE.match(prefix)
     return bool(m) and ctx.active_project(m.group(1)) is not None
@@ -759,10 +761,11 @@ def owner_list_ok(ctx: Context, prefix, delimiter) -> bool:
 
 def owner_key_ok(ctx: Context, key, method: str) -> bool:
     """The keys of the owner bucket the owner's CLI may touch. GET: a file of a project's in/. PUT: the folder
-    marks (an empty put), the .keep of in/, a file of out/ (.keep too) and the dataset files; the project is active."""
+    marks (an empty put), the .keep of in/, a file of out/ (.keep too), the dataset files and the two files of reports/
+    (bucket_layout.REPORT_KEYS); the project is active."""
     if not _owner_plain(key) or not key or key.endswith("/") and method == "GET":
         return False
-    if method == "PUT" and _OWNER_DATASET_RE.match(key):
+    if method == "PUT" and (_OWNER_DATASET_RE.match(key) or key in bucket_layout.REPORT_KEYS):
         return True
     m = _OWNER_FOLDER_RE.match(key)
     if not m or ctx.active_project(m.group(1)) is None:
@@ -778,7 +781,8 @@ def owner_key_ok(ctx: Context, key, method: str) -> bool:
 def owner_put_refusal(ctx: Context, req: dict) -> str | None:
     """Why a bucket_put is refused before its bytes are read, or None."""
     if not owner_key_ok(ctx, req.get("key"), "PUT"):
-        return "a put is allowed into the out/ folder of an active project and the dataset folder only"
+        return ("a put is allowed into the out/ folder of an active project, the dataset folder and the files of "
+                "reports/ only")
     length = req.get("length")
     if not isinstance(length, int) or isinstance(length, bool) or length < 0:
         return "a put names its length"
