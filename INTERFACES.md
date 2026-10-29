@@ -1162,6 +1162,20 @@ only for `/` (the buckets), the tags of a bucket (`?tagging` without a key) and 
 of the project of the call; every other bucket is refused with one line that names the class and never the key. The
 exchange buckets stay refused for `call`; the lab bucket is read through op `obs`, under `<code>/in/` and
 `<code>/from-session/` of the project only.
+Owner listing of the lab bucket (R4): admin op `lab_list` (`prefix`, `delimiter`), checked by
+`keys_exchange.lab_list_ok(prefix, delimiter)`: the top with "/", `inbox/` and anything under `<code>/`; it answers
+`objects` (key, size, etag), `prefixes` and `modified` like `bucket_list`, whose owner check `owner_list_ok` also
+takes `inbox/`. Client side `bucket.KeyServiceClient.lab_list(prefix, delimiter) -> obs.Listing`.
+
+## The file inventories of the host and the buckets (2026-10-29, R4)
+
+`awb/filesinv.py` is `awb files inventory --host|--buckets [--out FILE]` over the rows of `awb/inventory.py` (R3):
+`host_rows(p) -> (rows, unreadable)`, `bucket_rows(p, client) -> (rows, folders not listed)`, `check(rows, reg) ->
+withheld` (through `projectfacts.export_hits`), `finish(rows, stamp)` (`inventory.row_id` per place,
+`inventory.group_of`, `inventory.rank`), `make(p, kind, out, client=None, now=None) -> (files, rows, withheld, left)`,
+`md5_of_etag(etag)`, `utc_text(value)`, `main(argv)`. The owner bucket check `keys_exchange.owner_key_ok` allows a GET
+of `reports/inventory/<place>-<stamp>[-<label>].tsv` (`bucket_layout.INVENTORY_PREFIX`), the laptop inventories the
+plan reads; nothing else of `reports/` is read.
 
 ## The deploy (2026-10-07, T1)
 
