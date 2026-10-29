@@ -794,7 +794,7 @@ DELEGATED = {
     "seal": ("seal", "checks of the seal between the vault and working sessions"),
     "egress": ("egress", "the egress filter of the work user and the Ask uid: status; sudo awb egress load|enforce|count|--ask-mode"),
     "bucket": ("bucket", "the owner's bucket: sync, folder, pull, put, move"),
-    "clean": ("clean", "clean project material on the laptop, offline: docs or logs; register, init, fetch, report, update"),
+    "clean": ("clean", "clean project material on the laptop, offline: docs or logs; register, init, fetch, report, inventory, update"),
     "import": ("importcmd", "customer material into a project in one command: the bucket, the vault inbox, files or pasted text (--paste)"),
     "words": ("words", "the vocabulary of the public corpus for the intake: update (owner side)"),
     "reveal": ("reveal", "put the real names back into a finished text (owner side)"),
