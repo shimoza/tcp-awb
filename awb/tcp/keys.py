@@ -29,7 +29,8 @@ domain, its region one of the tenant's) and read with a token of that project; t
 Two sockets, one JSON object per line and one answer per connection:
 
     admin  <vault>/keys-admin.sock, mode 600, the owner only     ping, status, load, lock, reload, notify,
-                                                                bucket_list, bucket_get, bucket_put
+                                                                bucket_list, bucket_get, bucket_put,
+                                                                lab_list
     call   /run/awb-keys/cloud.sock, mode 660, group awb         ping, tenants, call, projects, doc_get,
                                                                 lab_run, lab_call
 
@@ -128,10 +129,11 @@ _RANDOM_SPECIAL = "!@%^-_=+"
 """The special characters a drawn password takes: those both the ECS and the RDS password rules allow."""
 LEAVE_WAIT = 70.0
 """Seconds a handed-over service waits for its calls in flight (a cloud call takes at most 60) before it exits."""
-ADMIN_OPS = ("bucket_drop_in", "bucket_get", "bucket_list", "bucket_put", "load", "lock", "notify", "ping", "reload", "status")
+ADMIN_OPS = ("bucket_drop_in", "bucket_get", "bucket_list", "bucket_put", "lab_list", "load", "lock", "notify", "ping",
+             "reload", "status")
 EXCHANGE_METHODS = ("GET", "HEAD", "PUT", "DELETE", "LIST", "COPY", "MONTHS", "OBS", "OWNER_HAS", "TAKE_OWNER", "INBOX_FIND",
                     "WEB_READ", "TAKE_LAB", "OWNER_FOLDER", "WEB_PUT_IN", "BUCKET_GET", "BUCKET_LIST", "BUCKET_PUT",
-                    "BUCKET_DROP_IN")
+                    "BUCKET_DROP_IN", "LAB_LIST")
 NOTIFY_MAX = 4000      # characters of an owner mail through the admin socket (awb ui watch --mail)
 CONSOLE_USER = "awb-console"
 """The system user of the console's tenant inventory (F2, his decision of 2026-10-04): it alone reads a test tenant
@@ -632,7 +634,7 @@ class Service:
         from awb import handover
 
         op = req.get("op")
-        if op in ("bucket_list", "bucket_get", "bucket_put", "bucket_drop_in"):
+        if op in ("bucket_list", "bucket_get", "bucket_put", "bucket_drop_in", "lab_list"):
             return self._bucket(op, req, uid, upload)
         if op == "ping":
             return {"ok": True, "ops": list(ADMIN_OPS), "release": handover.release_path()}
@@ -682,8 +684,8 @@ class Service:
         return keys_exchange.owner_put_refusal(self._xchg(), req) if put else None
 
     def _bucket(self, op: str, req: dict, uid: int, upload: Path | None):
-        """`bucket_list`, `bucket_get`, `bucket_put`: the owner's CLI at the owner bucket, logged like an exchange
-        call."""
+        """`bucket_list`, `bucket_get`, `bucket_put`: the owner's CLI at the owner bucket, and `lab_list`, its one
+        listing of the lab bucket (`awb files inventory --buckets`), logged like an exchange call."""
         from awb.tcp import keys_exchange
 
         if not self.tenants:
