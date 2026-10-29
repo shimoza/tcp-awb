@@ -754,12 +754,13 @@ def test_the_sums_file_lists_every_asset_with_its_sum_and_the_sig_is_uploaded(ho
     import hashlib
     built = dataset.build(home, out=tmp_path / "ds", today=TODAY)
     dataset.github_put(home, built.folder, clone=signing.github.clone)
-    names = ["tcp-facts-2026-10-08.zip", "HOW-TO.pdf", "MANIFEST.json", "tcp-facts-2026-10-08.mcpb"]
-    where = {n: (built.folder if n in ("HOW-TO.pdf", "MANIFEST.json") else built.folder.parent) / n for n in names}
+    names = ["tcp-facts-2026-10-08.zip", "HOW-TO.pdf", "MANIFEST.json", "tcp-facts-2026-10-08.mcpb", "tcp-facts.mcpb"]
+    inside = ("HOW-TO.pdf", "MANIFEST.json", "tcp-facts.mcpb")
+    where = {n: (built.folder if n in inside else built.folder.parent) / n for n in names}
     want = "".join("%s  %s\n" % (hashlib.sha256(where[n].read_bytes()).hexdigest(), n) for n in names)
     assert (built.folder / "SHA256SUMS").read_text() == want
     create = [a for a in signing.github.log() if a[:2] == ["release", "create"]][0]
-    assert [Path(a).name for a in create[3:9]] == names + ["SHA256SUMS", "SHA256SUMS.sig"]
+    assert [Path(a).name for a in create[3:10]] == names + ["SHA256SUMS", "SHA256SUMS.sig"]
 
 
 def test_the_how_to_the_readme_and_the_release_notes_carry_the_verify_block(home, facts, tmp_path, signing):

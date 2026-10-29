@@ -787,7 +787,7 @@ Before a release the owner reads what changed: `awb kb review` lists every fact 
 amended (statement, source or grade) or retired since the last release, with its id, grade, check date, source and
 statement, compared with `RELEASED.jsonl` beside the folders (the `facts.jsonl` of the last release, written by every
 put). It writes `tcp-facts-<date>.review.json` beside the folder with the sha256 of the facts and of every release
-asset (the zip, `HOW-TO.pdf`, `MANIFEST.json` and the `.mcpb`, K3 of the review of 2026-10-20). `awb dataset put` refuses a folder without
+asset (the zip, `HOW-TO.pdf`, `MANIFEST.json`, the `.mcpb` and its copy `tcp-facts.mcpb`, K3 of the review of 2026-10-20). `awb dataset put` refuses a folder without
 that mark, with a mark of other facts or assets (a build after the review) or of another release, in one line that names the
 command. So a fact a session planted with a fabricated source is read by a person before it reaches the public
 dataset (G6 of the threat model). `awb kb review` is refused for the work user, and the mark and `RELEASED.jsonl`
@@ -797,7 +797,7 @@ count only when they are no link, belong to you and are writable by nobody else;
 files and the build's README.md into the root of the public repository
 [shimoza/tcp-facts](https://github.com/shimoza/tcp-facts), so the root README is never written by hand; LICENSE
 stays as the repository has it. It commits them
-as the GitHub account, tags the date and makes a release of it with the zip, the PDF, the manifest and the `.mcpb`. The files are
+as the GitHub account, tags the date and makes a release of it with the zip, the PDF, the manifest, the `.mcpb` and `tcp-facts.mcpb`. The files are
 scanned for a person and a registered name first, and a hit refuses the put.
 Every git call on the clone (`~/tcp-shared/datasets/tcp-facts.git`) names that path in `-c safe.directory=`, so
 your put needs no global git setting. Every git and gh call sets `core.hooksPath=/dev/null`, `core.fsmonitor=false`
@@ -820,8 +820,8 @@ saves the lines as `SHA256SUMS` next to the downloads and runs `sha256sum -c SHA
 ### Signing a release
 
 With `dataset_sign = yes` and `dataset_sign_key = <path of an ssh key>` in the host file, `awb dataset put --github`
-signs the release: it writes `SHA256SUMS` (one line per asset: the zip, `HOW-TO.pdf`, `MANIFEST.json` and the
-`.mcpb`) into the release folder, signs it with `ssh-keygen -Y sign -n file` into `SHA256SUMS.sig`, makes the tag with
+signs the release: it writes `SHA256SUMS` (one line per asset: the zip, `HOW-TO.pdf`, `MANIFEST.json`, the
+`.mcpb` and `tcp-facts.mcpb`) into the release folder, signs it with `ssh-keygen -Y sign -n file` into `SHA256SUMS.sig`, makes the tag with
 `git tag -s` (`gpg.format ssh`, `user.signingkey` the key) and uploads both files as release assets. It signs
 only the sums the review pinned: an asset that changed since refuses the put before anything is signed, and
 `SHA256SUMS` is written as a new file, never through a link. Build the folder
@@ -857,8 +857,11 @@ lies in), opens no connection without `--live`, writes nothing and reads no inpu
 
 **Claude Desktop, one click.** Every build also writes `tcp-facts-<date>.mcpb` beside the zip: an MCP Bundle (a zip
 with a `manifest.json`, an `icon.png`, the server file and the data files of that build, written for manifest version 0.3; the licence there is the SPDX id `CC-BY-4.0`). `awb
-dataset put --github` uploads it as a release asset next to the zip. Download it from the latest release and open it
-(double click, or drag it into Settings, Extensions). Claude Desktop shows the extension with its four tools; press
+dataset put --github` uploads it as a release asset next to the zip, with a copy of the same bytes under the stable
+name `tcp-facts.mcpb` (written into the folder by the build; the put refuses a copy that differs). So
+https://github.com/shimoza/tcp-facts/releases/latest/download/tcp-facts.mcpb is always the newest bundle: the public
+README names that link right under its disclaimer and again in its "MCP clients" part, and so does `HOW-TO.pdf`.
+Download it and open it (double click, or drag it into Settings, Extensions). Claude Desktop shows the extension with its four tools; press
 Install. It needs Python 3.10 or newer on the machine. A new build is a new file: install it over the old one. The
 bundle can be checked with `npx @anthropic-ai/mcpb validate manifest.json` inside the unpacked file.
 
