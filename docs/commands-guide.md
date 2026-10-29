@@ -136,6 +136,23 @@ project was created. A drifted folder is renamed in the bucket, never the projec
 | `awb dataset weekly` | the weekly publish of the owner's timer `awb-dataset-weekly.timer` (Monday 06:00 UTC, 07:00 Berlin in winter, after the Saturday read tier of the fact-check): `awb dataset build` of today (again over a folder of today), `awb kb review` of that folder (your own mark, the unit runs as you) and `awb dataset put --github`, each step only after the one before succeeded. A failed step stops the run, so nothing after it runs: a failed build leaves no folder and no review, a refused put keeps its checks (the review mark, the two README statements, no price data, the person scan) and records no release. The result goes to `/var/lib/awb-dataset-weekly/last.json`: a failure is one item of `awb owner status`, `dataset: weekly publish failed: <step>: <reason>`, until a publish succeeds; a success is the line `dataset tcp-facts-<date>: N added, M amended, K retired` (against the last release) in the list and in the 08:00 mail of the next 24 hours, which is sent for that line even when nothing waits on you. Refused for the work user. Exit 0 published, 1 failed, 2 refused |
 | `awb bucket move <YYYY-MM>/<NAME>/ CODE` | rename a drifted folder: copy inside the object storage, compare names and sizes, then delete the old objects. Through the key service it stops at once with a line saying so, because the service offers list, get and put (and the drop of a file of `in/` after `awb import --auto` took it): rename the folder in the object storage console. Your own terminal, never an assistant session |
 
+### File inventories (task R4 of presentations/reports-design)
+
+| command | what it does |
+|---|---|
+| `sudo -n -u awb -H awb files inventory --host [--out FILE]` | every file in the project folders of the register (not a deleted project) as the work user: path relative to the project folder, suffix, size, mtime (UTC), sha256 and md5 read as bytes and never parsed; `.git`, `_archive`, `__pycache__`, `.terraform`, `.venv`, `node_modules` and links are not walked, Office lock files, `.tmp`, `Thumbs.db` and `desktop.ini` not listed |
+| `awb files inventory --buckets [--out FILE]` | as the owner through the key service: the owner bucket (`<YYYY-MM>/<code>/` of the active and parked projects and `inbox/`; `reports/` and the dataset are skipped) and the lab bucket (`<code>/` of the registered projects and `inbox/`, with the owner listing `lab_list` of the key service). No byte is read: the etag of a single-part object is its md5, a multipart object has none. A folder of no project is counted, never named |
+
+Both write the rows of `awb/inventory.py`, the format of the laptop inventory: a TSV with the header `id path
+suffix size mtime sha256 md5 project group rank place`, ids with the letter of the place (`H` host, `B` owner
+bucket, `S` lab bucket), the stamp and a number, `none` as the project of an inbox file, the group `project/stem.suffix`
+and rank 1 for the newest of a group. Every path passes the name check, the gate detectors and the candidate rule; a
+path with a hit (a name of `in/` or `inbox/` above all) is `[withheld]` with its id, size, times and hashes, its group
+withheld too; when the check cannot run nothing is written (exit 2). By default `~/tcp-shared/files/host-<stamp>.tsv`,
+or `owner-bucket-<stamp>.tsv` and `lab-bucket-<stamp>.tsv`; `--out FILE` takes all rows of the run in one file. The
+key service lets the owner's CLI read the laptop inventories under `reports/inventory/` (`awb clean inventory --put`)
+for the plan.
+
 These commands hold no bucket key. They call the admin socket of the key service (`awb keys unlock` loads the lab
 key of `bucket_tenant` in keys.conf; the bucket is `owner_bucket` there). A locked or stopped service stops them with
 one line that names `awb keys unlock`. The work user of the seal cannot use the bucket, by design.

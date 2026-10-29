@@ -12886,8 +12886,99 @@
    "name": "R3: the command reads a windows path and puts",
    "run": ".venv/bin/pytest tests/test_r3_clean_inventory.py::test_r3_the_command_reads_a_windows_path_and_puts",
    "status": "passing"
+  },
+  {
+   "id": "r4-1",
+   "phase": "r4-files-inventory",
+   "name": "R4: the host and the buckets write the shared rows of r3",
+   "run": ".venv/bin/pytest tests/test_r4_files_inventory.py::test_r4_the_host_and_the_buckets_write_the_shared_rows_of_r3",
+   "status": "passing"
+  },
+  {
+   "id": "r4-2",
+   "phase": "r4-files-inventory",
+   "name": "R4: an etag is the md5 of a single part object only",
+   "run": ".venv/bin/pytest tests/test_r4_files_inventory.py::test_r4_an_etag_is_the_md5_of_a_single_part_object_only",
+   "status": "passing"
+  },
+  {
+   "id": "r4-3",
+   "phase": "r4-files-inventory",
+   "name": "R4: host lists every project file with hashes and withholds a name",
+   "run": ".venv/bin/pytest tests/test_r4_files_inventory.py::test_r4_host_lists_every_project_file_with_hashes_and_withholds_a_name",
+   "status": "passing"
+  },
+  {
+   "id": "r4-4",
+   "phase": "r4-files-inventory",
+   "name": "R4: host writes to the shared files folder by default",
+   "run": ".venv/bin/pytest tests/test_r4_files_inventory.py::test_r4_host_writes_to_the_shared_files_folder_by_default",
+   "status": "passing"
+  },
+  {
+   "id": "r4-5",
+   "phase": "r4-files-inventory",
+   "name": "R4: nothing is written when the names cannot be checked",
+   "run": ".venv/bin/pytest tests/test_r4_files_inventory.py::test_r4_nothing_is_written_when_the_names_cannot_be_checked",
+   "status": "passing"
+  },
+  {
+   "id": "r4-6",
+   "phase": "r4-files-inventory",
+   "name": "R4: one of host or buckets is required",
+   "run": ".venv/bin/pytest tests/test_r4_files_inventory.py::test_r4_one_of_host_or_buckets_is_required",
+   "status": "passing"
+  },
+  {
+   "id": "r4-7",
+   "phase": "r4-files-inventory",
+   "name": "R4: a withheld path keeps a known suffix only",
+   "run": ".venv/bin/pytest tests/test_r4_files_inventory.py::test_r4_a_withheld_path_keeps_a_known_suffix_only",
+   "status": "passing"
+  },
+  {
+   "id": "r4-8",
+   "phase": "r4-files-inventory",
+   "name": "R4: buckets lists both buckets with etags and withholds originals with a name",
+   "run": ".venv/bin/pytest tests/test_r4_files_inventory.py::test_r4_buckets_lists_both_buckets_with_etags_and_withholds_originals_with_a_name",
+   "status": "passing"
+  },
+  {
+   "id": "r4-9",
+   "phase": "r4-files-inventory",
+   "name": "R4: buckets write one file per place by default",
+   "run": ".venv/bin/pytest tests/test_r4_files_inventory.py::test_r4_buckets_write_one_file_per_place_by_default",
+   "status": "passing"
+  },
+  {
+   "id": "r4-10",
+   "phase": "r4-files-inventory",
+   "name": "R4: the lab listing is the owners and keeps to the layout",
+   "run": ".venv/bin/pytest tests/test_r4_files_inventory.py::test_r4_the_lab_listing_is_the_owners_and_keeps_to_the_layout",
+   "status": "passing"
+  },
+  {
+   "id": "r4-11",
+   "phase": "r4-files-inventory",
+   "name": "R4: the owner reads a laptop inventory of reports and nothing else there",
+   "run": ".venv/bin/pytest tests/test_r4_files_inventory.py::test_r4_the_owner_reads_a_laptop_inventory_of_reports_and_nothing_else_there",
+   "status": "passing"
+  },
+  {
+   "id": "r4-12",
+   "phase": "r4-files-inventory",
+   "name": "R4: a locked key service stops the bucket inventory with one line",
+   "run": ".venv/bin/pytest tests/test_r4_files_inventory.py::test_r4_a_locked_key_service_stops_the_bucket_inventory_with_one_line",
+   "status": "passing"
+  },
+  {
+   "id": "r4-13",
+   "phase": "r4-files-inventory",
+   "name": "R4: the work user gets no bucket inventory",
+   "run": ".venv/bin/pytest tests/test_r4_files_inventory.py::test_r4_the_work_user_gets_no_bucket_inventory",
+   "status": "passing"
   }
  ],
- "total_tests": 1841,
+ "total_tests": 1854,
  "checked": "2026-10-29"
 }

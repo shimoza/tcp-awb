@@ -8,7 +8,7 @@ prints the side and the lock state.
 
 In their own module (DELEGATED below, each with main(argv)): awb check, awb gate, awb vault, awb kb, awb ledger,
 awb report, awb career, awb write, awb voice, awb review, awb calc, awb hook, awb images, awb seal, awb egress,
-awb bucket, awb clean, awb import, awb words, awb reveal, awb price, awb pricebook, awb cloud, awb mirror, awb refresh,
+awb bucket, awb files, awb clean, awb import, awb words, awb reveal, awb price, awb pricebook, awb cloud, awb mirror, awb refresh,
 awb dataset, awb english, awb ask, awb inbox, awb xchg, awb howto, awb start, awb fetch, awb paste, awb material, awb keys,
 awb migrate, awb lab, awb tenant, awb api, awb service, awb board, awb web, awb owner, awb ui, awb build, awb pr,
 awb deploy, awb doc.
@@ -794,6 +794,7 @@ DELEGATED = {
     "seal": ("seal", "checks of the seal between the vault and working sessions"),
     "egress": ("egress", "the egress filter of the work user and the Ask uid: status; sudo awb egress load|enforce|count|--ask-mode"),
     "bucket": ("bucket", "the owner's bucket: sync, folder, pull, put, move"),
+    "files": ("filesinv", "the files of the projects in every place without their content: inventory --host|--buckets"),
     "clean": ("clean", "clean project material on the laptop, offline: docs or logs; register, init, fetch, report, inventory, update"),
     "import": ("importcmd", "customer material into a project in one command: the bucket, the vault inbox, files or pasted text (--paste)"),
     "words": ("words", "the vocabulary of the public corpus for the intake: update (owner side)"),

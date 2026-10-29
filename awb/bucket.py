@@ -157,6 +157,12 @@ class KeyServiceClient:
         a = self._ask({"op": "bucket_list", "prefix": prefix, "delimiter": delimiter})
         return obs.Listing([(k, int(n), e) for k, n, e in a["objects"]], list(a["prefixes"]), dict(a["modified"]))
 
+    def lab_list(self, prefix: str = "", delimiter: str = "") -> obs.Listing:
+        """The one listing of the lab bucket the owner's CLI has (`awb files inventory --buckets`): the top with "/",
+        inbox/ and a project's folder."""
+        a = self._ask({"op": "lab_list", "prefix": prefix, "delimiter": delimiter})
+        return obs.Listing([(k, int(n), e) for k, n, e in a["objects"]], list(a["prefixes"]), dict(a["modified"]))
+
     def head(self, key: str) -> dict | None:
         for k, size, etag in self.list(key).objects:
             if k == key:

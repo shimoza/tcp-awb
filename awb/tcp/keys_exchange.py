@@ -738,6 +738,10 @@ _OWNER_PROJECT = "^" + bucket_layout.MONTH + "/(" + codes.TCP_PROJECT + ")/"
 _OWNER_MONTH_RE = re.compile("^" + bucket_layout.MONTH + "/$")
 _OWNER_FOLDER_RE = re.compile(_OWNER_PROJECT)
 _OWNER_LATEST = bucket_layout.DATASET_PREFIX + "LATEST"
+_OWNER_INVENTORY_RE = re.compile("^" + re.escape(bucket_layout.INVENTORY_PREFIX)
+                                 + r"(?:laptop|host|owner-bucket|lab-bucket)-[0-9]{8}-[0-9]{6}"
+                                 + r"(?:-[a-z0-9][a-z0-9-]{0,31})?\.tsv$")
+"""A coded inventory under reports/inventory/ (awb/inventory.py file_name): the one read of reports/."""
 _OWNER_DATASET_RE = re.compile("^" + re.escape(bucket_layout.DATASET_PREFIX) + r"(?:\d{4}-\d{2}-\d{2}/)?[^/]+$")
 
 
@@ -747,31 +751,47 @@ def _owner_plain(path) -> bool:
 
 
 def owner_list_ok(ctx: Context, prefix, delimiter) -> bool:
-    """A listing of the top, of a month or of anything inside the folder of an active project, the dataset or the
-    reports."""
+    """A listing of the top, of a month or of anything inside the folder of an active project, the dataset, the
+    reports or inbox/ (keys and sizes only: `awb files inventory --buckets` withholds a name the check finds)."""
     if not _owner_plain(prefix) or delimiter not in ("", "/"):
         return False
     if prefix == "" or _OWNER_MONTH_RE.match(prefix):
         return delimiter == "/"
-    if prefix.startswith((bucket_layout.DATASET_PREFIX, bucket_layout.REPORTS_PREFIX)):
+    if prefix.startswith((bucket_layout.DATASET_PREFIX, bucket_layout.REPORTS_PREFIX)) or prefix == INBOX:
         return True
     m = _OWNER_FOLDER_RE.match(prefix)
     return bool(m) and ctx.active_project(m.group(1)) is not None
 
 
+_LAB_FOLDER_RE = re.compile("^(%s)/" % codes.TCP_PROJECT_WIDE)
+
+
+def lab_list_ok(prefix, delimiter) -> bool:
+    """The owner's one listing of the lab bucket (`awb files inventory --buckets`): the top with "/", inbox/ and
+    anything inside a folder named by a project code. A listing names keys, sizes, etags and times, never a byte."""
+    if not _owner_plain(prefix) or delimiter not in ("", "/"):
+        return False
+    if prefix == "":
+        return delimiter == "/"
+    return prefix == INBOX or bool(_LAB_FOLDER_RE.match(prefix))
+
+
 def owner_key_ok(ctx: Context, key, method: str) -> bool:
-    """The keys of the owner bucket the owner's CLI may touch. GET: a file of a project's in/. PUT: the folder
-    marks (an empty put), the .keep of in/, a file of out/ (.keep too), the dataset files and the two files of reports/
-    (bucket_layout.REPORT_KEYS); the project is active."""
-    if not _owner_plain(key) or not key or key.endswith("/") and method == "GET":
+    """The keys of the owner bucket the owner's CLI may touch. GET: a file of a project's in/ and a laptop
+    inventory of reports/inventory/ (the plan of R5 reads it). DELETE (`bucket_drop_in`): a file of a project's in/.
+    PUT: the folder marks (an empty put), the .keep of in/, a file of out/ (.keep too), the dataset files and the two
+    files of reports/ (bucket_layout.REPORT_KEYS); the project is active."""
+    if not _owner_plain(key) or not key or key.endswith("/") and method in ("GET", "DELETE"):
         return False
     if method == "PUT" and (_OWNER_DATASET_RE.match(key) or key in bucket_layout.REPORT_KEYS):
+        return True
+    if method == "GET" and _OWNER_INVENTORY_RE.match(key):
         return True
     m = _OWNER_FOLDER_RE.match(key)
     if not m or ctx.active_project(m.group(1)) is None:
         return False
     rest = key[m.end():]
-    if method == "GET":
+    if method in ("GET", "DELETE"):
         return rest.startswith(bucket_layout.IN) and len(rest) > len(bucket_layout.IN)
     if rest in ("", bucket_layout.IN, bucket_layout.OUT, bucket_layout.IN + bucket_layout.KEEP):
         return True
@@ -792,26 +812,26 @@ def owner_put_refusal(ctx: Context, req: dict) -> str | None:
 
 
 def serve_bucket(ctx: Context, req: dict, upload: Path | None) -> tuple[dict, Path | None]:
-    """The owner's CLI: `bucket_list`, `bucket_get`, `bucket_put` on the owner bucket (the admin socket checks the
-    peer). OBS GET, PUT and LIST, and the DELETE of `bucket_drop_in`: a file of in/ of an active project, after
+    """The owner's CLI: `bucket_list`, `bucket_get`, `bucket_put` on the owner bucket and `lab_list` on the lab
+    bucket (the admin socket checks the peer). OBS GET, PUT and LIST, and the DELETE of `bucket_drop_in`: a file of in/ of an active project, after
     `awb import --auto` took it into the vault; the upload limit is max_mb of keys.conf."""
     from awb import obs
 
     op = req.get("op")
     try:
-        c = ctx.client("owner")
+        c = ctx.client("lab" if op == "lab_list" else "owner")
     except XchgError as err:
         return {"ok": False, "kind": "setup", "error": str(err)}, None
     try:
-        if op == "bucket_list":
+        if op in ("bucket_list", "lab_list"):
             prefix, delimiter = req.get("prefix"), req.get("delimiter") or ""
-            if not owner_list_ok(ctx, prefix, delimiter):
+            if not (lab_list_ok(prefix, delimiter) if op == "lab_list" else owner_list_ok(ctx, prefix, delimiter)):
                 return {"ok": False, "kind": "refused", "error": "refused"}, None
             listing = c.list(prefix, delimiter)
             return {"ok": True, "objects": [list(o) for o in listing.objects], "prefixes": list(listing.prefixes),
                     "modified": dict(listing.modified)}, None
         key = req.get("key")
-        if not owner_key_ok(ctx, key, "GET" if op in ("bucket_get", "bucket_drop_in") else "PUT"):
+        if not owner_key_ok(ctx, key, {"bucket_get": "GET", "bucket_drop_in": "DELETE"}.get(op, "PUT")):
             return {"ok": False, "kind": "refused", "error": "refused"}, None
         if op == "bucket_drop_in":
             # `awb import --auto`: a file of a project's in/ after the vault holds its original (lc-laptop-clean);
