@@ -12788,8 +12788,106 @@
    "name": "R1: the hourly unit runs as the owner and the seal and the update install it",
    "run": ".venv/bin/pytest tests/test_r1_report_codes.py::test_r1_the_hourly_unit_runs_as_the_owner_and_the_seal_and_the_update_install_it",
    "status": "passing"
+  },
+  {
+   "id": "r3-1",
+   "phase": "r3-clean-inventory",
+   "name": "R3: the row format is pinned in one module",
+   "run": ".venv/bin/pytest tests/test_r3_clean_inventory.py::test_r3_the_row_format_is_pinned_in_one_module",
+   "status": "passing"
+  },
+  {
+   "id": "r3-2",
+   "phase": "r3-clean-inventory",
+   "name": "R3: the group stem drops copies versions and dates",
+   "run": ".venv/bin/pytest tests/test_r3_clean_inventory.py::test_r3_the_group_stem_drops_copies_versions_and_dates",
+   "status": "passing"
+  },
+  {
+   "id": "r3-3",
+   "phase": "r3-clean-inventory",
+   "name": "R3: the group keeps a word that is the whole stem",
+   "run": ".venv/bin/pytest tests/test_r3_clean_inventory.py::test_r3_the_group_keeps_a_word_that_is_the_whole_stem",
+   "status": "passing"
+  },
+  {
+   "id": "r3-4",
+   "phase": "r3-clean-inventory",
+   "name": "R3: a registered name in a folder name never reaches the inventory",
+   "run": ".venv/bin/pytest tests/test_r3_clean_inventory.py::test_r3_a_registered_name_in_a_folder_name_never_reaches_the_inventory",
+   "status": "passing"
+  },
+  {
+   "id": "r3-5",
+   "phase": "r3-clean-inventory",
+   "name": "R3: a name split across folders withholds the whole path",
+   "run": ".venv/bin/pytest tests/test_r3_clean_inventory.py::test_r3_a_name_split_across_folders_withholds_the_whole_path",
+   "status": "passing"
+  },
+  {
+   "id": "r3-6",
+   "phase": "r3-clean-inventory",
+   "name": "R3: a label with a name is refused and a plain one names the file",
+   "run": ".venv/bin/pytest tests/test_r3_clean_inventory.py::test_r3_a_label_with_a_name_is_refused_and_a_plain_one_names_the_file",
+   "status": "passing"
+  },
+  {
+   "id": "r3-7",
+   "phase": "r3-clean-inventory",
+   "name": "R3: the real path map stays on the laptop",
+   "run": ".venv/bin/pytest tests/test_r3_clean_inventory.py::test_r3_the_real_path_map_stays_on_the_laptop",
+   "status": "passing"
+  },
+  {
+   "id": "r3-8",
+   "phase": "r3-clean-inventory",
+   "name": "R3: a second put of the same name is not replaced",
+   "run": ".venv/bin/pytest tests/test_r3_clean_inventory.py::test_r3_a_second_put_of_the_same_name_is_not_replaced",
+   "status": "passing"
+  },
+  {
+   "id": "r3-9",
+   "phase": "r3-clean-inventory",
+   "name": "R3: the report folder the workbook and the noise are skipped",
+   "run": ".venv/bin/pytest tests/test_r3_clean_inventory.py::test_r3_the_report_folder_the_workbook_and_the_noise_are_skipped",
+   "status": "passing"
+  },
+  {
+   "id": "r3-10",
+   "phase": "r3-clean-inventory",
+   "name": "R3: a root in the report folder or under onedrive is refused",
+   "run": ".venv/bin/pytest tests/test_r3_clean_inventory.py::test_r3_a_root_in_the_report_folder_or_under_onedrive_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "r3-11",
+   "phase": "r3-clean-inventory",
+   "name": "R3: the laptop folder itself is never listed",
+   "run": ".venv/bin/pytest tests/test_r3_clean_inventory.py::test_r3_the_laptop_folder_itself_is_never_listed",
+   "status": "passing"
+  },
+  {
+   "id": "r3-12",
+   "phase": "r3-clean-inventory",
+   "name": "R3: versions share a group and rank newest first",
+   "run": ".venv/bin/pytest tests/test_r3_clean_inventory.py::test_r3_versions_share_a_group_and_rank_newest_first",
+   "status": "passing"
+  },
+  {
+   "id": "r3-13",
+   "phase": "r3-clean-inventory",
+   "name": "R3: several roots number their paths and hide the roots",
+   "run": ".venv/bin/pytest tests/test_r3_clean_inventory.py::test_r3_several_roots_number_their_paths_and_hide_the_roots",
+   "status": "passing"
+  },
+  {
+   "id": "r3-14",
+   "phase": "r3-clean-inventory",
+   "name": "R3: the command reads a windows path and puts",
+   "run": ".venv/bin/pytest tests/test_r3_clean_inventory.py::test_r3_the_command_reads_a_windows_path_and_puts",
+   "status": "passing"
   }
  ],
- "total_tests": 1827,
+ "total_tests": 1841,
  "checked": "2026-10-29"
 }

@@ -9,6 +9,7 @@ lc-laptop-clean, his yes of 2026-10-22).
     awb clean init
     awb clean fetch [tcp-xxxx] [--to DIR] [--save]
     awb clean report [--dir DIR] [--save]
+    awb clean inventory ROOT... [--project tcp-xxxx] [--label LABEL] [--put] [--include-onedrive]
     awb clean update
     awb clean doctor
 
@@ -55,6 +56,12 @@ bucket, into the report folder (awb/cleanreport.py), through the same key and th
 report workbook never leaves the laptop (rules/report-workbook.txt): a run, `--put`, `awb clean put`, the page and
 `awb clean fetch --to` refuse a path in the report folder; a run and the puts refuse a workbook with both sheets
 Names and Projects, with the one line of `reportbook.REFUSED`.
+
+`awb clean inventory ROOT...` lists the files under the folders he names without their content (awb/cleaninventory.py,
+the row format of awb/inventory.py): the full list with the real paths stays in the vault folder of the laptop, the
+coded copy carries every path segment through the same name machinery and `[withheld]` for a path that still
+carries something; `--put` sends the coded copy alone to `reports/inventory/` of the bucket with the same key and
+proxy. The report folder and the report workbook are skipped.
 
 `awb clean update` brings the lists of public words up to date (rules/common-words.txt, rules/tech-terms.txt,
 rules/allowed-terms.txt, rules/allow-domains.txt and the other allow lists) from the public repository: a
@@ -638,7 +645,7 @@ def _parser_files():
 
     ap = SafeParser(prog="awb clean", description="Clean project material on the laptop, offline: docs (office "
                     "and pdf files) or logs (logs, configs, tickets); also awb clean use tcp-xxxx, put, serve, "
-                    "register CUST-XXXX, init, fetch, report, update and doctor.")
+                    "register CUST-XXXX, init, fetch, report, inventory, update and doctor.")
     ap.add_argument("files", nargs="+", metavar="FILE", help="the files to clean; the originals are never changed")
     ap.add_argument("--project", default=None, metavar="tcp-xxxx", help="the project code (default: the work "
                     "folder of the current directory, else the project of awb clean use); its customer is CUST- and "
@@ -715,6 +722,41 @@ def _report_main(argv: list[str]) -> int:
     return EXIT_OK
 
 
+def _inventory_main(argv: list[str]) -> int:
+    from awb import cleaninventory, inventory
+    from awb.cli import SafeParser
+
+    ap = SafeParser(prog="awb clean inventory", description="The files under the folders you name, without their "
+                    "content: the full list with the real paths stays in the vault folder of this laptop, the coded "
+                    "copy (paths coded or [withheld], suffix, size, mtime, sha256, md5) is for the move plan.")
+    ap.add_argument("roots", nargs="+", metavar="ROOT", help="the folders to list, Windows paths accepted")
+    ap.add_argument("--project", default=None, metavar="tcp-xxxx", help="the project of every file listed "
+                    "(default none: the plan assigns by hash)")
+    ap.add_argument("--label", default=None, metavar="LABEL", help="one word for the file name of the coded copy, "
+                    "checked like a path")
+    ap.add_argument("--put", action="store_true", help="send the coded copy to reports/inventory/ of the bucket awb "
+                    "with the key of AWB_OBS_AK and AWB_OBS_SK")
+    ap.add_argument("--include-onedrive", action="store_true", help="take a root under OneDrive (hashing downloads "
+                    "its cloud-only files)")
+    try:
+        args = ap.parse_args(argv)
+    except SystemExit as exc:
+        return 0 if exc.code in (0, None) else EXIT_ERROR
+    try:
+        res = cleaninventory.run([Path(windows_path(r)) for r in args.roots], project=args.project,
+                                 label=args.label, put=args.put, include_onedrive=args.include_onedrive)
+    except (laptop.LaptopError, CleanError, cleaninventory.InventoryError, inventory.InventoryError) as err:
+        print("awb clean inventory: %s" % err, file=sys.stderr)
+        return EXIT_ERROR
+    except OSError as err:
+        print("awb clean inventory: %s (operating system error)" % type(err).__name__, file=sys.stderr)
+        return EXIT_ERROR
+    print("\n".join(cleaninventory.summary(res)))
+    if not args.put:
+        print("next: --put sends the coded copy for the move plan")
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     from awb import register
     from awb.cli import SafeParser
@@ -743,6 +785,8 @@ def main(argv: list[str] | None = None) -> int:
             return _fetch_main(argv[1:])
         if argv[:1] == ["report"]:
             return _report_main(argv[1:])
+        if argv[:1] == ["inventory"]:
+            return _inventory_main(argv[1:])
         if argv[:1] == ["use"]:
             return _use_main(argv[1:])
         if argv[:1] == ["put"]:

@@ -23,6 +23,9 @@ REPORTS_PREFIX = "reports/"
 """Where `awb report --codes --put` writes in the owner bucket: owner calls only, a session's calls never reach it."""
 REPORT_KEYS = frozenset(REPORTS_PREFIX + n for n in ("projects.csv", "projects.meta.json"))
 """The files of reports/ the owner's CLI may put: the codes file of his report workbook and its sidecar."""
+INVENTORY_PREFIX = REPORTS_PREFIX + "inventory/"
+"""Where the coded inventories of the move plan lie (awb/inventory.py): the laptop's of `awb clean inventory --put`
+with his own key, the host's and the buckets' of `awb files inventory`."""
 MONTH = r"[0-9]{4}-(?:0[1-9]|1[0-2])"
 """A month folder of the top of the owner bucket, <YYYY-MM>, without its slash (`awb bucket`)."""
 WEB_MONTH = r"\d{4}-(?:0[1-9]|1[0-2])"
