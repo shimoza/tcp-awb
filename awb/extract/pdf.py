@@ -198,10 +198,14 @@ def _limit_file_size() -> None:
 
 
 def runner_for(path: Path) -> Runner:
-    """Direct when paths.conf is not there or has no extract_user, else the unit runner with the bytes of the file.
-    A host file that is there and cannot be read raises OSError: the file fails, it is never run direct (K19)."""
+    """Direct when paths.conf is not there or has no extract_user and for the work user (T7), else the unit runner
+    with the bytes of the file. A host file that is there and cannot be read raises OSError: the file fails, it is
+    never run direct (K19)."""
     user = config.host_conf(strict=True).get("extract_user", "").strip()
-    if not user:
+    if not user or config.is_work_user():
+        # T7: only the owner's uid may start the unit (the sudoers line of seal/setup.sh). The work user is itself
+        # the sandbox and may run pdftotext on its own project files; through sudo it got "a password is required"
+        # and every PDF of `awb check` was opaque
         return Runner()
     return UnitRunner(user, Path(path).read_bytes())
 
@@ -326,7 +330,9 @@ def _read(ex: Extraction, tools: _Tools, target: str, depth: int = 0) -> Extract
     code, info_out, info_err = tools.run(tools.pdfinfo, ["-enc", "UTF-8"], target)
     if code != 0:
         ex.state = "failed"
-        if "password" in info_err.lower():
+        if info_err.lstrip().startswith("sudo:"):
+            ex.notes.append("the extract unit could not start (sudo refused), review the original")
+        elif "password" in info_err.lower():
             ex.notes.append("pdf is encrypted with a password, review the original")
         else:
             ex.notes.append("pdf could not be opened (exit code %d), review the original" % code)

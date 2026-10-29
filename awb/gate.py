@@ -793,7 +793,36 @@ def _is_opaque(label: str, data: bytes) -> bool:
 is_opaque = _is_opaque          # the lab take of awb inbox keeps such a file out of git
 
 
+def pdf_text(data: bytes) -> str | None:
+    """The text of a PDF read with pdftotext (awb/extract/pdf.py, the reader of the intake), or None when it could
+    not be read in full or has no text layer (task T7: before, every PDF was opaque). The bytes go to a private
+    temporary file that is removed after the read."""
+    import tempfile
+
+    from awb.extract import pdf
+
+    fd, name = tempfile.mkstemp(prefix="awb-gate-", suffix=".pdf")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        ex = pdf.extract(Path(name))
+    except Exception:
+        return None
+    finally:
+        try:
+            os.unlink(name)
+        except OSError:
+            pass
+    if ex.state != "ok" or ex.meta.get("incomplete") or ex.children or not (ex.text or "").strip():
+        return None
+    return ex.detect_text or ex.text
+
+
 def _scan_bytes(label: str, data: bytes, matcher: Matcher | None, path: Path | str | None = None) -> list[Finding]:
+    if data.startswith(b"%PDF-") and Path(label).suffix.lower() in (".pdf", ""):
+        text = pdf_text(data)
+        if text is not None:
+            return _scan_text(label, text, matcher, path)
     if _is_opaque(label, data):
         return [Finding(label, 0, "opaque")]
     return _scan_text(label, _decode(data), matcher, path)

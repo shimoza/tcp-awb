@@ -45,6 +45,20 @@ _BASE64_INLINE_RE = re.compile(
     r"(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/_-]{%d,}={0,2}(?![A-Za-z0-9+/_-])" % MIN_INLINE_BLOCK
 )
 _HEX_RE = re.compile(r"[0-9a-fA-F]+")
+_ID_RE = re.compile(r"[0-9a-fA-F]{16}|[0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64}"
+                    r"|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+"""The shape of an id (task T7): a request id (x-obs-request-id, X-Request-Id, request_id), a resource or user id
+of 16, 32, 40 or 64 hex digits, a uuid. One that decodes to binary is an id and hides nothing: it does not count
+towards MAX_BASE64_BLOCKS and its bytes give no strings (a request id whose bytes read ".id" was a web address)."""
+
+
+_KEBAB_RE = re.compile(r"[A-Za-z]+(?:[-_][A-Za-z]+)+")
+"""A word of letters joined by dashes or underscores (x-obs-request-id, request_id): a name, not an encoding."""
+
+
+def is_id(block: str) -> bool:
+    """True when `block` has the shape of an id (see _ID_RE) or of a field name of letters and dashes."""
+    return bool(_ID_RE.fullmatch(block) or _KEBAB_RE.fullmatch(block))
 _LATIN_STRING_RE = re.compile(r"[\x20-\x7e\xa0-\xff]{%d,}" % MIN_STRING)
 
 # --------------------------------------------------------------------------- decoding
@@ -317,7 +331,7 @@ def _decoded_blocks(text: str, kinds: tuple[str, ...] = ("base64",), more: list 
     it. A hex block that decodes to binary (an embedded object written as hex) is yielded as binary, so that
     its printable strings reach detection. Stops after MAX_BASE64_BLOCKS blocks or MAX_BASE64_DECODED
     characters of decoded text and then appends to `more`, when given, so that the caller knows the text was
-    not read in full.
+    not read in full. A block with the shape of an id (`is_id`) that decodes to binary does not count.
     """
     count = 0
     total = 0
@@ -334,7 +348,8 @@ def _decoded_blocks(text: str, kinds: tuple[str, ...] = ("base64",), more: list 
             if "hex" not in kinds or len(block) % 2 or block.isdigit():
                 continue
             result = _decode_hex(block)
-            count += 1
+            if result is not None or not is_id(block):
+                count += 1
             if result is not None:
                 total += len(result)
             yield start, end, result, multiline, "hex", block
@@ -344,7 +359,8 @@ def _decoded_blocks(text: str, kinds: tuple[str, ...] = ("base64",), more: list 
             # count as binary only what really has the shape of base64: the alphabet and a decodable length
             # once the padding is completed (a pasted block may have lost a pad character)
             if re.search(r"[0-9+/_-]", block) and _base64_bytes(block) is not None:
-                count += 1
+                if not is_id(block):
+                    count += 1
                 yield start, end, None, multiline, "base64", block
             continue
         count += 1
@@ -379,6 +395,8 @@ def encoded_blocks(text: str, depth: int = 3, more: list | None = None) -> list[
     out: list[tuple[int, str]] = []
     for start, end, result, _, kind, block in _decoded_blocks(text, ("base64", "hex"), more):
         if result is None:
+            if is_id(block):
+                continue        # an id that decodes to binary hides no text (T7)
             try:
                 raw = bytes.fromhex(block) if kind == "hex" else _base64_bytes(block)
             except ValueError:

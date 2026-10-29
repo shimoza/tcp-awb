@@ -568,6 +568,8 @@ class Claim:
     evidence: str = ""
     grade: str = ""
     verdict: str = ""
+    data: bool = field(default=False, compare=False, repr=False)
+    """A line of a code block or a raw JSON body (task T7): its numbers are data, never a computed claim."""
 
     def kinds(self) -> list[str]:
         return [k for k in self.kind.split(",") if k]
@@ -629,15 +631,36 @@ _NEG_RE = re.compile(
 _TRAIL = ".,;:!?)]}'\"`"
 
 
+_JSON_LINE_RE = re.compile(r"""^\s*(?:[{}\]]|\[\s*(?:[{"\[0-9-]|$)|"[^"\n]+"\s*:)""")
+"""A line of a raw JSON body quoted outside a code block: an opening or closing bracket or a "key": value."""
+_JSON_BODY_RE = re.compile(r"""`[^`\n]+`|\{\s*"[^"\n]*"\s*:[^\n]*\}""")
+"""Raw data inside a sentence: inline code or a JSON object."""
+
+
+def _is_data(text: str) -> bool:
+    """True for a raw JSON line (see _JSON_LINE_RE)."""
+    return bool(_JSON_LINE_RE.match(text))
+
+
+def _without_data(sentence: str) -> str:
+    """The sentence without its inline code and JSON objects: a number quoted from an answer is no claim (T7)."""
+    return _JSON_BODY_RE.sub(" ", sentence)
+
+
 def _units(text: str) -> list[tuple[int, str]]:
     """(line, text) of every sentence, heading, table row and code line, in order of the text."""
-    out: list[tuple[int, str]] = []
+    return [(line, unit) for line, unit, _ in _marked_units(text)]
+
+
+def _marked_units(text: str) -> list[tuple[int, str, bool]]:
+    """(line, text, data) of every unit of `_units`; data is true for a line of a code block or a raw JSON line."""
+    out: list[tuple[int, str, bool]] = []
     block: list[tuple[int, str]] = []
     quoted = False   # the open block is a block quote
 
     def flush() -> None:
         if block:
-            out.extend(_sentences(block))
+            out.extend((line, unit, False) for line, unit in _sentences(block))
             block.clear()
 
     in_code = False
@@ -648,7 +671,7 @@ def _units(text: str) -> list[tuple[int, str]]:
             continue
         if in_code:
             if raw.strip():
-                out.append((no, raw.strip()))
+                out.append((no, raw.strip(), True))
             continue
         if not raw.strip():
             flush()
@@ -657,11 +680,15 @@ def _units(text: str) -> list[tuple[int, str]]:
             flush()
             body = _NUMBERING_RE.sub("", _HEADING_RE.sub("", raw).strip()).rstrip("#").strip()
             if body:
-                out.append((no, body))
+                out.append((no, body, False))
             continue
         if _TABLE_RE.match(raw):
             flush()
-            out.append((no, raw.strip()))
+            out.append((no, raw.strip(), False))
+            continue
+        if _is_data(raw):
+            flush()
+            out.append((no, raw.strip(), True))
             continue
         m = _LIST_RE.match(raw)
         if m:
@@ -782,12 +809,14 @@ def _sentence_cell(text: str) -> str:
 def find_claims(text: str) -> list[Claim]:
     """Every sentence of `text` that carries a claim, with ids C-1, C-2 ... in order of the text."""
     out: list[Claim] = []
-    for line, sentence in _units(text):
+    for line, sentence, data in _marked_units(text):
         kinds, total = _scan(sentence)
         if not kinds:
             continue
+        if total and (data or not _scan(_without_data(sentence))[1]):
+            total = False       # T7: "total" and its number inside a quoted raw answer are data, not a total
         out.append(Claim(id="C-%d" % (len(out) + 1), line=line, kind=",".join(kinds), risk=_risk(kinds, total),
-                         sentence=_sentence_cell(sentence)))
+                         sentence=_sentence_cell(sentence), data=data))
     return out
 
 
@@ -1170,7 +1199,8 @@ def _claim_problems(c: Claim, row: Claim, project: Path, deliverable: Path, tier
         problem = _evidence_problem(project, row.evidence, deliverable, True, kb_where, sentence=c.sentence)
         if problem:
             out.append("%s: %s" % (where, problem))
-        elif "number" in c.kinds() and _ARITH_RE.search(c.sentence) and not _CALC_EVIDENCE_RE.search(row.evidence):
+        elif "number" in c.kinds() and not c.data and _ARITH_RE.search(_without_data(c.sentence)) \
+                and not _CALC_EVIDENCE_RE.search(row.evidence):
             out.append("%s: a computed number needs its calculation as evidence (awb calc, then calc:K-N)" % where)
         if not row.verdict:
             out.append("%s: no verdict" % where)

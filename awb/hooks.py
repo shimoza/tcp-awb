@@ -812,7 +812,7 @@ def hook_post_write(data: dict, names: bool = True) -> int:
     warnings: list[str] = []
     text = _plain_text(path)
     shortened = ""
-    if text is not None and root is not None:
+    if text is not None and root is not None and not _binary_file(path):
         # task GT: a log of our own lab runs keeps every id; its secrets are shortened or replaced in place
         text, shortened = _shorten_in_place(path, text)
     if text is not None:
@@ -880,6 +880,19 @@ def hook_post_write(data: dict, names: bool = True) -> int:
 
 NAME_CLASSES = ("name", "path")
 """What the write hook still refuses in a project file (task GT): a registered name in the text or the file name."""
+
+
+def _binary_file(path: Path) -> bool:
+    """A file the shortening never rewrites (task T7): a PDF, an image, an archive or an office file stays byte for
+    byte even when its bytes decode as UTF-8 (a PDF of ASCII85 or hex streams)."""
+    from awb import putcopy
+
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(_SNIFF)
+    except OSError:
+        return True
+    return putcopy.is_binary(path.name, head)
 
 
 def _shorten_in_place(path: Path, text: str) -> tuple[str, str]:

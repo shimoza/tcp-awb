@@ -388,6 +388,11 @@ def _host_number_ip(value: str) -> bool:
 _IBAN_SHAPE = re.compile(r"\b[A-Za-z]{2}\d{2}(?: ?[A-Za-z0-9]{4}){2,7}(?: ?[A-Za-z0-9]{1,3})?\b")
 """The strict shape of an IBAN, for the rule that digits inside it are never a phone number: the loose pattern
 above would swallow any spaced number between two letters."""
+_ID_SHAPE = re.compile(
+    r"(?<![0-9A-Za-z])(?=[0-9-]*[a-fA-F])(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    r"|[0-9a-fA-F]{64}|[0-9a-fA-F]{40}|[0-9a-fA-F]{32}|[0-9a-fA-F]{16})(?![0-9A-Za-z])")
+"""An id of 16, 32, 40 or 64 hex digits with a letter among them or a uuid (a request id, a resource id): what lies
+inside it is no phone number, IBAN or address (task T7). A run of digits alone stays a number."""
 
 _TAG_ATTRS = r"""(?:\s(?:(?>"[^"<]*")|(?>'[^'<]*')|[^<>])*+)?"""
 _MARKUP_RE = re.compile(
@@ -543,6 +548,10 @@ def _find(text: str) -> list[Span]:
     # digits inside something shaped like an IBAN are never a phone number, even when the IBAN is invalid
     iban_shaped = [(m.start(), m.end()) for m in _IBAN_SHAPE.finditer(text)]
     found = [t for t in found if not (t[2] == "PHONE" and any(a <= t[0] and t[1] <= b for a, b in iban_shaped))]
+    # a request id or a resource id is an id: nothing found inside it counts (T7)
+    ids = [(m.start(), m.end()) for m in _ID_SHAPE.finditer(text)]
+    if ids:
+        found = [t for t in found if not any(a <= t[0] and t[1] <= b for a, b in ids)]
     # the size, date and clock columns of a listing, a file name and the zone offset of a time are not a number
     found = [t for t in found if not (t[2] == "PHONE" and _listing_part(text, t[0], t[1]))]
     # a dotted number announced as a section of a document is a section, not an address: service

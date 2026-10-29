@@ -211,6 +211,8 @@ class Tokens:
 
 def wipe_secrets(text: str, counts: Counter) -> str:
     """Every secret of the rules above replaced; the counts per class go into `counts` (never a value)."""
+    from awb import labsecrets
+
     def private(m):
         counts["private key"] += 1
         return PRIVATE_KEY
@@ -222,6 +224,9 @@ def wipe_secrets(text: str, counts: Counter) -> str:
         value = m.group("value")
         if _PLACEHOLDER.match(value.strip()) or len(value.strip()) < 3:
             return m.group(0)
+        if labsecrets.code_value(m.group("sep"), bool(m.group("q")), value, m.string[m.end():m.end() + 1],
+                                  variables=False):
+            return m.group(0)      # code: getpass.getpass(...), os.environ["X"], password=args.password (T7)
         if re.fullmatch(r"\[[a-z ]+\d*", value.strip()):
             return m.group(0)      # a token of a wipe before ("[secret]" of a clean copy), cut at its "]"
         if re.fullmatch(r"[^\W\d_]+", value.strip()) and _plain_word(value.strip()):

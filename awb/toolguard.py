@@ -638,6 +638,47 @@ def _programs(words: list) -> set[int]:
     return out
 
 
+_CLOUD_CALL_VALUED = frozenset(("--tenant", "--role", "--region", "--query", "--body", "--project", "--scope"))
+"""The options of `awb cloud call` that take a value (COMMANDS.md)."""
+
+
+def _api_paths(words: list) -> set[int]:
+    """The indexes of the words that are an API path, not a file (task T7): the PATH of `awb cloud call METHOD
+    SERVICE PATH` (`/` is the list of OBS buckets, `/v3/projects` a path of IAM) and the value of a `--param K=V`
+    of `awb lab run` and `awb lab dry-run`. The file of --body stays a path."""
+    out: set[int] = set()
+    for n, (w, _, cmd) in enumerate(words):
+        if not cmd or w.dynamic or os.path.basename(w.value) != "awb":
+            continue
+        rest = []
+        for m in range(n + 1, len(words)):
+            if words[m][2]:
+                break
+            rest.append(m)
+        vals = [words[m][0].value if not words[m][0].dynamic else None for m in rest]
+        if vals[:2] == ["cloud", "call"]:
+            operands, skip = [], False
+            for m, v in zip(rest[2:], vals[2:]):
+                if skip:
+                    skip = False
+                    continue
+                if v is None:
+                    break
+                if v.startswith("--"):
+                    skip = v in _CLOUD_CALL_VALUED
+                    continue
+                operands.append(m)
+            if len(operands) >= 3:
+                out.add(operands[2])
+        elif vals[:1] == ["lab"] and len(vals) > 1 and vals[1] in ("run", "dry-run"):
+            for i, (m, v) in enumerate(zip(rest, vals)):
+                if v == "--param" and i + 1 < len(rest) and vals[i + 1] is not None and "=" in vals[i + 1]:
+                    out.add(rest[i + 1])
+                elif v is not None and v.startswith("--param="):
+                    out.add(m)
+    return out
+
+
 def _shell_checks(command: str, cwd: Path, home: Path) -> list:
     """The checks of a shell command in their order: a Path to classify, or a class to refuse at once. A relative
     path is taken against the folder the command stands in at that point: the folder of the call, changed by each
@@ -668,7 +709,7 @@ def _shell_checks(command: str, cwd: Path, home: Path) -> list:
     cds = [n for n, (w, _, cmd) in enumerate(words) if cmd and not w.dynamic and not w.mixed and w.value in _CD_WORDS]
     exact = len(lists) == 1 and all(i in _ShellReader.EXACT for i in reader.items if isinstance(i, str))
     targets = {n: _cd_target(words, n) for n in cds}
-    programs = _programs(words)
+    programs = _programs(words) | _api_paths(words)
     visited, here = [cwd], [cwd]
 
     def move(n: int, base: list[Path]) -> list[Path]:

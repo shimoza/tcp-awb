@@ -336,7 +336,8 @@ assistant session),
 - `intake.unknown_candidates(text, known, rules=...)`, `intake.STRONG_RULES` (used by spawn), `report.render_minimal`.
 - `check`: a path that carries a form is printed as `file N`; class `path`; `--no-register`.
 - `gate`: printed paths are masked; `--no-register`, `--register`, `--repo`; `GateError`, `DETECTORS`, `CLASSES`;
-  class `opaque` for files it cannot read. The gate fails closed when no register can be loaded.
+  class `opaque` for files it cannot read; a PDF is read through pdftotext (`gate.pdf_text`) and checked as text,
+  opaque when that fails or it has no text layer. The gate fails closed when no register can be loaded.
 - `cli.SafeParser` never echoes an argument. `projects.spawn` refuses without a register and refuses a goal that
   looks like it carries an unregistered name.
 
@@ -616,7 +617,8 @@ translate prompt starts at the folder of the file. `review` and `pricebook` rais
   prompt, pre-write, pre-tool and post-write, a warning in the context for session-start.
 - pre-tool (PreToolUse, matcher `Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash`): `hooks.guard(data, p,
   home, sealed) -> str | None` is the class of a refused place (`ANOTHER_PROJECT`, `CLIENT_FOLDER`, `KEY_FOLDER`,
-  `UNKNOWN_PROJECT`) or None; a refusal is one line on stderr and one line in `<shared>/sessions/guard.log`;
+  `UNKNOWN_PROJECT`) or None (the PATH of `awb cloud call METHOD SERVICE PATH` and a `--param K=V` of `awb lab run`
+  are API paths, read as text, T7); a refusal is one line on stderr and one line in `<shared>/sessions/guard.log`;
   `hooks.refusals(p, code, day)` counts them, `questions.record_refusals` writes `<shared>/english/refused.tsv`
   from the stop hook; `hooks.selftest() -> list[str]` and `awb hook selftest`.
 - `projects.spawn` writes `<project>/.claude/settings.json` with these six hooks, using `sys.executable -m awb hook

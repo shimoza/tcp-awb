@@ -60,6 +60,30 @@ _VALUE_AT_RE = re.compile(r"[^\s\"'`,;<>(){}\[\]]+")
 _MAX_ROUNDS = 500
 
 
+_DOTTED_RE = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+")
+_VARIABLE_RE = re.compile(r"[a-z_]+")
+
+
+def code_value(sep: str, quoted: bool, value: str, after: str, variables: bool = True) -> bool:
+    """A password or login field of code, not a value (task T7, the rules of the gate's prose_password_spans): an
+    unquoted call, index or format field (`getpass.getpass(...)`, `os.environ["X"]`, `{password}`), and after `=`
+    an attribute (`args.password`) or, with `variables`, a lower case variable name (`password=password`). A quoted
+    value, a value after `:` and a value with a digit or a symbol stay values. `after` is the text right after the
+    value."""
+    if quoted:
+        return False
+    call = re.fullmatch(r"[A-Za-z_][\w.]*[(\[]", value)
+    if call or after[:1] in ("(", "[") or re.match(r"\{[A-Za-z_]\w*(?:[.!:][^}]*)?\}?$", value):
+        return True             # a call, an index or a format field ({password})
+    if "=" not in sep:
+        return False
+    return bool(_DOTTED_RE.fullmatch(value) or (variables and _VARIABLE_RE.fullmatch(value)))
+
+
+def _code_value(m: re.Match) -> bool:
+    return code_value(m.group("key"), bool(m.group("q")), m.group("value"), m.string[m.end():m.end() + 1])
+
+
 def short(value: str) -> str:
     """The first 8 characters, "..." and the length."""
     return "%s...(%d chars)" % (value[:KEEP], len(value))
@@ -87,7 +111,7 @@ def shorten(text: str) -> tuple[str, Counter]:
     def field(kind: str):
         def sub(m):
             value = m.group("value")
-            if _kept(value):
+            if _kept(value) or (kind in ("secret", "login") and _code_value(m)):
                 return m.group(0)
             counts[kind] += 1
             new = short(value) if kind == "shortened" else (LOGIN if kind == "login" else SECRET)
