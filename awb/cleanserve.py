@@ -156,7 +156,7 @@ def run_page(state: State, fields: dict[str, str], uploads: list[tuple[str, byte
             state.message = "no file: upload one or type a path"
             return
         lines: list[str] = []
-        runs = clean.run_files(files, project, kind, laptop.work_dir(project) / "clean", say=lines.append)
+        runs = clean.run_files(files, project, kind, laptop.clean_dir(project), say=lines.append)
     except (laptop.LaptopError, clean.CleanError) as err:
         state.message = "the run failed: %s" % err
         return
@@ -177,7 +177,7 @@ def run_page(state: State, fields: dict[str, str], uploads: list[tuple[str, byte
     state.report = "\n".join(reports)
     state.message = "%d clean cop%s of %d file%s in %s" % (len(copies), "y" if len(copies) == 1 else "ies",
                                                           len(files), "" if len(files) == 1 else "s",
-                                                          laptop.work_dir(project) / "clean")
+                                                          laptop.clean_dir(project))
 
 
 def put_page(state: State, client=None) -> None:

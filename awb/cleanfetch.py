@@ -6,8 +6,10 @@ of the bucket. On the laptop this command lists that `out/` with his own key (AW
 files that are not fetched yet into a folder and prints one line per file. It never lists, reads or writes `in/`, and
 it goes through HTTPS_PROXY like `--put`.
 
-The folder is `--to DIR`, else the one saved before with `--to DIR --save` (the file `fetch-dir` of the laptop folder),
-for example a Windows folder under /mnt/c/Users/<him>/... What was fetched is remembered in `vault/fetched.tsv` of the
+The folder is `--to DIR`; else, once a layout root is set with `awb clean layout` (task R6), `out/` of the project in
+the layout, `<root>/YYYY-MM/tcp-xxxx/out/` (the folder found there, else the month of the project's bucket folder);
+else the one saved before with `--to DIR --save` (the file `fetch-dir` of the laptop folder), for example a Windows
+folder under /mnt/c/Users/<him>/... What was fetched is remembered in `vault/fetched.tsv` of the
 laptop (key, etag, day, mode 600): a file counts as fetched while its etag is the same, a file put again with
 `--replace` has a new etag and comes again, next to the first under a name with (2). Nothing here prints a customer
 name: the lines carry file names and counts. A Markdown deliverable is in out/ as md and HTML (task DN): both come,
@@ -78,20 +80,27 @@ def fetch(project: str, to: Path | None, *, client=None, save: bool = False, say
     """The new files of out/ of `project` into the folder. Returns the number of files that failed."""
     from awb import bucket, bucket_layout, clean, obs
 
-    laptop.customer_of(project)                       # a project code reads tcp-xxxx
-    folder = to if to is not None else saved_dir()
-    if folder is None:
-        raise FetchError("give the folder with --to DIR (add --save to keep it for the next time)")
-    folder = Path(os.path.abspath(folder.expanduser()))
     from awb import cleanreport
 
-    if cleanreport.in_report_folder(folder):
-        raise FetchError("the report folder takes projects.csv of awb clean report only: give another --to")
+    laptop.customer_of(project)                       # a project code reads tcp-xxxx
+    root = laptop.layout_root()
+    folder = to if to is not None else (None if root is not None else saved_dir())
+    if folder is None and root is None:
+        raise FetchError("give the folder with --to DIR (add --save to keep it for the next time)")
+    if folder is not None:
+        folder = Path(os.path.abspath(folder.expanduser()))
+        if cleanreport.in_report_folder(folder):
+            raise FetchError("the report folder takes projects.csv of awb clean report only: give another --to")
     c = client or clean._client("fetch")
     try:
         base = bucket.find_folder(c, project)
         if base is None:
             raise FetchError("%s has no folder in the bucket yet" % project)
+        if folder is None:                                      # out/ of the project in the layout (R6)
+            found = laptop.layout_project(project)
+            folder = Path(os.path.abspath((found if found is not None else root / base.rstrip("/")) / "out"))
+            if cleanreport.in_report_folder(folder):
+                raise FetchError("the layout root lies in the report folder: set another with awb clean layout")
         prefix = base + bucket_layout.OUT                       # in/ is never asked for
         objects = [(k, s, e) for k, s, e in c.list(prefix).objects
                    if k.startswith(prefix) and not k.endswith("/") and k.rsplit("/", 1)[-1] != ".keep"]

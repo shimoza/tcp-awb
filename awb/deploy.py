@@ -162,6 +162,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/cleanreport.py": "awb clean report, run on the owner's laptop",
     "awb/reportbook.py": "the fingerprint of the report workbook, read by awb clean on the laptop and awb import",
     "awb/cleaninventory.py": "awb clean inventory, run on the owner's laptop",
+    "awb/cleanfiles.py": "awb clean files plan|apply|undo, run on the owner's laptop (task R6)",
     "awb/inventory.py": "the row format of the inventories, read by awb clean inventory and awb files inventory",
     "awb/clean.py": "awb clean, run on the owner's laptop (and awb import --auto reads its name rule)",
     "awb/fplearn_cmd.py": "awb check learn and awb check allow, run by the owner's timer and in his own terminal",

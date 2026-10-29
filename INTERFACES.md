@@ -1188,6 +1188,19 @@ target, project, path, keeper, reason). `bucket_layout.PLAN_PREFIX` is `reports/
 `reports/plan/<stamp>/PLAN.tsv`; `keys_exchange.owner_key_ok` allows a PUT of that key and nothing else under
 `reports/plan/`.
 
+## The move plan on the laptop (2026-10-29, R6)
+
+`awb/cleanfiles.py` is `awb clean files plan|apply|undo` (dispatched by `clean.main`): `fetch_plan(spec, client=None)
+-> stamp`, `read_plan(path) -> laptop rows`, `local_plan(stamp) -> (stamp, rows)`, `local_inventory() -> {id: row}`
+(the `cleaninventory.LOCAL_COLUMNS` rows of `vault/inventory/*.tsv`), `resolve(rows, inv, layout) -> [Step]`,
+`check(step, layout, include_onedrive) -> reason`, `free_name(path, taken)`, `move_file(src, dst, sha256) -> Path`,
+`show(stamp, client=None, say=print)`, `apply(stamp, go=False, include_onedrive=False, say=print) -> {moved,
+skipped}`, `undo(stamp, say=print) -> {back, skipped}`, `main(argv)`. `PLAN_COLUMNS` equals `filesplan.COLUMNS`; the
+journal `vault/moves/<stamp>.tsv` has `JOURNAL_COLUMNS` (id, from, to, sha256). `awb/laptop.py` gained the layout
+root: `layout_root()`, `save_layout(root)`, `layout_project(code)`, `layout_dir(code, month=None)`, `clean_dir(code)`,
+`use(code, month=None)`; `work_dir` and `project_of_dir` know the layout. `awb clean layout [ROOT] [--save]` and
+`awb clean use --month` are in `awb/clean.py`; `cleanfetch.fetch` without `to` takes `out/` of the layout.
+
 ## The deploy (2026-10-07, T1)
 
 `awb/deploy.py`, `awb deploy` (DELEGATED, refused for the work user). `main(argv, *, root=OPT, etc=Path("/etc"),

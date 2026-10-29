@@ -13131,8 +13131,127 @@
    "name": "R5: the owner may put the laptop part of a plan and nothing else there",
    "run": ".venv/bin/pytest tests/test_r5_files_plan.py::test_r5_the_owner_may_put_the_laptop_part_of_a_plan_and_nothing_else_there",
    "status": "passing"
+  },
+  {
+   "id": "r6-1",
+   "phase": "r6-clean-files",
+   "name": "R6: the plan columns are those of awb files plan",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_the_plan_columns_are_those_of_awb_files_plan",
+   "status": "passing"
+  },
+  {
+   "id": "r6-2",
+   "phase": "r6-clean-files",
+   "name": "R6: the layout root is set once and replaced only with save",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_the_layout_root_is_set_once_and_replaced_only_with_save",
+   "status": "passing"
+  },
+  {
+   "id": "r6-3",
+   "phase": "r6-clean-files",
+   "name": "R6: the layout root refuses the report folder and the laptop folder",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_the_layout_root_refuses_the_report_folder_and_the_laptop_folder",
+   "status": "passing"
+  },
+  {
+   "id": "r6-4",
+   "phase": "r6-clean-files",
+   "name": "R6: use makes the project folders under the layout",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_use_makes_the_project_folders_under_the_layout",
+   "status": "passing"
+  },
+  {
+   "id": "r6-5",
+   "phase": "r6-clean-files",
+   "name": "R6: use takes the month of the bucket folder",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_use_takes_the_month_of_the_bucket_folder",
+   "status": "passing"
+  },
+  {
+   "id": "r6-6",
+   "phase": "r6-clean-files",
+   "name": "R6: without a layout root use and the work folder stay as before",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_without_a_layout_root_use_and_the_work_folder_stay_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "r6-7",
+   "phase": "r6-clean-files",
+   "name": "R6: fetch without to lands in out of the project in the layout",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_fetch_without_to_lands_in_out_of_the_project_in_the_layout",
+   "status": "passing"
+  },
+  {
+   "id": "r6-8",
+   "phase": "r6-clean-files",
+   "name": "R6: plan fetches the newest and prints the real paths and sends nothing",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_plan_fetches_the_newest_and_prints_the_real_paths_and_sends_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "r6-9",
+   "phase": "r6-clean-files",
+   "name": "R6: plan names an unknown id and a bad target",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_plan_names_an_unknown_id_and_a_bad_target",
+   "status": "passing"
+  },
+  {
+   "id": "r6-10",
+   "phase": "r6-clean-files",
+   "name": "R6: a plan with another header is refused",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_a_plan_with_another_header_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "r6-11",
+   "phase": "r6-clean-files",
+   "name": "R6: the dry run changes nothing",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_the_dry_run_changes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "r6-12",
+   "phase": "r6-clean-files",
+   "name": "R6: apply then undo restores the exact tree and deletes nothing",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_apply_then_undo_restores_the_exact_tree_and_deletes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "r6-13",
+   "phase": "r6-clean-files",
+   "name": "R6: a changed or missing file is skipped",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_a_changed_or_missing_file_is_skipped",
+   "status": "passing"
+  },
+  {
+   "id": "r6-14",
+   "phase": "r6-clean-files",
+   "name": "R6: a taken name gets a number and is never overwritten",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_a_taken_name_gets_a_number_and_is_never_overwritten",
+   "status": "passing"
+  },
+  {
+   "id": "r6-15",
+   "phase": "r6-clean-files",
+   "name": "R6: apply needs a fetched plan and a layout root",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_apply_needs_a_fetched_plan_and_a_layout_root",
+   "status": "passing"
+  },
+  {
+   "id": "r6-16",
+   "phase": "r6-clean-files",
+   "name": "R6: the report folder the workbook onedrive and outside places are never touched",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_the_report_folder_the_workbook_onedrive_and_outside_places_are_never_touched",
+   "status": "passing"
+  },
+  {
+   "id": "r6-17",
+   "phase": "r6-clean-files",
+   "name": "R6: the commands run through the cli",
+   "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_the_commands_run_through_the_cli",
+   "status": "passing"
   }
  ],
- "total_tests": 1876,
+ "total_tests": 1893,
  "checked": "2026-10-29"
 }

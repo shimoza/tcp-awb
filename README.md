@@ -472,7 +472,8 @@ vault folder (700). `awb clean register CUST-XXXX` asks the written forms of the
     awb clean put
 
 - Name the project once with `awb clean use tcp-xxxx`: it is remembered on the laptop and its work folder
-  `~/work/tcp-xxxx` is made. A run takes `--project` first, then the work folder of the current directory, then
+  `~/work/tcp-xxxx` is made (with a layout root, `clean/` of `<root>/YYYY-MM/tcp-xxxx/`, section "Folder layout and
+  the move plan" below). A run takes `--project` first, then the work folder of the current directory, then
   that project, and prints it in its first line. Without `--project` the copies go into `clean/` of the work
   folder. `--kind` defaults to logs for a `.log` file and to docs for any other. A Windows path
   (`D:\Documents\x.docx`, `D:/Documents/x.docx`) is read as `/mnt/d/Documents/x.docx`. A customer that is not
@@ -538,6 +539,26 @@ The report workbook never leaves the laptop (`rules/report-workbook.txt`): `awb 
 the page refuse a file in the report folder and any workbook with both sheets Names and Projects, `awb clean fetch
 --to` refuses the report folder; on the host `awb import` and its timer hold such a workbook, import nothing of
 it and mail you to delete it from `in/`.
+
+### Folder layout and the move plan
+
+One layout root on the laptop holds every project as `YYYY-MM/tcp-xxxx/` with `private/` (originals and your notes),
+`clean/` (what went up), `out/` (deliverables fetched back) and `_archive/` (what the move plan moved aside).
+
+    awb clean layout "D:\Work"                 # once; --save replaces it later
+    awb clean use tcp-xxxx                      # makes private/, clean/ and out/; clean/ is the work folder
+    awb clean files plan                        # the newest plan of the host, with your real paths
+    awb clean files apply                       # the dry run: what would move and what is skipped
+    awb clean files apply --go                  # the moves
+    awb clean files undo <stamp>                # everything of that run back
+
+The month of a new project folder is `--month YYYY-MM`, else that of its bucket folder when your key is set, else
+this month. `awb clean fetch` without `--to` lands in `out/`. The plan comes from `reports/plan/<stamp>/PLAN.tsv`
+of the bucket (ids and coded paths only); the laptop joins it with the full local inventory of `awb clean inventory`
+and prints the real paths on your screen only. The apply never deletes and never overwrites (a taken name gets
+` (2)`), checks the sha256 of each file against the inventory and skips a changed or missing one. It never touches
+the report folder, the report workbook, OneDrive without `--include-onedrive` or anything outside the inventory roots
+and the layout root. Each move goes into the undo journal `~/awb-laptop/vault/moves/<stamp>.tsv` (600).
 
 ### As a plugin for Claude Code
 
