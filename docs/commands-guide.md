@@ -153,6 +153,19 @@ or `owner-bucket-<stamp>.tsv` and `lab-bucket-<stamp>.tsv`; `--out FILE` takes a
 key service lets the owner's CLI read the laptop inventories under `reports/inventory/` (`awb clean inventory --put`)
 for the plan.
 
+| command | what it does |
+|---|---|
+| `awb files plan [--laptop FILE\|NAME\|latest]... [--host FILE] [--buckets FILE...] [--put]` | the move plan, as the owner (task R5): reads the newest laptop inventory under `reports/inventory/` of the owner bucket through the key service (or the NAME there or a local FILE named, more than one with `--laptop` again) and the newest host and bucket inventories of `~/tcp-shared/files/` (or the files named); a missing host or bucket inventory is said in one line. Matches identical files by sha256 or md5, probable ones by size, suffix and a time within two minutes (no hash, a multipart object), versions by the group of the inventory and the kind. Laptop: the keeper of identical copies is the one already in its layout place, else the shallowest path, else the newest; every other copy and every older version is `archive` to `YYYY-MM/tcp-xxxx/_archive/<stamp>/`, the newest is `move` to `YYYY-MM/tcp-xxxx/private/`, `clean/` or `out/` by its kind or `keep` when it lies there. A laptop file without a project takes the one project of its identical host or bucket copies; the rest stay `keep` with `no project`. Host and buckets are listed only: `stale-in`, `withheld`, `duplicate`. Nothing moves, nothing is deleted. Writes `~/tcp-shared/files/plan-<stamp>/PLAN.md` and `PLAN.tsv`; `--put` also puts the laptop rows to `reports/plan/<stamp>/PLAN.tsv` for `awb clean files plan` on the laptop |
+
+The plan file `PLAN.tsv` has the header `id place action target project path keeper reason`: the row id of the
+inventory (the laptop finds the real path by it), the place, the action (laptop `keep`, `move`, `archive`; host and
+buckets `stale-in`, `duplicate`, `withheld`), the target folder relative to the layout root of the laptop ending with
+`/` (for `move` the laptop appends the real file name, for `archive` the real path relative to the root of its
+inventory; empty for the rest), the project after the assignment by hash, the coded path or `[withheld]`, the id of
+the copy that stays for `archive` and `duplicate`, and a short reason. The laptop rows are checked again at entry, a
+path with a hit is `[withheld]`. The month of a project is that of its folder in the owner bucket, else that of its
+`created` in the register; without one its files are `keep` with `no month for the project`.
+
 These commands hold no bucket key. They call the admin socket of the key service (`awb keys unlock` loads the lab
 key of `bucket_tenant` in keys.conf; the bucket is `owner_bucket` there). A locked or stopped service stops them with
 one line that names `awb keys unlock`. The work user of the seal cannot use the bucket, by design.
