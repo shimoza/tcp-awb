@@ -1,0 +1,14 @@
+# The timer of awb-report-codes-work.service: every hour at minute 40, up to 5 minutes later at random, so the file
+# is fresh when the owner's awb-report-codes runs at minute 50. A missed run is not made up at boot: the next hour
+# writes the file anyway. Installed and enabled by seal/setup.sh and setup.sh --update (WORK_JOBS).
+[Unit]
+Description=Architect Workbench: the codes file of the report workbook, every hour, work side
+
+[Timer]
+OnCalendar=*-*-* *:40:00
+RandomizedDelaySec=5min
+Persistent=false
+Unit=awb-report-codes-work.service
+
+[Install]
+WantedBy=timers.target

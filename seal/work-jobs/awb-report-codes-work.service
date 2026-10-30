@@ -1,0 +1,37 @@
+# The work side of the codes file of the owner's report workbook (task R1b), rendered by seal/setup.sh with the
+# work home. The project folders are the work user's (mode 700) and the owner can read none of them, so this unit
+# reads them: it runs awb report --codes --to-shared as the work user, one row per project, codes only, every text
+# checked (the name check over the socket of the vault daemon, so no address family but unix). It writes
+# projects.csv and projects.meta.json to report-codes/ of the shared side (the group's, 640) every hour; the
+# owner's unit awb-report-codes reads them ten minutes later, checks them again and puts them. It puts nothing.
+[Unit]
+Description=Architect Workbench: the codes file of the report workbook, every hour, work side
+After=awb-vaultd.service
+
+[Service]
+Type=oneshot
+User=awb
+Group=awb
+UMask=0027
+WorkingDirectory=@WORK_HOME@
+ExecStart=/usr/local/bin/awb report --codes --to-shared
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@WORK_HOME@/tcp-shared
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+LimitCORE=0
+TimeoutStartSec=15min

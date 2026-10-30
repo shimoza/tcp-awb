@@ -266,7 +266,7 @@ def test_r1_the_hourly_unit_runs_as_the_owner_and_the_seal_and_the_update_instal
     timer = (WORK_JOBS / "awb-report-codes.timer").read_text(encoding="utf-8").splitlines()
     assert "User=@OWNER@" in service and "Type=oneshot" in service
     assert [x for x in service if x.startswith("ExecStart=")] == [
-        "ExecStart=/usr/local/bin/awb report --codes --put --if-changed"]
+        "ExecStart=/usr/local/bin/awb report --codes --from-shared --put --if-changed"]
     assert "StateDirectory=awb-report-codes" in service and "RestrictAddressFamilies=AF_UNIX" in service
     assert "OnCalendar=*-*-* *:50:00" in timer and "Unit=awb-report-codes.service" in timer
     res = run_script(SETUP, ["--dry-run"], fakebin)
@@ -292,5 +292,5 @@ def test_r1_the_hourly_unit_runs_as_the_owner_and_the_seal_and_the_update_instal
     assert res.returncode == 0, res.stderr
     checks = [line[6:] for line in res.stdout.splitlines() if line.startswith("CHECK ")]
     for must in ("the timer awb-report-codes.timer is enabled", "awb-report-codes.service runs as the owner",
-                 "awb-report-codes.service runs awb report --codes --put --if-changed alone, every hour"):
+                 "awb-report-codes.service runs awb report --codes --from-shared --put --if-changed alone, every hour"):
         assert must in checks, must

@@ -13250,8 +13250,64 @@
    "name": "R6: the commands run through the cli",
    "run": ".venv/bin/pytest tests/test_r6_clean_files.py::test_r6_the_commands_run_through_the_cli",
    "status": "passing"
+  },
+  {
+   "id": "r1b-1",
+   "phase": "r1b-codes-reader",
+   "name": "R1b: an unreadable project folder is no crash and never a row with empty texts",
+   "run": ".venv/bin/pytest tests/test_r1b_codes_reader.py::test_r1b_an_unreadable_project_folder_is_no_crash_and_never_a_row_with_empty_texts",
+   "status": "passing"
+  },
+  {
+   "id": "r1b-2",
+   "phase": "r1b-codes-reader",
+   "name": "R1b: the sealed split keeps the task descriptions and whose move",
+   "run": ".venv/bin/pytest tests/test_r1b_codes_reader.py::test_r1b_the_sealed_split_keeps_the_task_descriptions_and_whose_move",
+   "status": "passing"
+  },
+  {
+   "id": "r1b-3",
+   "phase": "r1b-codes-reader",
+   "name": "R1b: the owner side puts what the work side handed over",
+   "run": ".venv/bin/pytest tests/test_r1b_codes_reader.py::test_r1b_the_owner_side_puts_what_the_work_side_handed_over",
+   "status": "passing"
+  },
+  {
+   "id": "r1b-4",
+   "phase": "r1b-codes-reader",
+   "name": "R1b: the owner side checks the texts again and takes the customer from the register",
+   "run": ".venv/bin/pytest tests/test_r1b_codes_reader.py::test_r1b_the_owner_side_checks_the_texts_again_and_takes_the_customer_from_the_register",
+   "status": "passing"
+  },
+  {
+   "id": "r1b-5",
+   "phase": "r1b-codes-reader",
+   "name": "R1b: a file the owner side cannot trust is refused",
+   "run": ".venv/bin/pytest tests/test_r1b_codes_reader.py::test_r1b_a_file_the_owner_side_cannot_trust_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "r1b-6",
+   "phase": "r1b-codes-reader",
+   "name": "R1b: a missing old or linked file is refused and with put an owner item",
+   "run": ".venv/bin/pytest tests/test_r1b_codes_reader.py::test_r1b_a_missing_old_or_linked_file_is_refused_and_with_put_an_owner_item",
+   "status": "passing"
+  },
+  {
+   "id": "r1b-7",
+   "phase": "r1b-codes-reader",
+   "name": "R1b: to shared writes every time and takes no out put or if changed",
+   "run": ".venv/bin/pytest tests/test_r1b_codes_reader.py::test_r1b_to_shared_writes_every_time_and_takes_no_out_put_or_if_changed",
+   "status": "passing"
+  },
+  {
+   "id": "r1b-8",
+   "phase": "r1b-codes-reader",
+   "name": "R1b: the work unit runs as the work user and the seal the update and verify carry it",
+   "run": ".venv/bin/pytest tests/test_r1b_codes_reader.py::test_r1b_the_work_unit_runs_as_the_work_user_and_the_seal_the_update_and_verify_carry_it",
+   "status": "passing"
   }
  ],
- "total_tests": 1893,
- "checked": "2026-10-29"
+ "total_tests": 1901,
+ "checked": "2026-10-30"
 }
