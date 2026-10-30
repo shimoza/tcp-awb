@@ -139,7 +139,7 @@ DYNAMIC: dict[tuple[str, str], object] = {
     ("awb/projects.py", "mail_owner_commands"): ("awb.tcp.keys",),
     ("awb/importcmd.py", "_send_mail"): ("awb.tcp.keys",),
     ("awb/translate.py", "_ask_module"): ("awb.tcp.ask",),
-    # awb report --codes is the owner's command and his hourly oneshot awb-report-codes: no daemon reaches it
+    # awb report --codes is a command and two hourly oneshots (awb-report-codes and -work): no daemon reaches it
     ("awb/ledger.py", "_codes_module"): (),
     # awb voice learn DRAFT - is the owner's command: it loads the paste door of the intake by name and no unit runs it
     ("awb/writing.py", "learn_owner"): (),
@@ -178,7 +178,8 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/recheck.py": "awb kb recheck-run, run in a working session or by the steering session",
     "awb/tcp/recheckwatch.py": "awb kb recheck-watch, run by the owner's timer awb-kb-recheck-watch every 15 minutes",
     "awb/tcp/refresh.py": "awb refresh, run by the owner or a timer of his",
-    "awb/reportcodes.py": "awb report --codes, run by the owner or his hourly timer awb-report-codes (a oneshot)",
+    "awb/reportcodes.py": ("awb report --codes, run by the owner, his hourly timer awb-report-codes and the work "
+                           "side's awb-report-codes-work (oneshots)"),
     "awb/filesinv.py": "awb files inventory --host|--buckets, run by the work user or the owner (task R4)",
     "awb/filesplan.py": "awb files plan, run by the owner (task R5)",
     "awb/tcp/dataset.py": "awb dataset build|put|weekly, run by the owner, the refresh or his timer awb-dataset-weekly",

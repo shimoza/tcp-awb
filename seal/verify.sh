@@ -15,8 +15,9 @@
 # awb-kb-recheck-watch.timer is enabled and its unit runs awb kb recheck-watch as the owner; awb-import-auto.timer is
 # enabled and its unit runs awb import --auto as the owner; the weekly read tier fires Saturday 19:00 UTC and
 # awb-dataset-weekly.timer is enabled, fires Monday 06:00 UTC and its unit runs awb dataset weekly as the owner (task KS)
-# (fact-check F5); awb-report-codes.timer is enabled, fires every hour and its unit runs awb report --codes --put
-# --if-changed as the owner (task R1). The egress table of the work user is loaded in the mode of the host file, takes
+# (fact-check F5); awb-report-codes.timer is enabled, fires every hour and its unit runs awb report --codes
+# --from-shared --put --if-changed as the owner (task R1), awb-report-codes-work.timer is enabled, fires every hour
+# and its unit runs awb report --codes --to-shared as the work user (task R1b). The egress table of the work user is loaded in the mode of the host file, takes
 # the work user's uid alone, lets an established connection pass only with the mark of the allow rules, counts a
 # planted connection of the work user to 192.0.2.1 (and refuses it in the mode enforce) and leaves one of the owner's
 # uid, which the key service runs under, uncounted; its timer is active. That an established connection opened before
@@ -47,7 +48,7 @@ MANAGED_FILE=/etc/claude-code/managed-settings.d/awb-workbench.json
 CLIENT_FILES="settings.json CLAUDE.md skills/drafting/SKILL.md"
 SSH_KEYS_DIR=/etc/ssh/authorized_keys     # as in setup.sh
 CRON_DENY=/etc/cron.deny
-WORK_JOBS="awb-work-update awb-kb-commit awb-kb-recheck"   # as in setup.sh
+WORK_JOBS="awb-work-update awb-kb-commit awb-kb-recheck awb-report-codes-work"   # as in setup.sh
 OWNER_JOBS="awb-report-codes"   # as in setup.sh: seal/work-jobs units that run as the owner (task R1)
 RECHECK_WATCH_UNIT=awb-kb-recheck-watch   # seal/setup.sh writes its .service and .timer (fact-check F5)
 IMPORT_AUTO_UNIT=awb-import-auto          # seal/setup.sh writes its .service and .timer (lc-laptop-clean)
@@ -299,10 +300,15 @@ for t in $OWNER_JOBS; do
     allowed "$t.service runs as the owner" \
         sh -c '[ "$(systemctl show -p User --value "$1")" = "$2" ]' verify "$t.service" "$owner"
 done
-allowed "awb-report-codes.service runs awb report --codes --put --if-changed alone, every hour" \
-    sh -c 'test "$(grep -c "^ExecStart=" "$1")" = 1 && grep -qx "ExecStart=/usr/local/bin/awb report --codes --put --if-changed" "$1" &&
+allowed "awb-report-codes.service runs awb report --codes --from-shared --put --if-changed alone, every hour" \
+    sh -c 'test "$(grep -c "^ExecStart=" "$1")" = 1 &&
+    grep -qx "ExecStart=/usr/local/bin/awb report --codes --from-shared --put --if-changed" "$1" &&
     grep -qx "OnCalendar=\*-\*-\* \*:50:00" "$2"' verify /etc/systemd/system/awb-report-codes.service \
     /etc/systemd/system/awb-report-codes.timer
+allowed "awb-report-codes-work.service runs awb report --codes --to-shared alone, every hour" \
+    sh -c 'test "$(grep -c "^ExecStart=" "$1")" = 1 && grep -qx "ExecStart=/usr/local/bin/awb report --codes --to-shared" "$1" &&
+    grep -qx "OnCalendar=\*-\*-\* \*:40:00" "$2"' verify /etc/systemd/system/awb-report-codes-work.service \
+    /etc/systemd/system/awb-report-codes-work.timer
 allowed "awb-kb-recheck.service runs awb kb recheck-run --tier read alone" \
     sh -c 'test "$(grep -c "^ExecStart=" "$1")" = 1 && grep -qx "ExecStart=/usr/local/bin/awb kb recheck-run --tier read" "$1"' \
     verify /etc/systemd/system/awb-kb-recheck.service

@@ -21,8 +21,13 @@ from awb import ledger
 
 
 def git_dates(folder: Path, *paths: str) -> list[date]:
-    """Committer dates of the project's own repository (never a repository above it), optionally of some paths."""
-    if not (folder / ".git").exists():
+    """Committer dates of the project's own repository (never a repository above it), optionally of some paths.
+    A folder this user cannot look into (a project folder of the work user, mode 700, read by the owner) gives no
+    date, never an error."""
+    try:
+        if not (folder / ".git").exists():
+            return []
+    except OSError:
         return []
     try:
         out = subprocess.run(["git", "-c", "safe.directory=%s" % folder, "-C", str(folder), "log", "--format=%cs",
