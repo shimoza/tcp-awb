@@ -8,7 +8,8 @@ lc-laptop-clean, his yes of 2026-10-22).
     awb clean serve [--port 8765]
     awb clean register CUST-XXXX
     awb clean init
-    awb clean fetch [tcp-xxxx] [--to DIR] [--save]
+    awb clean shell
+    awb clean fetch [tcp-xxxx] [--to DIR] [--save] [--again NAME]
     awb clean report [--dir DIR] [--save]
     awb clean inventory ROOT... [--project tcp-xxxx] [--label LABEL] [--put] [--include-onedrive]
     awb clean files plan [STAMP|latest]
@@ -632,6 +633,9 @@ def doctor(opener=None) -> tuple[list[str], int]:
                          else (os.environ.get(k) or "not set")) for k in PROXY_VARS]
     if os.environ.get("SSL_CERT_FILE"):
         lines.append("SSL_CERT_FILE: set")
+    hint = laptop.shell_hint()
+    if hint:
+        lines.append(hint)
     opener = opener or urllib.request.build_opener()
     code = EXIT_OK
     for label, url in doctor_targets():
@@ -659,7 +663,7 @@ def _parser_files():
 
     ap = SafeParser(prog="awb clean", description="Clean project material on the laptop, offline: docs (office "
                     "and pdf files) or logs (logs, configs, tickets); also awb clean use tcp-xxxx, put, serve, "
-                    "register CUST-XXXX, init, fetch, report, inventory, layout, files, update and doctor.")
+                    "register CUST-XXXX, init, shell, fetch, report, inventory, layout, files, update and doctor.")
     ap.add_argument("files", nargs="+", metavar="FILE", help="the files to clean; the originals are never changed")
     ap.add_argument("--project", default=None, metavar="tcp-xxxx", help="the project code (default: the work "
                     "folder of the current directory, else the project of awb clean use); its customer is CUST- and "
@@ -684,6 +688,9 @@ def _fetch_main(argv: list[str]) -> int:
                     help="the project (default: the work folder of the current directory, else awb clean use)")
     ap.add_argument("--to", default=None, metavar="DIR", help="the folder (default: the one saved with --save)")
     ap.add_argument("--save", action="store_true", help="keep --to as the default folder")
+    ap.add_argument("--again", action="append", default=[], metavar="NAME",
+                    help="fetch the file NAME of out/ again although it was fetched; a local file of that name stays "
+                         "and the new one gets a (2) name (repeatable)")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -694,7 +701,8 @@ def _fetch_main(argv: list[str]) -> int:
     try:
         project, source = laptop.resolve_project(args.project)
         print(_project_line(project, source))
-        failed = cleanfetch.fetch(project, Path(windows_path(args.to)) if args.to else None, save=args.save)
+        failed = cleanfetch.fetch(project, Path(windows_path(args.to)) if args.to else None, save=args.save,
+                                  again=args.again)
     except (laptop.LaptopError, CleanError, cleanfetch.FetchError) as err:
         print("awb clean fetch: %s" % err, file=sys.stderr)
         return EXIT_ERROR
@@ -787,7 +795,13 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_OK
         if argv[:1] == ["init"]:
             SafeParser(prog="awb clean init", description="The folders of the laptop.").parse_args(argv[1:])
-            print("\n".join(laptop.init()))
+            print("\n".join(laptop.init_lines()))
+            return EXIT_OK
+        if argv[:1] == ["shell"]:
+            SafeParser(prog="awb clean shell", description="The PATH line of ~/.local/bin and the source line of "
+                       "~/.config/winrelay.sh: a marked block in ~/.bashrc and, when ~/.oh-my-zsh exists, the file "
+                       "awb.zsh of its custom folder; ~/.zshrc is never touched.").parse_args(argv[1:])
+            print("\n".join(laptop.shell_setup()))
             return EXIT_OK
         if argv[:1] == ["doctor"]:
             SafeParser(prog="awb clean doctor", description="The proxy settings and whether the object storage and "

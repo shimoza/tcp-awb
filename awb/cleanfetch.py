@@ -11,7 +11,9 @@ the layout, `<root>/YYYY-MM/tcp-xxxx/out/` (the folder found there, else the mon
 else the one saved before with `--to DIR --save` (the file `fetch-dir` of the laptop folder), for example a Windows
 folder under /mnt/c/Users/<him>/... What was fetched is remembered in `vault/fetched.tsv` of the
 laptop (key, etag, day, mode 600): a file counts as fetched while its etag is the same, a file put again with
-`--replace` has a new etag and comes again, next to the first under a name with (2). Nothing here prints a customer
+`--replace` has a new etag and comes again, next to the first under a name with (2). `--again NAME` (task FA,
+2026-10-30) fetches the file NAME of out/ again although it is recorded; a local file of that name stays: the new
+one gets the (2) name beside it. Nothing here prints a customer
 name: the lines carry file names and counts. A Markdown deliverable is in out/ as md and HTML (task DN): both come,
 and the line of the HTML names its Windows path (D:\\Deliveries\\...) to open it, select all and paste into a mail. A
 Windows `--to` (D:\\Deliveries\\offers) is read as /mnt/d/Deliveries/offers (`clean.windows_path`). A `--to` in the
@@ -76,8 +78,9 @@ def windows_of(path: Path) -> str:
     return str(path)
 
 
-def fetch(project: str, to: Path | None, *, client=None, save: bool = False, say=print) -> int:
-    """The new files of out/ of `project` into the folder. Returns the number of files that failed."""
+def fetch(project: str, to: Path | None, *, client=None, save: bool = False, again=(), say=print) -> int:
+    """The new files of out/ of `project` into the folder, also the files named in `again` (their name in out/) even
+    when they were fetched before. Returns the number of files that failed or that `again` names and out/ lacks."""
     from awb import bucket, bucket_layout, clean, obs
 
     from awb import cleanreport
@@ -107,13 +110,18 @@ def fetch(project: str, to: Path | None, *, client=None, save: bool = False, say
         folder.mkdir(parents=True, exist_ok=True)
         if save:
             save_dir(folder)
+        again = set(again)
+        labels = {k[len(prefix):] for k, _, _ in objects}
+        missing = sorted(again - labels)
+        for name in missing:
+            say("%s: not in out/, nothing fetched again" % name)
         if not objects:
             say("%s: out/ holds no file yet" % project)
-            return 0
-        known, failed = fetched(), 0
+            return len(missing)
+        known, failed = fetched(), len(missing)
         for key, size, etag in sorted(objects):
             label = key[len(prefix):]
-            if (key, etag) in known:
+            if (key, etag) in known and label not in again:
                 say("%s: already fetched" % label)
                 continue
             name = bucket._local_name(label, folder)

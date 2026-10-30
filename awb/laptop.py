@@ -309,3 +309,110 @@ def write_map(project: str, rows: list[tuple[str, str, str, str]]) -> Path | Non
         for row in rows:
             fh.write("\t".join(" ".join(str(c).split()) for c in row) + "\n")
     return path
+
+
+# --------------------------------------------------------------------------- the shell lines (task ZS, 2026-10-30)
+# oh-my-zsh replaces ~/.zshrc when it is installed, so lines added there are lost: awb was "command not found" and
+# the proxy of ~/.config/winrelay.sh was not set. The laptop writes the lines for bash into ~/.bashrc once (a
+# marked block) and, when ~/.oh-my-zsh exists, into its own file in the custom folder, which oh-my-zsh reads after
+# ~/.zshrc. ~/.zshrc is never touched. `awb clean shell` writes them; `awb init --laptop` and `awb clean init` name
+# that command while a line is missing, so a run of init never writes into a home it was not asked to.
+
+SHELL_BEGIN = "# >>> awb clean init: PATH and the proxy relay >>>"
+SHELL_END = "# <<< awb clean init <<<"
+SHELL_LINES = (
+    'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac',
+    'if [ -f "$HOME/.config/winrelay.sh" ]; then . "$HOME/.config/winrelay.sh"; fi',
+)
+RELAY = ".config/winrelay.sh"
+ZSH_FILE = "awb.zsh"
+
+
+def user_home() -> Path:
+    return Path(os.environ.get("HOME") or Path.home())
+
+
+def _tilde(path: Path) -> str:
+    h = str(user_home())
+    return "~" + str(path)[len(h):] if str(path).startswith(h + "/") else str(path)
+
+
+def shell_block() -> str:
+    return "\n".join((SHELL_BEGIN,) + SHELL_LINES + (SHELL_END,)) + "\n"
+
+
+def oh_my_zsh() -> Path:
+    return user_home() / ".oh-my-zsh"
+
+
+def zsh_file() -> Path:
+    custom = os.environ.get("ZSH_CUSTOM")
+    return (Path(custom).expanduser() if custom else oh_my_zsh() / "custom") / ZSH_FILE
+
+
+def relay_script() -> Path:
+    return user_home() / RELAY
+
+
+def shell_setup() -> list[str]:
+    """The PATH line of ~/.local/bin and the source line of ~/.config/winrelay.sh for bash and, with oh-my-zsh, for
+    zsh. A second run changes nothing."""
+    out = []
+    bashrc = user_home() / ".bashrc"
+    try:
+        text = bashrc.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        text = ""
+    if _bash_has_lines(text):
+        out.append("bash: %s has the PATH and proxy lines" % _tilde(bashrc))
+    else:
+        with open(bashrc, "a", encoding="utf-8") as fh:
+            fh.write(("\n" if text and not text.endswith("\n") else "") + shell_block())
+        out.append("bash: the PATH and proxy lines added to %s" % _tilde(bashrc))
+    if oh_my_zsh().is_dir():
+        target = zsh_file()
+        want = "# written by awb clean init; oh-my-zsh reads it after ~/.zshrc\n" + shell_block()
+        try:
+            same = target.read_text(encoding="utf-8") == want
+        except OSError:
+            same = False
+        if same:
+            out.append("zsh: %s has the PATH and proxy lines" % _tilde(target))
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            part = target.with_name("." + ZSH_FILE + ".part")
+            part.write_text(want, encoding="utf-8")
+            os.replace(part, target)
+            out.append("zsh: the PATH and proxy lines written to %s (open a new terminal)" % _tilde(target))
+    return out
+
+
+def _bash_has_lines(text: str) -> bool:
+    return SHELL_BEGIN in text or (".local/bin" in text and "winrelay.sh" in text)
+
+
+def shell_missing() -> str | None:
+    """The line of `awb init --laptop` while the PATH and proxy lines are missing in a shell, else None."""
+    try:
+        bash = _bash_has_lines((user_home() / ".bashrc").read_text(encoding="utf-8"))
+    except OSError:
+        bash = False
+    if bash and (not oh_my_zsh().is_dir() or zsh_file().exists()):
+        return None
+    return "shell: the PATH and proxy lines are missing; add them with awb clean shell"
+
+
+def shell_hint() -> str | None:
+    """The one line of `awb clean doctor` about the shell: what is missing and the one command that fixes it."""
+    if Path(os.environ.get("SHELL") or "").name == "zsh" and oh_my_zsh().is_dir() and not zsh_file().exists():
+        return ("shell: zsh with oh-my-zsh and no %s, so PATH and the proxy are lost; fix: awb clean shell, then open "
+                "a new terminal" % _tilde(zsh_file()))
+    if relay_script().is_file() and not (os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")):
+        return "proxy: HTTPS_PROXY is not set and %s is there; fix: . %s" % ((_tilde(relay_script()),) * 2)
+
+
+def init_lines() -> list[str]:
+    """What `awb init --laptop` and `awb clean init` print."""
+    missing = shell_missing()
+    return init() + ([missing] if missing else [])
+    return None
