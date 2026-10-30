@@ -13306,8 +13306,57 @@
    "name": "R1b: the work unit runs as the work user and the seal the update and verify carry it",
    "run": ".venv/bin/pytest tests/test_r1b_codes_reader.py::test_r1b_the_work_unit_runs_as_the_work_user_and_the_seal_the_update_and_verify_carry_it",
    "status": "passing"
+  },
+  {
+   "id": "zs-fa-1",
+   "phase": "zs-fa-laptop",
+   "name": "ZS: shell writes bash once and no zsh file without oh my zsh",
+   "run": ".venv/bin/pytest tests/test_zs_fa_laptop.py::test_shell_writes_bash_once_and_no_zsh_file_without_oh_my_zsh",
+   "status": "passing"
+  },
+  {
+   "id": "zs-fa-2",
+   "phase": "zs-fa-laptop",
+   "name": "ZS: shell keeps bashrc and zshrc and writes awb zsh with oh my zsh",
+   "run": ".venv/bin/pytest tests/test_zs_fa_laptop.py::test_shell_keeps_bashrc_and_zshrc_and_writes_awb_zsh_with_oh_my_zsh",
+   "status": "passing"
+  },
+  {
+   "id": "zs-fa-3",
+   "phase": "zs-fa-laptop",
+   "name": "ZS: zsh custom names the folder and a hand made bashrc is left",
+   "run": ".venv/bin/pytest tests/test_zs_fa_laptop.py::test_zsh_custom_names_the_folder_and_a_hand_made_bashrc_is_left",
+   "status": "passing"
+  },
+  {
+   "id": "zs-fa-4",
+   "phase": "zs-fa-laptop",
+   "name": "ZS: init names the shell command and writes nothing there",
+   "run": ".venv/bin/pytest tests/test_zs_fa_laptop.py::test_init_names_the_shell_command_and_writes_nothing_there",
+   "status": "passing"
+  },
+  {
+   "id": "zs-fa-5",
+   "phase": "zs-fa-laptop",
+   "name": "ZS: doctor names the fix of a missing awb zsh and of an unset proxy",
+   "run": ".venv/bin/pytest tests/test_zs_fa_laptop.py::test_doctor_names_the_fix_of_a_missing_awb_zsh_and_of_an_unset_proxy",
+   "status": "passing"
+  },
+  {
+   "id": "zs-fa-6",
+   "phase": "zs-fa-laptop",
+   "name": "FA: fetch again gets a recorded file and keeps the local one",
+   "run": ".venv/bin/pytest tests/test_zs_fa_laptop.py::test_fetch_again_gets_a_recorded_file_and_keeps_the_local_one",
+   "status": "passing"
+  },
+  {
+   "id": "zs-fa-7",
+   "phase": "zs-fa-laptop",
+   "name": "FA: fetch again names a file out lacks",
+   "run": ".venv/bin/pytest tests/test_zs_fa_laptop.py::test_fetch_again_names_a_file_out_lacks",
+   "status": "passing"
   }
  ],
- "total_tests": 1901,
+ "total_tests": 1908,
  "checked": "2026-10-30"
 }

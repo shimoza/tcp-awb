@@ -464,7 +464,10 @@ needs no vault daemon, no key service and no work user. Run it again with `--upd
 The anonymization of customer material can run on your own laptop (Ubuntu under WSL on Windows 11), so the host gets
 clean files only and imports them in seconds. The same laptop edition: no vault daemon, no key service, no work user.
 `awb init --laptop` (or `awb clean init`) makes `~/awb-laptop` (`AWB_LAPTOP_HOME` names another folder) with its
-vault folder (700). `awb clean register CUST-XXXX` asks the written forms of the customer once on the terminal, as
+vault folder (700). `awb clean shell` then puts the PATH line of `~/.local/bin` and the source line of
+`~/.config/winrelay.sh` into `~/.bashrc` once and, with oh-my-zsh, into
+`${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/awb.zsh`; `~/.zshrc` is never touched, since oh-my-zsh replaces it on
+install. `awb clean register CUST-XXXX` asks the written forms of the customer once on the terminal, as
 `awb import` does; they stay in that vault folder and nowhere else.
 
     awb clean use tcp-xxxx
@@ -505,14 +508,16 @@ vault folder (700). `awb clean register CUST-XXXX` asks the written forms of the
   allowed-terms.txt, allow-domains.txt and the other allow lists) from github.com/shimoza/tcp-awb: a
   `git pull --ff-only` of the clone, or for an install without git a download checked against the blob ids of the
   repository tree. It sends nothing of your files and prints what changed in counts. Run it now and then.
-- `awb clean fetch tcp-xxxx [--to DIR] [--save]` brings a finished deliverable to the laptop. On the host `awb bucket put CODE FILE --reveal` puts the file with the real names into `out/` (a Markdown file as `.md` and `.html`, the HTML to paste into a mail) and ends with `get it: Total Commander, bucket awb, folder <YYYY-MM>/tcp-xxxx/out/, or on the laptop: awb clean fetch tcp-xxxx`. On the laptop the command lists only `out/` of the project's bucket folder with your key, downloads the files not fetched yet into DIR (`--save` keeps DIR as the default, for example a folder under `/mnt/c/Users/<you>/`) and prints one line per file, for an HTML file also its Windows path to open. `--to C:\Users\<you>\Downloads` is read as `/mnt/c/Users/<you>/Downloads`. What was fetched is remembered by etag in `~/awb-laptop/vault/fetched.tsv`. `in/` is never touched.
+- `awb clean fetch tcp-xxxx [--to DIR] [--save] [--again NAME]` brings a finished deliverable to the laptop. On the host `awb bucket put CODE FILE --reveal` puts the file with the real names into `out/` (a Markdown file as `.md` and `.html`, the HTML to paste into a mail) and ends with `get it: Total Commander, bucket awb, folder <YYYY-MM>/tcp-xxxx/out/, or on the laptop: awb clean fetch tcp-xxxx`. On the laptop the command lists only `out/` of the project's bucket folder with your key, downloads the files not fetched yet into DIR (`--save` keeps DIR as the default, for example a folder under `/mnt/c/Users/<you>/`) and prints one line per file, for an HTML file also its Windows path to open. `--to C:\Users\<you>\Downloads` is read as `/mnt/c/Users/<you>/Downloads`. What was fetched is remembered by etag in `~/awb-laptop/vault/fetched.tsv` and not fetched again; `--again NAME` (the file name in `out/`, repeatable) fetches it again and keeps a local file of that name, the new one gets ` (2)`. `in/` is never touched.
 - `awb clean report [--dir DIR] [--save]` brings the codes file of the report workbook to the laptop (section "Report workbook" below).
 - `awb clean inventory ROOT... [--project tcp-xxxx] [--label LABEL] [--put]` lists the files under the folders you name without their content, for the move plan: the full list with the real paths stays in `~/awb-laptop/vault/inventory/` (600), the coded copy (paths coded through the same name machinery, `[withheld]` where one still carries a name, sizes and hashes) is what `--put` sends to `reports/inventory/` of the bucket. The report folder and the report workbook are skipped, a root under OneDrive needs `--include-onedrive`.
 - Behind a corporate proxy `--put`, `awb clean fetch`, `awb clean report`, `awb clean inventory --put` and `awb clean update` use `HTTPS_PROXY` and `https_proxy` (git reads them too).
   `awb clean doctor` prints the proxy variables (host and port only, never a user or a password), sends one HEAD
   request through the proxy to the object storage of the region and to github.com and names the fix when one
   fails: the proxy cannot be reached, it wants a login, or TLS verification failed (a TLS-inspecting proxy: its root
-  certificate through `update-ca-certificates`, then `SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt`).
+  certificate through `update-ca-certificates`, then `SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt`). With
+  zsh and oh-my-zsh but no `awb.zsh` it names `awb clean shell`, with `HTTPS_PROXY` unset while
+  `~/.config/winrelay.sh` exists it names `. ~/.config/winrelay.sh`.
 
 On the host the timer `awb-import-auto` (seal/setup.sh, every 2 minutes) runs `awb import --auto`: the new files of
 `in/` of every active project come in, a clean copy with `--trusted` (no name guessed, the registered forms, the
