@@ -116,6 +116,11 @@ _MIN_SECRET_ENTROPY = 3.5
 _MIN_PASSWORD_LENGTH = 8
 _MIN_PASSWORD_ENTROPY = 3.0
 """A password in a URL, after curl -u, in a .pgpass line or a credential table is often shorter than a key."""
+_KEYED_SECRET_ENTROPY = 3.0
+"""A value under a key that names a secret (db_password = ..., <secret>...</secret>) needs less entropy when it is
+one run without a space that mixes small letters, capitals and digits: the key already says what it is. A random
+value of 25 characters falls under 3.5 bits about once in 35 (FL2, 2026-10-30). Prose, a path, a reference to a
+name and a base32 example carry a space or lack one of the three."""
 _NAME_SHAPE_ENTROPY = 4.0
 """A value in the shape of a name (snake, env, dotted) is a reference below this entropy or without a digit."""
 
@@ -466,6 +471,17 @@ def _secret_value(v: str, quoted: bool = False, min_len: int = _MIN_SECRET_LENGT
     return not (_detect_token(v) or _PRIVATE_KEY_RE.search(v))   # reported by the more specific class
 
 
+def _keyed_secret_value(v: str, quoted: bool = False) -> bool:
+    """A value under a key that names a secret: a secret by the plain rule or, below its entropy, a run without a
+    space that mixes small letters, capitals and digits (see _KEYED_SECRET_ENTROPY)."""
+    if _secret_value(v, quoted):
+        return True
+    w = v.strip()
+    return (not re.search(r"\s", w) and any(c.isdigit() for c in w) and any(c.islower() for c in w)
+            and any(c.isupper() for c in w)
+            and _secret_value(w, quoted, min_ent=_KEYED_SECRET_ENTROPY))
+
+
 def _unquote(raw: str) -> tuple[str, bool]:
     if len(raw) >= 2 and raw[0] in "\"'" and raw[-1] == raw[0]:
         return raw[1:-1], True
@@ -569,10 +585,10 @@ def _detect_table_secrets(text: str) -> list[int]:
 def _detect_xml_secrets(text: str) -> list[int]:
     out: list[int] = []
     for m in _XML_ELEMENT_RE.finditer(text):
-        if _key_is_secret(m.group("key")) and _secret_value(m.group("value"), True):
+        if _key_is_secret(m.group("key")) and _keyed_secret_value(m.group("value"), True):
             out.append(m.start("value"))
     for m in _XML_PAIR_RE.finditer(text):
-        if _key_is_secret(m.group("key")) and _secret_value(m.group("value"), True):
+        if _key_is_secret(m.group("key")) and _keyed_secret_value(m.group("value"), True):
             out.append(m.start("value"))
     return out
 
@@ -580,7 +596,7 @@ def _detect_xml_secrets(text: str) -> list[int]:
 def _detect_secret(text: str) -> list[int]:
     out: set[int] = set()
     for key, value, start, quoted in _assignments(text):
-        if _key_is_secret(key) and _secret_value(value, quoted):
+        if _key_is_secret(key) and _keyed_secret_value(value, quoted):
             out.add(start)
     for rx, min_len, min_ent in _SECRET_SHAPES:
         for m in rx.finditer(text):

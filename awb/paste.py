@@ -253,12 +253,14 @@ def own(text: str, root: Path, name: str | None = None, today: date | None = Non
         raise PasteError("--as takes lower case letters, digits and hyphens, up to 40")
     if name is not None and [h for h in hooks.name_hits(name) if h.get("cls") in NAME_CLASSES]:
         raise PasteRefused("the name of --as carries a registered name: choose a code or a plain word")
-    named = [h for h in hooks.name_hits(text) if h.get("cls") in NAME_CLASSES]
+    short, counts = labsecrets.shorten(text)
+    clean, n = own_secrets(short)
+    # the name check reads the text that is written, without the kept start of a shortened token: a short form of a
+    # name inside a random token is chance and refused about one log in 350 (FL2, 2026-10-30)
+    named = [h for h in hooks.name_hits(labsecrets.without_short(clean)) if h.get("cls") in NAME_CLASSES]
     if named:
         raise PasteRefused("the text carries %d registered name(s): nothing was written. A customer name never goes "
                            "into a project." % len(named))
-    short, counts = labsecrets.shorten(text)
-    clean, n = own_secrets(short)
     return _write(root, name, today, clean), n + sum(counts.values())
 
 

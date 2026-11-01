@@ -13397,8 +13397,36 @@
    "name": "RP: list marks the service project",
    "run": ".venv/bin/pytest tests/test_rp_service_project.py::test_list_marks_the_service_project",
    "status": "passing"
+  },
+  {
+   "id": "fl2-1",
+   "phase": "fl2-flaky-gate",
+   "name": "FL2: a keyed secret under the old entropy floor is still a secret",
+   "run": ".venv/bin/pytest tests/test_fl2_flaky_gate.py::test_fl2_a_keyed_secret_under_the_old_entropy_floor_is_still_a_secret",
+   "status": "passing"
+  },
+  {
+   "id": "fl2-2",
+   "phase": "fl2-flaky-gate",
+   "name": "FL2: keyed prose and names under the old floor stay clean",
+   "run": ".venv/bin/pytest tests/test_fl2_flaky_gate.py::test_fl2_keyed_prose_and_names_under_the_old_floor_stay_clean",
+   "status": "passing"
+  },
+  {
+   "id": "fl2-3",
+   "phase": "fl2-flaky-gate",
+   "name": "FL2: paste own takes a log whose shortened token carries a short form",
+   "run": ".venv/bin/pytest tests/test_fl2_flaky_gate.py::test_fl2_paste_own_takes_a_log_whose_shortened_token_carries_a_short_form",
+   "status": "passing"
+  },
+  {
+   "id": "fl2-4",
+   "phase": "fl2-flaky-gate",
+   "name": "FL2: paste own still refuses a name in the written text and a glued one",
+   "run": ".venv/bin/pytest tests/test_fl2_flaky_gate.py::test_fl2_paste_own_still_refuses_a_name_in_the_written_text_and_a_glued_one",
+   "status": "passing"
   }
  ],
- "total_tests": 1914,
+ "total_tests": 1918,
  "checked": "2026-11-01"
 }
