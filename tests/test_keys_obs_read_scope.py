@@ -8,7 +8,7 @@ from awb.tcp import keys
 from tests.test_keys import PROJECT, call, load, osvc, calls_logged_here, no_waiting  # noqa: F401
 
 OTHER = "tcp-zz99"
-SERVICE_PROJECT = "tcp-n7e6"
+SERVICE_PROJECT = "tcp-ab3d"
 OWN_BUCKET = PROJECT + "-lab-1"
 FOREIGN_BUCKET = OTHER + "-lab-1"
 FIXED = "an OBS read reaches only a bucket named after the project (%s-...)" % PROJECT
@@ -77,5 +77,5 @@ def test_the_owner_reads_any_key_of_any_bucket(session):
 def test_the_service_project_reads_as_any_project(session):
     svc, fake, uid = session
     assert read(svc, uid, "/%s-x/a" % SERVICE_PROJECT, project=SERVICE_PROJECT)["status"] == 404
-    with pytest.raises(keys.Refused, match=r"tcp-n7e6-\.\.\."):
+    with pytest.raises(keys.Refused, match=r"tcp-ab3d-\.\.\."):
         read(svc, uid, "/" + OWN_BUCKET, project=SERVICE_PROJECT)

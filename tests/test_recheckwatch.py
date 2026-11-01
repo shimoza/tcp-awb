@@ -21,7 +21,7 @@ from tests.lab_fake import Clock
 from tests.test_lab import RECIPE, write_recipe
 from tests.test_seal import SETUP, USER, VERIFY, commands, fakebin, no_marks, run_script  # noqa: F401
 
-PROJECT = recheck.SERVICE_PROJECT
+PROJECT = "tcp-ab2c"
 OTHER = "tcp-zz2z"
 TENANT = "test-1"
 NOW = datetime.datetime(2026, 10, 15, 12, 0, tzinfo=datetime.timezone.utc)
