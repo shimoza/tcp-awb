@@ -89,6 +89,15 @@ def short(value: str) -> str:
     return "%s...(%d chars)" % (value[:KEEP], len(value))
 
 
+_SHORT_RE = re.compile(r"""(?<![^\s"'`,;<>(){}\[\]])[^\s"'`,;<>(){}\[\]]{1,%d}\.\.\.\(\d+ chars\)""" % KEEP)
+
+
+def without_short(text: str) -> str:
+    """`text` with every value `short` wrote replaced by [secret]: the first 8 characters of a random token are no
+    words, and a short form of a name in them is chance, not a name (FL2, 2026-10-30)."""
+    return _SHORT_RE.sub(SECRET, text)
+
+
 def _kept(value: str) -> bool:
     """A value that is no secret to touch: a placeholder, a reference, a value shortened before."""
     v = value.strip()
