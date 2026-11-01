@@ -182,8 +182,8 @@ that `awb egress status`, `awb seal check` and `awb deploy status` read; never t
    `recheck_tenant` of `/etc/awb/paths.conf`, which the owner sets and `setup.sh` keeps when it rewrites the file.
    `verify.sh` proves the root owned key file, the file `sshd -T -C user=awb` names, no key file in the work home,
    `cron.deny`, a refused `crontab -l` as the work user, no crontab, the three timers enabled with their services as
-   the work user and the recheck service running the read tier alone; a missing or empty `recheck_tenant` is one
-   WARN line, not a failure.
+   the work user and the recheck service running the read tier alone; a missing or empty `recheck_tenant` or `recheck_project` (the
+   standing service project, which the owner sets and `setup.sh` keeps) is one WARN line each, not a failure.
    On the owner's side `awb-dataset-weekly.timer` runs `awb dataset weekly` as the owner every Monday 06:00 UTC
    (07:00 Berlin in winter, a missed run made up at boot): `awb dataset build`, `awb kb review` and `awb dataset put
    --github` of the dataset TCP Facts, one step after the other (task KS). Its unit needs the network for the

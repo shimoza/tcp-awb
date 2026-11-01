@@ -204,6 +204,13 @@ def mode() -> str | None:
     return found[-1] if found else "sealed"
 
 
+def service_project() -> str | None:
+    """The standing service project of the weekly fact recheck: `recheck_project` of the host file, or None when the
+    key is missing or empty. The work user reads the root host file alone."""
+    value = host_conf().get("recheck_project", "").strip()
+    return value or None
+
+
 def host_conf(strict: bool = False) -> dict[str, str]:
     """Key and value pairs of the host file; an empty dict when there is none or it cannot be read. The work
     user reads the root host file only, never the one AWB_CONF names. With `strict` only a file that is not there

@@ -5,7 +5,7 @@
 
 Without --tenant a run takes the tenant from `recheck_tenant` of the host file (awb/config.py: AWB_CONF or the root
 host file, the root file alone for the work user), so that no tenant alias of a host is written into the
-repository; with neither it stops.
+repository; with neither it stops. The service project is --project, else `recheck_project` of the host file.
 
 The steps, each a line of the run's RESULT.md:
 
@@ -74,8 +74,9 @@ from pathlib import Path
 
 from awb import codes, jobs, kb
 
-SERVICE_PROJECT = "tcp-n7e6"
-"""The standing service project of the design (kind project, no customer, granted on the lab test tenant)."""
+PROJECT_KEY = "recheck_project"
+"""The key of the host file that names the standing service project of the design (kind project, no customer,
+granted on the lab test tenant). No code is written in the runtime: the owner sets it with the project he made."""
 TIERS = ("read", "write")
 EXIT_OK, EXIT_STOPPED, EXIT_LEFT = 0, 2, 4
 ANSWER_CHARS = 1500
@@ -93,6 +94,20 @@ _URL_QUERY_RE = re.compile(r"(https?://[^\s\"'<>?#]+)[?#][^\s\"'<>]*")
 
 class RecheckError(Exception):
     """A refusal before the first call, with one line for the owner."""
+
+
+def service_project(project: str | None = None) -> str:
+    """--project when given, else `recheck_project` of the host file; RecheckError with one line when neither names a
+    project code."""
+    from awb import config
+
+    code = project or config.service_project()
+    if not code:
+        raise RecheckError("a run needs --project or %s in the host file: a project code reads like tcp-q7m4"
+                           % PROJECT_KEY)
+    if not codes.is_project_code(code):
+        raise RecheckError("a project code reads like tcp-q7m4")
+    return code
 
 
 def _sources():
@@ -643,7 +658,7 @@ def refuted(path=None) -> dict[str, str]:
     return out
 
 
-def run(tier: str, ids, project: str, tenant: str | None, *, dry_run: bool = False, send=None,
+def run(tier: str, ids, project: str | None, tenant: str | None, *, dry_run: bool = False, send=None,
         clock=time.monotonic, sleep=time.sleep, now=None, where=None, out=print, err=None) -> int:
     from awb import config
     from awb.tcp import lab, sweep
@@ -661,6 +676,7 @@ def run(tier: str, ids, project: str, tenant: str | None, *, dry_run: bool = Fal
             for line in dry_run_lines(p, tier):
                 out(line)
             return EXIT_OK
+        project = service_project(project)
         tenant = tenant or config.host_conf().get("recheck_tenant")
         if not re.match(r"^[a-z][a-z0-9-]{1,30}$", tenant or ""):
             raise RecheckError("a run needs --tenant or recheck_tenant in the host file: a tenant alias reads like "
@@ -682,7 +698,7 @@ def main(argv: list[str] | None = None) -> int:
                     description="Check expired entries again by their check block and write the result back.")
     ap.add_argument("--tier", choices=TIERS, default="read")
     ap.add_argument("--id", action="append", default=[], dest="ids", metavar="KB-XXXX")
-    ap.add_argument("--project", default=SERVICE_PROJECT)
+    ap.add_argument("--project", default=None)
     ap.add_argument("--tenant")
     ap.add_argument("--dry-run", action="store_true")
     try:

@@ -13,7 +13,7 @@ The ExecStart of awb-kb-recheck-watch.service, which its root owned timer starts
 2. Sweep: per tenant (`--tenant`, repeatable; without it every tenant of the key service that holds a read and a lab
    key), `sweep.sweep` with the read key over the sources the key service can list (every source of the sweep and
    the named sources of FK3, but the ELB and NAT v2.0 listings, which need a header the key service does not send).
-   It takes every resource whose `awb-project` tag is the service project (default tcp-n7e6) and whose `awb-expiry`
+   It takes every resource whose `awb-project` tag is the service project (default `recheck_project` of the host file) and whose `awb-expiry`
    has passed. A VPC, subnet, security group, WAF policy, SMN topic or subscription and RDS instance, whose listings
    carry no tags, it also takes by its lab name: the project code and an `awb-expiry` marker that has passed
    (`<code>-lab-<YYYYMMDD>-<4 letters>`). A name match alone is never enough: a server, disk or address without the
@@ -699,7 +699,7 @@ class Watch:
                 self.handles.save()
 
 
-def run(project: str, tenants: list[str], *, send=None, mail=None, clock=time.monotonic, sleep=time.sleep, now=None,
+def run(project: str | None, tenants: list[str], *, send=None, mail=None, clock=time.monotonic, sleep=time.sleep, now=None,
         out=print, err=None) -> int:
     from awb import codes
 
@@ -707,8 +707,12 @@ def run(project: str, tenants: list[str], *, send=None, mail=None, clock=time.mo
     if config.is_work_user() or config.is_build_user():
         err("awb kb recheck-watch: the watchdog is the owner's (the work user has no mail path)")
         return EXIT_STOPPED
-    if not codes.is_project_code(project or ""):
-        err("awb kb recheck-watch: a project code reads like tcp-q7m4")
+    try:
+        from awb.tcp import recheck
+
+        project = recheck.service_project(project)
+    except recheck.RecheckError as e:
+        err("awb kb recheck-watch: %s" % e)
         return EXIT_STOPPED
     if not all(re.match(r"^[a-z][a-z0-9-]{1,30}$", t) for t in tenants):
         err("awb kb recheck-watch: a tenant alias reads like test-1")
@@ -723,7 +727,7 @@ def main(argv: list[str] | None = None) -> int:
 
     ap = SafeParser(prog="awb kb recheck-watch",
                     description="Delete the expired resources of the service project and mail the owner.")
-    ap.add_argument("--project", default=recheck.SERVICE_PROJECT)
+    ap.add_argument("--project", default=None)
     ap.add_argument("--tenant", action="append", default=[], dest="tenants", metavar="ALIAS")
     try:
         args = ap.parse_args(argv)

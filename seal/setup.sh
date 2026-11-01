@@ -783,7 +783,7 @@ build_model_mode() {
 }
 
 step_conf() {
-    local web_keys owner_host recheck_tenant extract_conf
+    local web_keys owner_host recheck_tenant recheck_project extract_conf
     info "the host file of the Workbench paths: /etc/awb root:awb 751 (a user outside the group may reach a file it"
     info "owns there, awb-owner its secret, and lists nothing), paths.conf and blocklist.txt 640 root:awb"
     run mkdir -p "$CONF_DIR"
@@ -803,6 +803,10 @@ owner_host = $owner_host"
     recheck_tenant=$(kept_conf recheck_tenant "")
     [ -z "$recheck_tenant" ] || web_keys="$web_keys
 recheck_tenant = $recheck_tenant"
+    # recheck_project is the owner's too, the standing service project of that run: kept as it was, never set
+    recheck_project=$(kept_conf recheck_project "")
+    [ -z "$recheck_project" ] || web_keys="$web_keys
+recheck_project = $recheck_project"
     write_file "$CONF_FILE" 640 root:"$WORK_GROUP" <<EOF
 # written by seal/setup.sh, read by awb/config.py
 owner = $owner

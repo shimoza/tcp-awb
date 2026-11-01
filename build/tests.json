@@ -13355,8 +13355,50 @@
    "name": "FA: fetch again names a file out lacks",
    "run": ".venv/bin/pytest tests/test_zs_fa_laptop.py::test_fetch_again_names_a_file_out_lacks",
    "status": "passing"
+  },
+  {
+   "id": "rp-1",
+   "phase": "rp-recheck-project",
+   "name": "RP: a run takes the project from the host file",
+   "run": ".venv/bin/pytest tests/test_rp_service_project.py::test_a_run_takes_the_project_from_the_host_file",
+   "status": "passing"
+  },
+  {
+   "id": "rp-2",
+   "phase": "rp-recheck-project",
+   "name": "RP: the project option wins over the host file",
+   "run": ".venv/bin/pytest tests/test_rp_service_project.py::test_the_project_option_wins_over_the_host_file",
+   "status": "passing"
+  },
+  {
+   "id": "rp-3",
+   "phase": "rp-recheck-project",
+   "name": "RP: a run with neither stops with one line that names the key",
+   "run": ".venv/bin/pytest tests/test_rp_service_project.py::test_a_run_with_neither_stops_with_one_line_that_names_the_key",
+   "status": "passing"
+  },
+  {
+   "id": "rp-4",
+   "phase": "rp-recheck-project",
+   "name": "RP: the runtime names no service project",
+   "run": ".venv/bin/pytest tests/test_rp_service_project.py::test_the_runtime_names_no_service_project",
+   "status": "passing"
+  },
+  {
+   "id": "rp-5",
+   "phase": "rp-recheck-project",
+   "name": "RP: close and delete refuse the service project",
+   "run": ".venv/bin/pytest tests/test_rp_service_project.py::test_close_and_delete_refuse_the_service_project",
+   "status": "passing"
+  },
+  {
+   "id": "rp-6",
+   "phase": "rp-recheck-project",
+   "name": "RP: list marks the service project",
+   "run": ".venv/bin/pytest tests/test_rp_service_project.py::test_list_marks_the_service_project",
+   "status": "passing"
   }
  ],
- "total_tests": 1908,
- "checked": "2026-10-30"
+ "total_tests": 1914,
+ "checked": "2026-11-01"
 }

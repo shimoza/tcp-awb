@@ -356,6 +356,9 @@ def _exchange_leftovers(code: str, folder: Path | None) -> str | None:
 def _cmd_close(args, p: config.Paths) -> int:
     from awb import intake, ledger, projects
 
+    if config.service_project() == args.code and not args.force:
+        return _err("%s is the service project (recheck_project in the host file); close it with --force only"
+                    % args.code)
     before = {r.code: r for r in projects.load(p)}.get(args.code)
     if not args.force and before is not None and before.state in projects.LIVE_STATES:
         why = _exchange_leftovers(args.code, Path(before.path))
@@ -400,6 +403,7 @@ def _cmd_projects_list(args, p: config.Paths) -> int:
         hidden, unchecked = set(), True
     last = "path" if args.paths else "goal"
     print("code      kind        customer   state   created     owner     %s" % last)
+    service = config.service_project()
     for i, r in enumerate(rows):
         held = sessions.owner(p, r.code) if r.state in projects.LIVE_STATES else None
         if args.paths:
@@ -410,6 +414,8 @@ def _cmd_projects_list(args, p: config.Paths) -> int:
             tail = ledger.WITHHELD
         else:
             tail = projects.short_goal(goals[i])
+        if r.code == service:
+            tail = "[service project] " + tail
         print("%-9s %-11s %-10s %-7s %-11s %-9s %s" % (r.code, r.kind, r.customer, r.state, r.created,
                                                      sessions.short(held["session"]) if held else "-", tail))
     return EXIT_OK
@@ -543,7 +549,13 @@ def _cmd_projects_delete(args, p: config.Paths) -> int:
     from awb import projects, sessions
 
     failed = 0
+    service = config.service_project()
     for code in args.codes:
+        if code == service and not getattr(args, "service", False):
+            failed += 1
+            print("awb projects: %s is the service project (recheck_project in the host file); delete it with "
+                  "--service only" % code, file=sys.stderr)
+            continue
         try:
             before = {r.code: r for r in projects.load(p)}.get(code)
             pr = projects.delete(p, code, holder=lambda c: sessions.owner(p, c) is not None)
@@ -753,6 +765,8 @@ def _build() -> argparse.ArgumentParser:
     s.set_defaults(func=_cmd_projects_tier)
     s = psub.add_parser("delete", help="remove the folder of closed projects; the code stays registered as deleted")
     s.add_argument("codes", nargs="+", metavar="CODE")
+    s.add_argument("--service", action="store_true",
+                   help="delete the project that recheck_project of the host file names")
     s.set_defaults(func=_cmd_projects_delete)
     s = psub.add_parser("open", help="start a session in a project as the work user in this terminal (owner side); "
                                      "without a code the active projects numbered with their Next: line and owner "

@@ -317,6 +317,9 @@ allowed "awb-kb-recheck.service runs awb kb recheck-run --tier read alone" \
 [ -n "$(conf_value recheck_tenant)" ] ||
     printf 'WARN  recheck_tenant in %s is missing or empty: the weekly awb kb recheck-run stops until the owner sets it\n' \
         "$CONF_FILE"
+[ -n "$(conf_value recheck_project)" ] ||
+    printf 'WARN  recheck_project in %s is missing or empty: the weekly awb kb recheck-run and recheck-watch stop until the owner sets it\n' \
+        "$CONF_FILE"
 allowed "the timer $RECHECK_WATCH_UNIT.timer is enabled and runs awb kb recheck-watch as the owner" \
     sh -c 'systemctl is-enabled --quiet "$3.timer" && test "$(stat -c "%U %a" -- "$1")" = "root 644" &&
     grep -qx "Type=oneshot" "$1" && grep -qx "User=$2" "$1" && grep -qx "ExecStart=/usr/local/bin/awb kb recheck-watch" "$1"' \
