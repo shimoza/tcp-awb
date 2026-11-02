@@ -6,6 +6,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 ## Week 45, 2026-11-02 to 2026-11-08 (in progress)
 ### Fixed
 
+- A rerun of `awb dataset weekly` on the same day refused itself (task DW2, branch dw2-weekly-rerun): the run of 2026-11-02 had put the bucket copy before it failed at GitHub, and the rerun stopped with `the bucket holds the dataset of 2026-11-02 already; give --replace`. The weekly publish now replaces that day's copy in the bucket and on GitHub, as a later build of the same day always did. `awb dataset put` by hand still refuses a held day without `--replace`. Tests: `tests/test_dw2_weekly_rerun.py`, no row replaced.
+
 - The weekly publish of the dataset TCP Facts failed on 2026-11-02 with `awb dataset weekly: failed, put: Error (operating system error)` (task DW, branch dw-setgid-copy). The build folders under the shared side carry setgid and the owner's unit `awb-dataset-weekly` runs with RestrictSUIDSGID, so `shutil.copytree`, which copies the mode of a folder, got EPERM when it copied `topics/` into the clone. `github_put` now copies a folder with `copy_plain_tree`: a folder gets the default mode, a file its read and write bits. Tests: `tests/test_dw_setgid_copy.py`, no row replaced.
 
 ## Week 44, 2026-10-26 to 2026-11-01

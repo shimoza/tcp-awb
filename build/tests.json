@@ -13446,8 +13446,22 @@
    "name": "DW: github put copies the folders with copy plain tree",
    "run": ".venv/bin/pytest tests/test_dw_setgid_copy.py::test_dw_github_put_copies_the_folders_with_copy_plain_tree",
    "status": "passing"
+  },
+  {
+   "id": "dw2-1",
+   "phase": "dw2-weekly-rerun",
+   "name": "DW2: a rerun after a failed github step publishes the same day",
+   "run": ".venv/bin/pytest tests/test_dw2_weekly_rerun.py::test_dw2_a_rerun_after_a_failed_github_step_publishes_the_same_day",
+   "status": "passing"
+  },
+  {
+   "id": "dw2-2",
+   "phase": "dw2-weekly-rerun",
+   "name": "DW2: the put by hand still refuses a day held without replace",
+   "run": ".venv/bin/pytest tests/test_dw2_weekly_rerun.py::test_dw2_the_put_by_hand_still_refuses_a_day_held_without_replace",
+   "status": "passing"
   }
  ],
- "total_tests": 1921,
+ "total_tests": 1923,
  "checked": "2026-11-02"
 }

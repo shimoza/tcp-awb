@@ -1353,7 +1353,9 @@ def weekly(p: config.Paths, *, today: datetime.date | None = None, state: Path |
         print("awb kb review: " + review(p, day=day)[0])
         mark = require_review(built.folder)
         step = "put"
-        for key in put_folder(p, built.folder, github=True):
+        # a later run of the same day replaces that day's copy (the README says so): a run that put the bucket copy
+        # and failed at GitHub refused its own rerun with "holds the dataset already" (DW2, 2026-11-02)
+        for key in put_folder(p, built.folder, github=True, replace=True):
             print("awb dataset put: " + key)
     except _WEEKLY_ERRORS as err:
         reason = "%s: %s" % (step, err)
