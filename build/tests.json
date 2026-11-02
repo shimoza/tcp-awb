@@ -13425,8 +13425,29 @@
    "name": "FL2: paste own still refuses a name in the written text and a glued one",
    "run": ".venv/bin/pytest tests/test_fl2_flaky_gate.py::test_fl2_paste_own_still_refuses_a_name_in_the_written_text_and_a_glued_one",
    "status": "passing"
+  },
+  {
+   "id": "dw-1",
+   "phase": "dw-setgid-copy",
+   "name": "DW: control, copytree of a setgid folder fails under the restriction",
+   "run": ".venv/bin/pytest tests/test_dw_setgid_copy.py::test_dw_control_copytree_of_a_setgid_folder_fails_under_the_restriction",
+   "status": "passing"
+  },
+  {
+   "id": "dw-2",
+   "phase": "dw-setgid-copy",
+   "name": "DW: copy plain tree copies every file without the setgid bit",
+   "run": ".venv/bin/pytest tests/test_dw_setgid_copy.py::test_dw_copy_plain_tree_copies_every_file_without_the_setgid_bit",
+   "status": "passing"
+  },
+  {
+   "id": "dw-3",
+   "phase": "dw-setgid-copy",
+   "name": "DW: github put copies the folders with copy plain tree",
+   "run": ".venv/bin/pytest tests/test_dw_setgid_copy.py::test_dw_github_put_copies_the_folders_with_copy_plain_tree",
+   "status": "passing"
   }
  ],
- "total_tests": 1918,
- "checked": "2026-11-01"
+ "total_tests": 1921,
+ "checked": "2026-11-02"
 }

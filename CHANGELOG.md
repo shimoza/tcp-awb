@@ -3,7 +3,12 @@
 What changed in the Architect Workbench, one entry per week (ISO week, Monday to Sunday), newest first. The form
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and projects appear as codes only.
 
-## Week 44, 2026-10-26 to 2026-11-01 (in progress)
+## Week 45, 2026-11-02 to 2026-11-08 (in progress)
+### Fixed
+
+- The weekly publish of the dataset TCP Facts failed on 2026-11-02 with `awb dataset weekly: failed, put: Error (operating system error)` (task DW, branch dw-setgid-copy). The build folders under the shared side carry setgid and the owner's unit `awb-dataset-weekly` runs with RestrictSUIDSGID, so `shutil.copytree`, which copies the mode of a folder, got EPERM when it copied `topics/` into the clone. `github_put` now copies a folder with `copy_plain_tree`: a folder gets the default mode, a file its read and write bits. Tests: `tests/test_dw_setgid_copy.py`, no row replaced.
+
+## Week 44, 2026-10-26 to 2026-11-01
 ### Added
 
 - The weekly fact recheck reads its service project from the host file (task RP, branch rp-recheck-project). The run of 2026-11-01 stopped with `is not an active project` because the code was written in the runtime and the owner had closed and deleted that project. `awb kb recheck-run` and `awb kb recheck-watch` now take `--project`, else `recheck_project` of the host file (read like `recheck_tenant`; the work user reads the root file alone); with neither the run stops with one line that names the key. `seal/setup.sh` keeps the key when it rewrites the file and `seal/verify.sh` warns without it. `awb close` and `awb projects delete` refuse the project that key names (close unless `--force`, delete unless `--service`), and `awb projects list` marks it. Tests: `tests/test_rp_service_project.py`, no row replaced.
