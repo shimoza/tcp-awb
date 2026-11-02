@@ -1208,6 +1208,18 @@ def public_statements_missing(readme: str, head: int = 3000) -> list[str]:
     return [name for name, rx in PUBLIC_STATEMENTS if not rx.search(top)]
 
 
+def copy_plain_tree(src: Path, dst: Path) -> None:
+    """`src` into `dst` without the mode bits of its folders: the build folders under the shared side carry setgid,
+    which the weekly unit (RestrictSUIDSGID) may not set, so shutil.copytree failed there with EPERM (DW,
+    2026-11-02). A folder gets the default mode, a file its read and write bits."""
+    for root, dirs, files in os.walk(src):
+        here = dst / Path(root).relative_to(src)
+        here.mkdir(parents=True, exist_ok=True)
+        for f in files:
+            shutil.copyfile(Path(root) / f, here / f)
+            os.chmod(here / f, stat.S_IMODE((Path(root) / f).stat().st_mode) & 0o777)
+
+
 def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: Path | None = None,
                pinned: dict[str, str] | None = None) -> list[str]:
     """The files of a build into the root of the public repository, committed as the GitHub account, and a release
@@ -1248,7 +1260,7 @@ def github_put(p: config.Paths, folder: Path, *, replace: bool = False, clone: P
         elif dst.exists():
             dst.unlink()
         if (folder / name).is_dir():
-            shutil.copytree(folder / name, dst)
+            copy_plain_tree(folder / name, dst)
         else:
             shutil.copy2(folder / name, dst)
     public = sorted(x for x in clone.rglob("*") if x.is_file() and ".git" not in x.relative_to(clone).parts)
