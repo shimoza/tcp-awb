@@ -206,6 +206,28 @@ id or name, a PUT or PATCH of a path a read before did not find). The call log i
 `notes/lab-runs/<run>.log` of the project. A run open for more than two hours or ended with failed deletes shows in
 `awb owner status` and the 08:00 mail. The module docs are in `awb/tcp/labadmin.py` and `awb/labclient.py`.
 
+A large file (an IMS image of 10 to 128 GB and more) does not fit a lab call, which takes 256 KB of JSON or text, and
+the egress filter keeps the session away from OBS. Inside the open run the key service moves it itself, as a
+background job:
+
+    awb lab obs put FILE obs://BUCKET/KEY [--tenant T]     labclient.obs_put(file, url)
+    awb lab obs get obs://BUCKET/KEY FILE [--tenant T]     labclient.obs_get(url, file)
+    awb lab obs status [JOB]                               labclient.obs_status(job), obs_wait(job)
+    awb lab obs abort JOB                                  labclient.obs_abort(job)
+
+put and get answer a job id at once; status shows bytes done, total, rate and state. The rules are those of a lab
+call: the open run of the project on test-10491 or test-10497 (never a read-only tenant), a bucket named after the
+project (`<code>-...`), never an exchange bucket, signed with the run's temporary credential. The session holds no
+key. The file reaches the service as an open descriptor over the socket, never as a path, so a file the session
+cannot read is refused; a get writes only inside the project folder or the session scratch folder and checks the
+free disk first. A put is a multipart upload (within 10000 parts of 100 KB to 5 GB) whose parts are tried again
+after a broken connection. The same put or get once more resumes an interrupted job, also one a reload of the key
+service interrupted. At the end the object's size equals the file's and it carries the SHA-256 of the file as
+`x-obs-meta-sha256`; the job result has the hash and the run log gets bucket, key, size, hash, duration and state. A
+file or object over `lab_obs_max_gb` of keys.conf (default 200) is refused with the limit named. `awb lab run end`
+stops the run's jobs and aborts the open multipart uploads of its buckets before it deletes the object and the
+bucket. The module doc is in `awb/tcp/labobs.py`.
+
 ## Public documentation through the key service
 
 A session cannot reach a documentation host: the egress filter of the work user lets it reach the model API, the

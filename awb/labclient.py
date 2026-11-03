@@ -18,6 +18,17 @@ and a password or a login never comes. A shortened token of an earlier answer of
 `X-Auth-Token` (and a shortened temporary access key as `credential=`): the service puts the whole value in.
 `{project_id}` and `{domain_id}` in a path are filled in by the service. Every call is appended to
 notes/lab-runs/<run>.log of the project, request and answer, shortened the same way (awb/labsecrets.py).
+
+A large file goes to or from OBS as a job of the key service (task LO, awb/tcp/labobs.py), not through `call`:
+
+    awb lab obs put FILE obs://BUCKET/KEY [--tenant T]    labclient.obs_put(file, url) -> {"job": ..., ...}
+    awb lab obs get obs://BUCKET/KEY FILE [--tenant T]    labclient.obs_get(url, file)
+    awb lab obs status [JOB]                              labclient.obs_status(job=None) -> [job, ...]
+    awb lab obs abort JOB                                 labclient.obs_abort(job); obs_wait(job) waits for its end
+
+The file goes to the service as an open descriptor (SCM_RIGHTS) with one of the run log, never as a path; a get
+writes only inside the project folder or the session scratch folder (SCRATCH). The same put or get once more resumes
+an interrupted job.
 """
 from __future__ import annotations
 
@@ -37,6 +48,9 @@ DEFAULT_SOCKET = "/run/awb-keys/cloud.sock"
 TIMEOUT = 200.0
 """Seconds of one request: the key service's end of a run takes at most about 150 seconds of deletes."""
 MAX_ANSWER = 8 * 1024 * 1024 + 4096
+SCRATCH = "/tmp/claude-%d"
+"""The session scratch folder of a uid, where a lab obs get may write beside the project folder."""
+OBS_ENDED = ("done", "failed", "interrupted", "aborted")
 
 
 class LabClientError(Exception):
@@ -135,9 +149,10 @@ def _token(root: Path | None) -> str | None:
         return None
 
 
-def _request(obj: dict, root: Path | None = None) -> dict:
-    """One request on the call socket of the key service, one JSON line each way. This module speaks the socket
-    itself: it is core code and imports nothing of the platform package."""
+def _request(obj: dict, root: Path | None = None, fds: tuple[int, ...] = ()) -> dict:
+    """One request on the call socket of the key service, one JSON line each way; `fds` go with the line as
+    SCM_RIGHTS (a lab obs put or get). This module speaks the socket itself: it is core code and imports nothing of
+    the platform package."""
     token = _token(root)
     if token is not None:
         obj = dict(obj, token=token)
@@ -145,7 +160,12 @@ def _request(obj: dict, root: Path | None = None) -> dict:
     s.settimeout(TIMEOUT)
     try:
         s.connect(os.environ.get(SOCKET_ENV) or DEFAULT_SOCKET)
-        s.sendall(json.dumps(obj).encode("utf-8") + b"\n")
+        line = json.dumps(obj).encode("utf-8") + b"\n"
+        if fds:
+            sent = socket.send_fds(s, [line], list(fds))
+            s.sendall(line[sent:])
+        else:
+            s.sendall(line)
         buf = bytearray()
         while b"\n" not in buf:
             chunk = s.recv(1 << 16)
@@ -206,6 +226,182 @@ def call(method: str, service: str, path: str, body=None, params=None, region=No
         lines += ["recorded: %s" % ", ".join(answer["created"])]
     log(root, run, lines)
     return answer.get("status"), answer.get("headers") or {}, out
+
+
+# --------------------------------------------------------------------------- large objects (LO): awb lab obs
+
+
+def _object(url: str) -> tuple[str, str]:
+    m = re.match(r"^obs://([^/]+)/(.+)$", url or "")
+    if not m:
+        raise LabClientError("an object reads obs://BUCKET/KEY")
+    return m.group(1), m.group(2)
+
+
+def _transfer(action: str, path: str, url: str, tenant: str | None, run: str | None, region: str | None,
+              start: Path | None) -> dict:
+    root = _root(start)
+    tenant, run = _pick(root, tenant, run)
+    bucket, key = _object(url)
+    where = os.path.abspath(path)
+    made = False
+    try:
+        if action == "put":
+            fd = os.open(where, os.O_RDONLY | os.O_CLOEXEC)
+        else:
+            inside = [str(root.resolve()), os.path.realpath(SCRATCH % os.getuid())]
+            real = os.path.realpath(where)
+            if not any(real.startswith(f.rstrip("/") + "/") for f in inside):
+                raise LabClientError("refused: a get writes only inside the project folder or the session scratch "
+                                     "folder (%s)" % (SCRATCH % os.getuid()))
+            made = not os.path.lexists(where)
+            fd = os.open(where, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o666)
+    except PermissionError:
+        raise LabClientError("refused: this user cannot %s %s; the key service takes only a file the session itself "
+                             "opens" % ("read" if action == "put" else "write", path)) from None
+    except FileNotFoundError:
+        raise LabClientError("no such file: %s" % path) from None
+    except IsADirectoryError:
+        raise LabClientError("refused: %s is a folder" % path) from None
+    try:
+        log_fd = os.open(_folder(root) / ("%s.log" % run), os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC,
+                         0o666)
+        try:
+            req = {"op": "lab_obs", "action": action, "tenant": tenant, "run": run, "project": _code(root),
+                   "bucket": bucket, "key": key, "region": region}
+            answer = _request(req, root, (fd, log_fd))
+        finally:
+            os.close(log_fd)
+    finally:
+        os.close(fd)
+    head = ["## %s obs %s %s %s" % (_stamp(), action, path if action == "put" else url,
+                                    url if action == "put" else path)]
+    if not answer.get("ok"):
+        if made:
+            try:
+                os.unlink(where)
+            except OSError:
+                pass
+        log(root, run, head + ["refused: %s" % answer.get("error")])
+        raise LabClientError(str(answer.get("error")))
+    log(root, run, head + ["job: %s%s, %d bytes%s" % (answer["job"], " resumed" if answer.get("resumed") else "",
+                                                      answer.get("size") or 0, ", %d parts of %d bytes" % (
+                                                          answer["parts"], answer["part_size"])
+                                                      if answer.get("parts") else "")])
+    return answer
+
+
+def obs_put(file, url: str, *, tenant: str | None = None, run: str | None = None, region: str | None = None,
+            start: Path | None = None) -> dict:
+    """Start the put of a file of the session to obs://BUCKET/KEY (a bucket named after the project) as a job of
+    the key service: {"job", "state", "size", "parts", "part_size", "resumed", ...} at once. The file goes as an
+    open descriptor, never as a path. The same file to the same object resumes an interrupted job."""
+    return _transfer("put", str(file), url, tenant, run, region, start)
+
+
+def obs_get(url: str, file, *, tenant: str | None = None, run: str | None = None, region: str | None = None,
+            start: Path | None = None) -> dict:
+    """Start the get of obs://BUCKET/KEY into a file inside the project folder or the session scratch folder as a
+    job of the key service; the same object into the same file goes on where an interrupted job stopped."""
+    return _transfer("get", str(file), url, tenant, run, region, start)
+
+
+def obs_status(job: str | None = None, *, start: Path | None = None) -> list[dict]:
+    """The lab obs jobs of the project (or the one named): id, action, bucket, key, size, done, rate (bytes per
+    second), state (hashing, running, verifying, done, failed, interrupted, aborted), error, sha256."""
+    root = _root(start)
+    answer = _request({"op": "lab_obs", "action": "status", "project": _code(root), "job": job}, root)
+    if not answer.get("ok"):
+        raise LabClientError(str(answer.get("error")))
+    return answer.get("jobs") or []
+
+
+def obs_abort(job: str, *, start: Path | None = None) -> dict:
+    """Stop a job; a put also aborts its multipart upload."""
+    root = _root(start)
+    answer = _request({"op": "lab_obs", "action": "abort", "project": _code(root), "job": job}, root)
+    if not answer.get("ok"):
+        raise LabClientError(str(answer.get("error")))
+    return answer.get("job") or {}
+
+
+def obs_wait(job: str, *, every: float = 15.0, start: Path | None = None) -> dict:
+    """The job once it has ended (done, failed, interrupted or aborted), asked every `every` seconds."""
+    import time
+
+    while True:
+        rows = obs_status(job, start=start)
+        if not rows:
+            raise LabClientError("no lab obs job %s" % job)
+        if rows[0].get("state") in OBS_ENDED:
+            return rows[0]
+        time.sleep(every)
+
+
+def _obs_parser(action: str) -> argparse.ArgumentParser:
+    from awb.cli import SafeParser
+
+    helps = {"put": "put a file of the session into a bucket of this project, a job of the key service",
+             "get": "get an object into the project folder or the session scratch folder, a job of the key service",
+             "status": "bytes done, total, rate and state of this project's lab obs jobs",
+             "abort": "stop a job; a put also aborts its multipart upload"}
+    ap = SafeParser(prog="awb lab obs %s" % action, description=helps[action])
+    if action == "put":
+        ap.add_argument("file", metavar="FILE")
+        ap.add_argument("url", metavar="obs://BUCKET/KEY")
+    elif action == "get":
+        ap.add_argument("url", metavar="obs://BUCKET/KEY")
+        ap.add_argument("file", metavar="FILE")
+    elif action == "status":
+        ap.add_argument("job", metavar="JOB", nargs="?", default=None)
+    else:
+        ap.add_argument("job", metavar="JOB")
+    if action in ("put", "get"):
+        ap.add_argument("--tenant", default=None, help="test-10491 or test-10497 (default: the one open run)")
+    return ap
+
+
+def _size(n) -> str:
+    return "%.1f GB" % (float(n or 0) / 1e9) if (n or 0) >= 1e8 else "%d bytes" % int(n or 0)
+
+
+def obs_main(argv: list[str]) -> int:
+    action = argv[0] if argv else ""
+    if action not in ("put", "get", "status", "abort"):
+        print("awb lab obs: put, get, status or abort", file=sys.stderr)
+        return EXIT_REFUSED
+    try:
+        args = _obs_parser(action).parse_args(argv[1:])
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else EXIT_REFUSED
+    try:
+        if action in ("put", "get"):
+            if action == "put":
+                a = obs_put(args.file, args.url, tenant=args.tenant)
+            else:
+                a = obs_get(args.url, args.file, tenant=args.tenant)
+            print("job %s %s: %s of %s%s; awb lab obs status %s" % (
+                a["job"], "resumed" if a.get("resumed") else "started", action, _size(a.get("size")),
+                " in %d parts" % a["parts"] if a.get("parts") else "", a["job"]))
+            return EXIT_OK
+        if action == "abort":
+            j = obs_abort(args.job)
+            print("job %s %s" % (j.get("id"), j.get("state")))
+            return EXIT_OK
+        rows = obs_status(args.job)
+        if not rows:
+            print("no lab obs job%s" % (" %s" % args.job if args.job else ""))
+        for j in rows:
+            pct = 100.0 * (j.get("done") or 0) / j["size"] if j.get("size") else 0.0
+            print("%s  %s obs://%s/%s  %s  %s of %s (%.0f%%)  %.1f MB/s%s" % (
+                j["id"], j["action"], j["bucket"], j["key"], j["state"], _size(j.get("done")), _size(j.get("size")),
+                pct, (j.get("rate") or 0) / 1e6, "  %s" % j["error"] if j.get("error") else ""))
+            if j.get("state") == "done" and j.get("sha256"):
+                print("    sha256 %s, %s s" % (j["sha256"], j.get("seconds")))
+        return EXIT_OK
+    except LabClientError as err:
+        print("awb lab obs: %s" % err, file=sys.stderr)
+        return EXIT_REFUSED
 
 
 # --------------------------------------------------------------------------- awb lab run start|end|status

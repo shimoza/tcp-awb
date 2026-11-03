@@ -26,6 +26,7 @@ here is invented.
 from __future__ import annotations
 
 import itertools
+import json
 import re
 
 _ITEM = re.compile(r"^/v1/\{project_id\}/(?P<coll>[a-z-]+)(?:/(?P<id>[a-z0-9-]+)(?P<tags>/tags/action)?)?$")
@@ -166,3 +167,241 @@ class Clock:
 
     def sleep(self, seconds: float) -> None:
         self.t += seconds
+
+
+class _Answer:
+    """The answer of a call of FakeObsLab as labobs._stream gives it: read in blocks, cut after `cut_at` bytes."""
+
+    def __init__(self, data: bytes, cut_at: int | None = None):
+        self.data, self.pos, self.cut_at, self.closed = data, 0, cut_at, False
+
+    def read(self, n: int = -1) -> bytes:
+        if self.cut_at is not None and self.pos >= self.cut_at:
+            raise ConnectionResetError("cut")
+        end = len(self.data) if n is None or n < 0 else self.pos + n
+        if self.cut_at is not None:
+            end = min(end, self.cut_at)
+        out = self.data[self.pos:end]
+        self.pos += len(out)
+        return out
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeObsLab:
+    """IAM and OBS of a lab tenant in memory for awb/tcp/labobs.py (task LO), with no socket: `http` answers as
+    labadmin._http does (status, headers, bytes), `stream` as labobs._stream does (status, headers, an answer read
+    in blocks). IAM takes the admin login `login` (a password login, then a temporary credential of its token); OBS
+    checks the V2 signature of every call against the temporary credentials it handed out and keeps buckets,
+    objects and multipart uploads. The knobs: cut (part number: times its body breaks half way), down (every part
+    and every get breaks), hold (part number: an Event the part waits for; `holding` is set while it waits),
+    get_cut (gets that break half way) and virtual ((bucket, key): size of an object only a head answers).
+    `calls` lists (method, path, query) of the OBS calls, `aks` the access key of each, `parts` the part numbers
+    sent and `ranges` the Range header of each get. Every value here is invented."""
+
+    def __init__(self, login: dict):
+        import threading
+
+        self.login = login
+        self.tokens: set[str] = set()
+        self.creds: dict[str, tuple[str, str]] = {}
+        self.buckets: dict[str, dict] = {}
+        self.calls: list[tuple[str, str, dict]] = []
+        self.aks: list[str] = []
+        self.parts: list[int] = []
+        self.cut: dict[int, int] = {}
+        self.down = False
+        self.hold: dict[int, object] = {}
+        self.holding = threading.Event()
+        self.get_cut = 0
+        self.virtual: dict[tuple[str, str], int] = {}
+        self.ranges: list[str | None] = []
+        self._n = itertools.count(1)
+
+    # the entry points of the service's two senders
+    def http(self, method, url, headers, data, timeout=None):
+        status, hdrs, body = self.handle(method, url, headers, data)
+        return status, hdrs, body.read() if isinstance(body, _Answer) else body
+
+    def stream(self, method, url, headers, body=None, timeout=None):
+        status, hdrs, out = self.handle(method, url, headers, body)
+        return status, hdrs, out if isinstance(out, _Answer) else _Answer(out)
+
+    # the platform
+    def handle(self, method, url, headers, body):
+        import urllib.parse
+
+        parts = urllib.parse.urlsplit(url)
+        path = parts.path
+        query = dict(urllib.parse.parse_qsl(parts.query, keep_blank_values=True))
+        hdrs = {k.lower(): v for k, v in headers.items()}
+        if path == "/v3/auth/tokens":
+            return self._login(json.loads(body))
+        if path == "/v3.0/OS-CREDENTIAL/securitytokens":
+            if hdrs.get("x-auth-token") not in self.tokens:
+                return 401, {}, b'{"error": {"code": "IAM.0067"}}'
+            n = next(self._n)
+            ak, sk, st = "TMPAK%015d" % n, "tmpsk" + "q" * 35 + str(n), "gQ" + "w" * 300 + str(n)
+            self.creds[ak] = (sk, st)
+            return 201, {}, json.dumps({"credential": {"access": ak, "secret": sk, "securitytoken": st,
+                                                       "expires_at": "2099-01-01T00:00:00.000000Z"}}).encode()
+        bad = self._signature(method, path, query, headers)
+        if bad:
+            return 403, {}, self._error(bad)
+        self.calls.append((method, path, query))
+        segs = urllib.parse.unquote(path).lstrip("/").split("/", 1)
+        bucket, key = segs[0], segs[1] if len(segs) > 1 else ""
+        return self._obs(method, bucket, key, query, hdrs, body)
+
+    def _login(self, req):
+        user = req["auth"]["identity"]["password"]["user"]
+        if (user["name"], user["password"], user["domain"]["name"]) != (self.login["user"], self.login["password"],
+                                                                         self.login["domain"]):
+            return 401, {}, b'{"error": {"code": "IAM.0062"}}'
+        token = "MII%05d" % next(self._n) + "z" * 90
+        self.tokens.add(token)
+        body = {"token": {"expires_at": "2099-01-01T00:00:00.000000Z", "domain": {"id": "d" * 32},
+                          "project": {"id": "e" * 32, "domain": {"id": "d" * 32}}}}
+        return 201, {"X-Subject-Token": token}, json.dumps(body).encode()
+
+    def _signature(self, method, path, query, headers) -> str:
+        """The error code of a call whose V2 signature or security token is not one of a credential handed out."""
+        import base64
+        import hashlib
+        import hmac
+
+        from awb import obs
+
+        auth = headers.get("Authorization") or ""
+        if not auth.startswith("OBS ") or ":" not in auth:
+            return "AccessDenied"
+        ak, _, sig = auth[4:].partition(":")
+        self.aks.append(ak)
+        if ak not in self.creds or headers.get("x-obs-security-token") != self.creds[ak][1]:
+            return "InvalidAccessKeyId"
+        lower = {k.lower(): v for k, v in headers.items()}
+        sub = sorted((k, v) for k, v in query.items() if k in obs.SUBRESOURCES)
+        resource = path + ("?" + "&".join(k + ("=" + v if v else "") for k, v in sub) if sub else "")
+        text = "\n".join([method, lower.get("content-md5", ""), lower.get("content-type", ""), lower.get("date", "")])
+        text += "\n" + "".join("%s:%s\n" % (k, str(v).strip()) for k, v in sorted(lower.items())
+                               if k.startswith("x-obs-")) + resource
+        mac = base64.b64encode(hmac.new(self.creds[ak][0].encode(), text.encode(), hashlib.sha1).digest()).decode()
+        return "" if hmac.compare_digest(mac, sig) else "SignatureDoesNotMatch"
+
+    @staticmethod
+    def _error(code: str) -> bytes:
+        return ("<?xml version=\"1.0\"?><Error><Code>%s</Code><Message>no</Message></Error>" % code).encode()
+
+    @staticmethod
+    def _read(body) -> bytes:
+        if body is None:
+            return b""
+        if isinstance(body, (bytes, bytearray)):
+            return bytes(body)
+        out = bytearray()
+        while True:
+            chunk = body.read(8192)
+            if not chunk:
+                return bytes(out)
+            out += chunk
+
+    def _obs(self, method, bucket, key, query, hdrs, body):
+        import hashlib
+
+        b = self.buckets.get(bucket)
+        if not key:
+            if method == "PUT":
+                self.buckets.setdefault(bucket, {"objects": {}, "uploads": {}})
+                return 200, {}, b""
+            if b is None:
+                return 404, {}, self._error("NoSuchBucket")
+            if method == "DELETE":
+                if b["objects"] or b["uploads"]:
+                    return 409, {}, self._error("BucketNotEmpty")
+                del self.buckets[bucket]
+                return 204, {}, b""
+            if method == "GET" and "uploads" in query:
+                ups = "".join("<Upload><Key>%s</Key><UploadId>%s</UploadId></Upload>" % (u["key"], uid)
+                              for uid, u in b["uploads"].items())
+                return 200, {}, ("<ListMultipartUploadsResult><Bucket>%s</Bucket>%s<IsTruncated>false</IsTruncated>"
+                                 "</ListMultipartUploadsResult>" % (bucket, ups)).encode()
+            if method == "GET":
+                keys = "".join("<Contents><Key>%s</Key><Size>%d</Size></Contents>" % (k, len(o["data"]))
+                               for k, o in b["objects"].items())
+                return 200, {}, ("<ListBucketResult><Name>%s</Name>%s<IsTruncated>false</IsTruncated>"
+                                 "</ListBucketResult>" % (bucket, keys)).encode()
+            return 200, {}, b""
+        if b is None:
+            return 404, {}, self._error("NoSuchBucket")
+        if "uploadId" in query:
+            up = b["uploads"].get(query["uploadId"])
+            if up is None or up["key"] != key:
+                self._read(body)
+                return 404, {}, self._error("NoSuchUpload")
+            if method == "PUT":
+                n = int(query["partNumber"])
+                self.parts.append(n)
+                if n in self.hold:
+                    self.holding.set()
+                    self.hold.pop(n).wait(10)
+                if self.down or self.cut.get(n):
+                    if self.cut.get(n):
+                        self.cut[n] -= 1
+                    body.read(max(1, int(hdrs.get("content-length", "2")) // 2))
+                    raise ConnectionResetError("cut")
+                data = self._read(body)
+                if len(data) != int(hdrs.get("content-length", -1)):
+                    return 400, {}, self._error("IncompleteBody")
+                etag = '"%s"' % hashlib.md5(data).hexdigest()
+                up["parts"][n] = (data, etag)
+                return 200, {"ETag": etag}, b""
+            if method == "POST":
+                want = [(int(n), e) for n, e in re.findall(r"<PartNumber>(\d+)</PartNumber><ETag>([^<]+)</ETag>",
+                                                           self._read(body).decode())]
+                if [n for n, _ in want] != sorted(up["parts"]) or any(up["parts"][n][1] != e.replace("&quot;", '"')
+                                                                      for n, e in want):
+                    return 400, {}, self._error("InvalidPart")
+                data = b"".join(up["parts"][n][0] for n, _ in want)
+                b["objects"][key] = {"data": data, "meta": up["meta"],
+                                     "etag": '"%s-%d"' % (hashlib.md5(data).hexdigest(), len(want))}
+                del b["uploads"][query["uploadId"]]
+                return 200, {}, ("<CompleteMultipartUploadResult><Key>%s</Key></CompleteMultipartUploadResult>"
+                                 % key).encode()
+            if method == "DELETE":
+                del b["uploads"][query["uploadId"]]
+                return 204, {}, b""
+        if method == "POST" and "uploads" in query:
+            uid = "UPL%012d" % next(self._n)
+            b["uploads"][uid] = {"key": key, "parts": {}, "meta": {k: v for k, v in hdrs.items()
+                                                                   if k.startswith("x-obs-meta-")}}
+            return 200, {}, ("<InitiateMultipartUploadResult><Bucket>%s</Bucket><Key>%s</Key><UploadId>%s</UploadId>"
+                             "</InitiateMultipartUploadResult>" % (bucket, key, uid)).encode()
+        obj = b["objects"].get(key)
+        if method == "HEAD":
+            if (bucket, key) in self.virtual:
+                return 200, {"Content-Length": str(self.virtual[(bucket, key)]), "ETag": '"v1"'}, b""
+            if obj is None:
+                return 404, {}, b""
+            return 200, dict({"Content-Length": str(len(obj["data"])), "ETag": obj["etag"]}, **obj["meta"]), b""
+        if method == "GET":
+            if obj is None:
+                return 404, {}, self._error("NoSuchKey")
+            if hdrs.get("if-match") and hdrs["if-match"] != obj["etag"]:
+                return 412, {}, self._error("PreconditionFailed")
+            self.ranges.append(hdrs.get("range"))
+            start = int(hdrs["range"][6:].rstrip("-")) if hdrs.get("range") else 0
+            data = obj["data"][start:]
+            cut = None
+            if self.down or self.get_cut > 0:
+                self.get_cut = max(0, self.get_cut - 1)
+                cut = len(data) // 2
+            return (206 if start else 200), {"Content-Length": str(len(data)), "ETag": obj["etag"]}, \
+                _Answer(data, cut)
+        if method == "DELETE":
+            b["objects"].pop(key, None)
+            return 204, {}, b""
+        if method == "PUT":
+            b["objects"][key] = {"data": self._read(body), "meta": {}, "etag": '"x"'}
+            return 200, {}, b""
+        return 405, {}, b""

@@ -13460,8 +13460,176 @@
    "name": "DW2: the put by hand still refuses a day held without replace",
    "run": ".venv/bin/pytest tests/test_dw2_weekly_rerun.py::test_dw2_the_put_by_hand_still_refuses_a_day_held_without_replace",
    "status": "passing"
+  },
+  {
+   "id": "lo-1",
+   "phase": "lo-lab-obs",
+   "name": "LO: a put sends the parts completes and verifies size and hash",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_a_put_sends_the_parts_completes_and_verifies_size_and_hash",
+   "status": "passing"
+  },
+  {
+   "id": "lo-2",
+   "phase": "lo-lab-obs",
+   "name": "LO: the run log records the job without a key",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_the_run_log_records_the_job_without_a_key",
+   "status": "passing"
+  },
+  {
+   "id": "lo-3",
+   "phase": "lo-lab-obs",
+   "name": "LO: a cut connection sends the part again",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_a_cut_connection_sends_the_part_again",
+   "status": "passing"
+  },
+  {
+   "id": "lo-4",
+   "phase": "lo-lab-obs",
+   "name": "LO: a put broken for good is interrupted and the same put resumes",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_a_put_broken_for_good_is_interrupted_and_the_same_put_resumes",
+   "status": "passing"
+  },
+  {
+   "id": "lo-5",
+   "phase": "lo-lab-obs",
+   "name": "LO: the part plan keeps to the limits of obs",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_the_part_plan_keeps_to_the_limits_of_obs",
+   "status": "passing"
+  },
+  {
+   "id": "lo-6",
+   "phase": "lo-lab-obs",
+   "name": "LO: refused without the open run of the project",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_refused_without_the_open_run_of_the_project",
+   "status": "passing"
+  },
+  {
+   "id": "lo-7",
+   "phase": "lo-lab-obs",
+   "name": "LO: refused on a tenant that is no lab tenant",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_refused_on_a_tenant_that_is_no_lab_tenant",
+   "status": "passing"
+  },
+  {
+   "id": "lo-8",
+   "phase": "lo-lab-obs",
+   "name": "LO: refused on a read only tenant",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_refused_on_a_read_only_tenant",
+   "status": "passing"
+  },
+  {
+   "id": "lo-9",
+   "phase": "lo-lab-obs",
+   "name": "LO: refused on a bucket not named after the project",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_refused_on_a_bucket_not_named_after_the_project",
+   "status": "passing"
+  },
+  {
+   "id": "lo-10",
+   "phase": "lo-lab-obs",
+   "name": "LO: refused on an exchange bucket",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_refused_on_an_exchange_bucket",
+   "status": "passing"
+  },
+  {
+   "id": "lo-11",
+   "phase": "lo-lab-obs",
+   "name": "LO: refused for another project than the session s",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_refused_for_another_project_than_the_session_s",
+   "status": "passing"
+  },
+  {
+   "id": "lo-12",
+   "phase": "lo-lab-obs",
+   "name": "LO: signed with the run's temporary credential only",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_signed_with_the_run_s_temporary_credential_only",
+   "status": "passing"
+  },
+  {
+   "id": "lo-13",
+   "phase": "lo-lab-obs",
+   "name": "LO: a file the work user cannot read is refused and no path is taken",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_a_file_the_work_user_cannot_read_is_refused_and_no_path_is_taken",
+   "status": "passing"
+  },
+  {
+   "id": "lo-14",
+   "phase": "lo-lab-obs",
+   "name": "LO: a get writes only inside the project folder or the scratch folder",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_a_get_writes_only_inside_the_project_folder_or_the_scratch_folder",
+   "status": "passing"
+  },
+  {
+   "id": "lo-15",
+   "phase": "lo-lab-obs",
+   "name": "LO: labclient passes the file over the socket and the commands work",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_labclient_passes_the_file_over_the_socket_and_the_commands_work",
+   "status": "passing"
+  },
+  {
+   "id": "lo-16",
+   "phase": "lo-lab-obs",
+   "name": "LO: a put answers at once and status shows the running job",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_a_put_answers_at_once_and_status_shows_the_running_job",
+   "status": "passing"
+  },
+  {
+   "id": "lo-17",
+   "phase": "lo-lab-obs",
+   "name": "LO: a job across a reload is saved interrupted and the successor resumes it",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_a_job_across_a_reload_is_saved_interrupted_and_the_successor_resumes_it",
+   "status": "passing"
+  },
+  {
+   "id": "lo-18",
+   "phase": "lo-lab-obs",
+   "name": "LO: a job whose process went away shows as interrupted",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_a_job_whose_process_went_away_shows_as_interrupted",
+   "status": "passing"
+  },
+  {
+   "id": "lo-19",
+   "phase": "lo-lab-obs",
+   "name": "LO: a lock interrupts a job and abort stops one and aborts its upload",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_a_lock_interrupts_a_job_and_abort_stops_one_and_aborts_its_upload",
+   "status": "passing"
+  },
+  {
+   "id": "lo-20",
+   "phase": "lo-lab-obs",
+   "name": "LO: the run end aborts open uploads before the bucket delete",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_the_run_end_aborts_open_uploads_before_the_bucket_delete",
+   "status": "passing"
+  },
+  {
+   "id": "lo-21",
+   "phase": "lo-lab-obs",
+   "name": "LO: the run end stops a running job first",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_the_run_end_stops_a_running_job_first",
+   "status": "passing"
+  },
+  {
+   "id": "lo-22",
+   "phase": "lo-lab-obs",
+   "name": "LO: a file or object over lab obs max gb is refused with the limit named",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_a_file_or_object_over_lab_obs_max_gb_is_refused_with_the_limit_named",
+   "status": "passing"
+  },
+  {
+   "id": "lo-23",
+   "phase": "lo-lab-obs",
+   "name": "LO: a get checks the disk before it starts",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_a_get_checks_the_disk_before_it_starts",
+   "status": "passing"
+  },
+  {
+   "id": "lo-24",
+   "phase": "lo-lab-obs",
+   "name": "LO: a get goes on after a cut resumes and checks the hash",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_a_get_goes_on_after_a_cut_resumes_and_checks_the_hash",
+   "status": "passing"
   }
  ],
- "total_tests": 1923,
- "checked": "2026-11-02"
+ "total_tests": 1947,
+ "checked": "2026-11-03"
 }

@@ -32,12 +32,14 @@ Two sockets, one JSON object per line and one answer per connection:
                                                                 bucket_list, bucket_get, bucket_put,
                                                                 lab_list
     call   /run/awb-keys/cloud.sock, mode 660, group awb         ping, tenants, call, projects, doc_get,
-                                                                lab_run, lab_call
+                                                                lab_run, lab_call, lab_obs
 
 `lab_run` and `lab_call` (task LR, awb/tcp/labadmin.py) reach the two lab tenants of the lab_admin line of keys.conf
 with their admin login (awb/admin/<alias>/domain, user, password in pass, loaded at `awb keys unlock`): any method on
 any service, IAM, STS and OBS included, only inside an open run of the calling project, every create recorded and
-deleted at the end of the run. The session never gets the password or a whole token.
+deleted at the end of the run. The session never gets the password or a whole token. `lab_obs` (task LO,
+awb/tcp/labobs.py) moves a large file to or from OBS in such a run as a background job of the service; the file comes
+as an open descriptor over the socket (SCM_RIGHTS, at most MAX_FDS with the request line), never as a path.
 
 `doc_get` (task DF) fetches one page of public documentation for a session (awb/tcp/doc.py says what it checks):
 the service runs as the owner and has internet, the work user does not. It needs no unlock and reads no key.
@@ -113,6 +115,8 @@ MAX_ANSWER = 8 * 1024 * 1024
 READ_TIMEOUT = 10.0
 CALL_TIMEOUT = 180.0
 MAX_CONNECTIONS = 16
+MAX_FDS = 2
+"""Descriptors a request may pass (lab_obs: the file and the run log); those of any other op are closed unread."""
 RATE_LIMIT = 120
 RATE_WINDOW = 60.0
 _ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
@@ -306,6 +310,9 @@ class Service:
         from awb.tcp import labadmin
 
         self.lab = labadmin.State()       # LR: the admin tokens and the held values of the lab runs, memory only
+        from awb.tcp import labobs
+
+        self.obs_jobs = labobs.Jobs()     # LO: the transfers running in this process; their records are on disk
 
     # sockets
     def start(self, inherited: dict | None = None, accept: bool = True) -> None:
@@ -356,6 +363,7 @@ class Service:
         for t in self._threads:
             if t.ident is not None:
                 t.join(timeout=2)
+        self.obs_jobs.stop_all("the key service stopped: put or get the same file again to resume")
         with self.lock:
             self.tenants = {}
         self.tokens.clear()
@@ -370,6 +378,9 @@ class Service:
         for t in self._threads:
             if t.ident is not None:
                 t.join(timeout=2)
+        # LO: a transfer holds the session's descriptor, which the successor does not get: it stops at once, saved
+        # as interrupted; the session resumes it with the same put or get
+        self.obs_jobs.stop_all("the key service was reloaded: put or get the same file again to resume")
         end = time.monotonic() + LEAVE_WAIT
         while time.monotonic() < end:
             with self.lock:
@@ -449,11 +460,13 @@ class Service:
                 self._open -= 1
 
     def _serve(self, conn: socket.socket, admin: bool, uid: int) -> None:
+        fds: list[int] = []
         try:
             conn.settimeout(READ_TIMEOUT)
             buf = bytearray()
             while b"\n" not in buf:
-                chunk = conn.recv(1 << 16)
+                chunk, got, _flags, _addr = socket.recv_fds(conn, 1 << 16, MAX_FDS)
+                fds.extend(got)
                 if not chunk:
                     return
                 buf += chunk
@@ -498,7 +511,8 @@ class Service:
                     if isinstance(answer, tuple):
                         answer, stream = answer
                 else:
-                    answer = self._call_socket(req, uid, upload, caller=self._caller_project(req, uid))
+                    answer = self._call_socket(req, uid, upload, caller=self._caller_project(req, uid),
+                                               fds=fds if req.get("op") == "lab_obs" else ())
                     if isinstance(answer, tuple):
                         answer, stream = answer
                 conn.settimeout(CALL_TIMEOUT)
@@ -524,6 +538,11 @@ class Service:
         except (OSError, socket.timeout):
             pass
         finally:
+            for fd in fds:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
             self._done(conn)
 
     def _xchg(self):
@@ -646,6 +665,8 @@ class Service:
                 if self.handing_over.is_set():
                     return {"ok": False, "error": "busy"}
                 self.tenants = {}
+            self.obs_jobs.stop_all("the key service was locked: after awb keys unlock put or get the same file "
+                                   "again to resume")
             self.tokens.clear()
             self.lab.clear()
             return {"ok": True}
@@ -765,7 +786,7 @@ class Service:
             return False
 
     # the call socket
-    def _call_socket(self, req: dict, uid: int, upload: Path | None = None, caller=_NOT_ASKED):
+    def _call_socket(self, req: dict, uid: int, upload: Path | None = None, caller=_NOT_ASKED, fds=()):
         now = time.monotonic()
         with self.lock:
             q = self._rate.setdefault(uid, deque())
@@ -813,6 +834,16 @@ class Service:
                 return {"ok": False, "error": str(err)}
             except labadmin.LabAdminError as err:
                 return {"ok": False, "error": str(err)}
+        if op == "lab_obs":
+            # LO: a large object to or from OBS in an open lab run, a job of this service (awb/tcp/labobs.py)
+            from awb.tcp import labadmin, labobs
+
+            try:
+                return labobs.serve(self, req, uid, caller, list(fds))
+            except (KeysError, labadmin.LabAdminError) as err:
+                return {"ok": False, "error": str(err)}
+            except OSError as err:
+                return {"ok": False, "error": "refused: the descriptor cannot be read (%s)" % type(err).__name__}
         if (op == "owner_has" or (op == "take_owner" and req.get("id") is None)) and uid != os.getuid():
             # a name of the owner inbox is asked by the owner alone: for a session an answer to a name it guessed
             # would tell whether the name is there (finding 2 of the review of 2026-10-10); a session takes by id

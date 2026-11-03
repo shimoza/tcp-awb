@@ -1789,6 +1789,11 @@ def main(argv: list[str] | None = None) -> int:
         from awb import labclient
 
         return labclient.run_main(argv[1:])
+    if argv[:1] == ["obs"]:
+        # LO: a large object to or from OBS in a lab run, moved by the key service as a job (awb/tcp/labobs.py)
+        from awb import labclient
+
+        return labclient.obs_main(argv[1:])
     ap = SafeParser(prog="awb lab", description="Lab recipes: a live check on a test tenant in one command.")
     sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
     sub.add_parser("list", help="the recipes, their question and their cost guard")
@@ -1798,7 +1803,8 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--project", default="tcp-xxxx")
     d.add_argument("--tenant", default="ALIAS")
     rn = sub.add_parser("run", help="raise, check, write the evidence and always tear down; awb lab run "
-                                    "start|end|status is a lab run of the session's own scripts")
+                                    "start|end|status is a lab run of the session's own scripts and awb lab obs "
+                                    "put|get|status|abort moves a large object to or from OBS in it")
     rn.add_argument("recipe")
     rn.add_argument("--project", default=None, help="default: the code of this folder's project")
     rn.add_argument("--tenant", default=None, help="default: the tenant: line of this folder's SCOPE.md")

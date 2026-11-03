@@ -31,6 +31,10 @@ the time allows), reports created, removed and failed and closes the run; a seco
 again. A run open for more than OLD_AFTER seconds or ended with failed deletes shows in `awb owner status` (and the
 08:00 mail). The records are kept by awb/labruns.py.
 
+A large file goes to or from OBS in a run through the op `lab_obs` (task LO, awb/tcp/labobs.py), a job of the key
+service under the same rules: a lab call keeps MAX_BODY. `end` first stops those jobs and in each pass aborts the open
+multipart uploads of the run's buckets, which a bucket delete would otherwise meet as 409 BucketNotEmpty.
+
 The runs are kept owner side in <vault>/lab-runs/<run>.json (mode 600). The call log of the run is the session's:
 awb/labclient.py appends every request and answer to notes/lab-runs/<run>.log of the project, shortened the same way.
 """
@@ -698,11 +702,17 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
 
 
 def _end(svc, run: dict, alias: str, login: dict, p) -> dict:
-    """The deletes of what is left, newest first, in passes while some fail and the time allows."""
+    """The deletes of what is left, newest first, in passes while some fail and the time allows. The lab obs jobs of
+    the run stop first; each pass aborts the open multipart uploads of the run's buckets before the deletes
+    (awb/tcp/labobs.py): a bucket delete answers 409 BucketNotEmpty while one is there."""
+    from awb.tcp import labobs
+
     deadline = time.monotonic() + END_BUDGET
     calls = []
+    labobs.end_jobs(svc, run)
     for n in range(END_PASSES):
         failed = 0
+        labobs.abort_uploads(svc, run, alias, calls)
         for c in sorted(leftovers(run), key=lambda c: -int(c.get("n") or 0)):
             d = c["delete"]
             auth = _Auth(svc, alias, login, d.get("region") or _regions(svc, alias)[0])

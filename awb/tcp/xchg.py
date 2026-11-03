@@ -58,6 +58,7 @@ another version fails as changed. It never writes, deletes or copies, and only t
     lab_bucket = awb-lab-eu-de        owner_bucket = awb        region = eu-de
     max_mb = 100                      notify_topic = <urn of an SMN topic>
     readonly = <alias>:key|login:<domain id>:<region>[+<region>], ...   the read-only tenants (awb/tcp/readonly.py)
+    lab_obs_max_gb = 200              the largest file or object of `awb lab obs` (awb/tcp/labobs.py)
 """
 from __future__ import annotations
 
@@ -79,7 +80,7 @@ IN = bucket_layout.IN
 DEFAULTS = {"lab_bucket": "awb-lab-eu-de", "owner_bucket": bucket_layout.OWNER_BUCKET,
             "region": bucket_layout.REGION, "max_mb": str(bucket_layout.MAX_MB)}
 SETTING_KEYS = ("bucket_tenant", "lab_bucket", "owner_bucket", "region", "max_mb", "notify_topic", "tf_services",
-                "lab_writes", "readonly", "lab_admin")
+                "lab_writes", "readonly", "lab_admin", "lab_obs_max_gb")
 _SERVICE_RE = re.compile(r"^[a-z][a-z0-9]{1,20}$")
 """One service of tf_services: the short name of the lease policy's actions (ecs, evs, vpc)."""
 _NAME_RE = re.compile(r"^[^/\\\x00-\x1f\x7f]{1,200}$")
@@ -132,6 +133,12 @@ def read_settings(path: Path | None = None) -> dict:
             if readonly.parse(value) is None:
                 raise XchgError("line %d of keys.conf: readonly is a comma-separated list of "
                                 "ALIAS:key|login:DOMAIN-ID:REGION[+REGION]" % n)
+        if key == "lab_obs_max_gb":
+            from awb.tcp import labobs
+
+            if not labobs.parse_limit(value):
+                raise XchgError("line %d of keys.conf: lab_obs_max_gb is a number of GB above 0 (default %d)"
+                                % (n, labobs.DEFAULT_MAX_GB))
         if key == "lab_admin":
             from awb.tcp import labadmin
 
