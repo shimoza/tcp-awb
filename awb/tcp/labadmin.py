@@ -37,6 +37,15 @@ multipart uploads of the run's buckets, which a bucket delete would otherwise me
 
 The runs are kept owner side in <vault>/lab-runs/<run>.json (mode 600). The call log of the run is the session's:
 awb/labclient.py appends every request and answer to notes/lab-runs/<run>.log of the project, shortened the same way.
+
+A customer tenant in write mode (task TW, B-031: a read-only tenant of awb/tcp/readonly.py that the tenant_write line
+of keys.conf names) takes lab runs too, for the projects granted it (awb tenant grant), with its write credential in
+place of an admin login: a write login works like the admin login, a write key signs every call itself (the API
+gateway's way, OBS the OBS way) and reads the project id from IAM. The end of such a run deletes only what the run
+made: a PUT or PATCH outside OBS records nothing there (a read that answers 404 does not prove the path was free) and
+the delete of a server keeps its elastic IP and its data disks (delete_publicip and delete_volume false). A switch
+back to read-only refuses the next call of the run, its end included, until the owner switches the tenant to write
+again.
 """
 from __future__ import annotations
 
@@ -304,14 +313,16 @@ def _new_id(data) -> tuple[str | None, str | None]:
 
 
 def creates(method: str, service: str, path: str, query: dict, status: int, data, region: str,
-            absent: bool = False) -> list[dict]:
+            absent: bool = False, customer: bool = False) -> list[dict]:
     """The resources a call of the run made, each with the call that deletes it ([] for none). `path` is the
-    expanded path; `absent` says that a read of the path before a PUT or PATCH answered 404."""
+    expanded path; `absent` says that a read of the path before a PUT or PATCH answered 404. On a `customer` tenant
+    (TW) a PUT or PATCH outside OBS makes no record and a server's delete keeps its elastic IP and data disks: the
+    end of the run deletes nothing the run did not make."""
     if not 200 <= status < 300:
         return []
     segs = [s for s in path.strip("/").split("/") if s]
     if method in ("PUT", "PATCH"):
-        if not absent or not segs:
+        if not absent or not segs or (customer and service != "obs"):
             return []
         return [{"label": _label(service, segs, True), "name": segs[-1][:128],
                  "delete": {"method": "DELETE", "service": service, "path": path, "query": dict(query or {}),
@@ -335,8 +346,8 @@ def creates(method: str, service: str, path: str, query: dict, status: int, data
         ids = [i for i in ids if isinstance(i, str) and re.match(r"^[A-Za-z0-9-]{1,64}$", i)]
         return [item("ecs cloudservers", i, {"method": "POST", "service": "ecs",
                                              "path": "/v1/%s/cloudservers/delete" % segs[1],
-                                             "body": {"servers": [{"id": i}], "delete_publicip": True,
-                                                      "delete_volume": True}}) for i in ids]
+                                             "body": {"servers": [{"id": i}], "delete_publicip": not customer,
+                                                      "delete_volume": not customer}}) for i in ids]
     if service == "iam" and base.endswith("/OS-CREDENTIAL/credentials"):
         access = (data.get("credential") or {}).get("access") if isinstance(data.get("credential"), dict) else None
         if isinstance(access, str) and re.match(r"^[A-Za-z0-9]{8,64}$", access):
@@ -464,7 +475,11 @@ def _project(svc, req: dict, uid: int, caller) -> str:
     return project
 
 
-def _tenant(svc, alias) -> tuple[dict, dict]:
+def _tenant(svc, alias, project=None) -> tuple[dict, dict]:
+    """(tenant, credential) of a lab run: the admin login of a lab tenant, or the write credential of a customer
+    tenant in write mode that the owner granted `project` (TW). A lab tenant is never a customer tenant."""
+    if _is_customer(svc, alias):
+        return _customer(svc, alias, project)
     if not isinstance(alias, str) or alias not in ALLOWED:
         raise _refused(TENANT_LINE % (alias if isinstance(alias, str) and re.match(r"^[a-z0-9-]{1,32}$", alias)
                                       else "that tenant", " and ".join(ALLOWED)))
@@ -483,12 +498,52 @@ def _tenant(svc, alias) -> tuple[dict, dict]:
     return tenant, login
 
 
+def _is_customer(svc, alias) -> bool:
+    """True for a customer tenant (a read-only tenant of keys.conf that is no lab tenant), TW."""
+    return isinstance(alias, str) and alias not in ALLOWED and svc._readonly(alias) is not None
+
+
+def _customer(svc, alias: str, project) -> tuple[dict, dict]:
+    """A customer tenant in a lab run (TW): only in write mode, only for a project the owner granted it, with its
+    write credential."""
+    from awb.tcp import readonly
+
+    if not svc._write_mode(alias):
+        raise _refused(readonly.WRITE_ONLY_LINE % (alias, alias))
+    if not (isinstance(project, str) and svc._readonly_granted(alias, project)):
+        shown = project if isinstance(project, str) and _PROJECT_RE.match(project) else "the project"
+        raise _refused(readonly.GRANT_LINE % (shown, alias, alias, shown))
+    with svc.lock:
+        if not svc.tenants:
+            raise _refused("the key service is locked: the owner runs awb keys unlock")
+        tenant = svc.tenants.get(alias) or {}
+    return tenant, svc._write_cred(alias)
+
+
 def _regions(svc, alias: str) -> tuple[str, ...]:
+    if _is_customer(svc, alias):
+        return tuple(svc._readonly(alias)["regions"])
     return tuple(svc._registered().get(alias) or DEFAULT_REGIONS)
 
 
+def auth(svc, alias: str, cred: dict, region: str):
+    """The signer of a lab call: _KeyAuth for the write key of a customer tenant, _Auth for a login."""
+    return _KeyAuth(svc, alias, cred, region) if "ak" in cred else _Auth(svc, alias, cred, region)
+
+
+def masks(cred: dict) -> tuple[dict, list[str]]:
+    """(login, values) that shorten_answer takes out of an answer: the login of a run, or the AK and SK of a write
+    key as [secret]."""
+    if "ak" in cred:
+        return {}, [cred["ak"], cred["sk"]]
+    return cred, []
+
+
 class _Auth:
-    """The tokens of one tenant's admin login through the service's State."""
+    """The tokens of one tenant's admin login (or the write login of a customer tenant) through the service's
+    State."""
+
+    pair = None
 
     def __init__(self, svc, alias: str, login: dict, region: str):
         self.svc, self.alias, self.login, self.region = svc, alias, login, region
@@ -524,14 +579,53 @@ class _Auth:
         return iam_base(self.region, self.svc.endpoint)
 
 
+class _KeyAuth:
+    """The write key of a customer tenant in write mode (TW): every call signed with it, OBS without a security
+    token. `token` gives no token, only the project id (from IAM by its name) and the domain id of the tenant."""
+
+    login: dict = {}
+
+    def __init__(self, svc, alias: str, pair: dict, region: str):
+        self.svc, self.alias, self.pair, self.region = svc, alias, pair, region
+
+    def token(self, scope: str) -> tuple[None, dict]:
+        from awb import sign
+
+        domain = (self.svc._readonly(self.alias) or {}).get("domain_id")
+
+        def make():
+            if scope == "domain" or re.match(r"^[0-9a-f]{32}$", scope):
+                return None, {"project_id": None if scope == "domain" else scope, "domain_id": domain}, FALLBACK_LIFE
+            url = iam_base(self.region, self.svc.endpoint) + "/v3/projects?" + urllib.parse.urlencode({"name": scope})
+            hdrs = sign.sign("GET", url, {"Content-Type": "application/json"}, b"", self.pair["ak"], self.pair["sk"])
+            status, _h, raw = _http("GET", url, hdrs, None, timeout=30.0)
+            try:
+                rows = (json.loads(raw) or {}).get("projects") if raw else None
+            except (ValueError, AttributeError):
+                rows = None
+            found = [p.get("id") for p in rows or [] if isinstance(p, dict) and p.get("name") == scope
+                     and isinstance(p.get("id"), str)]
+            if status != 200 or len(found) != 1:
+                raise LabAdminError("the project %s cannot be read with the write key: HTTP %d" % (scope, status))
+            return None, {"project_id": found[0], "domain_id": domain}, FALLBACK_LIFE
+
+        return self.svc.lab.get((self.alias, "key:%s@%s" % (scope, self.region)), make)
+
+    def drop(self, scope: str) -> None:
+        self.svc.lab.drop((self.alias, "key:%s@%s" % (scope, self.region)))
+
+    def credential(self) -> tuple[str, str, None]:
+        return self.pair["ak"], self.pair["sk"], None
+
+
 def _base(svc, service: str, region: str) -> str:
     return svc.endpoint.rstrip("/") if svc.endpoint else "https://%s.%s.otc.t-systems.com" % (service, region)
 
 
 def _send(svc, auth: _Auth, run: str, method: str, service: str, path: str, query: dict, body, headers: dict,
           scope: str | None, held_token: str | None, held_cred) -> tuple[int, dict, bytes, str]:
-    """One call with the admin login (or a held token or credential of the run). Returns (status, headers, raw,
-    the expanded path); a 401 of an admin token takes a new one once."""
+    """One call with the admin login, the write credential of a customer tenant (TW) or a held token or credential
+    of the run. Returns (status, headers, raw, the expanded path); a 401 of an admin token takes a new one once."""
     from awb import obs, sign
     from awb.tcp import cloud
 
@@ -559,7 +653,8 @@ def _send(svc, auth: _Auth, run: str, method: str, service: str, path: str, quer
             ak, sk, st = held_cred or auth.credential()
             client, key, sub, url = cloud.Client(obs.Keys(ak, sk), auth.region, endpoint=svc.endpoint).obs_call(
                 expanded, query)
-            hdrs["x-obs-security-token"] = st
+            if st:
+                hdrs["x-obs-security-token"] = st
             client.sign(method, key, hdrs, sub)
         else:
             url = _base(svc, service, auth.region) + expanded
@@ -570,6 +665,8 @@ def _send(svc, auth: _Auth, run: str, method: str, service: str, path: str, quer
                 hdrs = sign.sign(method, url, hdrs, data or b"", held_cred[0], held_cred[1])
             elif held_token:
                 hdrs["X-Auth-Token"] = held_token
+            elif auth.pair:
+                hdrs = sign.sign(method, url, hdrs, data or b"", auth.pair["ak"], auth.pair["sk"])
             else:
                 hdrs["X-Auth-Token"] = auth.token(tscope)[0]
         status, rh, raw = _http(method, url, hdrs, data)
@@ -631,7 +728,8 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
 
     project = _project(svc, req, uid, caller)
     alias = req.get("tenant")
-    tenant, login = _tenant(svc, alias)
+    tenant, login = _tenant(svc, alias, project)
+    customer = _is_customer(svc, alias)
     method, service, path, query, body, headers = _check_call(req)
     p = svc.paths_fn()
     with svc.lab.lock:
@@ -665,14 +763,14 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
     drawn: list[str] = []
     if isinstance(body, (dict, list)):
         body = keys.fill(body, tenant.get("secrets", {}), drawn=drawn)
-    auth = _Auth(svc, alias, login, region)
+    signer = auth(svc, alias, login, region)
     absent = False
     try:
         if method in ("PUT", "PATCH") and not held_token and not held_cred:
-            st, _h, _r, _e = _send(svc, auth, run["id"], "HEAD" if service == "obs" else "GET", service, path,
+            st, _h, _r, _e = _send(svc, signer, run["id"], "HEAD" if service == "obs" else "GET", service, path,
                                    query, None, {}, scope, None, None)
             absent = st == 404
-        status, rh, raw, expanded = _send(svc, auth, run["id"], method, service, path, query, body, extra, scope,
+        status, rh, raw, expanded = _send(svc, signer, run["id"], method, service, path, query, body, extra, scope,
                                           held_token, held_cred)
     except LabAdminError as err:
         svc._log(uid, alias, "admin", method, service, region, "failed", project)
@@ -685,7 +783,7 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
         for c in creds:
             svc.lab.hold(run["id"], "cred", c, labsecrets.short(c[0]))
         run = open_run(p, project, alias) or run
-        made = creates(method, service, expanded, query, status, data, region, absent)
+        made = creates(method, service, expanded, query, status, data, region, absent, customer)
         n = len(run.get("created", []))
         for i, m in enumerate(made, start=1):
             run.setdefault("created", []).append(dict(m, n=n + i, state="live", at=_now()))
@@ -698,7 +796,8 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
     svc._log(uid, alias, "admin", method, service, region, status, project)
     answer = {"ok": True, "run": run["id"], "status": status, "headers": rh, "data": data, "text": text, "cut": cut,
               "path": expanded, "created": [m["label"] for m in made]}
-    return shorten_answer(answer, login, svc.lab.values() + [v for c in creds for v in c] + tokens, drawn)
+    shown, hidden = masks(login)
+    return shorten_answer(answer, shown, svc.lab.values() + [v for c in creds for v in c] + tokens, drawn + hidden)
 
 
 def _end(svc, run: dict, alias: str, login: dict, p) -> dict:
@@ -715,9 +814,9 @@ def _end(svc, run: dict, alias: str, login: dict, p) -> dict:
         labobs.abort_uploads(svc, run, alias, calls)
         for c in sorted(leftovers(run), key=lambda c: -int(c.get("n") or 0)):
             d = c["delete"]
-            auth = _Auth(svc, alias, login, d.get("region") or _regions(svc, alias)[0])
+            signer = auth(svc, alias, login, d.get("region") or _regions(svc, alias)[0])
             try:
-                status, _h, raw, _e = _send(svc, auth, run["id"], d["method"], d["service"], d["path"],
+                status, _h, raw, _e = _send(svc, signer, run["id"], d["method"], d["service"], d["path"],
                                             d.get("query") or {}, d.get("body"), {}, None, None, None)
             except LabAdminError as err:
                 status, raw = 0, str(err).encode()
@@ -767,7 +866,7 @@ def serve_run(svc, req: dict, uid: int, caller) -> dict:
         return {"ok": True, "runs": rows}
     project = _project(svc, req, uid, caller)
     alias = req.get("tenant")
-    _tenant_, login = _tenant(svc, alias)
+    _tenant_, login = _tenant(svc, alias, project)
     with svc.lab.lock:
         run = open_run(p, project, alias)
         if action == "start":
@@ -803,4 +902,5 @@ def serve_run(svc, req: dict, uid: int, caller) -> dict:
                           "delete": "%s %s %s" % (c["delete"]["method"], c["delete"]["service"], c["delete"]["path"])}
                          for c in created if c["state"] == "failed"],
               "calls": done["calls"]}
-    return shorten_answer(answer, login, svc.lab.values())
+    shown, hidden = masks(login)
+    return shorten_answer(answer, shown, svc.lab.values(), hidden)

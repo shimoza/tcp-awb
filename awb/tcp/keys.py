@@ -19,12 +19,18 @@ The password store layout, one tenant per alias (the alias of `awb tenant add`):
     awb/tenant/<alias>/secret/<name>                        a login, a password or another secret by name
     awb/tenant/<alias>/login/domain, login/user, login/password
                                                             the console login of a read-only tenant (RT)
+    awb/tenant/<alias>/write/ak, write/sk, or write/login/domain, user, password
+                                                            the write credential of a customer tenant (TW)
 
 A read-only tenant (task RT, awb/tcp/readonly.py: the readonly line of keys.conf) allows GET and HEAD only for
 every role and caller, with its read key or with a token of its login that the service takes from IAM, holds in
 memory and renews; a session reaches it only from a project the owner granted it (awb tenant grant). A call may
 name a project of the tenant (`scope`: eu-de, eu-de_<suffix> or an id), checked against GET /v3/auth/projects (its
 domain, its region one of the tenant's) and read with a token of that project; the op `projects` lists them.
+In write mode (task TW, the tenant_write line of keys.conf, awb/tenantmode.py) such a customer tenant takes every
+method for the projects granted it, signed with its write credential, which the service holds only while the
+tenant is in write mode; a lab run and `lab_obs` work there too. The admin op `tenant_readonly` switches it back at
+once: the write credential is forgotten and the open lab obs jobs of the tenant are aborted.
 
 Two sockets, one JSON object per line and one answer per connection:
 
@@ -134,7 +140,7 @@ _RANDOM_SPECIAL = "!@%^-_=+"
 LEAVE_WAIT = 70.0
 """Seconds a handed-over service waits for its calls in flight (a cloud call takes at most 60) before it exits."""
 ADMIN_OPS = ("bucket_drop_in", "bucket_get", "bucket_list", "bucket_put", "lab_list", "load", "lock", "notify", "ping",
-             "reload", "status")
+             "reload", "status", "tenant_readonly")
 EXCHANGE_METHODS = ("GET", "HEAD", "PUT", "DELETE", "LIST", "COPY", "MONTHS", "OBS", "OWNER_HAS", "TAKE_OWNER", "INBOX_FIND",
                     "WEB_READ", "TAKE_LAB", "OWNER_FOLDER", "WEB_PUT_IN", "BUCKET_GET", "BUCKET_LIST", "BUCKET_PUT",
                     "BUCKET_DROP_IN", "LAB_LIST")
@@ -199,15 +205,21 @@ def collect(entries: list[str], reader=pass_reader) -> dict:
             t["secrets"][parts[2]] = reader(entry)
         elif len(parts) == 3 and parts[1] == "login" and parts[2] in readonly.LOGIN_PARTS:
             t.setdefault("login", {})[parts[2]] = reader(entry)
+        elif len(parts) == 3 and parts[1] == "write" and parts[2] in readonly.WRITE_KEY_PARTS:
+            t["roles"].setdefault("write", {})[parts[2]] = reader(entry)
+        elif len(parts) == 4 and parts[1:3] == ["write", "login"] and parts[3] in readonly.LOGIN_PARTS:
+            t.setdefault("write_login", {})[parts[3]] = reader(entry)
         else:
             raise KeysError("entry %d of awb/tenant does not follow the layout (ak, sk, lab/ak, lab/sk, secret/NAME, "
-                            "login/domain|user|password)" % n)
+                            "login/domain|user|password, write/ak|sk, write/login/domain|user|password)" % n)
     for alias, t in tenants.items():
         for role, pair in t["roles"].items():
             if set(pair) != {"ak", "sk"}:
                 raise KeysError("the %s key of %s lacks its ak or sk" % (role, alias))
         if "login" in t and set(t["login"]) != set(readonly.LOGIN_PARTS):
             raise KeysError("the login of %s lacks its domain, user or password" % alias)
+        if "write_login" in t and set(t["write_login"]) != set(readonly.LOGIN_PARTS):
+            raise KeysError("the write login of %s lacks its domain, user or password" % alias)
     return tenants
 
 
@@ -678,13 +690,34 @@ class Service:
                 if self.handing_over.is_set():
                     return {"ok": False, "error": "busy"}
                 settings = dict(req.get("settings") or {})
+                was = set(self._write_aliases())
                 self.tenants = _without_writes(data, settings)
                 self.settings = settings
+                ended = was - set(self._write_aliases())
             self.tokens.clear()
             self.lab.clear()
+            for alias in sorted(ended):
+                self._write_ended(alias)
             if _old_lab_writes(settings):
                 print(LAB_WRITES_OLD_LINE, file=sys.stderr, flush=True)       # the journal of the unit
             return {"ok": True, "tenants": self._summary()}
+        if op == "tenant_readonly":
+            # TW: the owner switched a customer tenant back to read-only; it takes effect now, no pass is read
+            from awb import tenantmode
+
+            alias = req.get("tenant")
+            if not isinstance(alias, str) or not _ALIAS_RE.match(alias):
+                return {"ok": False, "error": "tenant_readonly names a tenant alias"}
+            with self.lock:
+                modes = tenantmode.of_settings(self.settings)
+                was = modes.pop(alias, None) is not None
+                settings = {k: v for k, v in self.settings.items() if k != tenantmode.SETTING}
+                if modes:
+                    settings[tenantmode.SETTING] = tenantmode.render(modes)
+                self.settings = settings
+                self.tenants = _without_writes(self.tenants, settings)
+            aborted = self._write_ended(alias)
+            return {"ok": True, "tenant": alias, "was": "write" if was else "readonly", "aborted": aborted}
         if op == "reload":
             return self._reload()
         if op == "notify":
@@ -771,12 +804,55 @@ class Service:
                     out[a].update(auth="login")
                 if "admin" in t:
                     out[a].update(admin=True)     # LR: an admin login of a lab tenant is held, never its value
+                if a in held and a in self._write_aliases():
+                    # TW: the mode and the kind of the write credential held, never a value
+                    out[a].update(mode="write", write=self._write_cred_kind(t))
             return out
 
     def _readonly(self, alias) -> dict | None:
         """The entry of a read-only tenant in the settings (awb/tcp/readonly.py), None for any other tenant."""
         with self.lock:
             return readonly.of_settings(self.settings).get(alias) if isinstance(alias, str) else None
+
+    def _write_aliases(self) -> list[str]:
+        """The customer tenants in write mode (TW): read-only tenants that the tenant_write line names."""
+        from awb import tenantmode
+
+        held = readonly.of_settings(self.settings)
+        return sorted(a for a in tenantmode.of_settings(self.settings) if a in held)
+
+    def _write_mode(self, alias) -> bool:
+        """True when `alias` is a customer tenant in write mode (TW)."""
+        with self.lock:
+            return isinstance(alias, str) and alias in self._write_aliases()
+
+    @staticmethod
+    def _write_cred_kind(tenant: dict) -> str | None:
+        if (tenant.get("roles") or {}).get("write"):
+            return "key"
+        return "login" if tenant.get("write_login") else None
+
+    def _write_cred(self, alias: str) -> dict:
+        """The write credential of a customer tenant in write mode: {ak, sk} or {domain, user, password}. Refused with
+        one line that names what is missing."""
+        with self.lock:
+            tenant = self.tenants.get(alias) or {}
+        kind = self._write_cred_kind(tenant)
+        if kind is None:
+            raise Refused(readonly.WRITE_CRED_LINE % (alias, alias) + ": the owner puts them into pass and runs awb "
+                                                                      "keys unlock")
+        return dict(tenant["roles"]["write"]) if kind == "key" else dict(tenant["write_login"])
+
+    def _write_ended(self, alias: str) -> list[str]:
+        """The end of the write mode of `alias` (TW): its admin tokens are forgotten and its open lab obs jobs are
+        aborted. Returns the ids of the jobs aborted."""
+        from awb.tcp import labobs
+
+        with self.lab.lock:
+            for key in [k for k in self.lab.tokens if k[0] == alias]:
+                self.lab.drop(key)
+        self.tokens.drop(_write_key(alias))
+        return labobs.end_tenant_jobs(self, alias, labobs.READONLY_LINE % (alias, alias))
 
     def _readonly_granted(self, alias: str, code: str) -> bool:
         """The owner's grant of the read-only tenant `alias` to the project `code` (RT)."""
@@ -1126,49 +1202,52 @@ class Service:
                 raise Refused(readonly.GRANT_LINE % (project, alias, alias, project))
 
     def _readonly_makers(self, uid: int, alias: str, tenant: dict, entry: dict, region: str, project: str,
-                         used: list[str], project_id: str | None = None) -> list:
+                         used: list[str], project_id: str | None = None, write: bool = False) -> list:
         """The ways to a client of a read-only tenant in `region`, scoped to the region's project or to
-        `project_id`: the read key, or a token of the login and once more a new one after a 401."""
+        `project_id`: the read key, or a token of the login and once more a new one after a 401. With `write` (TW)
+        the same with the write credential of the tenant in write mode."""
         from awb.tcp import cloud
 
-        if entry["auth"] == "key":
-            pair = tenant.get("roles", {}).get("read")
+        cred = self._write_cred(alias) if write else None
+        if (cred is not None and "ak" in cred) or (cred is None and entry["auth"] == "key"):
+            pair = cred or tenant.get("roles", {}).get("read")
             if not pair:
                 raise Refused("the read-only tenant %s holds no read key: the owner puts awb/tenant/%s/ak and sk "
                               "into pass and runs awb keys unlock" % (alias, alias))
             return [lambda: cloud.Client(obs.Keys(pair["ak"], pair["sk"]), region, endpoint=self.endpoint,
                                          label=alias, timeout=60.0, project_id=project_id)]
-        login = tenant.get("login")
+        login = cred or tenant.get("login")
         if not login:
             raise Refused("the read-only tenant %s holds no login: the owner puts awb/tenant/%s/login/domain, "
                           "user and password into pass and runs awb keys unlock" % (alias, alias))
+        held = _write_key(alias) if write else alias
 
         def by_login():
             try:
-                token, got = self.tokens.get(alias, region, login, entry["domain_id"], self.endpoint,
+                token, got = self.tokens.get(held, region, login, entry["domain_id"], self.endpoint,
                                              project_id=project_id)
             except readonly.ReadonlyError as err:
-                self._log(uid, alias, "read", "LOGIN", "iam", region, "refused", project)
+                self._log(uid, alias, "write" if write else "read", "LOGIN", "iam", region, "refused", project)
                 raise Refused(str(err)) from None
             used.append(token)
             return cloud.Client(obs.Keys("", ""), region, endpoint=self.endpoint, label=alias, timeout=60.0,
                                 token=token, project_id=got)
 
         def again():
-            self.tokens.drop(alias, project_id or region)
+            self.tokens.drop(held, project_id or region)
             return by_login()
 
         return [by_login, again]
 
     def _readonly_send(self, makers: list, method: str, service: str, path: str, query: dict,
-                       headers: dict | None = None) -> dict:
+                       headers: dict | None = None, body=None) -> dict:
         from awb.tcp import cloud
 
         answer: dict = {}
         for n, make in enumerate(makers):
             client = make()
             try:
-                r = client.request(method, service, path, query=query or None, headers=headers)
+                r = client.request(method, service, path, query=query or None, headers=headers, body=body)
                 answer = {"ok": True, "status": r.status, "data": r.data, "text": r.text, "size": r.size,
                           "cut": r.cut}
             except cloud.CloudError as err:
@@ -1218,16 +1297,27 @@ class Service:
     def _call_readonly(self, req: dict, uid: int, caller, alias: str, tenant: dict, entry: dict) -> dict:
         """A call to a read-only tenant (RT): GET and HEAD only for every role and caller, no body, the read key or
         a token of the login; a session only from a project the owner granted this tenant. A `scope` names the
-        project of the tenant to read (T2): its region decides the endpoints."""
+        project of the tenant to read (T2): its region decides the endpoints. In write mode (TW) every method of a
+        lab call, with a body, signed with the write credential; a write names an active project, an OBS write
+        reaches a bucket of the project and IAM takes no write here (a lab run takes them, shortened)."""
+        from awb.tcp import labadmin
+
         method = str(req.get("method") or "GET").upper()
         role = req.get("role") or "read"
         service, path = req.get("service"), req.get("path")
-        if method not in readonly.METHODS:
-            raise Refused(readonly.METHOD_LINE % alias)
-        if role != "read":
-            raise Refused(readonly.ROLE_LINE % alias)
-        if req.get("body") is not None:
-            raise Refused(readonly.BODY_LINE % alias)
+        write = self._write_mode(alias)
+        if not write:
+            if method not in readonly.METHODS:
+                raise Refused(readonly.METHOD_LINE % alias)
+            if role != "read":
+                raise Refused(readonly.ROLE_LINE % alias)
+            if req.get("body") is not None:
+                raise Refused(readonly.BODY_LINE % alias)
+        else:
+            if method not in labadmin.METHODS:
+                raise Refused("a method is one of %s" % ", ".join(labadmin.METHODS))
+            if role not in ROLES:
+                raise Refused("the role is read or lab")
         scope = req.get("scope")
         if scope is not None:
             try:
@@ -1248,17 +1338,33 @@ class Service:
         if not isinstance(query, dict) or not all(isinstance(k, str) and isinstance(v, (str, list))
                                                   for k, v in query.items()):
             raise Refused("a query is an object of strings")
+        auth = ("key" if "ak" in self._write_cred(alias) else "login") if write else entry["auth"]
+        if method in WRITE_METHODS:
+            # TW: only in write mode (the checks above), like a write of the lab key: an active project, never IAM
+            if not (isinstance(project, str) and _PROJECT_RE.match(project) and self._active_project(project)):
+                raise Refused("a write needs the code of an active project")
+            if service in NO_WRITE_SERVICES:
+                raise Refused("the key service does not write to %s here; a lab run on the tenant does (awb lab run "
+                              "start --tenant %s)" % (service, alias))
         if service == "obs":
-            if entry["auth"] == "login":
-                raise Refused(readonly.OBS_LINE % alias)
+            if auth == "login":
+                raise Refused(readonly.OBS_LINE % alias if not write else "refused: the write credential of %s is a "
+                              "login: OBS takes a key, a lab run on the tenant reaches it (awb lab obs)" % alias)
             if scope is not None:
                 raise Refused("refused: an OBS call names no project: the buckets are read by region")
             bucket = path[1:].partition("/")[0]
             if bucket in self.exchange_buckets():
                 raise Refused("the exchange buckets are reached through awb xchg only")
+            if method in WRITE_METHODS and not bucket.startswith(project + "-"):
+                raise Refused("an OBS write reaches only a bucket named after the project (%s-...)" % project)
             if self._session_read(uid) and not self._obs_read_ok(bucket, path[1:].partition("/")[2], query, project):
                 raise Refused("an OBS read reaches only a bucket named after the project (%s-...)" % project)
-        used: list[str] = []
+        body, drawn = req.get("body"), []
+        if body is not None:
+            if not isinstance(body, (dict, list)) or len(json.dumps(body)) > MAX_BODY:
+                raise Refused("a body is a JSON object of at most %d bytes" % MAX_BODY)
+            body = fill(body, {}, drawn=drawn)
+        used: list[str] = list(drawn)
         project_id, headers = None, None
         if scope is not None:
             listing = self._readonly_listing(uid, alias, tenant, entry, project, used)
@@ -1269,11 +1375,11 @@ class Service:
             if req.get("region") and req["region"] != target["region"]:
                 raise Refused("refused: the project %s is in %s, not in %s" % (scope, target["region"], req["region"]))
             region, project_id = target["region"], target["id"]
-            if entry["auth"] == "key":
+            if auth == "key":
                 headers = {"X-Project-Id": project_id}
-        makers = self._readonly_makers(uid, alias, tenant, entry, region, project, used, project_id)
-        answer = self._readonly_send(makers, method, service, path, query, headers)
-        self._log(uid, alias, "read", method, service, region, answer["status"], project)
+        makers = self._readonly_makers(uid, alias, tenant, entry, region, project, used, project_id, write)
+        answer = self._readonly_send(makers, method, service, path, query, headers, body)
+        self._log(uid, alias, "write" if write else "read", method, service, region, answer["status"], project)
         return self._mask(answer, tenant, used)
 
     def _session_read(self, uid: int) -> bool:
@@ -1418,6 +1524,7 @@ class Service:
         values = [v for pair in tenant.get("roles", {}).values() for v in pair.values()]
         values += list(tenant.get("secrets", {}).values()) + list(drawn)
         values += [v for k, v in (tenant.get("login") or {}).items() if k == "password"]
+        values += [v for k, v in (tenant.get("write_login") or {}).items() if k == "password"]
         values += [v for k, v in (tenant.get("admin") or {}).items() if k == "password"]
         values += self.tokens.values() + self.lab.values()
         for value in values:
@@ -1448,16 +1555,28 @@ def _old_lab_writes(settings: dict) -> bool:
     return value is not None and xchg.lab_writes_parse(str(value)) is None and xchg.lab_writes_old_form(str(value))
 
 
+def _write_key(alias: str) -> str:
+    """The alias under which readonly.Tokens holds the tokens of a write login (TW), apart from the read login's."""
+    return alias + "/write"
+
+
 def _without_writes(tenants: dict, settings: dict) -> dict:
     """The tenants with the lab key and the secrets of every read-only tenant left out (RT): what the store holds
-    beside its read key or login is never used. An admin login stays only for a tenant of the lab_admin line (LR)."""
+    beside its read key or login is never used. Its write credential stays only while the tenant is in write mode
+    (TW) and no other tenant keeps one. An admin login stays only for a tenant of the lab_admin line (LR)."""
+    from awb import tenantmode
     from awb.tcp import labadmin
 
     held = readonly.of_settings(settings)
+    writing = set(tenantmode.of_settings(settings)) & set(held)
     out = {}
     for alias, t in tenants.items():
-        if alias in held and isinstance(t, dict):
-            t = dict(t, roles={r: v for r, v in (t.get("roles") or {}).items() if r == "read"}, secrets={})
+        if isinstance(t, dict) and (alias in held or "write_login" in t or "write" in (t.get("roles") or {})):
+            keep = ("read", "write") if alias in writing else ("read",) if alias in held else tuple(ROLES)
+            t = {k: v for k, v in t.items() if k != "write_login" or alias in writing}
+            t["roles"] = {r: v for r, v in (t.get("roles") or {}).items() if r in keep}
+            if alias in held:
+                t["secrets"] = {}
         out[alias] = t
     return labadmin.only_allowed(out, settings, held)
 
@@ -1764,6 +1883,7 @@ def _print_summary(tenants: dict) -> None:
     for alias, t in sorted(tenants.items()):
         regions = ", ".join(t.get("regions", [])) if t.get("regions") is not None else ""
         kind = "  kind: readonly (%s)" % t.get("auth") if t.get("kind") == "readonly" else ""
+        kind += "  mode: write (%s)" % (t.get("write") or "no write credential") if t.get("mode") == "write" else ""
         kind += "  admin login: lab runs" if t.get("admin") else ""
         print("%-12s keys: %-10s secrets: %s%s%s" % (alias, ", ".join(t["roles"]) or "-",
                                                      ", ".join(t["secrets"]) or "-",

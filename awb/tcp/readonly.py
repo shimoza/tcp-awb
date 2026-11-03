@@ -32,6 +32,21 @@ expiry and then asks again; an answer 401 drops it and asks once more. The token
 out of every answer; it is never logged, never handed over in a reload and never shown. IAM refuses a password
 login when login protection with MFA is on: the service then says MFA_LINE and never asks for a code. OBS takes a
 key, so a login-only tenant has no OBS.
+
+Write mode (task TW, B-031, awb/tenantmode.py): `awb tenant mode ALIAS write [--note TEXT]` switches a tenant to write
+once the customer gave the owner a written OK; `awb tenant mode ALIAS readonly` switches it back. Owner side only: it
+is refused for the work user and in an assistant session. Write mode needs a write credential of the customer in pass,
+beside the read one and checked by name only:
+
+    awb/tenant/<alias>/write/ak, write/sk                                            a write AK/SK
+    awb/tenant/<alias>/write/login/domain, write/login/user, write/login/password    a write login
+
+The mode is the tenant_write line of keys.conf (the day and the note) and goes to the key service with `awb keys
+unlock`. In write mode the key service signs every method for the projects granted the tenant, with the write
+credential (never a lease, no key to a session), and a lab run, awb lab obs included, works there; the read credential
+stays and signs in read-only mode. The switch back reaches the running service at once (the admin op
+tenant_readonly): it forgets the write credential, refuses the next write and aborts the open lab obs jobs of the
+tenant.
 """
 from __future__ import annotations
 
@@ -88,6 +103,13 @@ OTHER_DOMAIN_LINE = "refused: the project %s belongs to another domain than the 
 NO_REGION_LINE = "refused: the project %s names no region"
 REGION_LINE = ("refused: the project %s is in %s, not a region of the read-only tenant %s (%s): the owner adds it with "
                "awb tenant regions %s --region ...")
+WRITE_ONLY_LINE = ("refused: %s is a read-only tenant: a write and a lab run need write mode (the owner's awb tenant "
+                   "mode %s write)")
+WRITE_CRED_LINE = ("refused: %s has no write credential: awb/tenant/%s/write/ak and write/sk (or write/login/domain, "
+                   "user and password) are missing")
+MODE_OWNER_LINE = "the mode of a customer tenant is the owner's: he runs awb tenant mode in his own terminal"
+MODES = ("write", "readonly")
+WRITE_KEY_PARTS = ("ak", "sk")
 CONSOLE_ONLY_LINE = ("this login has console access only and IAM refuses it an API token (IAM.0081): ask for "
                      "programmatic access or a read-only AK/SK")
 
@@ -132,6 +154,11 @@ def of_settings(settings: dict) -> dict[str, dict]:
 
 def write_setting(entries: dict[str, dict], path: Path | None = None) -> Path:
     """Replace the readonly line of keys.conf (or add it; drop it for no entry), every other line kept, mode 600."""
+    return write_line(SETTING, render(entries) if entries else None, path)
+
+
+def write_line(key: str, value: str | None, path: Path | None = None) -> Path:
+    """Replace the line `key` of keys.conf (or add it; drop it for None), every other line kept, mode 600."""
     from awb.tcp import xchg
 
     path = path or xchg.settings_file()
@@ -139,9 +166,9 @@ def write_setting(entries: dict[str, dict], path: Path | None = None) -> Path:
         lines = path.read_text(encoding="utf-8").splitlines()
     except FileNotFoundError:
         lines = []
-    kept = [ln for ln in lines if ln.strip().partition("=")[0].strip() != SETTING]
-    if entries:
-        kept.append("%s = %s" % (SETTING, render(entries)))
+    kept = [ln for ln in lines if ln.strip().partition("=")[0].strip() != key]
+    if value is not None:
+        kept.append("%s = %s" % (key, value))
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".keys.conf.", dir=path.parent)
     try:
@@ -473,19 +500,105 @@ def _has_secret(store, entry: str) -> bool:
 
 
 def remove(p: config.Paths, alias: str, *, settings_path: Path | None = None) -> list[str]:
-    """Forget a read-only tenant: its line in keys.conf and its grants. The pass entries stay (his to remove)."""
+    """Forget a read-only tenant: its line in keys.conf, its write mode and its grants. The pass entries stay (his to
+    remove)."""
+    from awb import tenantmode
     from awb.tcp import xchg
 
     if config.is_work_user():
         raise ReadonlyError("read-only tenants are removed on the owner side")
-    entries = of_settings(xchg.read_settings(settings_path))
+    settings = xchg.read_settings(settings_path)
+    entries = of_settings(settings)
     if alias not in entries:
         raise ReadonlyError("%s is not a read-only tenant: awb tenant remove takes read-only tenants only" % alias)
     del entries[alias]
     write_setting(entries, settings_path)
+    modes = tenantmode.of_settings(settings)
+    if modes.pop(alias, None) is not None:
+        write_line(tenantmode.SETTING, tenantmode.render(modes) if modes else None, settings_path)
     taken = revoke(p, alias) if load_grants(p).get(alias) else 0
     return ["tenant %s: removed from keys.conf, %d grant(s) taken" % (alias, taken),
             "the pass entries stay: pass rm -r awb/tenant/%s removes them" % alias]
+
+
+# --------------------------------------------------------------------------- write mode (TW)
+
+
+def write_kind(store, alias: str) -> str:
+    """key or login: the write credential of `alias` in pass, by the names of its entries only. Refused with one line
+    that names what is missing, or when both are there."""
+    entry = "awb/tenant/%s/write" % alias
+    has = {k: store.has("%s/%s" % (entry, k)) for k in WRITE_KEY_PARTS}
+    login = {k: store.has("%s/login/%s" % (entry, k)) for k in LOGIN_PARTS}
+    if all(has.values()) and any(login.values()):
+        raise ReadonlyError("%s holds a write key and a write login in pass: pass rm one of them first" % alias)
+    if all(has.values()):
+        return "key"
+    if all(login.values()):
+        return "login"
+    if any(has.values()):
+        missing = ["%s/%s" % (entry, k) for k, v in has.items() if not v]
+    elif any(login.values()):
+        missing = ["%s/login/%s" % (entry, k) for k, v in login.items() if not v]
+    else:
+        raise ReadonlyError(WRITE_CRED_LINE % (alias, alias))
+    raise ReadonlyError("refused: %s has no whole write credential: %s is missing" % (alias, ", ".join(missing)))
+
+
+def set_mode(alias: str, mode: str, note: str | None = None, *, store=None, settings_path: Path | None = None,
+             today: str | None = None) -> list[str]:
+    """Switch a customer tenant to write or back to readonly in keys.conf (the tenant_write line, with the day and the
+    note). Owner side only: refused for the work user and in an assistant session. Write needs the write credential
+    in pass. Returns the lines to print; the caller tells the key service."""
+    import datetime
+
+    from awb import tenantmode, vault
+    from awb.tcp import tenants as _tenants, xchg
+
+    if config.is_work_user() or vault.in_assistant_session():
+        raise ReadonlyError(MODE_OWNER_LINE)
+    if mode not in MODES:
+        raise ReadonlyError("a mode is write or readonly")
+    settings = xchg.read_settings(settings_path)
+    if alias not in of_settings(settings):
+        raise ReadonlyError("%s is not a customer tenant (awb tenant add-readonly): only those have a mode" % alias)
+    modes = tenantmode.of_settings(settings)
+    if mode == "readonly":
+        if modes.pop(alias, None) is None:
+            return ["tenant %s: read-only already" % alias]
+        write_line(tenantmode.SETTING, tenantmode.render(modes) if modes else None, settings_path)
+        return ["tenant %s: read-only: changed in keys.conf" % alias]
+    note = " ".join((note or "").split())
+    if not tenantmode.NOTE_RE.match(note):
+        raise ReadonlyError("a note is at most %d characters of letters, digits, blanks and . _ / ( ) # + -"
+                            % tenantmode.NOTE_MAX)
+    kind = write_kind(store or _tenants.Store(), alias)
+    before = modes.get(alias)
+    since = before["since"] if before else (today or datetime.date.today().isoformat())
+    modes[alias] = {"since": since, "note": note if note or before is None else before["note"]}
+    write_line(tenantmode.SETTING, tenantmode.render(modes), settings_path)
+    return ["tenant %s: write since %s with the write %s (%s): %s in keys.conf" % (
+        alias, since, kind, modes[alias]["note"] or "no note", "changed" if before else "switched")]
+
+
+LIST_HEAD = ["customer tenant", "read", "regions", "mode", "since", "note", "granted"]
+
+
+def list_lines(settings: dict, grants: dict[str, list[str]]) -> list[str]:
+    """The customer tenants of keys.conf with their mode (TW): alias, way in, regions, mode, since, note, grants."""
+    from awb import tenantmode
+
+    modes = tenantmode.of_settings(settings)
+    rows = []
+    for alias, e in sorted(of_settings(settings).items()):
+        m = modes.get(alias)
+        rows.append([alias, e["auth"], "+".join(e["regions"]), "write" if m else "readonly",
+                     m["since"] if m else "-", (m.get("note") or "-") if m else "-",
+                     " ".join(grants.get(alias, [])) or "-"])
+    if not rows:
+        return []
+    widths = [max(len(r[i]) for r in rows + [LIST_HEAD]) for i in range(len(LIST_HEAD))]
+    return ["  ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip() for r in [LIST_HEAD] + rows]
 
 
 # --------------------------------------------------------------------------- the interactive login (UX change 5)

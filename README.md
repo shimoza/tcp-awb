@@ -190,7 +190,8 @@ A project session may test its own scripts on the two lab tenants test-10491 and
 login, only on his word in the session. The owner sets it up once: the logins in pass as
 `awb/admin/<alias>/domain`, `user` and `password`, the line `lab_admin = test-10491 test-10497` in keys.conf, then
 `awb keys unlock`. Any other alias in the line refuses the unlock; test-10498, a customer tenant and a read-only
-tenant are refused. The session runs `awb lab run start --tenant test-10491 [--note TEXT]`, its scripts call
+tenant are refused there. A customer tenant you switched to write (`awb tenant mode`, below) takes lab runs too,
+for the projects granted it, with its write credential in place of an admin login. The session runs `awb lab run start --tenant test-10491 [--note TEXT]`, its scripts call
 through the key service with
 
     /opt/tcp-awb/venv/bin/python3 evidence/<folder>/poc.py      # the script: from awb import labclient
@@ -216,7 +217,8 @@ background job:
     awb lab obs abort JOB                                  labclient.obs_abort(job)
 
 put and get answer a job id at once; status shows bytes done, total, rate and state. The rules are those of a lab
-call: the open run of the project on test-10491 or test-10497 (never a read-only tenant), a bucket named after the
+call: the open run of the project on test-10491, test-10497 or a customer tenant in write mode (never a read-only
+tenant), a bucket named after the
 project (`<code>-...`), never an exchange bucket, signed with the run's temporary credential. The session holds no
 key. The file reaches the service as an open descriptor over the socket, never as a path, so a file the session
 cannot read is refused; a get writes only inside the project folder or the session scratch folder and checks the
@@ -712,6 +714,7 @@ the password store (`pass`), one folder per tenant alias:
 | `awb/tenant/<alias>/ak`, `sk` | the read key, best an IAM user with a read-only role | GET and HEAD |
 | `awb/tenant/<alias>/lab/ak`, `lab/sk` | the lab key | every method; a write needs the code of an active project |
 | `awb/tenant/<alias>/secret/<name>` | a login or a password | fills a password field of a request, never shown |
+| `awb/tenant/<alias>/write/ak`, `write/sk` (or `write/login/...`) | the write credential of a customer tenant | every method, only in write mode (`awb tenant mode`) |
 
 The lab key signs a write (POST, PUT, PATCH, DELETE) only when the `lab_writes = METHOD service path[,...]` line in
 `keys.conf` names it: method, service and path are one triple, a `{name}` segment stands for exactly one segment
@@ -759,6 +762,29 @@ In a terminal `awb tenant add-readonly ALIAS --domain-id ID --login` asks for wh
 For a login the key service takes a token from IAM, keeps it in memory only and renews it before it expires. A
 login with MFA is refused with one line: ask for a read-only AK/SK. `awb cloud tenants` shows the kind and whether
 a key or a login reads it, never a value. `awb tenant revoke` and `awb tenant remove` take it back.
+
+A customer tenant stays read-only until the customer gives you a written OK to work in it directly. Then you put a
+write credential of the customer into pass beside the read one and switch the tenant to write in your own terminal
+(task TW):
+
+```bash
+pass insert awb/tenant/cust-1/write/ak       # and write/sk (or write/login/domain, user, password)
+awb tenant mode cust-1 write --note "mail OK of 2026-11-02"
+awb tenant mode cust-1 readonly              # back, at once
+```
+
+The command checks the write entries by name only; write without them is refused with one line that names what
+is missing. It keeps the day and the note in the `tenant_write` line of keys.conf and runs `awb keys unlock`, so the
+mode travels to the key service like every other setting; a tenant the line does not name is read-only. In write
+mode the key service signs every method for the projects granted the tenant, with the write credential: `awb cloud
+call` (a write names an active project, an OBS write a bucket named after the project, IAM only in a lab run) and a
+lab run (`awb lab run start --tenant cust-1`, `labclient.call`, `awb lab obs`) with the same run log, never a key in
+it. The session holds no key and gets no lease. The end of a run on a customer tenant deletes only what the run made:
+a PUT or PATCH outside OBS records nothing and the delete of a server keeps its elastic IP and its data disks. The
+switch back takes effect at once in the running key service: it forgets the write credential, refuses the next write
+and aborts an open lab obs job of the tenant with the reason in its state. `awb owner status` lists every tenant in
+write mode with its day and note for as long as it stays there; there is no expiry. `awb tenant list` shows the mode
+of each customer tenant. The command is refused for the work user and in an assistant session.
 
 The key service signs a call to `obs` the OBS way (`Authorization: OBS AK:SIGNATURE`, the code of `awb/obs.py`): the
 path is `/BUCKET[/KEY]`, the bucket is reached by its own host and `GET /` lists the buckets. Every other service is

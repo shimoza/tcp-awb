@@ -80,7 +80,7 @@ IN = bucket_layout.IN
 DEFAULTS = {"lab_bucket": "awb-lab-eu-de", "owner_bucket": bucket_layout.OWNER_BUCKET,
             "region": bucket_layout.REGION, "max_mb": str(bucket_layout.MAX_MB)}
 SETTING_KEYS = ("bucket_tenant", "lab_bucket", "owner_bucket", "region", "max_mb", "notify_topic", "tf_services",
-                "lab_writes", "readonly", "lab_admin", "lab_obs_max_gb")
+                "lab_writes", "readonly", "lab_admin", "lab_obs_max_gb", "tenant_write")
 _SERVICE_RE = re.compile(r"^[a-z][a-z0-9]{1,20}$")
 """One service of tf_services: the short name of the lease policy's actions (ecs, evs, vpc)."""
 _NAME_RE = re.compile(r"^[^/\\\x00-\x1f\x7f]{1,200}$")
@@ -133,6 +133,12 @@ def read_settings(path: Path | None = None) -> dict:
             if readonly.parse(value) is None:
                 raise XchgError("line %d of keys.conf: readonly is a comma-separated list of "
                                 "ALIAS:key|login:DOMAIN-ID:REGION[+REGION]" % n)
+        if key == "tenant_write":
+            from awb import tenantmode
+
+            if tenantmode.parse(value) is None:
+                raise XchgError("line %d of keys.conf: tenant_write is a comma-separated list of ALIAS:YYYY-MM-DD:NOTE "
+                                "(awb tenant mode writes it)" % n)
         if key == "lab_obs_max_gb":
             from awb.tcp import labobs
 

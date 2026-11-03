@@ -357,7 +357,8 @@ def _obs_parser(action: str) -> argparse.ArgumentParser:
     else:
         ap.add_argument("job", metavar="JOB")
     if action in ("put", "get"):
-        ap.add_argument("--tenant", default=None, help="test-10491 or test-10497 (default: the one open run)")
+        ap.add_argument("--tenant", default=None, help="test-10491, test-10497 or a granted customer tenant in write "
+                                                       "mode (default: the one open run)")
     return ap
 
 
@@ -416,7 +417,8 @@ def _parser(action: str) -> argparse.ArgumentParser:
     ap = SafeParser(prog="awb lab run %s" % action, description=helps[action])
     if action in ("start", "end"):
         ap.add_argument("--tenant", required=action == "start", default=None,
-                        help="test-10491 or test-10497 (end: default the one open run)")
+                        help="test-10491, test-10497 or a granted customer tenant in write mode (end: default the "
+                             "one open run)")
     if action == "start":
         ap.add_argument("--note", default="", help="a short note of what the run tests")
     ap.add_argument("--project", default=None, help="default: the code of this folder's project")

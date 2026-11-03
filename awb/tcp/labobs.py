@@ -10,7 +10,10 @@ egress filter keeps the work user away from OBS; the temporary keys of an answer
 `lab_obs` of the call socket has the key service run the transfer as a background job of its own: the session never
 holds a key and gets no new egress. Its rules are those of a lab call: an open run of the calling project on
 test-10491 or test-10497 (never a read-only tenant), a bucket named after the project (<code>-...), never an exchange
-bucket, signed with the run's temporary credential of the admin token only, the way labadmin signs an OBS call.
+bucket, signed with the run's temporary credential of the admin token only, the way labadmin signs an OBS call. A
+customer tenant in write mode (task TW) takes the same jobs for a project granted it, signed with its write key or a
+temporary credential of its write login; the owner's switch back to read-only aborts its open jobs at once
+(READONLY_LINE in the record).
 
 The file never reaches the service by its path. The client opens it as the work user and passes the open descriptor
 over the Unix socket (SCM_RIGHTS), with a second one of the run log notes/lab-runs/<run>.log opened for append: a
@@ -88,6 +91,8 @@ _BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 _KEY_RE = re.compile(r"^[A-Za-z0-9_.=~@+-][A-Za-z0-9_.:/=~@+-]{0,799}$")
 RESUME_LINE = "%s the same file again to resume"
 LIMIT_LINE = "refused: the %s is %.1f GB, over the limit of %s GB (lab_obs_max_gb in keys.conf)"
+READONLY_LINE = ("aborted: the owner switched %s back to read-only; after awb tenant mode %s write a new put or get "
+                 "starts it again")
 
 
 class _Stopped(Exception):
@@ -383,8 +388,8 @@ class _Obs:
     def _auth(self):
         from awb.tcp import labadmin
 
-        _tenant, login = labadmin._tenant(self.svc, self.job["tenant"])
-        return labadmin._Auth(self.svc, self.job["tenant"], login, self.job["region"])
+        _tenant, login = labadmin._tenant(self.svc, self.job["tenant"], self.job.get("project"))
+        return labadmin.auth(self.svc, self.job["tenant"], login, self.job["region"])
 
     def drop(self) -> None:
         self.svc.lab.drop((self.job["tenant"], "obs@%s" % self.job["region"]))
@@ -397,7 +402,8 @@ class _Obs:
         client, key, sub, url = cloud.Client(obs.Keys(ak, sk), self.job["region"],
                                              endpoint=self.svc.endpoint).obs_call(path, query)
         hdrs = dict(headers)
-        hdrs["x-obs-security-token"] = st
+        if st:
+            hdrs["x-obs-security-token"] = st
         client.sign(method, key, hdrs, sub)
         return url, hdrs
 
@@ -828,7 +834,7 @@ def _transfer(svc, req: dict, uid: int, project: str, action: str, fds: list[int
     from awb.tcp import labadmin
 
     alias = req.get("tenant")
-    labadmin._tenant(svc, alias)
+    labadmin._tenant(svc, alias, project)
     p = svc.paths_fn()
     run = _run_of(svc, req, project, alias, p)
     region = _region(svc, req, alias)
@@ -979,6 +985,20 @@ def end_jobs(svc, run: dict) -> None:
                 save_job(p, j)
 
 
+def end_tenant_jobs(svc, alias: str, why: str) -> list[str]:
+    """Stop every job on the tenant `alias` and mark it aborted with `why` (TW: the owner switched the customer
+    tenant back to read-only). The multipart upload of a put stays for the run end in write mode. Returns the ids."""
+    p = svc.paths_fn()
+    mine = {j["id"] for j in load_jobs(p) if j.get("tenant") == alias and j.get("state") in ACTIVE + RESUMABLE}
+    svc.obs_jobs.stop_all(why, "aborted", only=mine)
+    with svc.obs_jobs.lock:
+        for j in load_jobs(p):
+            if j["id"] in mine and j.get("state") in ACTIVE + RESUMABLE and j["id"] not in svc.obs_jobs.live:
+                j["state"], j["error"], j["ended"] = "aborted", why, _now()
+                save_job(p, j)
+    return sorted(mine)
+
+
 def abort_uploads(svc, run: dict, alias: str, calls: list[dict]) -> None:
     """Abort every incomplete multipart upload of every bucket the run made and has not deleted yet: a bucket delete
     answers 409 BucketNotEmpty while one is there, even when its listing shows no object."""
@@ -991,7 +1011,8 @@ def abort_uploads(svc, run: dict, alias: str, calls: list[dict]) -> None:
         bucket = str(d.get("path") or "").strip("/")
         if not _BUCKET_RE.match(bucket):
             continue
-        o = _Obs(svc, {"tenant": alias, "region": d.get("region") or labadmin._regions(svc, alias)[0]})
+        o = _Obs(svc, {"tenant": alias, "region": d.get("region") or labadmin._regions(svc, alias)[0],
+                       "project": run.get("project")})
         try:
             found = list_uploads(o, bucket)
         except (_Failed, keys.KeysError, labadmin.LabAdminError):

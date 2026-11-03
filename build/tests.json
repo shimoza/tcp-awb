@@ -13628,8 +13628,169 @@
    "name": "LO: a get goes on after a cut resumes and checks the hash",
    "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_a_get_goes_on_after_a_cut_resumes_and_checks_the_hash",
    "status": "passing"
+  },
+  {
+   "id": "tw-1",
+   "phase": "tw-tenant-write",
+   "name": "TW: a read only tenant refuses every write as before",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_a_read_only_tenant_refuses_every_write_as_before",
+   "status": "passing"
+  },
+  {
+   "id": "tw-2",
+   "phase": "tw-tenant-write",
+   "name": "TW: a lab run on a read only tenant is refused with the mode line",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_a_lab_run_on_a_read_only_tenant_is_refused_with_the_mode_line",
+   "status": "passing"
+  },
+  {
+   "id": "tw-3",
+   "phase": "tw-tenant-write",
+   "name": "TW: the write credential is held only in write mode",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_the_write_credential_is_held_only_in_write_mode",
+   "status": "passing"
+  },
+  {
+   "id": "tw-4",
+   "phase": "tw-tenant-write",
+   "name": "TW: a lease stays refused in write mode",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_a_lease_stays_refused_in_write_mode",
+   "status": "passing"
+  },
+  {
+   "id": "tw-5",
+   "phase": "tw-tenant-write",
+   "name": "TW: write mode signs a put and a post of a granted project with the write key",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_write_mode_signs_a_put_and_a_post_of_a_granted_project_with_the_write_key",
+   "status": "passing"
+  },
+  {
+   "id": "tw-6",
+   "phase": "tw-tenant-write",
+   "name": "TW: write mode refuses a project without the grant of the tenant",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_write_mode_refuses_a_project_without_the_grant_of_the_tenant",
+   "status": "passing"
+  },
+  {
+   "id": "tw-7",
+   "phase": "tw-tenant-write",
+   "name": "TW: write mode keeps iam and the obs buckets of other projects out",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_write_mode_keeps_iam_and_the_obs_buckets_of_other_projects_out",
+   "status": "passing"
+  },
+  {
+   "id": "tw-8",
+   "phase": "tw-tenant-write",
+   "name": "TW: every write is logged without a key",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_every_write_is_logged_without_a_key",
+   "status": "passing"
+  },
+  {
+   "id": "tw-9",
+   "phase": "tw-tenant-write",
+   "name": "TW: write mode without the write credential is refused with one line",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_write_mode_without_the_write_credential_is_refused_with_one_line",
+   "status": "passing"
+  },
+  {
+   "id": "tw-10",
+   "phase": "tw-tenant-write",
+   "name": "TW: the mode command records the day and the note and switches back",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_the_mode_command_records_the_day_and_the_note_and_switches_back",
+   "status": "passing"
+  },
+  {
+   "id": "tw-11",
+   "phase": "tw-tenant-write",
+   "name": "TW: the mode command refuses write without the write credential in pass",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_the_mode_command_refuses_write_without_the_write_credential_in_pass",
+   "status": "passing"
+  },
+  {
+   "id": "tw-12",
+   "phase": "tw-tenant-write",
+   "name": "TW: the mode command is refused for the work user and in a session",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_the_mode_command_is_refused_for_the_work_user_and_in_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "tw-13",
+   "phase": "tw-tenant-write",
+   "name": "TW: the switch back refuses the next write at once",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_the_switch_back_refuses_the_next_write_at_once",
+   "status": "passing"
+  },
+  {
+   "id": "tw-14",
+   "phase": "tw-tenant-write",
+   "name": "TW: the switch back aborts an open lab obs job with a clear state",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_the_switch_back_aborts_an_open_lab_obs_job_with_a_clear_state",
+   "status": "passing"
+  },
+  {
+   "id": "tw-15",
+   "phase": "tw-tenant-write",
+   "name": "TW: an unlock without the write mode aborts the jobs too",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_an_unlock_without_the_write_mode_aborts_the_jobs_too",
+   "status": "passing"
+  },
+  {
+   "id": "tw-16",
+   "phase": "tw-tenant-write",
+   "name": "TW: lab obs works on a customer tenant in write mode with the run log",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_lab_obs_works_on_a_customer_tenant_in_write_mode_with_the_run_log",
+   "status": "passing"
+  },
+  {
+   "id": "tw-17",
+   "phase": "tw-tenant-write",
+   "name": "TW: the run end on a customer tenant deletes only what the run made",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_the_run_end_on_a_customer_tenant_deletes_only_what_the_run_made",
+   "status": "passing"
+  },
+  {
+   "id": "tw-18",
+   "phase": "tw-tenant-write",
+   "name": "TW: on a customer tenant a put outside obs and a server delete keep what was there",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_on_a_customer_tenant_a_put_outside_obs_and_a_server_delete_keep_what_was_there",
+   "status": "passing"
+  },
+  {
+   "id": "tw-19",
+   "phase": "tw-tenant-write",
+   "name": "TW: a lab call with a write key is signed with it",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_a_lab_call_with_a_write_key_is_signed_with_it",
+   "status": "passing"
+  },
+  {
+   "id": "tw-20",
+   "phase": "tw-tenant-write",
+   "name": "TW: owner status lists a tenant in write mode until it is switched back",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_owner_status_lists_a_tenant_in_write_mode_until_it_is_switched_back",
+   "status": "passing"
+  },
+  {
+   "id": "tw-21",
+   "phase": "tw-tenant-write",
+   "name": "TW: tenant list shows the mode of each customer tenant",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_tenant_list_shows_the_mode_of_each_customer_tenant",
+   "status": "passing"
+  },
+  {
+   "id": "tw-22",
+   "phase": "tw-tenant-write",
+   "name": "TW: the tenant write line of keys conf is checked",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_the_tenant_write_line_of_keys_conf_is_checked",
+   "status": "passing"
+  },
+  {
+   "id": "tw-23",
+   "phase": "tw-tenant-write",
+   "name": "TW: remove of a customer tenant drops its write mode",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_remove_of_a_customer_tenant_drops_its_write_mode",
+   "status": "passing"
   }
  ],
- "total_tests": 1947,
+ "total_tests": 1970,
  "checked": "2026-11-03"
 }

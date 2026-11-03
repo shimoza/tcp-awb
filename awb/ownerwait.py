@@ -1,6 +1,6 @@
 """`awb owner status`: one list of everything that waits on the owner (UX review 2026-10-24, change 4).
 
-Six sources, read on the owner's side only:
+Seven sources, read on the owner's side only:
 
 - the owner items of OPEN.md of every active project (a parked project is a count, nothing more);
 - the rows of presentations/work-profile/QUEUE.md of the owner's repository whose state says it waits on him
@@ -11,6 +11,8 @@ Six sources, read on the owner's side only:
   "dataset tcp-facts-<date>: N added, M amended, K retired" for 24 hours, so the 08:00 mail after it carries it.
 - the lab runs of the projects (task LR, awb/labruns.py) open for more than two hours or ended with failed
   deletes, with what is left (kinds only, never an id).
+- the customer tenants in write mode (task TW, awb/tenantmode.py: the tenant_write line of keys.conf) with the day
+  and the note of the switch, for as long as they stay there, and the command that switches each back.
 - the last put of the codes file of his report workbook (`awb report --codes --put`, awb-report-codes.timer, every
   hour): a failed one is the item "reports: ..." with its reason until a put succeeds; it says
   "projects.csv older than 24 h" when the last good put is that old or there was none.
@@ -282,6 +284,18 @@ def lab_run_items(p: config.Paths, now: float | None = None) -> list[Item]:
     return out
 
 
+def tenant_mode_items(path: Path | None = None) -> list[Item]:
+    """Every customer tenant in write mode (task TW, the tenant_write line of keys.conf), with its day and note, for as
+    long as it stays there: there is no expiry, the owner switches it back."""
+    from awb import tenantmode
+
+    out: list[Item] = []
+    for alias, e in sorted(tenantmode.read(path).items()):
+        text = "customer tenant in write mode since %s: %s" % (e["since"], e.get("note") or "no note")
+        out.append(Item(alias, _short(text), WHERE_TERMINAL, "awb tenant mode %s readonly" % alias))
+    return out
+
+
 def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path | None = None
             ) -> tuple[list[Item], int]:
     """All items after the name check, and the count of parked projects."""
@@ -294,6 +308,7 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
     items += dataset_items()
     items += report_items()
     items += lab_run_items(p)
+    items += tenant_mode_items()
     texts = []
     for it in items:
         texts += [it.text, it.block or "", it.label]

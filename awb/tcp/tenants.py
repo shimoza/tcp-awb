@@ -9,6 +9,7 @@
                                                                         owner side: a read-only tenant (RT)
     awb tenant remove ALIAS                                             owner side: forget a read-only tenant
     awb tenant grant ALIAS CODE, awb tenant revoke ALIAS CODE           owner side: a project reads a read-only tenant
+    awb tenant mode ALIAS write|readonly [--note TEXT]                  owner side: a customer tenant to write and back
     awb tenant snapshot [ALIAS]...                                      owner side: list the tenant, GET only
     awb tenant list                                                     every tenant, what runs there now
     awb tenant now ALIAS                                                what runs there now, oldest first
@@ -45,6 +46,12 @@ Without --region it reads eu-de and eu-nl; `regions` changes the regions of a re
 login again and runs `awb keys unlock`. `projects` (a session of a granted project, or the owner) lists the region
 projects and sub-projects of the tenant's domain in its regions through the key service (GET /v3/auth/projects);
 `awb cloud call --tenant ALIAS --scope NAME GET ...` reads one of them.
+
+`mode` (task TW, B-031) switches a customer tenant to write once the customer gave the owner a written OK, with the
+day and `--note` in the tenant_write line of keys.conf, after it checked by name that pass holds the write credential
+(`awb/tenant/ALIAS/write/ak|sk` or `write/login/domain|user|password`); then it runs `awb keys unlock`. `mode ALIAS
+readonly` takes the line out and tells the running key service at once (the admin op tenant_readonly). Both are
+refused for the work user and in an assistant session. `list` shows every customer tenant with its mode.
 
 The history is kept for good. The tenants are named by aliases (test-1), never by their ids: a tenant id is an
 identifier the commit gate refuses.
@@ -838,6 +845,13 @@ def main(argv: list[str] | None = None) -> int:
     rv = sub.add_parser("revoke", help="take a project's grant of a read-only tenant away (owner side)")
     rv.add_argument("alias")
     rv.add_argument("code")
+    md = sub.add_parser("mode", help="switch a customer tenant to write after the customer's written OK, or back to "
+                                     "readonly at once (owner side, his own terminal)")
+    md.add_argument("alias")
+    md.add_argument("mode", choices=("write", "readonly"))
+    md.add_argument("--note", default=None,
+                    help="a short note on the customer's OK, kept with the day (letters, digits, blanks, . _ / ( ) # "
+                         "+ -)")
     s = sub.add_parser("snapshot", help="list the tenants now, GET only (owner side)")
     s.add_argument("alias", nargs="*")
     sub.add_parser("list", help="every tenant and what runs there now")
@@ -892,6 +906,8 @@ def main(argv: list[str] | None = None) -> int:
             print("\n".join(lines))
         elif args.command in ("add-readonly", "remove", "grant", "revoke", "regions"):
             return _readonly_command(p, args)
+        elif args.command == "mode":
+            return _mode_command(args)
         elif args.command == "projects":
             return _readonly_projects(args)
         elif args.command == "snapshot":
@@ -910,7 +926,7 @@ def main(argv: list[str] | None = None) -> int:
                       " ".join("%s %d" % kv for kv in sorted(counts.items())) or "none",
                       "; %d listing(s) not readable" % unknown if unknown else ""))
         elif args.command == "list":
-            print("\n".join(list_lines(p, today)))
+            print("\n".join(list_lines(p, today) + customer_lines(p)))
         elif args.command == "now":
             get(p, args.alias)
             print("\n".join(now_lines(p, args.alias, today)))
@@ -1005,6 +1021,64 @@ def _readonly_command(p: config.Paths, args) -> int:
     except Exception as err:      # xchg.XchgError of a broken keys.conf line, an OS error
         print("awb tenant: %s" % (err if type(err).__name__ == "XchgError" else type(err).__name__), file=sys.stderr)
         return 1
+    print("\n".join(lines))
+    return 0
+
+
+def customer_lines(p: config.Paths) -> list[str]:
+    """The customer tenants of keys.conf with their mode (TW), after a blank line; nothing where keys.conf has none
+    or cannot be read (the work user has none)."""
+    from awb.tcp import readonly, xchg
+
+    try:
+        lines = readonly.list_lines(xchg.read_settings(), readonly.load_grants(p))
+    except Exception:         # xchg.XchgError of a broken line, an OS error
+        return []
+    return [""] + lines if lines else []
+
+
+def _mode_command(args) -> int:
+    """`awb tenant mode ALIAS write|readonly [--note TEXT]` (TW): keys.conf first, then the key service: write through
+    `awb keys unlock` (the write credential comes from pass), readonly at once through the admin op tenant_readonly."""
+    from awb.tcp import keys as _keys, readonly
+
+    try:
+        lines = readonly.set_mode(args.alias, args.mode, args.note)
+    except readonly.ReadonlyError as err:
+        print("awb tenant: %s" % err, file=sys.stderr)
+        return 1
+    except Exception as err:      # xchg.XchgError of a broken keys.conf line, an OS error
+        print("awb tenant: %s" % (err if type(err).__name__ == "XchgError" else type(err).__name__), file=sys.stderr)
+        return 1
+    if args.mode == "readonly":
+        try:
+            answer = _keys.request(_keys.admin_socket(), {"op": "tenant_readonly", "tenant": args.alias}, timeout=30)
+        except _keys.KeysError as err:
+            lines.append("key service: not reached (%s); it signs nothing while it is down, and keys.conf says "
+                         "read-only for its next unlock" % err)
+            print("\n".join(lines))
+            return 1
+        if not answer.get("ok"):
+            lines.append("key service: %s: run awb keys lock" % answer.get("error"))
+            print("\n".join(lines))
+            return 1
+        jobs = answer.get("aborted") or []
+        lines.append("key service: %s read-only now, the next write is refused, %d lab obs job(s) aborted%s" % (
+            args.alias, len(jobs), ": %s" % " ".join(jobs) if jobs else ""))
+    elif "write since" in lines[0]:
+        try:
+            summary = _keys.unlock()
+        except _keys.KeysError as err:
+            lines.append("key service: not unlocked (%s): run awb keys unlock" % err)
+            print("\n".join(lines))
+            return 1
+        t = summary.get(args.alias) or {}
+        if t.get("mode") != "write" or not t.get("write"):
+            lines.append("key service: unlocked, but %s holds no write credential: it stays read-only there" %
+                         args.alias)
+            print("\n".join(lines))
+            return 1
+        lines.append("key service: unlocked, %s in write mode with the write %s" % (args.alias, t["write"]))
     print("\n".join(lines))
     return 0
 
