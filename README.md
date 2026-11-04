@@ -777,7 +777,7 @@ The command checks the write entries by name only; write without them is refused
 is missing. It keeps the day and the note in the `tenant_write` line of keys.conf and runs `awb keys unlock`, so the
 mode travels to the key service like every other setting; a tenant the line does not name is read-only. In write
 mode the key service signs every method for the projects granted the tenant, with the write credential: `awb cloud
-call` (a write names an active project, an OBS write a bucket named after the project, IAM only in a lab run) and a
+call` (a write names an active project, any bucket of the customer for OBS, IAM only in a lab run) and a
 lab run (`awb lab run start --tenant cust-1`, `labclient.call`, `awb lab obs`) with the same run log, never a key in
 it. The session holds no key and gets no lease. The end of a run on a customer tenant deletes only what the run made:
 a PUT or PATCH outside OBS records nothing and the delete of a server keeps its elastic IP and its data disks. The

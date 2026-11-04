@@ -327,7 +327,10 @@ def test_lr_test_10498_and_a_customer_tenant_are_refused(session, fake):
     for tenant in (NOT_LAB, CUSTOMER, "test-1"):
         for answer in (run_op(svc, uid, "start", tenant=tenant),
                        lab_call(svc, uid, "POST", "vpc", "/v1/{project_id}/vpcs", "x", tenant=tenant, body={})):
-            assert not answer["ok"] and answer["error"].startswith("refused: %s is no lab tenant" % tenant), answer
+            # TW: a customer tenant in read-only mode is refused with the line that names the write mode
+            first = ("refused: %s is a read-only tenant" % tenant if tenant == CUSTOMER
+                     else "refused: %s is no lab tenant" % tenant)
+            assert not answer["ok"] and answer["error"].startswith(first), answer
     # the ordinary call keeps its rules: an IAM write is refused, a lab write without lab_writes too
     plain = svc._call_socket({"op": "call", "tenant": NOT_LAB, "role": "read", "method": "POST", "service": "iam",
                               "path": "/v3/users", "project": PROJECT}, uid, caller=PROJECT)

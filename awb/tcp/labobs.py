@@ -262,13 +262,15 @@ def _refused(msg: str):
     return keys.Refused(msg)
 
 
-def _target(svc, req: dict, project: str) -> tuple[str, str]:
+def _target(svc, req: dict, project: str, customer: bool = False) -> tuple[str, str]:
     bucket, key = req.get("bucket"), req.get("key")
     if not isinstance(bucket, str) or not _BUCKET_RE.match(bucket):
         raise _refused("a bucket name reads like %s-lab-1" % project)
     if bucket in svc.exchange_buckets():
         raise _refused("the exchange buckets are reached through awb xchg only")
-    if not bucket.startswith(project + "-"):
+    if not customer and not bucket.startswith(project + "-"):
+        # on the shared lab tenants the project's own buckets only; a customer tenant in write mode holds the
+        # customer's buckets under their own names (TW3)
         raise _refused("refused: a lab obs transfer reaches only a bucket named after the project (%s-...)" % project)
     if not isinstance(key, str) or not _KEY_RE.match(key) or ".." in key or "//" in key or key.endswith("/"):
         raise _refused("an object key is plain: images/disk.vhdx")
@@ -838,7 +840,7 @@ def _transfer(svc, req: dict, uid: int, project: str, action: str, fds: list[int
     p = svc.paths_fn()
     run = _run_of(svc, req, project, alias, p)
     region = _region(svc, req, alias)
-    bucket, key = _target(svc, req, project)
+    bucket, key = _target(svc, req, project, labadmin._is_customer(svc, alias))
     fd, st = _file_fd(fds, action, uid, p, project)
     log_fd = _log_fd(fds, p, project, run["id"])
     limit, written = max_bytes(svc.settings)

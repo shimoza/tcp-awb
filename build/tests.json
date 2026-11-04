@@ -13675,7 +13675,7 @@
    "id": "tw-7",
    "phase": "tw-tenant-write",
    "name": "TW: write mode keeps iam and the obs buckets of other projects out",
-   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_write_mode_keeps_iam_and_the_obs_buckets_of_other_projects_out",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_write_mode_keeps_iam_out_and_reaches_the_customer_buckets",
    "status": "passing"
   },
   {

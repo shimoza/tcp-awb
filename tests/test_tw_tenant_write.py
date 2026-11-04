@@ -260,18 +260,17 @@ def test_tw_write_mode_refuses_a_project_without_the_grant_of_the_tenant(world):
     assert w.api.calls == [] and labadmin.load_runs(w.p) == []
 
 
-def test_tw_write_mode_keeps_iam_and_the_obs_buckets_of_other_projects_out(world):
+def test_tw_write_mode_keeps_iam_out_and_reaches_the_customer_buckets(world):
+    # TW3 (the owner's decision of 2026-11-04): a customer tenant holds the customer's buckets under their own
+    # names, so write mode reaches any of them; IAM stays out
     w = world
     a = call(w, "POST", "/v3/users", service="iam", body={"user": {}})
     assert not a["ok"] and "does not write to iam" in a["error"]
     b = call(w, "PUT", "/" + OTHER + "-data/x", service="obs")
-    assert not b["ok"] and "named after the project" in b["error"]
-    owner = call(w, "PUT", "/" + OTHER + "-data/x", service="obs", uid=os.getuid())
-    assert owner == {"ok": False, "error": "an OBS write reaches only a bucket named after the project (%s-...)"
-                     % PROJECT}
+    assert b["ok"], b
     c = call(w, "PUT", "/" + BUCKET + "/x", service="obs")
     assert c["ok"], c
-    assert [(x["method"], x["service"], x["ak"]) for x in w.api.calls] == [("PUT", "obs", WRITE_AK)]
+    assert [(x["method"], x["service"], x["ak"]) for x in w.api.calls] == [("PUT", "obs", WRITE_AK)] * 2
 
 
 def test_tw_every_write_is_logged_without_a_key(world):

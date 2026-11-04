@@ -1355,10 +1355,8 @@ class Service:
             bucket = path[1:].partition("/")[0]
             if bucket in self.exchange_buckets():
                 raise Refused("the exchange buckets are reached through awb xchg only")
-            if method in WRITE_METHODS and not bucket.startswith(project + "-"):
-                raise Refused("an OBS write reaches only a bucket named after the project (%s-...)" % project)
-            if self._session_read(uid) and not self._obs_read_ok(bucket, path[1:].partition("/")[2], query, project):
-                raise Refused("an OBS read reaches only a bucket named after the project (%s-...)" % project)
+            # TW3: a customer tenant holds the customer's buckets under their own names, so no project prefix here;
+            # the grant of the tenant to this project and the write mode above are the fence
         body, drawn = req.get("body"), []
         if body is not None:
             if not isinstance(body, (dict, list)) or len(json.dumps(body)) > MAX_BODY:
