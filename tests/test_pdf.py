@@ -106,7 +106,7 @@ def test_a_markdown_sample_with_every_element_reads_back_with_the_poppler_tools(
     info = poppler("pdfinfo", out)
     assert re.search(r"^Pages:\s+1$", info, re.M) and re.search(r"^Page size:\s+595 x 842 pts \(A4\)$", info, re.M)
     assert re.search(r"^Title:\s+Offer for CUST-Q7M4$", info, re.M)
-    assert re.search(r"^Author:\s+Architect Workbench$", info, re.M)
+    assert re.search(r"^Author:\s+%s$" % re.escape(pdf.AUTHOR), info, re.M)
     text = poppler("pdftotext", out)
     lines = [" ".join(x.split()) for x in text.splitlines()]
     for heading in ("Offer for CUST-Q7M4", "Before you start", "The commands"):
