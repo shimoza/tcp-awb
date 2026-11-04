@@ -9845,7 +9845,7 @@
   {
    "id": "st-screenshots-internal-7",
    "phase": "st-screenshots-internal",
-   "name": "the command line drafts renders and pdf waits",
+   "name": "the command line drafts, renders and writes the pdf (the writer: b033-pdf-7)",
    "run": ".venv/bin/pytest tests/test_howto.py::test_the_command_line_drafts_renders_and_pdf_waits",
    "status": "passing"
   },
@@ -13824,8 +13824,64 @@
    "name": "TW2: a tenant and grant of before TW get write mode with the mode command alone",
    "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw2_a_tenant_and_grant_of_before_tw_get_write_mode_with_the_mode_command_alone",
    "status": "passing"
+  },
+  {
+   "id": "b033-pdf-1",
+   "phase": "b033-pdf",
+   "name": "PDF: a Markdown sample with every element; pdfinfo reads A4, pages, title, author; pdftotext gives back headings, list items and code lines as written",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_a_markdown_sample_with_every_element_reads_back_with_the_poppler_tools",
+   "status": "passing"
+  },
+  {
+   "id": "b033-pdf-2",
+   "phase": "b033-pdf",
+   "name": "PDF: a long code line wraps with a drawn mark, never cut and never copied",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_the_wrap_mark_is_drawn_and_never_copied",
+   "status": "passing"
+  },
+  {
+   "id": "b033-pdf-3",
+   "phase": "b033-pdf",
+   "name": "PDF: an HTML sample with every element (h1 to h3, p, ul, ol, li, pre, code, a, table, strong, em, unknown) reads back",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_an_html_sample_with_every_element_reads_back",
+   "status": "passing"
+  },
+  {
+   "id": "b033-pdf-4",
+   "phase": "b033-pdf",
+   "name": "PDF: a long text breaks into pages, each with its page number",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_a_long_text_breaks_into_numbered_pages",
+   "status": "passing"
+  },
+  {
+   "id": "b033-pdf-5",
+   "phase": "b033-pdf",
+   "name": "PDF: Cyrillic is refused with its line and count in one line; --replace writes ? and says how many",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_cyrillic_is_refused_with_its_line_and_count_and_replaced_with_replace",
+   "status": "passing"
+  },
+  {
+   "id": "b033-pdf-6",
+   "phase": "b033-pdf",
+   "name": "PDF: a write outside the project or the scratch folder, over a link or not as .pdf is refused",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_a_write_outside_the_project_or_the_scratch_folder_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "b033-pdf-7",
+   "phase": "b033-pdf",
+   "name": "PDF: awb howto render --pdf writes the PDF with the shared writer",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_howto_render_pdf_writes_the_pdf_with_the_shared_writer",
+   "status": "passing"
+  },
+  {
+   "id": "b033-pdf-8",
+   "phase": "b033-pdf",
+   "name": "PDF: the dataset HOW-TO.pdf still builds, made by the shared writer with its prompts whole",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_the_dataset_how_to_pdf_is_made_by_the_shared_writer",
+   "status": "passing"
   }
  ],
- "total_tests": 1975,
+ "total_tests": 1983,
  "checked": "2026-11-04"
 }

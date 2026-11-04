@@ -421,7 +421,7 @@ only. The work user of the seal gets its own key with T-100.
 | `awb mirror console find WORDS` / `show SVC/NN-slug` | the entries of the private console reference, ranked by word overlap (`--service SVC`, `--limit N`, `--walk DATE`); the owner reads `~/tcp-mirrors/console/<date>/`, the work user the published copy in `/srv/tcp-mirrors/console/<date>/` |
 | `awb mirror console publish [--to DIR] [--walk DATE]` | owner side: copy the newest pass (INDEX.tsv, jpg, png and txt files only) to `<mirrors>/console/<date>/` for the work user: folders 0750, files 0640, group of the work user, no write for the work user; the copy is built beside the target and renamed into place, so a second run replaces the pass |
 | `awb howto draft "TOPIC" [--service SVC] [--step WORDS]... [--internal]` | a Markdown draft of a console how-to in `deliverables/howto-<topic>.md`: a title, "before you start", numbered steps in the order of service, menu path and step number, each with the menu path and the labels as the screen spells them, text only (no image link, no source); the sources and the date of the pass go into the internal note `reviews/howto-<topic>/sources.md`; with `--internal` the image version, each step with its source and its image from `deliverables/images/` (only the cited images are copied); with `--step` each step is searched on its own; a step the reference lacks reads "not confirmed yet: check on screen"; an existing draft is not overwritten without `--force`; both sides |
-| `awb howto render FILE [--internal] [--pdf]` | one self-contained HTML file next to the draft; a draft with images is refused unless `--internal`; an internal page says "internal, never publish" at the top and never goes out; `--pdf` waits (no standard-library route): it writes the HTML, says so and exits 1; the outward text is sent with `awb xchg put FILE`, to a customer or partner by mail only |
+| `awb howto render FILE [--internal] [--pdf]` | one self-contained HTML file next to the draft; a draft with images is refused unless `--internal`; an internal page says "internal, never publish" at the top and never goes out; `--pdf` also writes the PDF of the page next to it with the writer of `awb pdf` (images left out); the outward text is sent with `awb xchg put FILE`, to a customer or partner by mail only |
 
 The re-check of the worklist is agent work, run from a session on the owner side. Split `worklist.jsonl` into
 batches by service and plant one false fact in each (the brief forbids looking ids up). Every first-check agent
@@ -598,6 +598,7 @@ gate, the gate over what it carries and `awb kb verify --staged`, so a file writ
 | `awb review show deliverables/FILE` | the record state of one deliverable and its final check when there is one: `final check: DATE, MODEL effort EFFORT, FINAL FILE; N open points in TABLE` |
 | `awb review calibrate [--json]` | the calibration set (`calibration/cases.json`, invented texts with one seeded defect each and five clean ones) through the script steps; lists the cases that need the review workflow |
 | `awb review calibrate --lenses PROJECT` | scores a run of both workflows over `calibration/workflow-cases.json` in a lab project: per case the lenses with open blocking findings (an EXTRA finding counts for the extra-content cases), caught, missed or false alarm |
+| `awb pdf FILE [--out PDF] [--title T] [--replace]` | a PDF of a Markdown or HTML deliverable, next to it unless `--out` names another file, inside the project folder or the session scratch folder only; A4, the standard fonts, selectable text: headings, paragraphs, lists, code blocks that keep their lines and indents (a long line wraps with a drawn mark, never cut), tables as aligned text, links with their URL, page numbers, title (`--title`, else the first heading) and author in the document info; a character the standard fonts cannot show (Cyrillic for example) refuses it with its line and the count, `--replace` writes `?` for it and says how many; the one PDF route of every project, so no project writes its own; both sides |
 
 The saved workflow `workflows/review.js` runs the blind checks of tier 2 and 3 first and then the lenses, which see
 the blind results; a lens finding without a quote or evidence is dropped and counted, a refute agent that cannot
@@ -1411,7 +1412,15 @@ a Markdown draft of the topic, into the project's deliverables
 one self-contained HTML file of a draft
 - `FILE`: the Markdown draft
 - `--internal`: allow a draft with images; the page says "internal, never publish" at the top
-- `--pdf`: also a PDF (waits: HTML only for now)
+- `--pdf`: also a PDF of the page next to it, as awb pdf writes it
+
+### `awb pdf FILE [--out PDF] [--title T] [--replace]`
+
+a PDF of a Markdown or HTML deliverable, next to it: standard fonts, selectable text
+- `FILE`: the Markdown (.md) or HTML (.html) file
+- `--out PDF`: the PDF (default: FILE with .pdf, next to it); inside the project folder or the session scratch folder
+- `--title T`: the title in the document info (default: the first heading)
+- `--replace`: write ? for a character the standard fonts cannot show (default: refuse)
 
 ### `awb xchg put FILE [--as AS_NAME] [--image] [--reason REASON] [--internal-image] [--kind WORD] [--lang XX]`
 

@@ -20,8 +20,9 @@ never invents a label.
 render turns the draft into one self-contained HTML file next to it. It reads a small Markdown subset (headings,
 paragraphs, lists, bold, italic, code, images) and nothing else. A draft with images is refused unless --internal;
 an internal render carries "internal, never publish" at the top, the images inline as data URIs, and never goes out
-(`awb xchg put` refuses it). A PDF has no standard-library route (reportlab is test-only and poppler cannot read
-HTML): --pdf writes the HTML, says so and exits 1; print the HTML from a browser until that is built.
+(`awb xchg put` refuses it). --pdf also writes FILE.pdf from that HTML with the shared writer of `awb pdf`
+(awb/pdf.py): standard fonts, selectable text, the images left out. A character the standard fonts cannot show
+refuses the PDF (the HTML stays written); `awb pdf FILE.html --replace` writes "?" for it.
 """
 from __future__ import annotations
 
@@ -33,6 +34,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from awb import pdf
 from awb.tcp import console_mirror
 from awb.tcp.console_mirror import ConsoleError, Screen
 
@@ -338,7 +340,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("file", help="the Markdown draft")
     r.add_argument("--internal", action="store_true",
                    help="allow a draft with images; the page says \"internal, never publish\" at the top")
-    r.add_argument("--pdf", action="store_true", help="also a PDF (waits: HTML only for now)")
+    r.add_argument("--pdf", action="store_true", help="also a PDF of the page next to it, as awb pdf writes it")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -360,9 +362,14 @@ def main(argv: list[str] | None = None) -> int:
         if lacking:
             print("note: %d step(s) still say %r" % (lacking, MISSING), file=sys.stderr)
         if args.pdf:
-            print("howto: no PDF yet, there is no standard-library route; print the HTML from a browser",
-                  file=sys.stderr)
-            return 1
+            try:
+                made, pages, _ = pdf.convert(out, start=out.parent)
+            except pdf.PdfError as err:
+                refused = isinstance(err, pdf.PdfRefused)
+                print("awb howto: no PDF: %s%s" % (err, " (as `awb pdf %s --replace`)" % out if refused else ""),
+                      file=sys.stderr)
+                return 1 if refused else 2
+            print("howto: %s, %d page(s)" % (made, pages))
         print("internal, never publish: it does not leave" if args.internal else "next: awb xchg put %s" % out)
         return 0
     except (HowtoError, ConsoleError) as err:

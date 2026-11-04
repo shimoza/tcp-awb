@@ -638,6 +638,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | offered or not | `awb service check dms rds` | the section and revision of the latest service description |
 | a console reference entry | `awb mirror console find "create vpc" --service vpc`, `awb mirror console show vpc/03-create` | the private console reference (`~/tcp-mirrors/console/<date>/`, one folder per dated pass, filled by the owner; never in the public dataset or in git), ranked by word overlap over the INDEX note, menu path, title and text; a how-to keeps its sources in an internal note and writes a step the reference lacks as "not confirmed yet: check on screen"; read only; the work user reads the copy that `awb mirror console publish` (owner side) puts in `/srv/tcp-mirrors/console/<date>/`; `awb mirror status` lists the passes, the newest date, the entries and the services |
 | a console how-to | `awb howto draft "create a vpc" --service vpc`, edit the text, `awb howto render deliverables/howto-create-a-vpc.md` | see "Console how-tos" below |
+| a PDF of a deliverable | `awb pdf deliverables/offer.md` | `deliverables/offer.pdf` from a Markdown or HTML file, with selectable text; see "A PDF of a deliverable" below |
 | what is new on TCP | `awb mirror rn`, then `awb refresh --part release-notes` | the release notes of T Cloud Public as a mirror (the third public source, next to the docs and the service description; a run reads at most 200 pages of at most 2 MiB each and cuts long titles and tags) and, for each note first seen since the last refresh, the knowledge entries to check again (`recheck: KB-XXXX (release note DATE SERVICE)`; only entries that name the service and share two topic words with the note, most shared first, 15 per note and `--all` for every one; a note dated after today is listed as `announced`) and the services the list does not know (`new service?`; a title or service name from the site shows as printable ASCII cut to 80 characters); it only lists |
 | read public documentation | `awb doc fetch https://learn.microsoft.com/...`, `awb doc hosts` | the page as text with the line `source: URL, fetched YYYY-MM-DD HH:MM UTC`, fetched by the key service on the owner's side (see "Public documentation through the key service") |
 | a price | `awb price find ecs --grep s3.large` | the live records with every term |
@@ -678,13 +679,26 @@ edits the text and never invents a label. A draft that exists is not overwritten
 `deliverables/images/` (only the cited ones). `awb howto render FILE` writes one self-contained HTML file next to the
 draft and refuses a draft with images unless `--internal`; an internal page says "internal, never publish" at the top
 and never goes out. `awb xchg put` refuses an HTML or Markdown file that embeds or links an image unless the owner
-passes `--internal-image` in his own terminal. A PDF waits: there is no standard-library route (reportlab is
-test-only), so `--pdf` writes the HTML, says so and exits 1; print the HTML from a browser. The outward text goes
-out with `awb xchg put FILE` to a customer or partner by mail.
+passes `--internal-image` in his own terminal. `--pdf` also writes the PDF of the page next to it with the writer
+of `awb pdf` (see "A PDF of a deliverable" below). The outward text goes out with `awb xchg put FILE` to a
+customer or partner by mail.
 
 The work user reads a copy, because the owner's home is closed to it. `awb mirror console publish` (owner side)
 copies the newest pass to `/srv/tcp-mirrors/console/<date>/` (folders 0750, files 0640, group of the work user).
 `seal/setup.sh` makes the folder, owned by the owner, so the work user reads it and cannot write there.
+
+## A PDF of a deliverable
+
+The host has no office suite, so `awb pdf FILE [--out PDF] [--title T]` is the one route from a Markdown or HTML
+deliverable to a PDF, for every project and for you; no project writes its own. It writes next to FILE unless
+`--out` names another file (inside the project folder or the session scratch folder only) and runs as the work
+user in a project session. The PDF is A4 with the standard fonts, so the text stays selectable: headings,
+paragraphs, lists, code blocks in Courier that keep their lines and indents (a long line goes on below with a
+drawn arrow, never cut, so a copied command is the command), tables as aligned text, links with their URL, page
+numbers and the title (the first heading unless `--title`) in the document info. A character the standard fonts
+cannot show (Cyrillic for example) is never dropped silently: the command refuses with its line and the count;
+`--replace` writes `?` for it and says how many. `awb howto render --pdf` and the HOW-TO.pdf of the dataset
+use the same writer (`awb/pdf.py`).
 
 ## A typical day
 

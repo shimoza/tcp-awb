@@ -188,6 +188,8 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/ui.py": "awb ui submit|status|watch, run by the owner; a watch runs as his own background process",
     "awb/tcp/pricebook.py": "awb pricebook build|diff, run in a working session or by the owner",
     "awb/tcp/howto.py": "awb howto draft|render, run in a working session or by the owner",
+    "awb/pdf.py": ("awb pdf, run in a working session or by the owner; the writer of awb howto render --pdf and of "
+                   "HOW-TO.pdf"),
     "awb/xlsxlite.py": "the workbook writer and reader of awb pricebook, which is command only",
     "awb/confusables.py": "python -m awb.confusables, run once by a build session to write awb/confusables_latin.py",
 }

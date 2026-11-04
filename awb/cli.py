@@ -11,7 +11,7 @@ awb report, awb career, awb write, awb voice, awb review, awb calc, awb hook, aw
 awb bucket, awb files, awb clean, awb import, awb words, awb reveal, awb price, awb pricebook, awb cloud, awb mirror, awb refresh,
 awb dataset, awb english, awb ask, awb inbox, awb xchg, awb howto, awb start, awb fetch, awb paste, awb material, awb keys,
 awb migrate, awb lab, awb tenant, awb api, awb service, awb board, awb web, awb owner, awb ui, awb build, awb pr,
-awb deploy, awb doc.
+awb deploy, awb doc, awb pdf.
 
 Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 
@@ -823,6 +823,7 @@ DELEGATED = {
     "ask": ("tcp.ask", "questions in plain words, answered only from the checked sources (the Ask page)"),
     "inbox": ("tcp.inbox", "take a file the owner dropped into an inbox into this project"),
     "howto": ("tcp.howto", "step-by-step console how-tos as text: draft, render"),
+    "pdf": ("pdf", "a PDF of a Markdown or HTML deliverable, next to it: standard fonts, selectable text"),
     "xchg": ("tcp.xchg", "put a result of this project into the owner's from-session folder"),
     "doc": ("tcp.doc", "public documentation of an allowed host as text, fetched on the owner's side: fetch, hosts"),
     "start": ("start", "a piece of work in one command: register, spawn, grant, import, the open line (owner side)"),

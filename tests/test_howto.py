@@ -268,8 +268,9 @@ def test_the_command_line_drafts_renders_and_pdf_waits(tmp_path, project, monkey
     assert howto.main(["render", str(md)]) == 0
     out = capsys.readouterr().out
     assert "howto-w.html" in out and "xchg put" in out and "--image" not in out
-    assert howto.main(["render", str(md), "--pdf"]) == 1
-    assert "no PDF yet" in capsys.readouterr().err and md.with_suffix(".html").is_file()
+    assert howto.main(["render", str(md), "--pdf"]) == 0          # B-033: the shared writer, see tests/test_pdf.py
+    assert md.with_suffix(".pdf").is_file() and md.with_suffix(".html").is_file()
+    capsys.readouterr()
     # the image version: --internal to draft and to render, and the render says it never leaves
     assert howto.main(["draft", "create widget", "--service", "zorbal", "--name", "i", "--internal"]) == 0
     capsys.readouterr()

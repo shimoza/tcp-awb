@@ -65,7 +65,6 @@ from __future__ import annotations
 import collections
 import datetime
 import hashlib
-import io
 import json
 import random
 import re
@@ -75,13 +74,12 @@ import stat
 import struct
 import subprocess
 import sys
-import textwrap
 import zipfile
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from awb import bucket, bucket_layout, config, gate, kb, kbreview, obs, offered, register
+from awb import bucket, bucket_layout, config, gate, kb, kbreview, obs, offered, pdf, register
 from awb.kbreview import (changes, datasets_dir, latest, read_facts, record_release, released, released_path,  # noqa: F401
                           require_review, review, review_path)
 from awb.tcp import price, recheck
@@ -495,76 +493,10 @@ def blocks_to_markdown(blocks: list[tuple[str, str]]) -> str:
     return "\n".join(out)
 
 
-# --------------------------------------------------------------------------- a PDF without a library
-
-_PAGE_W, _PAGE_H, _MARGIN = 595, 842, 56
-_STYLES = {"h1": ("F2", 17, 24, 88), "h2": ("F2", 12, 17, 88), "p": ("F1", 10, 14, 92), "code": ("F3", 9, 13, 84)}
-
-
-def _pdf_escape(text: str) -> str:
-    text = text.encode("latin-1", "replace").decode("latin-1")
-    return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
-
-
 def pdf_bytes(blocks: list[tuple[str, str]], title: str) -> bytes:
-    """A PDF of the blocks: Helvetica for text, Helvetica-Bold for headings, Courier for a prompt. A4, as many
-    pages as the text needs. Standard fonts only, so no library and no font file."""
-    pages: list[list[str]] = [[]]
-    y = _PAGE_H - _MARGIN
-
-    def line(font: str, size: int, text: str) -> None:
-        nonlocal y
-        pages[-1].append("BT /%s %d Tf %d %d Td (%s) Tj ET" % (font, size, _MARGIN, int(y), _pdf_escape(text)))
-
-    for style, text in blocks:
-        font, size, lead, width = _STYLES[style.split(":")[0]]
-        wrapped = textwrap.wrap(text, width, break_on_hyphens=False) or [""]   # a link stays whole on its line
-        if y - lead * (len(wrapped) + 1) < _MARGIN and pages[-1]:
-            pages.append([])
-            y = _PAGE_H - _MARGIN
-        y -= lead if style in ("h1", "h2") else 0
-        for w in wrapped:
-            y -= lead
-            if y < _MARGIN:
-                pages.append([])
-                y = _PAGE_H - _MARGIN - lead
-            line(font, size, w)
-        y -= lead * 0.5
-    objs: list[bytes] = []
-
-    def add(body: bytes) -> int:
-        objs.append(body)
-        return len(objs)
-
-    fonts = {"F1": "Helvetica", "F2": "Helvetica-Bold", "F3": "Courier"}
-    font_ids = {k: add(b"<< /Type /Font /Subtype /Type1 /BaseFont /%s /Encoding /WinAnsiEncoding >>" % v.encode())
-                for k, v in fonts.items()}
-    pages_id = len(objs) + 1 + 2 * len(pages)
-    page_ids = []
-    for content in pages:
-        stream = "\n".join(content).encode("latin-1")
-        cid = add(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream")
-        res = b"<< /Font << " + b" ".join(b"/%s %d 0 R" % (k.encode(), v) for k, v in font_ids.items()) + b" >> >>"
-        page_ids.append(add(b"<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %d %d] /Resources %s /Contents %d 0 R >>"
-                            % (pages_id, _PAGE_W, _PAGE_H, res, cid)))
-    assert add(b"<< /Type /Pages /Kids [" + b" ".join(b"%d 0 R" % i for i in page_ids) + b"] /Count %d >>"
-               % len(page_ids)) == pages_id
-    catalog = add(b"<< /Type /Catalog /Pages %d 0 R >>" % pages_id)
-    info = add(b"<< /Title (%s) /Author (%s) >>" % (_pdf_escape(title).encode("latin-1"),
-                                                     _pdf_escape(COMPILED_BY).encode("latin-1")))
-    out = io.BytesIO()
-    out.write(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
-    offsets = []
-    for i, body in enumerate(objs, 1):
-        offsets.append(out.tell())
-        out.write(b"%d 0 obj\n" % i + body + b"\nendobj\n")
-    xref = out.tell()
-    out.write(b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1))
-    for o in offsets:
-        out.write(b"%010d 00000 n \n" % o)
-    out.write(b"trailer\n<< /Size %d /Root %d 0 R /Info %d 0 R >>\nstartxref\n%d\n%%%%EOF\n"
-              % (len(objs) + 1, catalog, info, xref))
-    return out.getvalue()
+    """HOW-TO.pdf from the (style, text) blocks, by the shared writer awb/pdf.py: Helvetica for text, Helvetica-Bold
+    for headings, Courier for a prompt, A4."""
+    return pdf.render([pdf.plain(style.split(":")[0], text) for style, text in blocks], title, COMPILED_BY)
 
 
 def service_line(s: offered.Service) -> str:
