@@ -714,7 +714,7 @@ the password store (`pass`), one folder per tenant alias:
 | `awb/tenant/<alias>/ak`, `sk` | the read key, best an IAM user with a read-only role | GET and HEAD |
 | `awb/tenant/<alias>/lab/ak`, `lab/sk` | the lab key | every method; a write needs the code of an active project |
 | `awb/tenant/<alias>/secret/<name>` | a login or a password | fills a password field of a request, never shown |
-| `awb/tenant/<alias>/write/ak`, `write/sk` (or `write/login/...`) | the write credential of a customer tenant | every method, only in write mode (`awb tenant mode`) |
+| `awb/tenant/<alias>/write/ak`, `write/sk` (or `write/login/...`) | the write credential of a customer tenant; without it write mode uses `ak`, `sk` or `login/...` above | every method, only in write mode (`awb tenant mode`) |
 
 The lab key signs a write (POST, PUT, PATCH, DELETE) only when the `lab_writes = METHOD service path[,...]` line in
 `keys.conf` names it: method, service and path are one triple, a `{name}` segment stands for exactly one segment
@@ -773,8 +773,13 @@ awb tenant mode cust-1 write --note "mail OK of 2026-11-02"
 awb tenant mode cust-1 readonly              # back, at once
 ```
 
-The command checks the write entries by name only; write without them is refused with one line that names what
-is missing. It keeps the day and the note in the `tenant_write` line of keys.conf and runs `awb keys unlock`, so the
+A tenant registered with an ordinary key or login of the customer's admin needs no second credential: with nothing
+under `write/` write mode uses the registered one (`awb/tenant/cust-1/ak` and `sk`, or `login/domain`, `user` and
+`password`, as the readonly line names it), so a tenant and grants made before task TW get write mode with `awb
+tenant mode cust-1 write` alone. The command checks the entries by name only; a partial write credential, or a write
+key and a write login both, is refused with one line that names what is missing. It prints which credential write
+mode uses (the write one or the registered one) by the names of its entries, never a value. A registered login takes
+its tokens as the read path does. It keeps the day and the note in the `tenant_write` line of keys.conf and runs `awb keys unlock`, so the
 mode travels to the key service like every other setting; a tenant the line does not name is read-only. In write
 mode the key service signs every method for the projects granted the tenant, with the write credential: `awb cloud
 call` (a write names an active project, any bucket of the customer for OBS, IAM only in a lab run) and a

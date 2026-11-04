@@ -13688,8 +13688,8 @@
   {
    "id": "tw-9",
    "phase": "tw-tenant-write",
-   "name": "TW: write mode without the write credential is refused with one line",
-   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_write_mode_without_the_write_credential_is_refused_with_one_line",
+   "name": "TW2: write mode without the write credential signs with the registered key",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_write_mode_without_the_write_credential_signs_with_the_registered_key",
    "status": "passing"
   },
   {
@@ -13702,8 +13702,8 @@
   {
    "id": "tw-11",
    "phase": "tw-tenant-write",
-   "name": "TW: the mode command refuses write without the write credential in pass",
-   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_the_mode_command_refuses_write_without_the_write_credential_in_pass",
+   "name": "TW2: the mode command refuses a partial write credential or none at all",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_the_mode_command_refuses_a_partial_write_credential_or_none_at_all",
    "status": "passing"
   },
   {
@@ -13789,8 +13789,43 @@
    "name": "TW: remove of a customer tenant drops its write mode",
    "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw_remove_of_a_customer_tenant_drops_its_write_mode",
    "status": "passing"
+  },
+  {
+   "id": "tw2-1",
+   "phase": "tw2-registered-credential",
+   "name": "TW2: write mode signs every method with the registered login",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw2_write_mode_signs_every_method_with_the_registered_login",
+   "status": "passing"
+  },
+  {
+   "id": "tw2-2",
+   "phase": "tw2-registered-credential",
+   "name": "TW2: read-only mode still refuses the put of the registered credential",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw2_read_only_mode_still_refuses_the_put_of_the_registered_credential",
+   "status": "passing"
+  },
+  {
+   "id": "tw2-3",
+   "phase": "tw2-registered-credential",
+   "name": "TW2: a partial or double write credential stays refused",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw2_a_partial_or_double_write_credential_stays_refused",
+   "status": "passing"
+  },
+  {
+   "id": "tw2-4",
+   "phase": "tw2-registered-credential",
+   "name": "TW2: the mode command names the credential write mode uses",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw2_the_mode_command_names_the_credential_write_mode_uses",
+   "status": "passing"
+  },
+  {
+   "id": "tw2-5",
+   "phase": "tw2-registered-credential",
+   "name": "TW2: a tenant and grant of before TW get write mode with the mode command alone",
+   "run": ".venv/bin/pytest tests/test_tw_tenant_write.py::test_tw2_a_tenant_and_grant_of_before_tw_get_write_mode_with_the_mode_command_alone",
+   "status": "passing"
   }
  ],
- "total_tests": 1970,
- "checked": "2026-11-03"
+ "total_tests": 1975,
+ "checked": "2026-11-04"
 }

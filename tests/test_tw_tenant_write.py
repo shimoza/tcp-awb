@@ -282,14 +282,20 @@ def test_tw_every_write_is_logged_without_a_key(world):
     assert WRITE_AK not in text and WRITE_SK not in text and WRITE_LOGIN["password"] not in text
 
 
-def test_tw_write_mode_without_the_write_credential_is_refused_with_one_line(world):
+def test_tw_write_mode_without_the_write_credential_signs_with_the_registered_key(world):
+    # TW2 (B-032) replaced the refusal of B-031: with nothing under write/ the registered read key signs
     w = world
     a = call(w, "PUT", "/v1/{project_id}/vpcs/abc", tenant=BARE, body={"vpc": {}})
-    assert not a["ok"] and a["error"].startswith(readonly.WRITE_CRED_LINE % (BARE, BARE)), a
-    assert "awb/tenant/%s/write/ak" % BARE in a["error"]
-    assert w.api.calls == []
-    b = lab(w, "lab_run", tenant=BARE, action="start")
-    assert not b["ok"] and b["error"].startswith(readonly.WRITE_CRED_LINE % (BARE, BARE))
+    assert a["ok"] and a["status"] == 200, a
+    assert [(c["method"], c["ak"]) for c in w.api.calls] == [("PUT", STORE["%s/ak" % BARE])]
+    assert STORE["%s/sk" % BARE] not in json.dumps(a)
+    status = keys.request(w.svc.admin_path, {"op": "status"})["tenants"]
+    assert status[BARE]["mode"] == "write" and status[BARE]["write"] == "registered key"
+    w.fake.creds[STORE["%s/ak" % BARE]] = (STORE["%s/sk" % BARE], None)
+    run = start_run(w, BARE)
+    b = lab(w, "lab_call", tenant=BARE, run=run, method="PUT", service="obs", path="/" + BUCKET)
+    assert b["ok"] and w.fake.aks[-1] == STORE["%s/ak" % BARE], b
+    assert lab(w, "lab_run", tenant=BARE, action="end")["ok"]
 
 
 # --------------------------------------------------------------------------- the owner's command
@@ -310,10 +316,12 @@ def test_tw_the_mode_command_records_the_day_and_the_note_and_switches_back(owne
         readonly.set_mode(KEYED, "write", "a note, with a comma", store=WRITE_STORE)
 
 
-def test_tw_the_mode_command_refuses_write_without_the_write_credential_in_pass(owner_conf):
+def test_tw_the_mode_command_refuses_a_partial_write_credential_or_none_at_all(owner_conf):
+    # TW2 (B-032): nothing under write/ takes the registered credential; refused only when that is missing too
     with pytest.raises(readonly.ReadonlyError) as err:
-        readonly.set_mode(BARE, "write", store=Store(["awb/tenant/%s/ak" % BARE, "awb/tenant/%s/sk" % BARE]))
-    assert str(err.value) == readonly.WRITE_CRED_LINE % (BARE, BARE)
+        readonly.set_mode(BARE, "write", store=Store(["awb/tenant/%s/ak" % BARE]))
+    assert str(err.value) == (readonly.WRITE_CRED_LINE % (BARE, BARE) + ", and so is its registered key: "
+                              "awb/tenant/%s/sk" % BARE)
     with pytest.raises(readonly.ReadonlyError) as err:
         readonly.set_mode(BARE, "write", store=Store(["awb/tenant/%s/write/login/user" % BARE]))
     entry = "awb/tenant/%s/write/login/" % BARE
@@ -514,3 +522,97 @@ def test_tw_remove_of_a_customer_tenant_drops_its_write_mode(owner_conf, tmp_pat
     readonly.set_mode(KEYED, "write", NOTE, store=WRITE_STORE, today="2026-11-03")
     readonly.remove(p, KEYED)
     assert tenantmode.read() == {} and KEYED not in readonly.of_settings(xchg.read_settings())
+
+
+# --------------------------------------------------------------------------- TW2: the registered credential
+
+REG_LOGIN = {"domain": "admin-account-" + "fixture", "user": "admin-of-" + "fixture",
+             "password": "-".join(("Invented", "Admin", "4713"))}
+LOGIN_STORE = {k: v for k, v in STORE.items() if not k.startswith(BARE + "/")}
+LOGIN_STORE.update({"%s/login/%s" % (BARE, k): v for k, v in REG_LOGIN.items()})
+LOGIN_READONLY = ", ".join("%s:%s:%s:eu-de" % (a, "login" if a == BARE else "key", DOMAIN_ID)
+                           for a in (KEYED, LOGGED, BARE))
+BARE_KEY = Store(["awb/tenant/%s/ak" % BARE, "awb/tenant/%s/sk" % BARE])
+
+
+def test_tw2_write_mode_signs_every_method_with_the_registered_login(world):
+    w = world
+    svc = w.service("lg", {"readonly": READONLY})
+    settings = {"readonly": LOGIN_READONLY, "tenant_write": "%s:2026-11-04:" % BARE}
+    keys.unlock(svc.admin_path, sorted(LOGIN_STORE), reader=lambda e: LOGIN_STORE[e], settings=settings)
+    asked = []
+    svc.tokens.fetch = lambda login, domain_id, region, endpoint=None, project_id=None: (
+        asked.append((login["user"], domain_id, region, project_id)) or ("tok-" + login["user"], "e" * 32, 86400.0))
+    methods = ("PUT", "POST", "PATCH", "DELETE", "GET")
+    for method in methods:
+        a = call(w, method, "/v1/{project_id}/vpcs/abc", tenant=BARE, svc=svc,
+                 body={"vpc": {}} if method in ("PUT", "POST", "PATCH") else None)
+        assert a["ok"], (method, a)
+    assert [(c["method"], c["token"], c["ak"]) for c in w.api.calls] == [
+        (m, "tok-" + REG_LOGIN["user"], "") for m in methods]
+    # the token as the read path takes it: the login's domain id, the region's project
+    assert asked == [(REG_LOGIN["user"], DOMAIN_ID, "eu-de", None)]
+    status = keys.request(svc.admin_path, {"op": "status"})["tenants"]
+    assert status[BARE]["mode"] == "write" and status[BARE]["write"] == "registered login"
+    assert REG_LOGIN["password"] not in log_text(w)
+
+
+def test_tw2_read_only_mode_still_refuses_the_put_of_the_registered_credential(world):
+    w = world
+    svc = w.service("ro", {"readonly": READONLY})
+    a = call(w, "PUT", "/v1/{project_id}/vpcs/abc", tenant=BARE, svc=svc, body={"vpc": {}})
+    assert a == {"ok": False, "error": readonly.METHOD_LINE % BARE}
+    assert w.api.calls == []
+
+
+def test_tw2_a_partial_or_double_write_credential_stays_refused(world, owner_conf):
+    w = world
+    for extra, missing in (("write/ak", "write/sk"), ("write/login/domain", "write/login/user")):
+        store = Store(list(BARE_KEY.names) + ["awb/tenant/%s/%s" % (BARE, extra)])
+        with pytest.raises(readonly.ReadonlyError) as err:
+            readonly.set_mode(BARE, "write", store=store)
+        assert str(err.value).startswith("refused: %s has no whole write credential" % BARE)
+        assert "awb/tenant/%s/%s" % (BARE, missing) in str(err.value)
+    both = Store(list(WRITE_STORE.names) + ["awb/tenant/%s/write/login/user" % KEYED])
+    with pytest.raises(readonly.ReadonlyError, match="a write key and a write login"):
+        readonly.set_mode(KEYED, "write", store=both)
+    assert tenantmode.read() == {}
+    # the key service: a partial write key stops the unlock, the registered key does not stand in for it
+    partial = dict(STORE, **{"%s/write/ak" % BARE: WRITE_AK})
+    with pytest.raises(keys.KeysError, match="lacks its ak or sk"):
+        keys.unlock(w.svc.admin_path, sorted(partial), reader=lambda e: partial[e],
+                    settings={"readonly": READONLY, "tenant_write": WRITE_LINE})
+
+
+def test_tw2_the_mode_command_names_the_credential_write_mode_uses(owner_conf):
+    lines = readonly.set_mode(BARE, "write", store=BARE_KEY, today="2026-11-04")
+    assert lines == ["tenant %s: write since 2026-11-04 with the registered key awb/tenant/%s/ak and sk (no note): "
+                     "switched in keys.conf" % (BARE, BARE)]
+    owner_conf.write_text("readonly = %s\n" % LOGIN_READONLY, encoding="utf-8")
+    login = Store(["awb/tenant/%s/login/%s" % (BARE, k) for k in readonly.LOGIN_PARTS])
+    lines = readonly.set_mode(BARE, "write", store=login, today="2026-11-04")
+    entry = "awb/tenant/%s/login/" % BARE
+    assert lines == ["tenant %s: write since 2026-11-04 with the registered login %sdomain, %suser and password "
+                     "(no note): switched in keys.conf" % (BARE, entry, entry)]
+    with pytest.raises(readonly.ReadonlyError) as err:
+        readonly.set_mode(BARE, "write", store=BARE_KEY)
+    assert str(err.value).endswith("and so is its registered login: %sdomain, %suser, %spassword" % (
+        entry, entry, entry))
+    for value in list(REG_LOGIN.values()) + [STORE["%s/sk" % BARE]]:
+        assert value not in "\n".join(lines)
+
+
+def test_tw2_a_tenant_and_grant_of_before_tw_get_write_mode_with_the_mode_command_alone(world, owner_conf):
+    w = world
+    # keys.conf holds the readonly line only and readonly-grants.json is as task RT wrote it, before task TW
+    assert owner_conf.read_text(encoding="utf-8") == "readonly = %s\n" % READONLY
+    readonly.grants_path(w.p).write_text(json.dumps({BARE: [PROJECT]}, sort_keys=True, indent=1) + "\n",
+                                         encoding="utf-8")
+    lines = readonly.set_mode(BARE, "write", store=BARE_KEY, today="2026-11-04")
+    assert "with the registered key" in lines[0]
+    svc = w.service("old", xchg.read_settings())
+    a = call(w, "PUT", "/v1/{project_id}/vpcs/abc", tenant=BARE, svc=svc, body={"vpc": {}})
+    assert a["ok"], a
+    assert [(c["method"], c["ak"]) for c in w.api.calls] == [("PUT", STORE["%s/ak" % BARE])]
+    b = call(w, "PUT", "/v1/{project_id}/vpcs/abc", tenant=KEYED, svc=svc, body={"vpc": {}})
+    assert not b["ok"] and len(w.api.calls) == 1

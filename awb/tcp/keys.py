@@ -806,7 +806,7 @@ class Service:
                     out[a].update(admin=True)     # LR: an admin login of a lab tenant is held, never its value
                 if a in held and a in self._write_aliases():
                     # TW: the mode and the kind of the write credential held, never a value
-                    out[a].update(mode="write", write=self._write_cred_kind(t))
+                    out[a].update(mode="write", write=self._write_cred_kind(t, held[a]))
             return out
 
     def _readonly(self, alias) -> dict | None:
@@ -827,21 +827,32 @@ class Service:
             return isinstance(alias, str) and alias in self._write_aliases()
 
     @staticmethod
-    def _write_cred_kind(tenant: dict) -> str | None:
+    def _write_cred_kind(tenant: dict, entry: dict | None = None) -> str | None:
+        """key or login for a separate write credential; without one (TW2, B-032) registered key or registered
+        login: the read key or login the readonly line names; None when the tenant holds neither."""
         if (tenant.get("roles") or {}).get("write"):
             return "key"
-        return "login" if tenant.get("write_login") else None
+        if tenant.get("write_login"):
+            return "login"
+        auth = (entry or {}).get("auth")
+        if auth == "key" and (tenant.get("roles") or {}).get("read"):
+            return "registered key"
+        return "registered login" if auth == "login" and tenant.get("login") else None
 
     def _write_cred(self, alias: str) -> dict:
-        """The write credential of a customer tenant in write mode: {ak, sk} or {domain, user, password}. Refused with
-        one line that names what is missing."""
+        """The credential of a customer tenant in write mode: {ak, sk} or {domain, user, password}, the separate write
+        one when the tenant holds it, else the registered one (TW2). Refused with one line that names what is
+        missing."""
         with self.lock:
             tenant = self.tenants.get(alias) or {}
-        kind = self._write_cred_kind(tenant)
+            entry = readonly.of_settings(self.settings).get(alias)
+        kind = self._write_cred_kind(tenant, entry)
         if kind is None:
-            raise Refused(readonly.WRITE_CRED_LINE % (alias, alias) + ": the owner puts them into pass and runs awb "
-                                                                      "keys unlock")
-        return dict(tenant["roles"]["write"]) if kind == "key" else dict(tenant["write_login"])
+            raise Refused(readonly.WRITE_CRED_LINE % (alias, alias) + ", and so is its registered %s: the owner "
+                          "puts them into pass and runs awb keys unlock" % ((entry or {}).get("auth") or "key"))
+        return dict({"key": tenant.get("roles", {}).get("write"), "login": tenant.get("write_login"),
+                     "registered key": tenant.get("roles", {}).get("read"),
+                     "registered login": tenant.get("login")}[kind])
 
     def _write_ended(self, alias: str) -> list[str]:
         """The end of the write mode of `alias` (TW): its admin tokens are forgotten and its open lab obs jobs are

@@ -1078,7 +1078,8 @@ def _mode_command(args) -> int:
                          args.alias)
             print("\n".join(lines))
             return 1
-        lines.append("key service: unlocked, %s in write mode with the write %s" % (args.alias, t["write"]))
+        lines.append("key service: unlocked, %s in write mode with the %s" % (
+            args.alias, t["write"] if t["write"].startswith("registered") else "write " + t["write"]))
     print("\n".join(lines))
     return 0
 

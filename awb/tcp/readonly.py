@@ -41,6 +41,9 @@ beside the read one and checked by name only:
     awb/tenant/<alias>/write/ak, write/sk                                            a write AK/SK
     awb/tenant/<alias>/write/login/domain, write/login/user, write/login/password    a write login
 
+With nothing under write/ (task TW2, B-032) write mode uses the registered credential, the read key or login the
+readonly line names, so a tenant registered with a key or login of the customer's admin needs no second one.
+
 The mode is the tenant_write line of keys.conf (the day and the note) and goes to the key service with `awb keys
 unlock`. In write mode the key service signs every method for the projects granted the tenant, with the write
 credential (never a lease, no key to a session), and a lab run, awb lab obs included, works there; the read credential
@@ -524,9 +527,17 @@ def remove(p: config.Paths, alias: str, *, settings_path: Path | None = None) ->
 # --------------------------------------------------------------------------- write mode (TW)
 
 
-def write_kind(store, alias: str) -> str:
-    """key or login: the write credential of `alias` in pass, by the names of its entries only. Refused with one line
-    that names what is missing, or when both are there."""
+def registered_entries(alias: str, auth: str) -> list[str]:
+    """The pass entries of the registered credential of a customer tenant: its read key or its login, as `auth` of the
+    readonly line says."""
+    parts = WRITE_KEY_PARTS if auth == "key" else tuple("login/%s" % k for k in LOGIN_PARTS)
+    return ["awb/tenant/%s/%s" % (alias, k) for k in parts]
+
+
+def write_kind(store, alias: str, auth: str | None = None) -> str:
+    """key or login: the write credential of `alias` in pass, by the names of its entries only. With nothing under
+    write/ (TW2): registered key or registered login, the credential the readonly line names (`auth`). Refused with
+    one line that names what is missing, or when both write credentials are there."""
     entry = "awb/tenant/%s/write" % alias
     has = {k: store.has("%s/%s" % (entry, k)) for k in WRITE_KEY_PARTS}
     login = {k: store.has("%s/login/%s" % (entry, k)) for k in LOGIN_PARTS}
@@ -540,6 +551,12 @@ def write_kind(store, alias: str) -> str:
         missing = ["%s/%s" % (entry, k) for k, v in has.items() if not v]
     elif any(login.values()):
         missing = ["%s/login/%s" % (entry, k) for k, v in login.items() if not v]
+    elif auth in ("key", "login"):
+        missing = [e for e in registered_entries(alias, auth) if not store.has(e)]
+        if not missing:
+            return "registered " + auth
+        raise ReadonlyError(WRITE_CRED_LINE % (alias, alias) + ", and so is its registered %s: %s" % (
+            auth, ", ".join(missing)))
     else:
         raise ReadonlyError(WRITE_CRED_LINE % (alias, alias))
     raise ReadonlyError("refused: %s has no whole write credential: %s is missing" % (alias, ", ".join(missing)))
@@ -572,12 +589,19 @@ def set_mode(alias: str, mode: str, note: str | None = None, *, store=None, sett
     if not tenantmode.NOTE_RE.match(note):
         raise ReadonlyError("a note is at most %d characters of letters, digits, blanks and . _ / ( ) # + -"
                             % tenantmode.NOTE_MAX)
-    kind = write_kind(store or _tenants.Store(), alias)
+    auth = of_settings(settings)[alias]["auth"]
+    kind = write_kind(store or _tenants.Store(), alias, auth)
+    if kind.startswith("registered"):
+        # TW2: no separate write credential, so write mode signs with the registered one, named by its entries
+        entries = registered_entries(alias, auth)
+        kind += " %s and %s" % (", ".join(entries[:-1]), entries[-1].rpartition("/")[2])
+    else:
+        kind = "write " + kind
     before = modes.get(alias)
     since = before["since"] if before else (today or datetime.date.today().isoformat())
     modes[alias] = {"since": since, "note": note if note or before is None else before["note"]}
     write_line(tenantmode.SETTING, tenantmode.render(modes), settings_path)
-    return ["tenant %s: write since %s with the write %s (%s): %s in keys.conf" % (
+    return ["tenant %s: write since %s with the %s (%s): %s in keys.conf" % (
         alias, since, kind, modes[alias]["note"] or "no note", "changed" if before else "switched")]
 
 
