@@ -17,7 +17,8 @@ The sources, read on the owner's side only:
   hour): a failed one is the item "reports: ..." with its reason until a put succeeds; it says
   "projects.csv older than 24 h" when the last good put is that old or there was none.
 - the open windows of his Windows lab machines (task WL, awb/winlab.py: winlab.json beside keys.conf) with the
-  project and the end, until the window ends by itself or he closes it, and the command that closes each.
+  project and the end, until the window ends by itself or he closes it, and the command that closes each; and every
+  registered lab machine that is online (its tunnel answers on its loopback port with an SSH banner), one line each.
 
 Each item is one line: the project code or the label, a few words, where it is done (project session, his terminal,
 steering session) and a ready command block where one exists. Codes only: every text passes the name check as
@@ -306,6 +307,14 @@ def winlab_items(path: Path | None = None, now: datetime.datetime | None = None)
                  WHERE_TERMINAL, "awb winlab close %s" % name) for name, w in winlab.windows(path, now)]
 
 
+def winlab_online_items(path: Path | None = None, probe=None) -> list[Item]:
+    """Every registered lab machine that is online now: its tunnel answers on its loopback port (task WL part 4)."""
+    from awb import winlab
+
+    return [Item(name, _short("lab machine online, its tunnel answers on port %d" % m["port"]), "")
+            for name, m in winlab.online_machines(path, probe)]
+
+
 def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path | None = None
             ) -> tuple[list[Item], int]:
     """All items after the name check, and the count of parked projects."""
@@ -320,6 +329,7 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
     items += lab_run_items(p)
     items += tenant_mode_items()
     items += winlab_items()
+    items += winlab_online_items()
     texts = []
     for it in items:
         texts += [it.text, it.block or "", it.label]

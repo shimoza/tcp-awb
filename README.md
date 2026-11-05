@@ -660,7 +660,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | publish the console page | `sudo awb web publish --from-queue ID` | the checked page of a UI run live, the old one kept as a backup |
 | a login for the console | `sudo awb web user add LOGIN [--level owner]` | a random password, shown once (an owner entry also gets a TOTP key for his phone); `reset`, `remove`, `list`; `projects LOGIN CODE...` limits a reader to those project codes (no list: every project); `sudo awb web status` shows failed sign-ins and waits |
 | the owner host name | `sudo awb web host HOST` | once: the host name of the owner level, kept in `/etc/awb/paths.conf` |
-| what waits on the owner | `awb owner status` | one list of everything that waits on you: the owner items of OPEN.md of the active projects (parked projects as a count), the rows of QUEUE.md whose state waits on you the build tasks that wait on you, a failed weekly publish of the dataset, a failed put of the codes file of the report workbook and every open window of a Windows lab machine; one line each with the project code or label, a few words, where it is done (project session, his terminal, steering session) and a ready command block; `--mail` sends it (the timer `awb-owner-mail` does at 08:00 Europe/Berlin, no mail for an empty list); the line of a weekly publish of the last 24 hours comes after the list and is mailed even when nothing waits on you |
+| what waits on the owner | `awb owner status` | one list of everything that waits on you: the owner items of OPEN.md of the active projects (parked projects as a count), the rows of QUEUE.md whose state waits on you the build tasks that wait on you, a failed weekly publish of the dataset, a failed put of the codes file of the report workbook and every open window of a Windows lab machine and every registered lab machine that is online; one line each with the project code or label, a few words, where it is done (project session, his terminal, steering session) and a ready command block; `--mail` sends it (the timer `awb-owner-mail` does at 08:00 Europe/Berlin, no mail for an empty list); the line of a weekly publish of the last 24 hours comes after the list and is mailed even when nothing waits on you |
 | the owner level's status | `awb owner status --json` | what the owner page shows: vault, key service, release, page, UI runs (with each run's summary after the name check, for `GET /api/ui-runs`), intake counts; `--write` writes it for owner-actions, a timer runs that every minute |
 | hand a UI task to Codex | `awb ui submit presentations/ui-tasks/ID.txt`, `awb ui status` | the task checked and queued; a result note in `presentations/ui-tasks/` when the run ends |
 
@@ -827,8 +827,8 @@ wait when the API gateway says so (HTTP 429).
 
 Your own Windows laptop serves as a lab (Hyper-V, an evaluation VM of Windows Server, no customer data). Part 1 is
 the bookkeeping on your side: which machines exist and when a project may use one. Part 2 prints the scripts that
-connect the laptop to the host and take it off again. Part 3 gives a project session its commands there; the SSH
-transport they go through comes with part 4.
+connect the laptop to the host and take it off again. Part 3 gives a project session its commands there. Part 4 is
+the lab broker, which holds the key and is the one way to the laptop.
 
 ```bash
 awb winlab add lab-1 --port 2201 --fingerprint SHA256:... --no-customer-data
@@ -845,7 +845,9 @@ customer data; add refuses a machine without `--no-customer-data`. A window give
 beside keys.conf, mode 600. add, open, close and remove are refused for the work user and in an assistant session;
 list is for anyone. The later parts ask `winlab.allowed(NAME, CODE)`, which returns the machine or refuses with one
 line: an unregistered machine, no window, an expired window or another project. `awb owner status` lists every open
-window with its project, its end and `awb winlab close NAME`.
+window with its project, its end and `awb winlab close NAME`, and every registered machine that is online (its
+tunnel answers on its loopback port). `--account NAME` on add names the laptop's account when bootstrap made another
+one than `awblab`.
 
 Part 2 connects the laptop to the host. You print a setup script on the host, copy it to the laptop and run it there
 once as administrator, sitting at the laptop; the removal script takes everything away again.
@@ -896,6 +898,21 @@ put takes files of the project's `winlab-out/` only, after the name check and th
 the project, never into `input/`. Both go in chunks, resume when you run the same command again after a break,
 compare the SHA-256 of both sides at the end and never overwrite a file. They are built for 12 GB; a large file
 belongs in a folder git ignores.
+
+Part 4 is the lab broker (`awb winlab serve`, `awb/tcp/winbroker.py`), the same pattern as the key service: a
+project session never holds a key. Root runs it under its unit (the seal part of the steering session: the system
+user `awb-winlab` without a shell that the laptop's tunnel logs on to, the sshd Match block that lets it forward its
+ports and nothing else, the unit and the nftables rule that keeps the work user off the ports). It holds the host's
+private key for the lab machines (`/etc/awb/winlab/id_ed25519`, mode 600; give its `.pub` to `bootstrap --host-key`)
+and serves the session commands on `/run/awb-winlab/broker.sock`. Before every call it checks, from your registry
+(`AWB_KEYS_CONF` of the unit), the key token of the session's project folder, the machine, the window and its end,
+and then the laptop's host key: ssh-keyscan reads it on the port, only the key with the pinned fingerprint goes into
+the broker's own known_hosts and ssh connects with `StrictHostKeyChecking=yes` against it alone. No window, an
+expired window, another project, an unregistered machine and a host key that does not match the pin are refused
+with one line each, and nothing is sent. Each call is one ssh connection to the laptop's account; powershell.exe
+reads the script and the bytes of a chunk from its standard input. A session on a sealed host reads no registry of
+its own, so its window check and the machine of a put or get come from the broker too. Without the broker's socket
+the commands refuse with "no transport".
 
 ## Files in and out
 

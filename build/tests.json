@@ -14307,8 +14307,106 @@
    "name": "WL: put never overwrites a file on the machine and refuses a malformed WINPATH",
    "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_put_does_not_overwrite_a_file_on_the_machine",
    "status": "passing"
+  },
+  {
+   "id": "b038-wl-1",
+   "phase": "b038-wl",
+   "name": "WL: the lab broker refuses an unregistered machine, nothing sent",
+   "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_broker_refuses_an_unregistered_machine",
+   "status": "passing"
+  },
+  {
+   "id": "b038-wl-2",
+   "phase": "b038-wl",
+   "name": "WL: the lab broker refuses a machine without a window, nothing sent",
+   "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_broker_refuses_without_a_window",
+   "status": "passing"
+  },
+  {
+   "id": "b038-wl-3",
+   "phase": "b038-wl",
+   "name": "WL: the lab broker refuses an expired window, nothing sent",
+   "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_broker_refuses_an_expired_window",
+   "status": "passing"
+  },
+  {
+   "id": "b038-wl-4",
+   "phase": "b038-wl",
+   "name": "WL: the lab broker refuses the window of another project and does not name it",
+   "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_broker_refuses_a_window_of_another_project",
+   "status": "passing"
+  },
+  {
+   "id": "b038-wl-5",
+   "phase": "b038-wl",
+   "name": "WL: the lab broker refuses a host key that does not match the pinned fingerprint, no ssh session",
+   "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_broker_refuses_a_host_key_that_does_not_match_the_pin",
+   "status": "passing"
+  },
+  {
+   "id": "b038-wl-6",
+   "phase": "b038-wl",
+   "name": "WL: a host key that changes after the scan is refused by ssh's strict check with the same line",
+   "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_broker_refuses_when_ssh_meets_another_host_key_than_the_pinned_one",
+   "status": "passing"
+  },
+  {
+   "id": "b038-wl-7",
+   "phase": "b038-wl",
+   "name": "WL: the lab broker refuses a call without the key token of its project or with another project's",
+   "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_broker_refuses_a_call_without_the_key_token_of_its_project",
+   "status": "passing"
+  },
+  {
+   "id": "b038-wl-8",
+   "phase": "b038-wl",
+   "name": "WL: a command goes over ssh with StrictHostKeyChecking against the pinned key alone; no key comes back",
+   "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_broker_runs_a_command_over_ssh_with_the_pinned_key_only_and_no_key_comes_back",
+   "status": "passing"
+  },
+  {
+   "id": "b038-wl-9",
+   "phase": "b038-wl",
+   "name": "WL: the lab broker puts, gets and stats a file in chunks; a wrong offset answers the size",
+   "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_broker_puts_gets_and_stats_a_file_in_chunks",
+   "status": "passing"
+  },
+  {
+   "id": "b038-wl-10",
+   "phase": "b038-wl",
+   "name": "WL: the lab broker answers offline when the tunnel is down",
+   "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_broker_answers_offline_when_the_tunnel_is_down",
+   "status": "passing"
+  },
+  {
+   "id": "b038-wl-11",
+   "phase": "b038-wl",
+   "name": "WL: the lab broker does not start with a key file others may read",
+   "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_broker_will_not_start_with_a_key_others_may_read",
+   "status": "passing"
+  },
+  {
+   "id": "b038-wl-12",
+   "phase": "b038-wl",
+   "name": "WL: the session's transport over the broker's socket (mode 660); a sealed session asks the broker for its window",
+   "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_broker_socket_serves_the_session_transport",
+   "status": "passing"
+  },
+  {
+   "id": "b038-wl-13",
+   "phase": "b038-wl",
+   "name": "WL: without the broker's socket connect refuses, nothing sent",
+   "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_broker_missing_socket_means_no_transport",
+   "status": "passing"
+  },
+  {
+   "id": "b038-wl-14",
+   "phase": "b038-wl",
+   "name": "WL: awb owner status lists every registered lab machine that is online",
+   "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_owner_status_lists_every_registered_machine_that_is_online",
+   "status": "passing"
   }
  ],
- "total_tests": 2044,
+ "total_tests": 2058,
  "checked": "2026-11-05"
 }

@@ -12,8 +12,12 @@ They run in the folder of a project (its SCOPE.md) and each first asks `winlab.a
 project must hold the open window of the machine. A job remembers its machine in notes/winlab/jobs/<JOB>.json.
 
 The machine is reached through a Transport (below): run(text) -> (exit code, stdout, stderr), put_chunk, get_chunk
-and stat. The SSH transport is part 4; until then `connect` refuses and the tests put a fake in its place. Every
-method raises Offline when the machine cannot be reached or the connection drops.
+and stat. Every method raises Offline when the machine cannot be reached or the connection drops. `connect` gives
+the BrokerTransport of part 4 (B-038): each call goes to the lab broker (awb/tcp/winbroker.py, run by root), which
+holds the key, checks the window again and speaks SSH to the machine; the session sends the key token of its folder
+and never holds a key. Without the broker's socket `connect` refuses ("no transport") and nothing is sent; the
+tests put a fake in its place. On a sealed host the session cannot read the owner's registry: the window check
+(`_allowed`) and the machine of a put or get (`_pick`) then ask the broker.
 
 What goes out. The PowerShell text of the session passes four checks before it goes out (a refusal sends
 nothing): no `{{secret:NAME}}` reference (nothing is filled in for a lab machine), nothing that names the machine's
@@ -52,6 +56,7 @@ import json
 import os
 import re
 import secrets
+import socket
 import stat
 import sys
 import tempfile
@@ -80,6 +85,13 @@ OVERLAP = 512
 LOG_READ = 4 * 1024 * 1024
 """The most of a job's log one `awb winlab log` fetches."""
 PRINT_LINES = 200
+BROKER_SOCKET_ENV = "AWB_WINLAB_SOCKET"
+BROKER_SOCKET = "/run/awb-winlab/broker.sock"
+BROKER_SLACK = 120.0
+"""Seconds a call to the broker may take beyond the command's own timeout (the key scan and the connection)."""
+BROKER_MAX_ANSWER = 64 * 1024 * 1024
+NO_TRANSPORT = ("there is no transport to a lab machine yet for this user: the socket of the lab broker "
+                "(awb-winlab.service) is not there or not open to it; nothing was sent")
 EXIT_OK, EXIT_REFUSED, EXIT_REMOTE, EXIT_OFFLINE = 0, 1, 3, 4
 NAME_CLASSES = ("name", "path")
 
@@ -134,9 +146,127 @@ class Transport:
         """Let the connection go."""
 
 
+def _broker_call(request: dict, payload: bytes = b"", timeout: float = BROKER_SLACK) -> tuple[dict, bytes]:
+    """One call to the lab broker: the request line and the bytes of a put, the answer line and the bytes of a get.
+    A refusal raises WinlabError, a machine or broker that cannot be reached Offline, a put at another offset than
+    the size of the file ValueError."""
+    path = os.environ.get(BROKER_SOCKET_ENV) or BROKER_SOCKET
+    try:
+        # a socket this user cannot even see (missing, or in the broker's folder of mode 750) is no transport
+        if not stat.S_ISSOCK(os.stat(path).st_mode):
+            raise WinlabError(NO_TRANSPORT)
+    except OSError:
+        raise WinlabError(NO_TRANSPORT) from None
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        try:
+            s.connect(path)
+        except (FileNotFoundError, PermissionError, NotADirectoryError):
+            raise WinlabError(NO_TRANSPORT) from None
+        except OSError:
+            raise Offline("the lab broker does not answer (awb-winlab.service)") from None
+        try:
+            s.sendall(json.dumps(request).encode("utf-8") + b"\n" + payload)
+            buf = bytearray()
+            while b"\n" not in buf:
+                chunk = s.recv(1 << 16)
+                if not chunk:
+                    raise Offline("the lab broker closed the connection")
+                buf += chunk
+                if len(buf) > BROKER_MAX_ANSWER:
+                    raise Offline("the answer of the lab broker is too large")
+            cut = buf.index(b"\n")
+            answer = json.loads(bytes(buf[:cut]))
+            if not isinstance(answer, dict):
+                raise ValueError("not an object")
+            data = bytearray(buf[cut + 1:])
+            length = answer.get("length") if answer.get("ok") else None
+            if isinstance(length, int):
+                while len(data) < length:
+                    chunk = s.recv(min(1 << 16, length - len(data)))
+                    if not chunk:
+                        raise Offline("the connection to the lab broker dropped")
+                    data += chunk
+        except (OSError, ValueError) as exc:
+            raise Offline("the connection to the lab broker dropped (%s)" % type(exc).__name__) from None
+    finally:
+        s.close()
+    if answer.get("ok"):
+        return answer, bytes(data)
+    error = str(answer.get("error") or "the lab broker refused the call")
+    if answer.get("kind") == "offline":
+        raise Offline(error)
+    if answer.get("kind") == "offset":
+        raise ValueError(error)
+    raise WinlabError(error)
+
+
+class BrokerTransport(Transport):
+    """The Transport over the lab broker (part 4): every call names the machine, the project and the key token of
+    the project folder; the broker checks the window, holds the key and speaks SSH."""
+
+    def __init__(self, name: str, project: str, token: str | None):
+        self.name = name
+        self.project = project
+        self.token = token
+
+    def _call(self, request: dict, timeout: float = BROKER_SLACK, payload: bytes = b"") -> tuple[dict, bytes]:
+        return _broker_call(dict(request, machine=self.name, project=self.project, token=self.token), payload,
+                            timeout)
+
+    def check(self) -> dict:
+        """The window is open for the project: {"name", "end"}; else WinlabError with the broker's line."""
+        return self._call({"op": "check"})[0].get("machine") or {}
+
+    def run(self, text: str, timeout: float | None = None) -> tuple[int, str, str]:
+        seconds = timeout or RUN_TIMEOUT
+        answer, _ = self._call({"op": "run", "text": text, "timeout": seconds}, seconds + BROKER_SLACK)
+        return int(answer["exit"]), str(answer.get("stdout") or ""), str(answer.get("stderr") or "")
+
+    def put_chunk(self, path: str, offset: int, data: bytes) -> int:
+        answer, _ = self._call({"op": "put_chunk", "path": path, "offset": offset, "length": len(data)},
+                               BROKER_SLACK * 3, payload=data)
+        return int(answer["size"])
+
+    def get_chunk(self, path: str, offset: int, size: int) -> bytes:
+        return self._call({"op": "get_chunk", "path": path, "offset": offset, "size": size}, BROKER_SLACK * 3)[1]
+
+    def stat(self, path: str, digest: bool = False) -> dict | None:
+        answer, _ = self._call({"op": "stat", "path": path, "digest": digest},
+                               3600 + BROKER_SLACK if digest else BROKER_SLACK * 3)
+        return answer.get("stat")
+
+
+def _token(root) -> str | None:
+    from awb import labclient
+
+    return labclient._token(Path(root)) if root else None
+
+
 def connect(machine: dict) -> Transport:
-    """The transport to `machine` (what winlab.allowed returns). The SSH transport of part 4 goes here."""
-    raise WinlabError("there is no transport to a lab machine yet (it comes with WL part 4): nothing was sent")
+    """The transport to `machine` (what _session returns: the machine with the session's project and folder): the
+    lab broker's. Its window check comes first, so a refusal or a missing broker sends nothing."""
+    transport = BrokerTransport(machine.get("name"), machine.get("project"), _token(machine.get("root")))
+    transport.check()
+    return transport
+
+
+def _local_registry() -> bool:
+    """True when this user has a registry of its own (the owner on his own host, the tests); a session of the work
+    user on a sealed host has none and asks the broker."""
+    try:
+        return winlab.registry_path().exists()
+    except Exception:
+        return False
+
+
+def _allowed(name: str, code: str, root: Path) -> dict:
+    """winlab.allowed from this user's registry, else the broker's check (the owner's registry)."""
+    if _local_registry():
+        return winlab.allowed(name, code)
+    answer, _ = _broker_call({"op": "check", "machine": name, "project": code, "token": _token(root)})
+    return dict(answer.get("machine") or {}, name=name)
 
 
 def _pause(seconds: float) -> None:
@@ -491,7 +621,7 @@ def _print_cut(text: str, where: str, stream=None) -> None:
 def _session(name: str, root: Path | None) -> tuple[Path, str, dict]:
     root = root or _root()
     code = _code(root)
-    return root, code, winlab.allowed(name, code)
+    return root, code, dict(_allowed(name, code, root), project=code, root=str(root))
 
 
 def _refused(root: Path | None, machine: str, title: str, err: Exception) -> None:
@@ -849,7 +979,11 @@ def _pick(root: Path, machine: str | None) -> str:
     if machine is not None:
         return machine
     code = _code(root)
-    names = [n for n, w in winlab.windows() if w["project"] == code]
+    if _local_registry():
+        names = [n for n, w in winlab.windows() if w["project"] == code]
+    else:
+        names = list(_broker_call({"op": "windows", "project": code, "token": _token(root)})[0].get("machines")
+                     or [])
     if not names:
         raise WinlabError("no lab machine has an open window for %s (the owner: awb winlab open NAME --minutes N "
                           "--project %s)" % (code, code))

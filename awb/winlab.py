@@ -1,6 +1,7 @@
 """The registry of the owner's Windows lab machines and their windows (task WL part 1, B-035).
 
     awb winlab add NAME --port PORT --fingerprint SHA256:... --no-customer-data    owner side: register a machine
+        [--account awblab]
     awb winlab open NAME --minutes N --project tcp-xxxx                            owner side: a window for a project
     awb winlab close NAME                                                          owner side: end the window now
     awb winlab remove NAME [--script-only]                                         owner side: forget a machine,
@@ -10,6 +11,8 @@
         [--account awblab] [--server-key PUB] [--ssh-port 22]                      for the laptop (part 2, B-036)
     awb winlab run|start NAME [--vm VM] -- POWERSHELL, status|log|stop JOB,      a project session on a machine
         put FILE WINPATH, get WINPATH FILE                                         (part 3, awb/winlabsession.py)
+    awb winlab serve [--socket PATH] [--key PATH]                                  the lab broker, run by root under
+                                                                                   its unit (part 4, awb/tcp/winbroker.py)
 
 A lab machine is a Windows laptop of the owner's (Hyper-V, an evaluation VM, no customer data) that a later part
 reaches over a loopback port. It is registered by a name (lab-1), the loopback port (1024 to 65535), the pinned
@@ -39,6 +42,12 @@ are checked as text (tests/test_wl_scripts.py); nothing here runs PowerShell. bo
 not registered yet needs --port, because the fingerprint `add` needs comes from setup.ps1.
 
 Part 3 (B-037): the commands of a project session live in awb/winlabsession.py, loaded by name when one runs.
+
+Part 4 (B-038): the lab broker (awb/tcp/winbroker.py, `awb winlab serve`, run by root) holds the host's private key
+for the lab machines and is the one way to them: a session asks it over a Unix socket and it checks the window here
+again before every call. `add --account` records the laptop's account when setup.ps1 made another one than awblab.
+`online(port)` says whether a machine's tunnel answers on its loopback port (an SSH banner, no key, no login);
+`awb owner status` lists every registered machine that is online.
 """
 from __future__ import annotations
 
@@ -47,6 +56,7 @@ import datetime
 import json
 import os
 import re
+import socket
 import sys
 import tempfile
 from pathlib import Path
@@ -70,6 +80,9 @@ HOST_RE = re.compile(r"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9]
                      r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$")
 KEY_TYPES = ("ssh-ed25519", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", "ssh-rsa")
 SERVER_KEY = "/etc/ssh/ssh_host_ed25519_key.pub"
+LOOPBACK = "127.0.0.1"
+ONLINE_TIMEOUT = 1.5
+"""Seconds `online` waits for the SSH banner of a machine's tunnel."""
 
 
 class WinlabError(Exception):
@@ -120,6 +133,7 @@ def _valid_machine(m) -> bool:
             and FINGERPRINT_RE.match(str(m.get("fingerprint", ""))) is not None
             and re.match(r"^\d{4}-\d{2}-\d{2}$", str(m.get("registered", ""))) is not None
             and m.get("no_customer_data") is True
+            and ("account" not in m or ACCOUNT_RE.match(str(m["account"])) is not None)
             and (m.get("window") is None or _valid_window(m["window"])))
 
 
@@ -175,7 +189,7 @@ def open_window(machine: dict, now: datetime.datetime) -> dict | None:
 
 
 def add(name: str, port: int, fingerprint: str, no_customer_data: bool, *, path: Path | None = None,
-        today: str | None = None) -> str:
+        today: str | None = None, account: str = ACCOUNT) -> str:
     _owner_only()
     if not no_customer_data:
         raise WinlabError("add needs --no-customer-data: your statement that %s holds no customer data" % name)
@@ -185,6 +199,8 @@ def add(name: str, port: int, fingerprint: str, no_customer_data: bool, *, path:
         raise WinlabError("the port of a machine is a loopback port from %d to %d" % (PORT_MIN, PORT_MAX))
     if not FINGERPRINT_RE.match(fingerprint or ""):
         raise WinlabError("a fingerprint reads SHA256: and 43 base64 characters, as ssh-keygen -l prints it")
+    if not ACCOUNT_RE.match(account or ""):
+        raise WinlabError("the local account is 2 to 20 small letters, digits and -, a letter first (%s)" % ACCOUNT)
     machines = load(path)
     if name in machines:
         raise WinlabError("%s is registered already: awb winlab remove %s first" % (name, name))
@@ -193,8 +209,11 @@ def add(name: str, port: int, fingerprint: str, no_customer_data: bool, *, path:
             raise WinlabError("port %d is the port of %s already" % (port, other))
     machines[name] = {"port": port, "fingerprint": fingerprint, "no_customer_data": True,
                       "registered": today or datetime.date.today().isoformat()}
+    if account != ACCOUNT:
+        machines[name]["account"] = account
     save(machines, path)
-    return "lab machine %s registered: port %d, %s, holds no customer data" % (name, port, fingerprint)
+    return "lab machine %s registered: port %d, %s%s, holds no customer data" % (
+        name, port, fingerprint, "" if account == ACCOUNT else ", account %s" % account)
 
 
 def open_(name: str, minutes: int, project: str, *, path: Path | None = None,
@@ -269,6 +288,28 @@ def windows(path: Path | None = None, now: datetime.datetime | None = None) -> l
     except WinlabError:
         return []
     return [(n, w) for n, w in ((n, open_window(m, now)) for n, m in sorted(machines.items())) if w]
+
+
+def online(port: int, timeout: float = ONLINE_TIMEOUT) -> bool:
+    """True when something answers on 127.0.0.1:`port` with an SSH banner: the tunnel of a lab machine is up. No key
+    and no login, nothing is sent."""
+    try:
+        with socket.create_connection((LOOPBACK, port), timeout=timeout) as s:
+            s.settimeout(timeout)
+            return s.recv(64).startswith(b"SSH-2.0-")
+    except OSError:
+        return False
+
+
+def online_machines(path: Path | None = None, probe=None) -> list[tuple[str, dict]]:
+    """(name, machine) of every registered machine whose tunnel answers now, by name; nothing when the registry
+    cannot be read."""
+    probe = probe or online
+    try:
+        machines = load(path)
+    except WinlabError:
+        return []
+    return [(n, m) for n, m in sorted(machines.items()) if probe(m["port"])]
 
 
 def list_lines(path: Path | None = None, now: datetime.datetime | None = None) -> list[str]:
@@ -397,6 +438,13 @@ def _session_module():
     return importlib.import_module("awb.winlabsession")
 
 
+def _broker_module():
+    """awb/tcp/winbroker.py, the lab broker of part 4, loaded by name for `awb winlab serve` only."""
+    import importlib
+
+    return importlib.import_module("awb.tcp.winbroker")
+
+
 def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
@@ -410,6 +458,8 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--fingerprint", required=True, help="its pinned host key, SHA256:... as ssh-keygen -l prints it")
     a.add_argument("--no-customer-data", action="store_true",
                    help="your statement that the machine holds no customer data (required)")
+    a.add_argument("--account", default=ACCOUNT,
+                   help="the local account on the laptop, as bootstrap --account made it (default %s)" % ACCOUNT)
     o = sub.add_parser("open", help="a window in which one project may use the machine; it ends by itself (owner "
                                     "side, his own terminal)")
     o.add_argument("name")
@@ -461,6 +511,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("winpath", help="the whole path on the machine, C:\\lab\\file.txt")
     s.add_argument("file")
     s.add_argument("--machine", help="the machine, when the project holds windows on two")
+    s = sub.add_parser("serve", help="run the lab broker, the one way to the lab machines (root, under its unit)")
+    s.add_argument("--socket", help="its Unix socket (default /run/awb-winlab/broker.sock)")
+    s.add_argument("--key", help="the host's private key for the lab machines (default /etc/awb/winlab/id_ed25519)")
     argv = list(sys.argv[1:] if argv is None else argv)
     tail = None
     if argv[:1] and argv[0] in SESSION_COMMANDS and "--" in argv:
@@ -476,9 +529,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.command in SESSION_COMMANDS:
         return _session_module().main(args, tail)
+    if args.command == "serve":
+        return _broker_module().main(args)
     try:
         if args.command == "add":
-            print(add(args.name, args.port, args.fingerprint, args.no_customer_data))
+            print(add(args.name, args.port, args.fingerprint, args.no_customer_data, account=args.account))
         elif args.command == "open":
             print(open_(args.name, args.minutes, args.project))
         elif args.command == "close":
