@@ -1,6 +1,6 @@
 """`awb owner status`: one list of everything that waits on the owner (UX review 2026-10-24, change 4).
 
-Seven sources, read on the owner's side only:
+The sources, read on the owner's side only:
 
 - the owner items of OPEN.md of every active project (a parked project is a count, nothing more);
 - the rows of presentations/work-profile/QUEUE.md of the owner's repository whose state says it waits on him
@@ -16,6 +16,8 @@ Seven sources, read on the owner's side only:
 - the last put of the codes file of his report workbook (`awb report --codes --put`, awb-report-codes.timer, every
   hour): a failed one is the item "reports: ..." with its reason until a put succeeds; it says
   "projects.csv older than 24 h" when the last good put is that old or there was none.
+- the open windows of his Windows lab machines (task WL, awb/winlab.py: winlab.json beside keys.conf) with the
+  project and the end, until the window ends by itself or he closes it, and the command that closes each.
 
 Each item is one line: the project code or the label, a few words, where it is done (project session, his terminal,
 steering session) and a ready command block where one exists. Codes only: every text passes the name check as
@@ -296,6 +298,14 @@ def tenant_mode_items(path: Path | None = None) -> list[Item]:
     return out
 
 
+def winlab_items(path: Path | None = None, now: datetime.datetime | None = None) -> list[Item]:
+    """Every open window of a lab machine (task WL) with its project and end; an ended window is not listed."""
+    from awb import winlab
+
+    return [Item(name, _short("lab machine window open for %s until %s" % (w["project"], winlab._shown(w["end"]))),
+                 WHERE_TERMINAL, "awb winlab close %s" % name) for name, w in winlab.windows(path, now)]
+
+
 def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path | None = None
             ) -> tuple[list[Item], int]:
     """All items after the name check, and the count of parked projects."""
@@ -309,6 +319,7 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
     items += report_items()
     items += lab_run_items(p)
     items += tenant_mode_items()
+    items += winlab_items()
     texts = []
     for it in items:
         texts += [it.text, it.block or "", it.label]

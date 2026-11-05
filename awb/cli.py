@@ -11,7 +11,7 @@ awb report, awb career, awb write, awb voice, awb review, awb calc, awb hook, aw
 awb bucket, awb files, awb clean, awb import, awb words, awb reveal, awb price, awb pricebook, awb cloud, awb mirror, awb refresh,
 awb dataset, awb english, awb ask, awb inbox, awb xchg, awb howto, awb start, awb fetch, awb paste, awb material, awb keys,
 awb migrate, awb lab, awb tenant, awb api, awb service, awb board, awb web, awb owner, awb ui, awb build, awb pr,
-awb deploy, awb doc, awb pdf.
+awb deploy, awb doc, awb pdf, awb winlab.
 
 Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 
@@ -844,6 +844,7 @@ DELEGATED = {
                       "and its runner (serve, selftest, probe)"),
     "pr": ("prtake", "take a pull request of a cloud session: rebase, awb build check, merge, push, close"),
     "deploy": ("deploy", "bring a commit live: sudo awb deploy; awb deploy --dry-run and awb deploy status as the owner"),
+    "winlab": ("winlab", "the owner's Windows lab machines and their windows: add, open, close, remove (owner side), list"),
 }
 
 

@@ -660,7 +660,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | publish the console page | `sudo awb web publish --from-queue ID` | the checked page of a UI run live, the old one kept as a backup |
 | a login for the console | `sudo awb web user add LOGIN [--level owner]` | a random password, shown once (an owner entry also gets a TOTP key for his phone); `reset`, `remove`, `list`; `projects LOGIN CODE...` limits a reader to those project codes (no list: every project); `sudo awb web status` shows failed sign-ins and waits |
 | the owner host name | `sudo awb web host HOST` | once: the host name of the owner level, kept in `/etc/awb/paths.conf` |
-| what waits on the owner | `awb owner status` | one list of everything that waits on you: the owner items of OPEN.md of the active projects (parked projects as a count), the rows of QUEUE.md whose state waits on you the build tasks that wait on you, a failed weekly publish of the dataset and a failed put of the codes file of the report workbook; one line each with the project code or label, a few words, where it is done (project session, his terminal, steering session) and a ready command block; `--mail` sends it (the timer `awb-owner-mail` does at 08:00 Europe/Berlin, no mail for an empty list); the line of a weekly publish of the last 24 hours comes after the list and is mailed even when nothing waits on you |
+| what waits on the owner | `awb owner status` | one list of everything that waits on you: the owner items of OPEN.md of the active projects (parked projects as a count), the rows of QUEUE.md whose state waits on you the build tasks that wait on you, a failed weekly publish of the dataset, a failed put of the codes file of the report workbook and every open window of a Windows lab machine; one line each with the project code or label, a few words, where it is done (project session, his terminal, steering session) and a ready command block; `--mail` sends it (the timer `awb-owner-mail` does at 08:00 Europe/Berlin, no mail for an empty list); the line of a weekly publish of the last 24 hours comes after the list and is mailed even when nothing waits on you |
 | the owner level's status | `awb owner status --json` | what the owner page shows: vault, key service, release, page, UI runs (with each run's summary after the name check, for `GET /api/ui-runs`), intake counts; `--write` writes it for owner-actions, a timer runs that every minute |
 | hand a UI task to Codex | `awb ui submit presentations/ui-tasks/ID.txt`, `awb ui status` | the task checked and queued; a result note in `presentations/ui-tasks/` when the run ends |
 
@@ -822,6 +822,29 @@ logged on the owner's side without its path or body.
 `awb tenant snapshot` records what runs on each tenant every day, so that `awb tenant at test-1 2026-09-30` tells
 what ran on a given day and `awb tenant project tcp-xxxx` what a project created. Calls keep a pause between them and
 wait when the API gateway says so (HTTP 429).
+
+### Windows lab machines (WL)
+
+Your own Windows laptop serves as a lab (Hyper-V, an evaluation VM of Windows Server, no customer data). A later
+part lets a project session run PowerShell there; part 1 is the bookkeeping on your side only: which machines exist
+and when a project may use one. Nothing is reached yet, no network and no PowerShell.
+
+```bash
+awb winlab add lab-1 --port 2201 --fingerprint SHA256:... --no-customer-data
+awb winlab open lab-1 --minutes 60 --project tcp-xxxx
+awb winlab close lab-1                       # before its end
+awb winlab remove lab-1
+awb winlab list                              # machines, their window, its end
+```
+
+A machine has a name, a loopback port (1024 to 65535), the pinned fingerprint of its host key (`SHA256:` and 43
+base64 characters, as `ssh-keygen -l` prints it), the day of its registration and your statement that it holds no
+customer data; add refuses a machine without `--no-customer-data`. A window gives one project one machine for 1 to
+1440 minutes and ends by itself at its end. A machine has at most one open window. The registry is `winlab.json`
+beside keys.conf, mode 600. add, open, close and remove are refused for the work user and in an assistant session;
+list is for anyone. The later parts ask `winlab.allowed(NAME, CODE)`, which returns the machine or refuses with one
+line: an unregistered machine, no window, an expired window or another project. `awb owner status` lists every open
+window with its project, its end and `awb winlab close NAME`.
 
 ## Files in and out
 

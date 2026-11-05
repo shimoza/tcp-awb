@@ -13880,6 +13880,139 @@
    "name": "PDF: the dataset HOW-TO.pdf still builds, made by the shared writer with its prompts whole",
    "run": ".venv/bin/pytest tests/test_pdf.py::test_the_dataset_how_to_pdf_is_made_by_the_shared_writer",
    "status": "passing"
+  },
+  {
+   "id": "b035-wl-1",
+   "phase": "b035-wl",
+   "name": "WL: add registers a machine in winlab.json beside keys.conf, mode 600, with port, fingerprint, day and the no customer data statement",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_add_registers_a_machine_beside_keys_conf_mode_600",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-2",
+   "phase": "b035-wl",
+   "name": "WL: add is refused without --no-customer-data",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_add_is_refused_without_no_customer_data",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-3",
+   "phase": "b035-wl",
+   "name": "WL: add is refused with a malformed fingerprint",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_add_is_refused_with_a_malformed_fingerprint",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-4",
+   "phase": "b035-wl",
+   "name": "WL: add is refused with a port outside 1024..65535",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_add_is_refused_with_a_port_outside_1024_to_65535",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-5",
+   "phase": "b035-wl",
+   "name": "WL: add takes the ports 1024 and 65535",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_add_takes_the_ends_of_the_port_range",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-6",
+   "phase": "b035-wl",
+   "name": "WL: add refuses a name twice, a port twice and a malformed name",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_add_refuses_a_name_twice_a_port_twice_and_a_bad_name",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-7",
+   "phase": "b035-wl",
+   "name": "WL: allowed returns the machine inside the window of its project",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_allowed_returns_the_machine_inside_its_window",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-8",
+   "phase": "b035-wl",
+   "name": "WL: allowed refuses an unregistered machine with one line",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_allowed_refuses_an_unregistered_machine",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-9",
+   "phase": "b035-wl",
+   "name": "WL: allowed refuses a machine without a window with one line",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_allowed_refuses_a_machine_without_a_window",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-10",
+   "phase": "b035-wl",
+   "name": "WL: allowed refuses an expired window with one line",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_allowed_refuses_an_expired_window",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-11",
+   "phase": "b035-wl",
+   "name": "WL: allowed refuses another project with one line that does not name the holder",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_allowed_refuses_another_project",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-12",
+   "phase": "b035-wl",
+   "name": "WL: a registry that does not read allows nothing",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_a_broken_registry_allows_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-13",
+   "phase": "b035-wl",
+   "name": "WL: the window ends by itself at its end (fake clock), a new one opens without a close",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_the_window_ends_by_itself_at_its_end",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-14",
+   "phase": "b035-wl",
+   "name": "WL: at most one open window per machine; close ends it",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_at_most_one_open_window_per_machine",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-15",
+   "phase": "b035-wl",
+   "name": "WL: open refuses a malformed project code, minutes outside 1..1440 and an unknown machine",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_open_refuses_a_bad_project_bad_minutes_and_an_unknown_machine",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-16",
+   "phase": "b035-wl",
+   "name": "WL: remove forgets the machine and its window",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_remove_forgets_the_machine_and_its_window",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-17",
+   "phase": "b035-wl",
+   "name": "WL: add, open, close and remove are refused for the work user and in a session; list is for anyone",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_owner_commands_are_refused_for_the_work_user_and_in_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-18",
+   "phase": "b035-wl",
+   "name": "WL: awb owner status lists every open window with its end and the close command",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_owner_status_lists_every_open_window",
+   "status": "passing"
+  },
+  {
+   "id": "b035-wl-19",
+   "phase": "b035-wl",
+   "name": "WL: awb owner status lists nothing without a readable registry",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_owner_status_lists_nothing_without_a_registry",
+   "status": "passing"
   }
  ],
  "total_tests": 1983,
