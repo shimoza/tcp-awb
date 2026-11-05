@@ -33,14 +33,14 @@ import sys
 import tempfile
 from pathlib import Path
 
-from awb import config
+from awb import codes, config
 
 FILE_NAME = "winlab.json"
 PORT_MIN, PORT_MAX = 1024, 65535
 MINUTES_MAX = 1440
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
 FINGERPRINT_RE = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
-CODE_RE = re.compile(r"^tcp-[a-z0-9]{4}$")
+CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
 STAMP = "%Y-%m-%dT%H:%M:%SZ"
 OWNER_LINE = "the lab machines are the owner's: he runs awb winlab add, open, close and remove in his own terminal"
 
