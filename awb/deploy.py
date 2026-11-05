@@ -25,8 +25,9 @@ The unit list is the set of unit templates of the target release (seal/*.service
 seal/web/*.socket, seal/web/*.d/*.conf); this module keeps no list of unit names. The entry module of each
 installed unit comes from systemd (`systemctl show -p ExecStart,DropInPaths`), its closure from the imports of the
 target tree (`ast`, module and function level, DYNAMIC for importlib). A changed file restarts the units whose
-closure holds it; the fixed rules of RULES cover the files outside the package; a file under awb/ in no closure
-and not in COMMAND_ONLY restarts every unit and prints as unmapped.
+closure holds it; the fixed rules of RULES cover the files outside the package; a data file under a folder of
+PACKAGE_DATA (awb/winlab/*.ps1) ships with the release and restarts nothing; a file under awb/ in no closure and
+not in COMMAND_ONLY restarts every unit and prints as unmapped.
 
 The build runner (`awb build serve`, presentations/self-build) is never started by a deploy: when it is not running
 it takes the new code at its next start. While an awb-task-* unit is active its restart is deferred and root leaves
@@ -192,6 +193,12 @@ COMMAND_ONLY: dict[str, str] = {
                    "HOW-TO.pdf"),
     "awb/xlsxlite.py": "the workbook writer and reader of awb pricebook, which is command only",
     "awb/confusables.py": "python -m awb.confusables, run once by a build session to write awb/confusables_latin.py",
+}
+
+# Folders of the package that hold data and no module: the release ships them (the archive is the whole commit) and
+# a command reads them, no unit, so a change of one restarts nothing.
+PACKAGE_DATA: dict[str, str] = {
+    "awb/winlab/": "setup.ps1 and remove.ps1, printed by the owner's awb winlab bootstrap and awb winlab remove",
 }
 
 # Files outside the package, first match wins. A value is a tuple of effects: "all" (every unit), "rules" (the
@@ -870,6 +877,8 @@ def map_changes(changed: list[str], units: dict[str, dict], closures: dict[str, 
         if unit:
             add(unit, rel)
             eff.templates.add(unit)
+            continue
+        if any(rel.startswith(folder) for folder in PACKAGE_DATA) and not rel.endswith(".py"):
             continue
         if rel.startswith("awb/"):
             hit = [u for u, c in closures.items() if c is None or rel in c]

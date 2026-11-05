@@ -3,8 +3,11 @@
     awb winlab add NAME --port PORT --fingerprint SHA256:... --no-customer-data    owner side: register a machine
     awb winlab open NAME --minutes N --project tcp-xxxx                            owner side: a window for a project
     awb winlab close NAME                                                          owner side: end the window now
-    awb winlab remove NAME                                                         owner side: forget a machine
+    awb winlab remove NAME [--script-only]                                         owner side: forget a machine,
+                                                                                   print remove.ps1 for the laptop
     awb winlab list                                                                machines, their window, its end
+    awb winlab bootstrap NAME --host-key PUB --tunnel USER@HOST [--port PORT]      owner side: print setup.ps1
+        [--account awblab] [--server-key PUB] [--ssh-port 22]                      for the laptop (part 2, B-036)
 
 A lab machine is a Windows laptop of the owner's (Hyper-V, an evaluation VM, no customer data) that a later part
 reaches over a loopback port. It is registered by a name (lab-1), the loopback port (1024 to 65535), the pinned
@@ -22,9 +25,20 @@ The registry is winlab.json beside keys.conf, the file of the read-only tenant s
 refused for the work user and in an assistant session, as `awb tenant mode` is. No network here: nothing is reached,
 nothing is run on a machine. Standard library only; core code, so the owner status needs no module of the platform
 package.
+
+Part 2 (B-036): `bootstrap` prints awb/winlab/setup.ps1 and `remove` prints awb/winlab/remove.ps1, two templates
+filled here and run by the owner on the laptop as administrator. setup.ps1 sets up the OpenSSH server on 127.0.0.1
+only, a local account (default awblab, Administrators and Hyper-V Administrators, key logon only) that the host's
+key (--host-key) logs on to, the laptop's own tunnel key and the visible scheduled task awb-winlab-tunnel: at boot
+it holds `ssh -N -R 127.0.0.1:PORT:127.0.0.1:22 USER@HOST` (--tunnel; the host's server key, --server-key, pinned)
+and starts it again when it ends. It prints the fingerprint of the laptop's host key for `add` and the tunnel public
+key. remove.ps1 takes away what setup.ps1 made; setup.ps1 leaves %ProgramData%\\awb-winlab\\state.txt for it. Both
+are checked as text (tests/test_wl_scripts.py); nothing here runs PowerShell. bootstrap writes nothing: a machine
+not registered yet needs --port, because the fingerprint `add` needs comes from setup.ps1.
 """
 from __future__ import annotations
 
+import base64
 import datetime
 import json
 import os
@@ -43,6 +57,15 @@ FINGERPRINT_RE = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
 CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
 STAMP = "%Y-%m-%dT%H:%M:%SZ"
 OWNER_LINE = "the lab machines are the owner's: he runs awb winlab add, open, close and remove in his own terminal"
+SCRIPTS = Path(__file__).resolve().parent / "winlab"     # setup.ps1 and remove.ps1, data of the package
+PLACEHOLDER_RE = re.compile(r"@@[A-Z_]+@@")
+ACCOUNT = "awblab"
+ACCOUNT_RE = re.compile(r"^[a-z][a-z0-9-]{1,19}$")
+USER_RE = re.compile(r"^[a-z_][a-z0-9_.-]{0,31}$")
+HOST_RE = re.compile(r"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+                     r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$")
+KEY_TYPES = ("ssh-ed25519", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", "ssh-rsa")
+SERVER_KEY = "/etc/ssh/ssh_host_ed25519_key.pub"
 
 
 class WinlabError(Exception):
@@ -265,6 +288,97 @@ def list_lines(path: Path | None = None, now: datetime.datetime | None = None) -
     return ["  ".join(c.ljust(widths[i]) for i, c in enumerate(r)).rstrip() for r in rows]
 
 
+# --------------------------------------------------------------------------- the scripts for the laptop (part 2)
+
+
+def _public_key(path: str, option: str) -> tuple[str, str]:
+    """(type, base64) of the one OpenSSH public key in the file at `path`; the comment is dropped. A refusal names
+    the option, never a line of the file."""
+    try:
+        text = Path(path).read_text(encoding="ascii")
+    except FileNotFoundError:
+        raise WinlabError("%s: there is no file at the path given" % option) from None
+    except (OSError, UnicodeDecodeError):
+        raise WinlabError("%s: the file cannot be read as a public key" % option) from None
+    if "PRIVATE KEY" in text:
+        raise WinlabError("%s: the file is a private key, give its .pub file" % option)
+    lines = [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    parts = lines[0].split() if len(lines) == 1 else []
+    if len(parts) < 2 or parts[0] not in KEY_TYPES:
+        raise WinlabError("%s: the file is not one OpenSSH public key (ssh-ed25519 AAAA...)" % option)
+    try:
+        blob = base64.b64decode(parts[1], validate=True)
+    except ValueError:
+        blob = b""
+    # the blob is length-prefixed fields to its last byte, the first one the type
+    fields, at = [], 0
+    while at + 4 <= len(blob):
+        size = int.from_bytes(blob[at:at + 4], "big")
+        fields.append(blob[at + 4:at + 4 + size])
+        at += 4 + size
+    if at != len(blob) or len(fields) < 2 or fields[0] != parts[0].encode("ascii"):
+        raise WinlabError("%s: the key in the file is damaged" % option)
+    return parts[0], parts[1]
+
+
+def _script(file_name: str, values: dict[str, str]) -> str:
+    """A template of awb/winlab/ with its @@PLACEHOLDERS@@ filled; one left unfilled refuses the script."""
+    try:
+        text = (SCRIPTS / file_name).read_text(encoding="ascii")
+    except (OSError, UnicodeDecodeError):
+        raise WinlabError("the template awb/winlab/%s cannot be read" % file_name) from None
+    for key, value in values.items():
+        text = text.replace("@@%s@@" % key, value)
+    if PLACEHOLDER_RE.search(text):
+        raise WinlabError("the template awb/winlab/%s has a placeholder no value fills" % file_name)
+    return text
+
+
+def bootstrap(name: str, host_key: str, tunnel: str, *, port: int | None = None, account: str = ACCOUNT,
+              server_key: str = SERVER_KEY, ssh_port: int = 22, path: Path | None = None) -> str:
+    """setup.ps1 for the lab laptop `name`: the host's public key (`host_key`, a .pub file) logs on to the local
+    account, the laptop's tunnel goes to `tunnel` (USER@HOST, port `ssh_port`) and pins the host's server key
+    (`server_key`, a .pub file). The loopback port is the registered one; a machine that is not registered yet (the
+    fingerprint comes from this script) needs `port`. Nothing is written."""
+    _owner_only()
+    if not NAME_RE.match(name or ""):
+        raise WinlabError("a machine name is 2 to 31 small letters, digits and -, a letter first (lab-1)")
+    machines = load(path)
+    if name in machines:
+        if port is not None and port != machines[name]["port"]:
+            raise WinlabError("%s is registered with port %d, not %d" % (name, machines[name]["port"], port))
+        port = machines[name]["port"]
+    if port is None:
+        raise WinlabError("%s is not registered yet: give its loopback port with --port" % name)
+    if not isinstance(port, int) or not PORT_MIN <= port <= PORT_MAX:
+        raise WinlabError("the port of a machine is a loopback port from %d to %d" % (PORT_MIN, PORT_MAX))
+    for other, m in machines.items():
+        if other != name and m["port"] == port:
+            raise WinlabError("port %d is the port of %s already" % (port, other))
+    if not ACCOUNT_RE.match(account or ""):
+        raise WinlabError("the local account is 2 to 20 small letters, digits and -, a letter first (%s)" % ACCOUNT)
+    user, _, host = (tunnel or "").partition("@")
+    if not USER_RE.match(user) or not HOST_RE.match(host):
+        raise WinlabError("--tunnel reads USER@HOST: the account and the name or IPv4 address of the Workbench host")
+    if not isinstance(ssh_port, int) or not 1 <= ssh_port <= 65535:
+        raise WinlabError("the SSH port of the host is 1 to 65535")
+    key_type, key = _public_key(host_key, "--host-key")
+    server_type, server = _public_key(server_key, "--server-key")
+    known = host if ssh_port == 22 else "[%s]:%d" % (host, ssh_port)
+    return _script("setup.ps1", {
+        "MACHINE": name, "PORT": str(port), "ACCOUNT": account, "TUNNEL": tunnel, "TUNNEL_USER": user,
+        "SSH_PORT": str(ssh_port), "HOST_KEY": "%s %s awb-winlab-host" % (key_type, key),
+        "KNOWN_HOST": "%s %s %s" % (known, server_type, server)})
+
+
+def removal_script(name: str) -> str:
+    """remove.ps1 for the lab laptop `name`; it reads what to remove from the state.txt setup.ps1 left there."""
+    _owner_only()
+    if not NAME_RE.match(name or ""):
+        raise WinlabError("a machine name is 2 to 31 small letters, digits and -, a letter first (lab-1)")
+    return _script("remove.ps1", {"MACHINE": name})
+
+
 # --------------------------------------------------------------------------- command line
 
 
@@ -287,9 +401,23 @@ def main(argv: list[str] | None = None) -> int:
     o.add_argument("--project", required=True, help="the project code, tcp-xxxx")
     c = sub.add_parser("close", help="end the window of a machine now (owner side, his own terminal)")
     c.add_argument("name")
-    r = sub.add_parser("remove", help="forget a lab machine and its window (owner side, his own terminal)")
+    r = sub.add_parser("remove", help="forget a lab machine and its window and print remove.ps1 for the laptop "
+                                      "(owner side, his own terminal)")
     r.add_argument("name")
+    r.add_argument("--script-only", action="store_true",
+                   help="print remove.ps1 and keep the machine registered (also for a machine never registered)")
     sub.add_parser("list", help="the machines, their window and its end")
+    b = sub.add_parser("bootstrap", help="print setup.ps1, which the owner runs once on the laptop as administrator "
+                                         "(owner side, his own terminal)")
+    b.add_argument("name")
+    b.add_argument("--host-key", required=True, help="the .pub file of the key the host logs on to the laptop with")
+    b.add_argument("--tunnel", required=True, help="USER@HOST: the account on the Workbench host the laptop's "
+                                                   "tunnel logs on to and the host's name or IPv4 address")
+    b.add_argument("--port", type=int, help="the loopback port, for a machine that is not registered yet")
+    b.add_argument("--account", default=ACCOUNT, help="the local account on the laptop (default %s)" % ACCOUNT)
+    b.add_argument("--server-key", default=SERVER_KEY,
+                   help="the .pub file of the host's own SSH server key the laptop pins (default %s)" % SERVER_KEY)
+    b.add_argument("--ssh-port", type=int, default=22, help="the SSH port of the host (default 22)")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -305,9 +433,18 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "close":
             print(close(args.name))
         elif args.command == "remove":
-            print(remove(args.name))
+            # the script alone on standard output, so `> remove.ps1` takes it; the registry line goes to stderr
+            script = removal_script(args.name)
+            line = None if args.script_only else remove(args.name)
+            sys.stdout.write(script)
+            print(line or "remove.ps1 for %s printed; the machine stays registered" % args.name, file=sys.stderr)
         elif args.command == "list":
             print("\n".join(list_lines()))
+        elif args.command == "bootstrap":
+            sys.stdout.write(bootstrap(args.name, args.host_key, args.tunnel, port=args.port, account=args.account,
+                                       server_key=args.server_key, ssh_port=args.ssh_port))
+            print("setup.ps1 for %s printed: run it once on the laptop as administrator, powershell -NoProfile "
+                  "-ExecutionPolicy Bypass -File .\\setup.ps1" % args.name, file=sys.stderr)
     except WinlabError as err:
         print("awb winlab: %s" % err, file=sys.stderr)
         return 1

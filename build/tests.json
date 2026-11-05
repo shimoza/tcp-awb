@@ -14013,8 +14013,141 @@
    "name": "WL: awb owner status lists nothing without a readable registry",
    "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_owner_status_lists_nothing_without_a_registry",
    "status": "passing"
+  },
+  {
+   "id": "b036-wl-1",
+   "phase": "b036-wl",
+   "name": "WL: every step of setup.ps1 and remove.ps1 has its own result check and stops with one line naming the step",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_every_step_has_its_own_result_check_and_a_named_stop",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-2",
+   "phase": "b036-wl",
+   "name": "WL: setup.ps1 has the steps of the task in their order and a program's exit code stops it",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_setup_has_the_steps_of_the_task_in_their_order",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-3",
+   "phase": "b036-wl",
+   "name": "WL: sshd listens on 127.0.0.1 only, no 0.0.0.0, stopped before the first start and read back after it",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_sshd_listens_on_127_0_0_1_only",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-4",
+   "phase": "b036-wl",
+   "name": "WL: key logon only for the local account in Administrators and Hyper-V Administrators, the keys file inheritance off",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_key_logon_only_for_the_local_account",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-5",
+   "phase": "b036-wl",
+   "name": "WL: no password is written in either script; the random one lives in a SecureString only",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_no_password_is_written_in_either_script",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-6",
+   "phase": "b036-wl",
+   "name": "WL: the tunnel is a visible task at boot that starts ssh -N -R again when it ends; the end prints the fingerprint and the tunnel key",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_the_tunnel_is_a_visible_task_at_boot_that_restarts_ssh",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-7",
+   "phase": "b036-wl",
+   "name": "WL: remove.ps1 removes each thing setup.ps1 creates",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_the_removal_script_removes_each_thing_the_setup_creates",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-8",
+   "phase": "b036-wl",
+   "name": "WL: setup.ps1 refuses an account it did not make and a laptop set up for another machine",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_setup_refuses_an_account_it_did_not_make",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-9",
+   "phase": "b036-wl",
+   "name": "WL: awb winlab bootstrap prints the filled setup.ps1 and writes nothing",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_bootstrap_prints_the_filled_setup_script",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-10",
+   "phase": "b036-wl",
+   "name": "WL: bootstrap of an unregistered machine needs --port and takes --account and --ssh-port",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_bootstrap_takes_the_port_and_the_options_of_an_unregistered_machine",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-11",
+   "phase": "b036-wl",
+   "name": "WL: bootstrap refuses a port that is not the machine's, another machine's port and one outside the range",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_bootstrap_refuses_a_port_that_is_not_the_machines",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-12",
+   "phase": "b036-wl",
+   "name": "WL: bootstrap refuses a --tunnel that is not USER@HOST",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_bootstrap_refuses_a_tunnel_that_is_not_user_at_host",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-13",
+   "phase": "b036-wl",
+   "name": "WL: bootstrap refuses a malformed local account",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_bootstrap_refuses_a_malformed_account",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-14",
+   "phase": "b036-wl",
+   "name": "WL: bootstrap refuses a key file that is not one OpenSSH public key, without a line of the file",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_bootstrap_refuses_a_key_file_that_is_not_one_public_key",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-15",
+   "phase": "b036-wl",
+   "name": "WL: bootstrap and the removal script are refused for the work user and in a session",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_bootstrap_and_the_removal_script_are_refused_for_the_work_user_and_in_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-16",
+   "phase": "b036-wl",
+   "name": "WL: awb winlab remove prints remove.ps1 and forgets the machine",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_remove_prints_the_removal_script_and_forgets_the_machine",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-17",
+   "phase": "b036-wl",
+   "name": "WL: awb winlab remove --script-only prints remove.ps1 and keeps the machine",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_remove_script_only_keeps_the_machine",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-18",
+   "phase": "b036-wl",
+   "name": "WL: the templates are ASCII and every placeholder is filled inside a single-quoted string",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_the_templates_are_ascii_and_every_placeholder_is_filled",
+   "status": "passing"
+  },
+  {
+   "id": "b036-wl-19",
+   "phase": "b036-wl",
+   "name": "WL: awb/winlab/ ships with the package and a change of it restarts no unit",
+   "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_the_scripts_ship_with_the_package_and_restart_nothing",
+   "status": "passing"
   }
  ],
- "total_tests": 2002,
- "checked": "2026-11-04"
+ "total_tests": 2021,
+ "checked": "2026-11-05"
 }

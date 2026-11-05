@@ -826,8 +826,8 @@ wait when the API gateway says so (HTTP 429).
 ### Windows lab machines (WL)
 
 Your own Windows laptop serves as a lab (Hyper-V, an evaluation VM of Windows Server, no customer data). A later
-part lets a project session run PowerShell there; part 1 is the bookkeeping on your side only: which machines exist
-and when a project may use one. Nothing is reached yet, no network and no PowerShell.
+part lets a project session run PowerShell there. Part 1 is the bookkeeping on your side: which machines exist and
+when a project may use one. Part 2 prints the scripts that connect the laptop to the host and take it off again.
 
 ```bash
 awb winlab add lab-1 --port 2201 --fingerprint SHA256:... --no-customer-data
@@ -845,6 +845,28 @@ beside keys.conf, mode 600. add, open, close and remove are refused for the work
 list is for anyone. The later parts ask `winlab.allowed(NAME, CODE)`, which returns the machine or refuses with one
 line: an unregistered machine, no window, an expired window or another project. `awb owner status` lists every open
 window with its project, its end and `awb winlab close NAME`.
+
+Part 2 connects the laptop to the host. You print a setup script on the host, copy it to the laptop and run it there
+once as administrator, sitting at the laptop; the removal script takes everything away again.
+
+```bash
+awb winlab bootstrap lab-1 --host-key host.pub --tunnel USER@HOST --port 2201 > setup.ps1
+awb winlab remove lab-1 > remove.ps1         # forgets lab-1; --script-only keeps it registered
+```
+
+On the laptop: `powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1`. It installs the OpenSSH server
+and lets it listen on 127.0.0.1 port 22 only (stopped before its first start, the listen addresses read back after
+it), creates a local account (`awblab` unless `--account` names another) in Administrators and Hyper-V Administrators with a random
+password nobody keeps, writes the key of `--host-key` to `%ProgramData%\ssh\administrators_authorized_keys`
+(inheritance off, Administrators and SYSTEM) and allows key logon only. It generates the laptop's own tunnel key and
+the visible scheduled task `awb-winlab-tunnel`: from boot on it holds `ssh -N -R 127.0.0.1:PORT:127.0.0.1:22
+USER@HOST` (ServerAliveInterval 30, ServerAliveCountMax 3, ExitOnForwardFailure yes, the host's server key of
+`--server-key` pinned) and starts it again 30 seconds after it ends. Every step checks its own result and stops with
+one line naming the step. At the end it prints the fingerprint for `awb winlab add` and the tunnel public key with
+the line for the tunnel account's authorized_keys on the host. A machine already registered needs no `--port`.
+Everything lives under the name awb-winlab; `%ProgramData%\awb-winlab\state.txt` records what was there before, so
+`remove.ps1` removes the task, the service (or puts back the OpenSSH server as it was), the keys, the account and its
+profile folder and `%ProgramData%\awb-winlab`. It removes nothing setup did not make.
 
 ## Files in and out
 
