@@ -14405,8 +14405,10 @@
    "name": "WL: awb owner status lists every registered lab machine that is online",
    "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_owner_status_lists_every_registered_machine_that_is_online",
    "status": "passing"
-  }
+  },
+  {"id": "pc-cmdlet-1", "phase": "pc-cmdlet", "name": "put scrub: a PowerShell cmdlet call after a secret variable is code and stays", "run": ".venv/bin/pytest tests/test_putcopy_cmdlet.py::test_a_cmdlet_call_after_a_secret_variable_is_code_and_stays", "status": "passing"},
+  {"id": "pc-cmdlet-2", "phase": "pc-cmdlet", "name": "put scrub: a value that only looks like a cmdlet is still replaced", "run": ".venv/bin/pytest tests/test_putcopy_cmdlet.py::test_a_value_that_only_looks_like_a_cmdlet_is_still_replaced", "status": "passing"}
  ],
- "total_tests": 2058,
+ "total_tests": 2060,
  "checked": "2026-11-05"
 }

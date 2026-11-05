@@ -62,6 +62,9 @@ _MAX_ROUNDS = 500
 
 _DOTTED_RE = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+")
 _VARIABLE_RE = re.compile(r"[a-z_]+")
+# a PowerShell cmdlet with its arguments after it ($secret = New-Object System.Security.SecureString): code, no value
+_CMDLET_RE = re.compile(r"(?:New|Get|Set|Read|ConvertTo|ConvertFrom|Import|Export|Invoke|Select|Join|Test|Start|"
+                        r"Out|Format|Resolve|Split|Find|Copy|Add|Remove)-[A-Z][A-Za-z]+")
 
 
 def code_value(sep: str, quoted: bool, value: str, after: str, variables: bool = True) -> bool:
@@ -77,6 +80,8 @@ def code_value(sep: str, quoted: bool, value: str, after: str, variables: bool =
         return True             # a call, an index or a format field ({password})
     if "=" not in sep:
         return False
+    if _CMDLET_RE.fullmatch(value) and after[:1] in (" ", "\t", "\n", "\r", ""):
+        return True             # a PowerShell cmdlet call, its arguments after it
     return bool(_DOTTED_RE.fullmatch(value) or (variables and _VARIABLE_RE.fullmatch(value)))
 
 
