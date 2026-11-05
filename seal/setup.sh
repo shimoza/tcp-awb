@@ -3,6 +3,7 @@
 #
 #   sudo seal/setup.sh [--dry-run] [--mirrors DIR...]                     the first seal of a host, every step
 #   releases/<commit>/seal/setup.sh --update [--units-only | --no-build | --pending-build] [--dry-run] [--mirrors DIR...]
+#   seal/setup.sh --winlab [--dry-run]: step_winlab alone (the lab broker of task WL) on a host sealed before it
 #
 # --update is what `sudo awb deploy` runs, from the release folder it has just extracted, never from a working
 # tree. Its steps are an explicit allow list (update_steps): the code, the host file, the units, the needrestart
@@ -99,6 +100,11 @@ SSH_KEYS_DIR=/etc/ssh/authorized_keys     # the work user's keys, root owned (F2
 SSHD_DROPIN=/etc/ssh/sshd_config.d/awb-work-user.conf
 SSHD_MATCH="Match User"                  # the two sshd keywords of the drop-in; the tests take them from here
 SSHD_KEYS_FILE=AuthorizedKeysFile
+WINLAB_USER=awb-winlab                   # the account the lab laptops open their tunnel to (task WL)
+WINLAB_DIR=/etc/awb/winlab               # the broker's key, the tunnel keys of the laptops and the nft table
+WINLAB_DROPIN=/etc/ssh/sshd_config.d/awb-winlab.conf
+WINLAB_PORTS="2200-2299"                 # always dropped for the service users; the registered ports come on top
+WINLAB_DENY_USERS="awb awb-build awb-ask"   # who never reaches a tunnel port
 CRON_DENY=/etc/cron.deny
 WORK_JOBS="awb-work-update awb-kb-commit awb-kb-recheck awb-report-codes-work"   # seal/work-jobs/NAME.service and NAME.timer, the jobs of the work user
 OWNER_JOBS="awb-report-codes"   # seal/work-jobs/NAME.service and NAME.timer that run as the owner (task R1, hourly codes file; its rows come from awb-report-codes-work, R1b)
@@ -124,6 +130,7 @@ mirrors=0
 mirror_sources=()
 update=0
 units_only=0
+winlab_only=0   # --winlab: step_winlab alone, on a sealed host that has no lab broker yet (task WL)
 no_build=0
 pending_build=0
 suite_dir=""
@@ -135,6 +142,7 @@ while [ $# -gt 0 ]; do
             ;;
         --update) update=1 ;;
         --units-only) units_only=1 ;;
+        --winlab) winlab_only=1 ;;
         --no-build) no_build=1 ;;
         --pending-build) pending_build=1 ;;
         --mirrors) mirrors=1 ;;
@@ -845,6 +853,97 @@ retire_portal_unit() {
     run_if_present "$unit.d" rm -rf -- "$unit.d"
 }
 
+winlab_ports() {
+    # the ports of winlab.json (the owner's registry, task WL), one per line; nothing when it cannot be read
+    python3 -I -c 'import json, sys
+try:
+    m = json.load(open(sys.argv[1])).get("machines", {})
+except Exception:
+    m = {}
+for v in m.values():
+    if isinstance(v, dict) and isinstance(v.get("port"), int):
+        print(v["port"])' "$1"
+}
+
+step_winlab() {
+    local u users="" ports="$WINLAB_PORTS" reg="$owner_home/.config/awb/winlab.json" p
+    info "the lab broker (task WL): the account $WINLAB_USER the laptops open their tunnel to (no shell, key only,"
+    info "one loopback listen per key), the broker's key and the table inet awb_winlab that drops the tunnel ports"
+    info "for $WINLAB_DENY_USERS; awb-winlab.service loads that table before each start"
+    if getent passwd "$WINLAB_USER" >/dev/null; then
+        skip "the user exists" useradd --system --no-create-home -d /nonexistent --shell /usr/sbin/nologin \
+            "$WINLAB_USER"
+    else
+        run useradd --system --no-create-home -d /nonexistent --shell /usr/sbin/nologin "$WINLAB_USER"
+    fi
+    run install -d -o root -g root -m 755 "$WINLAB_DIR"
+    if [ "$real" -eq 1 ] && [ -e "$WINLAB_DIR/authorized_keys" ]; then
+        skip "the tunnel keys are there" install -o root -g root -m 644 /dev/null "$WINLAB_DIR/authorized_keys"
+    else
+        run install -o root -g root -m 644 /dev/null "$WINLAB_DIR/authorized_keys"
+    fi
+    if [ "$real" -eq 1 ] && [ -e "$WINLAB_DIR/id_ed25519" ]; then
+        skip "the broker's key is there" ssh-keygen -q -t ed25519 -N "" -C awb-winlab-broker \
+            -f "$WINLAB_DIR/id_ed25519"
+    else
+        run ssh-keygen -q -t ed25519 -N "" -C awb-winlab-broker -f "$WINLAB_DIR/id_ed25519"
+    fi
+    run chmod 600 "$WINLAB_DIR/id_ed25519"
+    if [ "$real" -eq 1 ] && [ -r "$reg" ]; then
+        for p in $(winlab_ports "$reg"); do
+            ports="$ports, $p"
+        done
+    fi
+    for u in $WINLAB_DENY_USERS; do
+        if [ "$real" -eq 0 ] || getent passwd "$u" >/dev/null; then
+            users="${users:+$users, }\"$u\""
+        fi
+    done
+    write_file "$WINLAB_DIR/awb-winlab.nft" 644 root:root <<NFT
+# written by seal/setup.sh step_winlab: the service users never reach a tunnel port of a lab laptop (task WL)
+table inet awb_winlab
+delete table inet awb_winlab
+table inet awb_winlab {
+    set ports { type inet_service; flags interval; auto-merge; elements = { $ports } }
+    chain output {
+        type filter hook output priority -10; policy accept;
+        meta skuid { $users } meta l4proto tcp th dport @ports counter drop
+    }
+}
+NFT
+    try_run nft -f "$WINLAB_DIR/awb-winlab.nft"
+    run mkdir -p "$(dirname "$WINLAB_DROPIN")"
+    write_file "$WINLAB_DROPIN" 644 root:root <<SSHD
+# written by seal/setup.sh step_winlab: the lab laptops open a reverse tunnel to $WINLAB_USER (task WL). Each key in
+# $WINLAB_DIR/authorized_keys carries restrict,port-forwarding,permitlisten="127.0.0.1:PORT" of its machine
+$SSHD_MATCH $WINLAB_USER
+    AuthenticationMethods publickey
+    PubkeyAuthentication yes
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    $SSHD_KEYS_FILE $WINLAB_DIR/authorized_keys
+    AllowTcpForwarding remote
+    PermitListen 127.0.0.1:*
+    PermitOpen none
+    GatewayPorts no
+    AllowAgentForwarding no
+    AllowStreamLocalForwarding no
+    X11Forwarding no
+    PermitTunnel no
+    PermitTTY no
+    PermitUserRC no
+    MaxSessions 0
+    ForceCommand /usr/sbin/nologin
+Match all
+SSHD
+    show sshd -t
+    if [ "$dry_run" -eq 0 ] && ! sshd -t; then
+        run rm -f -- "$WINLAB_DROPIN"
+        die "sshd -t refused the configuration with the lab drop-in: the drop-in was removed, sshd was not reloaded"
+    fi
+    try_run systemctl try-reload-or-restart ssh.service
+}
+
 step_units() {
     local f name
     info "the units of seal/*.service, rendered with the owner: the vault daemon and the key service run as the owner"
@@ -854,7 +953,7 @@ step_units() {
     info "hands the passphrase to the new process over a private socket pair and keeps it unlocked"
     for f in "$seal_dir"/*.service "$seal_dir"/*.timer; do
         name=$(basename -- "$f")
-        write_file "$UNITS_DIR/$name" 644 root:root < <(sed -e "s|@OWNER@|$owner|g" "$f")
+        write_file "$UNITS_DIR/$name" 644 root:root < <(sed -e "s|@OWNER@|$owner|g" -e "s|@OWNER_HOME@|$owner_home|g" "$f")
     done
     [ "$units_only" -eq 1 ] || build_failed_unit
     [ "$units_only" -eq 1 ] || build_nudge_unit
@@ -1929,6 +2028,10 @@ steps() {
         pending_build_steps
         return 0
     fi
+    if [ "$winlab_only" -eq 1 ]; then
+        step_winlab
+        return 0
+    fi
     if [ "$update" -eq 1 ]; then
         update_steps
         return 0
@@ -1945,6 +2048,7 @@ steps() {
     step_holds
     step_kb_hooks
     step_ssh
+    step_winlab
     step_work_jobs
     step_client
     step_managed

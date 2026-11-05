@@ -1,0 +1,37 @@
+# The lab broker of the Architect Workbench (awb/tcp/winbroker.py, task WL): the one way from a project session to
+# the owner's Windows lab laptops. Root runs it: it holds the host's private key for the lab machines
+# (/etc/awb/winlab/id_ed25519, root, mode 600) and reads the owner's registry winlab.json beside his keys.conf.
+# The socket /run/awb-winlab/broker.sock is reachable by the group awb. Before each start it loads the table
+# inet awb_winlab (seal/setup.sh step_winlab writes it): the work, build and Ask users cannot reach a tunnel port.
+# Installed by seal/setup.sh, which fills in the owner's home.
+[Unit]
+Description=Architect Workbench lab broker
+After=network-online.target ssh.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=root
+Group=awb
+RuntimeDirectory=awb-winlab
+RuntimeDirectoryMode=0750
+Environment=AWB_CONF=/etc/awb/paths.conf
+Environment=AWB_KEYS_CONF=@OWNER_HOME@/.config/awb/keys.conf
+ExecStartPre=+/usr/sbin/nft -f /etc/awb/winlab/awb-winlab.nft
+ExecStart=/usr/local/bin/awb winlab serve
+Restart=on-failure
+RestartSec=5
+UMask=0007
+# no core dump, nothing but loopback
+LimitCORE=0
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+[Install]
+WantedBy=multi-user.target
