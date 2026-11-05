@@ -243,7 +243,7 @@ def own(text: str, root: Path, name: str | None = None, today: date | None = Non
     """Our own output into the project at `root`: its ids kept, its secrets shortened or replaced, refused only for
     a registered name (PasteRefused, the text kept for a retry). Returns the path and the number of secrets
     shortened or replaced. Raises PasteError, hooks.Unavailable."""
-    from awb import hooks, labsecrets
+    from awb import hooks
 
     if not text.strip():
         raise PasteError("standard input is empty: pipe the text in")
@@ -253,6 +253,16 @@ def own(text: str, root: Path, name: str | None = None, today: date | None = Non
         raise PasteError("--as takes lower case letters, digits and hyphens, up to 40")
     if name is not None and [h for h in hooks.name_hits(name) if h.get("cls") in NAME_CLASSES]:
         raise PasteRefused("the name of --as carries a registered name: choose a code or a plain word")
+    clean, n = own_text(text)
+    return _write(root, name, today, clean), n
+
+
+def own_text(text: str) -> tuple[str, int]:
+    """`text` by the rules of --own: its secrets shortened or replaced, refused only for a registered name
+    (PasteRefused). Returns the text to write and the number of secrets shortened or replaced. Raises
+    hooks.Unavailable. awb winlab (awb/winlabsession.py) lands the output of a lab machine through it."""
+    from awb import hooks, labsecrets
+
     short, counts = labsecrets.shorten(text)
     clean, n = own_secrets(short)
     # the name check reads the text that is written, without the kept start of a shortened token: a short form of a
@@ -261,7 +271,7 @@ def own(text: str, root: Path, name: str | None = None, today: date | None = Non
     if named:
         raise PasteRefused("the text carries %d registered name(s): nothing was written. A customer name never goes "
                            "into a project." % len(named))
-    return _write(root, name, today, clean), n + sum(counts.values())
+    return clean, n + sum(counts.values())
 
 
 NAME_CLASSES = ("name", "path")

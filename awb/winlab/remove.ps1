@@ -7,6 +7,7 @@
 #
 # It removes what setup.ps1 made, each step checks its own result and stops with one line naming the step:
 #   - the scheduled task awb-winlab-tunnel and its ssh process
+#   - the scheduled tasks of the jobs a project session started (task folder \awb-winlab\, WL part 3)
 #   - the sshd service (the OpenSSH server when setup installed it; else the sshd_config and start type from before)
 #   - the keys: administrators_authorized_keys (or the one from before), the host key setup made, the tunnel key and
 #     known_hosts
@@ -19,6 +20,7 @@ $ErrorActionPreference = 'Stop'
 
 $Machine = '@@MACHINE@@'
 $TaskName = 'awb-winlab-tunnel'
+$JobTaskPath = '\awb-winlab\'
 
 $SshDir = Join-Path $env:ProgramData 'ssh'
 $Dir = Join-Path $env:ProgramData 'awb-winlab'
@@ -133,6 +135,18 @@ Step 'tunnel-task' {
     foreach ($p in Get-TunnelProcess) { Stop-Process -Id $p.ProcessId -Force }
 } {
     -not (Get-ScheduledTask -TaskName $TaskName -TaskPath '\' -ErrorAction SilentlyContinue) -and (Get-TunnelProcess).Count -eq 0
+}
+
+Step 'job-tasks' {
+    foreach ($task in @(Get-ScheduledTask -TaskPath $JobTaskPath -ErrorAction SilentlyContinue)) {
+        Stop-ScheduledTask -TaskName $task.TaskName -TaskPath $JobTaskPath -ErrorAction SilentlyContinue
+        Unregister-ScheduledTask -TaskName $task.TaskName -TaskPath $JobTaskPath -Confirm:$false
+    }
+    $service = New-Object -ComObject Schedule.Service
+    $service.Connect()
+    try { $service.GetFolder('\').DeleteFolder($JobTaskPath.Trim('\'), 0) } catch { }
+} {
+    @(Get-ScheduledTask -TaskPath $JobTaskPath -ErrorAction SilentlyContinue).Count -eq 0
 }
 
 Step 'account-processes' {

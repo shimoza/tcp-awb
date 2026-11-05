@@ -845,7 +845,7 @@ DELEGATED = {
     "pr": ("prtake", "take a pull request of a cloud session: rebase, awb build check, merge, push, close"),
     "deploy": ("deploy", "bring a commit live: sudo awb deploy; awb deploy --dry-run and awb deploy status as the owner"),
     "winlab": ("winlab", "the owner's Windows lab machines and their windows: add, open, close, remove, bootstrap "
-                         "(owner side), list"),
+                         "(owner side), list; run, start, status, log, stop, put, get (a project session)"),
 }
 
 

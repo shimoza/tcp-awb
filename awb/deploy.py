@@ -147,6 +147,9 @@ DYNAMIC: dict[tuple[str, str], object] = {
     # awb check learn and awb check allow are the owner's commands (the nightly timer runs a oneshot): the check loads
     # their module by name and no daemon reaches it
     ("awb/check.py", "_learning_command"): (),
+    # awb winlab run|start|status|log|stop|put|get run in a project session: the registry loads them by name, so the
+    # owner status, which imports the registry, keeps out of the paste rules
+    ("awb/winlab.py", "_session_module"): (),
 }
 
 # Modules no unit imports: they run as a command and in no daemon, so a change of one restarts nothing.
@@ -176,6 +179,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/migrate.py": "awb migrate, run in a working session",
     "awb/tcp/lab.py": "awb lab list|dry-run|run, run in a working session",
     "awb/labclient.py": "awb lab run start|end|status and the scripts of a project session (task LR)",
+    "awb/winlabsession.py": "awb winlab run|start|status|log|stop|put|get, run in a project session (task WL part 3)",
     "awb/tcp/recheck.py": "awb kb recheck-run, run in a working session or by the steering session",
     "awb/tcp/recheckwatch.py": "awb kb recheck-watch, run by the owner's timer awb-kb-recheck-watch every 15 minutes",
     "awb/tcp/refresh.py": "awb refresh, run by the owner or a timer of his",

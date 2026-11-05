@@ -825,9 +825,10 @@ wait when the API gateway says so (HTTP 429).
 
 ### Windows lab machines (WL)
 
-Your own Windows laptop serves as a lab (Hyper-V, an evaluation VM of Windows Server, no customer data). A later
-part lets a project session run PowerShell there. Part 1 is the bookkeeping on your side: which machines exist and
-when a project may use one. Part 2 prints the scripts that connect the laptop to the host and take it off again.
+Your own Windows laptop serves as a lab (Hyper-V, an evaluation VM of Windows Server, no customer data). Part 1 is
+the bookkeeping on your side: which machines exist and when a project may use one. Part 2 prints the scripts that
+connect the laptop to the host and take it off again. Part 3 gives a project session its commands there; the SSH
+transport they go through comes with part 4.
 
 ```bash
 awb winlab add lab-1 --port 2201 --fingerprint SHA256:... --no-customer-data
@@ -867,6 +868,34 @@ the line for the tunnel account's authorized_keys on the host. A machine already
 Everything lives under the name awb-winlab; `%ProgramData%\awb-winlab\state.txt` records what was there before, so
 `remove.ps1` removes the task, the service (or puts back the OpenSSH server as it was), the keys, the account and its
 profile folder and `%ProgramData%\awb-winlab`. It removes nothing setup did not make.
+
+Part 3 is the session side. A project session that holds the open window of a machine runs commands, long jobs and
+file transfers there; each command asks `winlab.allowed(NAME, CODE)` first.
+
+```bash
+awb winlab run lab-1 -- Get-VM                    # prints the output; exit 3 when the command failed there
+awb winlab run lab-1 --vm lab-vm -- hostname      # inside the VM, with PowerShell Direct
+awb winlab start lab-1 -- .\build-lab.ps1         # a long job; prints its id wl-<date>-<time>-xxxx
+awb winlab status JOB                             # running, ended with exit code N, stopped, lost, machine offline
+awb winlab log JOB                                # the new part of its log
+awb winlab stop JOB
+awb winlab put winlab-out/setup-lab.ps1 C:\lab\setup-lab.ps1
+awb winlab get C:\lab\export.csv results/export.csv
+```
+
+A refusal sends nothing. A command goes out only after four checks: no `{{secret:NAME}}` reference (nothing is
+filled in for a lab machine), nothing that names the machine's own state (`awb-winlab`, the ssh keys), no registered
+name and no secret (a password, a key of the cloud, a token). A VM guest password never passes through the session:
+`--vm VM` names the VM and the laptop reads the credential from `%ProgramData%\awb-winlab\vm\<VM>.txt`, which you
+write there yourself (first line the user, second the password; the command refuses a file anyone but
+Administrators and SYSTEM may read). The CLIXML progress records of powershell.exe are stripped, the output lands
+by the rules of `awb paste --own` and the command, its output, every job and every transfer go into
+`notes/winlab/` of the project. A job is a scheduled task of the laptop's account with its log on the laptop, so it
+goes on while the tunnel is down: status then says machine offline and running again once the tunnel is back.
+put takes files of the project's `winlab-out/` only, after the name check and the secret check; get writes into
+the project, never into `input/`. Both go in chunks, resume when you run the same command again after a break,
+compare the SHA-256 of both sides at the end and never overwrite a file. They are built for 12 GB; a large file
+belongs in a folder git ignores.
 
 ## Files in and out
 

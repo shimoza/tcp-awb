@@ -14146,8 +14146,169 @@
    "name": "WL: awb/winlab/ ships with the package and a change of it restarts no unit",
    "run": ".venv/bin/pytest tests/test_wl_scripts.py::test_wl_the_scripts_ship_with_the_package_and_restart_nothing",
    "status": "passing"
+  },
+  {
+   "id": "b037-wl-1",
+   "phase": "b037-wl",
+   "name": "WL: run sends the command with progress records off and logs it with its output in notes/winlab/",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_run_sends_the_command_and_logs_it_with_its_output",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-2",
+   "phase": "b037-wl",
+   "name": "WL: run exits 3 when the command exited non-zero on the machine and logs the exit code",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_run_returns_3_for_a_command_that_failed_on_the_machine",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-3",
+   "phase": "b037-wl",
+   "name": "WL: a command, a job, a VM name or a path on the machine with a registered invented name is refused, nothing sent, the refusal logged without the name",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_a_command_with_a_registered_name_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-4",
+   "phase": "b037-wl",
+   "name": "WL: a command carrying a password, a key pair of the cloud or a password typed into ConvertTo-SecureString or -Password is refused, nothing sent, no secret logged",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_a_command_carrying_a_secret_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-5",
+   "phase": "b037-wl",
+   "name": "WL: a {{secret:NAME}} reference is refused, never filled; a command or a get naming awb-winlab or the ssh keys is refused",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_no_secret_reference_is_filled_and_the_machine_state_is_out_of_reach",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-6",
+   "phase": "b037-wl",
+   "name": "WL: --vm names the VM: the machine reads the credential from %ProgramData%\\awb-winlab\\vm\\<VM>.txt (Administrators and SYSTEM only), no password in the script",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_the_vm_password_never_passes_through_the_session",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-7",
+   "phase": "b037-wl",
+   "name": "WL: run, start, put and get ask winlab.allowed first: without an open window nothing is sent",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_every_command_first_asks_allowed",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-8",
+   "phase": "b037-wl",
+   "name": "WL: until part 4 connect refuses: there is no transport yet",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_without_a_transport_nothing_is_sent",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-9",
+   "phase": "b037-wl",
+   "name": "WL: CLIXML progress records of powershell.exe over SSH are stripped from stdout, stderr and the log; the error text stays",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_clixml_progress_records_are_stripped",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-10",
+   "phase": "b037-wl",
+   "name": "WL: output lands by the rules of awb paste --own: ids stay, a password is replaced, a registered name withholds it",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_output_lands_by_the_rules_of_paste_own",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-11",
+   "phase": "b037-wl",
+   "name": "WL: a job is a scheduled task: status says running, machine offline while the transport is down, running again, then ended with exit code 0",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_a_job_survives_a_dropped_transport",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-12",
+   "phase": "b037-wl",
+   "name": "WL: job.ps1 writes all output to its log file and its exit code to exit.txt at the end",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_the_job_file_logs_everything_and_leaves_its_exit_code",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-13",
+   "phase": "b037-wl",
+   "name": "WL: log fetches the new part of the job's log by the rules of paste --own into notes/winlab/jobs/; stop ends the job",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_log_fetches_the_new_part_and_stop_ends_the_job",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-14",
+   "phase": "b037-wl",
+   "name": "WL: remove.ps1 removes the job tasks of \\awb-winlab\\ before the account processes",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_the_removal_script_takes_the_job_tasks_too",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-15",
+   "phase": "b037-wl",
+   "name": "WL: put refuses a file of input/, a link or a hard link to it, the vault, the shared folder and anything outside winlab-out/; nothing sent",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_a_put_from_input_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-16",
+   "phase": "b037-wl",
+   "name": "WL: put refuses a file of winlab-out/ with a registered name or a secret",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_put_passes_the_file_through_the_name_check_and_the_secret_check",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-17",
+   "phase": "b037-wl",
+   "name": "WL: put reads a large or binary file in pieces for names across a border and refuses a compressed file the check cannot open",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_put_reads_a_large_file_in_pieces_and_refuses_a_compressed_one",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-18",
+   "phase": "b037-wl",
+   "name": "WL: get deletes a fetched text with a registered name",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_get_deletes_a_copy_that_carries_a_registered_name",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-19",
+   "phase": "b037-wl",
+   "name": "WL: a put cut in the middle resumes from the size of the part and the SHA-256 matches",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_a_put_cut_in_the_middle_resumes_and_the_hash_matches",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-20",
+   "phase": "b037-wl",
+   "name": "WL: a single break of a transfer is taken again after a pause",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_a_break_in_the_middle_is_taken_again_after_a_pause",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-21",
+   "phase": "b037-wl",
+   "name": "WL: a wrong SHA-256 fails a put and a get: the part is deleted, nothing kept",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_a_wrong_hash_fails",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-22",
+   "phase": "b037-wl",
+   "name": "WL: a get cut in the middle resumes into the project; get never overwrites, never writes into input/ or out of the project",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_a_get_cut_in_the_middle_resumes_into_the_project",
+   "status": "passing"
+  },
+  {
+   "id": "b037-wl-23",
+   "phase": "b037-wl",
+   "name": "WL: put never overwrites a file on the machine and refuses a malformed WINPATH",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_put_does_not_overwrite_a_file_on_the_machine",
+   "status": "passing"
   }
  ],
- "total_tests": 2021,
+ "total_tests": 2044,
  "checked": "2026-11-05"
 }

@@ -8,6 +8,8 @@
     awb winlab list                                                                machines, their window, its end
     awb winlab bootstrap NAME --host-key PUB --tunnel USER@HOST [--port PORT]      owner side: print setup.ps1
         [--account awblab] [--server-key PUB] [--ssh-port 22]                      for the laptop (part 2, B-036)
+    awb winlab run|start NAME [--vm VM] -- POWERSHELL, status|log|stop JOB,      a project session on a machine
+        put FILE WINPATH, get WINPATH FILE                                         (part 3, awb/winlabsession.py)
 
 A lab machine is a Windows laptop of the owner's (Hyper-V, an evaluation VM, no customer data) that a later part
 reaches over a loopback port. It is registered by a name (lab-1), the loopback port (1024 to 65535), the pinned
@@ -35,6 +37,8 @@ and starts it again when it ends. It prints the fingerprint of the laptop's host
 key. remove.ps1 takes away what setup.ps1 made; setup.ps1 leaves %ProgramData%\\awb-winlab\\state.txt for it. Both
 are checked as text (tests/test_wl_scripts.py); nothing here runs PowerShell. bootstrap writes nothing: a machine
 not registered yet needs --port, because the fingerprint `add` needs comes from setup.ps1.
+
+Part 3 (B-037): the commands of a project session live in awb/winlabsession.py, loaded by name when one runs.
 """
 from __future__ import annotations
 
@@ -381,12 +385,24 @@ def removal_script(name: str) -> str:
 
 # --------------------------------------------------------------------------- command line
 
+SESSION_COMMANDS = ("run", "start", "status", "log", "stop", "put", "get")
+"""The commands of a project session on a machine (part 3, awb/winlabsession.py)."""
+
+
+def _session_module():
+    """awb/winlabsession.py, loaded by name: it reads the paste rules and the checks, which no unit imports, so the
+    owner status that imports this module keeps out of it (deploy.DYNAMIC)."""
+    import importlib
+
+    return importlib.import_module("awb.winlabsession")
+
 
 def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
-    ap = SafeParser(prog="awb winlab", description="The owner's Windows lab machines and the windows in which a "
-                                                   "project may use one.")
+    ap = SafeParser(prog="awb winlab", description="The owner's Windows lab machines, the windows in which a "
+                                                   "project may use one and the commands, jobs and files of a project "
+                                                   "session there.")
     sub = ap.add_subparsers(dest="command")
     a = sub.add_parser("add", help="register a lab machine (owner side, his own terminal)")
     a.add_argument("name")
@@ -418,6 +434,39 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--server-key", default=SERVER_KEY,
                    help="the .pub file of the host's own SSH server key the laptop pins (default %s)" % SERVER_KEY)
     b.add_argument("--ssh-port", type=int, default=22, help="the SSH port of the host (default 22)")
+    for name, what in (("run", "run a PowerShell command on the machine and print its output (project session, part "
+                               "3)"),
+                       ("start", "start a long PowerShell job on the machine as a scheduled task; prints its job id "
+                                 "(project session)")):
+        s = sub.add_parser(name, help=what)
+        s.add_argument("name")
+        s.add_argument("powershell", nargs="*", metavar="POWERSHELL",
+                       help="the PowerShell command, after -- (awb winlab %s lab-1 -- Get-VM)" % name)
+        s.add_argument("--vm", help="run it in this VM with PowerShell Direct; the machine reads the guest credential "
+                                    "itself")
+        if name == "run":
+            s.add_argument("--timeout", type=int, default=300, help="seconds the command may take (default 300)")
+    for name, what in (("status", "running, ended with its exit code, stopped, lost or machine offline"),
+                       ("log", "the new part of the job's log, also appended to notes/winlab/jobs/JOB.log"),
+                       ("stop", "end the job")):
+        s = sub.add_parser(name, help="%s (project session)" % what)
+        s.add_argument("job", help="the job id awb winlab start printed")
+    s = sub.add_parser("put", help="a file of the project's winlab-out/ to the machine, in chunks that resume, the "
+                                   "SHA-256 compared (project session)")
+    s.add_argument("file")
+    s.add_argument("winpath", help="the whole path on the machine, C:\\lab\\file.txt")
+    s.add_argument("--machine", help="the machine, when the project holds windows on two")
+    s = sub.add_parser("get", help="a file of the machine into the project, in chunks that resume, the SHA-256 "
+                                   "compared (project session)")
+    s.add_argument("winpath", help="the whole path on the machine, C:\\lab\\file.txt")
+    s.add_argument("file")
+    s.add_argument("--machine", help="the machine, when the project holds windows on two")
+    argv = list(sys.argv[1:] if argv is None else argv)
+    tail = None
+    if argv[:1] and argv[0] in SESSION_COMMANDS and "--" in argv:
+        # what follows -- is the PowerShell text, whatever it looks like
+        cut = argv.index("--")
+        argv, tail = argv[:cut], argv[cut + 1:]
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -425,6 +474,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         ap.print_usage(sys.stderr)
         return 2
+    if args.command in SESSION_COMMANDS:
+        return _session_module().main(args, tail)
     try:
         if args.command == "add":
             print(add(args.name, args.port, args.fingerprint, args.no_customer_data))
