@@ -443,6 +443,7 @@ def invented_blocklist(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("AWB_SHARED", str(own / "shared"))
     # never the real key service of the host: a test that wants one starts its own
     monkeypatch.setenv("AWB_KEYS_SOCKET", str(none / "cloud.sock"))
+    monkeypatch.setenv("AWB_WINLAB_SOCKET", str(none / "winlab.sock"))
     monkeypatch.setenv("AWB_KEYS_CONF", str(none / "keys.conf"))
     monkeypatch.setenv("AWB_THROTTLE_DIR", str(own / "throttle"))
     # a refused `awb paste` keeps its text in the user's own state folder (P1): never the real one of the host

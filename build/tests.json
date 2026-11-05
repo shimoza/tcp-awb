@@ -14407,8 +14407,10 @@
    "status": "passing"
   },
   {"id": "pc-cmdlet-1", "phase": "pc-cmdlet", "name": "put scrub: a PowerShell cmdlet call after a secret variable is code and stays", "run": ".venv/bin/pytest tests/test_putcopy_cmdlet.py::test_a_cmdlet_call_after_a_secret_variable_is_code_and_stays", "status": "passing"},
-  {"id": "pc-cmdlet-2", "phase": "pc-cmdlet", "name": "put scrub: a value that only looks like a cmdlet is still replaced", "run": ".venv/bin/pytest tests/test_putcopy_cmdlet.py::test_a_value_that_only_looks_like_a_cmdlet_is_still_replaced", "status": "passing"}
+  {"id": "pc-cmdlet-2", "phase": "pc-cmdlet", "name": "put scrub: a value that only looks like a cmdlet is still replaced", "run": ".venv/bin/pytest tests/test_putcopy_cmdlet.py::test_a_value_that_only_looks_like_a_cmdlet_is_still_replaced", "status": "passing"},
+  {"id": "wl-win-1", "phase": "wl-win", "name": "WL: a local account description in setup.ps1 and remove.ps1 has at most 48 characters", "run": ".venv/bin/pytest tests/test_wl_scripts_windows.py::test_a_local_account_description_has_at_most_48_characters", "status": "passing"},
+  {"id": "wl-win-2", "phase": "wl-win", "name": "WL: an array element built with + in setup.ps1 and remove.ps1 stands in parentheses", "run": ".venv/bin/pytest tests/test_wl_scripts_windows.py::test_an_array_element_built_with_plus_stands_in_parentheses", "status": "passing"}
  ],
- "total_tests": 2060,
+ "total_tests": 2062,
  "checked": "2026-11-05"
 }

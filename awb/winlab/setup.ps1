@@ -244,7 +244,7 @@ Step 'account' {
         $secret.AppendChar([char](97 + ($bytes[61] % 26)))
         $secret.AppendChar([char](65 + ($bytes[62] % 26)))
         $secret.AppendChar([char](48 + ($bytes[63] % 10)))
-        New-LocalUser -Name $Account -Password $secret -FullName 'awb-winlab' -Description 'awb-winlab: the Workbench host logs on with its key only' -PasswordNeverExpires -AccountNeverExpires | Out-Null
+        New-LocalUser -Name $Account -Password $secret -FullName 'awb-winlab' -Description 'awb-winlab: host logs on by key only' -PasswordNeverExpires -AccountNeverExpires | Out-Null
         $secret.Dispose()
     }
     Set-State 'account_sid' (Get-LabUser).SID.Value
@@ -272,7 +272,7 @@ Step 'authorized-keys' {
 
 Step 'sshd-config' {
     $config = @(
-        '# awb-winlab: written by setup.ps1 for lab machine ' + $Machine + '; remove.ps1 puts back the file from before',
+        ('# awb-winlab: written by setup.ps1 for lab machine ' + $Machine + '; remove.ps1 puts back the file from before'),
         'Port 22',
         'AddressFamily inet',
         'ListenAddress 127.0.0.1',
