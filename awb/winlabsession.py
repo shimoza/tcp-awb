@@ -36,7 +36,10 @@ not logged). Every command, its output, every job and every transfer is logged i
 <date>-<machine>.log, a job's log in jobs/<JOB>.log. A refusal is logged with its reason, never the text.
 
 Files. put takes a regular file of the project's winlab-out/ only (no link, no hard link, no file of input/, the
-vault or the shared folders) and passes it through the name check and the secret check first. get writes into the
+vault or the shared folders) and passes it through the name check and the secret check first. A disk image built in
+the lab (`disk_image`: .vhdx, .vhd, .vmdk, .qcow2, .iso with the signature of its format, a raw .img of whole
+sectors) is our own output and gets the secret check only, at transfer speed (`_image_secret_count`; the owner's
+decision of 2026-11-06, B-040); customer material is checked once at its entry (awb intake). get writes into the
 project, never into input/ or .git, never over a file. Both go in chunks to WINPATH.awb-part or FILE.awb-part and
 resume after a break: the same command again goes on from the size of the part when the record of the transfer
 (notes/winlab/transfers/) still matches the file. At the end the SHA-256 of both sides is compared; a mismatch
@@ -82,6 +85,9 @@ CHECK_WHOLE_MAX = 64 * 1024 * 1024
 """The largest file the name check reads whole (it opens office files and archives); a larger one goes in pieces."""
 PIECE = 4 * 1024 * 1024
 OVERLAP = 512
+DISK_IMAGES = {".vhdx": "vhdx", ".vhd": "vhd", ".vmdk": "vmdk", ".qcow2": "qcow2", ".iso": "iso", ".img": "img"}
+"""The suffix of a disk image and its kind."""
+SECTOR = 512
 LOG_READ = 4 * 1024 * 1024
 """The most of a job's log one `awb winlab log` fetches."""
 PRINT_LINES = 200
@@ -914,15 +920,187 @@ def _piece_text(data: bytes) -> str:
     return re.sub(r"[\x00-\x08\x0b-\x1f\x7f\ufffd]+", "\n", text)
 
 
-def check_file(path: Path, size: int) -> None:
-    """The name check and the secret check over the file at `path` before it goes to a lab machine. A file up to
-    CHECK_WHOLE_MAX goes whole to the name check, which opens office files and archives. Every file but a plain
-    text goes to it again in pieces of its text (a binary file can come back clean from the whole check), and a
-    compressed file the check cannot open is refused. The secret check reads the pieces of every file."""
+def disk_image(path: Path, size: int) -> str | None:
+    """The kind of disk image the file at `path` is (None for any other file). Its name ends in the suffix of the
+    kind (any case) and its first bytes carry the format's own signature: vhdx "vhdxfile", vhd "conectix" at offset 0
+    or in the footer of the last 512 bytes, vmdk "KDMV" or the text descriptor, qcow2 "QFI\\xfb", iso "CD001" at
+    offset 0x8001. A raw .img has no signature: it is one by its name when its size is a whole number of sectors."""
+    kind = DISK_IMAGES.get(path.suffix.lower())
+    if kind is None:
+        return None
+    if kind == "img":
+        return kind if size % SECTOR == 0 else None
+    with open(path, "rb") as fh:
+        head = fh.read(0x8006)
+        fh.seek(max(0, size - SECTOR))
+        foot = fh.read(SECTOR)
+    signed = {"vhdx": head.startswith(b"vhdxfile"),
+              "vhd": head.startswith(b"conectix") or foot.startswith(b"conectix"),
+              "vmdk": head.startswith((b"KDMV", b"# Disk DescriptorFile")),
+              "qcow2": head.startswith(b"QFI\xfb"),
+              "iso": head[0x8001:0x8006] == b"CD001"}
+    return kind if signed[kind] else None
+
+
+# The secret check of a disk image. On 4 MB of random bytes the check of _secret_count takes about 27 s: no pattern
+# backtracks, but some 45 patterns of the gate and of awb/labsecrets.py each scan every position of the piece's
+# text (0.2 to 1.2 s apiece), the table and key pair rules walk a million short lines in Python and shorten and
+# _secret_hits both run the gate's detectors. Noise has no secret, so _image_secret_count runs the same check over
+# the lines that can carry one with the lines around them. Only when that finds any does the whole piece go
+# through it again, for the count and to stay exactly as strict. A line can carry a secret when it holds a word of
+# a secret key or a secret pattern (case folded and without the separators the gate's key rule drops), a run of
+# 15 characters without a space (every token, key, hash and pgpass line of the gate), a literal of the flag and
+# URL patterns on a line long enough for its value or a table row with a value cell. A key word of two letters
+# (ak, sk, pw) counts on a line of 9 characters or more: a value of 16 for it on a later line is such a run
+# itself; a table row has its own rule.
+_CONTEXT = 3
+"""Lines kept before and after a seed line, blank lines not counted: the gate takes a value up to three lines below
+its key and a key pair two lines apart; the separator of a password may stand on a line of its own."""
+_SHORT_ATOM_LINE = 9
+_LONG_LINE_RE = re.compile(r"[^\n]{%d,}" % _SHORT_ATOM_LINE)
+_RUN_RE = re.compile(r"\S{15}")
+_CELL_RE = re.compile(r"\S{8}")
+_SEED_WORDS = ("pwd", "kennwort", "access", "signature", "bearer", "identifiedby", "converttosecurestring",
+               "begin", "privatelines", "парол")
+"""The words of the secret patterns of the gate, labsecrets and _PS_PLAIN_RE beside the gate's key words, case
+folded and squeezed (identified by, ConvertTo-SecureString, Private-Lines)."""
+_SEED_LITERALS = (("-p", 21), ("-u", 13), ("--creds", 13), ("://", 14), ('"kty"', 0))
+"""A literal of a pattern without a key word and the shortest line that holds it with its secret: a -p flag with
+a quoted value, -u with a user and a password, the userinfo of a URL and the "kty" a JWK needs anywhere in the text."""
+_SEEDS: list = []
+
+
+def _seed_atoms() -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """(words, words of two letters, characters squeezed out) for _seed_lines."""
+    if not _SEEDS:
+        from awb import gate
+
+        words = set(gate._SECRET_PARTS) | {w.replace("_", "") for w in gate._SECRET_WORDS} | set(_SEED_WORDS)
+        squeezed = tuple(sorted({chr(c) for c in range(0x110000) if chr(c).isspace()} - {"\n"})) + tuple("_.:-")
+        _SEEDS.append((tuple(sorted(w for w in words if len(w) > 2)), tuple(sorted(w for w in words if len(w) <= 2)),
+                       squeezed))
+    return _SEEDS[0]
+
+
+def _squeezed(text: str, chars: tuple[str, ...]) -> str:
+    # (?i) takes the dotless i and the dotted capital I for an i; casefold makes the second i and a combining dot
+    folded = text.casefold().replace("ı", "i").replace("i̇", "i")
+    for ch in chars:
+        folded = folded.replace(ch, "")
+    return folded
+
+
+def _found_lines(text: str, word: str, out: set[int]) -> None:
+    """The line of every place `word` stands in `text`, into `out`."""
+    line, last = 0, 0
+    at = text.find(word)
+    while at >= 0:
+        line += text.count("\n", last, at)
+        last = at
+        out.add(line)
+        at = text.find(word, at + 1)
+
+
+def _seed_lines(text: str, lines: list[str]) -> set[int]:
+    """The lines of `text` that can carry a secret (see above)."""
+    from awb import gate
+
+    words, short, chars = _seed_atoms()
+    folded = _squeezed(text, chars)
+    seeds: set[int] = set()
+    for word in words:
+        _found_lines(folded, word, seeds)
+    for literal, shortest in _SEED_LITERALS:
+        found: set[int] = set()
+        _found_lines(text, literal, found)
+        seeds.update(i for i in found if len(lines[i]) >= shortest)
+    i, last = 0, 0
+    for m in _LONG_LINE_RE.finditer(text):
+        i += text.count("\n", last, m.start())
+        last = m.start()
+        line = m.group(0)
+        if i in seeds:
+            continue
+        if (len(line) >= 15 and _RUN_RE.search(line)) \
+                or (any(d in line for d in gate._TABLE_DELIMITERS) and _CELL_RE.search(line)):
+            seeds.add(i)
+        else:
+            low = _squeezed(line, chars)
+            if any(w in low for w in short):
+                seeds.add(i)
+    return seeds
+
+
+def _secret_lines(text: str) -> str:
+    """The seed lines of `text` with _CONTEXT lines around each and, for a line with a table delimiter, the whole
+    run of such lines it stands in and the line on either side (where the gate's table rule starts again). Each
+    stretch in between becomes one empty line."""
+    from awb import gate
+
+    lines = text.split("\n")
+    n = len(lines)
+    keep = bytearray(n)
+
+    def table(i: int) -> bool:
+        return any(d in lines[i] for d in gate._TABLE_DELIMITERS)
+
+    run_end = -1
+    for seed in sorted(_seed_lines(text, lines)):
+        keep[seed] = 1
+        for step in (-1, 1):
+            i, left = seed, _CONTEXT
+            while left and 0 <= i + step < n:
+                i += step
+                keep[i] = 1
+                if lines[i].strip():
+                    left -= 1
+        if seed > run_end and table(seed):
+            lo = seed
+            while lo > 0 and table(lo - 1):
+                lo -= 1
+            run_end = seed
+            while run_end + 1 < n and table(run_end + 1):
+                run_end += 1
+            a, b = max(0, lo - 1), min(n, run_end + 2)
+            keep[a:b] = b"\x01" * (b - a)
+    out: list[str] = []
+    a = keep.find(1)
+    while a >= 0:
+        b = keep.find(0, a)
+        b = n if b < 0 else b
+        if out:
+            out.append("")
+        out.extend(lines[a:b])
+        a = keep.find(1, b)
+    return "\n".join(out)
+
+
+def _image_secret_count(text: str) -> int:
+    """_secret_count of a piece of a disk image at transfer speed: over its _secret_lines first and over the whole
+    piece only when they carry a secret."""
+    lines = _secret_lines(text)
+    if lines == text:
+        return _secret_count(text)
+    return _secret_count(text) if _secret_count(lines) else 0
+
+
+def check_kind(path: Path, size: int) -> str:
+    """Which check a put of the file at `path` runs, for its log line."""
+    image = disk_image(path, size)
+    return "secret check only, disk image %s" % image if image else "name and secret check"
+
+
+def check_file(path: Path, size: int) -> str:
+    """The name check and the secret check over the file at `path` before it goes to a lab machine; returns
+    check_kind. A file up to CHECK_WHOLE_MAX goes whole to the name check, which opens office files and archives.
+    Every file but a plain text goes to it again in pieces of its text (a binary file can come back clean from the
+    whole check); a compressed file the check cannot open is refused. The secret check reads the pieces of every
+    file. A disk image (disk_image) skips the name check and gets the secret check of _image_secret_count."""
     from awb import hooks
 
+    image = disk_image(path, size)
     opaque, plain = True, False
-    if size <= CHECK_WHOLE_MAX:
+    if size <= CHECK_WHOLE_MAX and not image:
         try:
             hits = hooks.file_hits(path)
         except hooks.Unavailable as exc:
@@ -947,15 +1125,16 @@ def check_file(path: Path, size: int) -> None:
                 break
             text = tail + _piece_text(data)
             # the name check read a plain text whole; any other file it reads again in the pieces of its text
-            if not plain:
+            if not plain and not image:
                 names = _name_count(text)
                 if names:
                     raise WinlabError("the file carries %d registered name(s): nothing was sent" % names)
-            found = _secret_count(text)
+            found = _image_secret_count(text) if image else _secret_count(text)
             if found:
                 raise WinlabError("the file carries %d secret(s): no password and no key goes to a lab machine, "
                                   "nothing was sent" % found)
             tail = text[-OVERLAP:]
+    return check_kind(path, size)
 
 
 def _size(n: int) -> str:
@@ -994,7 +1173,8 @@ def _pick(root: Path, machine: str | None) -> str:
 
 def put(file: str, winpath: str, machine: str | None = None, root: Path | None = None) -> dict:
     """The file `file` of winlab-out/ to `winpath` on the machine of the project's window. Returns {"machine",
-    "size", "sha256", "resumed", "log"}. Raises WinlabError (refused or failed), Offline (broken: run it again)."""
+    "size", "sha256", "resumed", "check", "log"}. Raises WinlabError (refused or failed), Offline (broken: run it
+    again)."""
     root = root or _root()
     try:
         machine = _pick(root, machine)
@@ -1020,9 +1200,12 @@ def _put(root: Path, name: str, machine: dict, src: Path, winpath: str) -> dict:
     record = _read_json(rpath) or {}
     same = record.get("source") == rel and record.get("ident") == ident and record.get("winpath") == winpath
     sha = record["sha256"] if same and re.fullmatch(r"[0-9a-f]{64}", str(record.get("sha256"))) else _sha256(src)
+    checked = check_kind(src, size)
     if not (same and record.get("checked") == sha):
         check_file(src, size)
-    record = {"source": rel, "ident": ident, "winpath": winpath, "sha256": sha, "checked": sha, "size": size}
+    else:
+        checked += ", passed at the first try"
+    record ={"source": rel, "ident": ident, "winpath": winpath, "sha256": sha, "checked": sha, "size": size}
     _write_json(rpath, record)
     part = winpath + PART
     title = "put %s to %s" % (rel, name)
@@ -1053,9 +1236,10 @@ def _put(root: Path, name: str, machine: dict, src: Path, winpath: str) -> dict:
     finally:
         transport.close()
     rpath.unlink(missing_ok=True)
-    path = log(root, name, title, ["to %s" % winpath, "%s, sha256 %s, %s" % (
-        _size(size), sha, "resumed at %s" % _size(resumed) if resumed else "whole")])
-    return {"machine": name, "size": size, "sha256": sha, "resumed": resumed, "log": path.relative_to(root)}
+    path = log(root, name, title, ["to %s" % winpath, "%s, sha256 %s, %s, %s" % (
+        _size(size), sha, "resumed at %s" % _size(resumed) if resumed else "whole", checked)])
+    return {"machine": name, "size": size, "sha256": sha, "resumed": resumed, "check": checked,
+            "log": path.relative_to(root)}
 
 
 def _part_size(transport: Transport, part: str) -> int:

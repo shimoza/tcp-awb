@@ -895,7 +895,12 @@ by the rules of `awb paste --own` and the command, its output, every job and eve
 `notes/winlab/` of the project. A job is a scheduled task of the laptop's account with its log on the laptop, so it
 goes on while the tunnel is down: status then says machine offline and running again once the tunnel is back.
 put takes files of the project's `winlab-out/` only, after the name check and the secret check; get writes into
-the project, never into `input/`. Both go in chunks, resume when you run the same command again after a break,
+the project, never into `input/`. A disk image built in the lab is our own output and gets the secret check only,
+over all of its bytes and at the speed of the transfer (about 1 s per 4 MB of random bytes): a file whose name ends
+in .vhdx, .vhd, .vmdk, .qcow2 or .iso and whose bytes carry the signature of that format; also a raw .img of
+whole sectors of 512 bytes. A file with such a name and no signature gets both checks. Customer material is checked once,
+at its entry with `awb intake`. The log line of each put names the check that ran ("secret check only, disk image
+vhdx" or "name and secret check"). Both go in chunks, resume when you run the same command again after a break,
 compare the SHA-256 of both sides at the end and never overwrite a file. They are built for 12 GB; a large file
 belongs in a folder git ignores.
 
