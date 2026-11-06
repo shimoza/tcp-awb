@@ -279,6 +279,20 @@ name or structured data: a secret is replaced with [secret] in the copy, by the 
 service and the put says `review: none` or `review: passed DATE`. A Markdown file arrives as md and as HTML to paste into a mail; the output ends with the line saying where both are (Total Commander, the lab bucket and the folder). A mail tells you about each file. `awb
 fetch tcp-xxxx` in your own terminal downloads what is new into `~/awb-fetch/tcp-xxxx/` with the names back.
 
+The key of a put is readable and the key service builds it:
+`<code>/from-session/<YYYY-MM-DD>/<kind>/<code>-<kind>-<lang>-<HHMM>.<ext>`, for example
+`tcp-q7m4/from-session/2026-11-06/offer/tcp-q7m4-offer-de-1432.md`. The kind is the word of `--kind` (`doc` without
+it), the language is `--lang` or read from the text, the time is the UTC minute of the put. A second put of the same
+key in the same minute gets `-2`, `-3` and never overwrites. `--as NAME` puts the stem of NAME in place of language
+and time (`tcp-q7m4-offer-sizing-notes.md`, at most 40 characters of a-z, 0-9 and -) when the name check of the key
+service passes it; otherwise the key stays neutral and the session gets one line that the name was not used. The
+service runs the name check on the whole key and falls back to `<code>-doc-<lang>-<HHMM>.<ext>` on a hit, so no
+name reaches a key, the console, Total Commander or your mail. Keys of the old form `<date>/put-<hex>` stay valid for
+`awb xchg list`, `awb fetch` and `awb xchg clean`. `<code>/from-session/INDEX.md` lists every put, newest first:
+date, time, key, kind, language, size, review (`none` or `passed DATE`) and fetched (`no` or the date `awb fetch`
+downloaded it). The key service rewrites it on every put, on every delete of `awb xchg clean` and when `awb fetch`
+marks a key; it holds checked key parts only, never a title. `awb fetch` writes each file under the name of its key.
+
 ## The board and the console
 
 Every project keeps its status in the first two lines of `STATE.md` (`Status:` and `Next:`). A session cannot end
@@ -940,9 +954,9 @@ text you wrote yourself and paste into the chat is your brief, not customer mate
 A file of the lab inbox with a registered name is held, and so is a file of the owner inbox that cannot be read as
 text. A file of the owner inbox above `max_mb` of keys.conf, or in a folder that is not exactly one customer code,
 stays there and its take is refused. A pdf, a sheet or an archive from the lab inbox lands in `input/opaque/`, which `.gitignore` keeps out of git. You get a mail with the one command to run (`awb import tcp-xxxx`). Results come back with
-`awb xchg put` into `<project>/from-session/<date>/<file id>` of the lab bucket, never refused for its review, a name or
+`awb xchg put` into `<project>/from-session/<date>/<kind>/<readable key>` of the lab bucket, never refused for its review, a name or
 structured data: a secret is replaced with [secret] in the copy. A project names its deliverables
-`<project code>-<kind word>-<language>.<ext>` (`tcp-q7m4-mapping-de.md`) from the start and the review commands propose one. No object key or log line carries a file name the check did not pass and no mail carries a file name at all. You fetch them with `awb fetch tcp-xxxx` in your own terminal (what is new since your last fetch, through the key service, into `~/awb-fetch/tcp-xxxx/` of mode 700 with the names put back as `awb reveal` does) or in the OBS console. A mail tells you about each one by its file id. The session deletes what it put with
+`<project code>-<kind word>-<language>.<ext>` (`tcp-q7m4-mapping-de.md`) from the start and the review commands propose one. No object key, log line or mail carries a file name the check did not pass; a mail names a put only by its checked key. You fetch them with `awb fetch tcp-xxxx` in your own terminal (what is new since your last fetch, through the key service, into `~/awb-fetch/tcp-xxxx/` of mode 700 with the names put back as `awb reveal` does) or in the OBS console. A mail tells you about each one by its readable key, which the key service built and checked. The session deletes what it put with
 `awb xchg clean CODE --dry-run|--go` (`--older-than DATE` for older date folders), each deletion a row in RESOURCES.md. The key service signs every object call
 and refuses everything outside the inbox and the project's own folders, and every put outside from-session/.
 

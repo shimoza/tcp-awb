@@ -35,7 +35,8 @@ from pathlib import Path
 
 from awb import config, devnote
 from awb.projects import (FX_AFTER_OLD, FX_HEADING_OLD, FX_PHRASE_OLD, FX_SCRIPT_LINE, KB_FIRST, LAB_LOGS,
-                          LAB_RUN_RULE, LEVEL_2, LEVEL_2_RUN, OWN_OUTPUT_RULE, PROJECT_LINE, REVIEW_L1, START_RULE)
+                          LAB_RUN_RULE, LEVEL_2, LEVEL_2_RUN, OWN_OUTPUT_RULE, PROJECT_LINE, PUT_KEY_RULE, REVIEW_L1,
+                          START_RULE)
 
 CLAUDE_FIXES = (
     # T6 (2026-10-27): the FX line named /opt/tcp-awb/workflows, a path no release creates
@@ -91,6 +92,9 @@ CLAUDE_ADD += (("- " + OWN_OUTPUT_RULE, devnote.FILE_RULE, "he cannot open it"),
 """His rules of 2026-10-27 (task DN): no link to a file, deliverables as HTML and md, notes from development."""
 CLAUDE_ADD += (("- " + OWN_OUTPUT_RULE, LAB_LOGS, "Logs of our own lab runs"),)
 """Task GT: the lab log line goes right after the line of P1, before the lines of DN."""
+CLAUDE_APPEND = (("- Files for him leave with `awb xchg put FILE`", "--kind WORD", PUT_KEY_RULE),)
+"""(line start, marker, text): the text goes at the end of the line unless the line carries the marker. Task BK1
+(2026-11-06): the kind word and the language of a put join the put line (the template holds 30 lines at most)."""
 CLAUDE_CUT = (
     ("- Files for him leave with `awb xchg put FILE`", ", after the name check and, for a customer project, the review",
      ""),
@@ -119,7 +123,7 @@ _SID_RE = re.compile(r"[^A-Za-z0-9_-]")
 # --------------------------------------------------------------------------- the files of a project
 
 
-def _fix_lines(text: str, fixes, adds=(), cuts=(), drops=()) -> str:
+def _fix_lines(text: str, fixes, adds=(), cuts=(), drops=(), appends=()) -> str:
     lines = text.split("\n")
     for old, new in fixes:
         lines = [new if line.rstrip() == old else line for line in lines]
@@ -142,14 +146,18 @@ def _fix_lines(text: str, fixes, adds=(), cuts=(), drops=()) -> str:
         at = next((i for i, line in enumerate(lines) if line.rstrip() == anchor), None)
         if at is not None:
             lines.insert(at + 1, new)
+    for start, marker, text in appends:
+        lines = [line.rstrip() + " " + text if line.startswith(start) and marker not in line else line
+                 for line in lines]
     return "\n".join(lines)
 
 
 def sync_project(root: Path) -> list[str]:
     """Bring the template lines of one project up to date. Returns the names of the files it changed."""
     changed = []
-    for name, fixes, adds, cuts, drops in (("CLAUDE.md", CLAUDE_FIXES, CLAUDE_ADD, CLAUDE_CUT, CLAUDE_DROP),
-                                           ("STATE.md", STATE_FIXES, (), (), ())):
+    for name, fixes, adds, cuts, drops, appends in (
+            ("CLAUDE.md", CLAUDE_FIXES, CLAUDE_ADD, CLAUDE_CUT, CLAUDE_DROP, CLAUDE_APPEND),
+            ("STATE.md", STATE_FIXES, (), (), (), ())):
         path = Path(root) / name
         try:
             if path.is_symlink() or not path.is_file():
@@ -157,7 +165,7 @@ def sync_project(root: Path) -> list[str]:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
             continue
-        new = _fix_lines(text, fixes, adds, cuts, drops)
+        new = _fix_lines(text, fixes, adds, cuts, drops, appends)
         if new != text:
             with open(path, "r+", encoding="utf-8") as fh:     # the same file: its owner and mode stay
                 fh.write(new)
@@ -181,8 +189,9 @@ def current(root: Path | None, client: Path | None = None) -> bool:
             return False
     if root is None:
         return True
-    for name, fixes, adds, cuts, drops in (("CLAUDE.md", CLAUDE_FIXES, CLAUDE_ADD, CLAUDE_CUT, CLAUDE_DROP),
-                                           ("STATE.md", STATE_FIXES, (), (), ())):
+    for name, fixes, adds, cuts, drops, appends in (
+            ("CLAUDE.md", CLAUDE_FIXES, CLAUDE_ADD, CLAUDE_CUT, CLAUDE_DROP, CLAUDE_APPEND),
+            ("STATE.md", STATE_FIXES, (), (), (), ())):
         path = Path(root) / name
         if not path.exists() and not path.is_symlink():
             continue
@@ -192,7 +201,7 @@ def current(root: Path | None, client: Path | None = None) -> bool:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
             return False
-        if _fix_lines(text, fixes, adds, cuts, drops) != text:
+        if _fix_lines(text, fixes, adds, cuts, drops, appends) != text:
             return False
     return True
 

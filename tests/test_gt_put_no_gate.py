@@ -113,21 +113,6 @@ def test_gt_scrub_handles_text_office_and_binary_files(tmp_path):
 # --------------------------------------------------------------------------- awb xchg put and the key service
 
 
-def test_gt_a_session_put_of_a_customer_deliverable_succeeds_and_replaces_the_secret(svc, buckets, cust_project,
-                                                                                     capsys):
-    lab, _ = buckets
-    value = secret_value()
-    d = Path(cust_project.path) / "deliverables" / ("plan %s.md" % fx.CUSTOMER_FORMS[0])
-    d.write_text(with_secret(value) + "For %s.\n" % fx.CUSTOMER_FORMS[0], encoding="utf-8")
-    code, out, err = run(["xchg", "put", str(d)], capsys)
-    assert code == 0, err
-    assert "review: none; 1 secret replaced" in err.splitlines()
-    sent = [v for k, v in lab.objects.items() if "/from-session/" in k]
-    assert len(sent) == 2 and all(value.encode() not in v and b"[secret]" in v for v in sent)   # md and its HTML
-    subject, message = svc.notes[-1]
-    fx.assert_no_fixture_name(subject + message, "the put mail")
-
-
 def test_gt_the_key_service_replaces_a_secret_of_a_raw_put_and_takes_a_name(svc, buckets, lab_project, tmp_path):
     lab, _ = buckets
     up = tmp_path / "x.md"

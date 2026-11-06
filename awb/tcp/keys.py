@@ -143,7 +143,7 @@ ADMIN_OPS = ("bucket_drop_in", "bucket_get", "bucket_list", "bucket_put", "lab_l
              "reload", "status", "tenant_readonly")
 EXCHANGE_METHODS = ("GET", "HEAD", "PUT", "DELETE", "LIST", "COPY", "MONTHS", "OBS", "OWNER_HAS", "TAKE_OWNER", "INBOX_FIND",
                     "WEB_READ", "TAKE_LAB", "OWNER_FOLDER", "WEB_PUT_IN", "BUCKET_GET", "BUCKET_LIST", "BUCKET_PUT",
-                    "BUCKET_DROP_IN", "LAB_LIST")
+                    "BUCKET_DROP_IN", "LAB_LIST", "FETCHED")
 NOTIFY_MAX = 4000      # characters of an owner mail through the admin socket (awb ui watch --mail)
 CONSOLE_USER = "awb-console"
 """The system user of the console's tenant inventory (F2, his decision of 2026-10-04): it alone reads a test tenant
@@ -935,6 +935,9 @@ class Service:
             # a name of the owner inbox is asked by the owner alone: for a session an answer to a name it guessed
             # would tell whether the name is there (finding 2 of the review of 2026-10-10); a session takes by id
             return {"ok": False, "error": "a session takes a file of the owner inbox by its id (awb inbox list)"}
+        if op == "obs" and str(req.get("method") or "").upper() == "FETCHED" and uid != os.getuid():
+            # the fetched mark of INDEX.md is awb fetch's, on the owner side (task BK1): no new call for a session
+            return {"ok": False, "error": "awb fetch marks what it fetched, in the owner's own terminal"}
         if op in ("obs", "owner_has", "take_owner", "take_lab", "inbox_find", "owner_folder"):
             # owner_folder: spawn (the work user, the console's creation) asks for the project's folder in the
             # owner bucket; the service makes it with the bucket key, which the caller never holds

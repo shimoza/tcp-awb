@@ -3321,8 +3321,8 @@
   {
    "id": "R10-50",
    "phase": "R10",
-   "name": "finding 18: a put lands under its id and tells the owner by the id alone",
-   "run": ".venv/bin/pytest tests/test_xchg.py::test_a_put_lands_under_its_id_and_tells_the_owner_by_the_id_alone",
+   "name": "finding 18 and BK1: a put lands under its readable key and tells the owner by the checked key alone",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_put_lands_under_its_readable_key_and_tells_the_owner_by_the_checked_key_alone",
    "status": "passing"
   },
   {
@@ -12015,15 +12015,15 @@
   {
    "id": "dn-11",
    "phase": "dn-notes-html",
-   "name": "DN: xchg put of a markdown file writes the html beside it and names both",
-   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_xchg_put_of_a_markdown_file_writes_the_html_beside_it_and_names_both",
+   "name": "DN and BK1: xchg put of a markdown file writes the html beside it under the same readable stem and names both",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_put_of_a_markdown_file_writes_the_html_beside_it_and_names_both",
    "status": "passing"
   },
   {
    "id": "dn-12",
    "phase": "dn-notes-html",
-   "name": "DN: xchg put of another file writes no page",
-   "run": ".venv/bin/pytest tests/test_dn_notes_html.py::test_xchg_put_of_another_file_writes_no_page",
+   "name": "DN and BK1: xchg put of another file writes no page",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_put_of_another_file_writes_no_page",
    "status": "passing"
   },
   {
@@ -12057,8 +12057,8 @@
   {
    "id": "gt-5",
    "phase": "gt-no-gate",
-   "name": "GT: a session put of a customer deliverable succeeds and its secret is replaced",
-   "run": ".venv/bin/pytest tests/test_gt_put_no_gate.py::test_gt_a_session_put_of_a_customer_deliverable_succeeds_and_replaces_the_secret",
+   "name": "GT and BK1: a session put of a customer deliverable succeeds, its secret is replaced, INDEX.md holds neither",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_session_put_of_a_customer_deliverable_succeeds_and_replaces_the_secret",
    "status": "passing"
   },
   {
@@ -14428,8 +14428,21 @@
   {"id": "b040-wl-7", "phase": "b040-wl", "name": "WL: a known secret in random noise is still found by the check of a disk image", "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_a_known_secret_in_random_noise_is_still_found", "status": "passing"},
   {"id": "b040-wl-8", "phase": "b040-wl", "name": "WL: a JWK with its kty far from its private part in noise is still found", "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_a_jwk_with_its_kty_far_from_its_private_part_is_still_found", "status": "passing"},
   {"id": "b040-wl-9", "phase": "b040-wl", "name": "WL: a finding of the secret lines goes to the whole check for its count", "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_a_finding_of_the_lines_goes_to_the_whole_check_for_its_count", "status": "passing"},
-  {"id": "b040-wl-10", "phase": "b040-wl", "name": "WL: the log of a put names the check that ran", "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_the_log_of_a_put_names_the_check_that_ran", "status": "passing"}
+  {"id": "b040-wl-10", "phase": "b040-wl", "name": "WL: the log of a put names the check that ran", "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_the_log_of_a_put_names_the_check_that_ran", "status": "passing"},
+  {"id": "b041-bk1-1", "phase": "b041-bk1", "name": "BK1: a put without --kind and --lang gets doc, the guessed language and the UTC minute", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_put_without_kind_and_lang_gets_doc_the_guessed_language_and_the_minute", "status": "passing"},
+  {"id": "b041-bk1-2", "phase": "b041-bk1", "name": "BK1: --kind and --lang name the kind folder and the key; a bad word or language is refused", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_kind_and_lang_name_the_folder_and_the_key", "status": "passing"},
+  {"id": "b041-bk1-3", "phase": "b041-bk1", "name": "BK1: a second put of the key in the same minute gets -2, -3, never overwrites a put or a page", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_second_put_in_the_same_minute_gets_2_and_never_overwrites", "status": "passing"},
+  {"id": "b041-bk1-4", "phase": "b041-bk1", "name": "BK1: --as with a clean name gives its stem, at most 40 characters", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_as_with_a_clean_name_gives_its_stem", "status": "passing"},
+  {"id": "b041-bk1-5", "phase": "b041-bk1", "name": "BK1: --as with a registered name gives the neutral key and a line without the name", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_as_with_a_registered_name_gives_the_neutral_key_and_a_line_without_the_name", "status": "passing"},
+  {"id": "b041-bk1-6", "phase": "b041-bk1", "name": "BK1: a kind word that is a registered name falls back to doc", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_kind_word_that_is_a_registered_name_falls_back_to_doc", "status": "passing"},
+  {"id": "b041-bk1-7", "phase": "b041-bk1", "name": "BK1: a session never chooses a readable key: the key service builds it", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_session_never_chooses_a_readable_key", "status": "passing"},
+  {"id": "b041-bk1-8", "phase": "b041-bk1", "name": "BK1: put_key_ok takes the readable form and the old put-<hex> form", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_put_key_ok_takes_the_new_and_the_old_form", "status": "passing"},
+  {"id": "b041-bk1-9", "phase": "b041-bk1", "name": "BK1: put_key_ok refuses a key outside <code>/from-session/<date>/<kind>/, a wrong kind folder, .. and another code", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_put_key_ok_refuses_every_other_key", "status": "passing"},
+  {"id": "b041-bk1-10", "phase": "b041-bk1", "name": "BK1: INDEX.md after two puts and one fetch, newest first, no name and no title", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_index_after_two_puts_and_one_fetch", "status": "passing"},
+  {"id": "b041-bk1-11", "phase": "b041-bk1", "name": "BK1: the fetched mark of INDEX.md is the owner's alone", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_fetched_mark_is_the_owners_alone", "status": "passing"},
+  {"id": "b041-bk1-12", "phase": "b041-bk1", "name": "BK1: xchg clean drops the deleted rows of INDEX.md and the last row takes INDEX.md", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_clean_drops_the_deleted_rows_and_the_last_one_takes_index_md", "status": "passing"},
+  {"id": "b041-bk1-13", "phase": "b041-bk1", "name": "BK1: fetch, list and clean still work on an old put-<hex> key", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_fetch_list_and_clean_still_work_on_an_old_put_key", "status": "passing"}
  ],
- "total_tests": 2081,
+ "total_tests": 2094,
  "checked": "2026-11-06"
 }

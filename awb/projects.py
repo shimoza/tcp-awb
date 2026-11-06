@@ -468,6 +468,10 @@ LAB_LOGS = ("- Logs of our own lab runs keep full requests and responses with al
             "masked, temporary tokens and keys are shortened to 8 characters, a permanent key is never written.")
 """Task GT (2026-10-27): a project keeps live examples of the lab tenants whole; customer names still never enter
 (the entry checks are unchanged). `awb projects sync` adds it after the line of P1 (rulesync.CLAUDE_ADD)."""
+PUT_KEY_RULE = ("Give every put `--kind WORD` (offer, mapping, sizing) and, when the text is not English, `--lang XX`: "
+                "the key service names the file in the bucket by them.")
+"""Task BK1 (2026-11-06): the readable key of a put comes from its kind word and language. It ends the put line
+(the template holds 30 lines at most); `awb projects sync` appends it there (rulesync.CLAUDE_APPEND)."""
 REVIEW_ON_WORD = ("- A review (review.js, request check, final check) runs only on his word ('ревью', 'финальная "
                   "вычитка'); a put never waits for it; never ask him about tiers.")
 """The line of task GT (2026-10-27): after the entry nothing stops his work. It opens the review section, on one
@@ -508,7 +512,7 @@ def _claude(code: str, kind: str, customer: str) -> str:
         "- Proof goes to evidence/, results to deliverables/, review records to reviews/.\n"
         "- Files for him leave with `awb xchg put FILE` (the lab bucket, from-session/<date>/). Name every "
         "deliverable `%s-<kind word>-<language>.<ext>` from the "
-        "start (`%s-mapping-de.md`), never with words of the material.\n"
+        "start (`%s-mapping-de.md`), never with words of the material. " + PUT_KEY_RULE + "\n"
         "- RESOURCES.md lists what the project uses, with platform ids and codes.\n"
         "- %s\n"
         "%s\n"

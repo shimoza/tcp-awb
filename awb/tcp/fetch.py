@@ -2,10 +2,12 @@
 
     awb fetch CODE [--again] [--into DIR]
 
-A session puts a result with `awb xchg put` into `<code>/from-session/<date>/<id>` of the lab bucket and the owner
-gets one mail per file. This command lists what the project put since his last fetch, downloads each file through
-the key service (the op `obs` LIST and GET a session's `awb xchg list` uses, no new call), puts the real names back
-into every text with the code of `awb reveal` and prints the folder. A file that is not a text is kept as it came.
+A session puts a result with `awb xchg put` into `<code>/from-session/<date>/<kind>/<readable id>` of the lab
+bucket (`<date>/put-<hex>` before task BK1) and the owner gets one mail per file. A file is written under the name
+of its key, so a readable key gives a readable file name. This command lists what the project put since his last
+fetch, downloads each file through the key service (the op `obs` LIST and GET a session's `awb xchg list` uses),
+marks it fetched in INDEX.md (the op `obs` FETCHED, the owner's processes only), puts the real names back into every
+text with the code of `awb reveal` and prints the folder. A file that is not a text is kept as it came.
 
 - The folder is `~/awb-fetch/<code>/` (or DIR), mode 700, files mode 600. It is refused inside a git tree and in a
   place a working session reads (the shared side, the knowledge base, a registered project), as `awb reveal` is.
@@ -19,7 +21,6 @@ object ids, counts and the folder, never a name.
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import sys
 import tempfile
@@ -31,9 +32,6 @@ FETCH_DIR = "awb-fetch"
 """The folder under the owner's home that holds one folder per project code."""
 MARK = "fetched"
 """The second column of a fetch row in bucket-pulled.tsv (an etag column there): the lab bucket gives none."""
-
-_REL_RE = re.compile(r"^\d{4}-\d{2}-\d{2}/put-[0-9a-f]{12}(?:\.[a-z0-9]{1,5})?$")
-
 
 class FetchError(Exception):
     """The fetch cannot run. The message carries codes and counts, never a name."""
@@ -76,11 +74,14 @@ def prepare(p: config.Paths, folder: Path) -> Path:
 
 
 def listing(code: str) -> list[dict]:
-    """What the project put: {"name": "<date>/<id>", "size": n} for each object under <code>/from-session/."""
+    """What the project put: {"name": "<date>/<kind>/<readable id>" or "<date>/<id>", "size": n} for each put
+    under <code>/from-session/ (the forms of xchg.put_key_ok; INDEX.md and any other object are left out)."""
     from awb.tcp import xchg
 
-    a = xchg._ok(xchg._call({"op": "obs", "method": "LIST", "prefix": "%s/%s" % (code, xchg.FROM), "project": code}))
-    return [o for o in a.get("objects", []) if isinstance(o.get("name"), str) and _REL_RE.match(o["name"])]
+    prefix = "%s/%s" % (code, xchg.FROM)
+    a = xchg._ok(xchg._call({"op": "obs", "method": "LIST", "prefix": prefix, "project": code}))
+    return [o for o in a.get("objects", [])
+            if isinstance(o.get("name"), str) and xchg.put_key_ok(prefix + o["name"], code)]
 
 
 def fetch(p: config.Paths, code: str, folder: Path | None = None, *, again: bool = False) -> dict:
@@ -97,7 +98,7 @@ def fetch(p: config.Paths, code: str, folder: Path | None = None, *, again: bool
     done = set() if again else {k for k, mark in bucket.pulled(p) if mark == MARK}
     keys = ["%s/%s%s" % (code, xchg.FROM, o["name"]) for o in objects]
     fresh = [(o, k) for o, k in zip(objects, keys) if k not in done]
-    result = {"folder": None, "known": len(objects) - len(fresh), "files": []}
+    result = {"folder": None, "known": len(objects) - len(fresh), "files": [], "unmarked": 0}
     if not fresh:
         return result
     target = prepare(p, folder or default_folder(code))
@@ -123,6 +124,10 @@ def fetch(p: config.Paths, code: str, folder: Path | None = None, *, again: bool
                 stats = reveal.write_named(text, out, p)
                 result["files"].append((out.name, stats["replaced"]))
             bucket._remember(p, key, MARK)
+            # the fetched column of INDEX.md (task BK1), through the key service; a key of the old form has no row.
+            # The file is here already: a mark that fails is counted, never a reason to stop
+            if not xchg._call({"op": "obs", "method": "FETCHED", "key": key, "project": code}).get("ok"):
+                result["unmarked"] += 1
     return result
 
 
@@ -155,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
     for name, replaced in r["files"]:
         print("  %s  %s" % (name, "kept as it came (not a text)" if replaced is None
                             else "names put back (%d codes replaced)" % replaced))
+    if r["unmarked"]:
+        print("%d file(s) not marked fetched in INDEX.md: the key service refused the mark" % r["unmarked"])
     if r["folder"] is not None:
         print("folder: %s" % r["folder"])
     return 0

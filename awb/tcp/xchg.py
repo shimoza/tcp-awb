@@ -4,9 +4,11 @@
                                                                       or the project's own folder in/
     awb inbox take --all | --id ID...                                 every file of both inboxes, or the ones named
     awb inbox list                                                    both inboxes: id, kind, size, time
-    awb xchg put FILE [--as NAME] [--image --reason TEXT]         a result into <code>/from-session/<date>/<id>
+    awb xchg put FILE [--kind WORD] [--lang XX] [--as NAME]       a result into <code>/from-session/<date>/<kind>/
+                  [--image --reason TEXT]                         <code>-<kind>-<lang>-<HHMM>.<ext> (--as: the stem
+                                                                  of NAME instead of <lang>-<HHMM>)
                   [--internal-image]                              owner only: an HTML or Markdown file with an image
-    awb xchg list                                                 what this project put
+    awb xchg list                                                 what this project put: kind and key
     awb xchg clean CODE [--older-than DATE] --dry-run|--go        delete what this project put, rows in RESOURCES.md
 
 The owner drops a file into one of two inboxes in the OBS console, with no project code and no command:
@@ -39,11 +41,21 @@ with `awb xchg put` into `<lab bucket>/<code>/from-session/<date>/`: never refus
 structured data (task GT), its secrets replaced with [secret], again by the key service on the bytes it received (F6). The owner gets a mail through the SMN topic of the settings
 when a session puts a file and when a take holds one.
 
+The key of a put is readable (task BK1) and the key service alone builds it: `<code>/from-session/<YYYY-MM-DD>/<kind>/
+<code>-<kind>-<lang>-<HHMM>.<ext>`, the kind word of --kind (doc without it), the language of --lang or the guess of
+awb/review.py, the UTC minute of the put, the plain extension; -2, -3 before the extension when the key is taken.
+--as NAME gives `<code>-<kind>-<stem of NAME>.<ext>` when NAME is a plain name the name check passes, else the
+neutral form and one line that never names it. The service runs the name check on the --as name and the whole key
+and falls back to `<code>-doc-<lang>-<HHMM>.<ext>` on a hit. Keys of the old form `<date>/put-<hex>` stay valid for
+list, fetch and clean. `<code>/from-session/INDEX.md` lists every put (date, time, key, kind, lang, size, review,
+fetched), newest first; the service rewrites it on every put, on a delete and when `awb fetch` marks a key fetched.
+
 The service side (`serve_obs`, `serve_take_lab`, `serve_take_owner`, `serve_owner_has`; awb/tcp/keys_exchange.py
 since F1 step 7, still reached through this module) runs inside the key service and is refused everything outside
 the allowed prefixes before anything is signed: `inbox/` of the lab bucket (head and list; a get, a copy and a delete
 only through `serve_take_lab`), `<code>/in/` and `<code>/from-session/` of an active project code. A put goes only to
-`<code>/from-session/<date>/<file id>`, is authorised before its bytes are received (F8), meets the picture rules and
+the key the service builds (or an old `<code>/from-session/<date>/put-<hex>`), is authorised before its bytes are
+received (F8), meets the picture rules and
 has its secrets replaced by the service. Never a policy, an ACL or another bucket.
 
 The owner's console puts a file into a project's `in/` under an id (`serve_web_put_in`, the owner's processes only);
@@ -63,7 +75,6 @@ another version fails as changed. It never writes, deletes or copies, and only t
 from __future__ import annotations
 
 import datetime
-import hashlib
 import os
 import re
 import shutil
@@ -589,6 +600,14 @@ def put(path: Path, as_name: str | None = None, image: bool = False, reason: str
     name = as_name or path.name
     if not valid_name(name):
         raise XchgError("a name without a folder")
+    if kind_word is not None:
+        kind_word = kind_word.strip().lower()
+        if not KIND_RE.fullmatch(kind_word):
+            raise XchgError("--kind takes one word of 2 to 20 letters a-z (offer, mapping, sizing)")
+    if lang is not None:
+        lang = lang.strip().lower()
+        if not LANG_RE.fullmatch(lang):
+            raise XchgError("--lang takes the two letters of the language (de, en, ru)")
     if image and not (reason and len(reason.strip()) >= 10):
         raise XchgError("--image needs a reason of one line: what it shows and that you checked it for names")
     # task GT: no name check, no structured data, no review state; only the picture rule and the secrets
@@ -599,16 +618,24 @@ def put(path: Path, as_name: str | None = None, image: bool = False, reason: str
     with tempfile.TemporaryDirectory(prefix="awb-put-") as tmp:
         copy = Path(tmp) / "upload"
         secrets = putcopy.scrub(path, copy)
-        ident = put_id(hashlib.sha256(copy.read_bytes()).hexdigest(), name)
-        key = "%s/%s%s/%s" % (code, FROM, datetime.date.today().isoformat(), ident)
-        req = {"op": "obs", "method": "PUT", "key": key, "project": code, "name": name}
+        # task BK1: no key in the request; the key service builds the readable key from these and checks it
+        req = {"op": "obs", "method": "PUT", "project": code, "name": name, "review": line}
+        req.update({k: v for k, v in (("kind", kind_word), ("lang", lang), ("as", as_name)) if v is not None})
         if image:
             req.update(image=True, reason=reason)
         a = _ok(_call(req, upload=copy))
+    key = a.get("key")
+    if not (isinstance(key, str) and put_key_ok(key, code)):
+        raise XchgError("the key service named no key of this project for the put")
     if image:
-        _log_image(root, ident, reason)
+        _log_image(root, key.rsplit("/", 1)[-1], reason)
     secrets += int(a.get("secrets", 0) or 0)
-    lines = ["put: %s as %s (%d bytes); the owner gets a mail" % (name, key, a.get("size", 0))]
+    # the lines of the key service are its fixed ones; they never carry the name; an --as name it did not use
+    # is not repeated either
+    notes = [n for n in a.get("notes") or () if n in (AS_NOT_USED, KIND_NOT_USED, INDEX_NOT_WRITTEN)]
+    shown = path.name if AS_NOT_USED in notes else name
+    lines = ["put: %s as %s (%d bytes); the owner gets a mail" % (shown, key, a.get("size", 0))]
+    lines += ["put: %s" % n for n in notes]
     page = a.get("page")
     if isinstance(page, str) and put_key_ok(page, code):
         lines.append("put: the same text as HTML as %s (open it, select all, paste into the mail)" % page)
@@ -632,9 +659,13 @@ def _log_image(root: Path, ident: str, reason: str) -> None:
 
 
 def put_list() -> list[str]:
+    """What the project put: the kind (- for a key of before task BK1) and the key under from-session/, newest date
+    first. INDEX.md is the key service's own and not listed."""
     _, code, _ = _project()
-    a = _ok(_call({"op": "obs", "method": "LIST", "prefix": "%s/%s" % (code, FROM), "project": code}))
-    return ["%s  %d bytes" % (o["name"], o["size"]) for o in a.get("objects", [])]
+    prefix = "%s/%s" % (code, FROM)
+    a = _ok(_call({"op": "obs", "method": "LIST", "prefix": prefix, "project": code}))
+    objs = sorted((o for o in a.get("objects", []) if o["name"] != INDEX), key=lambda o: o["name"], reverse=True)
+    return ["%-12s %s  %d bytes" % (put_kind(prefix + o["name"]) or "-", o["name"], o["size"]) for o in objs]
 
 
 def clean(code: str, older_than: str | None = None, go: bool = False) -> list[str]:
@@ -653,6 +684,8 @@ def clean(code: str, older_than: str | None = None, go: bool = False) -> list[st
     objs = _ok(_call({"op": "obs", "method": "LIST", "prefix": prefix, "project": code})).get("objects", [])
     picked = []
     for o in objs:
+        if o["name"] == INDEX:
+            continue                # the key service rewrites it after each delete and drops it with the last row
         folder = o["name"].split("/", 1)[0]
         if older_than is not None:
             try:
@@ -691,7 +724,7 @@ def leftovers(code: str) -> int | None:
             a = _call({"op": "obs", "method": "LIST", "prefix": "%s/%s" % (code, sub), "project": code})
             if not a.get("ok"):
                 return None
-            n += len(a.get("objects", []))
+            n += len([o for o in a.get("objects", []) if not (sub == FROM and o.get("name") == INDEX)])
         return n
     except Exception:
         return None
@@ -744,19 +777,19 @@ def main_xchg(argv: list[str] | None = None) -> int:
 
     ap = SafeParser(prog="awb xchg", description="Results of this project into the owner's from-session folder.")
     sub = ap.add_subparsers(dest="command")
-    pt = sub.add_parser("put", help="a file into <code>/from-session/<date>/")
+    pt = sub.add_parser("put", help="a file into <code>/from-session/<date>/<kind>/")
     pt.add_argument("file")
-    pt.add_argument("--as", dest="as_name", default=None)
+    pt.add_argument("--as", dest="as_name", default=None, metavar="NAME",
+                    help="a plain file name whose stem goes into the key when the name check passes it")
     pt.add_argument("--image", action="store_true")
     pt.add_argument("--reason", default=None)
     pt.add_argument("--internal-image", dest="mirror_image", action="store_true",
                     help="owner only: let an HTML or Markdown file with an embedded or linked image cross")
     pt.add_argument("--kind", dest="kind_word", default=None, metavar="WORD",
-                    help="the kind word of the neutral name proposed when the file name is refused (default doc)")
+                    help="the kind word of the key and its folder: offer, mapping, sizing (default doc)")
     pt.add_argument("--lang", default=None, metavar="XX",
-                    help="the language of the neutral name proposed when the file name is refused (default: read "
-                         "from the text)")
-    sub.add_parser("list", help="what this project put")
+                    help="the language of the key, de, en, ru (default: read from the text)")
+    sub.add_parser("list", help="what this project put: kind and key")
     cl = sub.add_parser("clean", help="delete what this project put into <code>/from-session/")
     cl.add_argument("code")
     cl.add_argument("--older-than", default=None, help="only date folders before this date (YYYY-MM-DD)")
@@ -792,5 +825,5 @@ def main_xchg(argv: list[str] | None = None) -> int:
 main = main_xchg
 
 # The service side, awb/tcp/keys_exchange.py (F1 step 7): its names are reached through this module (awb/parts.py),
-# the session side's from_in, hold_line and put_id too.
+# the session side's from_in, hold_line, put_key_ok and put_kind too.
 from awb.tcp import keys_exchange  # noqa: E402,F401

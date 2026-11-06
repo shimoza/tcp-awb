@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 
 from awb import bucket_layout, codes, config, parts
@@ -94,36 +95,79 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
     if method == "COPY":
         raise XchgError("a file of the lab inbox is taken with op take_lab, which checks it first")
     key = req.get("key")
-    if method not in ("GET", "HEAD", "PUT", "DELETE") or not allowed_key(key, method, project):
+    if method == "FETCHED":
+        # awb fetch marks a key it downloaded in INDEX.md (task BK1); keys.py lets the owner's processes alone
+        if not (isinstance(project, str) and put_key_ok(key, project)):
+            raise XchgError("a fetched mark names a put of the project")
+        with _PUT_LOCK:
+            rows, marked = read_index(ctx, c, project), False
+            for r in rows:
+                if r["key"] == key and r["fetched"] == "no":
+                    r["fetched"], marked = _now().date().isoformat(), True
+            if marked:
+                write_index(c, project, rows)
+        return {"ok": True, "marked": marked}, None
+    if method == "PUT" and key is None:
+        pass                                # task BK1: the key service builds the key (authorise_put)
+    elif method not in ("GET", "HEAD", "PUT", "DELETE") or not allowed_key(key, method, project):
         raise XchgError("the object call is outside inbox/ and the project's own folders")
     if method == "HEAD":
         h = c.head(key)
         return {"ok": True, "exists": h is not None, "size": int((h or {}).get("Content-Length", 0) or 0)}, None
     if method == "DELETE":
+        if key == index_key(project):
+            raise XchgError("INDEX.md is written by the key service; it goes with the last put")
         c.delete(key)
+        try:
+            with _PUT_LOCK:
+                rows = read_index(ctx, c, project)
+                if any(r["key"] == key for r in rows):
+                    write_index(c, project, [r for r in rows if r["key"] != key])
+        except (OSError, obs.OBSError):
+            pass                            # the object is gone; the next put drops its row
         return {"ok": True}, None
     if method == "PUT":
         if body_path is None:
             raise XchgError("a put needs its bytes")
         # every put of a session: the key of put_key_ok, the picture rules and the secrets replaced (task GT)
         authorise_put(ctx, req)
-        problems = put_problems(ctx, req, body_path)
+        notes, built = [], key is None
+        if built:
+            # task BK1: the key service builds the readable key and runs the name check on it
+            base, ext, kind, lang, notes = put_key_parts(ctx, req, body_path)
+            ident = base.rsplit("/", 1)[-1] + ext
+        else:
+            ident = key.rsplit("/", 1)[-1]
+        problems = put_problems(ctx, req, body_path, ident)
         if problems:
             raise XchgError("; ".join(problems))
         body, secrets, scratch = scrub_put(ctx, req, body_path)
         try:
-            c.put_file(key, body, "application/octet-stream")
-            size = body.stat().st_size
-            # the page is made from the bytes that went up, their secrets replaced
-            page = put_page(c, key, req.get("name"), body, project)
+            with _PUT_LOCK:
+                if built:
+                    key = free_key(c, base, ext)
+                    if not (allowed_key(key, "PUT", project) and put_key_ok(key, project)):
+                        raise XchgError("the key service built no valid key")
+                c.put_file(key, body, "application/octet-stream")
+                size = body.stat().st_size
+                # the page is made from the bytes that went up, their secrets replaced
+                page = put_page(c, key, req.get("name"), body, project)
+                if built:
+                    try:
+                        index_put(ctx, c, project, key, kind, lang, size, req.get("review"))
+                    except (OSError, obs.OBSError):
+                        notes.append(INDEX_NOT_WRITTEN)     # the put stands: a retry would only put it twice
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
         ident = key.rsplit("/", 1)[-1]
-        # the mail names the file by its id alone: no text the session chose (finding 18 of the review of 2026-10-10)
+        # the mail names the file by its checked key alone: no text the session chose (finding 18 of the review of
+        # 2026-10-10, task BK1)
         ctx.notify(*exchange_mail("put", project, ident=ident, size=size))
-        answer = {"ok": True, "size": size, "secrets": secrets}
+        answer = {"ok": True, "size": size, "secrets": secrets, "key": key}
         if page:
             answer["page"] = page
+        if notes:
+            answer["notes"] = notes
         answer["bucket"] = str(ctx.settings.get("lab_bucket") or "")
         return answer, None
     h = c.head(key)
@@ -139,7 +183,8 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
 
 def put_page(c, key: str, name, body_path: Path, project: str) -> str | None:
     """A Markdown deliverable goes out as md and HTML (task DN, 2026-10-27): after the put of the judged bytes the
-    service writes the HTML page of the same bytes beside it, `put-<hex>.html`, rendered by bucket.md_to_html. The
+    service writes the HTML page of the same bytes beside it under the same stem with .html (`put-<hex>.html`, since
+    task BK1 `<code>-<kind>-<rest>.html`), rendered by bucket.md_to_html. The
     page is made from the bytes the checks judged and from nothing else. None for any other file and for bytes that
     are not UTF-8 text."""
     from awb import bucket
@@ -166,36 +211,226 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 HOLD_REASONS = {"intake": "the intake stopped", "withheld": "the final check withheld the copy",
                 "unreadable": "the file cannot be read as text"}
 
+# The readable key of a put (task BK1): <code>/from-session/<date>/<kind>/<code>-<kind>-<rest>[.<ext>], the rest
+# being <lang>-<HHMM> or the stem of --as, with -2, -3 when the key was taken in the same minute.
+KIND_RE = re.compile(r"[a-z]{2,20}")
+"""The kind word of a put: the rule of awb/review.py _KIND_WORD_RE."""
+LANG_RE = re.compile(r"[a-z]{2}")
+DEFAULT_KIND = "doc"
+STEM_MAX = 40
+"""The most characters of the stem of an --as name in a key."""
+CLASH_MAX = 99
+"""The most puts of one key in one minute: -2 up to -99."""
+_EXT_RE_PLAIN = re.compile(r"\.[a-z0-9]{1,5}")
+_REST_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+_REST_MAX = STEM_MAX + len("-%d" % CLASH_MAX)
+AS_NOT_USED = "the --as name was not used: it is no plain name or the name check of the key service found a hit"
+KIND_NOT_USED = ("the --kind word was not used: the name check of the key service found a hit in the key; the kind "
+                 "is doc")
+INDEX_NOT_WRITTEN = "INDEX.md could not be rewritten; the put stands without its row there"
+_PUT_LOCK = threading.Lock()
+"""One put, delete or fetched mark at a time picks a free key and rewrites INDEX.md."""
+
+
+def _now() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def put_ext(name) -> str:
+    """The extension a key keeps: the one of `name` in lower case when it is a plain one, else none."""
+    ext = os.path.splitext(name)[1].lower() if isinstance(name, str) else ""
+    return ext if _EXT_RE_PLAIN.fullmatch(ext) else ""
+
 
 def put_id(digest: str, name: str) -> str:
-    """The object id of a put: put- and twelve hex digits of its bytes, and the extension when it is a plain one."""
-    ext = os.path.splitext(name)[1].lower()
-    return "put-%s%s" % (digest[:12], ext if re.fullmatch(r"\.[a-z0-9]{1,5}", ext) else "")
+    """The object id of a put before task BK1: put- and twelve hex digits of its bytes, and the extension when it is a
+    plain one. Such keys stay valid for list, fetch and clean."""
+    return "put-%s%s" % (digest[:12], put_ext(name))
+
+
+def name_stem(name) -> str | None:
+    """The stem of an --as name in a key: lower case, every character outside a-z, 0-9 and - becomes -, one - for a
+    run of them and none at either end, at most STEM_MAX characters. None when nothing is left."""
+    if not isinstance(name, str):
+        return None
+    stem = re.sub(r"[^a-z0-9-]", "-", os.path.splitext(name)[0].lower())
+    stem = re.sub(r"-{2,}", "-", stem).strip("-")[:STEM_MAX].strip("-")
+    return stem or None
+
+
+def readable_ok(ident: str, project: str, kind: str | None = None) -> bool:
+    """`ident` is the file part of a readable key of `project`: <code>-<kind>-<rest>[.<ext>], of the kind `kind`
+    when it is given (the kind folder it lies in)."""
+    if not (isinstance(ident, str) and isinstance(project, str)):
+        return False
+    stem, dot, ext = ident.partition(".")
+    if (dot and not re.fullmatch(r"[a-z0-9]{1,5}", ext)) or not stem.startswith(project + "-"):
+        return False
+    first, _, rest = stem[len(project) + 1:].partition("-")      # a kind word has no -
+    return bool(KIND_RE.fullmatch(first)) and (kind is None or first == kind) and _rest_ok(rest)
+
+
+def _rest_ok(rest: str) -> bool:
+    return len(rest) <= _REST_MAX and bool(_REST_RE.fullmatch(rest))
 
 
 def put_key_ok(key: str, project: str) -> bool:
-    """A put of a session lands at <code>/from-session/<date>/<file id> and nowhere else under from-session/."""
+    """A put of a session lands at <code>/from-session/<date>/<kind>/<code>-<kind>-<rest>[.<ext>] (task BK1) and, put
+    before it, at <code>/from-session/<date>/put-<hex>[.<ext>]; nowhere else under from-session/."""
+    if not (isinstance(key, str) and isinstance(project, str) and _CODE_RE.fullmatch(project)):
+        return False
     parts = key.split("/")
-    return (len(parts) == 4 and parts[0] == project and parts[1] + "/" == FROM and bool(_DATE_RE.match(parts[2]))
-            and bool(_PUT_ID_RE.match(parts[3])))
+    if len(parts) not in (4, 5) or parts[0] != project or parts[1] + "/" != FROM or not _DATE_RE.fullmatch(parts[2]):
+        return False
+    if len(parts) == 4:
+        return bool(_PUT_ID_RE.fullmatch(parts[3]))
+    return readable_ok(parts[4], project, parts[3])
+
+
+def put_kind(key: str) -> str | None:
+    """The kind of a readable key (its kind folder), None for a key of the old form."""
+    parts = key.split("/")
+    return parts[3] if len(parts) == 5 else None
 
 
 def authorise_put(ctx: Context, req: dict) -> None:
-    """Whether a put may be received at all (F8): an active project and a key of the form of put_key_ok under its
-    from-session/, nowhere else. Run by the key service before it reads a byte of the upload."""
+    """Whether a put may be received at all (F8), run by the key service before it reads a byte of the upload: an
+    active project and either no key (task BK1: the service builds it from kind, lang and as) or a key of the old
+    form put-<hex> under its from-session/. A session never names a readable key itself."""
     project, key = req.get("project"), req.get("key")
     if not (isinstance(project, str) and ctx.active_project(project) is not None):
         raise XchgError("the project is not an active project")
-    if not (allowed_key(key, "PUT", project) and put_key_ok(key, project)):
-        raise XchgError("a put goes to <code>/from-session/<date>/<file id>")
+    if key is None:
+        kind, lang, as_name = req.get("kind"), req.get("lang"), req.get("as")
+        if kind is not None and not (isinstance(kind, str) and KIND_RE.fullmatch(kind)):
+            raise XchgError("--kind takes one word of 2 to 20 letters a-z")
+        if lang is not None and not (isinstance(lang, str) and LANG_RE.fullmatch(lang)):
+            raise XchgError("--lang takes two letters a-z")
+        if as_name is not None and not isinstance(as_name, str):
+            raise XchgError("--as takes a file name")
+        return
+    if not (allowed_key(key, "PUT", project) and put_key_ok(key, project) and put_kind(key) is None):
+        raise XchgError("a put goes to the key the key service builds (<code>/from-session/<date>/<kind>/...)")
 
 
-def put_problems(ctx: Context, req: dict, body_path: Path) -> list[str]:
+def put_key_parts(ctx: Context, req: dict, body_path: Path) -> tuple[str, str, str, str, list[str]]:
+    """(the key without its extension, the extension, the kind, the language, the lines for the session) of a new
+    put (task BK1). The kind is the session's word or doc, the language its two letters or the guess of
+    awb/review.py on the received bytes, the time the UTC minute of the put. An --as name gives the stem when it is
+    a plain name the name check passes (the name itself: its stem may hide what the check finds in it); else the
+    neutral form and the session gets a line that never names it. Then the name check runs on the whole key; a hit
+    falls back to <code>-doc-<lang>-<HHMM>."""
+    from awb import review
+
+    p = ctx.paths_fn()
+    project, now = req["project"], _now()
+    kind = req.get("kind") or DEFAULT_KIND
+    lang = req.get("lang") or review.guess_language(body_path)
+    lang = lang if LANG_RE.fullmatch(lang) else "en"
+    ext = put_ext(req.get("name"))
+    folder = "%s/%s%s/" % (project, FROM, now.date().isoformat())
+    neutral = "%s-%s" % (lang, now.strftime("%H%M"))
+    notes = []
+    rest = neutral
+    as_name = req.get("as")
+    if as_name is not None:
+        stem = name_stem(as_name) if valid_name(as_name) and not _name_hits([as_name], p) else None
+        if stem is not None:
+            rest = stem
+        else:
+            notes.append(AS_NOT_USED)
+    base = "%s%s/%s-%s-%s" % (folder, kind, project, kind, rest)
+    if _name_hits([base + ext], p):
+        if rest != neutral:
+            notes.append(AS_NOT_USED)
+        if kind != DEFAULT_KIND:
+            notes.append(KIND_NOT_USED)
+        kind, rest = DEFAULT_KIND, neutral
+        base = "%s%s/%s-%s-%s" % (folder, kind, project, kind, rest)
+        if _name_hits([base + ext], p):
+            raise XchgError("the key service found no key the name check passes")
+    return base, ext, kind, lang, list(dict.fromkeys(notes))
+
+
+def free_key(c, base: str, ext: str) -> str:
+    """The first of base.ext, base-2.ext, base-3.ext ... that is not there yet and whose page (.html) is not there
+    either: a put never overwrites. Called under _PUT_LOCK."""
+    for n in range(1, CLASH_MAX + 1):
+        stem = base if n == 1 else "%s-%d" % (base, n)
+        if c.head(stem + ext) is None and (ext == ".html" or c.head(stem + ".html") is None):
+            return stem + ext
+    raise XchgError("more than %d puts of the same key in one minute" % CLASH_MAX)
+
+
+# INDEX.md beside the date folders (task BK1): one row per put, newest first, rewritten by the key service on every
+# put, on a delete and on a fetched mark. It holds checked key parts and fixed words, never a free title.
+INDEX = "INDEX.md"
+INDEX_COLUMNS = ("date", "time", "key", "kind", "lang", "size", "review", "fetched")
+_INDEX_ROW_RE = re.compile(r"\| (\d{4}-\d{2}-\d{2}) \| (\d{2}:\d{2}) \| ([^|\s]+) \| ([a-z]{2,20}) \| ([a-z]{2}) \| "
+                           r"(\d{1,15}) \| (none|passed \d{4}-\d{2}-\d{2}) \| (no|\d{4}-\d{2}-\d{2}) \|")
+_REVIEW_RE = re.compile(r"(?:review: )?(none|passed \d{4}-\d{2}-\d{2})")
+INDEX_MAX = 4 * 1024 * 1024
+
+
+def index_key(project) -> str:
+    return "%s/%s%s" % (project, FROM, INDEX)
+
+
+def read_index(ctx: Context, c, project: str) -> list[dict]:
+    """The rows of INDEX.md of `project`; a row that does not read as one in full or names no put of the project,
+    is left out."""
+    key = index_key(project)
+    h = c.head(key)
+    if h is None or int(h.get("Content-Length", 0) or 0) > INDEX_MAX:
+        return []
+    fd, name = tempfile.mkstemp(prefix="awb-index-", dir=_tmp_dir(ctx))
+    os.close(fd)
+    try:
+        c.get(key, Path(name))
+        text = Path(name).read_text(encoding="utf-8", errors="replace")
+    finally:
+        os.unlink(name)
+    rows = []
+    for line in text.splitlines():
+        m = _INDEX_ROW_RE.fullmatch(line.strip())
+        if m and put_key_ok(m.group(3), project) and put_kind(m.group(3)) == m.group(4):
+            rows.append(dict(zip(INDEX_COLUMNS, m.groups())))
+    return rows
+
+
+def write_index(c, project: str, rows: list[dict]) -> None:
+    """INDEX.md from `rows`, newest first; with no row left it is deleted."""
+    key = index_key(project)
+    if not rows:
+        if c.head(key) is not None:
+            c.delete(key)
+        return
+    rows = sorted(rows, key=lambda r: (r["date"], r["time"], r["key"]), reverse=True)
+    lines = ["# What %s put" % project, "",
+             "Written by the key service on every put, delete and fetch. Newest first; the key is the object key in "
+             "this bucket.", "",
+             "| " + " | ".join(INDEX_COLUMNS) + " |", "|" + "---|" * len(INDEX_COLUMNS)]
+    lines += ["| " + " | ".join(str(r[col]) for col in INDEX_COLUMNS) + " |" for r in rows]
+    c.put_bytes(key, ("\n".join(lines) + "\n").encode("utf-8"), "text/markdown")
+
+
+def index_put(ctx: Context, c, project: str, key: str, kind: str, lang: str, size: int, review) -> None:
+    """The row of a new put on top of INDEX.md; rows of objects no longer there go. Called under _PUT_LOCK."""
+    m = _REVIEW_RE.fullmatch(review.strip()) if isinstance(review, str) else None
+    present = {k for k, _, _ in c.list("%s/%s" % (project, FROM)).objects}
+    rows = [r for r in read_index(ctx, c, project) if r["key"] in present and r["key"] != key]
+    now = _now()
+    rows.append({"date": now.date().isoformat(), "time": now.strftime("%H:%M"), "key": key, "kind": kind,
+                 "lang": lang, "size": int(size), "review": m.group(1) if m else "none", "fetched": "no"})
+    write_index(c, project, rows)
+
+
+def put_problems(ctx: Context, req: dict, body_path: Path, ident: str | None = None) -> list[str]:
     """The checks of a put into from-session/, run by the key service on the bytes it received (F6). Since task GT
     only the picture rules (a picture only with image and a reason); no name check of the content, no structured
     data and no review state. The secrets are replaced by `scrub_put` after it."""
     p = ctx.paths_fn()
-    ident = req["key"].rsplit("/", 1)[-1]
+    ident = ident or req["key"].rsplit("/", 1)[-1]
     name = req.get("name")
     if not (valid_name(name) and not _name_hits([name], p)):
         name = ident
@@ -226,11 +461,12 @@ def exchange_mail(state: str, project: str, ident: str | None = None, size: int 
                   customer: str | None = None, why: str | None = None) -> tuple[str, str]:
     """The subject and the message of an exchange mail, built from fixed fields only: the project code, the object
     id, the size, the state (and for a hold the customer code and a reason of HOLD_REASONS). A field that does not
-    read as its kind in full is sent as -; no key, no prefix, no error text and no file name (finding 18 of the
-    review of 2026-10-10: the id stands for the file). The mail is printable ASCII: anything else becomes a space."""
+    read as its kind in full is sent as -; no prefix, no error text and no file name (finding 18 of the review of
+    2026-10-10: the id stands for the file). Since task BK1 the id of a put is the file part of its readable key,
+    which the key service built and checked. The mail is printable ASCII: anything else becomes a space."""
     code = project if isinstance(project, str) and _CODE_RE.fullmatch(project) else "-"
     if state == "put":
-        ident = ident if isinstance(ident, str) and _PUT_ID_RE.fullmatch(ident) else "-"
+        ident = ident if isinstance(ident, str) and (_PUT_ID_RE.fullmatch(ident) or readable_ok(ident, code)) else "-"
         subject, message = ("Workbench: %s put a file" % code,
                             "Project %s put the file %s (%d bytes) into its from-session folder of the lab bucket. "
                             "Fetch it in the OBS console." % (code, ident, int(size or 0)))
@@ -872,6 +1108,6 @@ def serve_bucket(ctx: Context, req: dict, upload: Path | None) -> tuple[dict, Pa
         return {"ok": False, "kind": "too_large", "error": str(err)}, None
 
 
-# xchg.py imports this module at its end and its session side calls from_in, hold_line and put_id. Whichever of the
-# two loads first, the join runs once both hold their names.
+# xchg.py imports this module at its end and its session side calls from_in, hold_line, put_key_ok and put_kind.
+# Whichever of the two loads first, the join runs once both hold their names.
 parts.join("awb.tcp.xchg", __name__)
