@@ -835,7 +835,7 @@ awb winlab add lab-1 --port 2201 --fingerprint SHA256:... --no-customer-data
 awb winlab open lab-1 --minutes 60 --project tcp-xxxx
 awb winlab close lab-1                       # before its end
 awb winlab remove lab-1
-awb winlab list                              # machines, their window, its end
+awb winlab list                              # machines, their window, its end (in a project session: the windows open for it, from the broker)
 ```
 
 A machine has a name, a loopback port (1024 to 65535), the pinned fingerprint of its host key (`SHA256:` and 43

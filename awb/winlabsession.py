@@ -267,6 +267,23 @@ def _local_registry() -> bool:
         return False
 
 
+def session_list(start: Path | None = None) -> list[str]:
+    """`awb winlab list` in a session of the work user, who reads no registry of his own: the machines whose window
+    is open for this project and its end, from the broker. Other machines and other projects' windows stay unseen."""
+    root = _root(start)
+    code = _code(root)
+    token = _token(root)
+    names = list(_broker_call({"op": "windows", "project": code, "token": token})[0].get("machines") or [])
+    if not names:
+        return ["no lab machine has an open window for %s (the owner: awb winlab open NAME --minutes N --project %s)"
+                % (code, code)]
+    lines = ["machine  window for  end"]
+    for name in names:
+        answer, _ = _broker_call({"op": "check", "machine": name, "project": code, "token": token})
+        lines.append("%s  %s  %s" % (name, code, (answer.get("machine") or {}).get("end", "")))
+    return lines
+
+
 def _allowed(name: str, code: str, root: Path) -> dict:
     """winlab.allowed from this user's registry, else the broker's check (the owner's registry)."""
     if _local_registry():
