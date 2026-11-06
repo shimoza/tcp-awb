@@ -36,10 +36,17 @@ awb/winlabsession.py (connect, BrokerTransport) is the client. Every call is one
 peer uid, the op, the machine, the project and the outcome; never a text, a path or a byte of a file.
 
 On the machine every op is one ssh connection to the account of the machine (awblab unless `awb winlab add
---account` named another): powershell.exe reads the script and the bytes of a chunk from its standard input (a line
-with the length of the script, the script in UTF-8, the bytes), so no text of a session lands on a command line.
-A command that ends with exit code 255 on the machine reads as offline, the code ssh gives for its own failures.
-Standard library only, besides the ssh and ssh-keyscan programs of the host.
+--account` named another): powershell.exe reads the script from its standard input (a line with the length of the
+script, the script in UTF-8), so no text of a session lands on a command line. A command that ends with exit code
+255 on the machine reads as offline, the code ssh gives for its own failures.
+
+The bytes of a put never go on that standard input: Windows sshd stops passing input to powershell.exe after about
+2 KB (live check of 2026-11-06, B-039). put_chunk writes the chunk to a file of mode 600 in the broker's own private
+folder, puts it with `sftp -b -` (the same key, known_hosts and options as ssh) to PART.awb-chunk next to the part
+(the path as /C:/dir/file), then one ssh run checks the offset, appends PART.awb-chunk to the part, deletes it and
+prints the size. The local file is removed in every case; a PART.awb-chunk left by a broken call is overwritten by
+the next put, never appended.
+Standard library only, besides the ssh, sftp and ssh-keyscan programs of the host.
 """
 from __future__ import annotations
 
@@ -91,6 +98,16 @@ ALGORITHMS = {"ssh-ed25519": "ssh-ed25519", "ecdsa-sha2-nistp256": "ecdsa-sha2-n
 """The host key types ssh-keyscan reports and the HostKeyAlgorithms that make ssh use that key."""
 HOSTKEY_FAILED_RE = re.compile(r"Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED"
                                r"|No \S+ host key is known", re.I)
+UNREACHABLE_RE = re.compile(r"ssh: connect to host|connection refused|timed out|connection closed|connection reset"
+                            r"|broken pipe|no route to host|network is unreachable|could not resolve"
+                            r"|permission denied \(publickey", re.I)
+"""What ssh says, through sftp, when the machine cannot be reached or did not take the key."""
+CHUNK_SUFFIX = ".awb-chunk"
+SFTP_PATH_RE = re.compile(r'^/[A-Za-z]:(/[^\x00-\x1f\x7f"\\/*?<>|:]+)+$')
+"""A Windows path as sftp writes it: /C:/dir/file, no empty part, nothing a batch line of sftp reads its own way."""
+LOCAL_PATH_RE = re.compile(r"^/[A-Za-z0-9_./-]+$")
+NO_SFTP_PATH = ("a path on the machine goes to sftp as /C:/dir/file and this one cannot be written that way: "
+                "nothing was sent")
 UNBOUND_LINE = "the call carries no key token of its project folder (.git/awb-key-token): nothing was sent"
 FOREIGN_LINE = "the key token of the call is not the one of %s: nothing was sent"
 MISMATCH = "the host key of %s does not match its pinned fingerprint: nothing was sent"
@@ -107,15 +124,13 @@ $awbBuf.Dispose()
 $awbCut = [Array]::IndexOf($awbAll, [byte]10)
 $awbLen = [int][Text.Encoding]::ASCII.GetString($awbAll, 0, $awbCut)
 $AwbScript = [Text.Encoding]::UTF8.GetString($awbAll, $awbCut + 1, $awbLen)
-$AwbData = New-Object byte[] ($awbAll.Length - $awbCut - 1 - $awbLen)
-[Array]::Copy($awbAll, $awbCut + 1 + $awbLen, $AwbData, 0, $AwbData.Length)
 Remove-Variable awbAll, awbBuf, awbIn
 $ErrorActionPreference = 'Continue'
 $global:LASTEXITCODE = 0
 . ([ScriptBlock]::Create($AwbScript))
 exit $LASTEXITCODE
 """
-"""What powershell.exe runs: the script and the bytes of a chunk from standard input, the script dot-sourced."""
+"""What powershell.exe runs: the script from standard input, dot-sourced. No data chunk comes this way."""
 REMOTE = ("powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "
           + base64.b64encode(BOOT.encode("utf-16-le")).decode("ascii"))
 
@@ -200,6 +215,15 @@ def _winpath(value) -> str:
     return value
 
 
+def sftp_path(path: str) -> str:
+    """C:\\dir\\file as sftp writes it on Windows: /C:/dir/file. Raises WinlabError for a path that cannot be written
+    that way (an empty part, a trailing backslash, a control character)."""
+    out = "/" + path.replace("\\", "/")
+    if not SFTP_PATH_RE.match(out):
+        raise WinlabError(NO_SFTP_PATH)
+    return out
+
+
 def _count(value, what: str, top: int) -> int:
     if type(value) is not int or not 0 <= value <= top:
         raise WinlabError("%s is a whole number from 0 to %d" % (what, top))
@@ -221,7 +245,7 @@ class SshTransport:
         self.machine = machine
         self.account = machine.get("account") or winlab.ACCOUNT
 
-    def argv(self, known: Path, key_type: str) -> list[str]:
+    def _options(self, known: Path, key_type: str) -> list[str]:
         options = {
             "BatchMode": "yes", "IdentitiesOnly": "yes", "IdentityAgent": "none", "StrictHostKeyChecking": "yes",
             "UserKnownHostsFile": str(known), "GlobalKnownHostsFile": "/dev/null",
@@ -231,17 +255,25 @@ class SshTransport:
             "ClearAllForwardings": "yes", "ControlMaster": "no", "ControlPath": "none", "RequestTTY": "no",
             "ConnectTimeout": str(CONNECT_TIMEOUT), "ServerAliveInterval": "15", "ServerAliveCountMax": "4",
             "LogLevel": "ERROR"}
-        argv = ["ssh", "-F", "none", "-T", "-i", str(self.broker.key), "-p", str(self.port)]
+        argv = []
         for k, v in options.items():
             argv += ["-o", "%s=%s" % (k, v)]
-        return argv + ["%s@%s" % (self.account, winlab.LOOPBACK), REMOTE]
+        return argv
 
-    def _ssh(self, script: str, data: bytes = b"", timeout: float = CHUNK_TIMEOUT) -> tuple[int, bytes, bytes]:
+    def argv(self, known: Path, key_type: str) -> list[str]:
+        return (["ssh", "-F", "none", "-T", "-i", str(self.broker.key), "-p", str(self.port)]
+                + self._options(known, key_type) + ["%s@%s" % (self.account, winlab.LOOPBACK), REMOTE])
+
+    def sftp_argv(self, known: Path, key_type: str) -> list[str]:
+        """sftp with the options of argv(): the batch on its standard input (`-b -`), the port with -P."""
+        return (["sftp", "-F", "none", "-b", "-", "-i", str(self.broker.key), "-P", str(self.port)]
+                + self._options(known, key_type) + ["%s@%s" % (self.account, winlab.LOOPBACK)])
+
+    def _ssh(self, script: str, timeout: float = CHUNK_TIMEOUT) -> tuple[int, bytes, bytes]:
         known, key_type = self.broker.pin(self.name, self.machine)
         body = script.encode("utf-8")
         try:
-            code, out, err = self.broker.runner(self.argv(known, key_type), b"%d\n" % len(body) + body + data,
-                                                timeout)
+            code, out, err = self.broker.runner(self.argv(known, key_type), b"%d\n" % len(body) + body, timeout)
         except subprocess.TimeoutExpired:
             raise Offline("%s gave no answer within %d s: the connection was cut" % (self.name, timeout)) from None
         except OSError:
@@ -259,25 +291,40 @@ class SshTransport:
         return (code, out[:MAX_OUTPUT].decode("utf-8", "replace"), err[:MAX_OUTPUT].decode("utf-8", "replace"))
 
     def put_chunk(self, path: str, offset: int, data: bytes) -> int:
+        """The chunk over sftp to PART.awb-chunk, then one ssh run: the offset checked against the size of the part,
+        PART.awb-chunk appended to it once and deleted in every case."""
+        chunk = path + CHUNK_SUFFIX
+        self._sftp_put(data, sftp_path(chunk))
         script = "\n".join([
             "$p = %s" % _ps(path),
+            "$c = %s" % _ps(chunk),
             "$o = [long]%d" % offset,
-            "if ($o -eq 0) {",
-            "    [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($p))",
-            "    $f = [IO.File]::Open($p, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)",
-            "} else {",
-            "    if (-not [IO.File]::Exists($p)) { [Console]::Out.Write('size=0'); exit 5 }",
-            "    $f = [IO.File]::Open($p, [IO.FileMode]::Open, [IO.FileAccess]::Write, [IO.FileShare]::None)",
-            "    if ($f.Length -ne $o) { $n = $f.Length; $f.Dispose(); [Console]::Out.Write(\"size=$n\"); exit 5 }",
-            "    [void]$f.Seek(0, [IO.SeekOrigin]::End)",
+            "$want = [long]%d" % len(data),
+            "$code = 0",
+            "$n = 0",
+            "try {",
+            "    if ($o -ne 0 -and -not [IO.File]::Exists($p)) { $code = 5 }",
+            "    elseif ((New-Object IO.FileInfo $c).Length -ne $want) { $code = 6 }",
+            "    else {",
+            "        $m = if ($o -eq 0) { [IO.FileMode]::Create } else { [IO.FileMode]::Open }",
+            "        $f = [IO.File]::Open($p, $m, [IO.FileAccess]::Write, [IO.FileShare]::None)",
+            "        try {",
+            "            $n = $f.Length",
+            "            if ($n -ne $o) { $code = 5 } else {",
+            "                [void]$f.Seek(0, [IO.SeekOrigin]::End)",
+            "                $r = [IO.File]::Open($c, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)",
+            "                try { $r.CopyTo($f) } finally { $r.Dispose() }",
+            "                $f.Flush()",
+            "                $n = $f.Length",
+            "            }",
+            "        } finally { $f.Dispose() }",
+            "    }",
+            "} catch { $code = 7 } finally {",
+            "    try { [IO.File]::Delete($c) } catch { }",
             "}",
-            "$f.Write($AwbData, 0, $AwbData.Length)",
-            "$f.Flush()",
-            "$n = $f.Length",
-            "$f.Dispose()",
-            "[Console]::Out.Write(\"size=$n\")",
-            "exit 0"])
-        code, out, _err = self._ssh(script, data)
+            "if ($code -eq 0 -or $code -eq 5) { [Console]::Out.Write(\"size=$n\") }",
+            "exit $code"])
+        code, out, _err = self._ssh(script)
         values = _values(out)
         size = values.get("size", "")
         if code not in (0, 5) or not size.isdigit():
@@ -285,6 +332,41 @@ class SshTransport:
         if code == 5:
             raise OffsetError(int(size))
         return int(size)
+
+    def _sftp_put(self, data: bytes, remote: str) -> None:
+        """`data` to the file `remote` (/C:/dir/file) of the machine over sftp, its folders made first; a file there
+        is overwritten. The bytes wait in a file of mode 600 in the broker's private folder, removed in every case."""
+        known, key_type = self.broker.pin(self.name, self.machine)
+        fd, local = tempfile.mkstemp(prefix="chunk-", dir=self.broker._chunk_dir())
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+            if not LOCAL_PATH_RE.match(local):
+                raise Failed("the broker's own folder for a chunk has a name sftp cannot take")
+            parts = remote.split("/")
+            batch = ['-mkdir "%s"' % "/".join(parts[:i]) for i in range(3, len(parts))]
+            batch.append('put "%s" "%s"' % (local, remote))
+            try:
+                code, _out, err = self.broker.runner(self.sftp_argv(known, key_type),
+                                                     ("\n".join(batch) + "\n").encode("utf-8"), CHUNK_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                raise Offline("%s gave no answer within %d s: the connection was cut"
+                              % (self.name, CHUNK_TIMEOUT)) from None
+            except OSError:
+                raise Offline("sftp cannot be started on this host") from None
+        finally:
+            try:
+                os.unlink(local)
+            except FileNotFoundError:
+                pass
+        if code != 0:
+            text = err.decode("utf-8", "replace")
+            if HOSTKEY_FAILED_RE.search(text):
+                self.broker.unpin(self.name)
+                raise WinlabError(MISMATCH % self.name)
+            if code == 255 or UNREACHABLE_RE.search(text):
+                raise Offline(_ssh_reason(text, self.name, self.port))
+            raise Failed("a chunk could not be put on %s over sftp (exit %d)" % (self.name, code))
 
     def get_chunk(self, path: str, offset: int, size: int) -> bytes:
         script = "\n".join([
@@ -439,6 +521,17 @@ class Broker:
             if self.known_dir is None:
                 self.known_dir = Path(tempfile.mkdtemp(prefix="awb-winlab-known-"))
             return self.known_dir
+
+    def _chunk_dir(self) -> Path:
+        """The broker's private folder for the bytes of a put on their way to sftp: .chunks in its own temporary
+        folder (no machine name starts with a dot), mode 700, removed with it."""
+        folder = self._known_dir() / ".chunks"
+        with self.lock:
+            try:
+                folder.mkdir(mode=0o700)
+            except FileExistsError:
+                pass
+        return folder
 
     # one call
     def handle(self, req: dict, uid: int = -1, payload=None) -> tuple[dict, bytes]:

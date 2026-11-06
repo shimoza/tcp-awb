@@ -14409,8 +14409,14 @@
   {"id": "pc-cmdlet-1", "phase": "pc-cmdlet", "name": "put scrub: a PowerShell cmdlet call after a secret variable is code and stays", "run": ".venv/bin/pytest tests/test_putcopy_cmdlet.py::test_a_cmdlet_call_after_a_secret_variable_is_code_and_stays", "status": "passing"},
   {"id": "pc-cmdlet-2", "phase": "pc-cmdlet", "name": "put scrub: a value that only looks like a cmdlet is still replaced", "run": ".venv/bin/pytest tests/test_putcopy_cmdlet.py::test_a_value_that_only_looks_like_a_cmdlet_is_still_replaced", "status": "passing"},
   {"id": "wl-win-1", "phase": "wl-win", "name": "WL: a local account description in setup.ps1 and remove.ps1 has at most 48 characters", "run": ".venv/bin/pytest tests/test_wl_scripts_windows.py::test_a_local_account_description_has_at_most_48_characters", "status": "passing"},
-  {"id": "wl-win-2", "phase": "wl-win", "name": "WL: an array element built with + in setup.ps1 and remove.ps1 stands in parentheses", "run": ".venv/bin/pytest tests/test_wl_scripts_windows.py::test_an_array_element_built_with_plus_stands_in_parentheses", "status": "passing"}
+  {"id": "wl-win-2", "phase": "wl-win", "name": "WL: an array element built with + in setup.ps1 and remove.ps1 stands in parentheses", "run": ".venv/bin/pytest tests/test_wl_scripts_windows.py::test_an_array_element_built_with_plus_stands_in_parentheses", "status": "passing"},
+  {"id": "b039-wl-1", "phase": "b039-wl", "name": "WL: put_chunk goes over sftp with the pinned known_hosts, the broker key, BatchMode and the port; no data on the standard input of ssh", "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_goes_over_sftp_with_the_pinned_options_and_no_data_on_the_standard_input_of_ssh", "status": "passing"},
+  {"id": "b039-wl-2", "phase": "b039-wl", "name": "WL: the temporary file of a chunk is mode 600 and gone after success, an sftp failure and a timeout", "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_temporary_file_is_mode_600_and_gone_after_success_failure_and_timeout", "status": "passing"},
+  {"id": "b039-wl-3", "phase": "b039-wl", "name": "WL: a chunk at another offset than the size of the part gets the offset refusal and leaves the part as it was", "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_at_another_offset_than_the_size_of_the_part_is_refused_and_leaves_it", "status": "passing"},
+  {"id": "b039-wl-4", "phase": "b039-wl", "name": "WL: an sftp exit other than 0 is offline when ssh cannot reach the machine and failed otherwise", "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_sftp_failure_is_offline_when_ssh_cannot_reach_the_machine_and_failed_otherwise", "status": "passing"},
+  {"id": "b039-wl-5", "phase": "b039-wl", "name": "WL: a stale PART.awb-chunk does not end up in the part twice", "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_stale_chunk_file_does_not_end_up_in_the_part_twice", "status": "passing"},
+  {"id": "b039-wl-6", "phase": "b039-wl", "name": "WL: a path that cannot be written as /C:/dir/file for sftp is refused before anything is sent", "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_path_that_sftp_cannot_take_is_refused_before_anything_is_sent", "status": "passing"}
  ],
- "total_tests": 2062,
- "checked": "2026-11-05"
+ "total_tests": 2068,
+ "checked": "2026-11-06"
 }

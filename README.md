@@ -910,7 +910,10 @@ and then the laptop's host key: ssh-keyscan reads it on the port, only the key w
 the broker's own known_hosts and ssh connects with `StrictHostKeyChecking=yes` against it alone. No window, an
 expired window, another project, an unregistered machine and a host key that does not match the pin are refused
 with one line each, and nothing is sent. Each call is one ssh connection to the laptop's account; powershell.exe
-reads the script and the bytes of a chunk from its standard input. A session on a sealed host reads no registry of
+reads the script from its standard input. The bytes of a put go with sftp (the same key, known_hosts and options)
+to `PART.awb-chunk` next to the part, as `/C:/dir/file`; then one ssh run checks the offset, appends that file to the
+part once and deletes it. Windows sshd stops passing standard input to powershell.exe after about 2 KB, so no data
+goes that way. A get still comes back on standard output. A session on a sealed host reads no registry of
 its own, so its window check and the machine of a put or get come from the broker too. Without the broker's socket
 the commands refuse with "no transport".
 

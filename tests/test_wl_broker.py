@@ -2,8 +2,9 @@
 (awb/tcp/winbroker.py, awb winlab serve), its client in awb/winlabsession.py and the online machines of awb owner
 status.
 
-A fake ssh only: FakeSsh below stands in for ssh-keyscan and ssh, reads the script and the bytes the broker writes
-to the standard input of ssh and keeps the machine's files in memory. Nothing is reached, nothing is run on a
+A fake ssh only: FakeSsh below stands in for ssh-keyscan, ssh and sftp, reads the script the broker writes to the
+standard input of ssh and the chunk it puts over sftp (B-039) and keeps the machine's files in memory. Nothing is
+reached, nothing is run on a
 machine. The registry is winlab.json beside a keys.conf in tmp_path, the project folders and their key tokens are
 in tmp_path too. Every machine name, code, key and fingerprint is invented; the keys are made at run time.
 """
@@ -60,6 +61,11 @@ class FakeSsh:
         if argv[0] == "ssh-keyscan":
             port = argv[argv.index("-p") + 1]
             return 0, ("[127.0.0.1]:%s ssh-ed25519 %s\n" % (port, self.scan_key)).encode("ascii"), b"# banner\n"
+        if argv[0] == "sftp":
+            # B-039: the bytes of a put come over sftp to PART.awb-chunk; the batch is on standard input
+            local, remote = re.search(r'^put "([^"]+)" "([^"]+)"$', data.decode("utf-8"), re.M).groups()
+            self.files[remote[1:].replace("/", "\\").lower()] = bytearray(Path(local).read_bytes())
+            return 0, b"", b""
         assert argv[0] == "ssh"
         known = next(a.split("=", 1)[1] for a in argv if a.startswith("UserKnownHostsFile="))
         self.known.append(Path(known).read_text(encoding="ascii"))
@@ -72,8 +78,9 @@ class FakeSsh:
         self.sent.append(script)
         m = re.search(r"^\$p = '(.*)'$", script, re.M)
         path = m.group(1).replace("''", "'").lower() if m else None
-        if "$f.Write($AwbData" in script:
+        if "$r.CopyTo($f)" in script:
             offset = int(re.search(r"^\$o = \[long\](\d+)$", script, re.M).group(1))
+            body = self.files.pop(path + ".awb-chunk")
             f = self.files.setdefault(path, bytearray())
             if offset == 0:
                 f.clear()
