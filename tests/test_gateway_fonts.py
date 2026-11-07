@@ -84,4 +84,4 @@ class FontTests(unittest.TestCase):
         name, digest = self.saved[1]["/fonts/InterVariable.woff2"]
         self.assertEqual((name, len(digest)), ("InterVariable.woff2", 64))
         licence = Path(gateway.__file__).resolve().parent / "fonts" / "OFL-Inter.txt"
-        self.assertIn("SIL Open Font License", licence.read_text())
+        self.assertIn("sil open font license", licence.read_text().lower())

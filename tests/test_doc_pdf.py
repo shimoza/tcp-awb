@@ -44,8 +44,8 @@ def scan_pdf() -> bytes:
     return buf.getvalue()
 
 
-PAGE_ONE = "Leistungsbeschreibung T Cloud Public\nReserved und Reserved Upfront mit Mindestabnahme."
-PAGE_TWO = "Elastic Cloud Server Flavors\nDie Abrechnung erfolgt im Sekundentakt."
+PAGE_ONE = "leistungsbeschreibung der cloud\nreserved und reserved upfront mit Mindestabnahme."
+PAGE_TWO = "elastic cloud server flavors\ndie abrechnung erfolgt im Sekundentakt."
 
 
 def getter_for(body: bytes, ctype: str = "application/pdf", **headers) -> Getter:
@@ -123,7 +123,7 @@ class Recorder:
         if self.mode == "timeout":
             raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
         if self.mode == "fail":
-            return subprocess.CompletedProcess(cmd, 1, b"", b"Syntax Error: broken")
+            return subprocess.CompletedProcess(cmd, 1, b"", b"syntax error: broken")
         return subprocess.CompletedProcess(cmd, 0, (PAGE_ONE + "\f").encode(), b"")
 
 

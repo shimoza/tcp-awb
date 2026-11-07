@@ -222,7 +222,7 @@ COMMAND_ONLY: dict[str, str] = {
 # archive is the whole commit) and a command reads them, no unit, so a change of one restarts nothing.
 PACKAGE_DATA: dict[str, str] = {
     "awb/winlab/": "setup.ps1 and remove.ps1, printed by the owner's awb winlab bootstrap and awb winlab remove",
-    "awb/tcp/web/fonts/": "the licence of the page's font; the font itself lives in /srv/awb-web/fonts (the gateway checks its hash)",
+    "awb/tcp/web/fonts/": "the licence of the page's font; the font itself lives beside the live page (config.WEB_PAGE_DIR / fonts), the gateway checks its hash",
     PAGE: "the console page: the page step of the deploy publishes it, the gateway reads only the published copy",
 }
 
