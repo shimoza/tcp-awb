@@ -7,6 +7,7 @@ web folder, never the real one). Every test names the planted case that must tur
 """
 from __future__ import annotations
 
+import contextlib
 import io
 import os
 import pwd
@@ -29,12 +30,9 @@ C1 = "b" * 40
 
 # The fields of the /api/board answer the page does not read, each with the reason why not. A new field of the board
 # is red here until the page reads it or this list says why not; a field the page reads must leave the list.
-BOARD_NOT_SHOWN = {
-    "platform": "shown by the next page change (owner 2026-11-07)",
-    "parked": "the parked count; shown by the next page change (owner 2026-11-07)",
-    "build": "the self-build line for the owner; the page of 2026-10-17 never showed it, the next page change "
-             "decides (B-046)",
-}
+BOARD_NOT_SHOWN: dict[str, str] = {}
+"""Board fields the page does not show, each with its reason. Empty since the pult page of 2026-11-07 shows the
+platform, the parked projects and the build line."""
 
 
 def page_text() -> str:
@@ -195,13 +193,14 @@ def test_every_board_field_is_read_by_the_page_or_listed_with_a_reason():
                              "        platform:\n          \"$ref\": \"#/components/schemas/BoardPlatform\"\n"
                              "        quota:\n          type: integer\n", 1)
     assert board_problems(page, grown, BOARD_NOT_SHOWN) == ["not read and not listed: quota"]
-    without = {k: v for k, v in BOARD_NOT_SHOWN.items() if k != "platform"}
-    assert board_problems(page, contract, without) == ["not read and not listed: platform"]
-    shows = page.replace("function boardPage(){", "function boardPlatform(d){return d.platform}\nfunction boardPage(){")
-    assert board_problems(shows, contract, BOARD_NOT_SHOWN) == ["read but listed: platform"]
+    hidden = page.replace(".platform", ".platfrom")
+    assert board_problems(hidden, contract, BOARD_NOT_SHOWN) == ["not read and not listed: platform"]
+    assert board_problems(hidden, contract, dict(BOARD_NOT_SHOWN, platform="a reason")) == []
+    assert board_problems(page, contract, dict(BOARD_NOT_SHOWN, platform="a reason")) == ["read but listed: platform"]
     assert board_problems(page, contract, dict(BOARD_NOT_SHOWN, gone="a field that left")) == [
         "listed but not in the contract: gone"]
-    assert board_problems(page, contract, dict(BOARD_NOT_SHOWN, build=" ")) == ["listed without a reason: build"]
+    assert board_problems(page, contract, dict(BOARD_NOT_SHOWN, gone=" ")) == [
+        "listed but not in the contract: gone", "listed without a reason: gone"]
 
 
 # --------------------------------------------------------------------------- the checks of awb web publish
@@ -228,20 +227,31 @@ def test_the_page_passes_the_checks_of_publish(home):
 
 
 class Checker:
-    """The runner of the root run: `awb web check --emit FILE` as the owner runs the real check of publish.py in
-    this process (the fixture register); every call is recorded."""
+    """The runner of the root run. `awb web publish --release-page` (the page step's own process) runs publish.main
+    in this process as root with this runner; `awb web check --emit FILE` as the owner runs the real check of
+    publish.py (the fixture register). Every call is recorded."""
 
     def __init__(self):
         self.calls: list[tuple[list[str], dict]] = []
+        self.chown = None
 
     def __call__(self, cmd, **kw):
         cmd = [str(c) for c in cmd]
         self.calls.append((cmd, kw))
+        if cmd[:4] == [BIN, "web", "publish", "--release-page"]:
+            out = io.StringIO()
+            host = publish.Host(geteuid=lambda: 0, runner=self, environ=dict(kw["env"]), chown=self.chown, bin=BIN)
+            with contextlib.redirect_stdout(out):
+                rc = publish.main(cmd[2:], host=host)
+            return subprocess.CompletedProcess(cmd, rc, out.getvalue().encode("utf-8"), b"")
         assert cmd[:4] == [BIN, "web", "check", "--emit"], cmd
         try:
             return subprocess.CompletedProcess(cmd, 0, publish.checked_page(None, Path(cmd[4])), b"")
         except publish.Refused as err:
             return subprocess.CompletedProcess(cmd, 1, b"", ("awb web: %s\n" % err).encode("utf-8"))
+
+    def checks(self):
+        return [(c, kw) for c, kw in self.calls if c[1:3] == ["web", "check"]]
 
 
 def _step(tmp_path: Path, release_page: bytes | None, live: bytes | None, web: bool = True):
@@ -257,6 +267,7 @@ def _step(tmp_path: Path, release_page: bytes | None, live: bytes | None, web: b
         if live is not None:
             (web_root / "index.html").write_bytes(live)
     runner, owned = Checker(), []
+    runner.chown = lambda path, uid, gid: owned.append((Path(path).name, uid, gid))
     me = pwd.getpwuid(os.getuid())
     host = deploy.Host(root=root, runner=runner, geteuid=lambda: 0, environ={"SUDO_USER": "planted", "LANG": "C"},
                        web_root=web_root, chown=lambda path, uid, gid: owned.append((Path(path).name, uid, gid)),
@@ -280,7 +291,11 @@ def test_the_page_step_publishes_a_changed_page_with_a_backup(home, tmp_path, ca
     assert (web / backup).read_bytes() == _page("old")
     assert (web / "index.html").stat().st_mode & 0o777 == 0o644
     assert (backup, 0, 0) in owned and len(owned) == 2
-    [(cmd, kw)] = runner.calls
+    publish_call = runner.calls[0][0]
+    assert publish_call[:5] == [BIN, "web", "publish", "--release-page",
+                                str(tmp_path / "opt" / "releases" / C1 / deploy.PAGE)]
+    assert runner.calls[0][1]["env"]["SUDO_USER"] == me.pw_name
+    [(cmd, kw)] = runner.checks()
     assert cmd == [BIN, "web", "check", "--emit", str(tmp_path / "opt" / "releases" / C1 / deploy.PAGE)]
     assert kw["user"] == me.pw_uid and kw["group"] == me.pw_gid and kw["env"]["HOME"] == me.pw_dir
 
@@ -299,7 +314,7 @@ def test_the_page_step_keeps_the_live_page_on_a_refusal(home, tmp_path, capsys):
     web, runner, owned, _ = _step(tmp_path, bad, _page("old"))
     assert capsys.readouterr().out.splitlines() == [
         "# page refused (the page is refused: html: an external script, the live page stays)"]
-    assert len(runner.calls) == 1 and owned == []
+    assert len(runner.checks()) == 1 and owned == []
     assert sorted(p.name for p in web.iterdir()) == ["index.html"]
     assert (web / "index.html").read_bytes() == _page("old")
     web, runner, owned, _ = _step(tmp_path / "none", None, _page("old"))
@@ -340,8 +355,10 @@ def world(tmp_path):
 
 
 def _release_with(world, page: bytes):
-    """The archive of the target carries the page; `awb web check --emit` runs the real check."""
+    """The archive of the target carries the page; `awb web publish --release-page` and `awb web check --emit` run
+    the real publish and check."""
     checker = Checker()
+    checker.chown = lambda *a: None
 
     def on(cmd, kw):
         if cmd[:3] == [BIN, "deploy", "archive"]:
@@ -352,7 +369,7 @@ def _release_with(world, page: bytes):
                 info.mode = 0o644
                 tf.addfile(info, io.BytesIO(page))
             return subprocess.CompletedProcess(cmd, 0, "", "")
-        if cmd[:3] == [BIN, "web", "check"]:
+        if cmd[:3] in ([BIN, "web", "check"], [BIN, "web", "publish"]):
             return checker(cmd, **kw)
         return None
 

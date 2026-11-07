@@ -222,6 +222,7 @@ COMMAND_ONLY: dict[str, str] = {
 # archive is the whole commit) and a command reads them, no unit, so a change of one restarts nothing.
 PACKAGE_DATA: dict[str, str] = {
     "awb/winlab/": "setup.ps1 and remove.ps1, printed by the owner's awb winlab bootstrap and awb winlab remove",
+    "awb/tcp/web/fonts/": "the licence of the page's font; the font itself lives in /srv/awb-web/fonts (the gateway checks its hash)",
     PAGE: "the console page: the page step of the deploy publishes it, the gateway reads only the published copy",
 }
 
@@ -1888,9 +1889,9 @@ def program_lines(plan: dict, opts: Options, host: Host, owner_name: str, work_n
 
 
 def page_web_root(host: Host) -> Path:
-    from awb.tcp.web import publish
-
-    return Path(host.web_root) if host.web_root is not None else publish.SRV
+    """The folder of the live console page (config.WEB_PAGE_DIR, publish.SRV of the platform package; a test holds
+    the two equal). The core imports nothing of awb.tcp, so the page step runs `awb web publish --release-page`."""
+    return Path(host.web_root) if host.web_root is not None else config.WEB_PAGE_DIR
 
 
 def page_plan_line(host: Host, target: str, owner_name: str) -> str:
@@ -2267,14 +2268,39 @@ class Run:
 
     def page(self) -> None:
         """The console page of the release goes live when its bytes differ from the live page, through the checks
-        (as the owner) and the backup of `awb web publish FILE`. One line; a refusal never fails the deploy."""
-        from awb.tcp.web import publish
-
-        host = publish.Host(self.host.geteuid, self.host.runner,
-                            dict(self.host.environ, SUDO_USER=self.caller.owner.pw_name), self.host.chown,
-                            self.host.bin)
-        say("# " + publish.release_page(page_web_root(self.host), self.host.releases / self.target / PAGE,
-                                        "deploy-" + short(self.target), host))
+        (as the owner) and the backup of `awb web publish FILE`, run as `awb web publish --release-page` in a process
+        of its own. One line; a refusal never fails the deploy."""
+        root = page_web_root(self.host)
+        page = self.host.releases / self.target / PAGE
+        if not root.is_dir():
+            say("# page skipped (no %s on this host)" % root)
+            return
+        try:
+            data = page.read_bytes()
+        except FileNotFoundError:
+            say("# page refused (the page file is missing, the live page stays)")
+            return
+        except OSError:
+            say("# page refused (the publish failed on the host, the live page stays)")
+            return
+        try:
+            same = (root / "index.html").read_bytes() == data
+        except OSError:
+            same = False
+        if same:
+            say("# page unchanged")
+            return
+        cmd = [self.host.bin, "web", "publish", "--release-page", str(page), "--label", "deploy-" + short(self.target)]
+        if self.host.web_root is not None:
+            cmd += ["--root", str(root)]
+        try:
+            res = self.host.runner(cmd, env=dict(self.host.environ, SUDO_USER=self.caller.owner.pw_name),
+                                   capture_output=True, timeout=180)
+            lines = (res.stdout or b"").decode("utf-8", "replace").strip().splitlines()
+            ok = res.returncode == 0 and bool(lines) and lines[-1].startswith("page ")
+        except (OSError, subprocess.TimeoutExpired):
+            ok, lines = False, []
+        say("# " + (lines[-1] if ok else "page refused (the page step failed on the host, the live page stays)"))
 
     def finish(self) -> int:
         self.journal["state"] = "done"

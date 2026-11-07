@@ -132,6 +132,8 @@ BUILD_ROOT = "/srv/awb-build"
 """The folder of the self-build (presentations/self-build): a capped loop image that seal/setup.sh mounts and names
 as `build_root` in the host file. The build user cannot read the host file (640 root:awb), and its task units make
 /etc/awb inaccessible, so its hooks take this value; seal/setup.sh writes the same one."""
+WEB_PAGE_DIR = Path("/srv/awb-web")
+"""The folder of the live console page (index.html and its backups, the font of the page): the gateway reads it."""
 _BUILD_USER_RE = re.compile(r"(?m)^[ \t]*build_user[ \t]*=[ \t]*(\S+)[ \t]*$")
 _BUILD_ROOT_RE = re.compile(r"(?m)^[ \t]*build_root[ \t]*=[ \t]*(/\S*)[ \t]*$")
 

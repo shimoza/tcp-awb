@@ -625,6 +625,8 @@ def _parser():
                    help="only the newest PASS run, newer than the last published, other bytes; keeps 10 backups")
     p.add_argument("--from-socket", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--root", help=argparse.SUPPRESS)
+    p.add_argument("--release-page", metavar="PAGE", help=argparse.SUPPRESS)
+    p.add_argument("--label", default="deploy", help=argparse.SUPPRESS)
     c = sub.add_parser("check", help="check a queue run or a file as this user")
     c.add_argument("file", nargs="?", metavar="FILE")
     c.add_argument("--from-queue", metavar="ID")
@@ -657,6 +659,9 @@ def main(argv: list[str] | None = None, host: Host | None = None) -> int:
         return 0 if exc.code in (0, None) else 2
     try:
         if a.cmd == "publish":
+            if a.release_page:          # the page step of sudo awb deploy (B-046): one line on standard output
+                print(release_page(web_root(a.root, host.environ), Path(a.release_page), a.label, host))
+                return 0
             return _from_socket(a, host) if a.from_socket else _publish(a, host)
         if a.cmd == "check":
             return _check(a)
