@@ -48,7 +48,7 @@ MANAGED_FILE=/etc/claude-code/managed-settings.d/awb-workbench.json
 CLIENT_FILES="settings.json CLAUDE.md skills/drafting/SKILL.md"
 SSH_KEYS_DIR=/etc/ssh/authorized_keys     # as in setup.sh
 CRON_DENY=/etc/cron.deny
-WORK_JOBS="awb-work-update awb-kb-commit awb-kb-recheck awb-report-codes-work"   # as in setup.sh
+WORK_JOBS="awb-work-update awb-kb-commit awb-kb-recheck awb-report-codes-work awb-platform-status"   # as in setup.sh
 OWNER_JOBS="awb-report-codes"   # as in setup.sh: seal/work-jobs units that run as the owner (task R1)
 RECHECK_WATCH_UNIT=awb-kb-recheck-watch   # seal/setup.sh writes its .service and .timer (fact-check F5)
 IMPORT_AUTO_UNIT=awb-import-auto          # seal/setup.sh writes its .service and .timer (lc-laptop-clean)
@@ -309,6 +309,10 @@ allowed "awb-report-codes-work.service runs awb report --codes --to-shared alone
     sh -c 'test "$(grep -c "^ExecStart=" "$1")" = 1 && grep -qx "ExecStart=/usr/local/bin/awb report --codes --to-shared" "$1" &&
     grep -qx "OnCalendar=\*-\*-\* \*:40:00" "$2"' verify /etc/systemd/system/awb-report-codes-work.service \
     /etc/systemd/system/awb-report-codes-work.timer
+allowed "awb-platform-status.service runs awb platform-status pull alone, every 15 minutes" \
+    sh -c 'test "$(grep -c "^ExecStart=" "$1")" = 1 && grep -qx "ExecStart=/usr/local/bin/awb platform-status pull" "$1" &&
+    grep -qx "OnCalendar=\*-\*-\* \*:00/15:00" "$2"' verify /etc/systemd/system/awb-platform-status.service \
+    /etc/systemd/system/awb-platform-status.timer
 allowed "awb-kb-recheck.service runs awb kb recheck-run --tier read alone" \
     sh -c 'test "$(grep -c "^ExecStart=" "$1")" = 1 && grep -qx "ExecStart=/usr/local/bin/awb kb recheck-run --tier read" "$1"' \
     verify /etc/systemd/system/awb-kb-recheck.service

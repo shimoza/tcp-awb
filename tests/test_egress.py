@@ -130,7 +130,7 @@ def test_the_allow_list_names_the_client_and_the_price_api_and_keeps_tenants_and
     allowed = {e.dest for e in entries if e.set == "allow"}
     assert allowed == {"api.anthropic.com", "claude.ai", "platform.claude.com", "downloads.claude.ai",
                        "http-intake.logs.us5.datadoghq.com", "browser-intake-us5-datadoghq.com",
-                       "calculator.otc-service.com"}
+                       "calculator.otc-service.com", "status.otc-service.com"}
     assert all(e.port == "tcp 443" for e in entries if e.set == "allow")
     assert not [d for d in allowed if d.endswith("t-systems.com") or "obs." in d or "github" in d]
     api = {e.dest for e in entries if e.set == "tcp_api"}

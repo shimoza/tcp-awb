@@ -1,0 +1,34 @@
+# The TCP platform status for the board (B-042): awb platform-status pull as the work user, one GET pair to
+# status.otc-service.com every 15 minutes. It writes platform-status/state.tsv of the shared side (the group's, 640).
+[Unit]
+Description=Architect Workbench: the TCP platform status for the board, pull
+Wants=network-online.target
+After=network-online.target nss-lookup.target awb-egress.service
+
+[Service]
+Type=oneshot
+User=awb
+Group=awb
+UMask=0027
+WorkingDirectory=@WORK_HOME@
+ExecStart=/usr/local/bin/awb platform-status pull
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@WORK_HOME@/tcp-shared
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+LimitCORE=0
+TimeoutStartSec=90

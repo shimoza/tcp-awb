@@ -1,0 +1,14 @@
+# The timer of awb-platform-status.service: every 15 minutes, up to 60 seconds later at random. A missed run is not
+# made up at boot: the next quarter hour pulls anyway. Installed and enabled by seal/setup.sh and setup.sh --update
+# (WORK_JOBS).
+[Unit]
+Description=Architect Workbench: the TCP platform status for the board, every 15 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/15:00
+RandomizedDelaySec=60
+Persistent=false
+Unit=awb-platform-status.service
+
+[Install]
+WantedBy=timers.target

@@ -16,6 +16,7 @@ counted by class and, in the mode enforce, refused. Measured on 2026-10-11 on th
 | `http-intake.logs.us5.datadoghq.com` | `tcp 443` | `allow` | the client's operational telemetry, on by default and not switched off in the work user's settings. Seen on the first sample |
 | `browser-intake-us5-datadoghq.com` | `tcp 443` | `allow` | the client's error reports, same switch as the telemetry |
 | `calculator.otc-service.com` | `tcp 443` | `allow` | the public price API of T Cloud Public: `awb price` and the skill tcp-price run in the sessions, no key |
+| `status.otc-service.com` | `tcp 443` | `allow` | the public status dashboard of T Cloud Public: `awb platform-status pull` (`awb-platform-status.service`, every 15 minutes as the work user) reads `/v2/events` and `/v2/components` for the board, GET only, no key |
 
 Allowed without a row, because they never leave the host:
 
