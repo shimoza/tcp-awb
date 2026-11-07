@@ -21,3 +21,18 @@ A price is never taken from memory or from the knowledge base. It comes from the
 - Give every price with its unit, its term (pay per use or a reserved term) and the time it was fetched, as the
   command prints it.
 - A price record does not prove that the item can still be ordered. Say so when availability matters.
+
+## Reserved for many machines
+
+Reserved is a monthly contingent per billing item (flavor plus OS), shared by every instance of it. It is never
+counted per instance.
+
+- Count it with `awb price pool SERVICE --flavor F --os OS --hours H --term R24`, where H is the pooled hours of all
+  instances of the item in a month. It chooses the units once over the term and prints the figures with the time
+  they were fetched. Add `--start YYYY-MM-DD` for the real months. In a workbook write `mode: pool` with
+  `pooled_hours:` and `term:`.
+- Windows and Linux of one flavor are two items: price each on its own, never pooled together.
+- Name the open points every time: the minimum order volume is agreed with Telekom Sales, the lead time is five
+  working days, unused hours expire and use beyond the units runs Open Elastic. For a GPU flavor say that whether a
+  stopped GPU flavor is billed is open (KB-NAAF). A term with the rate 0 is not offered.
+- Never from memory: no unit count, rate or saving that `awb price pool` did not print.

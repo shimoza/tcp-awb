@@ -5,6 +5,8 @@
     awb price snapshot [--region R]... [--replace]
     awb price diff [--region R] [OLD [NEW]]
     awb price check SHEET [--max-age DAYS]
+    awb price pool SERVICE --flavor F --os OS --hours H [H ...] [--term T ...] [--start YYYY-MM-DD] [--region R]
+                   [--project DIR]
 
 The API is public and needs no key, so a working session runs every command here. Every answer is one of three
 states (awb/jobs.py): records, empty (the API answered and holds none) or unknown (no usable answer, with the
@@ -26,7 +28,18 @@ A row with the id TOTAL carries the grand total. Every price is fetched again an
 cent. The rules come from the knowledge base and name their entries: reserved rates are flat monthly values
 (KB-T5E6, KB-BH5O), a term the API carries no rate for is an error (KB-T5E6, KB-HSTO), the public calculator
 counts 720 hours a month (KB-YNDP), the OS decides the tier. Before a sheet is checked, the check plants wrong
-rows against the same records and refuses to run when it misses one of them.
+rows against the same records and refuses to run when it misses one of them. A sheet with a reserved row gets a note
+that Reserved is a pooled monthly contingent per billing item (KB-NPRJ) and a warning when its units equal the
+instance count of a PAYG row of the same record: the units may be set per instance. Neither changes a verdict.
+
+`pool` prices Reserved for many machines that each run part time (KB-NPRJ, awb/tcp/pricepool.py): the record of one
+billing item (flavor plus OS) is fetched live and every term asked for (all six when none is given) is priced over
+the pooled hours H of a month, one value or one per month of the term, in 730 h months or the calendar months from
+`--start`. A term with the rate 0 is not offered and refused when it was asked for. Each term prints the best unit
+count n over the term, the monthly figures, the term total against Open Elastic, the threshold R / PAYG and the fixed
+notes: the open minimum order volume, the lead time, the billing item, the expiring hours and for a GPU flavor the
+open conflict KB-NAAF. Inside a project (`--project`, else the one around the current folder) the totals are
+recorded with awb calc as K-N. pricepool is command only, so it is loaded by name (deploy.DYNAMIC).
 
 This module belongs to one platform and sits below the neutral core, which never imports it (T-88).
 `AWB_PRICE_API` (tests) replaces the address of the API; the work user of the seal always uses the public address.
@@ -49,7 +62,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any, Callable
 
-from awb import config, jobs
+from awb import calc, config, jobs
 
 API = "https://calculator.otc-service.com/en/open-telekom-price-api/"
 API_ENV = "AWB_PRICE_API"
@@ -478,6 +491,7 @@ class RowResult:
     notes: list[str] = field(default_factory=list)
     total: Decimal | None = None    # recomputed from the API
     detail: str = ""
+    record: str = ""                # the id of the record the row was checked against
 
 
 def _label(row: dict) -> str:
@@ -560,6 +574,7 @@ def check_row(row: dict, fetch_region: Callable[[str], Fetch], *, today: datetim
                             % (len(found), ", ".join(sorted({r.os or "-" for r in found}))))
         return res
     rec = found[0]
+    res.record = rec.id
     if row.get("os") and row["os"].strip().lower() != rec.os.strip().lower():
         res.problems.append("OS unit: sheet %s, API %s; the OS decides the tier" % (row["os"], rec.os or "-"))
     api = rec.price(term)
@@ -688,6 +703,7 @@ def check_sheet(path: Path, *, fetcher: Callable[..., Fetch] = fetch, today: dat
                          fetches, notes)
     if not tested and all(r.verdict != "invalid" for r in report.rows):
         report.notes.append("the self-test did not run: no region answered with records")
+    report.notes += pool_notes(positions, report.rows)
     if totals:
         t = totals[0]
         g = RowResult(t["line"], "TOTAL", "ok")
@@ -717,6 +733,37 @@ def check_sheet(path: Path, *, fetcher: Callable[..., Fetch] = fetch, today: dat
     return report
 
 
+POOL_SHEET_NOTE = ("Reserved is a pooled monthly contingent per billing item (flavor plus OS), not a rate per "
+                   "instance: count the units with awb price pool (KB-NPRJ)")
+
+
+def _term_of(row: dict) -> str:
+    return (row.get("term") or "PAYG").strip().upper()
+
+
+def pool_notes(rows: list[dict], results: list[RowResult]) -> list[str]:
+    """One note when the sheet has a reserved row and a warning for each reserved row whose units equal the
+    instance count (the quantity) of a PAYG row of the same record. Notes only: no verdict changes for them."""
+    pairs = list(zip(rows, results))
+    reserved = [(row, res) for row, res in pairs if _term_of(row) in RESERVED]
+    if not reserved:
+        return []
+    out = [POOL_SHEET_NOTE]
+    payg = [(row, res) for row, res in pairs if _term_of(row) == "PAYG" and res.record]
+    for row, res in reserved:
+        units = parse_number(row.get("quantity", ""))
+        if not res.record or units is None:
+            continue
+        for other, other_res in payg:
+            count = parse_number(other.get("quantity", ""))
+            if other_res.record == res.record and count is not None and count.value == units.value:
+                out.append("line %d: warning: the %s units (%s) equal the instance count of the PAYG line %d of the "
+                           "same billing item; the units may be set per instance, not by the pool rule (KB-NPRJ, "
+                           "awb price pool)" % (row["line"], _term_of(row), calc.text(units.value), other["line"]))
+                break
+    return out
+
+
 def format_report(report: SheetReport, name: str) -> list[str]:
     fetched = ", ".join("%s: %s" % (reg, f.listing.describe()) for reg, f in sorted(report.fetches.items()))
     first = next(iter(report.fetches.values()), None)
@@ -734,6 +781,163 @@ def format_report(report: SheetReport, name: str) -> list[str]:
     c = report.counts()
     out.append("result: %s" % ", ".join("%d %s" % (c[v], v) for v in c))
     return out
+
+
+# --------------------------------------------------------------------------- Reserved for many machines
+
+
+POOL_NOTES = (
+    "open point: Reserved and Reserved Upfront need a minimum order volume agreed with Telekom Sales; it is not "
+    "known here (KB-B2JD)",
+    "lead time: five working days through sales or the Support Center; Reserved allows a switch to the next higher "
+    "flavor, Upfront none (KB-KM2G)",
+    "the billing item is the flavor plus the OS: Windows and Linux of one flavor are two items, never pooled "
+    "together; open Linux derivatives of one flavor share one (KB-SFB4)",
+    "the contingent of a month is days x 24 h per unit; unused hours expire, use beyond the contingent and all use "
+    "after the term run Open Elastic; no auto renewal (KB-UD2I, KB-LWOH, KB-B2JD)",
+)
+GPU_NOTE = ("GPU flavor: whether a stopped GPU flavor is billed is an open conflict (KB-NAAF); priced by the service "
+            "description and the ECS docs (a stopped GPU flavor is billed for its disks only) until Telekom Sales "
+            "answers")
+_GPU_FAMILY_RE = re.compile(r"^(?:g|p|pi)\d+[a-z]*$")
+
+
+def _pool_module():
+    """awb/tcp/pricepool.py, loaded by name: it is command only and the units that import this module never reach
+    it (deploy.DYNAMIC)."""
+    import importlib
+
+    return importlib.import_module("awb.tcp.pricepool")
+
+
+def is_gpu(rec: Record) -> bool:
+    """A GPU flavor: the families g and p (g7v, p2s, pi2) or GPU in the name of the record."""
+    return bool(_GPU_FAMILY_RE.match(rec.flavor.split(".")[0].lower())) or "gpu" in rec.name.lower()
+
+
+def pool_record(f: Fetch, flavor: str, os_text: str) -> Record:
+    """The one record of the billing item flavor plus OS. Raises PriceError for none or several: Windows and Linux of
+    one flavor are two items and are never pooled together (KB-SFB4)."""
+    same = select(f.records, flavor=flavor)
+    if not same:
+        raise PriceError("no record of the flavor %s; the API covers part of the catalog (KB-AI2E, KB-RMW2)" % flavor)
+    cands = select(same, os_text=os_text)
+    if len(cands) > 1:
+        cands = [r for r in cands if r.os.strip().lower() == os_text.strip().lower()] or cands
+    if not cands:
+        raise PriceError("no record of the flavor %s has an OS unit like %s (it has: %s)"
+                         % (flavor, os_text, ", ".join(sorted({r.os or "-" for r in same}))))
+    if len(cands) > 1:
+        raise PriceError("%d records match (OS units: %s); each OS unit is a billing item of its own and is priced "
+                         "apart, never pooled together (KB-SFB4): give --os that fits one"
+                         % (len(cands), ", ".join(sorted({r.os or "-" for r in cands}))))
+    return cands[0]
+
+
+def _h(value: Decimal) -> str:
+    return calc.text(value.quantize(CENT, ROUND_HALF_UP))
+
+
+def _m(value: Decimal) -> str:
+    return calc.text(value, 2)
+
+
+def pool_term_lines(p, rec: Record, f: Fetch) -> list[str]:
+    """The table of one term of a pricepool.Pool."""
+    src = "price API, fetched %s" % f.fetched_at
+    best = p.best
+    kind = "upfront total of the term divided by its months" if p.upfront else "per unit and month"
+    out = ["%s: %s %s %s, PAYG %s %s per h (%s)" % (p.term, p.rate, rec.currency or "EUR", kind, p.payg,
+                                                     rec.currency or "EUR", src),
+           "  best n = %d unit(s), chosen once over the %d month(s) of the term, never per instance"
+           % (best.units, len(p.months)),
+           "  threshold %s / PAYG = %s h: one more unit pays off when the rest of a month is above it"
+           % (p.term, calc.text(p.threshold.quantize(Decimal("0.1"), ROUND_HALF_UP))),
+           "  month model: %s" % p.model,
+           "  open point: the minimum order volume of %s is agreed with Telekom Sales (KB-B2JD)" % p.term]
+    head =("month", "hours", "pooled", "units", "covered", "rest", "reserved", "open elastic", "total",
+            "elastic only", "saving")
+    rows = [head]
+    shown = best.months[:1] if p.average else best.months
+    for fig in shown:
+        rows.append(("each month" if p.average else fig.month.label, _h(fig.month.hours), _h(fig.month.pooled),
+                     str(fig.units), _h(fig.covered), _h(fig.rest), _m(fig.reserved), _m(fig.elastic),
+                     _m(fig.total), _m(fig.elastic_only), _m(fig.saving)))
+    widths = [max(len(r[i]) for r in rows) for i in range(len(head))]
+    out += ["  " + "  ".join(c.rjust(w) if i else c.ljust(w) for i, (c, w) in enumerate(zip(r, widths)))
+            for r in rows]
+    out.append("  term total (%d month(s), %d unit(s)): %s against %s Open Elastic only, saving %s (%s)"
+               % (len(p.months), best.units, _m(best.total), _m(best.elastic_only), _m(best.saving), src))
+    others = ["n=%d %s" % (c.units, _m(c.total)) for c in p.candidates if c.units != best.units]
+    if others:
+        out.append("  other n over the term: %s" % ", ".join(others))
+    if not p.average:
+        alone = sorted({(p.best_alone(i), fig.month.label) for i, fig in enumerate(best.months)
+                        if p.best_alone(i) != best.units})
+        for n, label in alone:
+            out.append("  %s alone would take n = %d; n is booked for the whole term, so every month of the term "
+                       "decides" % (label, n))
+    if p.upfront:
+        out.append("  upfront: the whole upfront total of %d unit(s) x %s x %d months = %s is invoiced at the start of "
+                   "the term (KB-DXYK)" % (best.units, p.rate, p.term_months, _m(p.upfront_total())))
+    return out
+
+
+def pool_report(rec: Record, f: Fetch, hours: list[Decimal], terms: list[str], *, asked: bool,
+                start: datetime.date | None = None) -> tuple[list[str], list, int]:
+    """(the lines, the pools priced, the exit code) for one billing item. A term with the rate 0 is not offered:
+    refused (exit 1) when it was asked for, listed when the terms are all six by default."""
+    pp = _pool_module()
+    gpu = is_gpu(rec)
+    out = ["awb price pool: %s %s %s, %s, record %s; %s" % (rec.service, rec.flavor, rec.os or "-", rec.region,
+                                                             rec.id, f.source_line()),
+           "billing item: flavor %s plus OS %s; pooled hours of all its instances: %s a month"
+           % (rec.flavor, rec.os or "-", " / ".join(calc.text(h) for h in hours))]
+    pools = []
+    code = 0
+    for term in terms:
+        out.append("")
+        try:
+            p = pp.pool(term, rec.price("PAYG"), rec.price(term), hours[0] if len(hours) == 1 else hours, start)
+        except pp.NotOffered as err:
+            out.append("%s%s" % ("refused: " if asked else "", err))
+            code = max(code, 1 if asked else 0)
+            continue
+        except pp.PoolError as err:
+            out.append("%s: %s" % (term, err))
+            code = 2
+            continue
+        pools.append(p)
+        out += pool_term_lines(p, rec, f)
+    out += ["", "notes:"] + ["  %s" % n for n in POOL_NOTES]
+    if gpu:
+        out.append("  %s" % GPU_NOTE)
+    out.append("  a record does not show that the item can still be ordered (KB-XELM)")
+    return out, pools, code
+
+
+def record_pool(project: Path, pools: list) -> list[str]:
+    """Per term: the monthly total (730 h model), the term total and the saving over the term, recorded with awb calc.
+    Raises calc.CalcError when an expression does not give its figure."""
+    ids = []
+    for p in pools:
+        b = p.best
+        lab = "pool %s" % p.term.lower()
+        items = []
+        if p.average:
+            fig = b.months[0]
+            expr = "round(%d * %s, 2) + round(%s * %s, 2)" % (fig.units, calc.text(p.rate), calc.text(fig.rest),
+                                                              calc.text(p.payg))
+            items.append((expr, fig.total, lab + " monthly total"))
+            items.append(("%s * %d" % (_m(fig.total), len(p.months)), b.total, lab + " term total"))
+        else:
+            items.append(("sum(%s)" % ", ".join(_m(m.total) for m in b.months), b.total, lab + " term total"))
+        items.append(("%s - %s" % (_m(b.elastic_only), _m(b.total)), b.saving, lab + " term saving"))
+        for expr, value, label in items:
+            if calc.evaluate(expr) != value:
+                raise calc.CalcError("the recorded expression differs from the figure")
+            ids.append(calc.record(project, expr, [], _m(value), label).id)
+    return ids
 
 
 # --------------------------------------------------------------------------- command line
@@ -835,8 +1039,58 @@ def _cmd_check(args, job) -> int:
     return report.exit_code()
 
 
+def _cmd_pool(args, job) -> int:
+    hours = []
+    for text in args.hours:
+        n = parse_number(text)
+        if n is None or n.value < 0:
+            print("awb price pool: --hours takes numbers of zero or more with a decimal point", file=sys.stderr)
+            return 2
+        hours.append(n.value)
+    start = None
+    if args.start:
+        try:
+            start = datetime.date.fromisoformat(args.start)
+        except ValueError:
+            print("awb price pool: --start is YYYY-MM-DD", file=sys.stderr)
+            return 2
+    terms = [t.strip().upper() for t in args.term] or list(RESERVED)
+    bad = [t for t in terms if t not in RESERVED]
+    if bad:
+        print("awb price pool: a term is one of %s" % ", ".join(RESERVED), file=sys.stderr)
+        return 2
+    f = fetch(args.service, args.region, job=job)
+    if f.listing.state == jobs.UNKNOWN:
+        print("awb price pool: %s, %s: unknown: %s" % (f.source_line(), args.region, f.listing.reason))
+        return 2
+    try:
+        rec = pool_record(f, args.flavor, args.os)
+    except PriceError as err:
+        if select(f.records, flavor=args.flavor):
+            raise
+        g = fetch(None, args.region, job=job)       # a flavor can sit under another service name (KB-3KHR)
+        if g.listing.state != jobs.LIST or not select(g.records, flavor=args.flavor):
+            raise PriceError("%s under sn=%s, %s" % (err, args.service, args.region)) from None
+        f = g
+        rec = pool_record(f, args.flavor, args.os)
+    lines, pools, code = pool_report(rec, f, hours, terms, asked=bool(args.term), start=start)
+    for line in lines:
+        print(line)
+    folder = config.scope_root(Path(args.project or Path.cwd()).resolve(), strict=True)
+    if args.project and folder is None:
+        print("  the totals are not recorded: --project is not inside a project (no SCOPE.md)")
+    elif folder is not None and pools:
+        try:
+            ids = record_pool(folder, pools)
+            print("  recorded %s (evidence for the review: calc:K-N)" % ", ".join(ids))
+        except (calc.CalcError, OSError) as err:
+            print("  the totals are not recorded (%s)" % (err if isinstance(err, calc.CalcError)
+                                                           else type(err).__name__))
+    return code
+
+
 def main(argv: list[str] | None = None) -> int:
-    """`awb price find|snapshot|diff|check`. Exit 0 ok, 1 findings (no match, a difference, a change), 2 unknown,
+    """`awb price find|snapshot|diff|check|pool`. Exit 0 ok, 1 findings (no match, a difference, a change), 2 unknown,
     usage or error."""
     from awb.cli import SafeParser
 
@@ -860,6 +1114,17 @@ def main(argv: list[str] | None = None) -> int:
     c = sub.add_parser("check", help="check a price sheet to the cent")
     c.add_argument("sheet")
     c.add_argument("--max-age", type=int, default=MAX_AGE_DAYS)
+    p = sub.add_parser("pool", help="Reserved for many machines: the units of one billing item over pooled hours")
+    p.add_argument("service")
+    p.add_argument("--flavor", required=True)
+    p.add_argument("--os", required=True, help="the OS unit: each OS of a flavor is a billing item of its own")
+    p.add_argument("--hours", nargs="+", required=True,
+                   help="pooled hours of all instances per month: one value or one per month of the term")
+    p.add_argument("--term", nargs="+", default=[], help="R12, R24, R36, RU12, RU24, RU36 (default: all six)")
+    p.add_argument("--start", default=None, help="YYYY-MM-DD: the calendar months of the term (default: 730 h each)")
+    p.add_argument("--region", default=DEFAULT_REGION)
+    p.add_argument("--project", default=None, help="the project that records the totals (default: the one around "
+                                                    "the current folder)")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -877,6 +1142,9 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_snapshot(args, job)
         if args.command == "diff":
             return _cmd_diff(args, job)
+        if args.command == "pool":
+            args.region = check_region(args.region)
+            return _cmd_pool(args, job)
         return _cmd_check(args, job)
     except PriceError as err:
         print("awb price: %s" % err, file=sys.stderr)

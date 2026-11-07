@@ -410,6 +410,17 @@ flavor, region, quantity, hours, pricing mode and an assumption per line), refus
 prices every line live and writes an Excel workbook with the figures as formulas, the assumption of each line in its
 own column, a sheet of sources (snapshot time, region, service description revision) and a Markdown summary to paste
 into a mail. `--against` an older version adds a sheet of what changed; `awb pricebook diff` shows it as text.
+A line item with `mode: pool`, `pooled_hours: H` and `term: r24` (optional `start:`) is Reserved for many machines
+that each run part time: the workbook gets two lines, the Reserved units n chosen over the term and the Open Elastic
+rest hours above them, with an assumption that names the pooled hours, the month model and the open minimum order
+volume.
+
+**Reserved for many machines.** Reserved is a monthly contingent per billing item (flavor plus OS), not per instance.
+`awb price pool ecs --flavor F --os Windows --hours 2720 --term R24` fetches the record live and counts the units n
+once over the term from the pooled hours of all instances (730 h months or the calendar months from `--start`): the
+monthly figures, the term total against Open Elastic, the threshold R / PAYG and the open points (minimum order
+volume, lead time, the stopped-GPU question for a GPU flavor). A term with the rate 0 is not offered. `awb price
+check` notes the pool rule on a sheet with a reserved line and warns when the units equal the instance count.
 
 **Migrations in phases.** `awb migrate` takes an Azure inventory (a sanitised copy of the customer's spreadsheet) to
 a reviewed plan: discover, map, estimate, plan, review. Every machine gets the nearest TCP flavor that is not smaller
@@ -663,6 +674,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | read public documentation | `awb doc fetch https://learn.microsoft.com/...`, `awb doc hosts` | the page as text with the line `source: URL, fetched YYYY-MM-DD HH:MM UTC`, fetched by the key service on the owner's side (see "Public documentation through the key service") |
 | a price | `awb price find ecs --grep s3.large` | the live records with every term |
 | check a price sheet | `awb price check sheet.csv` | every price fetched again, every total recomputed |
+| Reserved for many machines | `awb price pool ecs --flavor F --os Windows --hours 2720` | the units of one billing item chosen over the term, against Open Elastic |
 | a price workbook | `awb pricebook build estimate.txt --lang de` | the workbook (.xlsx) and a summary (.md) for a mail; `awb pricebook diff OLD NEW` compares versions |
 | compute | `awb calc "730 * 0.0418 * 3" --places 2` | the exact result, recorded as `K-N` for the review |
 | the test tenants | `awb cloud tenants`, `awb tenant now test-1` | the tenants by alias and what runs there |

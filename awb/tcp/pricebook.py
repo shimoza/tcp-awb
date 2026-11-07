@@ -36,6 +36,14 @@ assumption.de and assumption.en for a workbook in that language). A line that co
 blank belongs to the key above. A line starting with # is a comment. In JSON the same keys stand in a list `lines`
 (each with a `label`) and `assumption_de` replaces `assumption.de`.
 
+Reserved for many machines that each run part time is `mode: pool` with `pooled_hours: H` (the hours of all instances
+of the billing item, flavor plus OS, in a month), `term: r24` (r12 to ru36) and optional `start: YYYY-MM-DD`; the
+quantity is then the number of instances and may be left out, hours stay empty. The unit count n is chosen once over
+the term as `awb price pool` does (awb/tcp/pricepool.py, KB-NPRJ): 730 h months or the calendar months from the start.
+`build` writes such an item as two lines, `<item> (R24)` with n units at the flat monthly rate and `<item> (Open
+Elastic)` with quantity 1 and the rest hours above the units (with a start: the rest hours of the term over its
+months), each with an assumption that names the pooled hours, the month model and the open minimum order volume.
+
 `build` refuses a service the service description of the repository does not offer (awb/offered.py), then asks the
 public price API once per region (awb/tcp/price.py) and prices every line from the record it found, never from
 memory. A flavor or id the API does not hold, a flavor that fits several records and a reserved term without a rate
@@ -68,12 +76,13 @@ import json
 import re
 import sys
 from dataclasses import dataclass, field
-from decimal import Decimal, DecimalException
+from dataclasses import replace
+from decimal import ROUND_HALF_UP, Decimal, DecimalException
 from pathlib import Path
 from typing import Callable
 
 from awb import calc, config, jobs, offered, xlsxlite
-from awb.tcp import price
+from awb.tcp import price, pricepool
 
 LANGS = ("en", "de")
 REGIONS = price.SNAPSHOT_REGIONS
@@ -95,7 +104,8 @@ _MODE_UPFRONT_RE = re.compile(r"^(?:ru(12|24|36)|(?:reserved)?upfront(12|24|36)|
 _MODE_RESERVED_RE = re.compile(r"^(?:r|reserved)(12|24|36)$")
 _TOP_KEYS = ("title", "region", "language")
 _LINE_KEYS = ("service", "api", "flavor", "os", "id", "region", "quantity", "hours", "mode", "assumption",
-              "assumption_de", "assumption_en")
+              "assumption_de", "assumption_en", "pooled_hours", "term", "start")
+_POOL_KEYS = ("pooled_hours", "term", "start")
 
 
 class PricebookError(Exception):
@@ -227,6 +237,10 @@ class Line:
     assumption: str
     assumption_de: str
     assumption_en: str
+    pool: bool = False                     # mode: pool, `term` is the reserved term of the pool
+    pooled_hours: Decimal | None = None
+    start: str = ""
+    part_of: str = ""                      # the item a line of a pool was written from
 
     def sn(self) -> str:
         """The service name of the price API: `api`, else the service when it reads like one."""
@@ -368,6 +382,32 @@ def _decimal_of(value: str, key: str, where: str, problems: list[str]) -> Decima
     return number
 
 
+def pool_labels(label: str, term: str) -> tuple[str, str]:
+    """The item names of the two lines a pool is written as: the Reserved units and the Open Elastic rest."""
+    return "%s (%s)" % (label, term), "%s (Open Elastic)" % label
+
+
+def _pool_settings(body: dict, where: str, problems: list[str]) -> tuple[str | None, Decimal | None, str]:
+    """(the reserved term, the pooled hours, the start) of a line in mode pool."""
+    term = mode_term(body.get("term", "")) if body.get("term") else None
+    if term not in price.RESERVED:
+        problems.append("%smode pool needs term: r12, r24, r36, ru12, ru24 or ru36" % where)
+        term = None
+    pooled = None
+    if not body.get("pooled_hours"):
+        problems.append("%smode pool needs pooled_hours, the hours of all instances in a month" % where)
+    else:
+        pooled = _decimal_of(body["pooled_hours"], "pooled_hours", where, problems)
+    start = body.get("start", "").strip()
+    if start:
+        try:
+            datetime.date.fromisoformat(start)
+        except ValueError:
+            problems.append("%sstart is YYYY-MM-DD" % where)
+            start = ""
+    return term, pooled, start
+
+
 def parse_spec(data: bytes, name: str = "specification") -> Spec:
     """The specification in `data`. Raises SpecError with every problem found."""
     problems: list[str] = []
@@ -422,8 +462,9 @@ def parse_spec(data: bytes, name: str = "specification") -> Spec:
             problems.append("%sid is a price record id" % where)
         if line_region not in REGIONS:
             problems.append("%sthe region is one of %s" % (where, ", ".join(REGIONS)))
+        pool = "mode" in body and _key(body["mode"]) == "pool"
         quantity = _decimal_of(body["quantity"], "quantity", where, problems) if "quantity" in body else None
-        if "quantity" not in body:
+        if "quantity" not in body and not pool:
             problems.append("%squantity is needed" % where)
         hours = None
         if body.get("hours"):
@@ -432,18 +473,33 @@ def parse_spec(data: bytes, name: str = "specification") -> Spec:
                 problems.append("%shours is more than the %s a long month has" % (where, MAX_HOURS))
                 hours = None
         term = "PAYG"
-        if "mode" in body:
-            parsed = mode_term(body["mode"])
-            if parsed is None:
-                problems.append("%smode is payg, r12, r24, r36, ru12, ru24 or ru36" % where)
-            else:
-                term = parsed
+        pooled, start = None, ""
+        if pool:
+            term, pooled, start = _pool_settings(body, where, problems)
+            for derived in pool_labels(label, term or "R12"):
+                if _key(derived) in seen:
+                    problems.append("%sthe item name %s of its pool line is used twice" % (where, derived))
+                seen.add(_key(derived))
+            if hours is not None:
+                problems.append("%shours stay empty in mode pool: give pooled_hours" % where)
+            if quantity is None and "quantity" not in body:
+                quantity = Decimal(0)
+        else:
+            if "mode" in body:
+                parsed = mode_term(body["mode"])
+                if parsed is None:
+                    problems.append("%smode is payg, r12, r24, r36, ru12, ru24, ru36 or pool" % where)
+                else:
+                    term = parsed
+            for key in _POOL_KEYS:
+                if key in body:
+                    problems.append("%s%s belongs to mode pool" % (where, key))
         texts = {k: _clean_text(body.get(k, ""), k.replace("_", "."), MAX_TEXT, problems, where)
                  for k in ("assumption", "assumption_de", "assumption_en")}
-        if quantity is None:
+        if quantity is None or term is None or (pool and pooled is None):
             continue
         lines.append(Line(label, service, api, flavor, os_text, rec_id, line_region, quantity, hours, term,
-                          texts["assumption"], texts["assumption_de"], texts["assumption_en"]))
+                          texts["assumption"], texts["assumption_de"], texts["assumption_en"], pool, pooled, start))
     if problems:
         raise SpecError(problems)
     return Spec(title, region, language, tuple(lines), hashlib.sha256(data).hexdigest(), Path(name).name)
@@ -508,8 +564,8 @@ class Priced:
     notes: list
 
 
-def price_line(line: Line, f: price.Fetch) -> Priced:
-    """One line against the records of its region. Raises LineProblem."""
+def find_record(line: Line, f: price.Fetch) -> price.Record:
+    """The one record of a line among the records of its region. Raises LineProblem."""
     records = f.records
     sn = line.sn()
     if line.id:
@@ -542,6 +598,12 @@ def price_line(line: Line, f: price.Fetch) -> Priced:
                               % (len(cands), ", ".join(sorted({r.os or "-" for r in cands})),
                                  ", ".join(sorted(r.id for r in cands)[:6])))
         rec = cands[0]
+    return rec
+
+
+def price_line(line: Line, f: price.Fetch) -> Priced:
+    """One line against the records of its region. Raises LineProblem."""
+    rec = find_record(line, f)
     term = line.term
     rate = rec.price(term)
     if rate is None:
@@ -566,9 +628,75 @@ def price_line(line: Line, f: price.Fetch) -> Priced:
     if rec.tier_group:
         notes.append("tiered rate, group %s, from %s up to %s; the rate depends on the quantity"
                      % (rec.tier_group, rec.tier_from, rec.tier_up_to))
-    monthly = calc.evaluate("round(p * q * h, 2)", {"p": rate, "q": line.quantity, "h": hours or Decimal(1)})
+    monthly = calc.evaluate("round(p * q * h, 2)", {"p": rate, "q": line.quantity,
+                                                    "h": Decimal(1) if hours is None else hours})
     yearly = calc.evaluate("m * 12", {"m": monthly})
     return Priced(line, rec, rate, rec.unit, hours, default_used, monthly, yearly, notes)
+
+
+POOL_TEXT = {
+    "en": {"units": "Pooled Reserved (KB-NPRJ): {hours} h a month of all {instances}instances of the billing item "
+                    "{item}; {n} unit(s) of {term} chosen once over the term in {model}. The minimum order volume "
+                    "is an open point with Telekom Sales.",
+           "rest": "Open Elastic rest above {n} unit(s) of {term}: {rest} h of the {hours} h pooled a month in "
+                   "{model}. The minimum order volume is an open point with Telekom Sales.",
+           "average": "730 h months (the average)",
+           "calendar": "the calendar months from {start} (the rest hours of the term over its {months} months)"},
+    "de": {"units": "Gepoolte Reservierung (KB-NPRJ): {hours} h im Monat aller {instances}Instanzen der "
+                    "Abrechnungsposition {item}; {n} Einheit(en) {term} einmal für die Laufzeit gewählt, {model}. "
+                    "Die Mindestabnahme ist mit Telekom Sales offen.",
+           "rest": "Open-Elastic-Rest über {n} Einheit(en) {term}: {rest} h der {hours} h gepoolten Stunden im "
+                   "Monat, {model}. Die Mindestabnahme ist mit Telekom Sales offen.",
+           "average": "Monate zu 730 h (der Durchschnitt)",
+           "calendar": "Kalendermonate ab {start} (die Reststunden der Laufzeit auf ihre {months} Monate verteilt)"},
+}
+
+
+def _pool_text(lang: str, key: str, own: str, *, start, months: int, instances: str, **values) -> str:
+    """The assumption of one line of a pool in `lang`, after the assumption the specification gives."""
+    T = POOL_TEXT[lang]
+    model = T["average"] if start is None else T["calendar"].format(start=start, months=months)
+    text = T[key].format(model=model, instances=instances + " " if instances else "", **values)
+    return ("%s %s" % (own, text)).strip()
+
+
+def pool_lines(line: Line, f: price.Fetch) -> list[Priced]:
+    """A line in mode pool as two priced lines: the Reserved units n chosen over the term (awb/tcp/pricepool.py) at
+    the flat monthly rate and the Open Elastic rest hours above them. Raises LineProblem."""
+    rec = find_record(line, f)
+    start = datetime.date.fromisoformat(line.start) if line.start else None
+    try:
+        p = pricepool.pool(line.term, rec.price("PAYG"), rec.price(line.term), line.pooled_hours, start)
+    except pricepool.PoolError as err:
+        raise LineProblem(str(err)) from None
+    if not price.is_hourly(rec.unit):
+        raise LineProblem("mode pool takes an hourly rate; the unit of this record is %s" % (rec.unit or "-"))
+    n = p.best.units
+    if p.average:
+        rest = p.best.months[0].rest
+    else:
+        rest = calc.evaluate("round(r / m, 2)", {"r": sum((m.rest for m in p.best.months), Decimal(0)),
+                                                 "m": Decimal(p.term_months)})
+    values = dict(hours=calc.text(line.pooled_hours), item="%s %s" % (rec.flavor or rec.id, rec.os or "-"),
+                  n=n, term=line.term, rest=calc.text(rest), start=start, months=p.term_months,
+                  instances=calc.text(line.quantity) if line.quantity else "")
+    texts = {}
+    for key in ("units", "rest"):
+        texts[key] = {"assumption": _pool_text("en", key, line.assumption, **values),
+                      "assumption_en": _pool_text("en", key, line.assumption_en or line.assumption, **values),
+                      "assumption_de": _pool_text("de", key, line.assumption_de or line.assumption, **values)}
+    units_label, rest_label = pool_labels(line.label, line.term)
+    units = replace(line, label=units_label, quantity=Decimal(n), hours=None, pool=False, pooled_hours=None,
+                    start="", part_of=line.label, **texts["units"])
+    elastic = replace(line, label=rest_label, term="PAYG", quantity=Decimal(1), hours=rest, pool=False,
+                      pooled_hours=None, start="", part_of=line.label, **texts["rest"])
+    out = [price_line(units, f), price_line(elastic, f)]
+    out[0].notes.append("minimum order volume of %s: an open point with Telekom Sales (KB-B2JD)" % line.term)
+    if p.upfront:
+        out[0].notes.append("the whole upfront total of the term is invoiced at its start (KB-DXYK)")
+    if price.is_gpu(rec):
+        out[0].notes.append(price.GPU_NOTE)
+    return out
 
 
 FetchRegion = Callable[[str], price.Fetch]
@@ -588,7 +716,7 @@ def price_spec(spec: Spec, fetch_region: FetchRegion, skip: dict | None = None) 
             problems[line.label] = "the price API holds no records for %s" % line.region
             continue
         try:
-            priced.append(price_line(line, f))
+            priced += pool_lines(line, f) if line.pool else [price_line(line, f)]
         except LineProblem as err:
             problems[line.label] = str(err)
     return priced, problems
@@ -656,8 +784,8 @@ def _key(label: str) -> str:
 
 
 def _spec_fields(line: Line, lang: str) -> dict:
-    f: dict = {"service": line.service, "region": line.region, "mode": line.term, "quantity": line.quantity,
-               "assumption": line.assumption_for(lang)}
+    f: dict = {"service": line.service, "region": line.region, "mode": ("pool " if line.pool else "") + line.term,
+               "quantity": line.quantity, "assumption": line.assumption_for(lang)}
     if line.flavor:
         f["flavor"] = line.flavor
     if line.os:
@@ -681,11 +809,13 @@ def _priced_fields(p: Priced, lang: str) -> dict:
 
 def book_of_spec(spec: Spec, priced: list[Priced] | None, problems: dict, lang: str) -> Book:
     """A specification as a book. `priced` None: not priced (only the settings of the lines)."""
-    by_label = {p.line.label: p for p in (priced or [])}
     lines = {}
     for line in spec.lines:
-        p = by_label.get(line.label)
-        lines[_key(line.label)] = (line.label, _priced_fields(p, lang) if p else _spec_fields(line, lang))
+        parts = [p for p in (priced or []) if line.label in (p.line.label, p.line.part_of)]
+        for p in parts:
+            lines[_key(p.line.label)] = (p.line.label, _priced_fields(p, lang))
+        if not parts:
+            lines[_key(line.label)] = (line.label, _spec_fields(line, lang))
     notes = ["%s: not priced (%s)" % (label, why) for label, why in problems.items()]
     monthly = yearly = None
     if priced is not None and not problems:

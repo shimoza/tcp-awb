@@ -152,6 +152,9 @@ DYNAMIC: dict[tuple[str, str], object] = {
     ("awb/winlab.py", "_session_module"): (),
     # awb files plan reads the keys of the lab bucket and INDEX.md through the platform package, loaded by name
     ("awb/filesplan.py", "_platform"): ("awb.tcp.keys", "awb.tcp.keys_exchange", "awb.tcp.xchg"),
+    # awb price pool loads the pooled Reserved arithmetic by name: the units that import awb/tcp/price.py never reach
+    # it (B-044)
+    ("awb/tcp/price.py", "_pool_module"): (),
     # awb winlab serve is the lab broker (task WL part 4), the unit of seal/awb-winlab.service
     ("awb/winlab.py", "_broker_module"): ("awb.tcp.winbroker",),
 }
@@ -198,6 +201,8 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/web/contract.py": "awb api write|check, writes and checks docs/api/openapi.yaml",
     "awb/tcp/ui.py": "awb ui submit|status|watch, run by the owner; a watch runs as his own background process",
     "awb/tcp/pricebook.py": "awb pricebook build|diff, run in a working session or by the owner",
+    "awb/tcp/pricepool.py": ("the pooled Reserved arithmetic of awb price pool (loaded by name) and of awb pricebook "
+                             "mode: pool, run in a working session or by the owner (B-044)"),
     "awb/tcp/howto.py": "awb howto draft|render, run in a working session or by the owner",
     "awb/pdf.py": ("awb pdf, run in a working session or by the owner; the writer of awb howto render --pdf and of "
                    "HOW-TO.pdf"),

@@ -331,7 +331,8 @@ under six of them.
 | `awb price find --id ID` | one record by its id |
 | `awb price snapshot [--region R]... [--replace]` | keep the whole listing of a region in `~/tcp-shared/prices/tcp/<region>/<date>.json` (default: eu-de, eu-nl, eu-ch2); an empty listing is refused and a snapshot of the same day needs `--replace` |
 | `awb price diff [--region R]` | every price value against the last snapshot, by record id; `awb price diff OLD NEW` compares two snapshots |
-| `awb price check SHEET [--max-age DAYS]` | a price sheet to the cent: every price fetched again, every total and the grand total recomputed, after a self-test with planted wrong rows; a row dated more than `--max-age` days back (default 30) gets a note |
+| `awb price check SHEET [--max-age DAYS]` | a price sheet to the cent: every price fetched again, every total and the grand total recomputed, after a self-test with planted wrong rows; a row dated more than `--max-age` days back (default 30) gets a note; a sheet with a reserved row gets a note that Reserved is a pooled monthly contingent per billing item (KB-NPRJ) and a warning when the units of a reserved row equal the quantity of a PAYG row of the same record, never a refusal |
+| `awb price pool SERVICE --flavor F --os OS --hours H [H ...] [--term T ...] [--start YYYY-MM-DD] [--region R] [--project DIR]` | Reserved for many machines that each run part time (KB-NPRJ): the record of one billing item (flavor plus OS) fetched live; for every term (`--term R12 R24 R36 RU12 RU24 RU36`, default all six) the unit count n chosen once over the term from the pooled hours of all instances (one value or one per month), in 730 h months or the calendar months from `--start` (first and last month pro rata), the monthly figures, the term total against Open Elastic, the threshold R / PAYG and the notes: minimum order volume (open point), five working days lead time, the billing item, expiring hours and the stopped-GPU conflict KB-NAAF for a GPU flavor. A term with the rate 0 is not offered: refused when asked for (exit 1). Upfront terms use RU as the monthly equivalent and say the whole total is invoiced at the start. Inside a project the totals are recorded with `awb calc` |
 
 A sheet is CSV or TSV with a header row and one position per row: `id` (or `service` and `flavor`, with `os` when
 several OS tiers match), `region`, `term` (PAYG, R12, R24, R36, RU12, RU24, RU36), `unit_price`, `quantity`,
@@ -382,7 +383,8 @@ assumption: 500 GB per server.
 | `region` | `eu-de`, `eu-nl` or `eu-ch2`; the setting at the top is the default, which is `eu-de` |
 | `quantity` | a positive number with a decimal point, not a comma |
 | `hours` | hours per month, for an hourly rate only; 720 when left out (the public calculator counts 720). Not allowed for a reserved rate or a monthly unit. At most 744 |
-| `mode` | `payg` (default), `r12`, `r24`, `r36` (reserved) or `ru12`, `ru24`, `ru36` (reserved, up front); also written `pay as you go`, `reserved 12`, `up front 24` |
+| `mode` | `payg` (default), `r12`, `r24`, `r36` (reserved) or `ru12`, `ru24`, `ru36` (reserved, up front); also written `pay as you go`, `reserved 12`, `up front 24`. `pool` is Reserved for many machines that each run part time, with the three keys below |
+| `pooled_hours`, `term`, `start` | mode `pool` only: the hours of all instances of the billing item in a month, the reserved term (`r12` to `ru36`) and an optional start day `YYYY-MM-DD`. The units n are chosen once over the term as `awb price pool` does (730 h months or the calendar months from the start). The item is written as two lines, `<item> (R24)` with n units at the flat monthly rate and `<item> (Open Elastic)` with quantity 1 and the rest hours (with a start: the rest hours of the term over its months), each with an assumption that names the pooled hours, the month model and the open minimum order volume. `quantity` is then the number of instances and may be left out; `hours` stays empty |
 | `assumption` | free text per line; `assumption.de` and `assumption.en` replace it in a workbook of that language |
 
 A line needs a unique item name. The JSON form has the same keys in a list `lines` (each with a `label`), with
@@ -1240,6 +1242,18 @@ every price value against the last snapshot or between two
 check a price sheet to the cent
 - `SHEET`
 - `--max-age MAX_AGE`
+
+### `awb price pool SERVICE --flavor FLAVOR --os OS --hours HOURS [--term TERM] [--start START] [--region REGION] [--project PROJECT]`
+
+Reserved for many machines: the units of one billing item over pooled hours
+- `SERVICE`
+- `--flavor FLAVOR`
+- `--os OS`: the OS unit: each OS of a flavor is a billing item of its own
+- `--hours HOURS`: pooled hours of all instances per month: one value or one per month of the term
+- `--term TERM`: R12, R24, R36, RU12, RU24, RU36 (default: all six)
+- `--start START`: YYYY-MM-DD: the calendar months of the term (default: 730 h each)
+- `--region REGION`
+- `--project PROJECT`: the project that records the totals (default: the one around the current folder)
 
 ### `awb pricebook build SPEC [--out OUT] [--lang LANG] [--against AGAINST] [--no-record] [--project PROJECT]`
 
