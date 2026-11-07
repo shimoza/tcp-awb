@@ -418,6 +418,17 @@ def no_real_vault():
 
 
 @pytest.fixture(autouse=True)
+def runner_umask():
+    """The umask of the build runner (022) for every test: a shell with 002 made fresh clones group-writable and the
+    dataset's owner-only check refused them, red in a session and green in the runner (2026-11-07)."""
+    old = os.umask(0o022)
+    try:
+        yield
+    finally:
+        os.umask(old)
+
+
+@pytest.fixture(autouse=True)
 def invented_blocklist(tmp_path_factory, monkeypatch):
     """The invented blocklist of the tests in place of the host's and the owner's, and no host file: a test sees the
     same Workbench on a sealed host as on a plain one."""
@@ -428,6 +439,10 @@ def invented_blocklist(tmp_path_factory, monkeypatch):
     # `pass` that exits 1 comes first on PATH, so no test reaches the real password store or the real OBS.
     for name in [k for k in os.environ if k.startswith("AWB_")]:
         monkeypatch.delenv(name)
+    # nor the markers of the assistant session the suite may be started from (vault.in_assistant_session): a test
+    # that needs one sets it itself, so the suite reads the same in a session as in the runner (2026-11-07)
+    for name in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"):
+        monkeypatch.delenv(name, raising=False)
     stub = none / "bin"
     stub.mkdir(parents=True, exist_ok=True)
     (stub / "pass").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
