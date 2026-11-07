@@ -1082,6 +1082,9 @@ step_work_jobs() {
         done
     done
     run systemctl daemon-reload
+    # the folder of awb-platform-status (B-042): the unit runs with RestrictSUIDSGID=yes and cannot give a new folder
+    # of the shared side its setgid bit, so its first run failed until the folder was there (2026-11-07)
+    run install -d -o "$WORK_USER" -g "$WORK_GROUP" -m 2750 "$work_home/tcp-shared/platform-status"
     for name in $WORK_JOBS ${OWNER_JOBS:-}; do
         try_run systemctl enable --now "$name.timer"
     done
