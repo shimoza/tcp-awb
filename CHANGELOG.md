@@ -6,6 +6,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 ## Week 45, 2026-11-02 to 2026-11-08 (in progress)
 ### Added
 
+- The console page uses Inter (rsms/inter 4.1, InterVariable.woff2, SIL OFL 1.1, the licence in `awb/tcp/web/fonts/`): the gateway serves `/fonts/InterVariable.woff2` itself from `/srv/awb-web/fonts/`, only when the file has the SHA-256 pinned in the gateway (a binary never enters the repository), before the login, with a long cache, since the page's CSP allows a font only from its own origin; system fonts stay as the fallback.
+
 - Every screen of the console in the pult style: the project page has one status (no third copy), a header with the goal, the code and the state, four numbers, the tabs in one card and the chat beside it (sticky); panels, buttons, tables, tabs, menu and top bar share one denser set of rules in both themes.
 
 - The console page in the "pult" design (owner's choice of 2026-11-07): dark by default with the orange and blue of his code editor (#f0b167 accent, #82b6fc codes), light keeps the Telekom magenta, a switch in the top bar remembered in the browser; every colour is a theme token; the overview is board first (status strip with the TCP platform, the build line and the tenants, five numbers, Waiting on you, the active projects, the platform events, the build queue); the Board page shows the TCP platform and the parked projects; system fonts (the page's CSP allows no font from outside); every text colour passes 4.5:1.

@@ -25,8 +25,14 @@ import time
 from collections import OrderedDict, deque, namedtuple
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
 from urllib.parse import urlsplit, parse_qs, urlencode
 
+FONT_DIR = Path('/srv/awb-web/fonts')
+FONTS = {'/fonts/InterVariable.woff2': ('InterVariable.woff2', '693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3')}
+"""The font files the gateway serves itself, by request path: the file in FONT_DIR and its SHA-256 (2026-11-07).
+Inter 4.1 of rsms/inter (SIL OFL 1.1, the licence in awb/tcp/web/fonts/). A binary never enters the repository (the
+commit gate calls it opaque), so the owner installs it next to the page; a file with another hash is not served."""
 MAX_BODY = 16_384
 MAX_UPLOAD = 25 * 1024 * 1024   # one file of the owner page into a project's in/: bucket_layout.MAX_UPLOAD
 UPLOAD_PATH = re.compile(r'/api/projects/tcp-[a-z2-7]{4}/materials/upload')
@@ -1122,6 +1128,20 @@ class Gateway(BaseHTTPRequestHandler):
             return None
         if url.path == '/favicon.ico':
             self.reply(204)
+            return None
+        if url.path in FONTS and self.command in {'GET', 'HEAD'}:
+            # the one font of the page (Inter, SIL OFL 1.1), public and the same for everybody: served before the
+            # login so the sign-in page can use it too; the page's CSP allows a font only from this origin
+            name, digest = FONTS[url.path]
+            try:
+                data = (FONT_DIR / name).read_bytes()
+            except OSError:
+                data = None
+            if data is None or hashlib.sha256(data).hexdigest() != digest:
+                self.reply(404, b'Not found.\n')
+                return None
+            self.reply(200, data, {'Content-Type': 'font/woff2', 'Cache-Control': 'public, max-age=31536000, immutable',
+                                   'Content-Security-Policy': "default-src 'none'"})
             return None
         return url
 
