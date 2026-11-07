@@ -155,8 +155,7 @@ def test_the_size_cap():
     assert doc.fetch("https://example.com/exact", getter=exact, hosts=HOSTS)["size"] == doc.MAX_BYTES
 
 
-@pytest.mark.parametrize("ctype", ["application/pdf", "image/png", "application/octet-stream", "",
-                                   "application/zip", "text/javascript"])
+@pytest.mark.parametrize("ctype", ["image/png", "", "application/zip", "text/javascript"])
 def test_a_type_that_is_not_text_is_refused(ctype):
     g = Getter({("example.com", "/f"): (200, {"content-type": ctype}, b"%PDF-1.7")})
     with pytest.raises(doc.DocError, match="not a text type"):

@@ -239,8 +239,11 @@ session a way to send data out. So the key service, which runs as the owner and 
 `source: URL, fetched YYYY-MM-DD HH:MM UTC` (or writes it to FILE inside the project folder). The service fetches by
 GET only, https only, the host exactly a line of `rules/allow-domains.txt` (`awb doc hosts` lists them), no port, no
 user info, no query string, no fragment and a path of at most 300 URL-safe characters. It follows at most 3
-redirects and only to a URL that passes the same checks, takes at most 5 MB and only HTML, Markdown, plain text or
-JSON, and turns HTML into text (headings, paragraphs, lists, code, tables). It sends no cookie and no auth header, and
+redirects and only to a URL that passes the same checks, takes at most 5 MB of HTML, Markdown, plain text or JSON
+and turns HTML into text (headings, paragraphs, lists, code, tables). It also reads a PDF of up to 25 MB (a service
+description, a price list): `pdftotext -layout` of the poppler tools on a private temporary file, each page after a
+line `--- page N ---`, and the first line then ends with `, pdf, N pages`; an encrypted PDF, a broken one and a scan
+without a text layer are refused with the reason. It sends no cookie and no auth header, and
 its User-Agent names the Workbench. A project gets at most 30 fetches a minute and 500 a day. Each fetch writes one
 line to `<vault>/log/doc-YYYY-MM.tsv`: time, project, host, path, size and status, never page content. The work rules
 say to quote such a page with its source and date and never to state it from memory when it can be fetched. A host

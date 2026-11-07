@@ -14523,8 +14523,15 @@
   {"id": "b046-portal-7", "phase": "b046-portal", "name": "portal page: the page step skips a host without the web part", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_step_skips_a_host_without_the_web_part", "status": "passing"},
   {"id": "b046-portal-8", "phase": "b046-portal", "name": "portal page: a change of the page restarts no unit", "run": ".venv/bin/pytest tests/test_portal_page.py::test_a_change_of_the_page_restarts_no_unit", "status": "passing"},
   {"id": "b046-portal-9", "phase": "b046-portal", "name": "portal page: the deploy publishes the page after the units and a refusal never fails it", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_deploy_publishes_the_page_after_the_units_and_a_refusal_never_fails_it", "status": "passing"},
-  {"id": "b046-portal-10", "phase": "b046-portal", "name": "portal page: the dry run says what the page step would do", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_dry_run_says_what_the_page_step_would_do", "status": "passing"}
+  {"id": "b046-portal-10", "phase": "b046-portal", "name": "portal page: the dry run says what the page step would do", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_dry_run_says_what_the_page_step_would_do", "status": "passing"},
+  {"id": "df-pdf-1", "phase": "df-pdf", "name": "DF-PDF: a PDF answer becomes text with page markers and the header names pdf and pages", "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_a_pdf_answer_becomes_text_with_page_markers_and_the_header_names_pdf_and_pages", "status": "passing"},
+  {"id": "df-pdf-2", "phase": "df-pdf", "name": "DF-PDF: an octet stream is read only when its body is a PDF", "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_an_octet_stream_is_read_only_when_its_body_is_a_pdf", "status": "passing"},
+  {"id": "df-pdf-3", "phase": "df-pdf", "name": "DF-PDF: a PDF has its own 25 MB cap and HTML keeps the 5 MB cap", "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_a_pdf_has_its_own_cap_and_html_keeps_the_five_mb_cap", "status": "passing"},
+  {"id": "df-pdf-4", "phase": "df-pdf", "name": "DF-PDF: an encrypted, a broken and a scanned PDF are refused with their reason", "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_an_encrypted_a_broken_and_a_scanned_pdf_are_refused_with_their_reason", "status": "passing"},
+  {"id": "df-pdf-5", "phase": "df-pdf", "name": "DF-PDF: the temporary file and folder are private and gone after success, failure and timeout", "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_the_temporary_file_and_folder_are_private_and_gone_after_success_failure_and_timeout", "status": "passing"},
+  {"id": "df-pdf-6", "phase": "df-pdf", "name": "DF-PDF: pdftotext gets an argument list, no shell, no stdin and a timeout", "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_pdftotext_gets_an_argument_list_no_shell_no_stdin_and_a_timeout", "status": "passing"},
+  {"id": "df-pdf-7", "phase": "df-pdf", "name": "DF-PDF: the service answer carries the kind and the pages, the ledger no content", "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_the_service_answer_carries_the_kind_and_the_pages_and_the_ledger_no_content", "status": "passing"}
  ],
- "total_tests": 2176,
+ "total_tests": 2183,
  "checked": "2026-11-07"
 }

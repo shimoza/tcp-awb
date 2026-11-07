@@ -6,6 +6,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 ## Week 45, 2026-11-02 to 2026-11-08 (in progress)
 ### Added
 
+- `awb doc fetch` reads a PDF (B-047, done in the steering session while the runner had no API credit): `application/pdf` or an octet stream starting with `%PDF-`, up to 25 MB, through `pdftotext -layout` on a private temporary file with a 60 s timeout, a line `--- page N ---` before each page and `, pdf, N pages` in the source line; encrypted, broken and scanned PDFs are refused with the reason. Checked live on the TCP service description (115 pages). The two PDF cases of `test_a_type_that_is_not_text_is_refused` left that test by the owner's order of 2026-11-07; tests/test_doc_pdf.py holds the new rule.
+
 - The sign-in page of the console in the pult style: dark with the editor orange by default, the light theme in magenta when the browser kept that choice, Inter from the gateway.
 
 - The suite reads the same in an assistant session as in the build runner: a test no longer sees the session markers (CLAUDECODE, CLAUDE_CODE_ENTRYPOINT) of the shell it was started from and runs with the runner's umask 022. The four tests that were always red in a session (two of awb bucket, two of the dataset put) are green there now.

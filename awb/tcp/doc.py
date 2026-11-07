@@ -18,7 +18,11 @@ What the service checks before anything is sent (`check_url`, the same function 
 Then: no cookie, no auth header, a fixed User-Agent naming the Workbench, `Accept-Encoding: identity`. A redirect
 is followed only to a URL that passes the same checks, at most 3 times. A body of more than 5 MB is refused (by its
 Content-Length before a byte is read, or when the read passes the cap), and only a text type is taken (HTML, XHTML,
-Markdown, plain text, JSON). HTML is turned into readable text with the standard library: headings, paragraphs,
+Markdown, plain text, JSON) or a PDF (task DF-PDF, 2026-11-07): `application/pdf`, or an octet stream whose body starts
+with `%PDF-`, up to 25 MB. A PDF becomes text through `pdftotext -layout` of the poppler tools on a private temporary
+file (removed in every case), with an argument list and a timeout of 60 s; each page starts with a line
+`--- page N ---`. An encrypted PDF, one pdftotext cannot read and one without a text layer (a scan: fewer than 20
+characters a page) are refused with the reason. HTML is turned into readable text with the standard library: headings, paragraphs,
 lists, code blocks, tables as rows of cells; scripts, styles and forms are left out.
 
 Rate: at most 30 fetches a minute and 500 a day per project. Each fetch writes one line of the doc ledger,
@@ -60,6 +64,15 @@ TEXT_TYPES = {
     "text/markdown": "markdown", "text/x-markdown": "markdown",
     "text/plain": "text", "application/json": "json",
 }
+PDF_TYPES = {"application/pdf"}
+OCTET_TYPES = {"application/octet-stream", "binary/octet-stream"}
+MAX_PDF_BYTES = 25 * 1024 * 1024
+"""A PDF may be larger than a page of text: service descriptions and price lists are PDFs of several MB."""
+PDF_TEXT_MAX = 8 * 1024 * 1024
+PDF_TIMEOUT = 60.0
+PDFTOTEXT = "/usr/bin/pdftotext"
+PDF_MIN_CHARS = 20
+"""Fewer characters a page than this on average: a scan without a text layer."""
 REDIRECTS = (301, 302, 303, 307, 308)
 _HOST_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$")
 _PATH_RE = re.compile(r"^/[A-Za-z0-9._~/%+:@!$&'()*,;=-]*$")
@@ -290,7 +303,7 @@ def https_get(host: str, path: str, timeout: float = TIMEOUT):
 
     conn = http.client.HTTPSConnection(host, 443, timeout=timeout, context=ssl.create_default_context())
     conn.request("GET", path, headers={"User-Agent": USER_AGENT, "Accept": "text/html, text/markdown, text/plain, "
-                                       "application/json;q=0.9", "Accept-Encoding": "identity",
+                                       "application/json;q=0.9, application/pdf;q=0.8", "Accept-Encoding": "identity",
                                        "Connection": "close"})
     resp = conn.getresponse()
     return resp.status, {k.lower(): v for k, v in resp.getheaders()}, resp
@@ -374,9 +387,52 @@ def _read_capped(resp, cap: int) -> bytes:
     return bytes(buf)
 
 
-def fetch(url: str, *, getter=https_get, hosts: list[str] | None = None, cap: int = MAX_BYTES) -> dict:
-    """The page of a checked URL as text: {"url", "host", "path", "kind", "status", "size", "text"}. DocError
-    naming the rule otherwise (with "host" and "path" of the last URL it got to, for the ledger)."""
+def pdf_text(data: bytes, *, runner=None, tool: str = PDFTOTEXT, timeout: float = PDF_TIMEOUT) -> tuple[str, int]:
+    """The text of a PDF and its page count, each page after a line `--- page N ---`. The bytes go to a file of a
+    private temporary folder (700, the file 600) that is removed in every case; pdftotext gets an argument list,
+    never a shell, no standard input and a timeout. DocError for an encrypted PDF, one it cannot read, a text larger
+    than PDF_TEXT_MAX and a scan without a text layer."""
+    import subprocess
+    import tempfile
+
+    run = runner or subprocess.run
+    with tempfile.TemporaryDirectory(prefix="awb-doc-pdf-") as folder:
+        os.chmod(folder, 0o700)
+        name = os.path.join(folder, "page.pdf")
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        try:
+            res = run([tool, "-layout", "-enc", "UTF-8", name, "-"], stdin=subprocess.DEVNULL, capture_output=True,
+                      timeout=timeout, check=False)
+        except subprocess.TimeoutExpired:
+            raise DocError("refused: the PDF took longer than %d s to read" % int(timeout)) from None
+        except OSError:
+            raise DocError("failed: the PDF reader (pdftotext of the poppler tools) cannot be run") from None
+    err = (res.stderr or b"").decode("utf-8", "replace").lower()
+    if res.returncode != 0:
+        if "password" in err or "encrypt" in err:
+            raise DocError("refused: an encrypted PDF")
+        raise DocError("refused: a PDF the reader cannot read")
+    out = res.stdout or b""
+    if len(out) > PDF_TEXT_MAX:
+        raise DocError("refused: the text of the PDF is larger than %d MB" % (PDF_TEXT_MAX // (1024 * 1024)))
+    pages = out.decode("utf-8", "replace").split("\f")      # pdftotext ends every page with a form feed
+    if pages and not pages[-1].strip():
+        pages = pages[:-1]
+    count = len(pages)
+    chars = sum(len(re.sub(r"\s", "", p)) for p in pages)
+    if count == 0 or chars < PDF_MIN_CHARS * count:
+        raise DocError("refused: a PDF without a text layer (a scan); it has no text to read")
+    text = "\n\n".join("--- page %d ---\n%s" % (n, _plain(p).strip("\n")) for n, p in enumerate(pages, 1))
+    return text + "\n", count
+
+
+def fetch(url: str, *, getter=https_get, hosts: list[str] | None = None, cap: int = MAX_BYTES,
+          pdf_cap: int = MAX_PDF_BYTES, pdf_runner=None) -> dict:
+    """The page of a checked URL as text: {"url", "host", "path", "kind", "status", "size", "text", "pages"} (pages
+    for a PDF, else None). DocError naming the rule otherwise (with "host" and "path" of the last URL it got to, for
+    the ledger)."""
     hosts = allowed_hosts() if hosts is None else hosts
     host, path = check_url(url, hosts)
     for hop in range(MAX_REDIRECTS + 1):
@@ -406,15 +462,23 @@ def fetch(url: str, *, getter=https_get, hosts: list[str] | None = None, cap: in
                 raise DocError("failed: the host answered %d" % status if isinstance(status, int)
                                else "failed: the host gave no status")
             ctype = (headers.get("content-type") or "").split(";")[0].strip().lower()
-            kind = TEXT_TYPES.get(ctype)
+            kind = TEXT_TYPES.get(ctype) or ("pdf" if ctype in PDF_TYPES else "octet" if ctype in OCTET_TYPES else None)
             if kind is None:
-                raise DocError("refused: not a text type (HTML, Markdown, plain text or JSON)")
+                raise DocError("refused: not a text type (HTML, Markdown, plain text, JSON or PDF)")
             if (headers.get("content-encoding") or "identity").strip().lower() != "identity":
                 raise DocError("refused: an encoded body (the reader asks for identity)")
+            limit = pdf_cap if kind in ("pdf", "octet") else cap
             length = headers.get("content-length")
-            if length is not None and (not length.strip().isdigit() or int(length) > cap):
-                raise DocError("refused: the page is larger than %d MB" % (cap // (1024 * 1024)))
-            body = _read_capped(resp, cap)
+            if length is not None and (not length.strip().isdigit() or int(length) > limit):
+                raise DocError("refused: the page is larger than %d MB" % (limit // (1024 * 1024)))
+            body = _read_capped(resp, limit)
+            if kind in ("pdf", "octet"):
+                if not body.startswith(b"%PDF-"):
+                    raise DocError("refused: not a text type (HTML, Markdown, plain text, JSON or PDF)"
+                                   if kind == "octet" else "refused: the body is not a PDF")
+                text, pages = pdf_text(body, runner=pdf_runner)
+                return {"url": url, "host": host, "path": path, "kind": "pdf", "status": status, "size": len(body),
+                        "text": text, "pages": pages}
             m = re.search(r"charset=([A-Za-z0-9_.:-]{1,40})", headers.get("content-type") or "")
             try:
                 page = body.decode(m.group(1) if m else "utf-8", errors="replace")
@@ -422,7 +486,7 @@ def fetch(url: str, *, getter=https_get, hosts: list[str] | None = None, cap: in
                 page = body.decode("utf-8", errors="replace")
             text = html_text(page) if kind == "html" else _plain(page)
             return {"url": url, "host": host, "path": path, "kind": kind, "status": status, "size": len(body),
-                    "text": _plain(text)}
+                    "text": _plain(text), "pages": None}
         except DocError as err:
             raise _at(err, host, path) from None
         finally:
@@ -467,7 +531,8 @@ def serve(req: dict, project, limiter: Limiter, ledger_dir, *, getter=https_get,
     with os.fdopen(fd, "wb") as fh:
         fh.write(data)
     fetched = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    return {"ok": True, "url": page["url"], "kind": page["kind"], "size": page["size"], "fetched": fetched}, Path(name)
+    return {"ok": True, "url": page["url"], "kind": page["kind"], "size": page["size"], "fetched": fetched,
+            "pages": page.get("pages")}, Path(name)
 
 
 # --------------------------------------------------------------------------- the session side
@@ -490,8 +555,11 @@ def _refusal(line: str, url: str) -> str:
     return "%s; leave one owner item in OPEN.md under the owner heading: %s" % (line, STEERING % host)
 
 
-def header(url: str, fetched: str) -> str:
-    return "source: %s, fetched %s" % (url, fetched)
+def header(url: str, fetched: str, kind: str | None = None, pages=None) -> str:
+    line = "source: %s, fetched %s" % (url, fetched)
+    if kind == "pdf" and isinstance(pages, int):
+        line += ", pdf, %d page%s" % (pages, "" if pages == 1 else "s")
+    return line
 
 
 def _fetch_cmd(args) -> int:
@@ -536,14 +604,14 @@ def _fetch_cmd(args) -> int:
             os.unlink(tmp)
         except OSError:
             pass
-    text = header(answer.get("url") or args.url, answer.get("fetched") or "?") + "\n\n" + body
+    head = header(answer.get("url") or args.url, answer.get("fetched") or "?", answer.get("kind"), answer.get("pages"))
+    text = head + "\n\n" + body
     if out is None:
         sys.stdout.write(text)
         return 0
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding="utf-8")
-    print("%s: %d characters, %s" % (os.path.relpath(out, root), len(text), header(answer.get("url") or args.url,
-                                                                                   answer.get("fetched") or "?")))
+    print("%s: %d characters, %s" % (os.path.relpath(out, root), len(text), head))
     return 0
 
 
