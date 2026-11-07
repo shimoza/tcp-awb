@@ -134,6 +134,14 @@ class PlanError(Exception):
 # --------------------------------------------------------------------------- reading the inventories
 
 
+def _platform(name: str):
+    """A module of the platform package (awb/tcp), loaded by name: the core imports none of it (deploy.DYNAMIC). The
+    keys of the lab bucket (keys_exchange) and the key service call of a session (xchg) live there."""
+    import importlib
+
+    return importlib.import_module("awb.tcp.%s" % name)
+
+
 def _valid(row: dict, places: tuple[str, ...]) -> bool:
     place = row.get("place", "")
     if place not in places or not _ID_RES[place].match(row.get("id", "")):
@@ -463,7 +471,7 @@ def bucket_part(rows: list[dict], members: dict[int, list[int]], root: list[int]
     """One row per object of the buckets that `done` (the delete rows of identical copies) has no row for yet: keep,
     move, unsorted, archive, delete or withheld, with its target key. A target is built from the code, the month,
     the stamp, fixed folder names and the parts of the existing key only. Nothing is moved or deleted here."""
-    from awb.tcp import keys_exchange as kx
+    kx = _platform("keys_exchange")
 
     done = done or {}
     fetched = fetched or {}
@@ -682,7 +690,7 @@ def taken_in(p: config.Paths) -> set[tuple[str, str]]:
 def read_index(code: str) -> list[dict] | None:
     """The rows of INDEX.md of `code` in the lab bucket, through the key service as `awb fetch` reads the puts (the
     op obs GET); None when it cannot be read."""
-    from awb.tcp import keys, keys_exchange as kx, xchg
+    keys, kx, xchg = _platform("keys"), _platform("keys_exchange"), _platform("xchg")
 
     with tempfile.TemporaryDirectory() as tmp:
         got = Path(tmp) / kx.INDEX
@@ -697,7 +705,7 @@ def read_index(code: str) -> list[dict] | None:
 
 def fetched_marks(rows: list[dict], index) -> dict[str, dict[str, str] | None]:
     """The fetched column of INDEX.md by key, for each project whose INDEX.md the lab inventory lists."""
-    from awb.tcp import keys_exchange as kx
+    kx = _platform("keys_exchange")
 
     marks: dict[str, dict[str, str] | None] = {}
     for r in rows:

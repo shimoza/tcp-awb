@@ -150,6 +150,8 @@ DYNAMIC: dict[tuple[str, str], object] = {
     # awb winlab run|start|status|log|stop|put|get run in a project session: the registry loads them by name, so the
     # owner status, which imports the registry, keeps out of the paste rules
     ("awb/winlab.py", "_session_module"): (),
+    # awb files plan reads the keys of the lab bucket and INDEX.md through the platform package, loaded by name
+    ("awb/filesplan.py", "_platform"): ("awb.tcp.keys", "awb.tcp.keys_exchange", "awb.tcp.xchg"),
     # awb winlab serve is the lab broker (task WL part 4), the unit of seal/awb-winlab.service
     ("awb/winlab.py", "_broker_module"): ("awb.tcp.winbroker",),
 }
