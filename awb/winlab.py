@@ -545,12 +545,11 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(script)
             print(line or "remove.ps1 for %s printed; the machine stays registered" % args.name, file=sys.stderr)
         elif args.command == "list":
-            from awb import winlabsession
-
-            if winlabsession._local_registry():
+            session = _session_module()
+            if session._local_registry():
                 print("\n".join(list_lines()))
             else:               # a session of the work user: the broker answers for its own project
-                print("\n".join(winlabsession.session_list()))
+                print("\n".join(session.session_list()))
         elif args.command == "bootstrap":
             sys.stdout.write(bootstrap(args.name, args.host_key, args.tunnel, port=args.port, account=args.account,
                                        server_key=args.server_key, ssh_port=args.ssh_port))
