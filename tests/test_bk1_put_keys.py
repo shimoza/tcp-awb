@@ -28,7 +28,7 @@ from tests.test_xchg import AK, SK, cust_project, lab_project, quiet, run, short
 NOW = datetime.datetime(2026, 11, 6, 14, 32, 10, tzinfo=datetime.timezone.utc)
 DAY = NOW.date().isoformat()
 ENGLISH = "The image of the lab was imported in four minutes and the test of the load balancer passed.\n"
-GERMAN = "Die Migration der zwei Cluster ist fertig und der Test ist mit dem Load Balancer nicht fehlgeschlagen.\n"
+GERMAN = "die migration der zwei cluster ist fertig und der test ist mit dem load balancer nicht fehlgeschlagen.\n"
 
 
 class MemBucket:
@@ -182,7 +182,7 @@ def test_bk1_a_second_put_in_the_same_minute_gets_2_and_never_overwrites(svc, la
 def test_bk1_as_with_a_clean_name_gives_its_stem(svc, lab, lab_project, capsys):
     c = lab_project.code
     f = write(lab_project, "r.md")
-    out, _ = put([str(f), "--as", "Sizing Notes (v2).md", "--kind", "sizing"], capsys)
+    out, _ = put([str(f), "--as", "sizing notes (v2).md", "--kind", "sizing"], capsys)
     key = "%s/from-session/%s/sizing/%s-sizing-sizing-notes-v2.md" % (c, DAY, c)
     assert key in lab.objects and key[:-3] + ".html" in lab.objects and "not used" not in out
     put([str(f), "--as", "a" * 30 + "_" + "b" * 30 + ".md"], capsys)
