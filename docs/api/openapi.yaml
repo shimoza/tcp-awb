@@ -1787,7 +1787,7 @@ paths:
       tags:
         - tenants
       summary: What runs on the test tenants, from the last snapshot.
-      description: "Read only. Servers, disks, elastic IPs, VPCs and private images of each registered test tenant in its regions. A snapshot older than 300 seconds starts a refresh in the background and is still returned with stale true. In the repository version the inventory runs as its own service and system user (awb-console), which alone may read the test tenants without a project; sessions still need an active project."
+      description: "Read only. Servers, disks, elastic IPs, VPCs and private images of each registered test tenant in its regions. A snapshot older than 300 seconds starts a refresh in the background and is still returned with stale true. In the repository version the inventory runs as its own service and system user (awb-console), which alone may read the test tenants without a project; sessions still need an active project. cost is the monthly estimate the owner's awb tenant cost keeps (B-048), null before the first one."
       parameters:
         - name: refresh
           in: query
@@ -1807,6 +1807,161 @@ paths:
               examples:
                 one-tenant:
                   value:
+                    cost:
+                      computed: "2026-10-04T09:30:00Z"
+                      currency: EUR
+                      hours_per_month: 730
+                      total: 78.85
+                      no_price: 1
+                      complete: false
+                      unknown_tenants: []
+                      prices:
+                        - region: eu-de
+                          state: list
+                          fetched_at: "2026-10-04 09:30 UTC"
+                          cached_at: "2026-10-04 06:00:00"
+                          age_days: 0
+                          records: 7
+                          reason: ""
+                      tenants:
+                        - alias: test-1
+                          snapshot: "2026-10-04"
+                          taken: "2026-10-04T06:00:00Z"
+                          status: complete
+                          unreadable: []
+                          items: 4
+                          no_price: 1
+                          total: 78.85
+                      by_kind:
+                        - kind: ecs
+                          amount: 62.05
+                          items: 1
+                          no_price: 0
+                        - kind: evs
+                          amount: 16.8
+                          items: 2
+                          no_price: 0
+                        - kind: eip
+                          amount: 0.0
+                          items: 1
+                          no_price: 1
+                      by_project:
+                        - project: tcp-m3fx
+                          amount: 66.85
+                          items: 2
+                          no_price: 0
+                        - project: no project
+                          amount: 12.0
+                          items: 2
+                          no_price: 1
+                      top:
+                        - tenant: test-1
+                          handle: ecs-1
+                          kind: ecs
+                          monthly: 62.05
+                        - tenant: test-1
+                          handle: evs-2
+                          kind: evs
+                          monthly: 12.0
+                        - tenant: test-1
+                          handle: evs-1
+                          kind: evs
+                          monthly: 4.8
+                      waste:
+                        - group: stopped_server_disks
+                          label: disks of stopped servers
+                          amount: 0.0
+                          items: []
+                        - group: unattached_disks
+                          label: disks not attached
+                          amount: 12.0
+                          items:
+                            - tenant: test-1
+                              handle: evs-2
+                              kind: evs
+                              monthly: 12.0
+                        - group: unbound_eips
+                          label: elastic IPs not bound
+                          amount: 0.0
+                          items: []
+                      items:
+                        - tenant: test-1
+                          region: eu-de
+                          os: linux
+                          attached: ""
+                          unit_price: "0.085000"
+                          unit: h
+                          record: TEST_S3_LARGE_2_LNX
+                          reason: ""
+                          remarks: []
+                          project: tcp-m3fx
+                          project_source: tag
+                          note: null
+                          handle: ecs-1
+                          kind: ecs
+                          state: ACTIVE
+                          size: s3.large.2
+                          status: priced
+                          monthly: 62.05
+                        - tenant: test-1
+                          region: eu-de
+                          os: ""
+                          attached: ""
+                          unit_price: "0.120000"
+                          unit: GB/month
+                          record: TEST_EVS_SSD
+                          reason: ""
+                          remarks: []
+                          project: no project
+                          project_source: none
+                          note: null
+                          handle: evs-2
+                          kind: evs
+                          state: available
+                          size: "100 GB SSD"
+                          status: priced
+                          monthly: 12.0
+                        - tenant: test-1
+                          region: eu-de
+                          os: ""
+                          attached: ecs-1
+                          unit_price: "0.120000"
+                          unit: GB/month
+                          record: TEST_EVS_SSD
+                          reason: ""
+                          remarks: []
+                          project: tcp-m3fx
+                          project_source: server
+                          note: null
+                          handle: evs-1
+                          kind: evs
+                          state: in-use
+                          size: "40 GB SSD"
+                          status: priced
+                          monthly: 4.8
+                        - tenant: test-1
+                          region: eu-de
+                          os: ""
+                          attached: ""
+                          unit_price: null
+                          unit: ""
+                          record: ""
+                          reason: no record of an elastic IP in the price API (it covers part of the catalog, KB-AI2E)
+                          remarks:
+                            - bandwidth and traffic not counted
+                          project: no project
+                          project_source: none
+                          note: "kept by the owner: the address of a demo"
+                          handle: eip-1
+                          kind: eip
+                          state: DOWN
+                          size: "5 Mbit/s"
+                          status: no price
+                          monthly: null
+                      notes:
+                        - handle: test-1/eip-1
+                          note: "kept by the owner: the address of a demo"
+                          date: "2026-10-03"
                     tenants:
                       - alias: test-1
                         regions:
@@ -4333,6 +4488,161 @@ paths:
               examples:
                 one-tenant:
                   value:
+                    cost:
+                      computed: "2026-10-04T09:30:00Z"
+                      currency: EUR
+                      hours_per_month: 730
+                      total: 78.85
+                      no_price: 1
+                      complete: false
+                      unknown_tenants: []
+                      prices:
+                        - region: eu-de
+                          state: list
+                          fetched_at: "2026-10-04 09:30 UTC"
+                          cached_at: "2026-10-04 06:00:00"
+                          age_days: 0
+                          records: 7
+                          reason: ""
+                      tenants:
+                        - alias: test-1
+                          snapshot: "2026-10-04"
+                          taken: "2026-10-04T06:00:00Z"
+                          status: complete
+                          unreadable: []
+                          items: 4
+                          no_price: 1
+                          total: 78.85
+                      by_kind:
+                        - kind: ecs
+                          amount: 62.05
+                          items: 1
+                          no_price: 0
+                        - kind: evs
+                          amount: 16.8
+                          items: 2
+                          no_price: 0
+                        - kind: eip
+                          amount: 0.0
+                          items: 1
+                          no_price: 1
+                      by_project:
+                        - project: tcp-m3fx
+                          amount: 66.85
+                          items: 2
+                          no_price: 0
+                        - project: no project
+                          amount: 12.0
+                          items: 2
+                          no_price: 1
+                      top:
+                        - tenant: test-1
+                          handle: ecs-1
+                          kind: ecs
+                          monthly: 62.05
+                        - tenant: test-1
+                          handle: evs-2
+                          kind: evs
+                          monthly: 12.0
+                        - tenant: test-1
+                          handle: evs-1
+                          kind: evs
+                          monthly: 4.8
+                      waste:
+                        - group: stopped_server_disks
+                          label: disks of stopped servers
+                          amount: 0.0
+                          items: []
+                        - group: unattached_disks
+                          label: disks not attached
+                          amount: 12.0
+                          items:
+                            - tenant: test-1
+                              handle: evs-2
+                              kind: evs
+                              monthly: 12.0
+                        - group: unbound_eips
+                          label: elastic IPs not bound
+                          amount: 0.0
+                          items: []
+                      items:
+                        - tenant: test-1
+                          region: eu-de
+                          os: linux
+                          attached: ""
+                          unit_price: "0.085000"
+                          unit: h
+                          record: TEST_S3_LARGE_2_LNX
+                          reason: ""
+                          remarks: []
+                          project: tcp-m3fx
+                          project_source: tag
+                          note: null
+                          handle: ecs-1
+                          kind: ecs
+                          state: ACTIVE
+                          size: s3.large.2
+                          status: priced
+                          monthly: 62.05
+                        - tenant: test-1
+                          region: eu-de
+                          os: ""
+                          attached: ""
+                          unit_price: "0.120000"
+                          unit: GB/month
+                          record: TEST_EVS_SSD
+                          reason: ""
+                          remarks: []
+                          project: no project
+                          project_source: none
+                          note: null
+                          handle: evs-2
+                          kind: evs
+                          state: available
+                          size: "100 GB SSD"
+                          status: priced
+                          monthly: 12.0
+                        - tenant: test-1
+                          region: eu-de
+                          os: ""
+                          attached: ecs-1
+                          unit_price: "0.120000"
+                          unit: GB/month
+                          record: TEST_EVS_SSD
+                          reason: ""
+                          remarks: []
+                          project: tcp-m3fx
+                          project_source: server
+                          note: null
+                          handle: evs-1
+                          kind: evs
+                          state: in-use
+                          size: "40 GB SSD"
+                          status: priced
+                          monthly: 4.8
+                        - tenant: test-1
+                          region: eu-de
+                          os: ""
+                          attached: ""
+                          unit_price: null
+                          unit: ""
+                          record: ""
+                          reason: no record of an elastic IP in the price API (it covers part of the catalog, KB-AI2E)
+                          remarks:
+                            - bandwidth and traffic not counted
+                          project: no project
+                          project_source: none
+                          note: "kept by the owner: the address of a demo"
+                          handle: eip-1
+                          kind: eip
+                          state: DOWN
+                          size: "5 Mbit/s"
+                          status: no price
+                          monthly: null
+                      notes:
+                        - handle: test-1/eip-1
+                          note: "kept by the owner: the address of a demo"
+                          date: "2026-10-03"
                     tenants:
                       - alias: test-1
                         regions:
@@ -5722,6 +6032,8 @@ components:
           type: string
         coverage_note:
           type: string
+        cost:
+          "$ref": "#/components/schemas/TenantCost"
       required:
         - tenants
         - collected_at
@@ -5732,6 +6044,351 @@ components:
         - refresh_interval_seconds
         - scope_note
         - coverage_note
+        - cost
+    TenantCost:
+      type:
+        - object
+        - "null"
+      description: "The monthly estimate of the test tenants (B-048), the content of cost.json that the owner's awb tenant cost writes; null before the first one. Aliases, handles, project codes and price record ids only, never a resource name or id."
+      properties:
+        computed:
+          type: string
+          description: When the owner's awb tenant cost made the estimate, UTC.
+        currency:
+          type: string
+          enum:
+            - EUR
+        hours_per_month:
+          type: integer
+          description: "The hours of a month the hourly rates are multiplied with: 730."
+        total:
+          type: number
+          description: "The sum of the priced items per month; the items without a price are not in it."
+        no_price:
+          type: integer
+          description: How many items have no price record and are left out of every sum.
+        complete:
+          type: boolean
+          description: false when an item has no price or a listing of a tenant was not readable.
+        unknown_tenants:
+          type: array
+          description: The tenants with a listing their read key could not read and the ones without a snapshot.
+          items:
+            type: string
+        prices:
+          type: array
+          items:
+            "$ref": "#/components/schemas/CostPrice"
+        tenants:
+          type: array
+          items:
+            "$ref": "#/components/schemas/CostTenant"
+        by_kind:
+          type: array
+          items:
+            type: object
+            properties:
+              kind:
+                type: string
+                enum:
+                  - ecs
+                  - evs
+                  - eip
+              amount:
+                type: number
+              items:
+                type: integer
+              no_price:
+                type: integer
+            required:
+              - kind
+              - amount
+              - items
+              - no_price
+        by_project:
+          type: array
+          items:
+            type: object
+            properties:
+              project:
+                type: string
+                description: A project code or no project.
+              amount:
+                type: number
+              items:
+                type: integer
+              no_price:
+                type: integer
+            required:
+              - project
+              - amount
+              - items
+              - no_price
+        top:
+          type: array
+          description: The dearest items, at most ten.
+          items:
+            "$ref": "#/components/schemas/CostItemBrief"
+        waste:
+          type: array
+          description: No item with an owner note is in a group.
+          items:
+            type: object
+            properties:
+              group:
+                type: string
+                enum:
+                  - stopped_server_disks
+                  - unattached_disks
+                  - unbound_eips
+              label:
+                type: string
+              amount:
+                type: number
+              items:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/CostItemBrief"
+            required:
+              - group
+              - label
+              - amount
+              - items
+        items:
+          type: array
+          description: Every item, the dearest first and the ones without a price last.
+          items:
+            "$ref": "#/components/schemas/CostItem"
+        notes:
+          type: array
+          items:
+            type: object
+            properties:
+              handle:
+                type: string
+                description: "ALIAS/HANDLE; a bare handle when written by hand."
+              note:
+                type: string
+              date:
+                type: string
+                format: date
+            required:
+              - handle
+              - note
+              - date
+      required:
+        - computed
+        - currency
+        - hours_per_month
+        - total
+        - no_price
+        - complete
+        - unknown_tenants
+        - prices
+        - tenants
+        - by_kind
+        - by_project
+        - top
+        - waste
+        - items
+        - notes
+    CostPrice:
+      type: object
+      properties:
+        region:
+          type: string
+        state:
+          type: string
+          description: "list: the price API answered with records."
+          enum:
+            - list
+            - empty
+            - unknown
+        fetched_at:
+          type:
+            - string
+            - "null"
+        cached_at:
+          type:
+            - string
+            - "null"
+          description: The time of the API's own cache, server time.
+        age_days:
+          type:
+            - integer
+            - "null"
+          description: Days between the API's cache and the fetch (KB-5LLN).
+        records:
+          type: integer
+        reason:
+          type: string
+          description: "Why the listing is unknown; empty otherwise."
+      required:
+        - region
+        - state
+        - fetched_at
+        - cached_at
+        - age_days
+        - records
+        - reason
+    CostTenant:
+      type: object
+      properties:
+        alias:
+          type: string
+        snapshot:
+          type:
+            - string
+            - "null"
+          description: The day of the snapshot priced.
+        taken:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+          description: "partial: a listing of the snapshot was not readable."
+          enum:
+            - complete
+            - partial
+            - no snapshot
+        unreadable:
+          type: array
+          items:
+            type: object
+            properties:
+              region:
+                type: string
+              kinds:
+                type: array
+                items:
+                  type: string
+            required:
+              - region
+              - kinds
+        items:
+          type: integer
+        no_price:
+          type: integer
+        total:
+          type: number
+      required:
+        - alias
+        - snapshot
+        - taken
+        - status
+        - unreadable
+        - items
+        - no_price
+        - total
+    CostItemBrief:
+      type: object
+      properties:
+        tenant:
+          type: string
+        handle:
+          type: string
+        kind:
+          type: string
+        monthly:
+          type:
+            - number
+            - "null"
+      required:
+        - tenant
+        - handle
+        - kind
+        - monthly
+    CostItem:
+      type: object
+      properties:
+        tenant:
+          type: string
+        handle:
+          type: string
+          description: "The handle of the snapshot, ecs-3; numbered per tenant."
+        kind:
+          type: string
+          enum:
+            - ecs
+            - evs
+            - eip
+        region:
+          type: string
+        state:
+          type: string
+        size:
+          type: string
+          description: The flavor, N GB TYPE or N Mbit/s of the snapshot.
+        os:
+          type: string
+          description: "windows, linux or unknown for a server; empty otherwise."
+        attached:
+          type: string
+          description: "The handles of the servers a disk is attached to; empty otherwise."
+        status:
+          type: string
+          description: "stopped: a stopped server, 0 (KB-VTTM)."
+          enum:
+            - priced
+            - stopped
+            - no price
+        monthly:
+          type:
+            - number
+            - "null"
+          description: "EUR a month; null without a price."
+        unit_price:
+          type:
+            - string
+            - "null"
+          description: The PAYG rate of the record as the API gives it.
+        unit:
+          type: string
+        record:
+          type: string
+          description: The id of the price record.
+        reason:
+          type: string
+          description: "Why there is no price; empty otherwise."
+        remarks:
+          type: array
+          items:
+            type: string
+        project:
+          type: string
+          description: "The project code; no project when there is none."
+        project_source:
+          type: string
+          description: "tag; server: the project of the server of the disk; none."
+          enum:
+            - tag
+            - server
+            - none
+        note:
+          type:
+            - string
+            - "null"
+          description: The owner's note on the item.
+      required:
+        - tenant
+        - handle
+        - kind
+        - region
+        - state
+        - size
+        - os
+        - attached
+        - status
+        - monthly
+        - unit_price
+        - unit
+        - record
+        - reason
+        - remarks
+        - project
+        - project_source
+        - note
     MaterialImport:
       type: object
       properties:

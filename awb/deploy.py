@@ -162,6 +162,9 @@ DYNAMIC: dict[tuple[str, str], object] = {
     # awb price pool loads the pooled Reserved arithmetic by name: the units that import awb/tcp/price.py never reach
     # it (B-044)
     ("awb/tcp/price.py", "_pool_module"): (),
+    # awb tenant cost and awb tenant snapshot load the cost estimate by name: the tenant inventory of the console,
+    # which imports awb/tcp/tenants.py, never reaches it (B-048)
+    ("awb/tcp/tenants.py", "_cost_module"): (),
     # awb winlab serve is the lab broker (task WL part 4), the unit of seal/awb-winlab.service
     ("awb/winlab.py", "_broker_module"): ("awb.tcp.winbroker",),
 }
@@ -211,6 +214,8 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/pricebook.py": "awb pricebook build|diff, run in a working session or by the owner",
     "awb/tcp/pricepool.py": ("the pooled Reserved arithmetic of awb price pool (loaded by name) and of awb pricebook "
                              "mode: pool, run in a working session or by the owner (B-044)"),
+    "awb/tcp/tenantcost.py": ("the monthly cost estimate of awb tenant cost and awb tenant snapshot (loaded by name), "
+                              "run by the owner (B-048)"),
     "awb/tcp/howto.py": "awb howto draft|render, run in a working session or by the owner",
     "awb/pdf.py": ("awb pdf, run in a working session or by the owner; the writer of awb howto render --pdf and of "
                    "HOW-TO.pdf"),

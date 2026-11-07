@@ -16,11 +16,14 @@
     awb tenant history ALIAS [--project CODE] [--since YYYY-MM-DD]      what appeared, changed and went, when
     awb tenant at ALIAS YYYY-MM-DD                                      what ran there on a day
     awb tenant project CODE                                             what a project runs and ran, on every tenant
+    awb tenant cost [--json]                                            owner side: the monthly estimate (B-048)
+    awb tenant cost note HANDLE TEXT                                    owner side: a note on one item of it
 
 A snapshot lists the servers, disks and elastic IPs of every region of the tenant (the sources of the sweep,
 awb/tcp/sweep.py) and keeps them in `<shared>/tenants/<alias>/snapshots/<date>.json`. Each resource is kept as a
 neutral handle (`ecs-3`), its kind, region, creation time, state, size and its two tags: `awb-project` (the project
-code) and `awb-expiry`. Names and ids are never kept in the snapshot; the ids stay in the tenant's handle file
+code) and `awb-expiry`; a server also keeps its OS family (`os`: windows or linux from metadata.os_type, else
+unknown) and a disk the handles of the servers it is attached to (`attached`, empty for none). Names and ids are never kept in the snapshot; the ids stay in the tenant's handle file
 (mode 600, owner only). A snapshot is compared with the one before it and the difference goes to
 `<shared>/tenants/<alias>/events.jsonl`, one line per event, never rewritten: `seen` (in the first snapshot, with its
 own creation time), `appeared`, `changed` (state, project, size) and `gone`. A listing that could not be read is
@@ -52,6 +55,11 @@ day and `--note` in the tenant_write line of keys.conf, after it checked by name
 (`awb/tenant/ALIAS/write/ak|sk` or `write/login/domain|user|password`); then it runs `awb keys unlock`. `mode ALIAS
 readonly` takes the line out and tells the running key service at once (the admin op tenant_readonly). Both are
 refused for the work user and in an assistant session. `list` shows every customer tenant with its mode.
+
+`cost` (B-048, awb/tcp/tenantcost.py, loaded by name) prices the latest snapshot of every tenant with one fetch of
+the live price API per region (730 hours a month) and writes `<shared>/tenants/cost.json` for the console; `snapshot`
+runs it after the snapshots. `cost note HANDLE TEXT` keeps an owner note on one item in
+`<shared>/tenants/cost-notes.tsv`.
 
 The history is kept for good. The tenants are named by aliases (test-1), never by their ids: a tenant id is an
 identifier the commit gate refuses.
@@ -186,6 +194,25 @@ def _size(kind: str, raw: dict) -> str:
     return ""
 
 
+def _os(raw: dict) -> str:
+    """The OS family of a server from metadata.os_type: windows, linux or unknown, never the image name."""
+    meta = raw.get("metadata")
+    family = str(meta.get("os_type") or "").strip().lower() if isinstance(meta, dict) else ""
+    return family if family in ("windows", "linux") else "unknown"
+
+
+def _attached(raw: dict, handles: _sweep.Handles) -> str:
+    """The handles of the servers a disk is attached to, comma separated; empty when it is attached to none."""
+    found = []
+    for a in raw.get("attachments") or ():
+        sid = a.get("server_id") if isinstance(a, dict) else None
+        if isinstance(sid, str) and sid:
+            h = handles.handle("ecs", sid)
+            if h not in found:
+                found.append(h)
+    return ",".join(found)
+
+
 Lister = Callable[[str, str, str, str], jobs.Listing]
 
 
@@ -221,6 +248,10 @@ def take(t: Tenant, handles: _sweep.Handles, listers: dict[str, Lister], now: da
                     "project": project,
                     "expiry": expiry,
                 })
+                if kind == "ecs":
+                    items[-1]["os"] = _os(raw)
+                elif kind == "evs":
+                    items[-1]["attached"] = _attached(raw, handles)
     items.sort(key=lambda i: (i["created"], i["handle"]))
     snap = {"alias": t.alias, "date": now.date().isoformat(), "taken": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "regions": list(t.regions), "unknown": unknown, "items": items}
@@ -866,6 +897,13 @@ def main(argv: list[str] | None = None) -> int:
     t_.add_argument("date")
     pr = sub.add_parser("project", help="what a project runs and ran on every tenant")
     pr.add_argument("code")
+    co = sub.add_parser("cost", help="the monthly estimate of every tenant from its latest snapshot and the live "
+                                     "price API (owner side)")
+    co.add_argument("--json", action="store_true", help="print the estimate as JSON, as kept for the console")
+    cosub = co.add_subparsers(dest="cost_command")
+    cn = cosub.add_parser("note", help="an owner note on one item; it is never in a waste group (owner side)")
+    cn.add_argument("handle", help="ALIAS/HANDLE; HANDLE alone when the latest snapshot of one tenant alone has it")
+    cn.add_argument("text", help="up to 200 letters, digits, blanks and . , : ; _ / ( ) # + ' -; codes, no names")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -925,6 +963,11 @@ def main(argv: list[str] | None = None) -> int:
                 print("%s: %d resources, events %s%s" % (t.alias, len(snap["items"]),
                       " ".join("%s %d" % kv for kv in sorted(counts.items())) or "none",
                       "; %d listing(s) not readable" % unknown if unknown else ""))
+            print("\n".join(_cost_module().after_snapshot(p)))
+        elif args.command == "cost":
+            if config.is_work_user():
+                raise TenantError("the cost estimate is made on the owner side")
+            return _cost_module().command(p, args)
         elif args.command == "list":
             print("\n".join(list_lines(p, today) + customer_lines(p)))
         elif args.command == "now":
@@ -959,6 +1002,14 @@ def main(argv: list[str] | None = None) -> int:
         print("awb tenant: %s (operating system error)" % type(err).__name__, file=sys.stderr)
         return 1
     return 0
+
+
+def _cost_module():
+    """awb/tcp/tenantcost.py, loaded by name: it is command only and the console's inventory, which imports this
+    module, never reaches it (deploy.DYNAMIC)."""
+    import importlib
+
+    return importlib.import_module("awb.tcp.tenantcost")
 
 
 def _readonly_command(p: config.Paths, args) -> int:

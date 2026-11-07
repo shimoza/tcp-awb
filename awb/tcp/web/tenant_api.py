@@ -33,6 +33,7 @@ SOURCES = (
  ('ims','ims','/v2/cloudimages','images','marker',{'__imagetype':'private'}),
 )
 CACHE = Path('/var/lib/awb-console-data/tenants.json')
+COST_FILE = 'cost.json'
 TTL = 300
 MIN_REFRESH = 30
 
@@ -164,9 +165,21 @@ def collect_tenant(tenant,caller=call):
     return result
 
 
+def read_cost(path=None):
+    """The monthly estimate the owner's awb tenant cost keeps in cost.json of the shared tenants folder, None when
+    there is none or it cannot be read (B-048)."""
+    try:
+        path=Path(path) if path else tenants.root(config.paths())/COST_FILE
+        cost=json.loads(path.read_text(encoding='utf-8'))
+    except Exception:
+        return None
+    return cost if isinstance(cost,dict) else None
+
+
 class Inventory:
-    def __init__(self,cache=CACHE,loader=None,collector=collect_tenant):
+    def __init__(self,cache=CACHE,loader=None,collector=collect_tenant,cost=None):
         self.cache=Path(cache);self.loader=loader or (lambda:tenants.load(config.paths()));self.collector=collector
+        self.cost=cost
         self.lock=threading.Lock();self.refreshing=False;self.last_attempt=0;self.error='';self.data=None
         try:
             saved=json.loads(self.cache.read_text())
@@ -182,6 +195,7 @@ class Inventory:
             data=dict(self.data or {'tenants':[],'collected_at':None})
             data['tenants']=[t for t in data['tenants'] if t['alias'] in aliases]
             data.update(refreshing=self.refreshing,stale=stale,error=self.error,registered_count=len(registered),refresh_interval_seconds=TTL,
+                        cost=read_cost(self.cost),
                         scope_note='Counts cover resources visible to the connected account in the configured regions. They are not filtered by creator.',
                         coverage_note='Coverage: ECS servers, EVS disks, elastic IPs, VPCs and private images. Other services are not included.')
         return data

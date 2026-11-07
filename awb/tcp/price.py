@@ -810,9 +810,14 @@ def _pool_module():
     return importlib.import_module("awb.tcp.pricepool")
 
 
+def is_gpu_flavor(flavor: str) -> bool:
+    """A flavor of the GPU families g and p (g7v, p2s, pi2), by its name alone."""
+    return bool(_GPU_FAMILY_RE.match((flavor or "").split(".")[0].lower()))
+
+
 def is_gpu(rec: Record) -> bool:
     """A GPU flavor: the families g and p (g7v, p2s, pi2) or GPU in the name of the record."""
-    return bool(_GPU_FAMILY_RE.match(rec.flavor.split(".")[0].lower())) or "gpu" in rec.name.lower()
+    return is_gpu_flavor(rec.flavor) or "gpu" in rec.name.lower()
 
 
 def pool_record(f: Fetch, flavor: str, os_text: str) -> Record:

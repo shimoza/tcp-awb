@@ -896,6 +896,14 @@ logged on the owner's side without its path or body.
 what ran on a given day and `awb tenant project tcp-xxxx` what a project created. Calls keep a pause between them and
 wait when the API gateway says so (HTTP 429).
 
+`awb tenant cost` tells where the money on the test tenants goes: it prices the latest snapshot of each tenant with
+one fetch of the live price API per region, PAYG and 730 hours a month (a stopped server counts its disks only, an
+item without a price record is listed as no price and left out of the total, which says so), sums it per tenant,
+kind and project and lists the top items and the waste (disks of stopped servers, disks not attached, elastic IPs
+not bound). `awb tenant cost note test-1/ecs-3 "kept by the owner: an old-world project to move"` keeps an item out
+of the waste. A tenant whose read key cannot list a kind is named as unknown, never priced as empty. The snapshot
+runs the estimate after it and the console gets it as `cost` of GET /api/tenants.
+
 ### Windows lab machines (WL)
 
 Your own Windows laptop serves as a lab (Hyper-V, an evaluation VM of Windows Server, no customer data). Part 1 is
