@@ -620,6 +620,31 @@ and prints the real paths on your screen only. The apply never deletes and never
 the report folder, the report workbook, OneDrive without `--include-onedrive` or anything outside the inventory roots
 and the layout root. Each move goes into the undo journal `~/awb-laptop/vault/moves/<stamp>.tsv` (600).
 
+### Tidying the buckets
+
+`awb files plan` proposes an action for every object of the two buckets; `awb files tidy` carries them out, in your
+own terminal on the host (never as the work user, never inside an assistant session) and never without a `yes`.
+
+    awb files plan                                                  # ~/tcp-shared/files/plan-<stamp>/
+    awb files tidy --go ~/tcp-shared/files/plan-<stamp>/ --dry-run    # what it would do; nothing changes
+    awb files tidy --go ~/tcp-shared/files/plan-<stamp>/              # the same list, then type yes
+
+Strike a row you do not want by deleting its line from `PLAN.tsv` before the run; the command never adds a row and
+takes only a plan made in the last 24 hours (else: make a new plan). `--only owner-bucket` or `--only lab-bucket`
+and `--project tcp-xxxx` narrow the rows. `keep` and `withheld` do nothing. `move`, `unsorted` and `archive` copy the
+object to its target, compare size and md5 (the size alone when the etag is multipart, which the log says), then
+delete the source; a target that exists is skipped, a copy that differs leaves the source in place. `delete` deletes
+only when the keeper the row names is there and identical or for `stale-in` when the vault's record of the imports
+still holds the key and md5; a delete without a keeper is refused. Every row is checked against the bucket first: an
+object that is gone or changed its size since the plan is skipped. Each row goes into
+`~/tcp-shared/files/tidy-<stamp>/LOG.tsv` (id, action, source, target, ok, skipped or failed, reason), which also
+goes up to `reports/tidy/<stamp>/LOG.tsv` of the owner bucket. One failed row never stops the others; the exit code is 1 when
+one failed. The key service has no copy and no delete, so the tidy reads the key it uses for both buckets (the lab
+key of `bucket_tenant` in keys.conf) from your password store at call time and keeps nothing.
+
+After an archive of a lab put nothing else is needed: INDEX.md of the project drops the rows whose object is gone on
+the next put.
+
 ### As a plugin for Claude Code
 
 The skills, the workers and the checkpoints also come as a plugin, with this repository as its marketplace. Install
@@ -686,6 +711,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | the half-year | `awb report --period --from 2026-04-01 --to 2026-09-30` | every project with activity in three blocks: active customer work, finished customer work, technical questions; `--reveal --out FILE` puts the names back, owner only |
 | the files of the projects | `sudo -n -u awb -H awb files inventory --host`, `awb files inventory --buckets` | one TSV per side in `~/tcp-shared/files/` with path, size, time, sha256 and md5 of every file of the project folders or of the two buckets, never the content; a path the name check finds anything in is `[withheld]` |
 | the move plan of the files | `awb files plan --put` | `~/tcp-shared/files/plan-<stamp>/PLAN.md` and `PLAN.tsv` from the three inventories: identical laptop copies and older versions to `_archive`, the newest into `YYYY-MM/tcp-xxxx/private/`, `clean/` or `out/`, host duplicates listed, every bucket object with its size and one action (`keep`, `move` of a loose object into `in/` or `out/` of its project, `unsorted` to `_unsorted/<stamp>/`, `archive` of a put fetched 30 days or more ago or of an older version in `out/`, `delete` only for an identical copy in one place or an object of `in/` the import took, `withheld`), sums per project and bucket at the end of `PLAN.md`; the plan moves and deletes nothing; `--put` sends the laptop rows to `reports/plan/<stamp>/PLAN.tsv` for the laptop |
+| tidy the buckets | `awb files tidy --go ~/tcp-shared/files/plan-<stamp>/ --dry-run`, then without `--dry-run` | the bucket rows of the plan carried out after your `yes`: moves copied, compared and their source deleted, deletes only with an identical keeper or as `stale-in`; see "Tidying the buckets" below |
 | the report workbook | `awb report --codes --put` | `projects.csv` for your workbook on the laptop: one row per project, six columns (project code, customer code, task description, next step, whose move, date of last change), codes only, every text checked again; with `--put` it goes to `reports/` of the owner bucket; on the sealed host the work user's timer `awb-report-codes-work` reads the projects (`--to-shared`) and your timer `awb-report-codes` checks and puts what it handed over, every hour (`--from-shared --put --if-changed`) |
 | the status | `awb board show`, `awb board write` | the status of every active project on one page, parked projects in a short section after them |
 | bring a commit live | `sudo awb deploy` | the new release, only the changed services restarted, the status at the end |

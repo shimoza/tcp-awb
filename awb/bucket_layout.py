@@ -36,6 +36,16 @@ def plan_key(stamp: str) -> str:
     return "%s%s/%s" % (PLAN_PREFIX, stamp, PLAN_FILE)
 
 
+TIDY_PREFIX = REPORTS_PREFIX + "tidy/"
+"""Where `awb files tidy` puts the row log of a run that carried out the bucket rows of a plan: <stamp>/LOG.tsv."""
+TIDY_FILE = "LOG.tsv"
+
+
+def tidy_key(stamp: str) -> str:
+    """reports/tidy/<stamp>/LOG.tsv, the key of the row log of `awb files tidy` (task BK3)."""
+    return "%s%s/%s" % (TIDY_PREFIX, stamp, TIDY_FILE)
+
+
 MONTH = r"[0-9]{4}-(?:0[1-9]|1[0-2])"
 """A month folder of the top of the owner bucket, <YYYY-MM>, without its slash (`awb bucket`)."""
 WEB_MONTH = r"\d{4}-(?:0[1-9]|1[0-2])"

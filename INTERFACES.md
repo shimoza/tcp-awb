@@ -1193,6 +1193,15 @@ bytes}}); `plan(p, rows, stamp, taken=, fetched=)`, `bucket_part(...)`, `bucket_
 `reports/plan/<stamp>/PLAN.tsv`; `keys_exchange.owner_key_ok` allows a PUT of that key and nothing else under
 `reports/plan/`.
 
+`awb/filestidy.py` is `awb files tidy` (task BK3, 2026-11-07; a subcommand of the parser of `awb/filesinv.py`):
+`tidy(p, plan, clients=None, only=None, project=None, dry_run=False, confirm=None, now=None, taken=None, say=print)
+-> exit code` (clients: {place: client with head, copy, delete and put_file} or a function that makes it, default
+`owner_clients()`; confirm(prompt) -> the typed word, default the terminal; taken as in `filesplan.make`),
+`read_plan(path) -> (PLAN.tsv, stamp, bucket rows)`, `check_fresh(stamp, now)`, `shape_ok(row, stamp)`,
+`summary(rows, stamp)`, `add_parser(sub)`, `run(args)`; `LOG_COLUMNS` (id, action, source, target, result, reason),
+`FRESH_HOURS = 24`, `TidyError`. `bucket_layout.TIDY_PREFIX` is `reports/tidy/`, `tidy_key(stamp)` is
+`reports/tidy/<stamp>/LOG.tsv`.
+
 ## The move plan on the laptop (2026-10-29, R6)
 
 `awb/cleanfiles.py` is `awb clean files plan|apply|undo` (dispatched by `clean.main`): `fetch_plan(spec, client=None)

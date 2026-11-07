@@ -14495,8 +14495,19 @@
   {"id": "b044-pool-16", "phase": "b044-pool", "name": "price pool: the module is command only loaded by name and standard library only", "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_module_is_command_only_loaded_by_name_and_standard_library_only", "status": "passing"},
   {"id": "b044-pool-17", "phase": "b044-pool", "name": "price pool: the texts hold no em dash and no comma before and or", "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_texts_hold_no_em_dash_and_no_comma_before_and_or", "status": "passing"},
   {"id": "b044-pool-18", "phase": "b044-pool", "name": "price pool: the command is documented and in the test list", "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_command_is_documented_and_in_the_test_list", "status": "passing"},
-  {"id": "b044-pool-19", "phase": "b044-pool", "name": "price pool: pricebook pool with no unit or no rest hours", "run": ".venv/bin/pytest tests/test_price_pool.py::test_pricebook_pool_with_no_unit_or_no_rest_hours", "status": "passing"}
+  {"id": "b044-pool-19", "phase": "b044-pool", "name": "price pool: pricebook pool with no unit or no rest hours", "run": ".venv/bin/pytest tests/test_price_pool.py::test_pricebook_pool_with_no_unit_or_no_rest_hours", "status": "passing"},
+  {"id": "b045-bk3-1", "phase": "b045-bk3", "name": "BK3: each action on a planted row", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_each_action_on_a_planted_row", "status": "passing"},
+  {"id": "b045-bk3-2", "phase": "b045-bk3", "name": "BK3: a withheld path or a target out of shape is never acted on", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_withheld_path_or_a_target_out_of_shape_is_never_acted_on", "status": "passing"},
+  {"id": "b045-bk3-3", "phase": "b045-bk3", "name": "BK3: a copy that comes back different leaves the source in place", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_copy_that_comes_back_different_leaves_the_source_in_place", "status": "passing"},
+  {"id": "b045-bk3-4", "phase": "b045-bk3", "name": "BK3: a delete without keeper is refused and one whose keeper is gone is skipped", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_delete_without_keeper_is_refused_and_one_whose_keeper_is_gone_is_skipped", "status": "passing"},
+  {"id": "b045-bk3-5", "phase": "b045-bk3", "name": "BK3: an existing target is never overwritten and a changed object is skipped", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_an_existing_target_is_never_overwritten_and_a_changed_object_is_skipped", "status": "passing"},
+  {"id": "b045-bk3-6", "phase": "b045-bk3", "name": "BK3: a plan older than 24 hours is refused", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_plan_older_than_24_hours_is_refused", "status": "passing"},
+  {"id": "b045-bk3-7", "phase": "b045-bk3", "name": "BK3: dry run changes nothing and no yes changes nothing", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_dry_run_changes_nothing_and_no_yes_changes_nothing", "status": "passing"},
+  {"id": "b045-bk3-8", "phase": "b045-bk3", "name": "BK3: the work user and an assistant session are refused", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_the_work_user_and_an_assistant_session_are_refused", "status": "passing"},
+  {"id": "b045-bk3-9", "phase": "b045-bk3", "name": "BK3: a struck row is not acted on", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_struck_row_is_not_acted_on", "status": "passing"},
+  {"id": "b045-bk3-10", "phase": "b045-bk3", "name": "BK3: one failing row does not stop the others and gives exit 1", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_one_failing_row_does_not_stop_the_others_and_gives_exit_1", "status": "passing"},
+  {"id": "b045-bk3-11", "phase": "b045-bk3", "name": "BK3: the log goes to reports tidy of the owner bucket", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_the_log_goes_to_reports_tidy_of_the_owner_bucket", "status": "passing"}
  ],
- "total_tests": 2148,
+ "total_tests": 2159,
  "checked": "2026-11-07"
 }
