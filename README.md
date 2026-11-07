@@ -340,6 +340,13 @@ structured data, secrets, tokens, private keys and home paths, also behind base6
 masks what it finds as `[withheld]`, the owner status refuses names and secrets only, the others refuse. The table
 "One text screen" in `INTERFACES.md` lists each door.
 
+The console page lives in the repository as `awb/tcp/web/portal.html` and ships with `sudo awb deploy`: when its
+bytes differ from the live page, the deploy publishes it through the same checks and backup as `awb web publish`
+(see "Deploy"). The test `tests/test_portal_page.py` holds it to the contract: every API path it calls is in
+`docs/api/openapi.yaml` and every field of `/api/board` is shown by the page or named in the test with a reason, so a
+new board field the page does not show is a red test. `sudo awb web publish FILE` (a page of your own) and `sudo awb
+web publish --rollback [NAME]` (back to a backup) stay for you; the next deploy that changes the page replaces either.
+
 ## Deploy
 
 A change goes live with one command after its commit:
@@ -358,6 +365,11 @@ rules reach every project and every running session, and every daemon that loads
 check in the vault daemon reads `rules/allow-domains.txt`): the vault daemon reloads and stays unlocked, the others restart. The run ends with the status of each service. A daemon
 the deploy left on an older release carries the next command only when a module it imports changed since,
 else the note "its code unchanged since".
+After the services the deploy publishes the console page of the release (`awb/tcp/web/portal.html`) when its bytes
+differ from the live page: the checks of `awb web publish` run as you, the live page is kept as
+`index.html.before-deploy-<commit>` and one line says `page published (backup NAME)`, `page unchanged` or `page
+refused (REASON, the live page stays)`. A refused page never fails the deploy. A host without the web side skips the
+step with one line; `--dry-run` says what the step would do. A change of the page restarts no service.
 `awb deploy status` shows what runs where, `sudo awb deploy --rollback` goes back to the release before.
 `sudo awb deploy --task B-012` brings a green build task live: it pulls `main` of the build side into your copy
 first. A deploy from a copy that is behind the live release is refused, so it cannot take back a build task's work.
@@ -714,8 +726,8 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | tidy the buckets | `awb files tidy --go ~/tcp-shared/files/plan-<stamp>/ --dry-run`, then without `--dry-run` | the bucket rows of the plan carried out after your `yes`: moves copied, compared and their source deleted, deletes only with an identical keeper or as `stale-in`; see "Tidying the buckets" below |
 | the report workbook | `awb report --codes --put` | `projects.csv` for your workbook on the laptop: one row per project, six columns (project code, customer code, task description, next step, whose move, date of last change), codes only, every text checked again; with `--put` it goes to `reports/` of the owner bucket; on the sealed host the work user's timer `awb-report-codes-work` reads the projects (`--to-shared`) and your timer `awb-report-codes` checks and puts what it handed over, every hour (`--from-shared --put --if-changed`) |
 | the status | `awb board show`, `awb board write` | the status of every active project on one page, parked projects in a short section after them |
-| bring a commit live | `sudo awb deploy` | the new release, only the changed services restarted, the status at the end |
-| publish the console page | `sudo awb web publish --from-queue ID` | the checked page of a UI run live, the old one kept as a backup |
+| bring a commit live | `sudo awb deploy` | the new release, only the changed services restarted, the console page `awb/tcp/web/portal.html` published when it changed, the status at the end |
+| publish the console page by hand | `sudo awb web publish FILE`, `sudo awb web publish --rollback` | a checked page of your own live or a backup back, the old one kept as a backup; the deploy publishes the page of the repository |
 | a login for the console | `sudo awb web user add LOGIN [--level owner]` | a random password, shown once (an owner entry also gets a TOTP key for his phone); `reset`, `remove`, `list`; `projects LOGIN CODE...` limits a reader to those project codes (no list: every project); `sudo awb web status` shows failed sign-ins and waits |
 | the owner host name | `sudo awb web host HOST` | once: the host name of the owner level, kept in `/etc/awb/paths.conf` |
 | what waits on the owner | `awb owner status` | one list of everything that waits on you: the owner items of OPEN.md of the active projects (parked projects as a count), the rows of QUEUE.md whose state waits on you the build tasks that wait on you, a failed weekly publish of the dataset, a failed put of the codes file of the report workbook and every open window of a Windows lab machine and every registered lab machine that is online; one line each with the project code or label, a few words, where it is done (project session, his terminal, steering session) and a ready command block; `--mail` sends it (the timer `awb-owner-mail` does at 08:00 Europe/Berlin, no mail for an empty list); the line of a weekly publish of the last 24 hours comes after the list and is mailed even when nothing waits on you |

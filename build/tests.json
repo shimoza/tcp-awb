@@ -14513,8 +14513,18 @@
   {"id": "gf-2", "phase": "gateway-fonts", "name": "Gateway: no other file of the font folder or a path trick is served", "run": ".venv/bin/pytest tests/test_gateway_fonts.py::FontTests::test_no_other_file_of_the_font_folder_or_a_path_trick_is_served", "status": "passing"},
   {"id": "gf-3", "phase": "gateway-fonts", "name": "Gateway: a POST to the font is not served", "run": ".venv/bin/pytest tests/test_gateway_fonts.py::FontTests::test_a_post_to_the_font_is_not_served", "status": "passing"},
   {"id": "gf-4", "phase": "gateway-fonts", "name": "Gateway: a font file with another hash is not served", "run": ".venv/bin/pytest tests/test_gateway_fonts.py::FontTests::test_a_font_file_with_another_hash_is_not_served", "status": "passing"},
-  {"id": "gf-5", "phase": "gateway-fonts", "name": "Gateway: the pinned hash and the OFL licence are in the repository", "run": ".venv/bin/pytest tests/test_gateway_fonts.py::FontTests::test_the_pinned_hash_and_the_licence_are_in_the_repository", "status": "passing"}
+  {"id": "gf-5", "phase": "gateway-fonts", "name": "Gateway: the pinned hash and the OFL licence are in the repository", "run": ".venv/bin/pytest tests/test_gateway_fonts.py::FontTests::test_the_pinned_hash_and_the_licence_are_in_the_repository", "status": "passing"},
+  {"id": "b046-portal-1", "phase": "b046-portal", "name": "portal page: every API path the page calls is in the contract", "run": ".venv/bin/pytest tests/test_portal_page.py::test_every_api_path_the_page_calls_is_in_the_contract", "status": "passing"},
+  {"id": "b046-portal-2", "phase": "b046-portal", "name": "portal page: every board field is read by the page or listed with a reason", "run": ".venv/bin/pytest tests/test_portal_page.py::test_every_board_field_is_read_by_the_page_or_listed_with_a_reason", "status": "passing"},
+  {"id": "b046-portal-3", "phase": "b046-portal", "name": "portal page: the page passes the checks of publish", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_passes_the_checks_of_publish", "status": "passing"},
+  {"id": "b046-portal-4", "phase": "b046-portal", "name": "portal page: the page step publishes a changed page with a backup", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_step_publishes_a_changed_page_with_a_backup", "status": "passing"},
+  {"id": "b046-portal-5", "phase": "b046-portal", "name": "portal page: the page step leaves an unchanged page", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_step_leaves_an_unchanged_page", "status": "passing"},
+  {"id": "b046-portal-6", "phase": "b046-portal", "name": "portal page: the page step keeps the live page on a refusal", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_step_keeps_the_live_page_on_a_refusal", "status": "passing"},
+  {"id": "b046-portal-7", "phase": "b046-portal", "name": "portal page: the page step skips a host without the web part", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_step_skips_a_host_without_the_web_part", "status": "passing"},
+  {"id": "b046-portal-8", "phase": "b046-portal", "name": "portal page: a change of the page restarts no unit", "run": ".venv/bin/pytest tests/test_portal_page.py::test_a_change_of_the_page_restarts_no_unit", "status": "passing"},
+  {"id": "b046-portal-9", "phase": "b046-portal", "name": "portal page: the deploy publishes the page after the units and a refusal never fails it", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_deploy_publishes_the_page_after_the_units_and_a_refusal_never_fails_it", "status": "passing"},
+  {"id": "b046-portal-10", "phase": "b046-portal", "name": "portal page: the dry run says what the page step would do", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_dry_run_says_what_the_page_step_would_do", "status": "passing"}
  ],
- "total_tests": 2166,
+ "total_tests": 2176,
  "checked": "2026-11-07"
 }

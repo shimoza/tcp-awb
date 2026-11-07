@@ -56,6 +56,12 @@ the commits from the deployed release to the target, the whole history when no r
 refuses the plan with the commit and the class and never a value, so root installs nothing; a gate that cannot run
 (no register, git failed) refuses too. The verdict is a note of the plan (`# gate: ...`), so the dry run shows it.
 
+The page step (B-046) comes after the units: the console page of the release (PAGE) goes live when its bytes differ
+from the live page of the web folder (publish.SRV), through the checks as the owner and the backup of
+`awb web publish FILE` (`publish.release_page`). It prints one line, page published (backup NAME), page unchanged,
+page refused (REASON, the live page stays) or page skipped on a host without the web folder; a refusal never fails
+the deploy. The dry run prints what the step would do.
+
 The journal /opt/tcp-awb/DEPLOYED (root, 644) is written `running` before anything changes, updated after every
 step and marked `done` at the end; a run that dies leaves its units pending for the next one.
 
@@ -110,6 +116,7 @@ WAIT_HOLD = 3.0         # and keep its MainPID this long
 FINAL_AFTER = 5.0       # the last read of NRestarts and ActiveState comes at least this long after the restarts
 UNLOCK_TRIES = 3
 PROBE_PATH = "/.awb-deploy-probe"   # a path no API of the web side acts on
+PAGE = "awb/tcp/web/portal.html"     # the console page of a release, published by the page step (B-046)
 
 # The two daemons that hold secrets are found by their command, not by a unit name: (command, subcommand) of the
 # ExecStart of a seal/*.service template. Each runs one module of cli.DELEGATED; the hand-over (T2) is read from it.
@@ -211,10 +218,11 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/confusables.py": "python -m awb.confusables, run once by a build session to write awb/confusables_latin.py",
 }
 
-# Folders of the package that hold data and no module: the release ships them (the archive is the whole commit) and
-# a command reads them, no unit, so a change of one restarts nothing.
+# Folders of the package that hold data and no module and the data files no unit reads: the release ships them (the
+# archive is the whole commit) and a command reads them, no unit, so a change of one restarts nothing.
 PACKAGE_DATA: dict[str, str] = {
     "awb/winlab/": "setup.ps1 and remove.ps1, printed by the owner's awb winlab bootstrap and awb winlab remove",
+    PAGE: "the console page: the page step of the deploy publishes it, the gateway reads only the published copy",
 }
 
 # Files outside the package, first match wins. A value is a tuple of effects: "all" (every unit), "rules" (the
@@ -280,6 +288,8 @@ class Host:
     build_root: Path | None = None       # None: config.build_root() (the self-build's folder)
     gate: Callable | None = None         # owner side: the gate over deployed..target, None: owner_gate (tests give
     #                                      a stand-in)
+    web_root: Path | None = None         # the folder of the live page, None: publish.SRV (tests give a temp folder)
+    chown: Callable = os.chown
 
     @property
     def units_dir(self) -> Path:
@@ -1873,7 +1883,24 @@ def program_lines(plan: dict, opts: Options, host: Host, owner_name: str, work_n
     if plan["sync"]:
         out.append("+ awb projects sync   # as %s, %s changed" % (work_name, plan["sync_reason"]))
     out.append("+ awb vault status; awb keys status   # as %s" % owner_name)
+    out.append(page_plan_line(host, t, owner_name))
     return out
+
+
+def page_web_root(host: Host) -> Path:
+    from awb.tcp.web import publish
+
+    return Path(host.web_root) if host.web_root is not None else publish.SRV
+
+
+def page_plan_line(host: Host, target: str, owner_name: str) -> str:
+    """What the page step would do, for the dry run (the release is not extracted yet, so its bytes are not read)."""
+    root = page_web_root(host)
+    if not root.is_dir():
+        return "# page skipped (no %s on this host)" % root
+    return ("+ publish %s of the release as %s when its bytes differ from the live page   # checked as %s like awb "
+            "web publish FILE, the live page kept as index.html.before-deploy-%s; a refusal keeps the live page"
+            % (PAGE, root / "index.html", owner_name, short(target)))
 
 
 # --------------------------------------------------------------------------- the run (as root)
@@ -2237,6 +2264,17 @@ class Run:
                 say("# %s is %s after the restart: journalctl -u %s" % (u, i.get("ActiveState") or "gone", u))
                 self.mark(u, "failed")
                 self.failed.append(u)
+
+    def page(self) -> None:
+        """The console page of the release goes live when its bytes differ from the live page, through the checks
+        (as the owner) and the backup of `awb web publish FILE`. One line; a refusal never fails the deploy."""
+        from awb.tcp.web import publish
+
+        host = publish.Host(self.host.geteuid, self.host.runner,
+                            dict(self.host.environ, SUDO_USER=self.caller.owner.pw_name), self.host.chown,
+                            self.host.bin)
+        say("# " + publish.release_page(page_web_root(self.host), self.host.releases / self.target / PAGE,
+                                        "deploy-" + short(self.target), host))
 
     def finish(self) -> int:
         self.journal["state"] = "done"
@@ -2637,6 +2675,7 @@ def root_deploy(opts: Options, host: Host) -> int:
             run.read_status()
             run.sync()
             run.final_check()
+            run.page()
             code = run.finish()
         except StepFailed as err:
             say("# awb deploy: %s" % err)

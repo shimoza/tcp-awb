@@ -1220,7 +1220,8 @@ root: `layout_root()`, `save_layout(root)`, `layout_project(code)`, `layout_dir(
 
 `awb/deploy.py`, `awb deploy` (DELEGATED, refused for the work user). `main(argv, *, root=OPT, etc=Path("/etc"),
 run_dir=Path("/run"), runner=subprocess.run, geteuid=os.geteuid, **more)`; `more` fills the other fields of `Host`
-(`environ`, `module_file`, `getpwnam`, `getgrouplist`, `clock`, `sleep`, `cwd`, `bin`, `daemons`). Hidden
+(`environ`, `module_file`, `getpwnam`, `getgrouplist`, `clock`, `sleep`, `cwd`, `bin`, `daemons`, `web_root`,
+`chown`). Hidden
 subcommands, run by root as the owner and refused as root: `plan --json [options]`, `archive COMMIT` (the `git
 archive` stream on standard output), `unlock`, `status --json [--probe SOCKET]...`. The build runner (SB1):
 `is_build_runner(argv)`, `active_task_units(runner) -> list[str] | None`, `build_runner_action(show, runner, reason)
@@ -1263,7 +1264,14 @@ never a value), as is a gate that cannot run. The root path imports neither
   actions, kinds and states, boolean flags, printable text).
 - Root: `entry_checks(host) -> Caller`, `take_lock(run_dir) -> fd` (`O_CREAT` 0600, `flock`, never unlinked, not
   inherited), `vault_busy(vault)`, `Run(host, caller, plan, opts)` with the steps `start_journal`, `extract`,
-  `install`, `daemons`, `services`, `wait`, `unlock`, `read_status`, `sync`, `final_check`, `finish`;
+  `install`, `daemons`, `services`, `wait`, `unlock`, `read_status`, `sync`, `final_check`, `page`, `finish`;
+  `page` (B-046) prints `# ` and the line of `tcp.web.publish.release_page(root, page, label, host)` for `PAGE`
+  (`awb/tcp/web/portal.html`) of the release, the web folder `page_web_root(host)` (`Host.web_root`, None:
+  `publish.SRV`) and the label `deploy-<short target>`: `page published (backup NAME)`, `page unchanged`, `page
+  refused (REASON, the live page stays)` or `page skipped (no FOLDER on this host)`; under root the check runs as
+  the owner (`awb web check --emit FILE`) and must hand back the bytes of the release, `Host.chown` owns the page
+  and the backup; a refusal is no failure of the run. `page_plan_line(host, target, owner)` is the dry run's line.
+  `PACKAGE_DATA` lists `PAGE`, so a change of the page restarts no unit;
   `flip(root, release)` (the exchange of the flip back), `retain(releases, keep)`, `check_archive(tar)`,
   `check_tree(folder)`, `status_lines(journal, status, show)`.
 - The drop: `child_env(pw, environ)` (built: `HOME`, `USER`, `LOGNAME`, `SHELL`, `PATH` the secure default,

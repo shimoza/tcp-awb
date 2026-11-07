@@ -24,6 +24,8 @@ connection on the socket systemd hands over, reads one run id from it, publishes
 /etc/awb/paths.conf (in place of SUDO_USER) and answers one line, `published BACKUP` or `refused REASON`.
 
 `--rollback` installs a backup back (the newest without NAME); the page it replaces is kept as a backup too.
+`release_page` is the page step of `sudo awb deploy`: the page of the release (awb/tcp/web/portal.html) goes live
+through the same checks and backup as FILE when its bytes differ from the live page.
 `status` prints the size and time of the page, the last backup and the answers of the gateway and its health (ok, or not installed), and
 from the sign-in log the attempts of the last day by result and every login that waits (the log belongs to the
 gateway: under sudo, or AWB_WEB_SIGNIN_LOG for another file).
@@ -370,6 +372,33 @@ def _publish(a, host: Host) -> int:
     _say("published: %d bytes, backup %s" % (len(data), name or "none (there was no page)"))
     a.backup = name
     return 0
+
+
+def release_page(root: Path, page: Path, label: str, host: Host) -> str:
+    """The page step of `sudo awb deploy` (B-046): the console page of a release goes live when its bytes differ
+    from the live page, through the checks and the backup of `awb web publish FILE`. Returns the one line the deploy
+    prints. A refusal leaves the live page and raises nothing."""
+    if not root.is_dir():
+        return "page skipped (no %s on this host)" % root
+    try:
+        data = _read(page)
+        try:
+            if (root / INDEX).read_bytes() == data:
+                return "page unchanged"
+        except FileNotFoundError:
+            pass
+        if host.geteuid() == 0:
+            checked = _page_as_owner(argparse.Namespace(from_queue=None, file=str(page)), host)
+        else:
+            checked = checked_page(None, page)
+        if checked != data:
+            raise Refused("the check handed back other bytes than the release holds")
+        name = install(root, data, label, host)
+    except Refused as err:
+        return "page refused (%s, the live page stays)" % err
+    except (OSError, register.RegisterError):
+        return "page refused (the publish failed on the host, the live page stays)"
+    return "page published (backup %s)" % (name or "none, there was no page")
 
 
 def _from_socket(a, host: Host, sock=None) -> int:
