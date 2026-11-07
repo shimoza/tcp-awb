@@ -14538,8 +14538,9 @@
   {"id": "b048-cost-5", "phase": "b048-cost", "name": "tenant cost: the waste groups and an item with a note is in none of them", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_the_waste_groups_and_an_item_with_a_note_is_in_none_of_them", "status": "passing"},
   {"id": "b048-cost-6", "phase": "b048-cost", "name": "tenant cost: cost json holds no name and no id and api tenants carries it", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_cost_json_holds_no_name_and_no_id_and_api_tenants_carries_it", "status": "passing"},
   {"id": "b048-cost-7", "phase": "b048-cost", "name": "tenant cost: an old snapshot without os and attached still prices", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_an_old_snapshot_without_os_and_attached_still_prices", "status": "passing"},
-  {"id": "b048-cost-8", "phase": "b048-cost", "name": "tenant cost: a listing the read key cannot read leaves the tenant unknown and the snapshot runs the estimate", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_a_listing_the_read_key_cannot_read_leaves_the_tenant_unknown_and_the_snapshot_runs_the_estimate", "status": "passing"}
+  {"id": "b048-cost-8", "phase": "b048-cost", "name": "tenant cost: a listing the read key cannot read leaves the tenant unknown and the snapshot runs the estimate", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_a_listing_the_read_key_cannot_read_leaves_the_tenant_unknown_and_the_snapshot_runs_the_estimate", "status": "passing"},
+  {"id": "b048-cost-eip", "phase": "b048-cost", "name": "COST: the elastic IP takes the record with the flavor eip beside the address record of zero", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_the_elastic_ip_takes_the_record_with_the_flavor_eip_beside_the_address_record_of_zero", "status": "passing"}
  ],
- "total_tests": 2191,
+ "total_tests": 2192,
  "checked": "2026-11-07"
 }

@@ -261,3 +261,18 @@ def test_a_listing_the_read_key_cannot_read_leaves_the_tenant_unknown_and_the_sn
     assert cost["tenants"][0]["unreadable"] == [{"region": "eu-de", "kinds": ["ecs", "evs"]}]
     assert tenants.main(["cost"]) == 0
     assert "not readable in eu-de: ecs, evs" in capsys.readouterr().out
+
+
+def test_the_elastic_ip_takes_the_record_with_the_flavor_eip_beside_the_address_record_of_zero():
+    """eu-de lists OTC_ELASTIC_IP (flavor eip) and OTC_EIP_GRAY ("Elastic IP - Address", no flavor, 0): the address
+    takes the one with the flavor eip; without it the two stay ambiguous (2026-11-07)."""
+    gray = price.Record.from_raw(record("TEST_EIP_GRAY", service="eip", flavor="-", name="Elastic IP - Address",
+                                        os="Standard", payg="0.000000"))
+    eip = price.Record.from_raw(record("TEST_ELASTIC_IP", service="eip", flavor="eip", name="Elastic IP",
+                                       os="Standard", payg="0.004400"))
+    rec, why = tenantcost.eip_record([gray, eip])
+    assert rec is not None and rec.id == "TEST_ELASTIC_IP"
+    gray2 = price.Record.from_raw(record("TEST_EIP_GRAY2", service="eip", flavor="-", name="Elastic IP - Address 2",
+                                         os="Standard", payg="0.001000"))
+    rec, why = tenantcost.eip_record([gray, gray2])
+    assert rec is None and "2 records" in why

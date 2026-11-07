@@ -203,8 +203,12 @@ def eip_record(records: list[price.Record]) -> tuple[price.Record | None, str]:
         w = _words(r.flavor, r.name)
         return "bandwidth" not in w and ("eip" in w or ("ip" in w and bool(w & {"elastic", "public"})))
 
-    return _one([r for r in records if r.service in ("eip", "vpc") and r.unit.strip().lower() == "h"
-                 and r.price("PAYG") is not None and is_address(r)], "an elastic IP")
+    found = [r for r in records if r.service in ("eip", "vpc") and r.unit.strip().lower() == "h"
+             and r.price("PAYG") is not None and is_address(r)]
+    # eu-de lists two: OTC_ELASTIC_IP (flavor eip, the hourly price) and OTC_EIP_GRAY ("Elastic IP - Address", no
+    # flavor, 0): the one with the flavor eip is the price of the address (2026-11-07)
+    flavored = [r for r in found if (r.flavor or "").strip().lower() == "eip"]
+    return _one(flavored or found, "an elastic IP")
 
 
 # --------------------------------------------------------------------------- the estimate
