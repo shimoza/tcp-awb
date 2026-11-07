@@ -6,6 +6,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 ## Week 45, 2026-11-02 to 2026-11-08 (in progress)
 ### Added
 
+- The console page in the "pult" design (owner's choice of 2026-11-07): dark by default with the orange and blue of his code editor (#f0b167 accent, #82b6fc codes), light keeps the Telekom magenta, a switch in the top bar remembered in the browser; every colour is a theme token; the overview is board first (status strip with the TCP platform, the build line and the tenants, five numbers, Waiting on you, the active projects, the platform events, the build queue); the Board page shows the TCP platform and the parked projects; system fonts (the page's CSP allows no font from outside); every text colour passes 4.5:1.
+
 - The board's build line was a month old: `state.tsv` of the board folder belonged to the work user and the runner (the owner) could not replace it in the sticky folder, so every write failed silently and left a temporary file (thousands). The stale file and the leftovers are gone; `board_write` now removes its temporary file when the rename fails.
 
 - The console page lives in the repository as `awb/tcp/web/portal.html`, a byte copy of the page live since 2026-10-17 (`/srv/awb-web/index.html`); the steering session takes the page over from the UI queue (the owner's word of 2026-11-07).
