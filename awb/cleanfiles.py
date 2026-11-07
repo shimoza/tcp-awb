@@ -47,8 +47,10 @@ from pathlib import Path
 
 from awb import bucket_layout, cleaninventory, cleanreport, codes, laptop, reportbook
 
-PLAN_COLUMNS = ("id", "place", "action", "target", "project", "path", "keeper", "reason")
+PLAN_COLUMNS = ("id", "place", "action", "target", "project", "path", "keeper", "reason", "size")
 """The columns of PLAN.tsv, as `awb files plan` writes them (filesplan.COLUMNS; a test pins both)."""
+PLAN_NEEDS = ("id", "place", "action", "target", "project")
+"""The columns of PLAN.tsv this side reads, by their names: a plan without one of them is refused."""
 JOURNAL_COLUMNS = ("id", "from", "to", "sha256")
 PLANS = "plans"
 MOVES = "moves"
@@ -151,19 +153,21 @@ def fetch_plan(spec: str | None = None, *, client=None) -> str:
 
 
 def read_plan(path: Path) -> list[dict]:
-    """The laptop rows of a PLAN.tsv; a file whose header is not the eight columns is refused."""
+    """The laptop rows of a PLAN.tsv, read by the names of its header; a file whose header lacks a column of
+    PLAN_NEEDS or names one twice is refused."""
     try:
         lines = Path(path).read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeDecodeError) as err:
         raise FilesError("the plan cannot be read (%s)" % type(err).__name__) from None
-    if not lines or tuple(lines[0].split("\t")) != PLAN_COLUMNS:
-        raise FilesError("the header of the plan is not the eight columns of awb files plan")
+    head = lines[0].split("\t") if lines else []
+    if len(set(head)) != len(head) or not set(PLAN_NEEDS) <= set(head):
+        raise FilesError("the header of the plan lacks the columns %s of awb files plan" % ", ".join(PLAN_NEEDS))
     rows = []
     for ln in lines[1:]:
         if not ln.strip():
             continue
-        r = dict(zip(PLAN_COLUMNS, ln.split("\t")))
-        if r.get("place") == "laptop" and r.get("action") in ACTIONS:
+        r = dict(zip(head, ln.split("\t")))
+        if all(c in r for c in PLAN_NEEDS) and r["place"] == "laptop" and r["action"] in ACTIONS:
             rows.append(r)
     return rows
 

@@ -177,14 +177,19 @@ def test_r5_host_and_buckets_are_listed_and_never_moved(planted, tmp_path):
     other = inv.add("host", "deliverables/plan.md", b"p\n", project=B)
     lone = inv.add("host", "SCOPE.md", b"s\n", project=A)
     inbox = inv.add("owner-bucket", "inbox/plain.pdf", b"pdf\n", md5_only=True)
-    res, rows = make_plan(planted, inv, tmp_path)
+    res, rows = make_plan(planted, inv, tmp_path, taken={("2026-10/tcp-q7m4/in/brief.txt", md5(b"brief\n"))})
     got = by_id(rows)
-    assert got[stale]["action"] == "stale-in" and got[hidden]["action"] == "withheld"
-    assert (got[out1]["action"], got[out1]["keeper"]) == ("duplicate", out2) and out2 not in got, "the newest stays"
-    assert got[s2]["action"] == "duplicate" and got[s2]["keeper"] == s1
+    assert (got[stale]["action"], got[stale]["reason"]) == ("delete", "stale-in: the import took it")
+    assert got[hidden]["action"] == "withheld"
+    assert (got[out1]["action"], got[out1]["keeper"]) == ("delete", out2), "the newest stays"
+    assert (got[out2]["action"], got[out2]["reason"]) == ("keep", "in its layout place")
+    assert got[s2]["action"] == "delete" and got[s2]["keeper"] == s1 and got[s1]["action"] == "keep"
     assert (got[h2]["action"], got[h2]["keeper"]) == ("duplicate", h1)
-    assert other not in got and lone not in got and inbox not in got, "another project, one copy, the inbox"
-    assert all(r["target"] == "" for r in rows) and {r["action"] for r in rows} == {"stale-in", "withheld", "duplicate"}
+    assert other not in got and lone not in got, "another project, one copy"
+    assert got[inbox]["action"] == "keep", "every bucket object has a row, the inbox too"
+    assert all(r["target"] == "" for r in rows) and {r["action"] for r in rows} == {"delete", "withheld", "duplicate",
+                                                                                     "keep"}
+    assert all(r["size"].isdigit() for r in rows if r["place"] != "host")
     assert res["listed"] == len(rows) and res["laptop"] == {"keep": 0, "move": 0, "archive": 0}
 
 
@@ -233,11 +238,11 @@ def test_r5_the_plan_files_and_their_format(planted, tmp_path):
     assert folder == planted.shared / "files" / ("plan-%s" % WHEN)
     assert sorted(f.name for f in folder.iterdir()) == ["PLAN.md", "PLAN.tsv"]
     lines = (folder / "PLAN.tsv").read_text(encoding="utf-8").splitlines()
-    assert lines[0] == filesplan.HEADER == "id\tplace\taction\ttarget\tproject\tpath\tkeeper\treason"
+    assert lines[0] == filesplan.HEADER == "id\tplace\taction\ttarget\tproject\tpath\tkeeper\treason\tsize"
     assert [r["place"] for r in rows] == ["laptop", "laptop", "owner-bucket"], "laptop rows first"
     assert all(r["target"].endswith("/") for r in rows if r["action"] in ("move", "archive"))
     md = (folder / "PLAN.md").read_text(encoding="utf-8")
-    assert "## tcp-q7m4 (month 2026-10)" in md and keep in md and "Nothing is deleted anywhere" in md
+    assert "## tcp-q7m4 (month 2026-10)" in md and keep in md and "moves and deletes nothing anywhere" in md
     for f in tmp_path.glob("*.tsv"):
         assert f.read_text(encoding="utf-8").splitlines()[0] == inventory.HEADER, "the inventories stay as they were"
     with pytest.raises(filesplan.PlanError):

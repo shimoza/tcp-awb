@@ -390,6 +390,12 @@ def read_index(ctx: Context, c, project: str) -> list[dict]:
         text = Path(name).read_text(encoding="utf-8", errors="replace")
     finally:
         os.unlink(name)
+    return index_rows(text, project)
+
+
+def index_rows(text: str, project: str) -> list[dict]:
+    """The rows of the text of an INDEX.md of `project` that read as one in full and name a put of the project
+    (also `awb files plan`, for the fetched dates)."""
     rows = []
     for line in text.splitlines():
         m = _INDEX_ROW_RE.fullmatch(line.strip())

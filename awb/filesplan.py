@@ -26,27 +26,57 @@ folder `clean`, `out` when it lies in a folder `out`, else `private`. A file wit
 month is not known, is `keep` with its reason. The month is that of the project's folder in the owner bucket, else
 the month of `created` in the register.
 
-The host and the buckets are listed, never moved: `stale-in` (an object of `in/` of the owner bucket, the import
-should have taken and dropped it), `withheld` (an object of a project folder of the owner bucket whose path is
-withheld, so in/ or out/ cannot be told), `duplicate` (an identical copy inside one host project, inside `out/` of
-one project of the owner bucket or inside `from-session/` of one project of the lab bucket; `keeper` names the copy
-kept). Nothing is deleted anywhere.
+The host is listed, never moved: `duplicate` is an identical copy inside one host project (`keeper` names the copy
+kept).
+
+The buckets (task BK2): every object of the bucket inventories gets one row with its size and one action; the plan
+never moves or deletes anything, a later step carries the rows out. The layout of the lab bucket per project is
+`<code>/in/`, `<code>/from-session/<date>/<kind>/`, `<code>/from-session/INDEX.md` and `<code>/_archive/<YYYY-MM>/`;
+of the owner bucket `<YYYY-MM>/<code>/in/`, `out/`, `_archive/` and at the top the month folders, `datasets/`,
+`reports/` and `inbox/` only.
+
+    keep      in its layout place, an object of in/ no take or import took yet, a put not fetched or fetched less
+              than ARCHIVE_DAYS (30) days before the plan date, an old key `<date>/put-<hex>`, a lab key outside the
+              layout
+    move      owner bucket: a loose object (at the top or in a folder not in the layout) of one project (by its
+              project folder, its row or its identical copies elsewhere) whose month is known:
+              `<YYYY-MM>/<code>/out/<name>` when it is identical to a deliverable, else `<YYYY-MM>/<code>/in/<name>`
+    unsorted  owner bucket: a loose object without one project or month: `_unsorted/<stamp>/<its key>`; an object
+              that lies in `_unsorted/` already stays keep
+    archive   lab bucket: a put of a readable key whose INDEX.md row says fetched ARCHIVE_DAYS or more before the plan
+              date: `<code>/_archive/<YYYY-MM of the put>/from-session/...`; owner bucket: an older version in out/
+              when a newer one of the same group lies there: `<YYYY-MM>/<code>/_archive/<stamp>/<name>`, `keeper` the
+              newest
+    delete    an identical copy inside out/ of one project of the owner bucket or inside from-session/ of one project
+              of the lab bucket (`keeper` names the copy kept); an object of in/ of the owner bucket whose key
+              and md5 the vault's record of a take or an import holds (reason stale-in); nothing else
+    withheld  a path that is withheld or does not read as a key; no target
+
+A target is built from the code, the month, the stamp, fixed folder names and the parts of the existing key only.
+The fetched dates come from `<code>/from-session/INDEX.md` of each project whose INDEX.md the lab inventory lists,
+read through the key service as `awb fetch` reads the puts; one that cannot be read is said in one line and its puts
+stay keep.
 
 The plan goes to `<shared>/files/plan-<stamp>/`: `PLAN.md` (readable, per project and group) and `PLAN.tsv`, UTF-8,
 LF, the header `COLUMNS` and one row per laptop file and per listed host or bucket file:
 
     id       the row id of the inventory (L-..., H-..., B-..., S-...); the laptop finds the real path by it
     place    laptop, host, owner-bucket or lab-bucket
-    action   laptop: keep, move, archive; host and buckets: stale-in, duplicate, withheld
-    target   laptop only, a folder relative to the layout root of the laptop, segments with /, ending with /:
+    action   laptop: keep, move, archive; host: duplicate; buckets: keep, move, unsorted, archive, delete, withheld
+    target   buckets: the target key of move, unsorted and archive (above), else empty
+             laptop: a folder relative to the layout root of the laptop, segments with /, ending with /:
              move     YYYY-MM/tcp-xxxx/private/ (or clean/, out/); the laptop appends the real file name
              archive  YYYY-MM/tcp-xxxx/_archive/<stamp>/, or _archive/<stamp>/ without a project or month; the laptop
                       appends the file's real path relative to the root of its inventory
              keep     empty
     project  tcp-xxxx or none, after the assignment by hash
     path     the coded path of the inventory or [withheld]; never a real path
-    keeper   for archive and duplicate: the id of the copy or the newest version that stays; else empty
+    keeper   for archive, duplicate and delete: the id of the copy or the newest version that stays; else empty
     reason   a short fixed text: identical, older version, in its layout place, no project, ...
+    size     buckets: the bytes of the object; empty for the laptop and the host
+
+PLAN.md ends with the count and the bytes of each action per bucket and project, per bucket and a total line. The
+laptop reads PLAN.tsv by the names of its header, so a column added at the end does not change it.
 
 `--put` sends the laptop rows alone, as `PLAN.tsv` with the same header, to `reports/plan/<stamp>/PLAN.tsv` of the
 owner bucket through the key service (`bucket_layout.plan_key`), where `awb clean files plan` on the laptop fetches
@@ -63,7 +93,7 @@ from pathlib import Path
 from awb import bucket_layout, codes, config, inventory, ledger, projects
 
 PROG = "awb files plan"
-COLUMNS = ("id", "place", "action", "target", "project", "path", "keeper", "reason")
+COLUMNS = ("id", "place", "action", "target", "project", "path", "keeper", "reason", "size")
 HEADER = "\t".join(COLUMNS)
 PLAN_FILE = bucket_layout.PLAN_FILE
 MD_FILE = "PLAN.md"
@@ -74,6 +104,13 @@ LATEST = "latest"
 EXIT_OK, EXIT_ERROR = 0, 2
 NOT_DEEP = 1 << 20
 """The depth of a withheld path: it is never the shallowest."""
+BUCKETS = ("owner-bucket", "lab-bucket")
+BUCKET_ACTIONS = ("keep", "move", "unsorted", "archive", "delete", "withheld")
+ARCHIVE_DAYS = 30
+"""A put of the lab bucket fetched this many days or more before the plan date goes to _archive (D-B1)."""
+UNSORTED = "_unsorted"
+OWNER_TOP = ("datasets", "reports", "inbox")
+"""The top folders of the owner bucket beside the month folders; nothing else belongs at the top."""
 
 _STAMP = r"[0-9]{8}-[0-9]{6}"
 _NAME_RE = re.compile(r"^(laptop|host|owner-bucket|lab-bucket)-(%s)(?:-[a-z0-9][a-z0-9-]{0,31})?\.tsv$" % _STAMP)
@@ -86,6 +123,8 @@ _CODE_RE = re.compile("^%s$" % _CODE)
 _LAYOUT_RE = re.compile(r"(?:^|/)(%s)/(%s)/(private|clean|out)/" % (bucket_layout.MONTH, _CODE))
 _OWNER_RE = re.compile(r"^(%s)/(%s)/(in|out)/" % (bucket_layout.MONTH, _CODE))
 _LAB_RE = re.compile(r"^(%s)/(in|from-session)/" % _CODE)
+_MONTH_RE = re.compile("^%s$" % bucket_layout.MONTH)
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 class PlanError(Exception):
@@ -295,9 +334,12 @@ def months(p: config.Paths, rows: list[dict]) -> dict[str, str]:
 # --------------------------------------------------------------------------- the plan
 
 
-def _row(r: dict, action: str, target: str = "", keeper: str = "", reason: str = "") -> dict:
-    return {"id": r["id"], "place": r["place"], "action": action, "target": target, "project": r["project"],
-            "path": r["path"], "keeper": keeper, "reason": reason}
+def _row(r: dict, action: str, target: str = "", keeper: str = "", reason: str = "", project: str | None = None
+         ) -> dict:
+    """A plan row; a bucket row carries the size of its object, a laptop or host row none."""
+    return {"id": r["id"], "place": r["place"], "action": action, "target": target,
+            "project": project or r["project"], "path": r["path"], "keeper": keeper, "reason": reason,
+            "size": r["size"] if r["place"] in BUCKETS else ""}
 
 
 def _newest_first(members: list[dict]) -> list[dict]:
@@ -306,8 +348,11 @@ def _newest_first(members: list[dict]) -> list[dict]:
     return members
 
 
-def plan(p: config.Paths, rows: list[dict], when: str) -> tuple[list[dict], list[tuple[dict, dict]], dict]:
-    """The plan rows, the probable pairs and the facts the readable plan shows (months, groups)."""
+def plan(p: config.Paths, rows: list[dict], when: str, *, taken=frozenset(), fetched: dict | None = None
+         ) -> tuple[list[dict], list[tuple[dict, dict]], dict]:
+    """The plan rows, the probable pairs and the facts the readable plan shows (months, groups). `taken` holds
+    (key, md5) of the objects of in/ a take or an import took (the vault's record of `awb/bucket.py`), `fetched`
+    per project code the fetched column of INDEX.md by key (None for an INDEX.md that could not be read)."""
     root = identical(rows)
     members: dict[int, list[int]] = {}
     for i, k in enumerate(root):
@@ -377,14 +422,7 @@ def plan(p: config.Paths, rows: list[dict], when: str) -> tuple[list[dict], list
         else:
             out[r["id"]] = _row(r, "move", "%s/%s/%s/" % (m, r["project"], kind[r["id"]]), reason=kind[r["id"]])
 
-    # the host and the buckets: listed only
-    for r in rows:
-        if r["place"] == "owner-bucket" and r["project"] != inventory.NO_PROJECT:
-            m = _OWNER_RE.match(r["path"])
-            if m and m.group(3) == "in":
-                out[r["id"]] = _row(r, "stale-in", reason="the import should have taken it")
-            elif r["path"] == inventory.WITHHELD:
-                out[r["id"]] = _row(r, "withheld", reason="in/ or out/ of the project folder, path withheld")
+    # identical copies inside one place: the host lists them, a bucket row is a delete that names its keeper
     for idx in members.values():
         scoped: dict[tuple[str, str], list[dict]] = {}
         for i in idx:
@@ -402,12 +440,144 @@ def plan(p: config.Paths, rows: list[dict], when: str) -> tuple[list[dict], list
             copies = _newest_first(copies)
             copies.sort(key=_depth)
             for r in copies[1:]:
-                out.setdefault(r["id"], _row(r, "duplicate", keeper=copies[0]["id"], reason="identical"))
+                out.setdefault(r["id"], _row(r, "delete" if r["place"] in BUCKETS else "duplicate",
+                                             keeper=copies[0]["id"], reason="identical"))
+    out.update(bucket_part(rows, members, root, month, when, taken, fetched, out))
 
     order = {pl: n for n, pl in enumerate(inventory.PLACES)}
     plan_rows = sorted(out.values(), key=lambda x: (order[x["place"]], x["project"], x["id"]))
     pairs = [(rows[i], rows[j]) for i, j in probable(rows, root)]
     return plan_rows, pairs, {"months": month, "groups": {r["id"]: r["group"] for r in rows}}
+
+
+# --------------------------------------------------------------------------- the buckets (task BK2)
+
+
+def _key_ok(path: str) -> bool:
+    """The path reads as an object key: segments with /, none empty, no . or .., no control character."""
+    return bool(path) and not _CONTROL_RE.search(path) and all(s not in ("", ".", "..") for s in path.split("/"))
+
+
+def bucket_part(rows: list[dict], members: dict[int, list[int]], root: list[int], month: dict[str, str], when: str,
+                taken=frozenset(), fetched: dict | None = None, done: dict | None = None) -> dict[str, dict]:
+    """One row per object of the buckets that `done` (the delete rows of identical copies) has no row for yet: keep,
+    move, unsorted, archive, delete or withheld, with its target key. A target is built from the code, the month,
+    the stamp, fixed folder names and the parts of the existing key only. Nothing is moved or deleted here."""
+    from awb.tcp import keys_exchange as kx
+
+    done = done or {}
+    fetched = fetched or {}
+    today = _dt.datetime.strptime(when[:8], "%Y%m%d").date()
+    out: dict[str, dict] = {}
+
+    def copies(i: int) -> list[dict]:
+        return [rows[j] for j in members[root[i]] if j != i and rows[j]["place"] != "laptop"]
+
+    # an older version in out/ of the owner bucket when a newer one of the same group lies there
+    versions: dict[tuple[str, str, str], list[dict]] = {}
+    for r in rows:
+        m = _OWNER_RE.match(r["path"]) if r["place"] == "owner-bucket" and r["id"] not in done else None
+        if m and m.group(3) == "out" and _key_ok(r["path"]):
+            versions.setdefault((m.group(1), m.group(2), inventory.group_of(m.group(2), r["path"], r["suffix"])),
+                                []).append(r)
+    for (m, code, _), group in versions.items():
+        ordered = _newest_first(group)
+        for r in ordered[1:]:
+            target = "%s/%s/%s/%s/%s" % (m, code, ARCHIVE, when, r["path"].rsplit("/", 1)[-1])
+            out[r["id"]] = _row(r, "archive", target, ordered[0]["id"], "older version", code)
+
+    def owner(i: int, r: dict) -> dict:
+        path = r["path"]
+        parts = path.split("/")
+        top = parts[0]
+        if len(parts) > 1 and top in OWNER_TOP:
+            return _row(r, "keep", reason="%s/, not a project folder" % top)
+        if len(parts) > 3 and _MONTH_RE.match(top) and _CODE_RE.match(parts[1]) and parts[2] in ("in", "out", ARCHIVE):
+            if parts[2] != "in":
+                return _row(r, "keep", reason="in its layout place", project=parts[1])
+            if r["md5"] and (path, r["md5"]) in taken:
+                return _row(r, "delete", reason="stale-in: the import took it", project=parts[1])
+            return _row(r, "keep", reason="in/, not taken by an import yet", project=parts[1])
+        # a loose object: the project of its folder, of its row or of its identical copies elsewhere
+        code, how = None, ""
+        if len(parts) > 2 and _MONTH_RE.match(top) and _CODE_RE.match(parts[1]):
+            code, how = parts[1], "its folder"
+        elif r["project"] != inventory.NO_PROJECT:
+            code, how = r["project"], "the inventory"
+        else:
+            found = {o["project"] for o in copies(i) if o["project"] != inventory.NO_PROJECT}
+            if len(found) > 1:
+                return _row(r, "unsorted", "%s/%s/%s" % (UNSORTED, when, path),
+                            reason="identical to copies of more than one project")
+            if found:
+                code, how = found.pop(), "an identical copy"
+        sorted_once = top == UNSORTED
+        if code is None or not month.get(code):
+            why = "no project" if code is None else "no month for the project"
+            if sorted_once:
+                return _row(r, "keep", reason="in %s/, %s" % (UNSORTED, why))
+            return _row(r, "unsorted", "%s/%s/%s" % (UNSORTED, when, path), reason=why)
+        deliverable = any(_evidence(o) == "out" for o in copies(i))
+        target = "%s/%s/%s/%s" % (month[code], code, "out" if deliverable else "in", parts[-1])
+        return _row(r, "move", target, reason="project by %s, %s" % (
+            how, "identical to a deliverable" if deliverable else "no deliverable is identical"), project=code)
+
+    def lab(r: dict) -> dict:
+        path = r["path"]
+        parts = path.split("/")
+        if len(parts) > 1 and parts[0] == "inbox":
+            return _row(r, "keep", reason="inbox/, not a project folder")
+        code = parts[0]
+        if len(parts) < 3 or not _CODE_RE.match(code):
+            return _row(r, "keep", reason="not a layout key")
+        if parts[1] in ("in", ARCHIVE):
+            return _row(r, "keep", reason="in its layout place", project=code)
+        if parts[1] + "/" != kx.FROM:
+            return _row(r, "keep", reason="not a layout key", project=code)
+        if path == kx.index_key(code):
+            return _row(r, "keep", reason="INDEX.md of the key service", project=code)
+        if not kx.put_key_ok(path, code):
+            return _row(r, "keep", reason="not a layout key", project=code)
+        if kx.put_kind(path) is None:
+            return _row(r, "keep", reason="old key", project=code)
+        if code not in fetched:
+            return _row(r, "keep", reason="no INDEX.md", project=code)
+        if fetched[code] is None:
+            return _row(r, "keep", reason="INDEX.md not read", project=code)
+        mark = fetched[code].get(path)
+        if mark is None:
+            return _row(r, "keep", reason="no row in INDEX.md", project=code)
+        if mark == "no":
+            return _row(r, "keep", reason="not fetched", project=code)
+        try:
+            age = (today - _dt.date.fromisoformat(mark)).days
+        except ValueError:
+            return _row(r, "keep", reason="no row in INDEX.md", project=code)
+        if age < ARCHIVE_DAYS:
+            return _row(r, "keep", reason="fetched less than %d days ago" % ARCHIVE_DAYS, project=code)
+        target = "%s/%s/%s/%s" % (code, ARCHIVE, parts[2][:7], "/".join(parts[1:]))
+        return _row(r, "archive", target, reason="fetched %d days or more ago" % ARCHIVE_DAYS, project=code)
+
+    for i, r in enumerate(rows):
+        if r["place"] not in BUCKETS or r["id"] in done or r["id"] in out:
+            continue
+        if r["path"] == inventory.WITHHELD or not _key_ok(r["path"]):
+            within = r["place"] == "owner-bucket" and r["project"] != inventory.NO_PROJECT
+            out[r["id"]] = _row(dict(r, path=inventory.WITHHELD), "withheld", reason=(
+                "in/ or out/ of the project folder, path withheld" if within else "path withheld"))
+        else:
+            out[r["id"]] = owner(i, r) if r["place"] == "owner-bucket" else lab(r)
+    return out
+
+
+def bucket_counts(plan_rows: list[dict]) -> dict[str, dict[str, int]]:
+    """Per action of the bucket rows: {"rows": n, "bytes": n}."""
+    counts = {a: {"rows": 0, "bytes": 0} for a in BUCKET_ACTIONS}
+    for r in plan_rows:
+        if r["place"] in BUCKETS:
+            counts[r["action"]]["rows"] += 1
+            counts[r["action"]]["bytes"] += int(r["size"] or 0)
+    return counts
 
 
 # --------------------------------------------------------------------------- the files
@@ -427,7 +597,8 @@ def markdown(plan_rows: list[dict], pairs: list[tuple[dict, dict]], facts: dict,
     probable copies. Codes, ids and coded paths only."""
     lines = ["# Move plan %s" % when, "",
              "Made by `awb files plan` from %s. Nothing moves until `awb clean files apply --go` on the laptop. "
-             "Nothing is deleted anywhere: `_archive` is a folder, not a bin." % ", ".join(sources or ["no inventory"]),
+             "This plan moves and deletes nothing anywhere: a bucket row `delete` is a proposal the owner leaves in "
+             "or takes out; `_archive` is a folder, not a bin." % ", ".join(sources or ["no inventory"]),
              ""]
     lines += ["- %s" % n for n in notes] + ([""] if notes else [])
     counts: dict[tuple[str, str], int] = {}
@@ -451,11 +622,13 @@ def markdown(plan_rows: list[dict], pairs: list[tuple[dict, dict]], facts: dict,
                 r["keeper"], _md(r["reason"])))
         lines.append("")
     listed = [r for r in plan_rows if r["place"] != "laptop"]
-    lines += ["## Host and buckets (listed only, never moved by this step)", ""]
+    lines += ["## Host and buckets (never moved by this step)", ""]
     if listed:
-        lines += ["| place | project | id | path | action | keeper | reason |", "|---|---|---|---|---|---|---|"]
-        lines += ["| %s | %s | %s | %s | %s | %s | %s |" % (r["place"], r["project"], r["id"], _md(r["path"]),
-                                                          r["action"], r["keeper"], _md(r["reason"])) for r in listed]
+        lines += ["| place | project | id | path | action | target | keeper | size | reason |",
+                  "|---|---|---|---|---|---|---|---|---|"]
+        lines += ["| %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+            r["place"], r["project"], r["id"], _md(r["path"]), r["action"], _md(r["target"]), r["keeper"], r["size"],
+            _md(r["reason"])) for r in listed]
     else:
         lines.append("Nothing to list.")
     lines += ["", "## Probable copies (equal size, suffix and time, no hash to compare)", ""]
@@ -464,7 +637,32 @@ def markdown(plan_rows: list[dict], pairs: list[tuple[dict, dict]], facts: dict,
         lines += ["| %s | %s | %s | %s |" % (a["id"], _md(a["path"]), b["id"], _md(b["path"])) for a, b in pairs]
     else:
         lines.append("None.")
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines + [""] + bucket_sums(plan_rows)) + "\n"
+
+
+def bucket_sums(plan_rows: list[dict]) -> list[str]:
+    """The bucket rows per bucket and project, then per bucket: each action with its rows and bytes. The total line
+    comes last."""
+    per: dict[tuple[str, str, str], list[int]] = {}
+    for r in plan_rows:
+        if r["place"] in BUCKETS:
+            for key in ((r["place"], r["project"], r["action"]), (r["place"], "", r["action"])):
+                n = per.setdefault(key, [0, 0])
+                n[0] += 1
+                n[1] += int(r["size"] or 0)
+    order = {a: n for n, a in enumerate(BUCKET_ACTIONS)}
+    keys = sorted(per, key=lambda k: (k[0], k[1], order[k[2]]))
+    lines = ["## Bucket sizes per project", ""]
+    lines += ["| bucket | project | action | rows | bytes |", "|---|---|---|---|---|"]
+    lines += ["| %s | %s | %s | %d | %d |" % (k + tuple(per[k])) for k in keys if k[1]] or ["| none | | | 0 | 0 |"]
+    lines += ["", "## Bucket sizes per bucket", "", "| bucket | action | rows | bytes |", "|---|---|---|---|"]
+    lines += ["| %s | %s | %d | %d |" % (k[0], k[2], *per[k]) for k in keys if not k[1]] or ["| none | | 0 | 0 |"]
+    counts = bucket_counts(plan_rows)
+    rows = sum(c["rows"] for c in counts.values())
+    size = sum(c["bytes"] for c in counts.values())
+    return lines + ["", "Total: %d bucket row%s, %d bytes; delete %d row%s, %d bytes." % (
+        rows, "" if rows == 1 else "s", size, counts["delete"]["rows"], "" if counts["delete"]["rows"] == 1 else "s",
+        counts["delete"]["bytes"])]
 
 
 def _write(path: Path, data: str) -> None:
@@ -473,9 +671,49 @@ def _write(path: Path, data: str) -> None:
     write(path, data)
 
 
+def taken_in(p: config.Paths) -> set[tuple[str, str]]:
+    """(key, md5) of every object a take, a pull or an import took from the owner bucket (the vault's record of
+    awb/bucket.py); a multipart etag gives no md5 and so no entry."""
+    from awb import bucket, filesinv
+
+    return {(k, md5) for k, etag in bucket.pulled(p) for md5 in [filesinv.md5_of_etag(etag)] if md5}
+
+
+def read_index(code: str) -> list[dict] | None:
+    """The rows of INDEX.md of `code` in the lab bucket, through the key service as `awb fetch` reads the puts (the
+    op obs GET); None when it cannot be read."""
+    from awb.tcp import keys, keys_exchange as kx, xchg
+
+    with tempfile.TemporaryDirectory() as tmp:
+        got = Path(tmp) / kx.INDEX
+        try:
+            a = xchg._call({"op": "obs", "method": "GET", "key": kx.index_key(code), "project": code}, download=got)
+            if not a.get("ok") or not a.get("exists", True) or not got.is_file():
+                return None
+            return kx.index_rows(got.read_text(encoding="utf-8", errors="replace"), code)
+        except (keys.KeysError, OSError):
+            return None                     # no key service or no answer: the puts of the project stay keep
+
+
+def fetched_marks(rows: list[dict], index) -> dict[str, dict[str, str] | None]:
+    """The fetched column of INDEX.md by key, for each project whose INDEX.md the lab inventory lists."""
+    from awb.tcp import keys_exchange as kx
+
+    marks: dict[str, dict[str, str] | None] = {}
+    for r in rows:
+        code = r["path"].split("/", 1)[0]
+        if r["place"] == "lab-bucket" and _CODE_RE.match(code) and r["path"] == kx.index_key(code) \
+                and code not in marks:
+            got = index(code)
+            marks[code] = None if got is None else {x["key"]: x["fetched"] for x in got}
+    return marks
+
+
 def make(p: config.Paths, laptop: list[str], host: Path | None, buckets: list[Path] | None, *, put: bool = False,
-         client=None, now: _dt.datetime | None = None) -> dict:
-    """Read, check, match, write and (with `put`) put. Returns the facts of the run for the summary line."""
+         client=None, now: _dt.datetime | None = None, index=None, taken=None) -> dict:
+    """Read, check, match, write and (with `put`) put. Returns the facts of the run for the summary line. `index`
+    gives the rows of INDEX.md of a project (default `read_index`), `taken` the (key, md5) of what the imports took
+    from in/ (default `taken_in`)."""
     from awb import filesinv
 
     when = inventory.stamp(now)
@@ -520,7 +758,10 @@ def make(p: config.Paths, laptop: list[str], host: Path | None, buckets: list[Pa
     if dropped:
         notes.append("%d row%s dropped (not the shape of an inventory row, or an id twice)"
                      % (dropped, "" if dropped == 1 else "s"))
-    plan_rows, pairs, facts = plan(p, unique, when)
+    fetched = fetched_marks(unique, index or read_index)
+    for code in sorted(c for c, marks in fetched.items() if marks is None):
+        notes.append("INDEX.md of %s not read: its puts stay keep" % code)
+    plan_rows, pairs, facts = plan(p, unique, when, taken=taken_in(p) if taken is None else taken, fetched=fetched)
     folder = config.make_dir(files, 0o750, shared=True) / ("plan-%s" % when)
     try:
         folder.mkdir(mode=0o750)
@@ -544,12 +785,13 @@ def make(p: config.Paths, laptop: list[str], host: Path | None, buckets: list[Pa
     count = {a: sum(1 for r in laptop_part if r["action"] == a) for a in ("keep", "move", "archive")}
     return {"folder": folder, "laptop": count, "listed": len(plan_rows) - len(laptop_part), "pairs": len(pairs),
             "unassigned": sum(1 for r in laptop_part if r["project"] == inventory.NO_PROJECT), "notes": notes,
-            "key": key, "stamp": when}
+            "key": key, "stamp": when, "buckets": bucket_counts(plan_rows)}
 
 
 def add_parser(sub) -> None:
     s = sub.add_parser("plan", help="the move plan from the three inventories: laptop moves into the layout and "
-                                    "_archive, host and bucket duplicates listed only")
+                                    "_archive, host duplicates listed, bucket objects with an action and a size; "
+                                    "moves and deletes nothing")
     s.add_argument("--laptop", action="append", default=None, metavar="FILE|NAME|latest",
                    help="a laptop inventory: latest (the default, the newest under reports/inventory/ of the "
                         "owner bucket), a NAME there or a local FILE; may be given more than once")
@@ -577,10 +819,11 @@ def run(args) -> int:
         return EXIT_ERROR
     for note in res["notes"]:
         print("%s: %s" % (PROG, note))
-    n = res["laptop"]
+    n, b = res["laptop"], res["buckets"]
     print("%s: %s written; laptop %d keep, %d move, %d archive (%d without a project); %d host and bucket row%s "
-          "listed; %d probable pair%s; nothing moved, nothing deleted%s" % (
+          "listed; buckets %s (delete %d bytes); %d probable pair%s; nothing moved, nothing deleted%s" % (
               PROG, res["folder"], n["keep"], n["move"], n["archive"], res["unassigned"], res["listed"],
-              "" if res["listed"] == 1 else "s", res["pairs"], "" if res["pairs"] == 1 else "s",
+              "" if res["listed"] == 1 else "s", ", ".join("%d %s" % (b[a]["rows"], a) for a in BUCKET_ACTIONS),
+              b["delete"]["bytes"], res["pairs"], "" if res["pairs"] == 1 else "s",
               "; put %s" % res["key"] if res["key"] else ""))
     return EXIT_OK

@@ -1184,7 +1184,12 @@ buckets, put=False, client=None, now=None) -> dict` (folder, laptop counts, list
 stamp), `plan(p, rows, stamp) -> (plan rows, probable pairs, facts)`, `identical(rows)`, `probable(rows, root)`,
 `clean_rows(rows, places)`, `newest_name(names, place)`, `laptop_rows(specs, client, tmp)`, `tsv(plan_rows)`,
 `markdown(...)`, `add_parser(sub)`, `run(args)`. `PLAN.tsv` has the columns `filesplan.COLUMNS` (id, place, action,
-target, project, path, keeper, reason). `bucket_layout.PLAN_PREFIX` is `reports/plan/`, `plan_key(stamp)` is
+target, project, path, keeper, reason, size). Task BK2 (2026-11-07): `make(..., index=None, taken=None)` (index:
+code -> rows of INDEX.md or None, default `read_index(code)` through the key service op obs GET; taken: (key, md5)
+of what the imports took, default `taken_in(p)` from `bucket.pulled`), the result gains `buckets` ({action: {rows,
+bytes}}); `plan(p, rows, stamp, taken=, fetched=)`, `bucket_part(...)`, `bucket_counts(plan_rows)`,
+`bucket_sums(plan_rows)`, `fetched_marks(rows, index)`; `BUCKET_ACTIONS`, `ARCHIVE_DAYS = 30`.
+`keys_exchange.index_rows(text, project)` reads the rows of an INDEX.md text. `bucket_layout.PLAN_PREFIX` is `reports/plan/`, `plan_key(stamp)` is
 `reports/plan/<stamp>/PLAN.tsv`; `keys_exchange.owner_key_ok` allows a PUT of that key and nothing else under
 `reports/plan/`.
 
@@ -1195,7 +1200,8 @@ target, project, path, keeper, reason). `bucket_layout.PLAN_PREFIX` is `reports/
 (the `cleaninventory.LOCAL_COLUMNS` rows of `vault/inventory/*.tsv`), `resolve(rows, inv, layout) -> [Step]`,
 `check(step, layout, include_onedrive) -> reason`, `free_name(path, taken)`, `move_file(src, dst, sha256) -> Path`,
 `show(stamp, client=None, say=print)`, `apply(stamp, go=False, include_onedrive=False, say=print) -> {moved,
-skipped}`, `undo(stamp, say=print) -> {back, skipped}`, `main(argv)`. `PLAN_COLUMNS` equals `filesplan.COLUMNS`; the
+skipped}`, `undo(stamp, say=print) -> {back, skipped}`, `main(argv)`. `PLAN_COLUMNS` equals `filesplan.COLUMNS`; `read_plan` reads PLAN.tsv by the names of its header and refuses
+one without a column of `PLAN_NEEDS` (id, place, action, target, project); the
 journal `vault/moves/<stamp>.tsv` has `JOURNAL_COLUMNS` (id, from, to, sha256). `awb/laptop.py` gained the layout
 root: `layout_root()`, `save_layout(root)`, `layout_project(code)`, `layout_dir(code, month=None)`, `clean_dir(code)`,
 `use(code, month=None)`; `work_dir` and `project_of_dir` know the layout. `awb clean layout [ROOT] [--save]` and
