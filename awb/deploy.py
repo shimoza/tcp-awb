@@ -184,6 +184,8 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/winlabsession.py": "awb winlab run|start|status|log|stop|put|get, run in a project session (task WL part 3)",
     "awb/tcp/recheck.py": "awb kb recheck-run, run in a working session or by the steering session",
     "awb/tcp/recheckwatch.py": "awb kb recheck-watch, run by the owner's timer awb-kb-recheck-watch every 15 minutes",
+    "awb/tcp/platformstatus.py": ("awb platform-status pull|show, run in a working session or by the work user's "
+                                  "oneshot every 15 minutes (new code each run)"),
     "awb/tcp/refresh.py": "awb refresh, run by the owner or a timer of his",
     "awb/reportcodes.py": ("awb report --codes, run by the owner, his hourly timer awb-report-codes and the work "
                            "side's awb-report-codes-work (oneshots)"),

@@ -20,6 +20,12 @@ enough for a mail of awb build nudge (A6) adds "; nudged: B-013 asked 23:30" unt
 The recheck line comes from <shared>/recheck/state.tsv, one line per run of awb kb recheck-run (awb/tcp/recheck.py):
 "recheck: read 2026-10-18 12 confirmed, 1 refuted, 3 undecided; write 2026-11-02 4 confirmed, inventory equal; 9 for
 the owner", the newest run of each tier, counts and fixed words only; a cell outside its form or vocabulary is dropped.
+The section "TCP platform" comes from <shared>/platform-status/state.tsv, which `awb platform-status pull` writes
+(awb/tcp/platformstatus.py): the open incidents first (impact, regions, since, title), then the planned maintenances
+by start, then "status of <time of pull>" or "status not pulled since <time>" once the last good pull is more than 2
+hours old; "no open incident" when there is none. Every cell is matched against its form here as it was when written
+(platform_row); the titles pass the data check like the project texts. `awb platform-status show` prints the section
+alone and GET /api/board carries it as the field platform.
 A parked project (awb projects park CODE, PD4: it waits on the customer or rests) is counted apart: the header reads "N
 active, M parked project(s)", its OPEN.md items are in no count and no list, and the "Parked" section after the
 active projects names code, customer, reason and the day it was parked. For an active project the items of OPEN.md
@@ -100,6 +106,9 @@ def markdown(board: dict) -> str:
     for k in ("build", "recheck"):
         if board.get(k):
             out += [board[k], ""]
+    if board.get("platform"):
+        lines = platform_lines(board["platform"])
+        out += ["## TCP platform", ""] + ["- %s" % x for x in lines[:-1]] + ["", lines[-1], ""]
     out += ["| Project | Customer | Status | Next | Status as of | Open | Live |", "|---|---|---|---|---|---|---|"]
 
     def cell(text) -> str:
@@ -150,6 +159,11 @@ dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0}dt{c
 def page(board: dict) -> str:
     e = html.escape
     s = board["summary"]
+    platform = ""
+    if board.get("platform"):
+        lines = platform_lines(board["platform"])
+        platform = "<section><h2>TCP platform</h2><ul>%s</ul><p class=\"lead\">%s</p></section>" % (
+            "".join("<li>%s</li>" % e(x) for x in lines[:-1]), e(lines[-1]))
 
     def as_of(p: dict) -> str:
         text = e(_as_of(p))
@@ -192,13 +206,13 @@ def page(board: dict) -> str:
     return ("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
             "content=\"width=device-width,initial-scale=1\"><title>Project status %s</title><style>%s</style></head>"
             "<body><h1>Project status, %s</h1><p class=\"lead\">%d active, %d parked project(s): %d with a current "
-            "status, %d lagging behind their work, %d without a status line yet.</p>%s<div class=\"wrap\"><table><thead><tr>"
+            "status, %d lagging behind their work, %d without a status line yet.</p>%s%s<div class=\"wrap\"><table><thead><tr>"
             "<th>Project</th><th>Customer</th><th>Status</th><th>Next</th><th>Status as of</th><th>Open</th>"
             "<th>Live</th></tr></thead><tbody>%s</tbody></table></div>%s%s</body></html>\n" % (
                 e(when(board["generated_at"])), STYLE, e(when(board["generated_at"])), s["projects"],
                 len(board.get("parked") or []), s["current"],
                 s["lagging"], s["without_status"],
-                "".join('<p class="lead">%s</p>' % e(board[k]) for k in ("wipe", "build", "recheck") if board.get(k)), rows,
+                "".join('<p class="lead">%s</p>' % e(board[k]) for k in ("wipe", "build", "recheck") if board.get(k)), platform, rows,
                 "".join(sections), parked))
 
 
@@ -470,6 +484,157 @@ def recheck_line(p) -> str:
     last = max(newest.values(), key=lambda r: r["date"])
     parts.append("%d for the owner" % last["owner"])
     return "recheck: " + "; ".join(parts)
+
+
+# --------------------------------------------------------------------------- the platform section (B-042)
+
+PLATFORM_TSV_MAX = 256 << 10
+PLATFORM_TYPES = ("incident", "maintenance", "info")
+PLATFORM_STATUSES = ("analysing", "fixing", "impact changed", "observing", "resolved", "reopened", "changed",
+                     "planned", "in progress", "modified", "completed", "cancelled")
+PLATFORM_CLOSED = ("resolved", "completed")               # an incident with one of these is no longer open
+PLATFORM_CALLED_OFF = PLATFORM_CLOSED + ("cancelled",)    # a planned event with one of these is not planned any more
+PLATFORM_REGIONS = ("EU-DE", "EU-NL", "EU-CH2", "Global")
+PLATFORM_FAILS = ("timeout", "http", "json")              # awb.tcp.platformstatus: the reason of a failed pull
+PLATFORM_STALE = dt.timedelta(hours=2)
+PLATFORM_TITLE_MAX = 100
+_ISO_Z = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+_EVENT_ID = re.compile(r"[0-9]{1,9}")
+
+
+def platform_tsv(p) -> Path:
+    return p.shared / "platform-status" / "state.tsv"
+
+
+def platform_time(text: str) -> dt.datetime | None:
+    """A cell of the form 2026-11-07T10:00:00Z as a time, else None."""
+    if not _ISO_Z.fullmatch(text):
+        return None
+    try:
+        return dt.datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+    except ValueError:
+        return None
+
+
+def platform_title(text: str) -> str:
+    """The title cut to 100 characters when it is only printable characters without | or a tab, else empty."""
+    text = text[:PLATFORM_TITLE_MAX]
+    return text if text.isprintable() and "|" not in text and "\t" not in text else ""
+
+
+def platform_row(cells: list[str]) -> dict | None:
+    """The cells type, status, impact, start, end, regions, title and id of one event, each matched against its form:
+    a row with a cell of type, status, impact, start, end or id outside its form is dropped (None); a region outside
+    the list leaves the list and a title outside its form leaves the cell empty, so the event itself stays. This is
+    the one rule of the writer (awb/tcp/platformstatus.py) and of the reader."""
+    if len(cells) != 8:
+        return None
+    kind, status, impact, start, end, regions, title, event = cells
+    if (kind not in PLATFORM_TYPES or status not in PLATFORM_STATUSES or impact not in ("0", "1", "2", "3")
+            or not _EVENT_ID.fullmatch(event)):
+        return None
+    begin, finish = platform_time(start), platform_time(end) if end else None
+    if begin is None or (end and finish is None):
+        return None
+    wanted = [r for r in regions.split(",") if r in PLATFORM_REGIONS]
+    return {"type": kind, "status": status, "impact": int(impact), "start": start, "end": end or None,
+            "regions": [r for r in PLATFORM_REGIONS if r in wanted], "title": platform_title(title),
+            "id": int(event)}
+
+
+def platform_cells(row: dict) -> list[str]:
+    """The cells of a row as the file holds them, the inverse of platform_row."""
+    return [row["type"], row["status"], str(row["impact"]), row["start"], row["end"] or "",
+            ",".join(row["regions"]), row["title"], str(row["id"])]
+
+
+def platform_state(p) -> dict | None:
+    """state.tsv of the platform status as {"attempted", "result", "pulled", "rows"}: the time of the last pull, ok
+    or its reason, the time of the last good pull and the rows that match their forms. The header row is `pull`
+    with the time, the result and the time of the last good pull (a header of three cells holds no last good time
+    unless the result is ok). None without a readable file or a header that matches."""
+    text = _read_small(platform_tsv(p), PLATFORM_TSV_MAX)
+    if text is None:
+        return None
+    out = {"attempted": None, "result": "", "pulled": None, "rows": []}
+    for line in text.splitlines():
+        cells = line.split("\t")
+        if cells[0] == "pull" and len(cells) in (3, 4) and out["attempted"] is None:
+            when_, result = cells[1], cells[2]
+            good = cells[3] if len(cells) == 4 else (when_ if result == "ok" else "")
+            if platform_time(when_) is None or result not in ("ok",) + PLATFORM_FAILS or (
+                    good and platform_time(good) is None) or (result == "ok" and good != when_):
+                return None
+            out.update(attempted=when_, result=result, pulled=good or None)
+        elif cells[0] == "event":
+            row = platform_row(cells[1:])
+            if row is not None:
+                out["rows"].append(row)
+    return out if out["attempted"] else None
+
+
+def platform_data(p, now: dt.datetime | None = None) -> dict:
+    """What the board shows of the platform: `events`, the open incidents (impact, then start) and then the planned
+    events and maintenances in progress (by start), `pulled` (the last good pull or None), `attempted`, `result` and
+    `stale` (the last good pull is older than 2 hours or there is none). The rows come from state.tsv and are
+    matched again here; "open" is judged at this time, not at the time of the pull."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    state = platform_state(p)
+    if state is None:
+        return {"events": [], "pulled": None, "attempted": None, "result": "none", "stale": True}
+    incidents, planned = [], []
+    for r in state["rows"]:
+        end = platform_time(r["end"]) if r["end"] else None
+        if r["type"] == "incident":
+            if r["status"] not in PLATFORM_CLOSED and (end is None or end > now):
+                incidents.append(r)
+        elif r["status"] not in PLATFORM_CALLED_OFF and (end > now if end else platform_time(r["start"]) > now):
+            planned.append(r)
+    incidents.sort(key=lambda r: (-r["impact"], r["start"], r["id"]))
+    planned.sort(key=lambda r: (r["start"], r["id"]))
+    good = platform_time(state["pulled"]) if state["pulled"] else None
+    return {"events": incidents + planned, "pulled": state["pulled"], "attempted": state["attempted"],
+            "result": state["result"], "stale": good is None or now - good > PLATFORM_STALE}
+
+
+def _platform_regions(r: dict) -> str:
+    return ", ".join(r["regions"]) or "no region"
+
+
+def platform_lines(platform: dict) -> list[str]:
+    """The section of the board as lines: the open incidents (impact, regions, since, title) or "no open incident",
+    the planned maintenances by start and the line of the pull."""
+    events = platform["events"]
+    out = []
+    incidents = [r for r in events if r["type"] == "incident"]
+    for r in incidents:
+        out.append("incident, impact %d, %s, since %s: %s" % (
+            r["impact"], _platform_regions(r), when(r["start"].replace("Z", "+00:00")), r["title"] or "no title"))
+    if not incidents:
+        out.append("no open incident")
+    for r in events:
+        if r["type"] != "incident":
+            out.append("%s %s, impact %d, %s, starts %s: %s" % (
+                r["type"], r["status"], r["impact"], _platform_regions(r), when(r["start"].replace("Z", "+00:00")),
+                r["title"] or "no title"))
+    out.append(platform_pull_line(platform))
+    return out
+
+
+def platform_pull_line(platform: dict) -> str:
+    """"status of <time of pull>", "status not pulled since <time>" when the last good pull is older than 2 hours,
+    and "status not pulled yet" without one; a failed last pull adds its one-word reason."""
+    def at(text):
+        return when(text.replace("Z", "+00:00"))
+    if platform["pulled"] is None:
+        line = "status not pulled yet"
+    elif platform["stale"]:
+        line = "status not pulled since %s" % at(platform["pulled"])
+    else:
+        line = "status of %s" % at(platform["pulled"])
+    if platform["result"] in PLATFORM_FAILS:
+        line += " (the pull of %s failed: %s)" % (at(platform["attempted"]), platform["result"])
+    return line
 
 
 def locked(p) -> str | None:

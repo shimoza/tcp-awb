@@ -300,7 +300,13 @@ a reply while its commits are newer than that status. `awb board show` turns the
 one page for management: what each project waits on, its open items, its deliverables by review state and its live
 resources, with codes only. It also carries the wipe mode as the last refresh measured it: `awb refresh` runs the
 red-team pack of wipe mode through the installed intake and keeps its leaks and losses in `refresh/wipe.tsv`.
-`awb board write` keeps it as Markdown and as HTML that prints on A4. A project that waits on the customer or rests is
+`awb board write` keeps it as Markdown and as HTML that prints on A4. After the header lines it has a section "TCP
+platform": the open incidents of the platform (impact, regions, since, title), the maintenances planned for the next 14
+days by start and the line "status of 07.11.2026 10:00 CET" or "status not pulled since ..." once the last pull is
+more than 2 hours old; "no open incident" when there is none. The data is `awb platform-status pull`, which reads the
+public T-Cloud Status Dashboard (`status.otc-service.com`, no key, GET only) into `tcp-shared/platform-status/state.tsv`
+and keeps the last good rows when a pull fails; `awb platform-status show` prints the section alone and `GET /api/board`
+carries it as the field `platform`. A project that waits on the customer or rests is
 parked with `awb projects park tcp-xxxx --reason "waits on the customer"` and comes back with `awb projects unpark`: the
 board counts it apart ("N active, M parked") in its own short Parked section and leaves its OPEN.md items out of every
 count and list. The items under a heading of OPEN.md that has closed, done, erledigt or abgeschlossen in it are out of

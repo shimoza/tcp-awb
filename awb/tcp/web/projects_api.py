@@ -224,7 +224,26 @@ def board(paths):
              'without_status':sum(1 for r in rows if not r['status']['summary'])}
     from awb.tcp import board as board_file
     return {'source':'AWB project register','generated_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            'summary':summary,'projects':rows,'parked':sorted(parked,key=lambda r:r['code']),'build':board_file.build_line(paths)}
+            'summary':summary,'projects':rows,'parked':sorted(parked,key=lambda r:r['code']),'build':board_file.build_line(paths),
+            'platform':platform(paths)}
+
+
+def platform(paths):
+    """The open incidents and the planned maintenances of the TCP platform for the board (awb/tcp/board.py,
+    platform_data): the rows of <shared>/platform-status/state.tsv, each cell matched again, the titles after the
+    data check in one call. Without a file or a pull it is an empty list with `pulled` null."""
+    from awb.tcp import board as board_file
+    data=board_file.platform_data(paths)
+    titles=[e['title'] for e in data['events'] if e['title']]
+    if titles:
+        joined,_=checked('\n'.join(titles),paths)
+        parts=joined.split('\n')
+        parts=parts if len(parts)==len(titles) else [WITHHELD]*len(titles)
+        shown=iter(parts)
+        for e in data['events']:
+            if e['title']:
+                e['title']=next(shown)
+    return data
 
 
 def project_detail(code,paths):

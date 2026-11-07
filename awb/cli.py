@@ -11,7 +11,7 @@ awb report, awb career, awb write, awb voice, awb review, awb calc, awb hook, aw
 awb bucket, awb files, awb clean, awb import, awb words, awb reveal, awb price, awb pricebook, awb cloud, awb mirror, awb refresh,
 awb dataset, awb english, awb ask, awb inbox, awb xchg, awb howto, awb start, awb fetch, awb paste, awb material, awb keys,
 awb migrate, awb lab, awb tenant, awb api, awb service, awb board, awb web, awb owner, awb ui, awb build, awb pr,
-awb deploy, awb doc, awb pdf, awb winlab.
+awb deploy, awb doc, awb pdf, awb winlab, awb platform-status.
 
 Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 
@@ -837,6 +837,8 @@ DELEGATED = {
     "api": ("tcp.web.contract", "the contract of the web API: write docs/api/openapi.yaml, check it"),
     "service": ("tcp.services", "offered services: the latest service description and nothing else (check, list, update)"),
     "board": ("tcp.board", "the status of every active project for management, as Markdown and HTML"),
+    "platform-status": ("tcp.platformstatus", "the TCP platform on the board: pull the public status page, show the "
+                                              "open incidents and the next maintenances"),
     "web": ("tcp.web.publish", "publish the console page with a backup: sudo awb web publish; awb web status"),
     "owner": ("tcp.owner", "what waits on the owner in one list: awb owner status [--mail|--json|--write]"),
     "ui": ("tcp.ui", "the UI queue: submit a task, list the runs, a result note when a run ends (owner side)"),

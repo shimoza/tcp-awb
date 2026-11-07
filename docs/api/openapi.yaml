@@ -1098,7 +1098,7 @@ paths:
       tags:
         - projects
       summary: The status of every active project for management.
-      description: "Read on every request from the project files, like the list: the recorded status with the time of STATE.md and the commits newer than it, what the project waits on (the ## Waiting on items of STATE.md), the first items of OPEN.md, the deliverables by review state and the live resources. Codes only. `awb board` writes the same as a dated Markdown and HTML file on the owner side."
+      description: "Read on every request from the project files, like the list: the recorded status with the time of STATE.md and the commits newer than it, what the project waits on (the ## Waiting on items of STATE.md), the first items of OPEN.md, the deliverables by review state and the live resources. Codes only. `awb board` writes the same as a dated Markdown and HTML file on the owner side. The field `platform` lists the open incidents and the planned maintenances of the platform with the time of the last pull."
       responses:
         "200":
           description: The board.
@@ -1181,6 +1181,31 @@ paths:
                             stale: 1
                         board_redacted: false
                     build: "build: B-001 done 11:40, B-002 asked; live eb928d2, main 1a2b3c4, 1 not deployed"
+                    platform:
+                      events:
+                        - type: incident
+                          status: analysing
+                          impact: 2
+                          start: "2026-10-06T09:40:00Z"
+                          end: null
+                          regions:
+                            - EU-DE
+                          title: Degraded access to the object store
+                          id: 412
+                        - type: maintenance
+                          status: planned
+                          impact: 1
+                          start: "2026-10-09T22:00:00Z"
+                          end: "2026-10-10T02:00:00Z"
+                          regions:
+                            - EU-DE
+                            - EU-NL
+                          title: Network maintenance
+                          id: 415
+                      pulled: "2026-10-06T11:45:02Z"
+                      attempted: "2026-10-06T11:45:02Z"
+                      result: ok
+                      stale: false
         "401":
           description: No valid session. Sign in first.
           content:
@@ -5205,12 +5230,103 @@ components:
         build:
           type: string
           description: "The build line of the self-build from <shared>/build/state.tsv: the tasks, live, main and how many are not deployed. Ids, state words, short hashes and times only."
+        platform:
+          "$ref": "#/components/schemas/BoardPlatform"
       required:
         - source
         - generated_at
         - summary
         - projects
         - build
+        - platform
+    BoardPlatform:
+      type: object
+      description: "The public status page of the platform (status.otc-service.com) as `awb platform-status pull` last stored it, every cell matched again when read."
+      properties:
+        events:
+          type: array
+          description: The open incidents first (impact, then start), then the planned maintenances by start.
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum:
+                  - incident
+                  - maintenance
+                  - info
+              status:
+                type: string
+                description: A word of the status page, for example analysing, fixing, planned or in progress.
+              impact:
+                type: integer
+                description: "0 to 3."
+                minimum: 0
+                maximum: 3
+              start:
+                type: string
+                description: UTC, ISO 8601.
+                format: date-time
+              end:
+                type:
+                  - string
+                  - "null"
+                description: "UTC, ISO 8601; null while the event has no end."
+                format: date-time
+              regions:
+                type: array
+                items:
+                  type: string
+                  enum:
+                    - EU-DE
+                    - EU-NL
+                    - EU-CH2
+                    - Global
+              title:
+                type: string
+                description: "At most 100 printable characters, after the data check; empty when the page's title did not match its form."
+              id:
+                type: integer
+                description: The event id of the status page.
+            required:
+              - type
+              - status
+              - impact
+              - start
+              - end
+              - regions
+              - title
+              - id
+        pulled:
+          type:
+            - string
+            - "null"
+          description: "When the last good pull of the status page ran; null when none did."
+          format: date-time
+        attempted:
+          type:
+            - string
+            - "null"
+          description: "When the last pull ran, good or not; null without a state file."
+          format: date-time
+        result:
+          type: string
+          description: "ok or the reason the last pull failed: timeout, http or json; none without a state file."
+          enum:
+            - ok
+            - timeout
+            - http
+            - json
+            - none
+        stale:
+          type: boolean
+          description: "True when the last good pull is more than 2 hours old or there is none: the board says `status not pulled since`."
+      required:
+        - events
+        - pulled
+        - attempted
+        - result
+        - stale
     ProjectOptions:
       type: object
       properties:

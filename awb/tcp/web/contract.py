@@ -436,7 +436,15 @@ P_BOARD = {"source": "AWB project register", "generated_at": "2026-10-06T12:00:0
                                     "Terraform deployment"], "total": 5},
                     deliverables={"status": "available", "counts": {"valid": 3, "stale": 1}},
                     board_redacted=False)],
-           "build": "build: B-001 done 11:40, B-002 asked; live eb928d2, main 1a2b3c4, 1 not deployed"}
+           "build": "build: B-001 done 11:40, B-002 asked; live eb928d2, main 1a2b3c4, 1 not deployed",
+           "platform": {"events": [
+               {"type": "incident", "status": "analysing", "impact": 2, "start": "2026-10-06T09:40:00Z", "end": None,
+                "regions": ["EU-DE"], "title": "Degraded access to the object store", "id": 412},
+               {"type": "maintenance", "status": "planned", "impact": 1, "start": "2026-10-09T22:00:00Z",
+                "end": "2026-10-10T02:00:00Z", "regions": ["EU-DE", "EU-NL"], "title": "Network maintenance",
+                "id": 415}],
+               "pulled": "2026-10-06T11:45:02Z", "attempted": "2026-10-06T11:45:02Z", "result": "ok",
+               "stale": False}}
 TAGS = ["ecs", "obs", "vpc"]
 BUDGET = {"questions_left": 31, "tokens_left": 254880, "daily_questions": 40, "daily_tokens": 300000,
           "resets": "00:00 UTC"}
@@ -693,8 +701,31 @@ def _schemas() -> dict:
             }), "Parked projects (awb projects park) by code: their OPEN.md items are in no count."),
             "build": string("The build line of the self-build from <shared>/build/state.tsv: the tasks, live, main and "
                             "how many are not deployed. Ids, state words, short hashes and times only."),
-        }, required=["source", "generated_at", "summary", "projects", "build"],
+            "platform": ref("BoardPlatform"),
+        }, required=["source", "generated_at", "summary", "projects", "build", "platform"],
             description="The status of every active project for management, codes only."),
+        "BoardPlatform": obj({
+            "events": array(obj({
+                "type": string(enum=["incident", "maintenance", "info"]),
+                "status": string("A word of the status page, for example analysing, fixing, planned or in progress."),
+                "impact": integer("0 to 3.", minimum=0, maximum=3),
+                "start": string("UTC, ISO 8601.", format="date-time"),
+                "end": string("UTC, ISO 8601; null while the event has no end.", nullable=True, format="date-time"),
+                "regions": array(string(enum=["EU-DE", "EU-NL", "EU-CH2", "Global"])),
+                "title": string("At most 100 printable characters, after the data check; empty when the page's "
+                                "title did not match its form."),
+                "id": integer("The event id of the status page."),
+            }), "The open incidents first (impact, then start), then the planned maintenances by start."),
+            "pulled": string("When the last good pull of the status page ran; null when none did.", nullable=True,
+                             format="date-time"),
+            "attempted": string("When the last pull ran, good or not; null without a state file.", nullable=True,
+                                format="date-time"),
+            "result": string("ok or the reason the last pull failed: timeout, http or json; none without a state "
+                             "file.", enum=["ok", "timeout", "http", "json", "none"]),
+            "stale": boolean("True when the last good pull is more than 2 hours old or there is none: the board "
+                             "says `status not pulled since`."),
+        }, description="The public status page of the platform (status.otc-service.com) as `awb platform-status "
+                       "pull` last stored it, every cell matched again when read."),
         "ProjectOptions": obj({
             "kinds": array(string(), "The kinds the running backend accepts, in the order to show. Deployed: "
                                      "engagement, lab, topic, code. Repository: query, project."),
@@ -1191,7 +1222,9 @@ def _project_paths() -> dict:
                            "the time of STATE.md and the commits newer than it, what the project waits on (the ## "
                            "Waiting on items of STATE.md), the first items of OPEN.md, the deliverables by review "
                            "state and the live resources. Codes only. `awb board` writes the same as a dated "
-                           "Markdown and HTML file on the owner side.", state="repository"),
+                           "Markdown and HTML file on the owner side. The field `platform` lists the open incidents "
+                           "and the planned maintenances of the platform with the time of the last pull.",
+                           state="repository"),
         },
         "/api/project-options": {
             "get": operation("getProjectOptions", "projects", "What the create form offers.", {
