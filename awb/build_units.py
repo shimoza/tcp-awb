@@ -787,6 +787,10 @@ def board_write(board: Path | None, name: str, data: bytes) -> bool:
         os.rename(tmp, name, src_dir_fd=fd, dst_dir_fd=fd)
         return True
     except OSError:
+        # a file the rename cannot replace (another user's state.tsv in the sticky folder, 2026-11-07: thousands of
+        # these were left behind and the board read a month-old line) leaves no temporary file
+        with contextlib.suppress(OSError):
+            os.unlink(tmp, dir_fd=fd)
         return False
     finally:
         os.close(fd)

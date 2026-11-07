@@ -14506,8 +14506,10 @@
   {"id": "b045-bk3-8", "phase": "b045-bk3", "name": "BK3: the work user and an assistant session are refused", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_the_work_user_and_an_assistant_session_are_refused", "status": "passing"},
   {"id": "b045-bk3-9", "phase": "b045-bk3", "name": "BK3: a struck row is not acted on", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_struck_row_is_not_acted_on", "status": "passing"},
   {"id": "b045-bk3-10", "phase": "b045-bk3", "name": "BK3: one failing row does not stop the others and gives exit 1", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_one_failing_row_does_not_stop_the_others_and_gives_exit_1", "status": "passing"},
-  {"id": "b045-bk3-11", "phase": "b045-bk3", "name": "BK3: the log goes to reports tidy of the owner bucket", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_the_log_goes_to_reports_tidy_of_the_owner_bucket", "status": "passing"}
+  {"id": "b045-bk3-11", "phase": "b045-bk3", "name": "BK3: the log goes to reports tidy of the owner bucket", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_the_log_goes_to_reports_tidy_of_the_owner_bucket", "status": "passing"},
+  {"id": "bw-1", "phase": "board-write", "name": "board_write leaves no temporary file when the rename fails", "run": ".venv/bin/pytest tests/test_board_write_cleanup.py::test_a_failed_board_write_leaves_no_temporary_file", "status": "passing"},
+  {"id": "bw-2", "phase": "board-write", "name": "board_write replaces the file and leaves nothing else", "run": ".venv/bin/pytest tests/test_board_write_cleanup.py::test_a_good_board_write_replaces_the_file", "status": "passing"}
  ],
- "total_tests": 2159,
+ "total_tests": 2161,
  "checked": "2026-11-07"
 }
