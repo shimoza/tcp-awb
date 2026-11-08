@@ -15,7 +15,9 @@ What the service checks before anything is sent (`check_url`, the same function 
 - a path of at most 300 characters made of URL-safe characters (letters, digits and `-._~/%+:@!$&'()*,;=`, a `%`
   only before two hex digits, no `..` segment).
 
-Then: no cookie, no auth header, a fixed User-Agent naming the Workbench, `Accept-Encoding: identity`. A redirect
+Then: no cookie, no auth header, a fixed User-Agent naming the Workbench, `Accept-Encoding: identity`. A host that
+sends gzip all the same (the docs host does since 2026-11) is read: the gzip body is unpacked under the same cap, a
+broken one and every other encoding are refused. A redirect
 is followed only to a URL that passes the same checks, at most 3 times. A body of more than 5 MB is refused (by its
 Content-Length before a byte is read, or when the read passes the cap), and only a text type is taken (HTML, XHTML,
 Markdown, plain text, JSON) or a PDF (task DF-PDF, 2026-11-07): `application/pdf`, or an octet stream whose body starts
@@ -43,6 +45,7 @@ import ssl
 import sys
 import threading
 import time
+import zlib
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -387,6 +390,20 @@ def _read_capped(resp, cap: int) -> bytes:
     return bytes(buf)
 
 
+def _gunzip_capped(data: bytes, cap: int) -> bytes:
+    """A gzip body unpacked, refused when it unpacks to more than CAP bytes or is not whole gzip."""
+    unpack = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    try:
+        out = unpack.decompress(data, cap + 1)
+    except zlib.error:
+        raise DocError("refused: an encoded body that is not valid gzip") from None
+    if len(out) > cap:
+        raise DocError("refused: the page is larger than %d MB" % (cap // (1024 * 1024)))
+    if not unpack.eof:
+        raise DocError("refused: an encoded body that is not valid gzip")
+    return out
+
+
 def pdf_text(data: bytes, *, runner=None, tool: str = PDFTOTEXT, timeout: float = PDF_TIMEOUT) -> tuple[str, int]:
     """The text of a PDF and its page count, each page after a line `--- page N ---`. The bytes go to a file of a
     private temporary folder (700, the file 600) that is removed in every case; pdftotext gets an argument list,
@@ -465,13 +482,16 @@ def fetch(url: str, *, getter=https_get, hosts: list[str] | None = None, cap: in
             kind = TEXT_TYPES.get(ctype) or ("pdf" if ctype in PDF_TYPES else "octet" if ctype in OCTET_TYPES else None)
             if kind is None:
                 raise DocError("refused: not a text type (HTML, Markdown, plain text, JSON or PDF)")
-            if (headers.get("content-encoding") or "identity").strip().lower() != "identity":
+            encoding = (headers.get("content-encoding") or "identity").strip().lower()
+            if encoding not in ("identity", "gzip"):
                 raise DocError("refused: an encoded body (the reader asks for identity)")
             limit = pdf_cap if kind in ("pdf", "octet") else cap
             length = headers.get("content-length")
             if length is not None and (not length.strip().isdigit() or int(length) > limit):
                 raise DocError("refused: the page is larger than %d MB" % (limit // (1024 * 1024)))
             body = _read_capped(resp, limit)
+            if encoding == "gzip":
+                body = _gunzip_capped(body, limit)
             if kind in ("pdf", "octet"):
                 if not body.startswith(b"%PDF-"):
                     raise DocError("refused: not a text type (HTML, Markdown, plain text, JSON or PDF)"

@@ -193,8 +193,12 @@ def disk_record(records: list[price.Record], disk_type: str) -> tuple[price.Reco
     if not disk_type:
         return None, "the snapshot has no disk type"
     want = disk_type.lower()
-    return _one([r for r in records if r.service == "evs" and "gb" in r.unit.lower() and not price.is_hourly(r.unit)
-                 and r.price("PAYG") is not None and want in _words(r.flavor, r.name)], "EVS %s" % disk_type)
+    per_gb = [r for r in records if r.service == "evs" and "gb" in r.unit.lower() and not price.is_hourly(r.unit)
+              and r.price("PAYG") is not None]
+    # the flavor vss.<type> names the API disk type exactly; the word "ssd" also sits in the names of GP SSD and
+    # Extreme SSD, so the words count only when no flavor matches (SSD = ultra-high I/O = vss.ssd, KB-GL4O)
+    exact = [r for r in per_gb if (r.flavor or "").strip().lower() == "vss." + want]
+    return _one(exact or [r for r in per_gb if want in _words(r.flavor, r.name)], "EVS %s" % disk_type)
 
 
 def eip_record(records: list[price.Record]) -> tuple[price.Record | None, str]:

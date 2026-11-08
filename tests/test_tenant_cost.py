@@ -276,3 +276,19 @@ def test_the_elastic_ip_takes_the_record_with_the_flavor_eip_beside_the_address_
                                          os="Standard", payg="0.001000"))
     rec, why = tenantcost.eip_record([gray, gray2])
     assert rec is None and "2 records" in why
+
+
+def test_the_disk_type_ssd_takes_the_record_of_its_flavor_not_every_ssd_record():
+    recs = [price.Record.from_raw(r) for r in (
+        record("TEST_BLST_GPSSD", service="evs", flavor="vss.gpssd", name="EVS GP SSD", os="Standard",
+               payg="0.104000", unit="GB"),
+        record("TEST_BLST_SSD", service="evs", flavor="vss.ssd", name="EVS Ultra-High I/O", os="Standard",
+               payg="0.110000", unit="GB"),
+        record("TEST_BLST_ESSD", service="evs", flavor="vss.essd", name="EVS Extreme SSD", os="Standard",
+               payg="0.308000", unit="GB"),
+    )]
+    assert tenantcost.disk_record(recs, "SSD")[0].id == "TEST_BLST_SSD"
+    assert tenantcost.disk_record(recs, "GPSSD")[0].id == "TEST_BLST_GPSSD"
+    assert tenantcost.disk_record(recs, "ESSD")[0].id == "TEST_BLST_ESSD"
+    rec, why = tenantcost.disk_record(recs[:1] + recs[2:], "SSD")
+    assert rec is None and "2 records of EVS SSD" in why

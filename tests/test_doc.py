@@ -414,3 +414,27 @@ def test_the_work_rules_and_the_drafting_skill_say_to_fetch_documentation():
         assert "`awb doc fetch URL`" in (ROOT / name).read_text(encoding="utf-8")
     allow = (ROOT / "seal" / "egress" / "ALLOW.md").read_text(encoding="utf-8")
     assert "doc_get" in allow and "awb doc fetch" in allow
+
+
+def test_a_gzip_body_is_unpacked_when_the_host_ignores_identity():
+    import gzip
+    page = b"<html><body><h1>volume types</h1><p>ultra-high</p></body></html>"
+    g = Getter({("example.com", "/z"): (200, {"content-type": "text/html", "content-encoding": "gzip"},
+                                        gzip.compress(page))})
+    got = doc.fetch("https://example.com/z", getter=g, hosts=HOSTS)
+    assert "volume types" in got["text"] and "ultra-high" in got["text"]
+
+
+def test_a_gzip_body_that_unpacks_past_the_cap_or_breaks_off_is_refused():
+    import gzip
+    whole = gzip.compress(b"a" * 5000)
+    g = Getter({("example.com", "/big"): (200, {"content-type": "text/plain", "content-encoding": "gzip"}, whole),
+                ("example.com", "/cut"): (200, {"content-type": "text/plain", "content-encoding": "gzip"},
+                                          whole[:len(whole) // 2]),
+                ("example.com", "/br"): (200, {"content-type": "text/plain", "content-encoding": "br"}, b"x")})
+    with pytest.raises(doc.DocError, match="larger than"):
+        doc.fetch("https://example.com/big", getter=g, hosts=HOSTS, cap=1000)
+    with pytest.raises(doc.DocError, match="not valid gzip"):
+        doc.fetch("https://example.com/cut", getter=g, hosts=HOSTS)
+    with pytest.raises(doc.DocError, match="encoded body"):
+        doc.fetch("https://example.com/br", getter=g, hosts=HOSTS)

@@ -6,6 +6,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 ## Week 45, 2026-11-02 to 2026-11-08 (in progress)
 ### Added
 
+- `awb doc fetch` reads a gzip body: the docs host of TCP sends gzip since 2026-11 although the reader asks for identity, so every page there was refused. The body is unpacked under the same cap (5 MB, 32 MB for a PDF); a broken gzip and every other encoding are still refused. Tests: `tests/test_doc.py`.
+
+- `awb tenant cost` prices an EVS disk by the price record whose flavor is `vss.<type>` first: the type SSD (ultra-high I/O) matched the three records of SSD, GP SSD and Extreme SSD by the word and stayed without a price (KB-GL4O). Tests: `tests/test_tenant_cost.py`.
+
 - `awb tenant setup ALIAS` without `--domain-id` takes the domain of the admin token and names it with the first 6 characters of its id; when pass holds a read key that awb-read-<number> does not own (a tenant connected before T10), setup finds the user of that key with the admin token (GET /v3.0/OS-CREDENTIAL/credentials/{key}, the key never printed) and puts it into awb-read (created with Tenant Guest inherited on all projects when missing) instead of a new user and key, then takes a snapshot and runs the cost estimate. It deletes no key, user or group, refuses a key of the admin user and a second run says nothing to do (B-050, branch task/B-050). README and docs/commands-guide.md describe it. Tests: `tests/test_tenant_setup_adopt.py`.
 
 - awb/inventory.py, filesinv.py, filesplan.py and filestidy.py are no longer command only: since BK4 awb/bucket.py archives through filestidy and the key service runs it, so a change of one restarts the units that reach awb/bucket.py.
