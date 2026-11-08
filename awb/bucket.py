@@ -6,7 +6,9 @@ and `out/` for results (his decisions of 2026-09-24).
     awb bucket pull CODE [--again]          new files of in/ into the vault inbox, then the intake of its customer
     awb bucket put CODE FILE [--replace] [--reveal]   FILE into out/; --reveal puts the real names back first;
                                             a Markdown FILE goes as FILE.md and FILE.html (paste into a mail);
-                                            it ends with the line "get it: ..." (Total Commander or the laptop)
+                                            it ends with the line "get it: ..." (Total Commander or the laptop);
+                                            an older version of its group in out/ goes to _archive/<stamp>/
+                                            first, a file the same as one there is not put again
     awb bucket move <YYYY-MM>/<NAME>/ CODE  a folder whose name drifted to <YYYY-MM>/<CODE>/: copy, check, delete
 
 A folder is looked for under every month and used where it is. A new one goes under the month the project was
@@ -21,8 +23,11 @@ client as it does for `awb import`, `awb fetch` and `awb vault show`). `pull` an
 he runs them in his own shell.
 
 The key service takes list, get and put, inside the folders of the layout (awb/bucket_layout.py), and one delete:
-`drop_in`, a file of in/ of an active project after `awb import --auto` took it into the vault. `move` needs a copy
-and a delete and stops with a line saying so. A locked or stopped key service stops every command with one
+`drop_in`, a file of in/ of an active project after `awb import --auto` took it into the vault, and one move:
+`archive`, a file of out/ into `<YYYY-MM>/<code>/_archive/<stamp>/` of its folder, copied, compared (size and md5)
+and only then deleted (task BK4). `put` uses it for an older version of the same group (the group rule of
+awb/inventory.py: project, normalised stem, suffix): the newest stays in out/, as `awb files plan` would have it.
+`move` needs a copy and a delete and stops with a line saying so. A locked or stopped key service stops every command with one
 line that names `awb keys unlock`. Output carries codes, months, counts and sizes, never the name of a file of in/
 and never the name of a folder that matches no project.
 """
@@ -190,6 +195,12 @@ class KeyServiceClient:
     def delete(self, key: str) -> None:
         raise BucketError("the key service has no delete: move a folder in the object storage console")
 
+    def archive(self, key: str, target: str) -> dict:
+        """Move a file of out/ to `<YYYY-MM>/<code>/_archive/<stamp>/<name>` of its folder (task BK4): the key service
+        copies, compares the size and the md5, then deletes the source (`bucket_archive`). A move that failed or was
+        refused raises BucketError and leaves the source."""
+        return self._ask({"op": "bucket_archive", "key": key, "target": target})
+
     def drop_in(self, key: str) -> None:
         """Delete one file of a project's in/ after `awb import --auto` took it into the vault (the one delete the
         key service offers, `bucket_drop_in`: a file of in/ of an active project and nothing else)."""
@@ -352,12 +363,19 @@ def fetch(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> 
 
 
 def put(p: config.Paths, c: obs.Client, code: str, file: Path, *, replace: bool = False,
-        reveal: bool = False, report: list | None = None) -> tuple[str, dict | None]:
+        reveal: bool = False, report: list | None = None, outcome: dict | None = None) -> tuple[str, dict | None]:
     """`file` into out/ of the project's folder (created when missing). With `reveal` the real names are put back
     first, in a private temporary file on the vault side that is removed after the upload. A put never refuses a
     file for its review state, a name or structured data (task GT): a secret is replaced with [secret] in the
     uploaded copy and `report` receives the one line (`review: none` or `review: passed DATE`, the secrets
-    replaced)."""
+    replaced).
+
+    Versions (task BK4, D-B1): when out/ holds a file of the same group (project, normalised stem, suffix: the rule
+    of awb/inventory.py) with the size and md5 of what would go up, nothing is put and the key returned is that
+    file's. Otherwise every other file of the group of the file or of its HTML page moves to
+    `<YYYY-MM>/<code>/_archive/<stamp>/<name>` first (copy, compare, delete: `archive_out`), then the file is put.
+    The same name stays the matter of `replace`. `outcome` receives {"same": key or None, "archived": [(key,
+    target)], "failed": [(key, reason)]}."""
     project = _project(p, code)
     file = Path(os.path.realpath(file))
     if not file.is_file():
@@ -370,28 +388,89 @@ def put(p: config.Paths, c: obs.Client, code: str, file: Path, *, replace: bool 
         raise BucketError("out/ of %s already holds a file of that name; give --replace" % code)
     ctype = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
     line = putcopy.review_line(Path(project.path), file)
+    done = {} if outcome is None else outcome
+    done.update(same=None, archived=[], failed=[])
+    stats = None
     # what leaves is a private copy, its secrets replaced, never the path again
     tmp_root = config.make_dir(p.vault / "tmp", 0o700)
     with tempfile.TemporaryDirectory(dir=tmp_root) as tmp:
         copy = Path(tmp) / file.name
         secrets = putcopy.scrub(file, copy)
         os.chmod(copy, 0o600)
+        upload = copy
+        if reveal:
+            from awb import reveal as _reveal
+            try:
+                text = copy.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                raise BucketError("--reveal takes a text file") from None
+            upload = Path(tmp) / ("named-" + file.name)
+            stats = _reveal.write_named(text, upload, p)
+        same, older = out_versions(c, folder, code, key, page, upload)
+        if same is not None:
+            done["same"] = same
+            return same, stats
         if report is not None:
             report.append(putcopy.put_line(line, secrets))
-        if not reveal:
-            c.put_file(key, copy, ctype)
-            _put_page(c, page, copy)
-            return key, None
-        from awb import reveal as _reveal
-        try:
-            text = copy.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            raise BucketError("--reveal takes a text file") from None
-        named = Path(tmp) / ("named-" + file.name)
-        stats = _reveal.write_named(text, named, p)
-        c.put_file(key, named, ctype)
-        _put_page(c, page, named)
+        from awb import inventory
+        stamp = inventory.stamp()
+        for old in older:
+            target = archive_target(folder, stamp, old)
+            result, reason = archive_out(c, old, target)
+            if result == "ok":
+                done["archived"].append((old, target))
+            else:
+                done["failed"].append((old, reason))
+        c.put_file(key, upload, ctype)
+        _put_page(c, page, upload)
     return key, stats
+
+
+def archive_target(folder: str, stamp: str, key: str) -> str:
+    """`<YYYY-MM>/<code>/_archive/<stamp>/<name>`: the place `awb files plan` gives an older version in out/."""
+    from awb import filesplan
+
+    return "%s%s/%s/%s" % (folder, filesplan.ARCHIVE, stamp, key.rsplit("/", 1)[-1])
+
+
+def out_versions(c, folder: str, code: str, key: str, page: str | None, upload: Path) -> tuple[str | None, list[str]]:
+    """(the file of out/ of the group of `key` with the size and md5 of `upload`, or None; the other files of out/ of
+    the group of `key` or of `page`, which the put of `key` makes older versions). The file of the same name and its
+    page are neither: --replace overwrites them. A multipart etag gives no md5, so never the same."""
+    from awb import filesinv, inventory
+
+    def group(k: str) -> str:
+        return inventory.group_of(code, k, filesinv.suffix_of(k))
+
+    size, md5 = upload.stat().st_size, inventory.hashes(upload)[1]
+    mine = group(key)
+    groups = {mine} | ({group(page)} if page else set())
+    same, older = None, []
+    for k, n, etag in c.list(folder + OUT).objects:
+        name = k[len(folder + OUT):]
+        if not name or "/" in name or is_keep(k):
+            continue
+        g = group(k)
+        if g == mine and int(n) == size and filesinv.md5_of_etag(etag) == md5:
+            same = same or k
+        elif g in groups and k not in (key, page):
+            older.append(k)
+    return same, older
+
+
+def archive_out(c, key: str, target: str) -> tuple[str, str]:
+    """Move `key` to `target` inside the owner bucket: the key service's `bucket_archive` (it holds the key), or with a
+    client that copies (obs.Client) the same steps here (filestidy.move_object). ("ok", how) or (result, reason);
+    nothing is deleted without its compared copy."""
+    from awb import filestidy
+
+    if getattr(c, "can_copy", True):
+        return filestidy.move_object(c, key, target)
+    try:
+        a = c.archive(key, target)
+    except (BucketError, obs.OBSError) as err:
+        return filestidy.FAILED, str(err)
+    return filestidy.OK, str(a.get("reason") or "moved")
 
 
 PAGE_SUFFIXES = (".md", ".markdown")
@@ -634,7 +713,7 @@ def main(argv: list[str] | None = None) -> int:
                                     "never an assistant session)")
     s.add_argument("code")
     s.add_argument("--again", action="store_true", help="take files again that were downloaded before")
-    s = sub.add_parser("put", help="a file into out/")
+    s = sub.add_parser("put", help="a file into out/; an older version of its group goes to _archive/ first")
     s.add_argument("code")
     s.add_argument("file", type=Path)
     s.add_argument("--replace", action="store_true", help="overwrite a file of the same name in out/")
@@ -682,7 +761,17 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "put":
             said: list[str] = []
-            key, stats = put(p, c, args.code, args.file, replace=args.replace, reveal=args.reveal, report=said)
+            done: dict = {}
+            key, stats = put(p, c, args.code, args.file, replace=args.replace, reveal=args.reveal, report=said,
+                             outcome=done)
+            if done["same"] is not None:
+                print("%s: %s is the same file (size and md5): not put again" % (args.code, key))
+                print(get_it_line(key, args.code))
+                return 0
+            for old, target in done["archived"]:
+                print("%s: %s archived to %s (an older version)" % (args.code, old, target))
+            for old, reason in done["failed"]:
+                print("%s: %s not archived, it stays in out/: %s" % (args.code, old, reason), file=sys.stderr)
             line = "%s: %s" % (args.code, key)
             if stats is not None:
                 line += "  (%d codes replaced by names)" % stats["replaced"]

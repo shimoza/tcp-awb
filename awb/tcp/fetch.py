@@ -1,6 +1,6 @@
 """`awb fetch CODE`: what a project put for the owner, in one folder, with the names back (owner side, P12 of F3).
 
-    awb fetch CODE [--again] [--into DIR]
+    awb fetch CODE [--again] [--into DIR] [--no-archive]
 
 A session puts a result with `awb xchg put` into `<code>/from-session/<date>/<kind>/<readable id>` of the lab
 bucket (`<date>/put-<hex>` before task BK1) and the owner gets one mail per file. A file is written under the name
@@ -14,6 +14,12 @@ text with the code of `awb reveal` and prints the folder. A file that is not a t
 - A file counts as fetched once it was downloaded (its key, kept in `bucket-pulled.tsv` of the vault beside the
   files of `awb bucket pull`). `--again` takes every file again; a file of the same name gets a number.
 - The objects stay in the bucket: `awb xchg clean` in the session deletes them, as before.
+- After the download every put whose INDEX.md row says fetched ARCHIVE_DAYS (30) or more days before today moves to
+  `<code>/_archive/<YYYY-MM of the put>/from-session/<date>/<kind>/<id>` of the lab bucket, the HTML page beside a
+  Markdown put with it (task BK4, D-B1; the op `obs` ARCHIVE, the owner's processes only). The key service copies,
+  compares the size and the md5 as `awb files tidy` does, then deletes the source; INDEX.md drops the row of a moved
+  put. A failed move leaves the source and its row, is counted in the one line "archived N put(s) fetched 30 days or
+  more ago" and never stops the fetch. `--no-archive` skips it.
 
 Owner side only: refused for the work user and inside an assistant session. Output carries the project code, the
 object ids, counts and the folder, never a name.
@@ -84,16 +90,44 @@ def listing(code: str) -> list[dict]:
             if isinstance(o.get("name"), str) and xchg.put_key_ok(prefix + o["name"], code)]
 
 
-def fetch(p: config.Paths, code: str, folder: Path | None = None, *, again: bool = False) -> dict:
-    """Download the new puts of `code` into `folder` and reveal the texts. Returns the folder, the count fetched
-    before and one (id, what) per file: what is the count of codes replaced or None for a file kept as it came."""
-    from awb import bucket, projects, reveal
-    from awb.tcp import xchg
+def archive(code: str) -> dict:
+    """The archive of task BK4 through the key service (the op `obs` ARCHIVE, the owner's processes only): every put
+    whose INDEX.md row says fetched ARCHIVE_DAYS or more days ago moves to `<code>/_archive/<YYYY-MM>/from-session/...`
+    (copy, size and md5 compared, then the source deleted) and its row leaves INDEX.md. {"archived": n, "failed": m,
+    "error": why the key service did not archive, or None}; a call that fails never stops the fetch."""
+    from awb.tcp import keys, xchg
 
+    try:
+        a = xchg._call({"op": "obs", "method": "ARCHIVE", "project": code})
+    except (keys.KeysError, OSError) as err:
+        a = {"error": "no answer from the key service (%s)" % type(err).__name__}
+    if not a.get("ok"):
+        return {"archived": 0, "failed": 0, "error": str(a.get("error") or "refused")}
+    return {"archived": int(a.get("archived") or 0), "failed": int(a.get("failed") or 0), "error": None}
+
+
+def fetch(p: config.Paths, code: str, folder: Path | None = None, *, again: bool = False,
+          archive_old: bool = True) -> dict:
+    """Download the new puts of `code` into `folder` and reveal the texts, then archive the puts fetched
+    ARCHIVE_DAYS or more days ago (not with `archive_old` False). Returns the folder, the count fetched before, one
+    (id, what) per file (what is the count of codes replaced or None for a file kept as it came) and the archive
+    counts (None when skipped)."""
     _owner_side(code)
+    from awb import projects
+
     project = next((r for r in projects.load(p) if r.code == code), None)
     if project is None or project.state not in projects.LIVE_STATES:
         raise FetchError("%s is not an active project" % code)
+    result = download(p, code, folder, again=again)
+    result["archive"] = archive(code) if archive_old else None
+    return result
+
+
+def download(p: config.Paths, code: str, folder: Path | None, *, again: bool) -> dict:
+    """The download part of `fetch`: the new puts into the folder, each marked fetched."""
+    from awb import bucket, reveal
+    from awb.tcp import xchg
+
     objects = listing(code)
     done = set() if again else {k for k, mark in bucket.pulled(p) if mark == MARK}
     keys = ["%s/%s%s" % (code, xchg.FROM, o["name"]) for o in objects]
@@ -132,8 +166,9 @@ def fetch(p: config.Paths, code: str, folder: Path | None = None, *, again: bool
 
 
 def main(argv: list[str] | None = None) -> int:
-    """`awb fetch CODE [--again] [--into DIR]`. Exit 0 done (also when nothing is new), 2 refused or an error."""
-    from awb import obs, projects, register, reveal
+    """`awb fetch CODE [--again] [--into DIR] [--no-archive]`. Exit 0 done (also when nothing is new or a move of the
+    archive failed), 2 refused or an error."""
+    from awb import filesplan, obs, projects, register, reveal
     from awb.cli import SafeParser
     from awb.tcp import xchg
 
@@ -143,12 +178,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--again", action="store_true", help="take every file again, also those fetched before")
     ap.add_argument("--into", type=Path, default=None, metavar="DIR",
                     help="the folder (default ~/%s/CODE/), outside every git tree" % FETCH_DIR)
+    ap.add_argument("--no-archive", action="store_true",
+                    help="leave the puts fetched %d days or more ago in from-session/" % filesplan.ARCHIVE_DAYS)
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 2
     try:
-        r = fetch(config.paths(), args.code, args.into, again=args.again)
+        r = fetch(config.paths(), args.code, args.into, again=args.again, archive_old=not args.no_archive)
     except (FetchError, xchg.XchgError, reveal.RevealError, register.RegisterError, projects.ProjectError,
             obs.OBSError) as err:
         print("awb fetch: %s" % err, file=sys.stderr)
@@ -162,6 +199,13 @@ def main(argv: list[str] | None = None) -> int:
                             else "names put back (%d codes replaced)" % replaced))
     if r["unmarked"]:
         print("%d file(s) not marked fetched in INDEX.md: the key service refused the mark" % r["unmarked"])
+    if r["archive"] is not None:
+        line = "archived %d put(s) fetched %d days or more ago" % (r["archive"]["archived"], filesplan.ARCHIVE_DAYS)
+        if r["archive"]["failed"]:
+            line += ", %d move(s) failed: the source stays in from-session/" % r["archive"]["failed"]
+        if r["archive"]["error"]:
+            line += "; the key service did not archive: %s" % r["archive"]["error"]
+        print(line)
     if r["folder"] is not None:
         print("folder: %s" % r["folder"])
     return 0

@@ -269,7 +269,8 @@ kinds and both limits for every side. Each project folder holds a small file `.k
 that S3 clients which cannot open an empty folder open it; `awb bucket folder` and `awb bucket sync` write it when
 missing, and every reader of `in/` and `out/` (pull, fetch, import, the inbox and the console listing) ignores it. The owner's own commands (`awb bucket`, `awb import`, `awb dataset put`) reach
 the owner bucket through the admin socket of the key service (list, get and put inside these folders, the same limit
-and the owner's user id only); there is no bucket key in the environment, and a locked or stopped service stops
+and the owner's user id only, and one move: a file of `out/` into `_archive/<stamp>/` of its folder when `awb bucket
+put` puts a newer version); there is no bucket key in the environment, and a locked or stopped service stops
 them with one line that names `awb keys unlock`. `awb bucket move` needs a copy and a delete that the service does
 not offer, so it stops with a line saying so. `awb bucket pull` and `awb bucket move` never run inside an assistant
 session, and the client gives no file of `in/` to one, whatever the uid: an original reaches the owner's own
@@ -280,7 +281,9 @@ project's customer. The key service checks every file of the lab inbox before th
 Results go back with `awb xchg put` into the project's own folder. A put never refuses a file for its review, a
 name or structured data: a secret is replaced with [secret] in the copy, by the session and again by the key
 service and the put says `review: none` or `review: passed DATE`. A Markdown file arrives as md and as HTML to paste into a mail; the output ends with the line saying where both are (Total Commander, the lab bucket and the folder). A mail tells you about each file. `awb
-fetch tcp-xxxx` in your own terminal downloads what is new into `~/awb-fetch/tcp-xxxx/` with the names back.
+fetch tcp-xxxx` in your own terminal downloads what is new into `~/awb-fetch/tcp-xxxx/` with the names back. Then
+it archives every put you fetched 30 days or more ago (see "The archive without a plan" below); `--no-archive` skips
+that.
 
 The key of a put is readable and the key service builds it:
 `<code>/from-session/<YYYY-MM-DD>/<kind>/<code>-<kind>-<lang>-<HHMM>.<ext>`, for example
@@ -293,8 +296,8 @@ service runs the name check on the whole key and falls back to `<code>-doc-<lang
 name reaches a key, the console, Total Commander or your mail. Keys of the old form `<date>/put-<hex>` stay valid for
 `awb xchg list`, `awb fetch` and `awb xchg clean`. `<code>/from-session/INDEX.md` lists every put, newest first:
 date, time, key, kind, language, size, review (`none` or `passed DATE`) and fetched (`no` or the date `awb fetch`
-downloaded it). The key service rewrites it on every put, on every delete of `awb xchg clean` and when `awb fetch`
-marks a key; it holds checked key parts only, never a title. `awb fetch` writes each file under the name of its key.
+downloaded it). The key service rewrites it on every put, on every delete of `awb xchg clean`, when `awb fetch`
+marks a key and when it archives one (the row of an archived put goes); it holds checked key parts only, never a title. `awb fetch` writes each file under the name of its key.
 
 ## The board and the console
 
@@ -659,6 +662,26 @@ key of `bucket_tenant` in keys.conf) from your password store at call time and k
 
 After an archive of a lab put nothing else is needed: INDEX.md of the project drops the rows whose object is gone on
 the next put.
+
+#### The archive without a plan
+
+An archive is a move inside the bucket and never a delete of content, so the two archive moves of the plan also
+happen where they arise, without a plan (D-B1). Both copy, compare size and md5 as the tidy does and delete the
+source only after that; a move that fails leaves the source where it was.
+
+- `awb fetch tcp-xxxx`, after the download: every put whose INDEX.md row says fetched 30 days or more before today
+  moves to `tcp-xxxx/_archive/<YYYY-MM of the put>/from-session/<date>/<kind>/<key>` of the lab bucket, the HTML
+  page of a Markdown put with it, and its row leaves INDEX.md. The key service does it (the op `obs` ARCHIVE, your
+  processes only). One line says `archived N put(s) fetched 30 days or more ago` and counts a failed move, which never
+  stops the fetch. `--no-archive` skips it.
+- `awb bucket put tcp-xxxx FILE`: when `out/` holds an older version of the same group (project, normalised stem,
+  suffix, as the plan groups: `offer v1.md` for `offer v2.md`, its HTML page with it), the older one moves to
+  `<YYYY-MM>/tcp-xxxx/_archive/<stamp>/<name>` first (the key service, op `bucket_archive`), then the new one is
+  put. A file with the size and md5 of one of its group in `out/` is not put again; one line says so. `--replace`
+  still means the same name only: that file is overwritten, not archived.
+
+Nothing is deleted on the work side, and the key service never deletes a file of `out/` or `from-session/` without its
+compared copy in `_archive/`.
 
 ### As a plugin for Claude Code
 

@@ -200,6 +200,34 @@ def _http(err: Exception) -> str:
     return "HTTP %s" % err.status if isinstance(err, obs.OBSError) else type(err).__name__
 
 
+def move_object(c, path: str, target: str) -> tuple[str, str]:
+    """One object moved inside its bucket: copy to `target`, head both, compare the size and the md5 (the size alone
+    with a multipart etag), then delete the source. A target that exists already is skipped, never overwritten; a
+    copy that differs leaves the source in place. Also the archive moves of task BK4 (awb fetch, awb bucket put)."""
+    if c.head(target) is not None:
+        return SKIPPED, "the target exists already; never overwritten"
+    try:
+        c.copy(path, target)
+    except Exception as err:
+        return FAILED, "the copy failed (%s); the source stays" % _http(err)
+    got, source = c.head(target), c.head(path)
+    if got is None:
+        return FAILED, "the copy is not there; the source stays"
+    if source is None:
+        return FAILED, "the source is gone after the copy"
+    if _size(got) != _size(source):
+        return FAILED, "the copy differs in size; the source stays"
+    a, b = _md5(source), _md5(got)
+    if a and b and a != b:
+        return FAILED, "the copy differs in md5; the source stays"
+    how = "size and md5 compared" if a and b else "size compared only (multipart etag)"
+    try:
+        c.delete(path)
+    except Exception as err:
+        return FAILED, "copied (%s), the source could not be deleted (%s)" % (how, _http(err))
+    return OK, "copied, %s, source deleted" % how
+
+
 class _Run:
     """One run over the picked rows; `log` takes each line as it is decided."""
 
@@ -251,30 +279,10 @@ class _Run:
         return self._delete(c, r, h) if r["action"] == "delete" else self._move(c, r)
 
     def _move(self, c, r: dict) -> tuple[str, str]:
-        path, target = r["path"], r["target"]
-        if c.head(target) is not None:
-            return SKIPPED, "the target exists already; never overwritten"
-        try:
-            c.copy(path, target)
-        except Exception as err:
-            return FAILED, "the copy failed (%s); the source stays" % _http(err)
-        got, source = c.head(target), c.head(path)
-        if got is None:
-            return FAILED, "the copy is not there; the source stays"
-        if source is None:
-            return FAILED, "the source is gone after the copy"
-        if _size(got) != _size(source):
-            return FAILED, "the copy differs in size; the source stays"
-        a, b = _md5(source), _md5(got)
-        if a and b and a != b:
-            return FAILED, "the copy differs in md5; the source stays"
-        how = "size and md5 compared" if a and b else "size compared only (multipart etag)"
-        try:
-            c.delete(path)
-        except Exception as err:
-            return FAILED, "copied (%s), the source could not be deleted (%s)" % (how, _http(err))
-        self.moved[r["id"]] = target
-        return OK, "copied, %s, source deleted" % how
+        result, reason = move_object(c, r["path"], r["target"])
+        if result == OK:
+            self.moved[r["id"]] = r["target"]
+        return result, reason
 
     def _delete(self, c, r: dict, h: dict) -> tuple[str, str]:
         path = r["path"]

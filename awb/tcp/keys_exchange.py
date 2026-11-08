@@ -107,6 +107,12 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
             if marked:
                 write_index(c, project, rows)
         return {"ok": True, "marked": marked}, None
+    if method == "ARCHIVE":
+        # awb fetch moves the puts fetched ARCHIVE_DAYS or more days ago into _archive/ (task BK4); keys.py lets the
+        # owner's processes alone, as for FETCHED
+        if not (isinstance(project, str) and _CODE_RE.match(project)):
+            raise XchgError("an archive names the project")
+        return archive_fetched(ctx, c, project), None
     if method == "PUT" and key is None:
         pass                                # task BK1: the key service builds the key (authorise_put)
     elif method not in ("GET", "HEAD", "PUT", "DELETE") or not allowed_key(key, method, project):
@@ -229,7 +235,7 @@ KIND_NOT_USED = ("the --kind word was not used: the name check of the key servic
                  "is doc")
 INDEX_NOT_WRITTEN = "INDEX.md could not be rewritten; the put stands without its row there"
 _PUT_LOCK = threading.Lock()
-"""One put, delete or fetched mark at a time picks a free key and rewrites INDEX.md."""
+"""One put, delete, fetched mark or archive at a time picks a free key and rewrites INDEX.md."""
 
 
 def _now() -> datetime.datetime:
@@ -363,7 +369,8 @@ def free_key(c, base: str, ext: str) -> str:
 
 
 # INDEX.md beside the date folders (task BK1): one row per put, newest first, rewritten by the key service on every
-# put, on a delete and on a fetched mark. It holds checked key parts and fixed words, never a free title.
+# put, on a delete, on a fetched mark and on an archive (task BK4: the row of a put moved to _archive/ goes). It holds
+# checked key parts and fixed words, never a free title.
 INDEX = "INDEX.md"
 INDEX_COLUMNS = ("date", "time", "key", "kind", "lang", "size", "review", "fetched")
 _INDEX_ROW_RE = re.compile(r"\| (\d{4}-\d{2}-\d{2}) \| (\d{2}:\d{2}) \| ([^|\s]+) \| ([a-z]{2,20}) \| ([a-z]{2}) \| "
@@ -429,6 +436,63 @@ def index_put(ctx: Context, c, project: str, key: str, kind: str, lang: str, siz
     rows.append({"date": now.date().isoformat(), "time": now.strftime("%H:%M"), "key": key, "kind": kind,
                  "lang": lang, "size": int(size), "review": m.group(1) if m else "none", "fetched": "no"})
     write_index(c, project, rows)
+
+
+def archive_key(key: str) -> str:
+    """`<code>/_archive/<YYYY-MM of the put>/from-session/<date>/<kind>/<id>`, the target of a put fetched long ago
+    (the target `awb files plan` gives the same put, D-B1)."""
+    from awb import filesplan
+
+    parts = key.split("/")
+    return "%s/%s/%s/%s" % (parts[0], filesplan.ARCHIVE, parts[2][:7], "/".join(parts[1:]))
+
+
+def _page_of(key: str, rows: list[dict]) -> str | None:
+    """The HTML page put_page wrote beside a Markdown put (a .md key or one without an extension), unless it has a
+    row of its own."""
+    stem, ext = os.path.splitext(key)
+    page = stem + ".html"
+    if ext not in (".md", "") or page == key or any(r["key"] == page for r in rows):
+        return None
+    return page
+
+
+def archive_fetched(ctx: Context, c, project: str) -> dict:
+    """Every put of `project` whose INDEX.md row says fetched ARCHIVE_DAYS or more days before today goes to
+    archive_key with the HTML page beside it: copy, size and md5 compared, then the source deleted
+    (filestidy.move_object). INDEX.md drops the rows of the moved puts and of puts no longer there; a failed move
+    leaves the source and its row and is counted. Under _PUT_LOCK, as every rewrite of INDEX.md."""
+    from awb import filesplan, filestidy
+
+    today = _now().date()
+    archived, failures = 0, []
+    with _PUT_LOCK:
+        rows = read_index(ctx, c, project)
+        keep = []
+        for r in rows:
+            try:
+                age = (today - datetime.date.fromisoformat(r["fetched"])).days
+            except ValueError:
+                age = -1                    # not fetched
+            if age < filesplan.ARCHIVE_DAYS or put_kind(r["key"]) is None:
+                keep.append(r)
+                continue
+            if c.head(r["key"]) is None:
+                continue                    # gone already (awb xchg clean): its row goes
+            result, reason = filestidy.move_object(c, r["key"], archive_key(r["key"]))
+            if result != filestidy.OK:
+                failures.append("%s: %s" % (r["key"], reason))
+                keep.append(r)
+                continue
+            archived += 1
+            page = _page_of(r["key"], rows)
+            if page is not None and c.head(page) is not None:
+                result, reason = filestidy.move_object(c, page, archive_key(page))
+                if result != filestidy.OK:
+                    failures.append("%s: %s" % (page, reason))
+        if len(keep) != len(rows):
+            write_index(c, project, keep)
+    return {"ok": True, "archived": archived, "failed": len(failures), "failures": failures}
 
 
 def put_problems(ctx: Context, req: dict, body_path: Path, ident: str | None = None) -> list[str]:
@@ -1045,6 +1109,25 @@ def owner_key_ok(ctx: Context, key, method: str) -> bool:
     return rest.startswith(bucket_layout.OUT) and len(rest) > len(bucket_layout.OUT) and "/" not in rest[len(bucket_layout.OUT):]
 
 
+_OWNER_OUT_FILE_RE = re.compile(r"^(%s)/(%s)/out/([^/]+)$" % (bucket_layout.MONTH, codes.TCP_PROJECT_WIDE))
+_STAMP_RE = re.compile(r"[0-9]{8}-[0-9]{6}")
+
+
+def owner_archive_ok(ctx: Context, key, target) -> bool:
+    """`bucket_archive` (task BK4): a file of out/ of an active project, never the .keep, to
+    `<YYYY-MM>/<code>/_archive/<stamp>/<name>` of the same folder under the same name."""
+    from awb import filesplan
+
+    if not (_owner_plain(key) and _owner_plain(target)):
+        return False
+    m = _OWNER_OUT_FILE_RE.match(key)
+    if not m or m.group(3) == bucket_layout.KEEP or ctx.active_project(m.group(2)) is None:
+        return False
+    parts = target.split("/")
+    return len(parts) == 5 and bool(_STAMP_RE.fullmatch(parts[3])) and \
+        target == "%s/%s/%s/%s/%s" % (m.group(1), m.group(2), filesplan.ARCHIVE, parts[3], m.group(3))
+
+
 def owner_put_refusal(ctx: Context, req: dict) -> str | None:
     """Why a bucket_put is refused before its bytes are read, or None."""
     if not owner_key_ok(ctx, req.get("key"), "PUT"):
@@ -1061,7 +1144,8 @@ def owner_put_refusal(ctx: Context, req: dict) -> str | None:
 def serve_bucket(ctx: Context, req: dict, upload: Path | None) -> tuple[dict, Path | None]:
     """The owner's CLI: `bucket_list`, `bucket_get`, `bucket_put` on the owner bucket and `lab_list` on the lab
     bucket (the admin socket checks the peer). OBS GET, PUT and LIST, and the DELETE of `bucket_drop_in`: a file of in/ of an active project, after
-    `awb import --auto` took it into the vault; the upload limit is max_mb of keys.conf."""
+    `awb import --auto` took it into the vault; the upload limit is max_mb of keys.conf. `bucket_archive` moves a
+    file of out/ into _archive/ of its folder (owner_archive_ok): copy, compare, then delete (task BK4)."""
     from awb import obs
 
     op = req.get("op")
@@ -1078,6 +1162,18 @@ def serve_bucket(ctx: Context, req: dict, upload: Path | None) -> tuple[dict, Pa
             return {"ok": True, "objects": [list(o) for o in listing.objects], "prefixes": list(listing.prefixes),
                     "modified": dict(listing.modified)}, None
         key = req.get("key")
+        if op == "bucket_archive":
+            # task BK4: an older version in out/ goes to _archive/<stamp>/ before `awb bucket put` puts a new one of
+            # its group: copy, size and md5 compared, then the source deleted (filestidy.move_object)
+            from awb import filestidy
+
+            target = req.get("target")
+            if not owner_archive_ok(ctx, key, target):
+                return {"ok": False, "kind": "refused", "error": "refused"}, None
+            result, reason = filestidy.move_object(c, key, target)
+            if result != filestidy.OK:
+                return {"ok": False, "kind": result, "error": reason}, None
+            return {"ok": True, "reason": reason}, None
         if not owner_key_ok(ctx, key, {"bucket_get": "GET", "bucket_drop_in": "DELETE"}.get(op, "PUT")):
             return {"ok": False, "kind": "refused", "error": "refused"}, None
         if op == "bucket_drop_in":

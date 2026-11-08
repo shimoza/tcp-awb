@@ -36,7 +36,7 @@ Two sockets, one JSON object per line and one answer per connection:
 
     admin  <vault>/keys-admin.sock, mode 600, the owner only     ping, status, load, lock, reload, notify,
                                                                 bucket_list, bucket_get, bucket_put,
-                                                                lab_list
+                                                                bucket_archive, lab_list
     call   /run/awb-keys/cloud.sock, mode 660, group awb         ping, tenants, call, projects, doc_get,
                                                                 lab_run, lab_call, lab_obs
 
@@ -139,11 +139,11 @@ _RANDOM_SPECIAL = "!@%^-_=+"
 """The special characters a drawn password takes: those both the ECS and the RDS password rules allow."""
 LEAVE_WAIT = 70.0
 """Seconds a handed-over service waits for its calls in flight (a cloud call takes at most 60) before it exits."""
-ADMIN_OPS = ("bucket_drop_in", "bucket_get", "bucket_list", "bucket_put", "lab_list", "load", "lock", "notify", "ping",
-             "reload", "status", "tenant_readonly")
+ADMIN_OPS = ("bucket_archive", "bucket_drop_in", "bucket_get", "bucket_list", "bucket_put", "lab_list", "load", "lock",
+             "notify", "ping", "reload", "status", "tenant_readonly")
 EXCHANGE_METHODS = ("GET", "HEAD", "PUT", "DELETE", "LIST", "COPY", "MONTHS", "OBS", "OWNER_HAS", "TAKE_OWNER", "INBOX_FIND",
                     "WEB_READ", "TAKE_LAB", "OWNER_FOLDER", "WEB_PUT_IN", "BUCKET_GET", "BUCKET_LIST", "BUCKET_PUT",
-                    "BUCKET_DROP_IN", "LAB_LIST", "FETCHED")
+                    "BUCKET_DROP_IN", "LAB_LIST", "FETCHED", "ARCHIVE")
 NOTIFY_MAX = 4000      # characters of an owner mail through the admin socket (awb ui watch --mail)
 CONSOLE_USER = "awb-console"
 """The system user of the console's tenant inventory (F2, his decision of 2026-10-04): it alone reads a test tenant
@@ -665,7 +665,7 @@ class Service:
         from awb import handover
 
         op = req.get("op")
-        if op in ("bucket_list", "bucket_get", "bucket_put", "bucket_drop_in", "lab_list"):
+        if op in ("bucket_list", "bucket_get", "bucket_put", "bucket_drop_in", "bucket_archive", "lab_list"):
             return self._bucket(op, req, uid, upload)
         if op == "ping":
             return {"ok": True, "ops": list(ADMIN_OPS), "release": handover.release_path()}
@@ -938,6 +938,9 @@ class Service:
         if op == "obs" and str(req.get("method") or "").upper() == "FETCHED" and uid != os.getuid():
             # the fetched mark of INDEX.md is awb fetch's, on the owner side (task BK1): no new call for a session
             return {"ok": False, "error": "awb fetch marks what it fetched, in the owner's own terminal"}
+        if op == "obs" and str(req.get("method") or "").upper() == "ARCHIVE" and uid != os.getuid():
+            # the archive of the puts fetched long ago is awb fetch's too (task BK4): it moves and deletes
+            return {"ok": False, "error": "awb fetch archives what was fetched long ago, in the owner's own terminal"}
         if op in ("obs", "owner_has", "take_owner", "take_lab", "inbox_find", "owner_folder"):
             # owner_folder: spawn (the work user, the console's creation) asks for the project's folder in the
             # owner bucket; the service makes it with the bucket key, which the caller never holds
