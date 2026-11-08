@@ -234,7 +234,10 @@ def test_the_modules_of_step_7_restart_what_their_old_module_restarted():
     planted = _Changed(REPO, {
         "awb/tcp/xchg.py": xchg_text.replace("from awb.tcp import keys_exchange", "pass"),
         "awb/tcp/keys.py": keys_text.replace("from awb.tcp import keys_exchange", "from awb.tcp import xchg")})
-    assert problems(planted) == ["no unit: awb/bucket.py", "no unit: awb/tcp/keys_exchange.py"]
+    # since BK4 (B-049) awb/bucket.py archives through filestidy, so the modules it reaches go with it
+    assert problems(planted) == ["no unit: awb/bucket.py", "no unit: awb/filesinv.py", "no unit: awb/filesplan.py",
+                                 "no unit: awb/filestidy.py", "no unit: awb/inventory.py",
+                                 "no unit: awb/tcp/keys_exchange.py"]
 
 
 @pytest.mark.long   # it maps the whole awb tree twice: the size is the proof
