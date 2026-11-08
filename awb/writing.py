@@ -29,7 +29,8 @@ Blocking classes:
     we-in-doc        we, our, us (and the German wir, unser, uns, which we-in-mail takes too) in mode doc
     bold-lead        a paragraph that opens with a bold label ending in a colon or a full stop
     invented-label   a quoted capitalised coinage next to option, approach, variant and the like
-    weakness         admissions of weakness and hedges (to be honest, I am not sure, sorry for, hopefully)
+    weakness         admissions of weakness and hedges (to be honest, I am not sure, sorry for, hopefully) and
+                     lines on what was not tested, verified or proven (also nicht geprüft, не проверено)
     sales-tone       praise instead of a fact (game changer, state-of-the-art, perfect fit, peace of mind)
     draft-history    the history of the draft (previous draft, updated version, based on your feedback)
 
@@ -360,6 +361,17 @@ WEAKNESS = (
     ("ehrlich", "ehrlich gesagt"), ("sicher", "ich bin mir nicht sicher"), ("sicher", "ich bin nicht sicher"),
     ("Experte", "ich bin kein Experte"), ("Entschuldigung", "Entschuldigung"), ("entschuldigen", "entschuldigen Sie"),
     ("hoffentlich", "hoffentlich"),
+    # what was not tested: a document says what to do and what holds, never the state of an internal run; such a
+    # line only marks a text as machine-written (his rule after the manual of tcp-bytg, 2026-11-08)
+    ("tested", "not tested"), ("tested", "not yet tested"), ("tested", "not been tested"), ("untested", "untested"),
+    ("verified", "not verified"), ("verified", "not yet verified"), ("verified", "not been verified"),
+    ("proven", "not proven"), ("proven", "not yet proven"), ("checked", "not checked"), ("checked", "not yet checked"),
+    ("gepr\u00fcft", "nicht gepr\u00fcft"), ("gepr\u00fcft", "noch nicht gepr\u00fcft"), ("getestet", "nicht getestet"),
+    ("getestet", "noch nicht getestet"), ("ungetestet", "ungetestet"), ("verifiziert", "nicht verifiziert"),
+    ("\u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u043e", "\u043d\u0435 \u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u043e"),
+    ("\u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d", "\u043d\u0435 \u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d"),
+    ("\u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u0430", "\u043d\u0435 \u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u0430"),
+    ("\u043f\u0440\u043e\u0442\u0435\u0441\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u043e", "\u043d\u0435 \u043f\u0440\u043e\u0442\u0435\u0441\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u043e"),
 )
 # sales tone: a fact instead of praise (7 of his deletions)
 SALES_TONE = (

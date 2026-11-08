@@ -36,7 +36,10 @@ edit short. It does not replace his review and it cannot promise that no reader 
 - First person singular: I checked, I see, I need. A mail or a document never speaks as `we`, `our`, `us`
   or `wir`.
 - Facts and numbers instead of reassurance: region, flavor, error code, price with its date and source.
-- No commitment in his name. Say what is true now and what is still open, not what he will do.
+- No commitment in his name. Say what is true now, not what he will do.
+- Never a line that a step still lacks a test, a check or a proof. Never the state of an internal run either. The
+  text says what to do and what holds; what is open goes to him in chat and into STATE.md. `awb write check`
+  blocks such a line.
 - No invented names for options. Call an option by what it is, for example "CCE with two node pools".
 - No pointer to an earlier mail. Say the point again.
 - A courteous plain register for German readers: short sentences (his median is 11 words), plain verbs such as

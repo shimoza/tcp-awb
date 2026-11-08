@@ -374,6 +374,25 @@ def render(items: list[Item], parked: int, note_lines: list[str] | tuple = ()) -
     return lines
 
 
+MAIL_MAX = 4000
+"""Characters of one owner mail: the key service's notify refuses a longer message (NOTIFY_MAX of awb/tcp/keys.py)."""
+
+
+def fit(lines: list[str], limit: int = MAIL_MAX) -> str:
+    """The mail body within LIMIT: whole items from the top, then one line that counts the items left out."""
+    body = "\n".join(lines) + "\n"
+    if len(body) <= limit:
+        return body
+    starts = [i for i, ln in enumerate(lines) if i and not ln.startswith("    ")]
+    for cut in reversed(starts):
+        left = sum(1 for i in starts if i >= cut)
+        tail = "... %d more line%s left out, the console lists them all\n" % (left, "" if left == 1 else "s")
+        body = "\n".join(lines[:cut]) + "\n" + tail
+        if len(body) <= limit:
+            return body
+    return body[:limit]
+
+
 def mail(p: config.Paths | None = None, send=None, queue: Path | None = None, runs: Path | None = None) -> str:
     """The daily mail (the owner's timer, 08:00 Europe/Berlin): the list through the key service's notify, the way
     `mail_owner_commands` sends. Nothing is sent for an empty list or when the name check cannot run. Returns a word:
@@ -387,7 +406,7 @@ def mail(p: config.Paths | None = None, send=None, queue: Path | None = None, ru
         return "empty"
     if send is None:
         return "not sent: no mail path"      # `awb owner status --mail` (awb/tcp/owner.py) passes the key service's
-    body = "\n".join(render(items, parked, note_lines)) + "\n"
+    body = fit(render(items, parked, note_lines))
     subject = ("Workbench: %d item%s wait on you" % (len(items), "" if len(items) == 1 else "s") if items
                else "Workbench: nothing waits on you, %d note%s" % (len(note_lines), "" if len(note_lines) == 1 else "s"))
     try:

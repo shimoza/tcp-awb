@@ -50,6 +50,8 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 
 ## Writing
 - Write T Cloud Public (TCP) at the first mention, TCP after it, never OTC; host names and identifiers stay as they are.
+- A text for others says what to do and what holds. Never a line that a step still lacks a test or a proof, never the
+  state of the lab runs: that goes into STATE.md and to him in chat (`awb write check` blocks such a line).
 - Every text under his name goes through the drafting skill: facts first, voice second, I and never `we`. He sees a draft only after `awb write check`
   of its file ran clean in the same turn; a mail draft goes into a file.
 - Chain 1, the customer writes German (his material or request is German): you talk to him in Russian. Draft and check the English text, he accepts

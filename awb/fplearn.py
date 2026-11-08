@@ -45,6 +45,7 @@ import os
 import re
 import secrets as _secrets
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -588,11 +589,35 @@ class Outcome:
         return text
 
 
+CHECKS_A_MINUTE = 500
+"""The nightly run asks the name check at most this often a minute: the vault daemon allows 600 a minute per uid and
+the owner's own prompt hook shares that budget (a run of one check per candidate was refused every night until
+2026-11-08)."""
+
+
+class Paced:
+    """A name check that waits for the next minute after CHECKS_A_MINUTE calls."""
+
+    def __init__(self, inner, per_minute: int = CHECKS_A_MINUTE, clock=time.monotonic, sleep=time.sleep):
+        self.inner, self.per_minute, self.clock, self.sleep = inner, per_minute, clock, sleep
+        self.start, self.count = None, 0
+
+    def name_spans(self, text: str):
+        now = self.clock()
+        if self.start is None or now - self.start >= 60:
+            self.start, self.count = now, 0
+        elif self.count >= self.per_minute:
+            self.sleep(60 - (now - self.start))
+            self.start, self.count = self.clock(), 0
+        self.count += 1
+        return self.inner.name_spans(text)
+
+
 def _names(p: config.Paths):
     from awb import check
 
     try:
-        return check.checker(p.register)
+        return Paced(check.checker(p.register))
     except Exception as err:
         raise LearnError("the register cannot be read (%s)" % type(err).__name__) from None
 

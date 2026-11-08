@@ -6,6 +6,12 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 ## Week 45, 2026-11-02 to 2026-11-08 (in progress)
 ### Added
 
+- `awb write check` blocks a line on what was not tested, verified or proven in mode mail and doc (English, German and Russian forms, class weakness), and the project rules and the drafting skill say it: a text for others says what to do and what holds, the state of an internal run stays in STATE.md and the chat. Tests: `tests/test_voice_tells.py`.
+
+- `awb owner status --mail` cuts a list longer than the 4000 characters the key service's notify takes at whole items and ends it with one line that counts what was left out; a longer list was refused and no morning mail went out since at least 2026-11-06. Tests: `tests/test_nightly_limits.py`.
+
+- `awb check learn` asks the name check at most 500 times a minute (`CHECKS_A_MINUTE`) and waits for the next minute after that: one check per candidate ran into the 600 a minute of the vault daemon and the nightly run failed with CheckRateLimited. Tests: `tests/test_nightly_limits.py`.
+
 - `awb doc fetch` reads a gzip body: the docs host of TCP sends gzip since 2026-11 although the reader asks for identity, so every page there was refused. The body is unpacked under the same cap (5 MB, 32 MB for a PDF); a broken gzip and every other encoding are still refused. Tests: `tests/test_doc.py`.
 
 - `awb tenant cost` prices an EVS disk by the price record whose flavor is `vss.<type>` first: the type SSD (ultra-high I/O) matched the three records of SSD, GP SSD and Extreme SSD by the word and stayed without a price (KB-GL4O). Tests: `tests/test_tenant_cost.py`.

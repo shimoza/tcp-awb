@@ -199,3 +199,14 @@ def test_cli_write_check_takes_the_request_file(tmp_path, capsys):
     assert "extra-section  7  2 sections the request did not ask for: Background; Next steps" in out
     assert "(not blocking)" in out and "sections not asked for  2" in out
     assert cli.main(["write", "check", str(draft), "--request", str(tmp_path / "missing.md")]) == 2
+
+
+@pytest.mark.parametrize("text", [
+    "The boot of the last machine on the platform is not tested.",
+    "This step was not yet verified on a domain member.",
+    "Nicht geprüft: der Start auf der Plattform.",
+    "Загрузка на платформе не проверена.",
+])
+def test_a_line_on_what_was_not_tested_blocks_a_document(text):
+    assert "weakness" in [c for c, _ in blocking(writing.check_text(text, mode="doc")[0])]
+    assert "weakness" in [c for c, _ in blocking(writing.check_text(text, mode="mail")[0])]
