@@ -1,6 +1,6 @@
 """Resources on the test tenants, tracked over time (T-63).
 
-    awb tenant setup ALIAS --domain-id ID [--region R] [--lab-key | --lab-user] [--alerts [--topic URN]]
+    awb tenant setup ALIAS [--domain-id ID] [--region R] [--lab-key | --lab-user] [--alerts [--topic URN]]
                                                                         owner side: a new tenant in one command
     awb tenant add ALIAS --keys pass:ENTRY|file:PATH [--region R]...   owner side: a tenant and its read-only key
     awb tenant add-readonly ALIAS --domain-id ID [--login | --key] [--region R]...   (default eu-de and eu-nl)
@@ -39,7 +39,12 @@ on all projects, the user awb-read-<number of the alias> with programmatic acces
 `awb/tenant/ALIAS/ak|sk` through `pass insert -m` (standard input), with --lab-key a key of the admin user to
 `awb/tenant/ALIAS/lab/ak|sk`, with --alerts the CTS alert awb_new_access_key to the SMN topic of keys.conf, then
 `add`, `awb keys unlock` and the first snapshot. Only what is missing is made; a second run says nothing to do.
-It prints names and counts, never a value.
+It prints names and counts, never a value. Without --domain-id the domain is the one of the admin token, named with
+the first 6 characters of its id (B-050). When the store holds a read key already that awb-read-<number> does not
+own (a tenant connected before T10), setup finds the owner of that key with the admin token (GET
+/v3.0/OS-CREDENTIAL/credentials/{key}, the key never shown) and puts that user into awb-read in place of a new user
+and key, then takes a snapshot and the cost estimate. It deletes no key, user or group; a key of the admin user or
+one that IAM does not know is refused.
 
 `add-readonly` (task RT, awb/tcp/readonly.py) registers a tenant of a customer or partner where nothing may change:
 it checks by name that the pass entries are there (`awb/tenant/ALIAS/ak|sk` for --key, `login/domain|user|password`
@@ -436,9 +441,11 @@ class Iam:
             return str(err.get("code") or "")
         return str(data.get("error_code") or "")
 
-    def login(self, domain: str, user: str, password: str, domain_id: str, project: str | None = None) -> dict:
-        """A password token, scoped to the domain or to the project named like the region. Returns the token body."""
-        scope = {"project": {"name": project, "domain": {"id": domain_id}}} if project else {"domain": {"id": domain_id}}
+    def login(self, domain: str, user: str, password: str, domain_id: str | None, project: str | None = None) -> dict:
+        """A password token, scoped to the domain (by its id; without one by its name) or to the project named
+        like the region. Returns the token body."""
+        where = {"id": domain_id} if domain_id else {"name": domain}
+        scope = {"project": {"name": project, "domain": where}} if project else {"domain": where}
         body = {"auth": {"identity": {"methods": ["password"], "password": {
             "user": {"name": user, "password": password, "domain": {"name": domain}}}}, "scope": scope}}
         status, data, headers = self._send("POST", "iam", "/v3/auth/tokens", body, token="")
@@ -451,10 +458,13 @@ class Iam:
         return data["token"]
 
     def call(self, method: str, service: str, path: str, body=None, query: dict | None = None,
-             token: str | None = None, ok: tuple[int, ...] = (200, 201, 204)) -> tuple[int, dict]:
+             token: str | None = None, ok: tuple[int, ...] = (200, 201, 204), shown: str | None = None
+             ) -> tuple[int, dict]:
+        """One call. An error names `shown` (default: the path with its ids masked): a path that holds a key gives
+        the path to print."""
         status, data, _ = self._send(method, service, path, body, query, token)
         if status not in ok:
-            shown = re.sub(r"[0-9a-f]{32}|[0-9a-f-]{36}", "{id}", path)
+            shown = shown or re.sub(r"[0-9a-f]{32}|[0-9a-f-]{36}", "{id}", path)
             raise TenantError("%s %s answered HTTP %d %s" % (method, shown, status, self._code(data)))
         return status, data
 
@@ -545,6 +555,45 @@ def _one(items: list, name: str) -> dict | None:
     return hits[0] if hits else None
 
 
+def _token_domain(iam: Iam, tok: dict, domain: str) -> tuple[str, str]:
+    """The id and the name of the domain of the admin token (B-050): the token's domain, else the one domain of
+    GET /v3/auth/domains. The name falls back to the domain of the login."""
+    d = tok.get("domain") or {}
+    domain_id, name = str(d.get("id") or ""), str(d.get("name") or "")
+    if not domain_id:
+        _, data = iam.call("GET", "iam", "/v3/auth/domains")
+        found = [x for x in data.get("domains") or [] if isinstance(x, dict)]
+        if len(found) == 1:
+            domain_id, name = str(found[0].get("id") or ""), str(found[0].get("name") or name)
+    if not _DOMAIN_ID_RE.match(domain_id):
+        raise TenantError("the admin token names no domain: give --domain-id")
+    return domain_id, name or domain
+
+
+def _key_owner(iam: Iam, store: Store, prefix: str, reader: dict | None, admin_id: str) -> str | None:
+    """The user to adopt (B-050): the owner of the key under prefix/ak when the read user setup would make does not
+    own it, found with the admin token. None when the store holds no key or the read user owns it. The key goes into
+    the path of one GET and is never shown."""
+    has = [store.has(prefix + "/ak"), store.has(prefix + "/sk")]
+    if has[0] != has[1]:
+        raise TenantError("%s holds one half of a key: fix it by hand" % prefix)
+    if not all(has):
+        return None
+    access = store.show(prefix + "/ak")
+    if reader:
+        _, data = iam.call("GET", "iam", "/v3.0/OS-CREDENTIAL/credentials", query={"user_id": reader["id"]})
+        if access in {c.get("access") for c in data.get("credentials") or [] if isinstance(c, dict)}:
+            return None
+    status, data = iam.call("GET", "iam", "/v3.0/OS-CREDENTIAL/credentials/%s" % access, ok=(200, 404),
+                            shown="/v3.0/OS-CREDENTIAL/credentials/{the key of %s/ak}" % prefix)
+    owner = str((data.get("credential") or {}).get("user_id") or "") if status == 200 else ""
+    if not owner:
+        raise TenantError("%s/ak holds a key that IAM does not know: fix it by hand" % prefix)
+    if owner == admin_id:
+        raise TenantError("%s/ak holds a key of the admin user, not a read key: fix it by hand" % prefix)
+    return owner
+
+
 def _key(iam: Iam, store: Store, user_id: str, prefix: str, what: str, done: list[str]) -> bool:
     """The key of a user under prefix/ak and prefix/sk: created when the store has neither, checked against the
     user's keys when it has both. True when a key was created."""
@@ -569,16 +618,19 @@ def _key(iam: Iam, store: Store, user_id: str, prefix: str, what: str, done: lis
     return True
 
 
-def setup(p: config.Paths, alias: str, domain_id: str, *, region: str = "eu-de", lab_key: bool = False,
+def setup(p: config.Paths, alias: str, domain_id: str | None, *, region: str = "eu-de", lab_key: bool = False,
           lab_user: bool = False, alerts: bool = False, topic: str | None = None, store: Store | None = None, iam: Iam | None = None,
           loaded: Callable[[], dict] | None = None, unlock: Callable[[], dict] | None = None,
-          make_lister: Callable[[Tenant, str], Lister] | None = None) -> tuple[list[str], bool]:
-    """Set a test tenant up from the admin login in the password store: the read group, the read user and its key,
-    with lab_key a key of the admin user, with alerts the CTS alert of a new access key, the register, the key
-    service and the first snapshot. Returns the lines to print, never a value, and whether anything changed."""
+          make_lister: Callable[[Tenant, str], Lister] | None = None,
+          estimate: Callable[[], list[str]] | None = None) -> tuple[list[str], bool]:
+    """Set a test tenant up from the admin login in the password store: the read group, the read user and its key
+    (or the user of a read key the store holds already, adopted into the group), with lab_key a key of the admin
+    user, with alerts the CTS alert of a new access key, the register, the key service and a snapshot, `estimate`
+    (the cost estimate) after it. Without domain_id the domain is the one of the admin token. Returns the lines to
+    print, never a value, and whether anything changed."""
     if not _ALIAS_RE.match(alias or ""):
         raise TenantError("an alias reads like test-1: small letters, digits and dashes")
-    if not _DOMAIN_ID_RE.match(domain_id or ""):
+    if domain_id is not None and not _DOMAIN_ID_RE.match(domain_id):
         raise TenantError("--domain-id is the 32 hex characters of the account's domain")
     if lab_key and lab_user:
         raise TenantError("--lab-key and --lab-user are two ways to the lab key: choose one")
@@ -596,21 +648,33 @@ def setup(p: config.Paths, alias: str, domain_id: str, *, region: str = "eu-de",
             raise TenantError("%s/%s is missing: pass insert it first" % (admin, part))
     domain, user = store.show(admin + "/domain"), store.show(admin + "/user")
     password = store.show(admin + "/password")
+    done: list[str] = []
+    given = domain_id is not None
     try:
         tok = iam.login(domain, user, password, domain_id)
+        if not given:
+            domain_id, domain_name = _token_domain(iam, tok, domain)
+            done.append("domain %s (id %s...): from the admin token" % (domain_name, domain_id[:6]))
         project_tok = iam.login(domain, user, password, domain_id, project=region) if alerts else None
     finally:
         del password
-    if (tok.get("domain") or {}).get("id") != domain_id:
+    token_domain = (tok.get("domain") or {}).get("id")
+    if (given or token_domain) and token_domain != domain_id:
         raise TenantError("the admin login of %s belongs to another domain" % alias)
     admin_id = (tok.get("user") or {}).get("id") or ""
-    done: list[str] = []
     changed = False
 
     _, data = iam.call("GET", "iam", "/v3/roles", query={"name": READ_ROLE})
     role = _one(data.get("roles") or [], READ_ROLE)
     if not role:
         raise TenantError("IAM knows no role %s (Tenant Guest)" % READ_ROLE)
+    entry = "%s/%s" % (TENANT_PREFIX, alias)
+    name = read_user_name(alias)
+    _, data = iam.call("GET", "iam", "/v3/users", query={"name": name, "domain_id": domain_id})
+    reader = _one(data.get("users") or [], name)
+    # B-050: a read key of a user setup did not make (a tenant connected before T10) adopts that user into the
+    # group: no new user, no second key, nothing deleted. Asked before any write, so a key it refuses changes nothing.
+    owner = _key_owner(iam, store, entry, reader, admin_id)
     _, data = iam.call("GET", "iam", "/v3/groups", query={"name": READ_GROUP, "domain_id": domain_id})
     group = _one(data.get("groups") or [], READ_GROUP)
     if group:
@@ -630,10 +694,10 @@ def setup(p: config.Paths, alias: str, domain_id: str, *, region: str = "eu-de",
     else:
         done.append("Tenant Guest on all projects: present")
 
-    name = read_user_name(alias)
-    _, data = iam.call("GET", "iam", "/v3/users", query={"name": name, "domain_id": domain_id})
-    reader = _one(data.get("users") or [], name)
-    if reader:
+    adopted = False
+    if owner:
+        reader, name = {"id": owner}, "the user of the read key"
+    elif reader:
         done.append("user %s: present" % name)
     else:
         _, data = iam.call("POST", "iam", "/v3/users", {"user": {
@@ -645,9 +709,11 @@ def setup(p: config.Paths, alias: str, domain_id: str, *, region: str = "eu-de",
     status, _ = iam.call("HEAD", "iam", member, ok=(204, 404))
     if status == 404:
         iam.call("PUT", "iam", member)
-        changed = True
-        done.append("user %s: put into %s" % (name, READ_GROUP))
-    entry = "%s/%s" % (TENANT_PREFIX, alias)
+        changed, adopted = True, bool(owner)
+        done.append("read key: its user adopted into %s" % READ_GROUP if owner
+                    else "user %s: put into %s" % (name, READ_GROUP))
+    elif owner:
+        done.append("read key: its user is in %s" % READ_GROUP)
     changed |= _key(iam, store, reader["id"], entry, "read key", done)
     if lab_key:
         if not admin_id:
@@ -673,10 +739,14 @@ def setup(p: config.Paths, alias: str, domain_id: str, *, region: str = "eu-de",
     else:
         done.append("key service: %s carries %s" % (alias, ", ".join(sorted(roles))))
 
-    if not snapshots(p, alias):
+    first = not snapshots(p, alias)
+    if first or adopted:
+        # An adopted user reads what its key could not before: a snapshot now, so the cost estimate sees the tenant.
         snap, _ = snapshot(p, get(p, alias), make_lister)
         changed = True
-        done.append("first snapshot: %d resources" % len(snap["items"]))
+        done.append("%s: %d resources" % ("first snapshot" if first else "snapshot", len(snap["items"])))
+        if estimate:
+            done.extend(estimate())
     _, data = iam.call("GET", "iam", "/v3/users", query={"domain_id": domain_id})
     users = len(data.get("users") or [])
     _, data = iam.call("GET", "iam", "/v3.0/OS-CREDENTIAL/credentials", query={"user_id": reader["id"]})
@@ -844,7 +914,8 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--region", action="append", default=[])
     su = sub.add_parser("setup", help="a new tenant from its admin login in pass, in one command (owner side)")
     su.add_argument("alias")
-    su.add_argument("--domain-id", required=True)
+    su.add_argument("--domain-id", help="the 32 hex characters of the account's domain (default: the domain of the "
+                                        "admin token)")
     su.add_argument("--region", default="eu-de")
     su.add_argument("--lab-key", action="store_true", help="also a key of the admin user, the lab role")
     su.add_argument("--lab-user", action="store_true",
@@ -940,7 +1011,7 @@ def main(argv: list[str] | None = None) -> int:
 
             lines, _ = setup(p, args.alias, args.domain_id, region=args.region, lab_key=args.lab_key,
                              lab_user=args.lab_user, alerts=args.alerts, topic=args.topic, loaded=loaded,
-                             unlock=unlock)
+                             unlock=unlock, estimate=lambda: _cost_module().after_snapshot(p))
             print("\n".join(lines))
         elif args.command in ("add-readonly", "remove", "grant", "revoke", "regions"):
             return _readonly_command(p, args)

@@ -14539,8 +14539,16 @@
   {"id": "b048-cost-6", "phase": "b048-cost", "name": "tenant cost: cost json holds no name and no id and api tenants carries it", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_cost_json_holds_no_name_and_no_id_and_api_tenants_carries_it", "status": "passing"},
   {"id": "b048-cost-7", "phase": "b048-cost", "name": "tenant cost: an old snapshot without os and attached still prices", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_an_old_snapshot_without_os_and_attached_still_prices", "status": "passing"},
   {"id": "b048-cost-8", "phase": "b048-cost", "name": "tenant cost: a listing the read key cannot read leaves the tenant unknown and the snapshot runs the estimate", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_a_listing_the_read_key_cannot_read_leaves_the_tenant_unknown_and_the_snapshot_runs_the_estimate", "status": "passing"},
-  {"id": "b048-cost-eip", "phase": "b048-cost", "name": "COST: the elastic IP takes the record with the flavor eip beside the address record of zero", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_the_elastic_ip_takes_the_record_with_the_flavor_eip_beside_the_address_record_of_zero", "status": "passing"}
+  {"id": "b048-cost-eip", "phase": "b048-cost", "name": "COST: the elastic IP takes the record with the flavor eip beside the address record of zero", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_the_elastic_ip_takes_the_record_with_the_flavor_eip_beside_the_address_record_of_zero", "status": "passing"},
+  {"id": "b050-adopt-1", "phase": "b050-adopt", "name": "tenant setup: without domain id the domain comes from the token and setup goes on", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_without_domain_id_the_domain_comes_from_the_token_and_setup_goes_on", "status": "passing"},
+  {"id": "b050-adopt-2", "phase": "b050-adopt", "name": "tenant setup: a read key of a user in no group adopts that user without a new user or key", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_a_read_key_of_a_user_in_no_group_adopts_that_user_without_a_new_user_or_key", "status": "passing"},
+  {"id": "b050-adopt-3", "phase": "b050-adopt", "name": "tenant setup: a snapshot runs after the adoption when one was there already", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_a_snapshot_runs_after_the_adoption_when_one_was_there_already", "status": "passing"},
+  {"id": "b050-adopt-4", "phase": "b050-adopt", "name": "tenant setup: the missing group is created with the inherited tenant guest grant", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_the_missing_group_is_created_with_the_inherited_tenant_guest_grant", "status": "passing"},
+  {"id": "b050-adopt-5", "phase": "b050-adopt", "name": "tenant setup: a second run has nothing to do", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_a_second_run_has_nothing_to_do", "status": "passing"},
+  {"id": "b050-adopt-6", "phase": "b050-adopt", "name": "tenant setup: the access key never appears in the output", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_the_access_key_never_appears_in_the_output", "status": "passing"},
+  {"id": "b050-adopt-7", "phase": "b050-adopt", "name": "tenant setup: a key of the admin or one iam does not know is refused and nothing is written", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_a_key_of_the_admin_or_one_iam_does_not_know_is_refused_and_nothing_is_written", "status": "passing"},
+  {"id": "b050-adopt-8", "phase": "b050-adopt", "name": "tenant setup: a read key of the read user stays the path of t10", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_a_read_key_of_the_read_user_stays_the_path_of_t10", "status": "passing"}
  ],
- "total_tests": 2192,
- "checked": "2026-11-07"
+ "total_tests": 2200,
+ "checked": "2026-11-08"
 }

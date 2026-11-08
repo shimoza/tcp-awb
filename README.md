@@ -841,9 +841,14 @@ key, the register, the key service and the first snapshot) and a second run chan
 
 ```bash
 pass insert awb/admin/test-1/domain     # and user, password
-awb tenant setup test-1 --domain-id ID [--lab-key | --lab-user] [--alerts]
+awb tenant setup test-1 [--domain-id ID] [--lab-key | --lab-user] [--alerts]
 awb keys unlock                  # after every start of the service
 ```
+
+Without `--domain-id` setup takes the domain of the admin token and names it (the first 6 characters of its id).
+A tenant connected before setup existed keeps its read key: setup finds the user of that key with the admin login,
+puts it into awb-read (`read key: its user adopted into awb-read`) instead of making a new user and key, then takes
+a snapshot and the cost estimate. It deletes nothing.
 
 By hand the same is `pass insert awb/tenant/test-1/ak` and `sk`, then `awb tenant add test-1 --keys
 pass:awb/tenant/test-1 --region eu-de`.
