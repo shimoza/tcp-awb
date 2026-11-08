@@ -19,7 +19,7 @@ Then: no cookie, no auth header, a fixed User-Agent naming the Workbench, `Accep
 is followed only to a URL that passes the same checks, at most 3 times. A body of more than 5 MB is refused (by its
 Content-Length before a byte is read, or when the read passes the cap), and only a text type is taken (HTML, XHTML,
 Markdown, plain text, JSON) or a PDF (task DF-PDF, 2026-11-07): `application/pdf`, or an octet stream whose body starts
-with `%PDF-`, up to 25 MB. A PDF becomes text through `pdftotext -layout` of the poppler tools on a private temporary
+with `%PDF-`, up to 32 MB. A PDF becomes text through `pdftotext -layout` of the poppler tools on a private temporary
 file (removed in every case), with an argument list and a timeout of 60 s; each page starts with a line
 `--- page N ---`. An encrypted PDF, one pdftotext cannot read and one without a text layer (a scan: fewer than 20
 characters a page) are refused with the reason. HTML is turned into readable text with the standard library: headings, paragraphs,
@@ -66,7 +66,7 @@ TEXT_TYPES = {
 }
 PDF_TYPES = {"application/pdf"}
 OCTET_TYPES = {"application/octet-stream", "binary/octet-stream"}
-MAX_PDF_BYTES = 25 * 1024 * 1024
+MAX_PDF_BYTES = 32 * 1024 * 1024
 """A PDF may be larger than a page of text: service descriptions and price lists are PDFs of several MB."""
 PDF_TEXT_MAX = 8 * 1024 * 1024
 PDF_TIMEOUT = 60.0

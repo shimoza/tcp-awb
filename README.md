@@ -240,7 +240,7 @@ session a way to send data out. So the key service, which runs as the owner and 
 GET only, https only, the host exactly a line of `rules/allow-domains.txt` (`awb doc hosts` lists them), no port, no
 user info, no query string, no fragment and a path of at most 300 URL-safe characters. It follows at most 3
 redirects and only to a URL that passes the same checks, takes at most 5 MB of HTML, Markdown, plain text or JSON
-and turns HTML into text (headings, paragraphs, lists, code, tables). It also reads a PDF of up to 25 MB (a service
+and turns HTML into text (headings, paragraphs, lists, code, tables). It also reads a PDF of up to 32 MB (a service
 description, a price list): `pdftotext -layout` of the poppler tools on a private temporary file, each page after a
 line `--- page N ---`, and the first line then ends with `, pdf, N pages`; an encrypted PDF, a broken one and a scan
 without a text layer are refused with the reason. It sends no cookie and no auth header, and

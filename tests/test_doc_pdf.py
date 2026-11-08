@@ -79,7 +79,7 @@ def test_an_octet_stream_is_read_only_when_its_body_is_a_pdf():
 
 def test_a_pdf_has_its_own_cap_and_html_keeps_the_five_mb_cap():
     big = str(doc.MAX_PDF_BYTES + 1)
-    with pytest.raises(doc.DocError, match="larger than 25 MB"):
+    with pytest.raises(doc.DocError, match="larger than 32 MB"):
         doc.fetch("https://example.com/lb.pdf", getter=getter_for(b"%PDF-1.7", **{"content-length": big}),
                   hosts=HOSTS)
     with pytest.raises(doc.DocError, match="larger than"):
@@ -88,7 +88,7 @@ def test_a_pdf_has_its_own_cap_and_html_keeps_the_five_mb_cap():
     g = Getter({("example.com", "/p"): (200, {"content-type": "text/html", "content-length": six}, b"<p>x</p>")})
     with pytest.raises(doc.DocError, match="larger than 5 MB"):
         doc.fetch("https://example.com/p", getter=g, hosts=HOSTS)
-    # a PDF under 25 MB but over 5 MB passes the cap check (the reader is a fake here)
+    # a PDF under 32 MB but over 5 MB passes the cap check (the reader is a fake here)
     fake = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, (PAGE_ONE + "\f").encode(), b"")
     page = doc.fetch("https://example.com/lb.pdf", getter=getter_for(b"%PDF-1.7" + b" " * (6 * 1024 * 1024)),
                      hosts=HOSTS, pdf_runner=fake)
