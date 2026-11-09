@@ -93,7 +93,7 @@ def test_build_writes_every_file_with_the_rules_and_no_tenant_alias(home, facts,
     facts_md = (root / "facts.md").read_text()
     assert facts_md.startswith("<!-- TCP Facts, dataset of 2026-10-08.")
     assert "Best before 2026-11-07" in facts_md and "holds no price list" in facts_md
-    assert "- %s (%s, live, checked 2026-10-08)" % (S_ECS, facts.id) in facts_md
+    assert "- %s (%s, V3 live, checked 2026-10-08)" % (S_ECS, facts.id) in facts_md
     assert "## ecs (1)" in facts_md and "## obs (1)" in facts_md and "GPU flavor p2" not in facts_md
     for name in names:
         if name.endswith((".md", ".jsonl", ".csv")):

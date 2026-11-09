@@ -13,6 +13,24 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   there, the end reports it as kept and `awb owner status` shows it for seven days. A delete of a listed resource
   needs `delete_listed=True`. `awb lab run start` names the python for lab scripts; `awb kb add` says which flags
   are required.
+- Validation levels of a fact (partner feedback of 2026-11-09): `kb.level` gives V4 kept live, V3 live, V2 contract,
+  V1 docs or V0 recheck due from the grade, the tier of the check block and the recheck due, nothing else.
+  `awb dataset build` writes `level` into facts.jsonl, `(KB-XXXX, V3 live, checked DATE)` into facts.md and topics/
+  (the line replaces the grade; a V0 line keeps it), `levels` into MANIFEST.json and the table "Validation levels"
+  into README.md, PROMPT.md and HOW-TO.pdf. The MCP server (1.2) gives the level with every fact and
+  `tcp_facts_search` takes `min_level`. Tests: `tests/test_validation_loop.py`.
+- Recheck requests: `awb refresh` writes `ID<TAB>DATE<TAB>REASON` to `<shared>/recheck/requested.tsv` for every
+  entry a release note matches, every contract entry on a new revision of the service description and every entry
+  whose source names a page of the docs mirror whose digest changed in the run; the report counts them by reason.
+  `awb kb recheck-run` takes a requested entry as due until a recheck dated on or after the request.
+- `awb kb recheck-run --try --id KB-XXXX [--block FILE] [--out DIR]` runs the read tier of the entries named now and
+  prints the verdict and the test lines; nothing is written back.
+- `awb refresh weekly` and the owner timer `awb-refresh-weekly.timer`, Saturday 17:00 UTC, before the read tier of
+  19:00 (`seal/setup.sh`, checked by `seal/verify.sh`); a failed run is an item of `awb owner status`.
+
+### Changed
+- tests/test_self_clean.py scans the files in one process per core: one process took 140 s of the 120 s limit, in the
+  secret, token, blocklist and home path patterns over 13 MB. The scan and what it checks are the same.
 
 ## Week 45, 2026-11-02 to 2026-11-08
 ### Added

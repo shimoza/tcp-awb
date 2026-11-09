@@ -205,7 +205,7 @@ def test_ks_an_expired_fact_stays_in_the_build_marked_recheck_due(home, facts, t
     assert rows[due.id]["recheck_due"] is True and rows[due.id]["checked"] == due.checked
     assert not [r for i, r in rows.items() if i != due.id and r["recheck_due"]]
     facts_md = (built.folder / "facts.md").read_text(encoding="utf-8")
-    assert "(%s, live, checked %s, recheck due)" % (due.id, due.checked) in facts_md
+    assert "(%s, V0 recheck due, live, checked %s)" % (due.id, due.checked) in facts_md
     readme = (built.folder / "README.md").read_text(encoding="utf-8")
     assert "| %s | live | %s | recheck due |" % (due.id, due.checked) in readme
     assert json.loads((built.folder / "MANIFEST.json").read_text(encoding="utf-8"))["recheck_due"] == 1

@@ -2,6 +2,7 @@
 2026-10-14, section 3).
 
     awb kb recheck-run [--tier read|write] [--id KB-XXXX]... [--project CODE] [--tenant ALIAS] [--dry-run]
+    awb kb recheck-run --try --id KB-XXXX... [--block FILE] [--out DIR] [--project CODE] [--tenant ALIAS]
 
 Without --tenant a run takes the tenant from `recheck_tenant` of the host file (awb/config.py: AWB_CONF or the root
 host file, the root file alone for the work user), so that no tenant alias of a host is written into the
@@ -10,8 +11,9 @@ repository; with neither it stops. The service project is --project, else `reche
 The steps, each a line of the run's RESULT.md:
 
 1. Pick: the entries that expire before the next weekly run (`kb.due`: expired or expiring within DUE_DAYS, the
-   7 days to the next run plus 1 day of margin, task KS) with a check block of the tier (default read), oldest
-   expiry first;
+   7 days to the next run plus 1 day of margin, task KS) or whose recheck the refresh requested (a line `ID<TAB>DATE
+   <TAB>REASON` of `<shared>/recheck/requested.tsv` dated up to that limit and no check on or after that date) with a
+   check block of the tier (default read), oldest expiry first;
    `--id` narrows them to the ids given. An entry without a block, with another tier or whose block is a decision
    tier or needs what the host cannot give goes to the lists "no block", "other tier" and "for the owner" and is not
    touched; so does an entry whose grade is not live: a run checks live facts again and never raises a grade, so a
@@ -60,11 +62,17 @@ board reads it (awb/tcp/board.py).
 
 Exit codes: 0 the run went through (whatever the verdicts); 2 a usage error or a run refused or stopped before its
 first call; 4 a resource is left live or the inventory differs.
+
+`--try` (`try_run`) runs the read tier of the entries named now, due or not, by step 3 and its verdict rules, prints
+the verdict and the three test lines of each entry and writes nothing back: no kb change, no line in state.tsv or
+refuted.tsv, no handle saved; the evidence goes to --out or the session scratch folder. `--block FILE` tries a block
+before `kb how` attaches it.
 """
 from __future__ import annotations
 
 import datetime
 import json
+import os
 import re
 import sys
 import time
@@ -84,6 +92,10 @@ ERROR_CHARS = 200
 MAX_STATE_SENTENCES = 3
 STATE_TSV = ("recheck", "state.tsv")
 REFUTED_TSV = ("recheck", "refuted.tsv")
+REQUESTED_TSV = ("recheck", "requested.tsv")
+REQUEST_KINDS = ("release note", "service description", "docs mirror")
+"""The reasons a refresh requests a recheck, each the start of the REASON of a line of requested.tsv."""
+_REASON_CHARS = 160
 DUE_DAYS = 8
 """A weekly run takes every entry that expires within the 7 days to the next run plus 1 day of margin (task KS)."""
 VERDICTS = ("confirmed", "refuted", "undecided")
@@ -131,11 +143,11 @@ class Pick:
 
 
 def pick(tier: str, ids=(), *, where=None, today: datetime.date | None = None) -> Pick:
-    """Step 1: the entries due (expired or expiring within DUE_DAYS) sorted into the run and the lists that are not
-    touched. An entry whose grade is not live goes to the owner's list whatever its block says: a run never raises a
+    """Step 1: the entries due (expired or expiring within DUE_DAYS, or with an open request of requested.tsv) sorted
+    into the run and the lists that are not touched. An entry whose grade is not live goes to the owner's list whatever its block says: a run never raises a
     grade. An id that is not in the knowledge base raises KBError."""
     today = today or datetime.date.today()
-    expired = kb.due(where, today, DUE_DAYS)
+    expired = kb.due(where, today, DUE_DAYS, requested=requested_dates())
     if ids:
         for i in ids:
             kb.get(i, where)
@@ -301,6 +313,22 @@ def read_verdict(block: dict, answers: list[dict]) -> tuple[str, str]:
     return "undecided", "confirms and refutes both %s" % ("hold" if results["confirms"] else "fail")
 
 
+def test_lines(block: dict, answers: list[dict]) -> list[str]:
+    """The confirms, refutes and control lines of a read tier with what each gave over the answers: holds, fails,
+    not a test or names a call that was not made. A try run prints them (`awb kb recheck-run --try`)."""
+    out = []
+    for key in ("confirms", "refutes", "control"):
+        line = block.get(key, "")
+        test = parse_test(line)
+        if test is None:
+            said = "not a test the run reads"
+        else:
+            got = holds(test, answers)
+            said = "names a call the block does not make" if got is None else ("holds" if got else "fails")
+        out.append("%s: %s: %s" % (key, line, said))
+    return out
+
+
 # --------------------------------------------------------------------------- the run
 
 
@@ -311,6 +339,7 @@ class Outcome:
     why: str = ""
     file: str = ""
     written: str = ""          # what the write-back did, empty before step 6
+    answers: list = field(default_factory=list)   # the answers of a read tier's calls, in order
 
 
 def _clean_text(text: str, handles) -> str:
@@ -456,6 +485,7 @@ class Recheck:
             text = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False, sort_keys=True)
             self.calls_log.append("%s call %d: %s %s %s -> %s" % (e.id, i, method, service, path, said))
             self.calls_log.append("  " + _clean_text(text[:ANSWER_CHARS], self.handles).replace("\n", " "))
+        o.answers = answers
         if calls:
             o.verdict, o.why = read_verdict(e.block, answers)
         lines += ["", "- verdict: %s (%s)" % (o.verdict, o.why)]
@@ -658,6 +688,60 @@ def refuted(path=None) -> dict[str, str]:
     return out
 
 
+def requested_path():
+    from awb import config
+
+    return config.paths().shared.joinpath(*REQUESTED_TSV)
+
+
+def requests(path=None) -> list[tuple[str, str, str]]:
+    """(id, date, reason) of every well formed line of requested.tsv; empty when the file is missing."""
+    try:
+        text = (path or requested_path()).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    out = []
+    for line in text.splitlines():
+        bits = line.split("\t")
+        if len(bits) == 3 and re.fullmatch(codes.KB, bits[0]) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", bits[1]):
+            out.append((bits[0], bits[1], bits[2]))
+    return out
+
+
+def requested_dates(path=None) -> dict[str, list[str]]:
+    """The request dates by id, the form `kb.due` and `kb.is_due` take."""
+    out: dict[str, list[str]] = {}
+    for i, day, _ in requests(path):
+        out.setdefault(i, []).append(day)
+    return out
+
+
+def request(rows, path=None) -> int:
+    """Lines `ID<TAB>DATE<TAB>REASON` for (id, date, reason) rows: a recheck the refresh asks for (a release note, a
+    new revision of the service description, a changed page of the docs mirror). A row whose id and reason are in
+    the file already is not written again, so a second refresh of the same news keeps the first date. The reason is
+    printable text on one line. The number of lines written."""
+    path = path or requested_path()
+    seen = {(i, r) for i, _, r in requests(path)}
+    new = []
+    for i, day, reason in rows:
+        reason = "".join(c if " " <= c <= "~" else "?" for c in reason)[:_REASON_CHARS].strip()
+        if (i, reason) in seen or not re.fullmatch(codes.KB, i):
+            continue
+        seen.add((i, reason))
+        new.append("%s\t%s\t%s\n" % (i, day.isoformat() if hasattr(day, "isoformat") else day, reason))
+    if new:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write("".join(new))
+    return len(new)
+
+
+def request_kind(reason: str) -> str:
+    """The kind of a request (REQUEST_KINDS) from its reason, "other" for none of them."""
+    return next((k for k in REQUEST_KINDS if reason.startswith(k)), "other")
+
+
 def run(tier: str, ids, project: str | None, tenant: str | None, *, dry_run: bool = False, send=None,
         clock=time.monotonic, sleep=time.sleep, now=None, where=None, out=print, err=None) -> int:
     from awb import config
@@ -691,6 +775,88 @@ def run(tier: str, ids, project: str | None, tenant: str | None, *, dry_run: boo
     return job.execute(p)
 
 
+TRY_DIR = "recheck-try"
+"""The folder of a try run's evidence inside the session scratch folder (awb/labclient.py SCRATCH) without --out."""
+
+
+def try_block(text: str) -> tuple[tuple[str, str], ...]:
+    """The check block a try run takes instead of the entry's own (--block): the lines `kb how` reads, through the
+    same form and field checks. RecheckError names what is wrong, never a value."""
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    if lines and lines[0].strip() == kb.CHECK_SEPARATOR:
+        lines = lines[1:]
+    try:
+        check = kb.parse_block(lines, "the check block")
+    except kb.KBError as exc:
+        raise RecheckError(str(exc))
+    problems = kb.block_problems(check)
+    if problems:
+        raise RecheckError("; ".join(problems))
+    return check
+
+
+def try_run(ids, project: str | None, tenant: str | None, *, out_dir: Path | None = None,
+            block_text: str | None = None, send=None, now=None, where=None, out=print, err=None) -> int:
+    """`awb kb recheck-run --try --id ID...`: the read tier of the named entries now, due or not, by `check_read` and
+    `read_verdict`, the code and the rules of the weekly run. It prints the verdict and the three test lines of each
+    entry and writes nothing back: no kb change, no line in state.tsv or refuted.tsv, no handle saved. The evidence
+    (RESULT.md, calls.log, one file per entry) goes to --out, else the session scratch folder. With --block FILE (one
+    id) the block of the file is tried instead of the entry's own, so a session proves a block before `kb how`
+    attaches it. An entry without a read block is listed and not called. Exit 0 the run went through, 2 refused."""
+    from awb import config
+    from awb.labclient import SCRATCH
+    from awb.tcp import sweep
+
+    err = err or (lambda line: print(line, file=sys.stderr))
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    try:
+        if not ids:
+            raise RecheckError("a try run names its entries with --id")
+        for i in ids:
+            if not re.fullmatch(codes.KB, i):
+                raise RecheckError("an id reads like KB-Q7M4")
+        if block_text is not None and len(set(ids)) != 1:
+            raise RecheckError("--block goes with exactly one --id")
+        entries = [kb.get(i, where) for i in dict.fromkeys(ids)]
+        if block_text is not None:
+            import dataclasses
+
+            entries = [dataclasses.replace(entries[0], check=try_block(block_text))]
+        project = service_project(project)
+        tenant = tenant or config.host_conf().get("recheck_tenant")
+        if not re.match(r"^[a-z][a-z0-9-]{1,30}$", tenant or ""):
+            raise RecheckError("a run needs --tenant or recheck_tenant in the host file: a tenant alias reads like "
+                               "test-1")
+        base = Path(out_dir) if out_dir else Path(SCRATCH % os.getuid()) / TRY_DIR
+        base.mkdir(parents=True, exist_ok=True)
+        handles = sweep.Handles(sweep.handles_path(config.paths()))
+    except (RecheckError, kb.KBError, sweep.SweepError, OSError) as e:
+        err("awb kb recheck-run --try: %s" % (e if not isinstance(e, OSError) else "the evidence folder cannot be "
+                                                                                   "written"))
+        return EXIT_STOPPED
+    job = Recheck("read", project, tenant, base, handles, send=send, now=now, where=where, out=out, err=err)
+    job.dir = evidence_dir(base, job.today)
+    lines = ["# Try run %s, tier read" % job.today.isoformat(), "",
+             "- project %s, tenant %s; nothing written back" % (project, tenant), ""]
+    for e in entries:
+        b = e.block
+        if b.get("tier") != "read" or b.get("needs", "none") != "none":
+            said = "no read block (tier %s)" % (b.get("tier") or "none, no block")
+            out("%s: not tried, %s" % (e.id, said))
+            lines.append("- %s: not tried, %s" % (e.id, said))
+            continue
+        o = job.check_read(e)
+        out("%s: %s (%s)" % (e.id, o.verdict, o.why))
+        tests = test_lines(b, o.answers)
+        for t in tests:
+            out("  " + t)
+        lines += ["- %s: %s (%s); %s" % (e.id, o.verdict, o.why, o.file)] + ["  - " + t for t in tests]
+    (job.dir / "RESULT.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (job.dir / "calls.log").write_text("".join(x + "\n" for x in job.calls_log), encoding="utf-8")
+    out("recheck try: evidence %s" % job.dir)
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
@@ -701,10 +867,30 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--project", default=None)
     ap.add_argument("--tenant")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--try", action="store_true", dest="trial",
+                    help="run the read tier of the --id entries now, due or not, and write nothing back")
+    ap.add_argument("--out", type=Path, default=None, help="--try: the folder of the evidence")
+    ap.add_argument("--block", default=None, metavar="FILE",
+                    help="--try: try this check block (a file, - for standard input) instead of the entry's own")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else EXIT_STOPPED
+    if args.trial:
+        if args.tier != "read" or args.dry_run:
+            print("awb kb recheck-run --try: a try run is the read tier and makes its calls", file=sys.stderr)
+            return EXIT_STOPPED
+        block = None
+        if args.block is not None:
+            try:
+                block = sys.stdin.read() if args.block == "-" else Path(args.block).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                print("awb kb recheck-run --try: the block file cannot be read", file=sys.stderr)
+                return EXIT_STOPPED
+        return try_run(args.ids, args.project, args.tenant, out_dir=args.out, block_text=block)
+    if args.out is not None or args.block is not None:
+        print("awb kb recheck-run: --out and --block go with --try", file=sys.stderr)
+        return EXIT_STOPPED
     return run(args.tier, args.ids, args.project, args.tenant, dry_run=args.dry_run)
 
 

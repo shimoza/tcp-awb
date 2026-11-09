@@ -36,6 +36,9 @@ cannot give). The statement ends at that line; an entry without it parses as bef
 refused, a write tier names a recipe of recipes/, a block whose needs is not none takes the tier decision or none.
 `how` writes or replaces the block from standard input through the text checks of `add`; `show` prints it.
 
+`level` gives the validation level of a fact (LEVELS: V4 kept live, V3 live, V2 contract, V1 docs, V0 recheck due)
+from its grade, the tier of its check block and whether its recheck is due; every part that shows a level uses it.
+
 `recheck` records a fresh check of an entry whose statement still holds: grade, source and check date become
 those of the new check, and a negative needs two tried texts of the new check. `amend` corrects the statement of
 an entry and keeps its id: the new statement goes through every check of
@@ -67,6 +70,8 @@ The intake, `awb gate` and every other path of customer material keep the plain 
     awb kb how ID -                          the check block from standard input
     awb kb recheck-run [--tier read|write] [--id ID]... [--project CODE] [--tenant ALIAS] [--dry-run]
                                              awb/tcp/recheck.py: the expired entries checked by their block
+    awb kb recheck-run --try --id ID... [--block FILE] [--out DIR]
+                                             the read tier of the named entries now, nothing written back
     awb kb recheck-watch [--project CODE] [--tenant ALIAS]...
                                              awb/tcp/recheckwatch.py: the owner's reaper of expired resources
     awb kb scope [--scope S] TAG
@@ -1402,11 +1407,23 @@ def expired(where=None, today: date | None = None) -> list[Entry]:
                   key=lambda e: (e.expires, e.id))
 
 
-def due(where=None, today: date | None = None, days: int = 0) -> list[Entry]:
-    """Entries that expire before `today` plus `days` (the expired ones among them), the oldest expiry first: what a
-    weekly recheck must take so that no entry expires before its next run (task KS)."""
+def is_due(e: Entry, today: date | None = None, days: int = 0, requested: dict[str, list[str]] | None = None
+           ) -> bool:
+    """True when the entry expires before `today` plus `days`, or a recheck of it was requested (refresh: a release
+    note, a new revision of the service description, a changed page of the docs mirror) on a date up to that limit
+    and it was not checked on or after that date."""
     limit = (today or date.today()) + timedelta(days=days)
-    return sorted((e for e in load(where) if not e.is_retired and e.is_expired(limit)),
+    if e.is_expired(limit):
+        return True
+    return any(d <= limit.isoformat() and e.checked < d for d in (requested or {}).get(e.id, ()))
+
+
+def due(where=None, today: date | None = None, days: int = 0, requested: dict[str, list[str]] | None = None
+        ) -> list[Entry]:
+    """Entries that expire before `today` plus `days` (the expired ones among them) or whose requested recheck is
+    open (`is_due`), the oldest expiry first: what a weekly recheck must take so that no entry expires before its next
+    run (task KS). `requested` maps an id to the dates of its requests (awb/tcp/recheck.py, requested.tsv)."""
+    return sorted((e for e in load(where) if not e.is_retired and is_due(e, today, days, requested)),
                   key=lambda e: (e.expires, e.id))
 
 
@@ -1450,6 +1467,53 @@ def screen(entries: Sequence[Entry], register_path: Path | None = None) -> tuple
 EXPORT_GRADES = ("live", "contract", "docs")
 """What an export carries unless --grade says otherwise: a statement of the product team (said) may be
 confidential and needs a clearance before it leaves; an assumption (assumed) is a lead, not a fact."""
+
+
+LEVELS = (
+    ("V4", "kept live", "Tested live on a TCP tenant and inside its check period.",
+     "A check block repeats the test every week by itself."),
+    ("V3", "live", "Tested live on a TCP tenant and inside its check period.",
+     "No check block yet: it is tested again when it expires."),
+    ("V2", "contract", "Stated by the current service description and inside its check period.",
+     "Checked again when the service description gets a new revision."),
+    ("V1", "docs", "Taken from the vendor documentation and inside its check period.",
+     "Checked again when its documentation page changes or when it expires."),
+    ("V0", "recheck due", "Past its check date, or a recheck contradicted it.",
+     "Use it only with its check date and say that it waits for a recheck."),
+)
+"""The validation levels of a fact, highest first: (level, name, what it means, how it stays true). They follow from
+what an entry carries and nothing else: its grade, the tier of its check block and whether its recheck is due. There
+is no level above V4: no outside party confirms a fact (his decision of 2026-11-09)."""
+LEVEL_NAMES = {lv: name for lv, name, _, _ in LEVELS}
+_GRADE_LEVEL = {"live": "V3", "contract": "V2", "docs": "V1"}
+
+
+def level(grade: str, *, due: bool, tier: str = "", needs: str = "none", refuted: bool = False) -> str:
+    """The validation level of a fact (LEVELS), the one function every part uses (dataset, MCP data, reports).
+
+    V0 when its recheck is due (past its check date, or requested) or a recheck refuted it and it waits; else V4 for
+    a live fact whose check block the weekly recheck takes (tier read or write, needs none), V3 for any other live
+    fact, V2 for contract and V1 for docs. A said or assumed statement that is not due has no level: "" (it never
+    leaves the base)."""
+    if due or refuted:
+        return "V0"
+    if grade == "live" and tier in ("read", "write") and (needs or "none") == "none":
+        return "V4"
+    return _GRADE_LEVEL.get(grade, "")
+
+
+def level_label(lv: str) -> str:
+    """"V3 live" for "V3"; "" for no level."""
+    return "%s %s" % (lv, LEVEL_NAMES[lv]) if lv in LEVEL_NAMES else ""
+
+
+def entry_level(e: Entry, today: date | None = None, *, requested: dict[str, list[str]] | None = None,
+                refuted: dict[str, str] | None = None, days: int = 0) -> str:
+    """The level of an entry: `level` over its grade, its block and whether it is due (`is_due`)."""
+    b = e.block
+    gone = bool(refuted and refuted.get(e.id, "") >= e.checked)
+    return level(e.grade, due=is_due(e, today, days, requested), tier=b.get("tier", ""),
+                 needs=b.get("needs", "none"), refuted=gone)
 
 
 def export_record(e: Entry, today: date) -> dict:

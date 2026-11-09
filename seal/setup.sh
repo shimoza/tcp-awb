@@ -44,7 +44,9 @@
 # a task that waits on his answer or word reaches him by mail (automation review A6); awb-kb-recheck-watch.timer,
 # which runs awb kb recheck-watch as the owner every 15 minutes, so a resource of the fact-check service project is
 # deleted once its expiry has passed (fact-check design F5); awb-dataset-weekly.timer, which runs awb dataset weekly as
-# the owner every Monday 06:00 UTC (build, kb review, put --github of the dataset TCP Facts, task KS). /etc/awb and its two files go to root:awb (751, paths.conf and blocklist.txt
+# the owner every Monday 06:00 UTC (build, kb review, put --github of the dataset TCP Facts, task KS);
+# awb-refresh-weekly.timer, which runs awb refresh weekly as the owner every Saturday 17:00 UTC, before the read tier
+# of 19:00 takes the rechecks the refresh requested. /etc/awb and its two files go to root:awb (751, paths.conf and blocklist.txt
 # 640): the build user reads neither, the owner, the work user and the Ask page do.
 #
 # The egress filter of the work user (seal/egress/ALLOW.md) is an nftables table that root loads with `awb egress
@@ -93,6 +95,7 @@ BUILD_NUDGE_UNIT=awb-build-nudge          # .service and .timer: awb build nudge
 RECHECK_WATCH_UNIT=awb-kb-recheck-watch   # .service and .timer: awb kb recheck-watch as the owner every 15 minutes (F5)
 IMPORT_AUTO_UNIT=awb-import-auto          # .service and .timer: awb import --auto as the owner every 2 minutes (lc-laptop-clean)
 DATASET_WEEKLY_UNIT=awb-dataset-weekly    # .service and .timer: awb dataset weekly as the owner, Monday 06:00 UTC (task KS)
+REFRESH_WEEKLY_UNIT=awb-refresh-weekly    # .service and .timer: awb refresh weekly as the owner, Saturday 17:00 UTC
 BUILD_MODEL_DEFAULT=login             # D-S7 changed: his subscription login; build_model = key in the host file is the fallback
 BUILD_MODEL_KEY=/etc/awb/build-model.key     # the owner's copy for the runner (build_model = key), never printed
 BUILD_MODEL_KEY_SOURCE=/etc/awb/anthropic.key   # the default source; build_model_key_source in the host file wins
@@ -962,6 +965,7 @@ step_units() {
     [ "$units_only" -eq 1 ] || import_auto_unit
     [ "$units_only" -eq 1 ] || check_learn_unit
     [ "$units_only" -eq 1 ] || dataset_weekly_unit
+    [ "$units_only" -eq 1 ] || refresh_weekly_unit
     retire_portal_unit
     run systemctl daemon-reload
     [ "$units_only" -eq 0 ] || return 0
@@ -979,6 +983,7 @@ step_units() {
     try_run systemctl enable --now "$IMPORT_AUTO_UNIT.timer"
     try_run systemctl enable --now "$CHECK_LEARN_UNIT.timer"
     try_run systemctl enable --now "$DATASET_WEEKLY_UNIT.timer"
+    try_run systemctl enable --now "$REFRESH_WEEKLY_UNIT.timer"
 }
 
 step_egress() {
@@ -1885,6 +1890,63 @@ OnCalendar=Mon *-*-* 06:00:00 UTC
 Persistent=true
 AccuracySec=1min
 Unit=$DATASET_WEEKLY_UNIT.service
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+refresh_weekly_unit() {
+    # written by step_units (not in --units-only) like dataset_weekly_unit, its timer enabled at the end of step_units
+    info "$REFRESH_WEEKLY_UNIT.timer: every Saturday 17:00 UTC awb refresh weekly as the owner brings the mirrors,"
+    info "the release notes and the prices up to date and requests a recheck of every entry they touch, two hours"
+    info "before the read tier of 19:00 takes them; a failed run shows in awb owner status"
+    write_file "$UNITS_DIR/$REFRESH_WEEKLY_UNIT.service" 644 root:root <<EOF
+# Written by seal/setup.sh. awb refresh weekly as the owner: every part of awb refresh with the update of the
+# mirrors, the release notes and the prices; it writes the recheck requests to <shared>/recheck/requested.tsv and its
+# report to <shared>/refresh/<date>/, so it needs the network; its result goes to its state folder
+# /var/lib/$REFRESH_WEEKLY_UNIT (his, 700), which awb owner status reads.
+[Unit]
+Description=Architect Workbench: the weekly refresh of what the Workbench knows about TCP, owner side
+After=network-online.target awb-vaultd.service awb-keyd.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=$owner
+Group=$WORK_GROUP
+UMask=0022
+Environment=AWB_CONF=$CONF_FILE
+Environment=AWB_REFRESH_WEEKLY=/var/lib/$REFRESH_WEEKLY_UNIT
+StateDirectory=$REFRESH_WEEKLY_UNIT
+StateDirectoryMode=0700
+ExecStart=$BIN_LINK refresh weekly
+TimeoutStartSec=6900
+NoNewPrivileges=yes
+ProtectSystem=full
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+LimitCORE=0
+EOF
+    write_file "$UNITS_DIR/$REFRESH_WEEKLY_UNIT.timer" 644 root:root <<EOF
+# Written by seal/setup.sh: $REFRESH_WEEKLY_UNIT.service every Saturday 17:00 UTC, two hours before the read tier of
+# the fact-check (Saturday 19:00 UTC), which takes the requested rechecks as due. A missed run is made up at the
+# next boot.
+[Unit]
+Description=Architect Workbench: the weekly refresh, Saturday 17:00 UTC
+
+[Timer]
+OnCalendar=Sat *-*-* 17:00:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=$REFRESH_WEEKLY_UNIT.service
 
 [Install]
 WantedBy=timers.target

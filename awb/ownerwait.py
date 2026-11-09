@@ -9,6 +9,8 @@ The sources, read on the owner's side only:
 - the last weekly publish of the dataset TCP Facts (task KS, awb-dataset-weekly.timer, Monday 06:00 UTC): a failed
   one is the item "dataset: weekly publish failed: <reason>" until a publish succeeds; a successful one is a note
   "dataset tcp-facts-<date>: N added, M amended, K retired" for 24 hours, so the 08:00 mail after it carries it.
+- the last weekly refresh (awb-refresh-weekly.timer, Saturday 17:00 UTC, before the read tier of 19:00): a failed
+  one is the item "refresh: weekly run failed: <reason>" until a run succeeds.
 - the lab runs of the projects (task LR, awb/labruns.py) open for more than two hours or ended with failed
   deletes, with what is left (kinds only, never an id).
 - the customer tenants in write mode (task TW, awb/tenantmode.py: the tenant_write line of keys.conf) with the day
@@ -49,6 +51,8 @@ DATASET_DIR = Path("/var/lib/awb-dataset-weekly")   # StateDirectory= of awb-dat
 DATASET_ENV = "AWB_DATASET_WEEKLY"                   # another folder for the tests
 DATASET_FILE = "last.json"
 NOTE_HOURS = 24
+REFRESH_DIR = Path("/var/lib/awb-refresh-weekly")   # StateDirectory= of awb-refresh-weekly.service, the owner's (700)
+REFRESH_ENV = "AWB_REFRESH_WEEKLY"                   # another folder for the tests
 REPORT_DIR = Path("/var/lib/awb-report-codes")   # StateDirectory= of awb-report-codes.service, the owner's (700)
 REPORT_ENV = "AWB_REPORT_CODES"                  # another folder for the tests
 REPORT_STATE = "last.json"
@@ -209,6 +213,19 @@ def dataset_items(path: Path | None = None) -> list[Item]:
     return [Item("dataset", "weekly publish failed: %s" % _short(str(state.get("reason") or "unknown")), "")]
 
 
+def refresh_state_path() -> Path:
+    """The file the weekly refresh writes after each run: <state folder>/last.json."""
+    return Path(os.environ.get(REFRESH_ENV) or REFRESH_DIR) / DATASET_FILE
+
+
+def refresh_items(path: Path | None = None) -> list[Item]:
+    """The failed weekly refresh as one item; nothing when the last run went through or none ran."""
+    state = _dataset_state(path or refresh_state_path())
+    if state.get("state") != "failed":
+        return []
+    return [Item("refresh", "weekly run failed: %s" % _short(str(state.get("reason") or "unknown")), "")]
+
+
 def report_dir() -> Path:
     """The state folder of `awb report --codes`: the codes file, its sidecar and last.json."""
     return Path(os.environ.get(REPORT_ENV) or REPORT_DIR)
@@ -333,6 +350,7 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
     items += queue_items(queue)
     items += build_items(runs)
     items += dataset_items()
+    items += refresh_items()
     items += report_items()
     items += lab_run_items(p)
     items += tenant_mode_items()

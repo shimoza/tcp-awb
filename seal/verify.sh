@@ -14,7 +14,8 @@
 # read tier of the fact-check are enabled and run as the work user, the last one the read tier alone (fact-check F9).
 # awb-kb-recheck-watch.timer is enabled and its unit runs awb kb recheck-watch as the owner; awb-import-auto.timer is
 # enabled and its unit runs awb import --auto as the owner; the weekly read tier fires Saturday 19:00 UTC and
-# awb-dataset-weekly.timer is enabled, fires Monday 06:00 UTC and its unit runs awb dataset weekly as the owner (task KS)
+# awb-dataset-weekly.timer is enabled, fires Monday 06:00 UTC and its unit runs awb dataset weekly as the owner (task KS),
+# awb-refresh-weekly.timer is enabled, fires Saturday 17:00 UTC and its unit runs awb refresh weekly as the owner
 # (fact-check F5); awb-report-codes.timer is enabled, fires every hour and its unit runs awb report --codes
 # --from-shared --put --if-changed as the owner (task R1), awb-report-codes-work.timer is enabled, fires every hour
 # and its unit runs awb report --codes --to-shared as the work user (task R1b). The egress table of the work user is loaded in the mode of the host file, takes
@@ -53,6 +54,7 @@ OWNER_JOBS="awb-report-codes"   # as in setup.sh: seal/work-jobs units that run 
 RECHECK_WATCH_UNIT=awb-kb-recheck-watch   # seal/setup.sh writes its .service and .timer (fact-check F5)
 IMPORT_AUTO_UNIT=awb-import-auto          # seal/setup.sh writes its .service and .timer (lc-laptop-clean)
 DATASET_WEEKLY_UNIT=awb-dataset-weekly    # seal/setup.sh writes its .service and .timer (task KS)
+REFRESH_WEEKLY_UNIT=awb-refresh-weekly    # seal/setup.sh writes its .service and .timer
 seal_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 FORBIDDEN_GROUPS=(ubuntu docker adm sudo lxd)
 
@@ -341,6 +343,12 @@ allowed "the timer $DATASET_WEEKLY_UNIT.timer is enabled, fires Monday 06:00 UTC
     grep -qx "OnCalendar=Mon \*-\*-\* 06:00:00 UTC" "$4"' \
     verify "/etc/systemd/system/$DATASET_WEEKLY_UNIT.service" "$owner" "$DATASET_WEEKLY_UNIT" \
     "/etc/systemd/system/$DATASET_WEEKLY_UNIT.timer"
+allowed "the timer $REFRESH_WEEKLY_UNIT.timer is enabled, fires Saturday 17:00 UTC and runs awb refresh weekly as the owner" \
+    sh -c 'systemctl is-enabled --quiet "$3.timer" && test "$(stat -c "%U %a" -- "$1")" = "root 644" &&
+    grep -qx "Type=oneshot" "$1" && grep -qx "User=$2" "$1" && grep -qx "ExecStart=/usr/local/bin/awb refresh weekly" "$1" &&
+    grep -qx "OnCalendar=Sat \*-\*-\* 17:00:00 UTC" "$4"' \
+    verify "/etc/systemd/system/$REFRESH_WEEKLY_UNIT.service" "$owner" "$REFRESH_WEEKLY_UNIT" \
+    "/etc/systemd/system/$REFRESH_WEEKLY_UNIT.timer"
 
 # --------------------------------------------------------------------------- the egress filter (seal/egress)
 

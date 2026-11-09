@@ -55,7 +55,15 @@ fact leaves the dataset only when something invalidates it, never for its date (
 marked "recheck_due": true in facts.jsonl, "recheck due" after its check date in facts.md and topics/ and listed in
 the README table "Facts with a recheck due"; a retired fact (a superseded one is retired for its successor), one a
 recheck refuted (refuted.tsv of the recheck, not older than its check date) and one that names a service the service
-description no longer offers stay out. The alias of a test tenant in a source line or a statement is replaced by "a TCP test tenant", the names of
+description no longer offers stay out.
+
+Every fact carries its validation level V0 to V4 (`kb.level`, the one function that computes it, from the grade, the
+tier of the entry's check block and the recheck due): "level" in facts.jsonl, "(KB-XXXX, V3 live, checked D)" in
+facts.md and topics/ (a V0 line keeps the grade: "(KB-XXXX, V0 recheck due, live, checked D)"), the counts per level in
+MANIFEST.json and the table "Validation levels" in README.md, PROMPT.md and HOW-TO.pdf, which defines each level in
+two plain lines and counts its facts. There is no level of an outside confirmation: the compiler is its own operator.
+
+The alias of a test tenant in a source line or a statement is replaced by "a TCP test tenant", the names of
 the Workbench's own commands and parts (awb ..., the key service, the lab bucket) by plain words; the build proves
 both rewrites on planted text first and refuses to write a folder in which one is left. No project,
 no customer code, no snapshot of a tenant and no review is part of the dataset.
@@ -165,9 +173,9 @@ def header(day: str, best_before: str, fetched: str) -> str:
         "1. Answer only from the facts in this dataset. Put the id of every fact you use after it, like (KB-XXXX).",
         "   If no fact covers the question, say \"no checked fact covers this\" and what would need to be checked. "
         "Never guess.",
-        "2. Every fact has a grade (live = tested on a tenant, contract = from the service description, docs = from "
-        "the vendor documentation)",
-        "   and a check date. Name the check date when it is older than %d days." % OLD_AFTER_DAYS,
+        "2. Every fact has a level (V4 kept live, V3 live, V2 contract, V1 docs, V0 recheck due; see README) and "
+        "a check date.",
+        "   Name the level when it is V0 and the check date when it is older than %d days." % OLD_AFTER_DAYS,
         "3. The dataset holds no price list. Prices come live from the public price API. Give every price with its "
         "unit, currency",
         "   and the date of its source, and say that the live price API is the source of truth before any quote.",
@@ -265,11 +273,30 @@ EXAMPLES = ("Use the attached TCP Facts. Answer: which Elasticsearch versions do
 
 
 RECHECK_DUE = "recheck due"
+LEVELS_HEADING = "Validation levels"
 
 
 def fact_line(r: dict) -> str:
-    return "- %s (%s, %s, checked %s%s)" % (tenant_free(r["statement"]), r["id"], r["grade"], r["checked"],
-                                           ", " + RECHECK_DUE if r.get("recheck_due") else "")
+    """One fact: "- STATEMENT (KB-XXXX, V3 live, checked D)"; a V0 fact keeps its grade after the level."""
+    lv = r.get("level", "")
+    said = kb.level_label(lv) + (", " + r["grade"] if lv == "V0" else "") if lv else r["grade"]
+    return "- %s (%s, %s, checked %s)" % (tenant_free(r["statement"]), r["id"], said, r["checked"])
+
+
+def level_counts(records: list[dict]) -> dict[str, int]:
+    """Facts per level, every level named, the highest first."""
+    return {lv: sum(1 for r in records if r.get("level") == lv) for lv, _, _, _ in kb.LEVELS}
+
+
+def level_blocks(records: list[dict]) -> list[tuple[str, str]]:
+    """The table "Validation levels": each level, its two plain lines and its count of facts."""
+    n = level_counts(records)
+    rows = ["| level | what it means | how it stays true | facts |", "|---|---|---|---|"]
+    rows += ["| %s %s | %s | %s | %d |" % (lv, name, means, kept, n[lv]) for lv, name, means, kept in kb.LEVELS]
+    return [("h2", LEVELS_HEADING),
+            ("p", "Every fact carries one level, after its id in facts.md and as \"level\" in facts.jsonl. The level "
+                  "follows from the grade, the check block and the check date of the fact, nothing else."),
+            ("table", "\n".join(rows))]
 
 
 def recheck_due_blocks(records: list[dict]) -> list[tuple[str, str]]:
@@ -496,7 +523,15 @@ def blocks_to_markdown(blocks: list[tuple[str, str]]) -> str:
 def pdf_bytes(blocks: list[tuple[str, str]], title: str) -> bytes:
     """HOW-TO.pdf from the (style, text) blocks, by the shared writer awb/pdf.py: Helvetica for text, Helvetica-Bold
     for headings, Courier for a prompt, A4."""
-    return pdf.render([pdf.plain(style.split(":")[0], text) for style, text in blocks], title, COMPILED_BY)
+    return pdf.render([_pdf_block(style, text) for style, text in blocks], title, COMPILED_BY)
+
+
+def _pdf_block(style: str, text: str) -> pdf.Block:
+    """A block of the shared writer; a pipe table becomes its rows of cells, the separator row left out."""
+    if style == "table":
+        rows = [[c.strip() for c in line.strip().strip("|").split("|")] for line in text.split("\n")]
+        return pdf.Block("table", lines=[r for r in rows if not all(set(c) <= set("-: ") for c in r)])
+    return pdf.plain(style.split(":")[0], text)
 
 
 def service_line(s: offered.Service) -> str:
@@ -646,6 +681,7 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
     # and one that names a service the service description no longer offers by facts_check below.
     records, left = kb.export(p, today=today, include_expired=True)
     refutes = recheck.refuted()
+    blocks = {e.id: e.block for e in kb.load(p)}
     left["contradicted by a recheck"] = 0
     kept = []
     for r in records:
@@ -653,6 +689,8 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
             left["contradicted by a recheck"] += 1
             continue
         r["recheck_due"] = bool(r.get("expired"))
+        b = blocks.get(r["id"], {})
+        r["level"] = kb.level(r["grade"], due=r["recheck_due"], tier=b.get("tier", ""), needs=b.get("needs", "none"))
         kept.append(r)
     records = kept
     if not records:
@@ -750,7 +788,8 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
     named = operator_named(records)
     check_lines.append("operator named in prose: %s" % (", ".join(named) if named else "none"))
     cover = coverage_blocks(records, orderable, revision)
-    blocks = _how_to_blocks(day, best_before, len(records), grades, len(svc), revision, cover,
+    levels = level_blocks(records)
+    blocks = _how_to_blocks(day, best_before, len(records), grades, len(svc), revision, cover + levels,
                             mirror_count(records), check_blocks(sign_settings()))
     (root / "PROMPT.md").write_text(blocks_to_markdown(blocks), encoding="utf-8")
     (root / "HOW-TO.pdf").write_bytes(pdf_bytes(blocks, "%s %s: how to use it" % (NAME, day)))
@@ -759,7 +798,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
                                               "name; the manifest carries the build time." % built_at)]
         + blocks[1:4] + [("h2", "Use"), ("p", "Attach facts.md and type:"),
                                                           ("code", ONE_LINER), ("p", "PROMPT.md has the rest.")]
-        + cover + recheck_due_blocks(records) + WARNING + MCP_CLIENTS + blocks[blocks.index(("h2", "Files")):]), encoding="utf-8")
+        + cover + levels + recheck_due_blocks(records) + WARNING + MCP_CLIENTS + blocks[blocks.index(("h2", "Files")):]), encoding="utf-8")
 
     shutil.copyfile(MCP_TEMPLATE, root / MCP_FILE)
     for path in sorted(root.rglob("*")):
@@ -773,6 +812,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
     files = sorted(x for x in root.rglob("*") if x.is_file())
     manifest = {"dataset": NAME, "date": day, "built_at": built_at, "best_before": best_before, "facts": len(records),
                 "grades": grades, "recheck_due": sum(1 for r in records if r.get("recheck_due")),
+                "levels": level_counts(records),
                 "topics": {t: len(bytag[t]) for t in tags}, "services": len(svc), "service_description": revision,
                                 "facts_left_out": [{"id": i, "names": n} for i, n in flagged], "licence": LICENCE, "compiled_by": COMPILED_BY,
                 "files": {str(x.relative_to(root)): {"bytes": x.stat().st_size, "sha256": _sha(x)} for x in files}}
@@ -788,6 +828,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
     built.lines = ["%s: %d facts (%s), %d topics, %d services of revision %s, prices %s"
                    % (root.name, len(records), ", ".join("%s %d" % kv for kv in sorted(grades.items())), len(tags),
                       len(svc), revision, ", ".join("%s %d" % kv for kv in counts.items()) or "none"),
+                   "levels: " + ", ".join("%s %d" % kv for kv in level_counts(records).items()),
                    "left out: " + ", ".join("%s %d" % kv for kv in left.items() if kv[1])
                    + ("; facts naming a service not offered: %s" % ", ".join("%s (%s)" % (i, ", ".join(n)) for i, n in flagged)
                       if flagged else ""),

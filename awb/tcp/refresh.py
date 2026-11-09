@@ -3,17 +3,22 @@ instead of one long prompt (phase 7, R-12, R-80, R-82, section 6 of the design).
 
     awb refresh [--part P]... [--no-update] [--max-state-age DAYS]
     awb refresh apply RESULTS.jsonl [--plants PLANTS.json]
+    awb refresh weekly
 
 Parts, in this order:
 - mirrors: the service description and the documentation mirror brought up to date (owner side, unless
-  --no-update); a new revision of the service description marks every contract entry for a re-check.
+  --no-update); a new revision of the service description requests a recheck of every contract entry, and a page of
+  the docs mirror whose digest changed in this run (mirror.sync_repo compares the trees before and after) requests a
+  recheck of every entry whose source names it (`cited_pages`: REPO/PATH, or a path after it in the same line).
 - release-notes: the release notes of T Cloud Public brought up to date (awb mirror rn, owner side, unless
   --no-update) and every note first seen since the last refresh read against the knowledge base and the services:
   "recheck: KB-XXXX (release note DATE SERVICE)" for each active entry that names the note's service and shares at
   least two topic words (title or first paragraph of the note against statement and tags; stop and generic words and
   the service names do not count), most shared words first, 15 per note and then "and N more" (--all lists every
   match); a note dated after today is listed in its own block "announced" with its date; "new service?" for a
-  service that rules/services.tsv does not know. Nothing is changed, the lines are only listed (also in release-notes.txt next to the report). The first run, without a day to compare with, reads the
+  service that rules/services.tsv does not know. No entry is changed; the lines are listed (also in
+  release-notes.txt next to the report) and every matched entry, not only the 15 shown, gets a recheck request in
+  <shared>/recheck/requested.tsv (an announced note from its own date), which the weekly read tier takes as due. The first run, without a day to compare with, reads the
   notes dated in the last 30 days. The day of a run that updated goes to <shared>/refresh/release-notes.json.
 - prices: a snapshot of every region, unless there is one of today, and every value changed since the one before.
 - knowledge: the expired entries of the knowledge base, each with the way it can be checked again, which follows
@@ -31,6 +36,14 @@ Parts, in this order:
 - defaults: the pointers the Workbench carries still point somewhere: every command the work rules and
   COMMANDS.md name exists, every knowledge id the code and the rules cite exists and is not retired, and every
   contract entry that cites revisions of the service description cites the current one among them.
+
+A request is a line `ID<TAB>DATE<TAB>REASON` of <shared>/recheck/requested.tsv (awb/tcp/recheck.py `request`), the
+reason starting with "release note", "service description" or "docs mirror"; one already there is not written again.
+The report ends with the requests of the run by reason.
+
+`awb refresh weekly` is the run of the owner's timer awb-refresh-weekly.timer (Saturday 17:00 UTC, two hours before
+the read tier): every part with the update; a part in error or a run that broke off is the item "refresh: weekly run
+failed" of `awb owner status` (awb/ownerwait.py) until a run goes through.
 
 The report goes to <shared>/refresh/<date>/REPORT.md with worklist.jsonl next to it; a run of some parts writes
 REPORT-<parts>.md instead, so it never overwrites the full report of the day. Exit 0 when nothing is overdue, 1
@@ -59,7 +72,7 @@ from pathlib import Path
 
 import awb
 from awb import codes, config, jobs, kb, offered, projects
-from awb.tcp import board, dataset, mirror, price
+from awb.tcp import board, dataset, mirror, price, recheck
 
 PARTS = ("mirrors", "release-notes", "prices", "knowledge", "wipe", "projects", "defaults", "dataset")
 VERDICTS = ("confirmed", "changed", "refuted", "unchecked")
@@ -87,6 +100,63 @@ class Part:
     lines: list[str] = field(default_factory=list)
     overdue: int = 0
     error: str = ""
+    requested: dict = field(default_factory=dict)    # recheck requests written, by kind (recheck.REQUEST_KINDS)
+
+
+# --------------------------------------------------------------------------- recheck requests
+
+_RN_LINE_RE = re.compile(r"^recheck: (" + codes.KB + r") \(release note (\d{4}-\d{2}-\d{2}) (.+)\)$")
+_PAGE_RE = re.compile(r"[A-Za-z0-9_.{}-]+(?:/[A-Za-z0-9_.{}-]+)+\.(?:rst|md|txt|ya?ml|json)\b")
+
+
+def _request(part: Part, rows: list[tuple[str, object, str]]) -> None:
+    """Write the requests of a part to requested.tsv (recheck.request) and count the new ones by kind."""
+    if not rows:
+        return
+    written = recheck.request(rows)
+    kinds: dict[str, int] = {}
+    for _, _, reason in rows:
+        k = recheck.request_kind(reason)
+        kinds[k] = kinds.get(k, 0) + 1
+    part.lines.append("recheck requested: %d entry line(s), %d new in %s" % (len(rows), written,
+                                                                        "/".join(recheck.REQUESTED_TSV)))
+    for k, n in kinds.items():
+        part.requested[k] = part.requested.get(k, 0) + n
+
+
+def cited_pages(source: str, repos: set[str]) -> set[str]:
+    """The pages of the docs mirror a source line names, as REPO/PATH: only a source that names the docs mirror; a
+    path whose first part is not a repository of the mirror belongs to the repository named before it in the line
+    ("docs mirror: kms/api-ref/a.rst and umn/b.rst")."""
+    if not dataset._MIRROR_SOURCE_RE.search(source):
+        return set()
+    out, last = set(), ""
+    for m in _PAGE_RE.finditer(source):
+        path = m.group(0)
+        first = path.split("/", 1)[0]
+        if first in repos:
+            out.add(path)
+            last = first
+        elif last:
+            out.add("%s/%s" % (last, path))
+    return out
+
+
+def docs_requests(entries: list[kb.Entry], changed: dict, repos: set[str], today: datetime.date
+                  ) -> list[tuple[str, datetime.date, str]]:
+    """(id, today, "docs mirror REPO/PATH") for each active entry whose source names a page that changed. A
+    repository whose tree could not be listed (None) counts every page of it as changed."""
+    pages = {"%s/%s" % (r, x) for r, paths in changed.items() if paths for x in paths}
+    whole = {r for r, paths in changed.items() if paths is None}
+    out = []
+    for e in entries:
+        if e.is_retired:
+            continue
+        for page in sorted(cited_pages(e.source, repos | set(changed))):
+            if page in pages or page.split("/", 1)[0] in whole:
+                out.append((e.id, today, "docs mirror %s" % page))
+                break
+    return out
 
 
 def refresh_dir(p: config.Paths, day: datetime.date) -> Path:
@@ -96,9 +166,13 @@ def refresh_dir(p: config.Paths, day: datetime.date) -> Path:
 # --------------------------------------------------------------------------- mirrors
 
 
-def part_mirrors(base: Path, *, update: bool, job: jobs.Job) -> Part:
+def part_mirrors(base: Path, *, update: bool, job: jobs.Job, p: config.Paths | None = None,
+                 today: datetime.date | None = None) -> Part:
     part = Part("mirrors")
+    today = today or datetime.date.today()
     before = mirror.current_sd(base)
+    entries = kb.load(p) if p is not None else []
+    rows: list[tuple[str, object, str]] = []
     if update and not config.is_work_user():
         try:
             r = mirror.sync_sd(base)
@@ -107,6 +181,8 @@ def part_mirrors(base: Path, *, update: bool, job: jobs.Job) -> Part:
                 part.lines.append("NEW REVISION %s (was %s): every contract entry needs a re-check"
                                   % (r["current"], before.parent.name))
                 part.overdue += 1
+                rows += [(e.id, today, "service description %s" % r["current"]) for e in entries
+                         if not e.is_retired and e.grade == "contract"]
         except mirror.MirrorError as err:
             part.lines.append("service description: not updated (%s)" % err)
             part.overdue += 1
@@ -115,14 +191,24 @@ def part_mirrors(base: Path, *, update: bool, job: jobs.Job) -> Part:
             part.lines.append("documentation: not updated, the repository list is %s" % listing.describe())
             part.overdue += 1
         else:
+            changed: dict = {}
             try:
-                counts = mirror.sync_docs(base, list(listing.items), job)
+                counts = mirror.sync_docs(base, list(listing.items), job, changed=changed)
                 part.lines.append("documentation: %s" % ", ".join("%d %s" % (n, s) for s, n in sorted(counts.items())))
                 if counts.get("failed"):
                     part.overdue += 1
             except jobs.JobStopped as stop:
                 part.lines.append("documentation: %s" % stop)
                 part.overdue += 1
+            if changed:
+                n_pages = sum(len(x) for x in changed.values() if x)
+                part.lines.append("documentation: %d page(s) changed in %d repository(ies)%s" % (
+                    n_pages, len(changed), "; %d repository(ies) could not be compared, every page counts"
+                    % sum(1 for x in changed.values() if x is None) if None in changed.values() else ""))
+                repos = set(mirror.load_manifest(base / mirror.DOCS).get("repos", {}))
+                rows += docs_requests(entries, changed, repos, today)
+    if p is not None:
+        _request(part, rows)
     part.lines += mirror.status(base)
     if mirror.current_sd(base) is None:
         part.lines.append("no service description in the mirror: contract entries cannot be checked here")
@@ -245,10 +331,20 @@ def part_release_notes(p: config.Paths, base: Path, out_dir: Path, *, update: bo
         part.lines.append("no release notes in the mirror: run awb mirror rn")
         part.overdue += 1
         return part
-    lines = release_note_lines(fresh, kb.load(p), offered.load(), today=today, limit=None if show_all else RN_LIMIT)
+    entries, catalog = kb.load(p), offered.load()
+    lines = release_note_lines(fresh, entries, catalog, today=today, limit=None if show_all else RN_LIMIT)
     part.lines.append("%d release note(s) %s; %d line(s) for a look" % (len(fresh), since, len(lines)))
     part.lines += ["  " + line for line in lines]
     part.overdue += len(lines)
+    # every entry a note matches is requested, not only the RN_LIMIT shown; an announced note from its date on
+    every = lines if show_all else release_note_lines(fresh, entries, catalog, today=today, limit=None)
+    rows = []
+    for line in every:
+        m = _RN_LINE_RE.match(line.strip())
+        if m:
+            rows.append((m.group(1), max(today.isoformat(), m.group(2)), "release note %s %s" % (m.group(2),
+                                                                                                 m.group(3))))
+    _request(part, rows)
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "release-notes.txt").write_text("".join(line + "\n" for line in lines), encoding="utf-8")
     if update and not config.is_work_user():
@@ -602,7 +698,7 @@ def run(p: config.Paths, *, parts=PARTS, update: bool = True, today: datetime.da
             continue
         try:
             if name == "mirrors":
-                done.append(part_mirrors(base, update=update, job=job))
+                done.append(part_mirrors(base, update=update, job=job, p=p, today=today))
             elif name == "release-notes":
                 done.append(part_release_notes(p, base, out_dir, update=update, today=today,
                                                  show_all=show_all))
@@ -632,8 +728,16 @@ def run(p: config.Paths, *, parts=PARTS, update: bool = True, today: datetime.da
         lines.append("")
         lines += part.lines
         lines.append("")
+    lines += ["## recheck requests", "", request_line(done), ""]
     report.write_text("\n".join(lines), encoding="utf-8")
     return done, report
+
+
+def request_line(parts: list[Part]) -> str:
+    """The recheck requests of a run by reason: "release note N, service description N, docs mirror N"."""
+    n = {k: sum(x.requested.get(k, 0) for x in parts) for k in recheck.REQUEST_KINDS}
+    return "requested: %s (%s; the weekly recheck takes them as due)" % (
+        ", ".join("%s %d" % kv for kv in n.items()), "/".join(recheck.REQUESTED_TSV))
 
 
 # --------------------------------------------------------------------------- apply
@@ -750,11 +854,54 @@ def _reasons(err: Exception) -> str:
 # --------------------------------------------------------------------------- command line
 
 
+def weekly(p: config.Paths, *, today: datetime.date | None = None, state: Path | None = None) -> int:
+    """`awb refresh weekly`: every part with the update, as the owner's timer awb-refresh-weekly.timer runs it every
+    Saturday 17:00 UTC, before the read tier of the fact-check at 19:00 takes what the refresh requested. The result
+    goes into the state file `awb owner status` reads (ownerwait.refresh_state_path): a part that ended in an error,
+    or a run that broke off, is the item "refresh: weekly run failed: <reason>" until a run goes through; something
+    overdue is the report's business, not a failure. Exit 0 went through, 1 failed, 2 refused for the work user."""
+    from awb import ownerwait
+
+    if config.is_work_user():
+        print("awb refresh: the weekly run is the owner's; the work user does not update the mirrors", file=sys.stderr)
+        return 2
+    try:
+        parts, report = run(p, update=True, today=today, job=jobs.Job("refresh", None, budget=WEEKLY_BUDGET))
+    except Exception as err:            # anything that broke the run off shows in owner status, not only the journal
+        reason = "the run broke off (%s)" % type(err).__name__
+        ownerwait.write_dataset_state({"state": "failed", "reason": reason}, state or ownerwait.refresh_state_path())
+        print("awb refresh weekly: failed, %s" % reason, file=sys.stderr)
+        return 1
+    failed = [x for x in parts if x.error]
+    if failed:
+        reason = "; ".join("%s: %s" % (x.name, x.error) for x in failed)
+        ownerwait.write_dataset_state({"state": "failed", "reason": reason, "report": str(report)},
+                                      state or ownerwait.refresh_state_path())
+        print("awb refresh weekly: failed, %s" % reason, file=sys.stderr)
+        return 1
+    ownerwait.write_dataset_state({"state": "done", "report": str(report), "overdue": sum(x.overdue for x in parts),
+                                   "requested": {k: sum(x.requested.get(k, 0) for x in parts)
+                                                 for k in recheck.REQUEST_KINDS}},
+                                  state or ownerwait.refresh_state_path())
+    print("awb refresh weekly: " + request_line(parts))
+    print("awb refresh weekly: report %s" % report)
+    return 0
+
+
+WEEKLY_BUDGET = 6000.0
+"""Seconds of the weekly run (the documentation mirror is the long part): it ends before the read tier of 19:00."""
+
+
 def main(argv: list[str] | None = None) -> int:
-    """`awb refresh [--part P]...` and `awb refresh apply RESULTS`."""
+    """`awb refresh [--part P]...`, `awb refresh apply RESULTS` and `awb refresh weekly`."""
     from awb.cli import SafeParser
 
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["weekly"]:
+        if argv[1:]:
+            print("awb refresh weekly: takes no arguments", file=sys.stderr)
+            return 2
+        return weekly(config.paths())
     if argv[:1] == ["apply"]:
         ap = SafeParser(prog="awb refresh apply", description="Record the results of a re-check.")
         ap.add_argument("results", type=Path)
@@ -803,6 +950,7 @@ def main(argv: list[str] | None = None) -> int:
     for part in parts:
         print("%-10s %s" % (part.name, "ERROR " + part.error if part.error else
                             ("%d overdue" % part.overdue if part.overdue else "nothing overdue")))
+    print("awb refresh: " + request_line(parts))
     print("awb refresh: report %s" % report)
     if any(p.error for p in parts):
         return 2

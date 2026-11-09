@@ -159,13 +159,40 @@ def _head(dest: Path) -> tuple[str, str]:
     return commit, date
 
 
+def _tree(dest: Path) -> dict[str, str] | None:
+    """The digest (blob id) of every file of the checkout by its path, None when it cannot be listed."""
+    try:
+        r = _git(["ls-tree", "-r", "-z", "HEAD"], cwd=dest)
+    except subprocess.TimeoutExpired:
+        return None
+    if r.returncode != 0:
+        return None
+    out = {}
+    for item in r.stdout.split("\0"):
+        meta, tab, path = item.partition("\t")
+        if tab:
+            out[path] = meta.split()[-1]
+    return out
+
+
+def changed_paths(before: dict[str, str] | None, after: dict[str, str] | None) -> list[str] | None:
+    """The paths whose digest differs, added or gone between two trees; None when one of them is unknown."""
+    if before is None or after is None:
+        return None
+    return sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+
+
 def sync_repo(repo: dict, dest: Path) -> dict:
     """Clone `repo` shallow into `dest`, or bring `dest` up to date. Returns state (cloned, updated, unchanged or
-    failed), commit and date; a failure carries the step and git's exit code, never git's text."""
+    failed), commit and date; a failure carries the step and the exit code, never the tool's text. An update also
+    carries `changed`: the paths whose file digest differs between the tree before and after (None when a tree
+    cannot be listed), so the refresh asks for a recheck of the entries that cite them."""
     branch = repo.get("default_branch") or "main"
     before = _head(dest)[0] if (dest / ".git").is_dir() else ""
+    tree = None
     try:
         if before:
+            tree = _tree(dest)
             for step, args in (("fetch", ["fetch", "--depth", "1", "--quiet", "origin", branch]),
                                ("reset", ["reset", "--hard", "--quiet", "FETCH_HEAD"]),
                                ("clean", ["clean", "-fdxq"])):
@@ -184,7 +211,10 @@ def sync_repo(repo: dict, dest: Path) -> dict:
         return {"state": "failed", "step": "git", "code": -2, "why": "timeout"}
     commit, date = _head(dest)
     state = "cloned" if not before else ("unchanged" if commit == before else "updated")
-    return {"state": state, "commit": commit, "date": date}
+    out = {"state": state, "commit": commit, "date": date}
+    if state == "updated":
+        out["changed"] = changed_paths(tree, _tree(dest))
+    return out
 
 
 def load_manifest(folder: Path) -> dict:
@@ -195,8 +225,11 @@ def load_manifest(folder: Path) -> dict:
     return data if isinstance(data.get("repos"), dict) else {"repos": {}}
 
 
-def sync_docs(base: Path, repos: list[dict], job: jobs.Job, *, only: set[str] | None = None) -> dict:
-    """Every repository that is not archived, as a step of `job`. Returns the counts of the states."""
+def sync_docs(base: Path, repos: list[dict], job: jobs.Job, *, only: set[str] | None = None,
+              changed: dict | None = None) -> dict:
+    """Every repository that is not archived, as a step of `job`. Returns the counts of the states. `changed`, when
+    given, receives the changed paths of each updated repository by its name (None for a tree that could not be
+    listed); they never go into MANIFEST.json."""
     folder = base / DOCS
     manifest = load_manifest(folder)
     manifest.update({"org": ORG, "source": "https://github.com/" + ORG})
@@ -214,6 +247,9 @@ def sync_docs(base: Path, repos: list[dict], job: jobs.Job, *, only: set[str] | 
             continue
         result = job.step(repo["name"], lambda repo=repo: sync_repo(repo, folder / repo["name"]), cost=5)
         result = dict(result, at=_now())
+        paths = result.pop("changed", [])
+        if changed is not None and result["state"] == "updated":
+            changed[repo["name"]] = paths
         manifest["repos"][repo["name"]] = result
         counts[result["state"]] = counts.get(result["state"], 0) + 1
         _write_json(folder / MANIFEST, manifest)

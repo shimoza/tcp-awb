@@ -190,6 +190,11 @@ that `awb egress status`, `awb seal check` and `awb deploy status` read; never t
    price check, gh and git, and writes its result to `/var/lib/awb-dataset-weekly` (the owner's, 700), which `awb
    owner status` reads. `verify.sh` proves the recheck timer at Saturday 19:00 UTC and the publish timer enabled
    at Monday 06:00 UTC with its unit running `awb dataset weekly` as the owner.
+   `awb-refresh-weekly.timer` runs `awb refresh weekly` as the owner every Saturday 17:00 UTC (a missed run made up
+   at boot), two hours before the read tier: the mirrors, the release notes and the prices brought up to date and a
+   recheck requested for each entry they touch. Its unit needs the network and writes its result to
+   `/var/lib/awb-refresh-weekly` (the owner's, 700), which `awb owner status` reads; `verify.sh` proves it enabled
+   at Saturday 17:00 UTC with its unit running `awb refresh weekly` as the owner.
    `seal/work-jobs/` also holds the one job of the owner, `awb-report-codes` (task R1) and its work side
    `awb-report-codes-work` (task R1b). The owner can read no project folder, so every hour at minute 40 the work
    job runs `awb report --codes --to-shared` as the work user and writes the codes file of his report workbook to

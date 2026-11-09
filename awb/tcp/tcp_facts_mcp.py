@@ -13,6 +13,9 @@ The file lies in the dataset folder (next to facts.jsonl and services.md) and ru
 Tools: tcp_facts_search (the checked facts), tcp_service_check (offered or not, by the service description),
 tcp_price_find (live prices from the public price API, only with --live; the dataset holds no price list) and
 tcp_calculate (exact arithmetic with hours). Every answer carries the dataset date, the best-before date and the rule for the assistant.
+Every fact of a search carries its validation level (V4 kept live, V3 live, V2 contract, V1 docs, V0 recheck due, as
+the build wrote it into facts.jsonl) and a search can ask for a minimum level (min_level); a fact of an older dataset
+without a level is left out of such a search.
 
 The server speaks JSON-RPC 2.0 over stdio as the Model Context Protocol says: one message per line. It serves the
 revision 2026-07-28 (server/discover, the version in the _meta of each request) and the revisions of the initialize
@@ -48,13 +51,15 @@ from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal, DecimalE
 from pathlib import Path
 
 SERVER = "tcp-facts"
-VERSION = "1.1"
+VERSION = "1.2"                     # 1.2: the validation level of every fact and min_level
 MODERN = "2026-07-28"               # no initialize: every request carries its version in _meta, server/discover
 LEGACY = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")     # the initialize handshake
 PROTOCOLS = (MODERN,) + LEGACY
 META = "io.modelcontextprotocol/"
 RULE = "Answer from these facts, cite the id, say when no fact covers it."
 GRADES = ("live", "contract", "docs")
+LEVELS = {"V4": "kept live", "V3": "live", "V2": "contract", "V1": "docs", "V0": "recheck due"}
+"""The validation levels of the dataset, highest first (README, "Validation levels")."""
 REGIONS = ("eu-de", "eu-nl")
 MAX_HITS = 20
 MAX_FILE = 64 * 1024 * 1024
@@ -236,22 +241,36 @@ def _ordinal(day) -> int:
         return 0
 
 
-def facts_search(ds: Dataset, query: str, tag: str | None = None, grade: str | None = None) -> dict:
+def level_rank(level) -> int:
+    """0 for V0 up to 4 for V4; -1 for a fact without a level."""
+    return int(level[1]) if isinstance(level, str) and level in LEVELS else -1
+
+
+def facts_search(ds: Dataset, query: str, tag: str | None = None, grade: str | None = None,
+                 min_level: str | None = None) -> dict:
     facts = ds.facts()
     if tag:
         facts = [f for f in facts if tag.lower() in [t.lower() for t in f.get("tags") or []]]
     if grade:
         facts = [f for f in facts if f.get("grade") == grade]
+    if min_level:
+        facts = [f for f in facts if level_rank(f.get("level")) >= level_rank(min_level)]
     today = datetime.date.today().isoformat()
-    hits = [{"id": f["id"], "statement": f["statement"], "grade": f.get("grade", ""), "checked": f.get("checked", ""),
-             "source": f.get("source", ""), "expires": f.get("expires", ""),
+    hits = [{"id": f["id"], "statement": f["statement"], "level": f.get("level", ""),
+             "level_name": LEVELS.get(f.get("level", ""), ""), "grade": f.get("grade", ""),
+             "checked": f.get("checked", ""), "source": f.get("source", ""), "expires": f.get("expires", ""),
              "expired": bool(f.get("expires") and f["expires"] < today), "score": round(s, 3)}
             for s, f in rank(query, facts)[:MAX_HITS]]
-    out: dict = {"query": query, "count": len(hits), "facts": hits}
+    out: dict = {"query": query, "count": len(hits), "facts": hits,
+                 "levels": "V4 kept live (tested live, rechecked every week by itself), V3 live (tested live), V2 "
+                           "contract (service description), V1 docs (vendor documentation), V0 recheck due (past its "
+                           "check date: name that when you use it)"}
     if tag:
         out["tag"] = tag
     if grade:
         out["grade"] = grade
+    if min_level:
+        out["min_level"] = min_level
     if not hits:
         out["note"] = "no checked fact covers this; say so and name what would need to be checked"
     return out
@@ -596,14 +615,17 @@ TOOLS = [
     {"name": "tcp_facts_search", "title": "Search TCP facts",
      "annotations": dict(READ_ONLY, title="Search TCP facts"),
      "description": "Search the checked facts about T Cloud Public (TCP): services, flavors, limits, regions, APIs. "
-                    "Returns up to 20 facts with id, statement, grade (live = tested on a tenant, contract = service "
+                    "Returns up to 20 facts with id, statement, validation level (V4 kept live, V3 live, V2 "
+                    "contract, V1 docs, V0 recheck due), grade (live = tested on a tenant, contract = service "
                     "description, docs = vendor documentation), check date, source and expiry, best first. Answer "
-                    "from these facts and cite the id.",
+                    "from these facts, cite the id and name the level when it is V0.",
      "inputSchema": {"type": "object", "properties": {
          "query": {"type": "string", "maxLength": 500, "description": "a few key words, such as 'cce node flavors' "
                    "or 'rds backup retention'"},
          "tag": {"type": "string", "maxLength": 60, "description": "only facts with this tag, such as ecs or iam"},
-         "grade": {"type": "string", "enum": list(GRADES), "description": "only facts of this grade"}},
+         "grade": {"type": "string", "enum": list(GRADES), "description": "only facts of this grade"},
+         "min_level": {"type": "string", "enum": list(LEVELS), "description": "only facts of this validation level "
+                       "or higher, such as V2 for the service description and live tests"}},
          "required": ["query"], "additionalProperties": False}},
     {"name": "tcp_service_check", "title": "Check a TCP service",
      "annotations": dict(READ_ONLY, title="Check a TCP service"),
@@ -695,7 +717,7 @@ def call_tool(ds: Dataset, name, args, arg_errors_are_results: bool = False) -> 
         return _text_result(ds, {"error": err.message}, True)
     try:
         if name == "tcp_facts_search":
-            payload = facts_search(ds, args["query"], args.get("tag"), args.get("grade"))
+            payload = facts_search(ds, args["query"], args.get("tag"), args.get("grade"), args.get("min_level"))
         elif name == "tcp_service_check":
             payload = service_check(ds, args["name"])
         elif name == "tcp_price_find":
