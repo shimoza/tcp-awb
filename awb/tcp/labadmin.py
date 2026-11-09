@@ -26,6 +26,13 @@ A create is recorded with the call that deletes it: a POST whose answer carries 
 resource (DELETE PATH/ID; ECS servers by their delete action, a VPC subnet under its VPC, a permanent access key by
 its access id), and a PUT or PATCH whose path a read before it did not find (404): DELETE of the same path. A POST of
 an action, a token or a search records nothing. A delete of the session that matches a recorded one marks it removed.
+A create can be kept on purpose (task LK, 2026-11-09): `lab_call` with `keep` (a reason) or the action `keep` of
+an open run with the recorded number or id. Only on a lab tenant and only for a project whose RESOURCES.md lists a
+live row naming the tenant, or when the create names a resource listed live there (a rule of a listed security
+group). A kept create keeps its record in the state kept with its reason; `end` skips it and reports it as kept,
+and `awb owner status` shows it for labruns.KEPT_DAYS days. A delete of a resource listed live in RESOURCES.md (DELETE of
+its id, or its id in a batch delete) is refused unless the call says `delete_listed`. A PUT, PATCH or tag action on
+an existing resource records nothing, so the end never undoes it.
 `end` runs the deletes that are left in reverse order (at most END_PASSES passes with a pause while some fail and
 the time allows), reports created, removed and failed and closes the run; a second `end` tries the failed ones
 again. A run open for more than OLD_AFTER seconds or ended with failed deletes shows in `awb owner status` (and the
@@ -102,6 +109,14 @@ SETTING_LINE = ("refused: keys.conf has no lab_admin line for %s: the owner adds
                 "unlock")
 LOGIN_LINE = "refused: the admin login of %s is not loaded: the owner runs awb keys unlock"
 OPEN_LINE = "refused: run %s of %s on %s is open already: awb lab run end --tenant %s first"
+KEEP_TENANT_LINE = "refused: keep works on the lab tenants %s only"
+KEEP_ANCHOR_LINE = ("refused: keep needs a live row in RESOURCES.md of %s on %s, or the create names a resource listed "
+                    "live there")
+KEEP_REASON_LINE = "refused: keep takes a reason of 3 to %d plain characters"
+KEEP_ITEM_LINE = "refused: run %s records no live create %s: awb lab run status lists them"
+LISTED_DELETE_LINE = ("refused: the delete names %s, listed live in RESOURCES.md of %s: give delete_listed=True "
+                      "(labclient.call) and mark its row deleted after")
+REASON_MAX = 200
 
 
 class LabAdminError(Exception):
@@ -723,6 +738,93 @@ def _check_call(req: dict) -> tuple[str, str, str, dict, object, dict]:
     return method, service, path, query, body, headers
 
 
+# --------------------------------------------------------------------------- keep: a create that stays (LK)
+
+
+def listed_rows(svc, project: str) -> list[dict]:
+    """The live rows of the project's RESOURCES.md (projects._live_rows: cells lower case), [] when the project row
+    names no folder or the file cannot be read."""
+    from awb import projects
+
+    row = svc._project_row(project)
+    folder = getattr(row, "path", None)
+    if not isinstance(folder, str) or not folder:
+        return []
+    try:
+        return projects._live_rows(Path(folder))
+    except Exception:                                   # noqa: BLE001 - an unreadable file lists nothing
+        return []
+
+
+def _row_id(row: dict) -> str:
+    rid = (row.get("id") or "").strip("`").strip()
+    return rid if len(rid) >= 8 and re.match(r"^[a-z0-9_.:-]+$", rid) else ""
+
+
+def anchor(rows: list[dict], path: str, body) -> str | None:
+    """The handle (or the first 8 characters of the id) of a live listed resource the call names in its path or
+    body: the parent of a create (a security group of a rule), or None."""
+    text = (path + " " + (json.dumps(body) if body is not None else "")).lower()
+    for r in rows:
+        rid = _row_id(r)
+        if rid and rid in text:
+            return r.get("handle") or rid[:8]
+    return None
+
+
+def tenant_listed(rows: list[dict], alias: str) -> bool:
+    """True when a live row of RESOURCES.md names the tenant (its note says `on test-10491`)."""
+    return any(alias.lower() in " ".join(str(v) for v in r.values()) for r in rows)
+
+
+def listed_target(rows: list[dict], method: str, path: str, body) -> str | None:
+    """The handle of a listed live resource a delete call removes: DELETE PATH/ID by its last segment, a batch delete
+    (POST .../delete) by the ids in its body. None for any other call."""
+    segs = [s for s in path.strip("/").split("/") if s]
+    if method == "DELETE" and segs:
+        targets = {segs[-1].lower()}
+    elif method == "POST" and segs and segs[-1].lower() == "delete":
+        targets = set(re.findall(r"[0-9a-z][0-9a-z-]{7,63}", json.dumps(body).lower())) if body is not None else set()
+    else:
+        return None
+    for r in rows:
+        rid = _row_id(r)
+        if rid and rid in targets:
+            return r.get("handle") or rid[:8]
+    return None
+
+
+def keep_reason(value) -> str:
+    if not isinstance(value, str):
+        raise _refused(KEEP_REASON_LINE % REASON_MAX)
+    text = re.sub(r"[\x00-\x1f\x7f|]+", " ", value).strip()
+    if not 3 <= len(text) <= REASON_MAX:
+        raise _refused(KEEP_REASON_LINE % REASON_MAX)
+    return text
+
+
+def entry_id(c: dict) -> str:
+    """The platform id of a recorded create: the server of a batch delete or the last segment of its delete path."""
+    d = c.get("delete") or {}
+    servers = (d.get("body") or {}).get("servers") if isinstance(d.get("body"), dict) else None
+    if isinstance(servers, list) and servers and isinstance(servers[0], dict) and servers[0].get("id"):
+        return str(servers[0]["id"])
+    return str(d.get("path") or "").rstrip("/").rsplit("/", 1)[-1] or str(c.get("name") or "")
+
+
+def _keep_check(svc, project: str, alias: str, rows: list[dict], anchored: str | None) -> None:
+    if _is_customer(svc, alias):
+        raise _refused(KEEP_TENANT_LINE % " and ".join(ALLOWED))
+    if not anchored and not tenant_listed(rows, alias):
+        raise _refused(KEEP_ANCHOR_LINE % (project, alias))
+
+
+def mark_kept(c: dict, reason: str) -> dict:
+    c.update(state="kept", reason=reason, kept_at=_now(), kept_ts=time.time())
+    d = c.get("delete") or {}
+    return {"n": c.get("n"), "label": c["label"], "id": entry_id(c), "region": d.get("region"), "reason": reason}
+
+
 def _tag_after(svc, signer, run_id: str, alias: str, project: str, service: str, path: str, data, how: str,
                scope) -> str:
     """What holds for the tag of a create of the run that answered 2xx (as keys.Service._tag_after)."""
@@ -782,6 +884,15 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
         held_cred = svc.lab.find(run["id"], "cred", req.get("credential"))
         if held_cred is None:
             raise _refused("refused: credential takes only the shortened access key of a temporary key this run got")
+    rows = listed_rows(svc, project) if method not in ("GET", "HEAD") else []
+    gone = listed_target(rows, method, path, body)
+    if gone and req.get("delete_listed") is not True:
+        raise _refused(LISTED_DELETE_LINE % (gone, project))
+    anchored = anchor(rows, path, body) if method in ("POST", "PUT", "PATCH") else None
+    reason = None
+    if req.get("keep") is not None:
+        reason = keep_reason(req.get("keep"))
+        _keep_check(svc, project, alias, rows, anchored)
     drawn: list[str] = []
     if isinstance(body, (dict, list)):
         body = keys.fill(body, tenant.get("secrets", {}), drawn=drawn)
@@ -813,8 +924,14 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
         run = open_run(p, project, alias) or run
         made = creates(method, service, expanded, query, status, data, region, absent, customer)
         n = len(run.get("created", []))
+        kept = []
         for i, m in enumerate(made, start=1):
-            run.setdefault("created", []).append(dict(m, n=n + i, state="live", at=_now()))
+            entry = dict(m, n=n + i, state="live", at=_now())
+            if anchored:
+                entry["anchor"] = anchored
+            if reason:
+                kept.append(mark_kept(entry, reason))
+            run.setdefault("created", []).append(entry)
         if method in ("DELETE", "POST") and (200 <= status < 300 or status == 404):
             for c in run.get("created", []):
                 if c.get("state") in ("live", "failed") and matches_delete(c, method, service, expanded, query, body):
@@ -826,6 +943,8 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
               "path": expanded, "created": [m["label"] for m in made]}
     if tagged:
         answer["tagged"] = tagged
+    if kept:
+        answer["kept"] = kept
     shown, hidden = masks(login)
     return shorten_answer(answer, shown, svc.lab.values() + [v for c in creds for v in c] + tokens, drawn + hidden)
 
@@ -874,8 +993,8 @@ def _end(svc, run: dict, alias: str, login: dict, p) -> dict:
 def serve_run(svc, req: dict, uid: int, caller) -> dict:
     """The op lab_run: start, end or status of the runs of a project."""
     action = req.get("action")
-    if action not in ("start", "end", "status"):
-        raise _refused("a lab run action is start, end or status")
+    if action not in ("start", "end", "status", "keep"):
+        raise _refused("a lab run action is start, keep, end or status")
     p = svc.paths_fn()
     if action == "status":
         if uid == os.getuid() and not req.get("project"):
@@ -890,8 +1009,9 @@ def serve_run(svc, req: dict, uid: int, caller) -> dict:
             if run.get("state") == "open" or left:
                 rows.append({"run": run["id"], "project": run["project"], "tenant": run["tenant"],
                              "state": run["state"], "started": run.get("started"), "calls": run.get("calls", 0),
+                             "kept": sum(1 for c in run.get("created", []) if c.get("state") == "kept"),
                              "minutes": int((time.time() - float(run.get("started_ts") or time.time())) // 60),
-                             "left": [{"label": c["label"], "name": c.get("name"), "state": c["state"],
+                             "left": [{"n": c.get("n"), "label": c["label"], "name": c.get("name"), "state": c["state"],
                                        "error": c.get("error")} for c in left]})
         return {"ok": True, "runs": rows}
     project = _project(svc, req, uid, caller)
@@ -910,6 +1030,21 @@ def serve_run(svc, req: dict, uid: int, caller) -> dict:
             save(p, run)
             svc._log(uid, alias, "admin", "START", "lab-run", "-", "ok", project)
             return {"ok": True, "run": run["id"], "tenant": alias, "project": project, "started": run["started"]}
+        if action == "keep":
+            if run is None:
+                raise _refused(NO_RUN_LINE % (project, alias, alias))
+            reason = keep_reason(req.get("reason"))
+            item = str(req.get("item") or "")
+            entry = next((c for c in run.get("created", []) if c.get("state") == "live" and item and
+                          item in (str(c.get("n")), entry_id(c), str(c.get("name") or ""))), None)
+            if entry is None:
+                shown = item if re.match(r"^[A-Za-z0-9_.:-]{1,64}$", item) else "of that number"
+                raise _refused(KEEP_ITEM_LINE % (run["id"], shown))
+            _keep_check(svc, project, alias, listed_rows(svc, project), entry.get("anchor"))
+            kept = mark_kept(entry, reason)
+            save(p, run)
+            svc._log(uid, alias, "admin", "KEEP", "lab-run", "-", "ok", project)
+            return {"ok": True, "run": run["id"], "tenant": alias, "project": project, "kept": [kept]}
         if run is None:
             named = req.get("run")
             run = next((r for r in load_runs(p) if r.get("project") == project and r.get("tenant") == alias
@@ -931,6 +1066,8 @@ def serve_run(svc, req: dict, uid: int, caller) -> dict:
               "failed": [{"label": c["label"], "name": c.get("name"), "error": c.get("error"),
                           "delete": "%s %s %s" % (c["delete"]["method"], c["delete"]["service"], c["delete"]["path"])}
                          for c in created if c["state"] == "failed"],
+              "kept": [{"label": c["label"], "id": entry_id(c), "reason": c.get("reason")}
+                       for c in created if c["state"] == "kept"],
               "calls": done["calls"]}
     shown, hidden = masks(login)
     return shorten_answer(answer, shown, svc.lab.values(), hidden)

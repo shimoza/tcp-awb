@@ -8,6 +8,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - The project tag (PT): every create a project sends through the key service carries `awb-project` with the project
   code, in the create body or in one tag call after it; a create that cannot carry it lands in
   `untagged-YYYY-MM.tsv`. `awb tenant tags [ALIAS]` lists the resources per project tag next to the quotas.
+- Keep in a lab run (LK): `labclient.call(..., keep="why")` and `awb lab run keep N --reason TEXT` keep a create past
+  the end of the run, on a lab tenant and for a stand the project lists live in RESOURCES.md; the row is written
+  there, the end reports it as kept and `awb owner status` shows it for seven days. A delete of a listed resource
+  needs `delete_listed=True`. `awb lab run start` names the python for lab scripts; `awb kb add` says which flags
+  are required.
 
 ## Week 45, 2026-11-02 to 2026-11-08
 ### Added

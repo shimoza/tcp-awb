@@ -207,6 +207,15 @@ id or name, a PUT or PATCH of a path a read before did not find). The call log i
 `notes/lab-runs/<run>.log` of the project. A run open for more than two hours or ended with failed deletes shows in
 `awb owner status` and the 08:00 mail. The module docs are in `awb/tcp/labadmin.py` and `awb/labclient.py`.
 
+A project that holds a stand (a taken-over or long-lived one, listed live in its RESOURCES.md) changes it in a run
+too (LK). `labclient.call(..., keep="why")` keeps what the call creates, `awb lab run keep N --reason TEXT` keeps a
+create the run recorded already (N from `awb lab run status`). The key service allows it on a lab tenant only, for a
+project whose RESOURCES.md lists a live row naming that tenant or a live resource the create names (the security
+group of a new rule). The end skips a kept create and reports it as kept, the client writes its row in RESOURCES.md
+as live and `awb owner status` shows it for seven days. A PUT, PATCH or tag action on an existing resource records
+nothing, so the end never undoes it. A delete of a resource listed live in RESOURCES.md is refused unless the call
+says `delete_listed=True`. `awb lab run start` prints the python that runs a lab script.
+
 A large file (an IMS image of 10 to 128 GB and more) does not fit a lab call, which takes 256 KB of JSON or text, and
 the egress filter keeps the session away from OBS. Inside the open run the key service moves it itself, as a
 background job:

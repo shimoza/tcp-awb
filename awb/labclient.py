@@ -1,8 +1,16 @@
 """The lab run client of a project session (task LR): scripts call the two lab tenants through the key service.
 
     awb lab run start --tenant T [--note TEXT]    open a run of this folder's project (only on his word)
+    awb lab run keep ITEM --reason TEXT [--tenant T]   keep one recorded create (its number or id) past the end
     awb lab run end [--tenant T]                  delete what the run made, newest first; report and close it
     awb lab run status                            the open runs of this project and their leftovers
+
+A change to a stand the project holds (task LK) stays: `call(..., keep="why")` keeps the create it makes (a rule of
+a listed security group), `awb lab run keep` keeps one already recorded. The key service allows it on a lab tenant
+only, for a project whose RESOURCES.md lists a live row on that tenant or a live parent the create names; the end
+skips it and reports it as kept, `awb owner status` shows it, and this client writes its row in RESOURCES.md as live
+(KEEP_NOTE). A PUT, PATCH or tag action on an existing resource records nothing, so the end never undoes it. A delete
+of a resource listed live in RESOURCES.md needs `call(..., delete_listed=True)`, then its row is marked deleted.
 
 A script of the project imports this module with the installed Workbench's python:
 
@@ -48,6 +56,8 @@ DEFAULT_SOCKET = "/run/awb-keys/cloud.sock"
 TIMEOUT = 200.0
 """Seconds of one request: the key service's end of a run takes at most about 150 seconds of deletes."""
 MAX_ANSWER = 8 * 1024 * 1024 + 4096
+KEEP_NOTE = "kept from lab run %s on %s: %s"
+"""The note of the RESOURCES.md row of a kept create: run, tenant, reason."""
 SCRATCH = "/tmp/claude-%d"
 """The session scratch folder of a uid, where a lab obs get may write beside the project folder."""
 OBS_ENDED = ("done", "failed", "interrupted", "aborted")
@@ -192,10 +202,12 @@ def _request(obj: dict, root: Path | None = None, fds: tuple[int, ...] = ()) -> 
 
 def call(method: str, service: str, path: str, body=None, params=None, region=None, *, tenant: str | None = None,
          run: str | None = None, headers: dict | None = None, scope: str | None = None, credential: str | None = None,
-         start: Path | None = None):
+         keep: str | None = None, delete_listed: bool = False, start: Path | None = None):
     """(status, headers, body) of one call to the lab tenant of the open run. `body` is JSON (a dict or a list) or
-    a text (an OBS body); `params` the query; `scope` a project name or id for a token of that project. A refusal of
-    the key service raises LabClientError with its one line."""
+    a text (an OBS body); `params` the query; `scope` a project name or id for a token of that project; `keep` a
+    reason that keeps what the call creates past the end of the run (its row goes into RESOURCES.md);
+    `delete_listed` allows the delete of a resource listed live in RESOURCES.md. A refusal of the key service
+    raises LabClientError with its one line."""
     root = _root(start)
     tenant, run = _pick(root, tenant, run)
     query = {str(k): (v if isinstance(v, (str, list)) else str(v)) for k, v in (params or {}).items()}
@@ -206,12 +218,18 @@ def call(method: str, service: str, path: str, body=None, params=None, region=No
         req["scope"] = scope
     if credential is not None:
         req["credential"] = credential
+    if keep is not None:
+        req["keep"] = keep
+    if delete_listed:
+        req["delete_listed"] = True
     answer = _request(req, root)
     head = ["## %s %s %s %s" % (_stamp(), method.upper(), service, path)]
     head += ["region: %s" % region] if region else []
     head += ["query: %s" % json.dumps(query, ensure_ascii=False)] if query else []
     head += ["request headers: %s" % json.dumps(headers, ensure_ascii=False)] if headers else []
     head += ["request body:", _pretty(body)] if body is not None else []
+    head += ["keep: %s" % keep] if keep is not None else []
+    head += ["delete_listed: yes"] if delete_listed else []
     if not answer.get("ok"):
         log(root, run, head + ["refused: %s" % answer.get("error")])
         raise LabClientError(str(answer.get("error")))
@@ -226,8 +244,44 @@ def call(method: str, service: str, path: str, body=None, params=None, region=No
         lines += ["recorded: %s" % ", ".join(answer["created"])]
     if answer.get("tagged"):
         lines += ["project tag: %s" % answer["tagged"]]
+    for k in answer.get("kept") or []:
+        lines += ["kept: %s %s (%s), row %s in RESOURCES.md" % (k["label"], k["id"], k["reason"],
+                                                                  keep_row(root, run, tenant, k))]
     log(root, run, lines)
     return answer.get("status"), answer.get("headers") or {}, out
+
+
+def keep_row(root: Path, run: str, tenant: str, k: dict) -> str:
+    """The handle of the live row in RESOURCES.md of a kept create: the row there with its id, else a new one
+    (kind-N after the highest N of its kind)."""
+    from awb import projects
+
+    path = root / "RESOURCES.md"
+    if not path.exists():
+        path.write_text(projects._resources(_code(root)), encoding="utf-8")
+    text = path.read_text(encoding="utf-8")
+    rid = str(k.get("id") or "")
+    handles = []
+    for line in text.splitlines():
+        cells = [c.strip().strip("`") for c in line.strip().strip("|").split("|")] if line.strip().startswith("|") \
+            else []
+        if cells and rid and rid in cells:
+            return cells[0]
+        if cells:
+            handles.append(cells[0])
+    kind = re.sub(r"[^a-z0-9]+", "-", str(k.get("label") or "resource").split()[-1].lower()).strip("-") or "resource"
+    kind = kind[:-1] if kind.endswith("s") and len(kind) > 3 else kind
+    n = 1 + max([int(h.rsplit("-", 1)[1]) for h in handles if re.fullmatch(re.escape(kind) + r"-\d+", h)] + [0])
+    handle = "%s-%d" % (kind, n)
+    note = (KEEP_NOTE % (run, tenant, k.get("reason") or "-")).replace("|", "/")
+    row = "| %s | %s | %s | %s | - | - | live | %s |\n" % (handle, rid or "unknown", k.get("label") or "-",
+                                                         k.get("region") or "-", note)
+    if text and not text.endswith("\n"):
+        text += "\n"
+    tmp = path.with_name(".RESOURCES.md.tmp")
+    tmp.write_text(text + row, encoding="utf-8")
+    os.replace(tmp, path)
+    return handle
 
 
 # --------------------------------------------------------------------------- large objects (LO): awb lab obs
@@ -407,17 +461,22 @@ def obs_main(argv: list[str]) -> int:
         return EXIT_REFUSED
 
 
-# --------------------------------------------------------------------------- awb lab run start|end|status
+# --------------------------------------------------------------------------- awb lab run start|keep|end|status
 
 
 def _parser(action: str) -> argparse.ArgumentParser:
     from awb.cli import SafeParser
 
     helps = {"start": "open a lab run of this folder's project on a lab tenant, only on his word",
+             "keep": "keep one recorded create of the open run past its end (a change to a stand the project holds); "
+                     "its row goes into RESOURCES.md as live",
              "end": "delete what the run made, newest first, report created, removed and failed, close the run",
              "status": "the open runs of this project and their leftovers"}
     ap = SafeParser(prog="awb lab run %s" % action, description=helps[action])
-    if action in ("start", "end"):
+    if action == "keep":
+        ap.add_argument("item", help="the number of the recorded create (awb lab run status) or its id")
+        ap.add_argument("--reason", required=True, help="why it stays, one line")
+    if action in ("start", "end", "keep"):
         ap.add_argument("--tenant", required=action == "start", default=None,
                         help="test-10491, test-10497 or a granted customer tenant in write mode (end: default the "
                              "one open run)")
@@ -429,8 +488,8 @@ def _parser(action: str) -> argparse.ArgumentParser:
 
 def run_main(argv: list[str]) -> int:
     action = argv[0] if argv else ""
-    if action not in ("start", "end", "status"):
-        print("awb lab run: start, end or status", file=sys.stderr)
+    if action not in ("start", "keep", "end", "status"):
+        print("awb lab run: start, keep, end or status", file=sys.stderr)
         return EXIT_REFUSED
     ap = _parser(action)
     try:
@@ -449,6 +508,8 @@ def run_main(argv: list[str]) -> int:
             raise LabClientError("this folder names no project; give --project")
         if action == "start":
             return _start(root, project, args.tenant, args.note)
+        if action == "keep":
+            return _keep(root, project, args.tenant, args.item, args.reason)
         return _end(root, project, args.tenant)
     except LabClientError as err:
         print("awb lab run: %s" % err, file=sys.stderr)
@@ -466,6 +527,24 @@ def _start(root: Path | None, project: str, tenant: str, note: str) -> int:
         log(root, run, ["# lab run %s of %s on %s, opened %s" % (run, project, tenant, answer.get("started")),
                         "note: %s" % note if note else "note: -"])
     print("run %s open on %s for %s: scripts call through awb.labclient, then awb lab run end" % (run, tenant, project))
+    print("run a script with %s (plain python3 has no awb module)" % (sys.executable or "/opt/tcp-awb/venv/bin/python3"))
+    return EXIT_OK
+
+
+def _keep(root: Path | None, project: str, tenant: str | None, item: str, reason: str) -> int:
+    if root is None:
+        raise LabClientError("keep runs from the project folder: its RESOURCES.md gets the row")
+    tenant, run = _pick(root, tenant, None)
+    answer = _request({"op": "lab_run", "action": "keep", "project": project, "tenant": tenant, "run": run,
+                       "item": item, "reason": reason}, root)
+    if not answer.get("ok"):
+        raise LabClientError(str(answer.get("error")))
+    for k in answer.get("kept") or []:
+        handle = keep_row(root, run, tenant, k)
+        log(root, run, ["## %s keep %s %s (%s), row %s in RESOURCES.md" % (_stamp(), k["label"], k["id"],
+                                                                         k["reason"], handle)])
+        print("kept %s %s as %s: the end of run %s leaves it, RESOURCES.md lists it live" % (k["label"], k["id"],
+                                                                                          handle, run))
     return EXIT_OK
 
 
@@ -486,15 +565,20 @@ def _end(root: Path | None, project: str, tenant: str | None) -> int:
         lines = ["## %s end of run %s" % (_stamp(), run)]
         lines += ["delete %s %s %s: %s (%s)" % (c["method"], c["service"], c["path"], c["status"], c["label"])
                   for c in answer.get("calls") or []]
-        lines += ["created %d, removed %d, failed %d" % (answer.get("created", 0), len(answer.get("removed") or []),
-                                                          len(failed))]
+        lines += ["kept %s %s: %s" % (c["label"], c["id"], c.get("reason") or "-") for c in answer.get("kept") or []]
+        lines += ["created %d, removed %d, failed %d, kept %d" % (answer.get("created", 0),
+                                                                   len(answer.get("removed") or []), len(failed),
+                                                                   len(answer.get("kept") or []))]
         log(root, run, lines)
         try:
             _marker(root, tenant).unlink()
         except OSError:
             pass
-    print("run %s ended on %s: created %d, removed %d, failed %d" % (run, tenant, answer.get("created", 0),
-                                                                      len(answer.get("removed") or []), len(failed)))
+    print("run %s ended on %s: created %d, removed %d, failed %d, kept %d" % (
+        run, tenant, answer.get("created", 0), len(answer.get("removed") or []), len(failed),
+        len(answer.get("kept") or [])))
+    for c in answer.get("kept") or []:
+        print("  kept     %s %s: %s" % (c["label"], c["id"], c.get("reason") or "-"))
     for c in answer.get("removed") or []:
         print("  removed  %s %s" % (c["label"], c.get("name") or ""))
     for c in failed:
@@ -514,10 +598,10 @@ def _status(project: str | None, root: Path | None = None) -> int:
         print("no open lab run and no leftovers%s" % (" of %s" % project if project else ""))
         return EXIT_OK
     for r in rows:
-        print("%s  %s on %s  %s, %d min, %d calls, %d left" % (r["run"], r["project"], r["tenant"], r["state"],
-                                                                r.get("minutes", 0), r.get("calls", 0),
-                                                                len(r.get("left") or [])))
+        print("%s  %s on %s  %s, %d min, %d calls, %d left, %d kept" % (
+            r["run"], r["project"], r["tenant"], r["state"], r.get("minutes", 0), r.get("calls", 0),
+            len(r.get("left") or []), r.get("kept", 0)))
         for c in r.get("left") or []:
-            print("    %s %s %s%s" % (c["state"], c["label"], c.get("name") or "",
+            print("    #%s %s %s %s%s" % (c.get("n") or "-", c["state"], c["label"], c.get("name") or "",
                                      " (%s)" % c["error"] if c.get("error") else ""))
     return EXIT_OK

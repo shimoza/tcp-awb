@@ -44,8 +44,8 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   several: pick or ask, then `--id ID`. Results leave by `awb xchg put FILE` as `<code>-<kind word>-<language>.<ext>`; `--image` only, no console image.
 - `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role lab]` reaches the test tenants (`awb cloud tenants`); a password only as `{{secret:NAME}}`.
   A lab run (test-10491, test-10497) starts only on his word ('прогони', 'проверь на тенанте', 'run'): awb lab run start, scripts call through awb.labclient,
-  awb lab run end, then report what was created and removed. Never ask him for logins. Its logs keep ids; logins masked, tokens cut to 8 characters.
-  Every create carries the tag awb-project = the project code: the key service adds it; a Terraform set gives it to each resource with tags.
+  awb lab run end, then report created, removed and kept (a change a held stand keeps: labclient.call(..., keep="why"); a listed delete: delete_listed=True).
+  Never ask him for logins. Logs keep ids, mask logins, cut tokens to 8. Every create carries the tag awb-project = the project code (key service, Terraform).
 - `awb kb find|add|scope`, `awb ledger add`, `awb report --by KEY`, `awb career add`. `awb check` and `awb write check` before a deliverable
   leaves the project; a review only on his word ("ревью" level 1, "глубокое ревью" level 2), a put never waits for it. The commit hook runs `awb gate`.
 ## Writing

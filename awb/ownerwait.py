@@ -265,7 +265,8 @@ def notes(path: Path | None = None, now: datetime.datetime | None = None, p: con
 
 def lab_run_items(p: config.Paths, now: float | None = None) -> list[Item]:
     """The lab runs that need him: open for more than two hours or ended with failed deletes (labruns.attention),
-    each with its leftovers by kind and the command the project session runs."""
+    each with its leftovers by kind and the command the project session runs; then every create kept on purpose
+    within labruns.KEPT_DAYS days (task LK) with its tenant, kind, the first 8 characters of its id and the reason."""
     from awb import labruns
 
     try:
@@ -284,6 +285,13 @@ def lab_run_items(p: config.Paths, now: float | None = None) -> list[Item]:
                                                                        "" if failed == 1 else "s", kinds)
         out.append(Item(str(run.get("project") or "?"), _short(text), WHERE_SESSION,
                         "awb lab run end --tenant %s" % run["tenant"]))
+    try:
+        kept = labruns.kept(p, now)
+    except Exception:
+        kept = []
+    for k in kept:
+        text = "lab run on %s kept %s %s: %s" % (k["tenant"], k["label"], str(k["id"])[:8], k["reason"])
+        out.append(Item(str(k.get("project") or "?"), _short(text), WHERE_SESSION, None))
     return out
 
 

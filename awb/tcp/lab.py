@@ -1784,7 +1784,7 @@ def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
     argv = sys.argv[1:] if argv is None else list(argv)
-    if argv[:1] == ["run"] and argv[1:2] in (["start"], ["end"], ["status"]):
+    if argv[:1] == ["run"] and argv[1:2] in (["start"], ["keep"], ["end"], ["status"]):
         # LR: a lab run of a session's own scripts with the admin login of a lab tenant (no recipe has these names)
         from awb import labclient
 

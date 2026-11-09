@@ -1790,7 +1790,10 @@ def _parser():
     ap = SafeParser(prog="awb kb", description="The knowledge base: one checked fact per file.")
     sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
 
-    s = sub.add_parser("add", help="check a fact and add it")
+    s = sub.add_parser("add", help="check a fact and add it",
+                       usage="awb kb add --scope SCOPE --tag TAG --grade GRADE --class CLS --source SOURCE "
+                             "[--tried TEXT] [--checked DATE] [--force-new] STATEMENT\n"
+                             "       required: --scope, --tag, --grade, --class, --source and the statement")
     s.add_argument("--scope", required=True, help="tcp or hcs")
     s.add_argument("--tag", action="append", required=True, help="a tag of rules/tags.txt (repeat or comma list)")
     s.add_argument("--grade", required=True, help=", ".join(GRADES))

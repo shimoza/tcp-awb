@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 OLD_AFTER = 2 * 3600
+KEPT_DAYS = 7
+"""Days a kept create of a run (task LK) shows in `awb owner status` after it was kept."""
 RUN_RE = re.compile(r"^run-\d{8}-\d{6}-[a-z0-9]{4}$")
 
 
@@ -83,4 +85,21 @@ def attention(p, now: float | None = None) -> list[dict]:
             out.append(dict(run, why="open", hours=int((now - float(run["started_ts"])) // 3600), left=left))
         elif run.get("state") == "ended" and any(c.get("state") == "failed" for c in left):
             out.append(dict(run, why="failed", left=left))
+    return out
+
+
+def kept(p, now: float | None = None) -> list[dict]:
+    """The creates kept on purpose (task LK) within KEPT_DAYS days: project, tenant, run, label, id, reason."""
+    now = time.time() if now is None else now
+    out = []
+    for run in load_runs(p):
+        for c in run.get("created", []):
+            if c.get("state") == "kept" and now - float(c.get("kept_ts") or 0) <= KEPT_DAYS * 86400:
+                d = c.get("delete") or {}
+                rid = str(d.get("path") or "").rstrip("/").rsplit("/", 1)[-1]
+                servers = (d.get("body") or {}).get("servers") if isinstance(d.get("body"), dict) else None
+                if isinstance(servers, list) and servers and isinstance(servers[0], dict):
+                    rid = str(servers[0].get("id") or rid)
+                out.append({"project": run.get("project"), "tenant": run.get("tenant"), "run": run.get("id"),
+                            "label": c.get("label"), "id": rid, "reason": c.get("reason") or ""})
     return out
