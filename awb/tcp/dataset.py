@@ -470,7 +470,7 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
               "orderable services. Made to be dropped into any AI assistant. Prices are not part of the dataset: "
               "they come live from the public price API with --live." % n_facts),
         ("p", "%d facts were tested live on a TCP tenant, %d come from the vendor documentation and %d from the "
-              "service description (revision %s). No fact from hearsay, no expired fact, no customer, no project, "
+              "service description (revision %s). No fact from hearsay, no customer, no project, "
               "no credential." % (grades.get("live", 0), grades.get("docs", 0), grades.get("contract", 0), revision)),
         ("p", sources_text(grades.get("docs", 0), n_mirror)),
         ("h2", "Three steps"),
@@ -681,6 +681,10 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
     # and one that names a service the service description no longer offers by facts_check below.
     records, left = kb.export(p, today=today, include_expired=True)
     refutes = recheck.refuted()
+    try:
+        asked = recheck.requested_dates()
+    except Exception:                                   # noqa: BLE001 - no request file: no request
+        asked = {}
     blocks = {e.id: e.block for e in kb.load(p)}
     left["contradicted by a recheck"] = 0
     kept = []
@@ -688,7 +692,8 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
         if refutes.get(r["id"], "") >= r["checked"]:
             left["contradicted by a recheck"] += 1
             continue
-        r["recheck_due"] = bool(r.get("expired"))
+        # a trigger of the refresh (release note, new service description, changed docs page) makes it due too
+        r["recheck_due"] = bool(r.get("expired")) or any(r["checked"] < d <= day for d in asked.get(r["id"], ()))
         b = blocks.get(r["id"], {})
         r["level"] = kb.level(r["grade"], due=r["recheck_due"], tier=b.get("tier", ""), needs=b.get("needs", "none"))
         kept.append(r)

@@ -381,3 +381,14 @@ def test_the_work_user_may_not_run_the_weekly_refresh(home, monkeypatch, capsys)
     assert refresh.main(["weekly"]) == 2
     assert "the owner's" in capsys.readouterr().err
     assert not Path(ownerwait.refresh_state_path()).exists()
+
+
+def test_a_fact_a_trigger_hit_is_v0_in_the_dataset_until_it_is_checked_again(home, facts, tmp_path):
+    kept = entry("ECS flavor s9.medium.1 is offered in eu-de-01", READ_BLOCK,
+                 checked=(DS_DAY - datetime.timedelta(days=2)).isoformat(), today=DS_DAY)
+    recheck.request([(kept.id, (DS_DAY - datetime.timedelta(days=1)).isoformat(), "release note 2026-10-07 ecs")])
+    recheck.request([(facts.id, DS_DAY.isoformat(), "release note 2026-10-08 ecs")])   # checked that day: stays
+    built = dataset.build(home, out=tmp_path / "ds", today=DS_DAY, live=False)
+    rows = {json.loads(x)["id"]: json.loads(x) for x in (built.folder / "facts.jsonl").read_text().splitlines()[1:]}
+    assert rows[kept.id]["level"] == "V0" and rows[kept.id]["recheck_due"] is True
+    assert rows[facts.id]["level"] == "V3" and rows[facts.id]["recheck_due"] is False
