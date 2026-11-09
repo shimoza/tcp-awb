@@ -61,6 +61,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from awb import codes, labruns, labsecrets
+from awb.tcp import projecttags
 
 SETTING = "lab_admin"
 ALLOWED = ("test-10491", "test-10497")
@@ -722,6 +723,27 @@ def _check_call(req: dict) -> tuple[str, str, str, dict, object, dict]:
     return method, service, path, query, body, headers
 
 
+def _tag_after(svc, signer, run_id: str, alias: str, project: str, service: str, path: str, data, how: str,
+               scope) -> str:
+    """What holds for the tag of a create of the run that answered 2xx (as keys.Service._tag_after)."""
+    if how == "after":
+        call = projecttags.after_call(service, path, data, project)
+        if call is None:
+            how = "untagged (no id in the answer)"
+        else:
+            try:
+                st = _send(svc, signer, run_id, call[0], call[1], call[2], {}, call[3], {}, scope, None, None)[0]
+                if 200 <= st < 300:
+                    return "after"
+                how = "untagged (tag call %s)" % st
+            except LabAdminError:
+                how = "untagged (tag call failed)"
+    if how == "inline":
+        return how
+    projecttags.note_untagged(alias, project, service, path, how)
+    return "untagged"
+
+
 def serve_call(svc, req: dict, uid: int, caller) -> dict:
     """The op lab_call: one call of a session inside its open run."""
     from awb.tcp import keys
@@ -764,6 +786,10 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
     if isinstance(body, (dict, list)):
         body = keys.fill(body, tenant.get("secrets", {}), drawn=drawn)
     signer = auth(svc, alias, login, region)
+    tagged = None
+    if method in ("POST", "PUT", "PATCH"):
+        # PT: every create of the run carries the awb-project tag of its project (awb/tcp/projecttags.py)
+        body, tagged = projecttags.inject(method, service, path, body, project)
     absent = False
     try:
         if method in ("PUT", "PATCH") and not held_token and not held_cred:
@@ -776,6 +802,8 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
         svc._log(uid, alias, "admin", method, service, region, "failed", project)
         raise _refused(str(err)) from None
     data, text, cut = _parse(service, status, raw)
+    if tagged and 200 <= status < 300:
+        tagged = _tag_after(svc, signer, run["id"], alias, project, service, path, data, tagged, scope)
     tokens, creds = _temporaries(rh, data)
     with svc.lab.lock:
         for t in tokens:
@@ -796,6 +824,8 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
     svc._log(uid, alias, "admin", method, service, region, status, project)
     answer = {"ok": True, "run": run["id"], "status": status, "headers": rh, "data": data, "text": text, "cut": cut,
               "path": expanded, "created": [m["label"] for m in made]}
+    if tagged:
+        answer["tagged"] = tagged
     shown, hidden = masks(login)
     return shorten_answer(answer, shown, svc.lab.values() + [v for c in creds for v in c] + tokens, drawn + hidden)
 

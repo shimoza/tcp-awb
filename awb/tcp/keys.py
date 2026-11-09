@@ -90,7 +90,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from awb import codes, config, obs
-from awb.tcp import readonly
+from awb.tcp import projecttags, readonly
 
 CALL_SOCKET_ENV = "AWB_KEYS_SOCKET"
 ADMIN_SOCKET_ENV = "AWB_KEYS_ADMIN"
@@ -1189,6 +1189,10 @@ class Service:
             body = fill(body, tenant.get("secrets", {}), drawn=drawn)
         keys = obs.Keys(pair["ak"], pair["sk"])
         client = cloud.Client(keys, region, endpoint=self.endpoint, label=alias, timeout=60.0)
+        # PT: every create of a project carries its awb-project tag (awb/tcp/projecttags.py)
+        tagged = None
+        if method in WRITE_METHODS and isinstance(project, str) and _PROJECT_RE.match(project):
+            body, tagged = projecttags.inject(method, service, path, body, project)
         try:
             r = client.request(method, service, path, query=query or None, body=body)
             answer = {"ok": True, "status": r.status, "data": r.data, "text": r.text, "size": r.size,
@@ -1196,7 +1200,31 @@ class Service:
         except cloud.CloudError as err:
             answer = {"ok": True, "status": err.status or 0, "data": None, "text": str(err)}
         self._log(uid, alias, role, method, service, region, answer["status"], project)
+        if tagged and 200 <= int(answer["status"] or 0) < 300:
+            answer["tagged"] = self._tag_after(client, alias, project, service, path, answer.get("data"), tagged)
         return self._mask(answer, tenant, drawn)
+
+    def _tag_after(self, client, alias: str, project: str, service: str, path: str, data, how: str) -> str:
+        """The tag of a create that answered 2xx: "inline" as sent, the tag call of an "after" service, or one
+        untagged line. Returns what holds: inline, after, untagged."""
+        from awb.tcp import cloud
+
+        if how == "after":
+            call = projecttags.after_call(service, path, data, project)
+            if call is not None:
+                try:
+                    r = client.request(call[0], call[1], call[2], body=call[3])
+                    if 200 <= int(r.status or 0) < 300:
+                        return "after"
+                    how = "untagged (tag call %s)" % r.status
+                except cloud.CloudError as err:
+                    how = "untagged (tag call %s)" % (err.status or "failed")
+            else:
+                how = "untagged (no id in the answer)"
+        if how == "inline":
+            return how
+        projecttags.note_untagged(alias, project, service, path, how)
+        return "untagged"
 
     def _readonly_caller(self, uid: int, caller, alias: str, project: str) -> None:
         """Who may reach the read-only tenant `alias` (RT): the owner, never the console, a session only from a

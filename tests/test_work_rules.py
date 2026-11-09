@@ -41,6 +41,7 @@ def test_the_work_rules_stay_within_their_line_budget():
     "At most one command block per reply",  # T5: one block for him at most
     "one line naming the user and the command",  # T5: a held take or a blocked intake is one line, no explanation
     "goes through `awb paste`, not into the chat",  # T8: terminal output lands in a file, masked
+    "the tag awb-project = the project code",  # PT: every create of a project carries its tag
 ])
 def test_the_work_rules_carry_each_rule(must):
     assert must in text()

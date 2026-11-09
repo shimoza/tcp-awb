@@ -3,7 +3,13 @@
 What changed in the Architect Workbench, one entry per week (ISO week, Monday to Sunday), newest first. The form
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and projects appear as codes only.
 
-## Week 45, 2026-11-02 to 2026-11-08 (in progress)
+## Week 46, 2026-11-09 to 2026-11-15 (in progress)
+### Added
+- The project tag (PT): every create a project sends through the key service carries `awb-project` with the project
+  code, in the create body or in one tag call after it; a create that cannot carry it lands in
+  `untagged-YYYY-MM.tsv`. `awb tenant tags [ALIAS]` lists the resources per project tag next to the quotas.
+
+## Week 45, 2026-11-02 to 2026-11-08
 ### Added
 
 - `awb write check` blocks a line on what was not tested, verified or proven in mode mail and doc (English, German and Russian forms, class weakness), and the project rules and the drafting skill say it: a text for others says what to do and what holds, the state of an internal run stays in STATE.md and the chat. Tests: `tests/test_voice_tells.py`.

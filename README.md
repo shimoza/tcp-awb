@@ -934,6 +934,14 @@ not bound). `awb tenant cost note test-1/ecs-3 "kept by the owner: an old-world 
 of the waste. A tenant whose read key cannot list a kind is named as unknown, never priced as empty. The snapshot
 runs the estimate after it and the console gets it as `cost` of GET /api/tenants.
 
+Every create a project sends through the key service (`awb cloud call --role lab`, a recipe, a script of a lab run)
+carries the tag `awb-project` with the project code. A service whose create body takes tags gets it there (ECS,
+EVS, ELB, CCE nodes and the others in awb/tcp/projecttags.py); a VPC, a subnet and an elastic IP get one tag call right
+after the create. Any other create passes and lands as one line in `<shared>/tenants/untagged-YYYY-MM.tsv`; the
+answer says `project tag inline|after|untagged`. `awb tenant tags [ALIAS]` lists the servers, disks and elastic IPs
+per project tag from the latest snapshot, the creates without the tag this month and the quotas now (ECS limits and
+VPC quotas, read with the read key), each at 80 % marked near and at 100 % full.
+
 ### Windows lab machines (WL)
 
 Your own Windows laptop serves as a lab (Hyper-V, an evaluation VM of Windows Server, no customer data). Part 1 is

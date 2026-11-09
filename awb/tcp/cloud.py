@@ -542,6 +542,9 @@ def _through_service(args) -> int:
         print(answer["text"])
     if answer.get("cut"):
         print(cut_line(int(answer.get("size") or 0)), file=sys.stderr)
+    if answer.get("tagged"):
+        # PT: what holds for the awb-project tag of a create (awb/tcp/projecttags.py)
+        print("awb cloud: project tag %s" % answer["tagged"], file=sys.stderr)
     status = int(answer.get("status") or 0)
     if not 200 <= status < 300:
         print("awb cloud: HTTP %d" % status, file=sys.stderr)

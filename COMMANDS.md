@@ -1731,6 +1731,11 @@ what ran on a tenant on a day
 what a project runs and ran on every tenant
 - `CODE`
 
+### `awb tenant tags [ALIAS]`
+
+the resources per awb-project tag, the creates without it and the quotas now
+- `[ALIAS]`
+
 ### `awb tenant cost [--json]`
 
 the monthly estimate of every tenant from its latest snapshot and the live price API (owner side)

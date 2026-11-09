@@ -45,9 +45,9 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 - `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role lab]` reaches the test tenants (`awb cloud tenants`); a password only as `{{secret:NAME}}`.
   A lab run (test-10491, test-10497) starts only on his word ('прогони', 'проверь на тенанте', 'run'): awb lab run start, scripts call through awb.labclient,
   awb lab run end, then report what was created and removed. Never ask him for logins. Its logs keep ids; logins masked, tokens cut to 8 characters.
+  Every create carries the tag awb-project = the project code: the key service adds it; a Terraform set gives it to each resource with tags.
 - `awb kb find|add|scope`, `awb ledger add`, `awb report --by KEY`, `awb career add`. `awb check` and `awb write check` before a deliverable
   leaves the project; a review only on his word ("ревью" level 1, "глубокое ревью" level 2), a put never waits for it. The commit hook runs `awb gate`.
-
 ## Writing
 - Write T Cloud Public (TCP) at the first mention, TCP after it, never OTC; host names and identifiers stay as they are.
 - A text for others says what to do and what holds. Never a line that a step still lacks a test or a proof, never the

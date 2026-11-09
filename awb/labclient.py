@@ -224,6 +224,8 @@ def call(method: str, service: str, path: str, body=None, params=None, region=No
         lines += ["answer body:", _pretty(out)]
     if answer.get("created"):
         lines += ["recorded: %s" % ", ".join(answer["created"])]
+    if answer.get("tagged"):
+        lines += ["project tag: %s" % answer["tagged"]]
     log(root, run, lines)
     return answer.get("status"), answer.get("headers") or {}, out
 

@@ -16,6 +16,7 @@
     awb tenant history ALIAS [--project CODE] [--since YYYY-MM-DD]      what appeared, changed and went, when
     awb tenant at ALIAS YYYY-MM-DD                                      what ran there on a day
     awb tenant project CODE                                             what a project runs and ran, on every tenant
+    awb tenant tags [ALIAS]                                             resources per project tag next to the quotas (PT)
     awb tenant cost [--json]                                            owner side: the monthly estimate (B-048)
     awb tenant cost note HANDLE TEXT                                    owner side: a note on one item of it
 
@@ -968,6 +969,8 @@ def main(argv: list[str] | None = None) -> int:
     t_.add_argument("date")
     pr = sub.add_parser("project", help="what a project runs and ran on every tenant")
     pr.add_argument("code")
+    tg = sub.add_parser("tags", help="the resources per awb-project tag, the creates without it and the quotas now")
+    tg.add_argument("alias", nargs="?")
     co = sub.add_parser("cost", help="the monthly estimate of every tenant from its latest snapshot and the live "
                                      "price API (owner side)")
     co.add_argument("--json", action="store_true", help="print the estimate as JSON, as kept for the console")
@@ -1039,6 +1042,10 @@ def main(argv: list[str] | None = None) -> int:
             if config.is_work_user():
                 raise TenantError("the cost estimate is made on the owner side")
             return _cost_module().command(p, args)
+        elif args.command == "tags":
+            from awb.tcp import tenanttags
+
+            print("\n".join(tenanttags.command(p, args.alias, today)))
         elif args.command == "list":
             print("\n".join(list_lines(p, today) + customer_lines(p)))
         elif args.command == "now":
