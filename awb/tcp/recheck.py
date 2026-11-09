@@ -48,8 +48,11 @@ A test of a read tier reads `[N:]PATH OP VALUE`: N the number of the call (1 whe
 dotted path into the call's answer in which `list[key=value]` picks the first item whose key has that value (a dot
 inside the brackets is part of the value), OP one of `is`, `is not`, `has`, `lacks` (has: the value holds VALUE as a
 part of its text or as an item of its list), VALUE the rest of the line. Example:
-`flavors[name=s9.medium.1].os-extra_specs.cond:operation:az has eu-de-01(normal)`. The verdict: a call that was
-refused, did not answer or answered other than 2xx is undecided; a line that is not a test is undecided; a control
+`flavors[name=s9.medium.1].os_extra_specs.cond:operation:az has eu-de-01(normal)`; a selector may hold spaces
+(`roles[display_name=OBS Buckets Viewer].type is XA`). A block may name `region: eu-nl` (the calls go to that region
+of the tenant, else to its first) and `expect: 404` or `expect: 2:403` (statuses other than 2xx that count as an
+answer of that call, so a missing endpoint is proven by its status). The verdict: a call that was refused, did not
+answer or answered other than 2xx or an expected status is undecided; a line that is not a test is undecided; a control
 that does not hold is undecided; confirms true and refutes false is confirmed, the reverse refuted, anything else
 undecided.
 
@@ -99,7 +102,7 @@ _REASON_CHARS = 160
 DUE_DAYS = 8
 """A weekly run takes every entry that expires within the 7 days to the next run plus 1 day of margin (task KS)."""
 VERDICTS = ("confirmed", "refuted", "undecided")
-_TEST_RE = re.compile(r"^(?:(?P<n>[1-9]):)?(?P<path>\S+) (?P<op>is not|is|has|lacks) (?P<value>.+)$")
+_TEST_RE = kb._READ_TEST_RE
 _STATE_RE = re.compile(r"^On \d{4}-\d{2}-\d{2} the state is: ")
 _URL_QUERY_RE = re.compile(r"(https?://[^\s\"'<>?#]+)[?#][^\s\"'<>]*")
 
@@ -289,12 +292,14 @@ def holds(test, answers: list[dict]) -> bool | None:
 
 
 def read_verdict(block: dict, answers: list[dict]) -> tuple[str, str]:
-    """(verdict, why) of a read tier from its answers."""
+    """(verdict, why) of a read tier from its answers. A status the expect line names for a call counts as an
+    answer of that call."""
+    exp = kb.expected(block["expect"]) if block.get("expect") else {}
     for i, a in enumerate(answers, start=1):
         if not a.get("ok"):
             return "undecided", "call %d was refused by the key service" % i
         st = int(a.get("status") or 0)
-        if not 200 <= st < 300:
+        if not 200 <= st < 300 and st not in exp.get(i, ()):
             return "undecided", "call %d answered %s" % (i, st or "nothing")
     results = {}
     for key in ("confirms", "refutes", "control"):
@@ -467,7 +472,8 @@ class Recheck:
         for i, (method, service, path, query) in enumerate(calls, start=1):
             try:
                 a = self.send({"op": "call", "tenant": self.tenant, "role": "read", "method": method,
-                               "service": service, "path": path, "region": None, "query": query, "body": None,
+                               "service": service, "path": path, "region": e.block.get("region"),
+                               "query": query, "body": None,
                                "project": self.project})
             except Exception as exc:            # no answer: a timeout, a socket gone; undecided, never confirmed
                 a = {"ok": True, "status": 0, "data": None, "text": "no answer (%s)" % type(exc).__name__}

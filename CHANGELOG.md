@@ -5,6 +5,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ## Week 46, 2026-11-09 to 2026-11-15 (in progress)
 ### Added
+- RB: a read check block can name `region` (the calls go to that region of the tenant) and `expect` (4xx statuses that count as an answer, so a missing endpoint is proven by its 404); a test path may hold spaces inside a selector; `kb how` no longer reads a path such as `subnets.0.id` in the calls or test lines as a web address.
 - The project tag (PT): every create a project sends through the key service carries `awb-project` with the project
   code, in the create body or in one tag call after it; a create that cannot carry it lands in
   `untagged-YYYY-MM.tsv`. `awb tenant tags [ALIAS]` lists the resources per project tag next to the quotas.

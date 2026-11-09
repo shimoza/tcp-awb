@@ -120,12 +120,29 @@ decided to be required, never become required by being appended."""
 SEPARATOR = "---"
 # the check block: what a run sends to prove the statement again, after the statement (design F4, section 1)
 CHECK_SEPARATOR = "--- check"
-CHECK_KEYS = ("tier", "event", "calls", "confirms", "refutes", "control", "needs")
+CHECK_KEYS = ("tier", "event", "region", "calls", "expect", "confirms", "refutes", "control", "needs")
 TIERS = ("read", "write", "decision", "none")
 _READ_CALL_RE = re.compile(r"(?:GET|HEAD) [a-z0-9][a-z0-9-]* /\S*")
-_READ_TEST_RE = re.compile(r"^(?:(?P<n>[1-9]):)?(?P<path>\S+) (?P<op>is not|is|has|lacks) (?P<value>.+)$")
+_READ_TEST_RE = re.compile(r"^(?:(?P<n>[1-9]):)?(?P<path>(?:[^\s\[]|\[[^\]]*\])+) (?P<op>is not|is|has|lacks) "
+                           r"(?P<value>.+)$")
 """A test line of a read tier as the recheck run reads it (awb/tcp/recheck.py, the same form): the number of the
-call, a path into its answer or `status`, an operator and a value."""
+call, a path into its answer or `status` (a selector in brackets may hold spaces, such as a role name), an operator
+and a value."""
+_REGION_RE = re.compile(r"[a-z]{2}-[a-z]{2,}(?:-[0-9]{1,2})?")
+"""The region a read tier sends its calls to (`region: eu-nl`); without it the tenant's first region."""
+_EXPECT_RE = re.compile(r"(?:[1-9]:)?4[0-9]{2}(?:, ?(?:[1-9]:)?4[0-9]{2})*")
+"""The answers other than 2xx a read tier takes as an answer (`expect: 404` or `expect: 2:403, 2:404`): a fact that an
+endpoint is missing or refused is proven by its status; any other status than 2xx or one named here is undecided."""
+
+
+def expected(value: str) -> dict[int, set[int]]:
+    """{call number: statuses} of an expect line; a code without a number belongs to call 1."""
+    out: dict[int, set[int]] = {}
+    for part in value.split(","):
+        n, colon, code = part.strip().partition(":")
+        call, st = (int(n), int(code)) if colon else (1, int(n))
+        out.setdefault(call, set()).add(st)
+    return out
 _RECIPE_CALL_RE = re.compile(r"recipe ([a-z0-9][a-z0-9-]{0,63})((?: [a-z_][a-z0-9_]*=\S+)*)")
 ENTRIES = "entries"
 INDEX = "INDEX.md"
@@ -434,8 +451,11 @@ def _record_block(text: str, hits: list[dict]) -> None:
         pass
 
 
-def text_problems(label: str, text: str, register_path: Path, *, language: bool = True) -> list[str]:
-    """Why `text` may not go into the knowledge base, as messages that name `label` and never the text."""
+def text_problems(label: str, text: str, register_path: Path, *, language: bool = True,
+                  paths: bool = False) -> list[str]:
+    """Why `text` may not go into the knowledge base, as messages that name `label` and never the text. With `paths`
+    (the calls and test lines of a check block) a hit of the class url is not a reason: a path into an answer such as
+    `subnets.0.id` reads as a web address; every other class of the name check still is."""
     norm = normalize.normalize(text).text
     out: list[str] = []
     if _cyrillic(norm):
@@ -445,6 +465,8 @@ def text_problems(label: str, text: str, register_path: Path, *, language: bool 
         if german >= MIN_GERMAN and german / total > GERMAN_LIMIT:
             out.append("%s is not in English (%d of %d words are German function words)" % (label, german, total))
     hits = _name_hits(text, register_path)
+    if paths:
+        hits = [h for h in hits if not (isinstance(h, dict) and h.get("cls") == "url")]
     if hits:
         _record_block(text, hits)
         by_cls: dict[str, int] = {}
@@ -684,7 +706,8 @@ def block_problems(check: Sequence[tuple[str, str]]) -> list[str]:
     write tier says what confirms and what refutes; `needs` other than none means the tier decision or none. A read
     tier's test lines must be able to tell something: a line that tests `status` alone proves nothing (a call that
     does not answer 2xx is undecided before any test runs) and a confirms line that equals the control line has no
-    control (review of 2026-10-16, finding R3)."""
+    control (review of 2026-10-16, finding R3). `region` and `expect` belong to a read tier only; with `expect` a
+    status test of a call that names its status stands (a missing endpoint proven by its 404)."""
     b = dict(check)
     out: list[str] = ["check %s is longer than %d characters" % (k, MAX_LINE) for k, v in check if len(v) > MAX_LINE]
     tier = b.get("tier")
@@ -714,12 +737,21 @@ def block_problems(check: Sequence[tuple[str, str]]) -> list[str]:
         parts = [c.strip() for c in calls.split(";")]
         if not all(_READ_CALL_RE.fullmatch(c) for c in parts):
             out.append("a read tier sends calls of the form GET service path, separated by ;")
+    for key, rx, form in (("region", _REGION_RE, "a region such as eu-nl"),
+                          ("expect", _EXPECT_RE, "4xx statuses, each with its call: 404 or 2:403, 2:404")):
+        if key in b:
+            if tier != "read":
+                out.append("only a read tier carries %s" % key)
+            elif not rx.fullmatch(b[key]):
+                out.append("%s is not %s" % (key, form))
     if tier == "read":
         tests = {k: _read_test(b[k]) for k in ("confirms", "refutes", "control") if k in b}
+        exp = expected(b["expect"]) if "expect" in b and _EXPECT_RE.fullmatch(b["expect"]) else {}
         for key, test in tests.items():
-            if test is not None and test[1] == "status":
+            if test is not None and test[1] == "status" and test[0] not in exp:
                 out.append("the %s line of a read tier tests status alone: a call that does not answer 2xx is "
-                           "undecided before any test, so the line proves nothing" % key)
+                           "undecided before any test, so the line proves nothing unless expect names a status of its call"
+                           % key)
         if tests.get("confirms") is not None and tests["confirms"] == tests.get("control"):
             out.append("the confirms line equals the control line: a control that is the confirm cannot tell a "
                        "confirm from a refute")
@@ -1151,13 +1183,16 @@ def retire(kb_id: str, why: str, *, where=None, register_path: Path | None = Non
 
 
 def _block_text_problems(check: Sequence[tuple[str, str]], register_path: Path) -> list[str]:
-    """The text checks of `add` over the values of a check block; the calls and the event are not prose, so they
-    skip the language check."""
+    """The text checks of `add` over the values of a check block; the calls, the event, the region and the expected
+    statuses are not prose, so they skip the language check, and a path in the calls or a test line is no web
+    address (text_problems, paths)."""
     out: list[str] = []
     for key, value in check:
         if key == "tier":
             continue
-        out += text_problems("check %s" % key, value, register_path, language=key not in ("calls", "event"))
+        out += text_problems("check %s" % key, value, register_path,
+                             language=key not in ("calls", "event", "region", "expect"),
+                             paths=key in ("calls", "confirms", "refutes", "control"))
     return out
 
 
