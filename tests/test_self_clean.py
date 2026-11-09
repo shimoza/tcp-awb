@@ -10,6 +10,9 @@ Failure messages carry file, line and class, never the text that was found.
 """
 from __future__ import annotations
 
+import concurrent.futures
+import multiprocessing
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -50,12 +53,30 @@ def repo_files() -> list[str]:
     return sorted({f for f in out.split("\0") if f and (REPO / f).is_file()})
 
 
+def chunks(files: list[str], n: int) -> list[list[str]]:
+    """The files dealt into n lists of about the same bytes, the largest first, so that no worker waits on another."""
+    sized = sorted(files, key=lambda f: -(REPO / f).stat().st_size)
+    out: list[list[str]] = [[] for _ in range(n)]
+    load = [0] * n
+    for f in sized:
+        i = load.index(min(load))
+        out[i].append(f)
+        load[i] += (REPO / f).stat().st_size
+    return [c for c in out if c]
+
+
 @pytest.fixture(scope="module")
 def scan(tmp_path_factory):
+    # the same gate.scan_files over every file, spread over the cores: one process took 140 s of the 120 s limit
+    # (profile of 2026-11-09: the secret, token, blocklist and home path patterns over 13 MB, twice per file)
     reg = tmp_path_factory.mktemp("self-clean") / "register.tsv"
     reg.write_text("\n".join(fx.register_lines()) + "\n", encoding="utf-8")
     files = repo_files()
-    found = gate.scan_files([REPO / f for f in files], reg)
+    parts = chunks(files, max(1, min(8, os.cpu_count() or 1)))
+    with concurrent.futures.ProcessPoolExecutor(len(parts), mp_context=multiprocessing.get_context("spawn")) as pool:
+        results = list(pool.map(gate.scan_files, [[REPO / f for f in c] for c in parts], [reg] * len(parts)))
+    found = [f for r in results for f in r]
+    assert sorted(f for c in parts for f in c) == sorted(files)
     return files, [(Path(f.file).relative_to(REPO).as_posix(), f.line, f.cls) for f in found]
 
 
