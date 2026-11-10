@@ -180,6 +180,8 @@ def test_vf_the_command_fetches_lists_the_hosts_and_shows_the_job(vendor, monkey
     assert "fetch %s -> fw.ova  done" % URL in out and "vendor hash: sha1 matches" in out
     with pytest.raises(labclient.LabClientError, match="a fetch writes only inside the project folder"):
         labclient.obs_fetch(URL, w.tmp / "x.ova")
+    with pytest.raises(labclient.LabClientError, match="no such folder: .*/missing \\(make it first, then fetch"):
+        labclient.obs_fetch(URL, w.folder / "missing" / "z.ova")
     with pytest.raises(labclient.LabClientError, match="name one vendor hash"):
         labclient.obs_fetch(URL, w.folder / "y.ova", sha1=sha1, sha256="0" * 64)
     assert labclient.run_main(["end"]) == 0

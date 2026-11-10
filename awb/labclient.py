@@ -316,6 +316,9 @@ def _transfer(action: str, path: str, url: str, tenant: str | None, run: str | N
         raise LabClientError("refused: this user cannot %s %s; the key service takes only a file the session itself "
                              "opens" % ("read" if action == "put" else "write", path)) from None
     except FileNotFoundError:
+        folder = os.path.dirname(where)
+        if action != "put" and not os.path.isdir(folder):
+            raise LabClientError("no such folder: %s (make it first, then %s again)" % (folder, action)) from None
         raise LabClientError("no such file: %s" % path) from None
     except IsADirectoryError:
         raise LabClientError("refused: %s is a folder" % path) from None
