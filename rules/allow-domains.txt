@@ -82,3 +82,7 @@ docs.vmware.com
 docs.nvidia.com
 docs.otc.t-systems.com
 docs-beta.otc.t-systems.com
+www.nvidia.com
+resources.nvidia.com
+en.wikipedia.org
+de.wikipedia.org

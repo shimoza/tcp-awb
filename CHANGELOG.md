@@ -30,6 +30,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   19:00 (`seal/setup.sh`, checked by `seal/verify.sh`); a failed run is an item of `awb owner status`.
 
 ### Changed
+- rules/allow-domains.txt: www.nvidia.com, resources.nvidia.com, en.wikipedia.org and de.wikipedia.org, so `awb doc fetch` reads GPU data sheets and encyclopedia pages (the host match is exact).
 - tests/test_self_clean.py scans the files in one process per core: one process took 140 s of the 120 s limit, in the
   secret, token, blocklist and home path patterns over 13 MB. The scan and what it checks are the same.
 
