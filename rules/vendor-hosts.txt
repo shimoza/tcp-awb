@@ -1,0 +1,9 @@
+# Vendor download hosts of `awb lab obs fetch` (awb/tcp/labobs.py, task VF). The key service downloads an appliance
+# image from one of these hosts into a file of the session. One exact host name a line, no wildcard. A line
+# `portal HOST` names a host behind a vendor login: a link to it is refused with the hint to hand the download to
+# the owner. Separate from the documentation hosts of rules/allow-domains.txt.
+
+# WatchGuard: the Firebox V images (.ova, VHD) of the Software Downloads pages
+cdn.watchguard.com
+portal software.watchguard.com
+portal login.watchguard.com

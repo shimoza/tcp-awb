@@ -82,6 +82,8 @@ docs.vmware.com
 docs.nvidia.com
 docs.otc.t-systems.com
 docs-beta.otc.t-systems.com
+watchguard.com
+www.watchguard.com
 www.nvidia.com
 resources.nvidia.com
 en.wikipedia.org

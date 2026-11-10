@@ -295,10 +295,10 @@ def _object(url: str) -> tuple[str, str]:
 
 
 def _transfer(action: str, path: str, url: str, tenant: str | None, run: str | None, region: str | None,
-              start: Path | None) -> dict:
+              start: Path | None, vendor_hash: str | None = None) -> dict:
     root = _root(start)
     tenant, run = _pick(root, tenant, run)
-    bucket, key = _object(url)
+    bucket, key = _object(url) if action != "fetch" else (None, None)
     where = os.path.abspath(path)
     made = False
     try:
@@ -308,8 +308,8 @@ def _transfer(action: str, path: str, url: str, tenant: str | None, run: str | N
             inside = [str(root.resolve()), os.path.realpath(SCRATCH % os.getuid())]
             real = os.path.realpath(where)
             if not any(real.startswith(f.rstrip("/") + "/") for f in inside):
-                raise LabClientError("refused: a get writes only inside the project folder or the session scratch "
-                                     "folder (%s)" % (SCRATCH % os.getuid()))
+                raise LabClientError("refused: a %s writes only inside the project folder or the session scratch "
+                                     "folder (%s)" % (action, SCRATCH % os.getuid()))
             made = not os.path.lexists(where)
             fd = os.open(where, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o666)
     except PermissionError:
@@ -325,6 +325,8 @@ def _transfer(action: str, path: str, url: str, tenant: str | None, run: str | N
         try:
             req = {"op": "lab_obs", "action": action, "tenant": tenant, "run": run, "project": _code(root),
                    "bucket": bucket, "key": key, "region": region}
+            if action == "fetch":
+                req = dict(req, url=url, hash=vendor_hash)
             answer = _request(req, root, (fd, log_fd))
         finally:
             os.close(log_fd)
@@ -360,6 +362,24 @@ def obs_get(url: str, file, *, tenant: str | None = None, run: str | None = None
     """Start the get of obs://BUCKET/KEY into a file inside the project folder or the session scratch folder as a
     job of the key service; the same object into the same file goes on where an interrupted job stopped."""
     return _transfer("get", str(file), url, tenant, run, region, start)
+
+
+def obs_fetch(url: str, file, *, sha256: str | None = None, sha1: str | None = None, tenant: str | None = None,
+              run: str | None = None, start: Path | None = None) -> dict:
+    """Start the download of a vendor's file (a host of rules/vendor-hosts.txt) into a file inside the project
+    folder or the session scratch folder as a job of the key service (VF). The hash the vendor publishes (sha256 or
+    sha1) is checked at the end; without one the job records the hashes it computed."""
+    if sha256 and sha1:
+        raise LabClientError("name one vendor hash: --sha256 or --sha1")
+    want = "sha256:%s" % sha256.lower() if sha256 else "sha1:%s" % sha1.lower() if sha1 else None
+    return _transfer("fetch", str(file), url, tenant, run, None, start, want)
+
+
+def obs_hosts() -> tuple[list[str], list[str]]:
+    """(download hosts, portal hosts) of rules/vendor-hosts.txt."""
+    from awb import vendorhosts
+
+    return vendorhosts.read()
 
 
 def obs_status(job: str | None = None, *, start: Path | None = None) -> list[dict]:
@@ -398,6 +418,9 @@ def _obs_parser(action: str) -> argparse.ArgumentParser:
     from awb.cli import SafeParser
 
     helps = {"put": "put a file of the session into a bucket of this project, a job of the key service",
+             "fetch": "download a vendor's appliance image (a host of awb lab obs hosts) into the project folder or "
+                      "the session scratch folder, a job of the key service",
+             "hosts": "the vendor download hosts of a fetch and the portal hosts it refuses",
              "get": "get an object into the project folder or the session scratch folder, a job of the key service",
              "status": "bytes done, total, rate and state of this project's lab obs jobs",
              "abort": "stop a job; a put also aborts its multipart upload"}
@@ -408,11 +431,18 @@ def _obs_parser(action: str) -> argparse.ArgumentParser:
     elif action == "get":
         ap.add_argument("url", metavar="obs://BUCKET/KEY")
         ap.add_argument("file", metavar="FILE")
+    elif action == "fetch":
+        ap.add_argument("url", metavar="URL")
+        ap.add_argument("file", metavar="FILE")
+        ap.add_argument("--sha256", default=None, help="the SHA-256 the vendor publishes")
+        ap.add_argument("--sha1", default=None, help="the SHA-1 the vendor publishes")
+    elif action == "hosts":
+        pass
     elif action == "status":
         ap.add_argument("job", metavar="JOB", nargs="?", default=None)
     else:
         ap.add_argument("job", metavar="JOB")
-    if action in ("put", "get"):
+    if action in ("put", "get", "fetch"):
         ap.add_argument("--tenant", default=None, help="test-10491, test-10497 or a granted customer tenant in write "
                                                        "mode (default: the one open run)")
     return ap
@@ -424,17 +454,26 @@ def _size(n) -> str:
 
 def obs_main(argv: list[str]) -> int:
     action = argv[0] if argv else ""
-    if action not in ("put", "get", "status", "abort"):
-        print("awb lab obs: put, get, status or abort", file=sys.stderr)
+    if action not in ("put", "get", "fetch", "hosts", "status", "abort"):
+        print("awb lab obs: put, get, fetch, hosts, status or abort", file=sys.stderr)
         return EXIT_REFUSED
     try:
         args = _obs_parser(action).parse_args(argv[1:])
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else EXIT_REFUSED
     try:
-        if action in ("put", "get"):
+        if action == "hosts":
+            hosts, portals = obs_hosts()
+            for h in hosts:
+                print(h)
+            for h in portals:
+                print("%s  (portal: refused, hand the download to the owner)" % h)
+            return EXIT_OK
+        if action in ("put", "get", "fetch"):
             if action == "put":
                 a = obs_put(args.file, args.url, tenant=args.tenant)
+            elif action == "fetch":
+                a = obs_fetch(args.url, args.file, sha256=args.sha256, sha1=args.sha1, tenant=args.tenant)
             else:
                 a = obs_get(args.url, args.file, tenant=args.tenant)
             print("job %s %s: %s of %s%s; awb lab obs status %s" % (
@@ -450,11 +489,15 @@ def obs_main(argv: list[str]) -> int:
             print("no lab obs job%s" % (" %s" % args.job if args.job else ""))
         for j in rows:
             pct = 100.0 * (j.get("done") or 0) / j["size"] if j.get("size") else 0.0
-            print("%s  %s obs://%s/%s  %s  %s of %s (%.0f%%)  %.1f MB/s%s" % (
-                j["id"], j["action"], j["bucket"], j["key"], j["state"], _size(j.get("done")), _size(j.get("size")),
+            what = "%s -> %s" % (j.get("url"), j.get("file_name")) if j["action"] == "fetch" else \
+                "obs://%s/%s" % (j["bucket"], j["key"])
+            print("%s  %s %s  %s  %s of %s (%.0f%%)  %.1f MB/s%s" % (
+                j["id"], j["action"], what, j["state"], _size(j.get("done")), _size(j.get("size")),
                 pct, (j.get("rate") or 0) / 1e6, "  %s" % j["error"] if j.get("error") else ""))
             if j.get("state") == "done" and j.get("sha256"):
                 print("    sha256 %s, %s s" % (j["sha256"], j.get("seconds")))
+            if j["action"] == "fetch" and j.get("sha1"):
+                print("    sha1 %s, vendor hash: %s" % (j["sha1"], j.get("vendor_hash") or "-"))
         return EXIT_OK
     except LabClientError as err:
         print("awb lab obs: %s" % err, file=sys.stderr)

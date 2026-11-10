@@ -5,6 +5,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ## Week 46, 2026-11-09 to 2026-11-15 (in progress)
 ### Added
+- VF: `awb lab obs fetch URL FILE [--sha256 H|--sha1 H]` downloads a vendor's appliance image (an .ova or a .qcow2) into the project folder or the session scratch folder as a job of the key service, from a host of the new list rules/vendor-hosts.txt (`awb lab obs hosts`), separate from the documentation hosts. Redirects only to a listed host, a portal host, a 401/403 or a web page is refused with the hint to hand the download to the owner, at most 16 GB, a broken download goes on with a Range request, the vendor hash is checked or the computed SHA-256 and SHA-1 are recorded, and the run log gets URL, file, size and hashes. The work user's egress filter is unchanged. First entries: cdn.watchguard.com, with software.watchguard.com as a portal.
 - RB: a read check block can name `region` (the calls go to that region of the tenant) and `expect` (4xx statuses that count as an answer, so a missing endpoint is proven by its 404); a test path may hold spaces inside a selector; `kb how` no longer reads a path such as `subnets.0.id` in the calls or test lines as a web address.
 - The project tag (PT): every create a project sends through the key service carries `awb-project` with the project
   code, in the create body or in one tag call after it; a create that cannot carry it lands in
@@ -31,6 +32,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Changed
 - rules/allow-domains.txt: www.nvidia.com, resources.nvidia.com, en.wikipedia.org and de.wikipedia.org, so `awb doc fetch` reads GPU data sheets and encyclopedia pages (the host match is exact).
+- rules/allow-domains.txt: watchguard.com and www.watchguard.com, the vendor docs of Firebox V on KVM.
 - tests/test_self_clean.py scans the files in one process per core: one process took 140 s of the 120 s limit, in the
   secret, token, blocklist and home path patterns over 13 MB. The scan and what it checks are the same.
 

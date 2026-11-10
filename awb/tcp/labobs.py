@@ -2,6 +2,8 @@
 
     awb lab obs put FILE obs://BUCKET/KEY [--tenant T]     a file of the session into a bucket of its project
     awb lab obs get obs://BUCKET/KEY FILE [--tenant T]     an object into the project folder or the scratch folder
+    awb lab obs fetch URL FILE [--sha256 H|--sha1 H]       a vendor's appliance image into the same places (VF)
+    awb lab obs hosts                                      the vendor download hosts and the portal hosts
     awb lab obs status [JOB]                               bytes done, total, rate and state of the project's jobs
     awb lab obs abort JOB                                  stops a job; a put also aborts its multipart upload
 
@@ -43,6 +45,20 @@ run (state aborted), then in each pass aborts every open multipart upload of the
 a bucket delete answers 409 BucketNotEmpty while an incomplete upload is there, even when its listing shows no
 object. At the end of a job the service appends bucket, object, size, hash, duration and state to the run log
 through the descriptor it got; no key, no token and no upload id goes there.
+
+A fetch (task VF, 2026-11-10) downloads a vendor's file, an appliance image such as an .ova or a .qcow2, into a file
+of the session the way a get writes one: the session opens the file inside the project folder or the scratch folder
+and passes it with the run log, the service writes it. The source is a URL on a host of rules/vendor-hosts.txt, a
+list of its own beside the documentation hosts of rules/allow-domains.txt: https, the exact host, no port, no user
+info, no query and no fragment (the checks of awb doc fetch). A redirect is followed only to a listed host, at most
+MAX_REDIRECTS times. A host on a `portal` line of that file, an answer 401, 403 or 407 and an answer that is a web
+page are refused with PORTAL_LINE: the file sits behind a vendor login, so the session hands the download to the
+owner and does not try again. The service sends no cookie and no auth header. Before the job starts it asks the
+host for the size (HEAD): a file over FETCH_MAX_GB (or lab_obs_max_gb when that is lower) and a disk without room
+are refused. The job hashes what it writes with SHA-256 and SHA-1, resumes a broken download with a Range request
+and checks the hash the session names (--sha256 or --sha1, the one the vendor publishes); without one it records
+the hashes it computed. The run log gets the URL, the file name, the size, both hashes and whether the vendor hash
+matched. The work user's egress filter stays as it is: the bytes come through the service, which runs as the owner.
 """
 from __future__ import annotations
 
@@ -61,6 +77,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urljoin
 from xml.sax.saxutils import escape
 
 from awb import labruns, labsecrets
@@ -91,6 +108,13 @@ _BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 _KEY_RE = re.compile(r"^[A-Za-z0-9_.=~@+-][A-Za-z0-9_.:/=~@+-]{0,799}$")
 RESUME_LINE = "%s the same file again to resume"
 LIMIT_LINE = "refused: the %s is %.1f GB, over the limit of %s GB (lab_obs_max_gb in keys.conf)"
+VENDOR_FILE = Path(__file__).resolve().parent.parent.parent / "rules" / "vendor-hosts.txt"
+FETCH_MAX_GB = 16
+MAX_REDIRECTS = 3
+VENDOR_AGENT = "Architect-Workbench-vendor-fetch/1 (+https://github.com/shimoza/tcp-awb)"
+_HASH_RE = re.compile(r"^(?:sha256:[0-9a-f]{64}|sha1:[0-9a-f]{40})$")
+PORTAL_LINE = ("refused: %s sits behind a vendor portal login (%s): hand this download to the owner, do not try "
+               "again; a direct file link on a host of awb lab obs hosts works")
 READONLY_LINE = ("aborted: the owner switched %s back to read-only; after awb tenant mode %s write a new put or get "
                  "starts it again")
 
@@ -240,7 +264,7 @@ def _settle(svc, p, job: dict) -> dict:
                 (job.get("pid") == os.getpid() or not _alive(job.get("pid"))):
             job["state"] = "interrupted"
             job["error"] = "the key service restarted during the job: %s" % (
-                RESUME_LINE % ("put" if job.get("action") == "put" else "get"))
+                RESUME_LINE % (job.get("action") or "get"))
             job["ended"] = _now()
             save_job(p, job)
     return job
@@ -249,7 +273,8 @@ def _settle(svc, p, job: dict) -> dict:
 def row(job: dict) -> dict:
     """What a session sees of a job: never an upload id, a key or a path of the service."""
     return {k: job.get(k) for k in ("id", "action", "run", "tenant", "bucket", "key", "size", "done", "state",
-                                    "rate", "error", "sha256", "started", "ended", "seconds", "parts", "part_size")} \
+                                    "rate", "error", "sha256", "started", "ended", "seconds", "parts", "part_size",
+                                    "url", "sha1", "expected", "file_name", "vendor_hash")} \
         | {"parts_done": len(job.get("etags") or {})}
 
 
@@ -315,10 +340,10 @@ def _file_fd(fds: list[int], action: str, uid: int, p, project: str) -> tuple[in
             raise _refused("refused: the file of a put is not open for reading")
         return fd, st
     if mode != os.O_RDWR:
-        raise _refused("refused: the file of a get is open for reading and writing")
+        raise _refused("refused: the file of a %s is open for reading and writing" % action)
     where = _fd_path(fd)
     if not (_inside(where, _project_folder(p, project)) or _inside(where, SCRATCH % uid)):
-        raise _refused("refused: a get writes only inside the project folder or the session scratch folder")
+        raise _refused("refused: a %s writes only inside the project folder or the session scratch folder" % action)
     return fd, st
 
 
@@ -737,14 +762,187 @@ def _get(svc, p, live: Live, job: dict) -> None:
     if job.get("object_sha256") and job["object_sha256"] != job["sha256"]:
         raise _Failed("the SHA-256 of the file is not the one the object carries")
 
+# --------------------------------------------------------------------------- vendor downloads (VF)
+
+
+class _NoAnswer(Exception):
+    """No answer from a vendor host: a refused connection, a timeout, a broken TLS handshake."""
+
+
+def vendor_hosts(path: Path | None = None) -> tuple[list[str], list[str]]:
+    """(download hosts, portal hosts) of rules/vendor-hosts.txt (awb/vendorhosts.py)."""
+    from awb import vendorhosts
+
+    return vendorhosts.read(path or VENDOR_FILE)
+
+
+def check_vendor_url(url, hosts: list[str] | None = None, portals: list[str] | None = None) -> str:
+    """The host of a URL a fetch may read; a refusal naming the rule otherwise (both sides run it)."""
+    from awb.tcp import doc
+
+    if hosts is None or portals is None:
+        hosts, portals = vendor_hosts()
+    try:
+        host, _path = doc.check_url(url, hosts=list(hosts) + list(portals))
+    except doc.DocError as err:
+        msg = str(err)
+        if "allow-domains" in msg:
+            msg = "refused: the host is not a vendor download host of rules/vendor-hosts.txt (awb lab obs hosts)"
+        elif "query" in msg:
+            msg = ("refused: a vendor link with a query string is a signed or portal link: hand the download to the "
+                   "owner")
+        raise _refused(msg) from None
+    if host in portals:
+        raise _refused(PORTAL_LINE % (url, host))
+    return host
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _vendor_open(method: str, url: str, headers: dict, timeout: float = PART_TIMEOUT):
+    """(status, headers, response) of one request to a vendor host, never following a redirect; the caller closes
+    the response. No cookie, no auth header, a fixed User-Agent."""
+    hdrs = dict(headers, **{"User-Agent": VENDOR_AGENT, "Accept-Encoding": "identity"})
+    req = urllib.request.Request(url, method=method, headers=hdrs)
+    try:
+        resp = urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout)
+        return resp.status, dict(resp.headers), resp
+    except urllib.error.HTTPError as err:
+        return err.code, dict(err.headers or {}), err
+    except (urllib.error.URLError, OSError) as err:
+        raise _NoAnswer(type(err).__name__) from None
+
+
+def _vendor_head(url: str) -> tuple[str, int, dict]:
+    """(the URL after the redirects, status, headers) of a HEAD; every hop passes check_vendor_url."""
+    hosts, portals = vendor_hosts()
+    for _hop in range(MAX_REDIRECTS + 1):
+        check_vendor_url(url, hosts, portals)
+        try:
+            status, rh, resp = _vendor_open("HEAD", url, {}, timeout=60.0)
+        except _NoAnswer as err:
+            raise _refused("refused: no answer from the vendor host (%s)" % err) from None
+        resp.close()
+        rh = _lower(rh)
+        if status in (301, 302, 303, 307, 308) and isinstance(rh.get("location"), str):
+            url = urljoin(url, rh["location"])
+            continue
+        return url, status, rh
+    raise _refused("refused: more than %d redirects" % MAX_REDIRECTS)
+
+
+def _hash_both(fd: int, upto: int) -> tuple:
+    h256, h1 = hashlib.sha256(), hashlib.sha1()
+    at = 0
+    while at < upto:
+        data = os.pread(fd, min(8 * CHUNK, upto - at), at)
+        if not data:
+            raise _Failed("the file ended before its bytes done: fetch it again")
+        h256.update(data)
+        h1.update(data)
+        at += len(data)
+    return h256, h1
+
+
+def _fetch(svc, p, live: Live, job: dict) -> None:
+    done = int(job.get("done") or 0)
+    if os.fstat(live.fd).st_size < done:
+        done = 0
+    os.ftruncate(live.fd, done)
+    h256, h1 = _hash_both(live.fd, done)
+    job["state"], job["done"] = "running", done
+    live.t0, live.done0 = time.monotonic(), done
+    _save(svc, p, live, job)
+    attempt, last = 0, done
+    while done < job["size"]:
+        if live.stop.is_set():
+            raise _Stopped()
+        moved = done
+        headers = {}
+        if done:
+            headers["Range"] = "bytes=%d-" % done
+            if job.get("etag"):
+                headers["If-Range"] = job["etag"]
+        try:
+            status, _rh, resp = _vendor_open("GET", job["source"], headers)
+            try:
+                if status == 200 and done:
+                    done = 0
+                    h256, h1 = hashlib.sha256(), hashlib.sha1()
+                    os.ftruncate(live.fd, 0)
+                if status in (200, 206):
+                    while done < job["size"]:
+                        if live.stop.is_set():
+                            raise _Stopped()
+                        chunk = resp.read(CHUNK)
+                        if not chunk:
+                            break
+                        chunk = chunk[:job["size"] - done]
+                        view = memoryview(chunk)
+                        while view:
+                            wrote = os.pwrite(live.fd, view, done)
+                            view = view[wrote:]
+                            done += wrote
+                        h256.update(chunk)
+                        h1.update(chunk)
+                        if done - last >= SAVE_EVERY:
+                            job["done"], last = done, done
+                            _save(svc, p, live, job)
+            finally:
+                resp.close()
+        except (_Stopped, _Failed):
+            raise
+        except Exception:          # no answer, a broken connection, http.client.IncompleteRead and the like
+            status = 0
+        if done >= job["size"]:
+            break
+        if status in (301, 302, 303, 307, 308):
+            raise _Failed("the vendor host sends the file elsewhere now: fetch it again")
+        if status in (401, 403, 407):
+            raise _Failed(PORTAL_LINE % (job["url"], job.get("host") or "-"))
+        if status in (404, 410):
+            raise _Failed("the vendor host answers HTTP %d: the file is gone" % status)
+        if status and status not in (200, 206, 408, 429) and status < 500:
+            raise _Failed("the vendor host answered HTTP %d" % status)
+        if done > moved:
+            attempt = 0
+        if attempt == len(PAUSES):
+            job["done"] = done
+            raise _Broken("the download broke at byte %d of %d: %s" % (done, job["size"], RESUME_LINE % "fetch"))
+        _pause(live, attempt)
+        attempt += 1
+    job["done"] = done
+    job["state"] = "verifying"
+    _save(svc, p, live, job)
+    os.fsync(live.fd)
+    if os.fstat(live.fd).st_size != job["size"]:
+        raise _Failed("the file is not the size the vendor host named")
+    job["sha256"], job["sha1"] = h256.hexdigest(), h1.hexdigest()
+    want = job.get("expected")
+    if want:
+        kind, value = want.split(":", 1)
+        if job[kind] != value:
+            job["vendor_hash"] = "mismatch"
+            raise _Failed("the %s of the file is not the one the vendor publishes: do not use it" % kind.upper())
+        job["vendor_hash"] = "%s matches" % kind
+    else:
+        job["vendor_hash"] = "none given, computed only"
+
 
 def _log_line(live: Live, job: dict) -> None:
-    lines = ["## %s obs job %s: %s %s" % (_now(), job["id"], job["action"], job["state"]),
-             "object: obs://%s/%s" % (job["bucket"], job["key"]),
-             "size: %d bytes" % job["size"],
-             "sha256: %s" % (job.get("sha256") or "-"),
-             "duration: %s s" % job.get("seconds", "-"),
-             "state: %s%s" % (job["state"], ": %s" % job["error"] if job.get("error") else "")]
+    lines = ["## %s obs job %s: %s %s" % (_now(), job["id"], job["action"], job["state"])]
+    if job["action"] == "fetch":
+        lines += ["source: %s" % job["url"], "file: %s" % (job.get("file_name") or "-")]
+    else:
+        lines.append("object: obs://%s/%s" % (job["bucket"], job["key"]))
+    lines += ["size: %d bytes" % job["size"], "sha256: %s" % (job.get("sha256") or "-")]
+    if job["action"] == "fetch":
+        lines += ["sha1: %s" % (job.get("sha1") or "-"), "vendor hash: %s" % (job.get("vendor_hash") or "-")]
+    lines += ["duration: %s s" % job.get("seconds", "-"),
+              "state: %s%s" % (job["state"], ": %s" % job["error"] if job.get("error") else "")]
     text, _counts = labsecrets.shorten("\n".join(lines) + "\n")
     data = (text + "\n").encode("utf-8")
     try:
@@ -759,7 +957,7 @@ def _work(svc, p, live: Live, job: dict) -> None:
 
     state, error = "done", None
     try:
-        (_put if job["action"] == "put" else _get)(svc, p, live, job)
+        {"put": _put, "get": _get, "fetch": _fetch}[job["action"]](svc, p, live, job)
     except _Stopped:
         state, error = live.end_state, live.why or "stopped"
     except _Broken as err:
@@ -840,7 +1038,14 @@ def _transfer(svc, req: dict, uid: int, project: str, action: str, fds: list[int
     p = svc.paths_fn()
     run = _run_of(svc, req, project, alias, p)
     region = _region(svc, req, alias)
-    bucket, key = _target(svc, req, project, labadmin._is_customer(svc, alias))
+    if action == "fetch":
+        bucket = key = None
+        host = check_vendor_url(req.get("url"))
+        want = req.get("hash")
+        if want is not None and (not isinstance(want, str) or not _HASH_RE.match(want)):
+            raise _refused("a vendor hash reads sha256:<64 hex digits> or sha1:<40 hex digits>")
+    else:
+        bucket, key = _target(svc, req, project, labadmin._is_customer(svc, alias))
     fd, st = _file_fd(fds, action, uid, p, project)
     log_fd = _log_fd(fds, p, project, run["id"])
     limit, written = max_bytes(svc.settings)
@@ -848,12 +1053,14 @@ def _transfer(svc, req: dict, uid: int, project: str, action: str, fds: list[int
         running = set(svc.obs_jobs.live)
     if len(running) >= MAX_LIVE:
         raise _refused("refused: %d lab obs jobs run already: awb lab obs status" % MAX_LIVE)
-    busy = next((j["id"] for j in load_jobs(p) if j["id"] in running and j.get("bucket") == bucket
-                 and j.get("key") == key), None)
+    busy = next((j["id"] for j in load_jobs(p) if j["id"] in running and (
+        (action != "fetch" and j.get("bucket") == bucket and j.get("key") == key) or
+        (j.get("file") or {}).get("ino") == st.st_ino and (j.get("file") or {}).get("dev") == st.st_dev)), None)
     if busy:
         raise _refused("refused: job %s moves that object already: awb lab obs status %s" % (busy, busy))
     old = [j for j in _jobs_of(svc, p, project) if j.get("run") == run["id"] and j.get("action") == action
-           and j.get("bucket") == bucket and j.get("key") == key and j.get("state") in RESUMABLE]
+           and j.get("bucket") == bucket and j.get("key") == key and j.get("state") in RESUMABLE
+           and (action != "fetch" or j.get("url") == req.get("url"))]
     base = {"run": run["id"], "project": project, "tenant": alias, "region": region, "action": action,
             "bucket": bucket, "key": key, "error": None, "ended": None, "rate": 0}
     if action == "put":
@@ -875,6 +1082,9 @@ def _transfer(svc, req: dict, uid: int, project: str, action: str, fds: list[int
                        upload_id=None, sha256=None, file=_identity(st), state="hashing", started=_now(),
                        started_ts=time.time())
             resumed = False
+    elif action == "fetch":
+        job = _fetch_job(req, base, old, fd, st, limit, written, host)
+        resumed = job.pop("_resumed")
     else:
         o = _Obs(svc, dict(base))
         try:
@@ -921,16 +1131,58 @@ def _transfer(svc, req: dict, uid: int, project: str, action: str, fds: list[int
     return answer
 
 
+def _fetch_job(req: dict, base: dict, old: list[dict], fd: int, st: os.stat_result, limit: int, written: str,
+               host: str) -> dict:
+    """The job of a fetch, after the HEAD of the vendor host: the size, the checks of the answer and of the disk."""
+    url = req["url"]
+    source, status, head = _vendor_head(url)
+    if status in (401, 403, 407):
+        raise _refused(PORTAL_LINE % (url, host))
+    if status in (404, 410):
+        raise _refused("refused: the vendor host answers HTTP %d: the link is gone" % status)
+    if status != 200:
+        raise _refused("refused: the vendor host answered HTTP %d" % status)
+    if str(head.get("content-type") or "").lower().startswith(("text/html", "application/xhtml")):
+        raise _refused(PORTAL_LINE % (url, host) + " (the link answers a web page, not a file)")
+    size = head.get("content-length")
+    if not str(size).isdigit() or int(size) <= 0:
+        raise _refused("refused: the vendor host names no size for the file")
+    size = int(size)
+    cap = min(limit, FETCH_MAX_GB * GB)
+    if size > cap:
+        raise _refused("refused: the file is %.1f GB, over the limit of %s GB of a fetch" % (
+            size / GB, FETCH_MAX_GB if cap < limit else written))
+    etag = head.get("etag") if isinstance(head.get("etag"), str) else None
+    same = next((j for j in reversed(old) if j.get("size") == size and j.get("etag") == etag and
+                 (j.get("file") or {}).get("dev") == st.st_dev and (j.get("file") or {}).get("ino") == st.st_ino),
+                None)
+    done = min(int(same.get("done") or 0), st.st_size) if same is not None else 0
+    vfs = os.fstatvfs(fd)
+    free = vfs.f_bavail * vfs.f_frsize
+    if free < size - done + DISK_RESERVE:
+        raise _refused("refused: the disk of the file has %.1f GB free, the download needs %.1f GB and %d MB to "
+                       "spare" % (free / GB, (size - done) / GB, DISK_RESERVE // (1024 * 1024)))
+    name = os.path.basename(_fd_path(fd)) or "-"
+    if same is not None:
+        job = dict(same, **{k: v for k, v in base.items() if k not in ("run",)})
+        job.update(done=done, state="running", source=source, expected=req.get("hash"), _resumed=True)
+        return job
+    return dict(base, id=_new_id(), size=size, done=0, etag=etag, url=url, source=source, host=host,
+                expected=req.get("hash"), sha256=None, sha1=None, vendor_hash=None, file_name=name,
+                file={"dev": st.st_dev, "ino": st.st_ino}, state="running", started=_now(), started_ts=time.time(),
+                _resumed=False)
+
+
 def serve(svc, req: dict, uid: int, caller, fds: list[int]) -> dict:
     """The op lab_obs: put, get, status and abort of the jobs of the calling project."""
     from awb.tcp import labadmin
 
     action = req.get("action")
-    if action not in ("put", "get", "status", "abort"):
-        raise _refused("a lab obs action is put, get, status or abort")
+    if action not in ("put", "get", "fetch", "status", "abort"):
+        raise _refused("a lab obs action is put, get, fetch, status or abort")
     project = labadmin._project(svc, req, uid, caller)
     p = svc.paths_fn()
-    if action in ("put", "get"):
+    if action in ("put", "get", "fetch"):
         return _transfer(svc, req, uid, project, action, list(fds))
     named = req.get("job")
     if named is not None and (not isinstance(named, str) or not JOB_RE.match(named)):

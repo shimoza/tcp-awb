@@ -222,6 +222,8 @@ background job:
 
     awb lab obs put FILE obs://BUCKET/KEY [--tenant T]     labclient.obs_put(file, url)
     awb lab obs get obs://BUCKET/KEY FILE [--tenant T]     labclient.obs_get(url, file)
+    awb lab obs fetch URL FILE [--sha256 H|--sha1 H]       labclient.obs_fetch(url, file, sha1=...)
+    awb lab obs hosts                                      labclient.obs_hosts()
     awb lab obs status [JOB]                               labclient.obs_status(job), obs_wait(job)
     awb lab obs abort JOB                                  labclient.obs_abort(job)
 
