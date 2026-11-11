@@ -248,6 +248,31 @@ UNDONE = ("the vault daemon is busy or refused the seal, nothing of this run sta
           "the intake again")
 
 
+STUCK = ("%s belongs to another user in a folder with the sticky bit, so this run could not replace it; nothing of "
+         "this run was written or moved. Rename it as its owner (sudo -u %s mv %s %s.old) and run the import again")
+REPORT_FAILED = ("the report %s could not be written (%s); the run was taken back, the originals are where they were, "
+                 "run the import again")
+
+
+def _stuck(path: Path) -> str | None:
+    """The owner name when `path` exists, is not ours and sits in a sticky folder that is not ours either: a replace
+    of it would fail with PermissionError after the originals moved (tcp-s5i3, 2026-11-11)."""
+    import pwd
+    import stat
+
+    try:
+        st, folder = os.lstat(path), os.stat(path.parent)
+    except OSError:
+        return None
+    me = os.geteuid()
+    if st.st_uid == me or folder.st_uid == me or not folder.st_mode & stat.S_ISVTX or me == 0:
+        return None
+    try:
+        return pwd.getpwuid(st.st_uid).pw_name
+    except KeyError:
+        return str(st.st_uid)
+
+
 def _undo(p: config.Paths, cust: str, moved: list[tuple[Path, Path, str]], outputs: list[Path],
           extra: list[Path]) -> None:
     """Take a run back after a refused or busy seal: every original of the run goes back to where it came from (a
@@ -507,6 +532,9 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, reviewed: int = 0
     stamp = now.strftime("%Y-%m-%d-%H%M%S")
     private_path = p.private_reports / cust / ("%s.md" % stamp)
     public_path = p.outbox / cust / _report.PUBLIC_NAME
+    owner = _stuck(public_path)
+    if owner:
+        raise IntakeError(STUCK % (public_path, owner, public_path, public_path))
 
     # steps 6 and 7: sanitise, write, check each output once more
     outdir = config.make_dir(p.outbox / cust, 0o750, shared=True)
@@ -567,7 +595,11 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, reviewed: int = 0
     rec.hits = list(engine.hits.values())
     rec.learned = engine.learned_forms()
     public_text = _public_text(rec, engine)
-    public_written = _report.write_public(public_path, public_text)
+    try:
+        public_written = _report.write_public(public_path, public_text)
+    except OSError as err:
+        _undo(p, cust, moved, outputs, [])
+        raise IntakeError(REPORT_FAILED % (public_path, type(err).__name__)) from None
     try:
         private_written, report_unsealed = _write_private_report(p, private_path, rec, encrypted)
     except _Undo as undo:
