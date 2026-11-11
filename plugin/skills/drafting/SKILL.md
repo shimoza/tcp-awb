@@ -18,7 +18,7 @@ edit short. It does not replace his review and it cannot promise that no reader 
    "server".
 4. Collect the facts first. `awb kb find` for checked facts, `awb price` for every price (never from memory), a
    live check or a dated source for availability and for every negative. Keep the source of each fact.
-   Public documentation of an allowed host (`awb doc hosts`) comes from `awb doc fetch URL`, never from memory:
+   Public documentation of an allowed host (`awb doc hosts`) comes from `awb doc fetch URL` (`--links` to walk on, `awb doc find URL WORDS` in a MadCap help), never from memory:
    quote it with the source and the date of its first line.
    Every number you compute (a total, a saving, a product) comes from `awb calc`, never from your head.
 5. A how-to for the TCP console (menu path, screen, field, button, tab) starts from `awb howto draft "TOPIC"

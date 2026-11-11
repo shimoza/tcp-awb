@@ -247,7 +247,12 @@ A session cannot reach a documentation host: the egress filter of the work user 
 client's hosts and the public price API only, and opening it to the hosts of `rules/allow-domains.txt` would give a
 session a way to send data out. So the key service, which runs as the owner and has internet, reads the page for it.
 `awb doc fetch URL [--out FILE]` sends the op `doc_get` on the call socket and prints the text with the first line
-`source: URL, fetched YYYY-MM-DD HH:MM UTC` (or writes it to FILE inside the project folder). The service fetches by
+`source: URL, fetched YYYY-MM-DD HH:MM UTC` (or writes it to FILE inside the project folder). With `--links` the text ends
+with the links of the page (absolute, each once, a host off the list marked), so a session can walk from page to page.
+A help built with MadCap Flare draws its contents with JavaScript and its pages do not link each other: `awb doc find
+URL WORDS` makes the service read the help index the page names (Data/HelpSystem.xml, the Toc file and its chunks)
+and prints every page whose title or path holds all the words, with its URL; the script itself never reaches the
+session and a plain fetch still takes no script. Each file of a find counts in the rate and the ledger. The service fetches by
 GET only, https only, the host exactly a line of `rules/allow-domains.txt` (`awb doc hosts` lists them), no port, no
 user info, no query string, no fragment and a path of at most 300 URL-safe characters. It follows at most 3
 redirects and only to a URL that passes the same checks, takes at most 5 MB of HTML, Markdown, plain text or JSON

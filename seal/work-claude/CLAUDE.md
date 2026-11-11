@@ -28,7 +28,7 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 - Offered is only what the latest service description lists: `awb service check NAME` before you name an option. A
   console how-to starts from `awb howto draft "TOPIC"`, never from memory: text steps only, screens only in `reviews/<name>/sources.md`.
 - Never compute in a reply, use `awb calc` (R-005). A clean check counts only after it has shown that it can fail. Before a write
-  outside the project or a cloud change, say where it lands. Public documentation of an allowed host is read with `awb doc fetch URL`,
+  outside the project or a cloud change, say where it lands. Public documentation of an allowed host is read with `awb doc fetch URL` (`--links` to walk on, `awb doc find URL WORDS` in a MadCap help),
   quoted with its source and date; never stated from memory when the page can be fetched; an unlisted host: an owner item in OPEN.md.
 
 ## Housekeeping and commands

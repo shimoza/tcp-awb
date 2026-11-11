@@ -1,6 +1,8 @@
 """Public documentation for the sessions, read on the owner's side (task DF).
 
     awb doc fetch URL [--out FILE]     the page as text, with the line "source: URL, fetched YYYY-MM-DD HH:MM UTC"
+    awb doc fetch URL --links          the same, then the links of the page as absolute URLs with their texts
+    awb doc find URL WORDS             the pages of a help system whose title or path holds every word (task DL)
     awb doc hosts                      the hosts a page may come from (rules/allow-domains.txt)
 
 The egress filter of the work user lets a session reach the model API and a few hosts of the client, never a
@@ -31,6 +33,14 @@ Rate: at most 30 fetches a minute and 500 a day per project. Each fetch writes o
 `<vault>/log/doc-YYYY-MM.tsv`: the time, the project, the host, the path, the size and the status. Never page
 content and never a query (there is none).
 
+Links and help indexes (task DL, 2026-11-11): `--links` appends the links of an HTML page (absolute, without the
+fragment, at most MAX_LINKS, a host off the list marked), so a session can walk from page to page. A help system built
+with MadCap Flare draws its table of contents with JavaScript, so its pages carry no links to each other: the page
+names its help root (`data-mc-path-to-help-system`), the root holds Data/HelpSystem.xml, that names the Toc file and the
+Toc file its chunks, which map every page path to its title. `awb doc find URL WORDS` makes the service read that
+chain (each file one fetch of the rate and one ledger line, each from an allowed host) and hand back only the
+matching titles with their URLs, never the script itself. A plain fetch still takes no script.
+
 The project of a session is the one its key token names (K4) or, when the project has no grant, the active project
 the request names; the client takes it from the SCOPE.md of the folder it runs in.
 """
@@ -49,7 +59,7 @@ import zlib
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urldefrag, urljoin, urlsplit
 
 from awb import codes
 
@@ -77,6 +87,12 @@ PDFTOTEXT = "/usr/bin/pdftotext"
 PDF_MIN_CHARS = 20
 """Fewer characters a page than this on average: a scan without a text layer."""
 REDIRECTS = (301, 302, 303, 307, 308)
+MAX_LINKS = 400
+MAX_FOUND = 60
+INDEX_TYPES = {"application/javascript": "script", "text/javascript": "script", "application/x-javascript": "script",
+               "text/xml": "xml", "application/xml": "xml"}
+"""Types a help index comes in; taken only by `find`, never by a fetch of a page."""
+_WORDS_RE = re.compile(r"^[A-Za-z0-9 ._/&+-]{2,120}$")
 _HOST_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$")
 _PATH_RE = re.compile(r"^/[A-Za-z0-9._~/%+:@!$&'()*,;=-]*$")
 _BAD_PERCENT_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
@@ -284,6 +300,54 @@ class _Text(html.parser.HTMLParser):
         return body + "\n"
 
 
+class _Links(html.parser.HTMLParser):
+    """The links of a page as (href, text) and the help root a MadCap Flare page names."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.links: list[tuple[str, str]] = []
+        self.open: list[str] | None = None
+        self.href = ""
+        self.help_root: str | None = None
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "html" and a.get("data-mc-path-to-help-system") is not None:
+            self.help_root = a["data-mc-path-to-help-system"] or "./"
+        if tag == "a" and a.get("href"):
+            self.href, self.open = a["href"], []
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self.open is not None:
+            self.links.append((self.href, " ".join("".join(self.open).split())))
+            self.open = None
+
+    def handle_data(self, data):
+        if self.open is not None:
+            self.open.append(data)
+
+
+def page_links(page: str, base: str, hosts: list[str]) -> tuple[list[str], str | None]:
+    """Lines "- TEXT: URL" of the links of a page (http and https, absolute, no fragment, each URL once, a host off
+    the list marked) and the help root URL of a MadCap Flare page, or None."""
+    p = _Links()
+    p.feed(page)
+    p.close()
+    seen, lines = set(), []
+    for href, text in p.links:
+        url = urldefrag(urljoin(base, href.strip()))[0]
+        parts = urlsplit(url)
+        if parts.scheme not in ("http", "https") or not parts.hostname or url in seen or url == base:
+            continue
+        seen.add(url)
+        mark = "" if parts.scheme == "https" and parts.hostname.lower() in hosts else " (not an allowed host)"
+        lines.append("- %s: %s%s" % (text or "(no text)", url, mark))
+        if len(lines) == MAX_LINKS:
+            break
+    root = urljoin(base, p.help_root) if p.help_root is not None else None
+    return lines, root
+
+
 def html_text(page: str) -> str:
     """Readable text of an HTML page: headings, paragraphs, lists, code, tables as rows of cells."""
     p = _Text()
@@ -306,7 +370,8 @@ def https_get(host: str, path: str, timeout: float = TIMEOUT):
 
     conn = http.client.HTTPSConnection(host, 443, timeout=timeout, context=ssl.create_default_context())
     conn.request("GET", path, headers={"User-Agent": USER_AGENT, "Accept": "text/html, text/markdown, text/plain, "
-                                       "application/json;q=0.9, application/pdf;q=0.8", "Accept-Encoding": "identity",
+                                       "application/json;q=0.9, application/pdf;q=0.8, */*;q=0.1",
+                                       "Accept-Encoding": "identity",
                                        "Connection": "close"})
     resp = conn.getresponse()
     return resp.status, {k.lower(): v for k, v in resp.getheaders()}, resp
@@ -446,7 +511,7 @@ def pdf_text(data: bytes, *, runner=None, tool: str = PDFTOTEXT, timeout: float 
 
 
 def fetch(url: str, *, getter=https_get, hosts: list[str] | None = None, cap: int = MAX_BYTES,
-          pdf_cap: int = MAX_PDF_BYTES, pdf_runner=None) -> dict:
+          pdf_cap: int = MAX_PDF_BYTES, pdf_runner=None, links: bool = False, index: bool = False) -> dict:
     """The page of a checked URL as text: {"url", "host", "path", "kind", "status", "size", "text", "pages"} (pages
     for a PDF, else None). DocError naming the rule otherwise (with "host" and "path" of the last URL it got to, for
     the ledger)."""
@@ -480,6 +545,8 @@ def fetch(url: str, *, getter=https_get, hosts: list[str] | None = None, cap: in
                                else "failed: the host gave no status")
             ctype = (headers.get("content-type") or "").split(";")[0].strip().lower()
             kind = TEXT_TYPES.get(ctype) or ("pdf" if ctype in PDF_TYPES else "octet" if ctype in OCTET_TYPES else None)
+            if index:
+                kind = INDEX_TYPES.get(ctype) or kind
             if kind is None:
                 raise DocError("refused: not a text type (HTML, Markdown, plain text, JSON or PDF)")
             encoding = (headers.get("content-encoding") or "identity").strip().lower()
@@ -504,9 +571,19 @@ def fetch(url: str, *, getter=https_get, hosts: list[str] | None = None, cap: in
                 page = body.decode(m.group(1) if m else "utf-8", errors="replace")
             except LookupError:
                 page = body.decode("utf-8", errors="replace")
+            if index:
+                return {"url": url, "host": host, "path": path, "kind": kind, "status": status, "size": len(body),
+                        "text": page, "pages": None}
             text = html_text(page) if kind == "html" else _plain(page)
+            root = None
+            if links and kind == "html":
+                lines, root = page_links(page, url, hosts)
+                text = text.rstrip("\n") + "\n\n## Links (%d)\n\n%s\n" % (len(lines), "\n".join(lines) or "(none)")
+                if root:
+                    text += ("\nThis page belongs to a MadCap Flare help system (root %s). Its pages do not link each "
+                             "other: awb doc find %s WORDS lists every page whose title holds the words.\n" % (root, url))
             return {"url": url, "host": host, "path": path, "kind": kind, "status": status, "size": len(body),
-                    "text": _plain(text), "pages": None}
+                    "text": _plain(text), "pages": None, "help_root": root}
         except DocError as err:
             raise _at(err, host, path) from None
         finally:
@@ -515,6 +592,52 @@ def fetch(url: str, *, getter=https_get, hosts: list[str] | None = None, cap: in
             except Exception:
                 pass
     raise _at(DocError("refused: more than %d redirects" % MAX_REDIRECTS), host, path)
+
+
+_TOC_ATTR_RE = re.compile(r'\bToc="([^"]+)"')
+_NUMCHUNKS_RE = re.compile(r"numchunks:\s*(\d+)")
+_PREFIX_RE = re.compile(r"prefix:\s*'([A-Za-z0-9_.-]+)'")
+_ENTRY_RE = re.compile(r"'(/[^'\\]+)':\{i:\[[0-9,]*\],t:\['((?:[^'\\]|\\.)*)'")
+MAX_CHUNKS = 20
+
+
+def find(url: str, words: str, *, fetcher) -> dict:
+    """The pages of the MadCap Flare help system of the page at `url` whose title or path holds every word.
+    `fetcher(url, **kw)` is fetch with the getter, the hosts, the rate and the ledger of the caller. Returns
+    {"url", "root", "text", "count"}; DocError when the page names no help index or the index cannot be read."""
+    if not isinstance(words, str) or not _WORDS_RE.match(words.strip()):
+        raise DocError("refused: WORDS are 2 to 120 letters, digits, spaces and . _ / & + -")
+    terms = [w.lower() for w in words.split()]
+    page = fetcher(url, links=True)
+    root = page.get("help_root")
+    if not root:
+        raise DocError("refused: the page names no help index (only a MadCap Flare help system has one); "
+                       "use awb doc fetch URL --links")
+    root = root if root.endswith("/") else root + "/"
+    system = fetcher(root + "Data/HelpSystem.xml", index=True)["text"]
+    m = _TOC_ATTR_RE.search(system)
+    if not m:
+        raise DocError("failed: the help system names no table of contents")
+    toc_url = urljoin(root, m.group(1))
+    toc = fetcher(toc_url, index=True)["text"]
+    n, prefix = _NUMCHUNKS_RE.search(toc), _PREFIX_RE.search(toc)
+    if not (n and prefix):
+        raise DocError("failed: the table of contents has no chunk list")
+    found, seen = [], set()
+    for k in range(min(int(n.group(1)), MAX_CHUNKS)):
+        chunk = fetcher(urljoin(toc_url, "%s%d.js" % (prefix.group(1), k)), index=True)["text"]
+        for e in _ENTRY_RE.finditer(chunk):
+            path, title = e.group(1), re.sub(r"\\(.)", r"\1", e.group(2)).strip()
+            hay = (title + " " + path).lower()
+            if path not in seen and all(t in hay for t in terms):
+                seen.add(path)
+                found.append("- %s: %s" % (title or "(no title)", root.rstrip("/") + path))
+    head = "%d page%s of the help at %s match \"%s\"" % (len(found), "" if len(found) == 1 else "s", root,
+                                                       " ".join(words.split()))
+    if len(found) > MAX_FOUND:
+        head += " (the first %d shown; add a word)" % MAX_FOUND
+    body = "\n".join(found[:MAX_FOUND]) or "(none: try fewer or other words)"
+    return {"url": page["url"], "root": root, "text": "# %s\n\n%s\n" % (head, body), "count": len(found)}
 
 
 def _at(err: DocError, host: str, path: str) -> DocError:
@@ -539,13 +662,33 @@ def serve(req: dict, project, limiter: Limiter, ledger_dir, *, getter=https_get,
     if stop:
         ledger_line(ledger_dir, project, host, path, None, "rate")
         return {"ok": False, "error": stop}, None
+    words = req.get("find")
+
+    def one(u, **kw):
+        """A fetch of the request: the first is counted above, every further file of a find takes the rate too."""
+        if one.n:
+            stop = limiter.take(project)
+            if stop:
+                raise DocError(stop)
+        one.n += 1
+        try:
+            got = fetch(u, getter=getter, hosts=hosts, **kw)
+        except DocError as err:
+            ledger_line(ledger_dir, project, getattr(err, "host", host), getattr(err, "path", path), None,
+                        str(err).split(":", 1)[0])
+            raise
+        ledger_line(ledger_dir, project, got["host"], got["path"], got["size"], str(got["status"]))
+        return got
+    one.n = 0
+
     try:
-        page = fetch(url, getter=getter, hosts=hosts)
+        if words is not None:
+            res = find(url, words, fetcher=one)
+            page = {"url": res["url"], "kind": "find", "size": res["count"], "text": res["text"]}
+        else:
+            page = one(url, links=bool(req.get("links")))
     except DocError as err:
-        word = str(err).split(":", 1)[0]
-        ledger_line(ledger_dir, project, getattr(err, "host", host), getattr(err, "path", path), None, word)
         return {"ok": False, "error": str(err)}, None
-    ledger_line(ledger_dir, project, page["host"], page["path"], page["size"], str(page["status"]))
     data = page["text"].encode("utf-8")
     fd, name = tempfile.mkstemp(prefix="awb-doc-", dir=tmp_dir)
     with os.fdopen(fd, "wb") as fh:
@@ -609,6 +752,10 @@ def _fetch_cmd(args) -> int:
     os.close(fd)
     try:
         req = {"op": "doc_get", "url": args.url, "project": code}
+        if getattr(args, "links", False):
+            req["links"] = True
+        if getattr(args, "words", None):
+            req["find"] = " ".join(args.words)
         try:
             answer = keys.request(keys.call_socket(), req, timeout=TIMEOUT * (MAX_REDIRECTS + 1) + 10,
                                   download=Path(tmp))
@@ -653,7 +800,15 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("url", metavar="URL", help="https://HOST/PATH, the host exactly a line of awb doc hosts")
     f.add_argument("--out", metavar="FILE", help="write the text to FILE inside the project folder instead of "
                                                  "printing it")
+    f.add_argument("--links", action="store_true", help="append the links of the page as absolute URLs with their "
+                                                        "texts (a host off the list is marked)")
     f.set_defaults(func=_fetch_cmd)
+    d = sub.add_parser("find", help="the pages of the help system of a page (MadCap Flare) whose title or path holds "
+                                    "every word, as titles with their URLs")
+    d.add_argument("url", metavar="URL", help="any page of the help, https://HOST/PATH on an allowed host")
+    d.add_argument("words", metavar="WORDS", nargs="+", help="words that must all be in the title or the path")
+    d.add_argument("--out", metavar="FILE", help="write the list to FILE inside the project folder")
+    d.set_defaults(func=_fetch_cmd)
     h = sub.add_parser("hosts", help="the hosts a page may come from (rules/allow-domains.txt)")
     h.set_defaults(func=_hosts_cmd)
     args = ap.parse_args(argv)

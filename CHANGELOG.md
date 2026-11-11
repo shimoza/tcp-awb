@@ -5,6 +5,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ## Week 46, 2026-11-09 to 2026-11-15 (in progress)
 ### Added
+- DL: `awb doc fetch URL --links` ends the text with the links of the page as absolute URLs with their texts,
+  a host off the list marked. `awb doc find URL WORDS` lists the pages of a MadCap Flare help (the WatchGuard help
+  center is one) whose title or path holds every word: the key service reads the help index the page names, the
+  session gets titles and URLs only. The reader now asks for any type last (`*/*;q=0.1`): the help host answered
+  500 to its index files without it.
 - VF: `awb lab obs fetch URL FILE [--sha256 H|--sha1 H]` downloads a vendor's appliance image (an .ova or a .qcow2) into the project folder or the session scratch folder as a job of the key service, from a host of the new list rules/vendor-hosts.txt (`awb lab obs hosts`), separate from the documentation hosts. Redirects only to a listed host, a portal host, a 401/403 or a web page is refused with the hint to hand the download to the owner, at most 16 GB, a missing target folder is named in the refusal, a broken download goes on with a Range request, the vendor hash is checked or the computed SHA-256 and SHA-1 are recorded, and the run log gets URL, file, size and hashes. The work user's egress filter is unchanged. First entries: cdn.watchguard.com, with software.watchguard.com as a portal.
 - RB: a read check block can name `region` (the calls go to that region of the tenant) and `expect` (4xx statuses that count as an answer, so a missing endpoint is proven by its 404); a test path may hold spaces inside a selector; `kb how` no longer reads a path such as `subnets.0.id` in the calls or test lines as a web address.
 - The project tag (PT): every create a project sends through the key service carries `awb-project` with the project
@@ -33,6 +38,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 ### Changed
 - rules/allow-domains.txt: www.nvidia.com, resources.nvidia.com, en.wikipedia.org and de.wikipedia.org, so `awb doc fetch` reads GPU data sheets and encyclopedia pages (the host match is exact).
 - rules/allow-domains.txt: watchguard.com and www.watchguard.com, the vendor docs of Firebox V on KVM.
+
+### Fixed
+- IST: `awb import` failed with PermissionError after the originals had moved when an older intake-report.md of
+  another user sat in the sticky outbox folder. The intake now refuses before anything is written or moved and names
+  the rename that clears it; a report that still fails to write takes the run back.
 - tests/test_self_clean.py scans the files in one process per core: one process took 140 s of the 120 s limit, in the
   secret, token, blocklist and home path patterns over 13 MB. The scan and what it checks are the same.
 
