@@ -31,6 +31,40 @@ statement. A customer or partner appears only as a code (`CUST-Q7M4`), a piece o
 
 Most of it is not tied to one cloud. The facts, prices and API details are for TCP.
 
+## Local recovery pack
+
+Run `awb exit pack [--to DIR] [--no-transcripts] [--keep N]` in the owner's terminal to save the client-only and
+untracked work before losing the client account or the disk. The default destination is `~/awb-exit/YYYY-MM-DD/`
+using the UTC date. It holds `memory.tgz`, `transcripts.tgz`, `local-only.tgz`, `transcripts-work.tgz` when a work
+user is configured and `MANIFEST.txt` with counts, archive sizes, SHA-256 digests and the repository commit.
+The owner archive is named `transcripts.tgz`; it takes the place of `transcripts-steering.tgz` in the first manual
+pack. The manifest counts regular files and all tar entries separately, so `tar -tzf` matches its entry count.
+
+Memory and recursive `.jsonl` sessions come from this repository's project in `~/.claude/projects/`. Local files
+are `CLAUDE.local.md`, `build/PROGRESS.md`, `build/COVERAGE.md`, `build/DECISIONS.md`, `build/OPEN.md`, `build/queue`
+and `presentations`. Missing local paths are counted; missing memory is noted. Work transcripts come from the
+work user's whole `.claude/projects` folder through `sudo -n tar`. The owner creates the output file, so it stays
+owner-owned. If sudo refuses, the other three archives and the manifest are still written and the command exits 1.
+The manifest says `work transcripts: not packed (sudo)` and ends with the sudo retry line. Run the pack command
+again after a manual retry to refresh the manifest's digests and counts.
+
+Folders have mode 0700 and files 0600. Output contains archive labels, counts and sizes only. A model session,
+the work user and the build user are refused. Nothing is uploaded and no model is called. `--no-transcripts`
+omits both transcript archives without calling sudo. A second run replaces today's folder. `--keep N` keeps the
+newest N dated folders (default 6, minimum 1); other names, files and symbolic links are left alone.
+
+The optional user timer runs as the owner on Sunday at 03:00 UTC and catches missed runs with `Persistent=true`.
+The task does not install it. From `~/tcp-awb`, run these two lines in the owner's terminal:
+
+```bash
+install -Dm644 tools/awb-exit-pack.service ~/.config/systemd/user/awb-exit-pack.service && install -Dm644 tools/awb-exit-pack.timer ~/.config/systemd/user/awb-exit-pack.timer
+systemctl --user daemon-reload && systemctl --user enable --now awb-exit-pack.timer
+```
+
+The service expects the checkout and its venv at `~/tcp-awb`; adjust its two paths if installed elsewhere. Its
+environment has no model-session marker, so the normal session refusal does not block it. Noninteractive sudo
+must permit the tar command for work transcripts. A user timer needs the owner's user manager to be running.
+
 ## The parts
 
 Two users on one host hold the two sides apart. The owner keeps the register of names (the vault), the tenant

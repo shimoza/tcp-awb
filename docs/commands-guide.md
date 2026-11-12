@@ -7,6 +7,30 @@ Two sides. The owner side holds the register of names and the originals and is r
 work side is what Workbench sessions (and you) run inside `tcp-` projects. A name is only ever typed on the owner
 side.
 
+## Local recovery pack (owner side)
+
+`awb exit pack [--to DIR] [--no-transcripts] [--keep N]` writes `DIR/YYYY-MM-DD/` using the UTC date, default
+`~/awb-exit`. It saves `memory.tgz` from this repository's Claude project memory, `transcripts.tgz` from that
+project's recursive `.jsonl` sessions and `local-only.tgz` from `CLAUDE.local.md`, the four local build diaries
+(`PROGRESS.md`, `COVERAGE.md`, `DECISIONS.md`, `OPEN.md`), `build/queue` and `presentations`.
+`transcripts.tgz` replaces the name `transcripts-steering.tgz` used by the first manual pack.
+
+When the host config names a work user, `sudo -n tar` packs its whole `.claude/projects` folder into
+`transcripts-work.tgz`, streamed into a file owned by the owner. If sudo refuses, the other three archives are
+kept, the manifest says `work transcripts: not packed (sudo)` and the exit code is 1. The manifest ends with a
+sudo retry line; rerun the command afterwards to refresh counts and digests. No work user configured means no
+work archive and is recorded in the manifest. `--no-transcripts` omits both transcript archives and records why.
+
+`MANIFEST.txt` records regular-file counts, total tar entries, archive sizes, SHA-256 digests and the repository
+commit. `tar -tzf` lists exactly the counted entries, including directory and link entries. Terminal output gives
+archive labels, counts and sizes only. Directories are 0700 and files 0600. Work users, build users and model
+sessions are refused. There is no upload or model call.
+
+Today's pack is replaced on a second run. `--keep N` keeps the newest N dated directories (default 6, minimum 1)
+and leaves every other name, file and symbolic link alone. The optional owner user timer in `tools/` runs Sunday
+03:00 UTC with `Persistent=true`. See the [README installation lines](README.md#local-recovery-pack); it is not
+installed automatically.
+
 ## The doors
 
 Customer material has one door per kind. The window is where you type: your own terminal as the owner, or the

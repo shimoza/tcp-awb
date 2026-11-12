@@ -1,0 +1,8 @@
+[Unit]
+Description=Workbench local recovery pack
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/tcp-awb
+ExecStart=%h/tcp-awb/.venv/bin/awb exit pack --keep 6
+UMask=0077

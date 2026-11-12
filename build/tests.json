@@ -14572,8 +14572,20 @@
  {"id": "ux15-3", "phase": "ux15", "name": "build quick: a change in one module runs its test file by name and the files that import it", "run": ".venv/bin/pytest tests/test_build_quick.py::test_a_change_in_one_module_runs_its_test_file_by_name_and_the_files_that_import_it", "status": "passing"},
  {"id": "ux15-4", "phase": "ux15", "name": "build quick: a change outside the modules runs no module test and a changed test file runs as itself", "run": ".venv/bin/pytest tests/test_build_quick.py::test_a_change_outside_the_modules_runs_no_module_test_and_a_changed_test_file_runs_as_itself", "status": "passing"},
  {"id": "ux15-5", "phase": "ux15", "name": "build quick: an unknown ref is refused with exit 2", "run": ".venv/bin/pytest tests/test_build_quick.py::test_an_unknown_ref_is_refused_with_exit_2", "status": "passing"},
- {"id": "ux15-6", "phase": "ux15", "name": "build quick: the command takes an optional ref", "run": ".venv/bin/pytest tests/test_build_quick.py::test_the_command_takes_an_optional_ref", "status": "passing"}
+ {"id": "ux15-6", "phase": "ux15", "name": "build quick: the command takes an optional ref", "run": ".venv/bin/pytest tests/test_build_quick.py::test_the_command_takes_an_optional_ref", "status": "passing"},
+ {"id": "lx5-1", "phase": "llm-exit", "name": "exit pack: archives counts digests commit and private modes", "run": ".venv/bin/pytest tests/test_exitpack.py::test_archives_counts_digests_commit_and_private_modes", "status": "passing"},
+ {"id": "lx5-2", "phase": "llm-exit", "name": "exit pack: model session refused before any output is written", "run": ".venv/bin/pytest tests/test_exitpack.py::test_model_session_refused_before_any_output_is_written", "status": "passing"},
+ {"id": "lx5-3", "phase": "llm-exit", "name": "exit pack: work user refused", "run": ".venv/bin/pytest tests/test_exitpack.py::test_work_user_refused", "status": "passing"},
+ {"id": "lx5-4", "phase": "llm-exit", "name": "exit pack: repository must belong to caller", "run": ".venv/bin/pytest tests/test_exitpack.py::test_repository_must_belong_to_caller", "status": "passing"},
+ {"id": "lx5-5", "phase": "llm-exit", "name": "exit pack: no transcripts omits both archives and sudo", "run": ".venv/bin/pytest tests/test_exitpack.py::test_no_transcripts_omits_both_archives_and_sudo", "status": "passing"},
+ {"id": "lx5-6", "phase": "llm-exit", "name": "exit pack: refused sudo keeps three archives and returns one", "run": ".venv/bin/pytest tests/test_exitpack.py::test_refused_sudo_keeps_three_archives_and_returns_one", "status": "passing"},
+ {"id": "lx5-7", "phase": "llm-exit", "name": "exit pack: same day replaced and older day preserved", "run": ".venv/bin/pytest tests/test_exitpack.py::test_same_day_replaced_and_older_day_preserved", "status": "passing"},
+ {"id": "lx5-8", "phase": "llm-exit", "name": "exit pack: keep prunes only oldest real dated folders", "run": ".venv/bin/pytest tests/test_exitpack.py::test_keep_prunes_only_oldest_real_dated_folders", "status": "passing"},
+ {"id": "lx5-9", "phase": "llm-exit", "name": "exit pack: invalid keep refused without writes", "run": ".venv/bin/pytest tests/test_exitpack.py::test_invalid_keep_refused_without_writes", "status": "passing"},
+ {"id": "lx5-10", "phase": "llm-exit", "name": "exit pack: archive failure does not print private path or replace previous pack", "run": ".venv/bin/pytest tests/test_exitpack.py::test_archive_failure_does_not_print_private_path_or_replace_previous_pack", "status": "passing"},
+ {"id": "lx5-11", "phase": "llm-exit", "name": "exit pack: timer is an owner user unit weekly utc and persistent", "run": ".venv/bin/pytest tests/test_exitpack.py::test_timer_is_an_owner_user_unit_weekly_utc_and_persistent", "status": "passing"},
+ {"id": "lx5-12", "phase": "llm-exit", "name": "exit pack: usage errors never echo transcript names", "run": ".venv/bin/pytest tests/test_exitpack.py::test_usage_errors_never_echo_transcript_names", "status": "passing"}
  ],
- "total_tests": 2225,
+ "total_tests": 2237,
  "checked": "2026-11-09"
 }
