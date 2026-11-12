@@ -102,6 +102,20 @@ PLANTED_STREET = "Xqarvstraße 12"
 LISTED_FIRST = "Jonas"
 FIRST_LAST = " ".join((LISTED_FIRST, "Vrelkam"))
 
+# the invented people, companies and places of the meeting transcripts of the wipe pack (B-051,
+# calibration/redteam/wipe/cases_meetings.py) and of the tests of the local model pass of `awb clean`; none of them
+# is registered. First names of rules/first-names.txt with invented surnames, the n-th first name and the n-th
+# surname one person; built from single words like the names above
+MEETING_FIRSTS = ("Jonas", "Anna", "Markus", "Lena", "Sabine", "Henrik", "Katrin", "Felix", "Svenja", "Ralf")
+MEETING_LASTS = ("Vrelkam", "Zrbl", "Kwiddel", "Brinkhove", "Ostrund", "Wenzmar", "Qwendt", "Drabnitz", "Mölkert",
+                 "Tschirpe")
+MEETING_NICKNAMES = ("Kwiddi", "Svenni")      # of the third and of the ninth person
+MEETING_BRANDS = ("Oxtrel", "Plozmar", "Taldrup", "Grabbel")
+MEETING_COMPANIES = (" ".join(("Oxtrel", "Systems", "Ltd")), " ".join(("Plozmar", "Consulting")),
+                     " ".join(("Taldrup", "Data", "KG")), " ".join(("Grabbel", "Netz", "GmbH")))
+MEETING_PLACES = ("Ostervrell", "Brakwitz")
+MEETING_DOMAINS = ("oxtrel.example", "plozmar.example")
+
 # the self-test's own customer (awb/planted.py carries the same strings): its short form inside a company shape must
 # become the code
 SELFTEST_CUSTOMER_CODE = "CUST-SELF"

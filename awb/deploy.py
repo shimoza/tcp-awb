@@ -184,6 +184,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/cleaninventory.py": "awb clean inventory, run on the owner's laptop",
     "awb/cleanfiles.py": "awb clean files plan|apply|undo, run on the owner's laptop (task R6)",
     "awb/clean.py": "awb clean, run on the owner's laptop (and awb import --auto reads its name rule)",
+    "awb/cleanlm.py": "awb clean --llm, teach and measure, run on the owner's laptop (B-051)",
     "awb/fplearn_cmd.py": "awb check learn and awb check allow, run by the owner's timer and in his own terminal",
     "awb/pastein.py": "awb import --paste, run by the owner in his own terminal",
     "awb/wipe.py": "the old import path of awb/intake/wipe/ (F1 step 8), which no module of a unit imports",

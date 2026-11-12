@@ -599,8 +599,10 @@ install. `awb clean register CUST-XXXX` asks the written forms of the customer o
 `awb import` does; they stay in that vault folder and nowhere else.
 
     awb clean use tcp-xxxx
-    awb clean FILE... [--project tcp-xxxx] [--kind docs|logs] [--out DIR] [--put]
+    awb clean FILE... [--project tcp-xxxx] [--kind docs|logs] [--out DIR] [--put] [--llm [URL]]
     awb clean put
+    awb clean teach keep WORD | wipe WORD [--kind person|company|place] | list
+    awb clean measure [--llm [URL]] [--only MODULE ...]
 
 - Name the project once with `awb clean use tcp-xxxx`: it is remembered on the laptop and its work folder
   `~/work/tcp-xxxx` is made (with a layout root, `clean/` of `<root>/YYYY-MM/tcp-xxxx/`, section "Folder layout and
@@ -628,7 +630,32 @@ install. `awb clean register CUST-XXXX` asks the written forms of the customer o
   One `<name>.clean.<suffix>` per file.
 - The report `clean-report-<stamp>.md` in the output folder gives kinds and counts per file, never a value. The
   mapping (token, class, value) of each run goes into `~/awb-laptop/vault/maps/tcp-xxxx/` and stays there.
-- Nothing in this path opens a network connection. `--put` is the one exception: the clean copies (never the
+- `--llm [URL]` adds a second pass by a local model to a docs run, for free text such as a meeting transcript,
+  where the rules miss names. The rules run first and unchanged. Then the cleaned text goes in pieces of about 2,000
+  characters, cut at a sentence, to the model, which is asked for the spans that are still names of persons,
+  companies or places. A span is taken only when it stands in its piece literally and is no entry of the lists of
+  public words, technical terms and allowed terms (`rules/*.txt`) and no keep word of yours; it becomes a token like
+  any other and goes into the mapping. The model never rewrites the text. The URL defaults to the GPT4All API,
+  `http://localhost:4891/v1/chat/completions` (`AWB_CLEAN_LLM_URL` names another, `AWB_CLEAN_LLM_MODEL` the model
+  as GPT4All names it, default `Llama 3 8B Instruct`, `AWB_CLEAN_LLM_TIMEOUT` another limit than 120 s per piece). It must be loopback (127.0.0.1, ::1 or localhost):
+  any other host is refused with one line before anything is sent; the call never goes through a proxy. A model
+  that does not answer, times out or answers no valid JSON costs only that piece: the run goes on with the rules
+  alone. The report gets a section with one line per file: pieces sent and missed, spans proposed, taken, dropped as
+  public words and not in the piece, by kind, counts only. A logs run gets no model pass. Start the API in GPT4All
+  under Settings, Enable Local API Server, with a model loaded; a CPU-only 7-8B model may need minutes per
+  transcript. No model is trained or fine-tuned, here or anywhere: the model is used as it ships. What gets better
+  is the rules, the word lists and your corrections.
+- `awb clean teach keep WORD` keeps a word the wipe replaced (the word or the phrase as it stood) and `awb clean
+  teach wipe WORD [--kind person|company|place]` wipes a name that got through (person by default). They go to
+  `~/awb-laptop/vault/teach.tsv` (600) and every later run on the laptop reads them: a keep word is never wiped, a
+  wipe word is matched like a registered form and becomes a token of its kind. `awb clean teach list` prints the
+  counts per kind. Nothing of the file goes to the bucket, a report or an update.
+- `awb clean measure [--llm [URL]]` runs the wipe pack (`calibration/redteam/wipe/` of the clone, invented cases
+  only) with the rules alone and with `--llm` also with the model. It prints the cases that leak and lose per case
+  module for both, so you see on the laptop whether the model helps. `--only meetings` runs the 40 meeting
+  transcripts alone (with the rules alone 17 leak and 1 loses, see `calibration/redteam/EXPECTED.md`).
+- Nothing in this path opens a network connection to another machine (`--llm` talks to the loopback address
+  only). `--put` is the one exception: the clean copies (never the
   originals) go into `<YYYY-MM>/tcp-xxxx/in/` of the bucket `awb` (eu-de) with your own key from `AWB_OBS_AK` and
   `AWB_OBS_SK` (`AWB_OBS_BUCKET` and `AWB_OBS_REGION` name another bucket or region). The folder is looked for
   under every month and created under this month when missing.

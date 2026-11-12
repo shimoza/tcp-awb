@@ -3,7 +3,9 @@ lc-laptop-clean, his yes of 2026-10-22).
 
     awb clean use tcp-xxxx [--month YYYY-MM]
     awb clean layout [ROOT] [--save]
-    awb clean FILE... [--project tcp-xxxx] [--kind docs|logs] [--out DIR] [--put]
+    awb clean FILE... [--project tcp-xxxx] [--kind docs|logs] [--out DIR] [--put] [--llm [URL]]
+    awb clean teach keep WORD | wipe WORD [--kind person|company|place] | list
+    awb clean measure [--llm [URL]] [--only MODULE ...]
     awb clean put [--project tcp-xxxx]
     awb clean serve [--port 8765]
     awb clean register CUST-XXXX
@@ -30,7 +32,14 @@ again. A Windows path (D:\\Documents\\x.docx or D:/Documents/x.docx) is read as 
 
 It runs on a plain Linux (Ubuntu under WSL) with no vault daemon, no key service and no work user, and opens no
 network connection: the only network use is his own `--put`, `awb clean put`, `awb clean fetch` and `awb clean
-update` (`awb clean serve` listens on 127.0.0.1 only and connects nowhere).
+update` (`awb clean serve` listens on 127.0.0.1 only and connects nowhere; `--llm` calls a local model on a loopback
+address only, never through a proxy).
+
+`--llm [URL]` adds a second pass of a docs run by a local model (awb/cleanlm.py, task B-051): after the rules, which
+run unchanged, the model proposes spans of the cleaned text that are still names; a span that stands in its piece
+and is no public word becomes a token of wipe mode. `awb clean teach keep|wipe|list` keeps the owner's corrections in
+the vault folder (teach.tsv), which every run reads; `awb clean measure` runs the wipe pack with the rules alone and
+with the model.
 
 - `docs` (docx, pptx, xlsx, odt, ods, odp, pdf, and text, Markdown, html and mail files): the body text only.
   Pictures (logos), document properties, headers, footers, comments, tracked changes and hidden parts are read for
@@ -221,6 +230,7 @@ class FileResult:
     removed: Counter = field(default_factory=Counter)
     state: str = "clean"
     why: str = ""
+    llm: Counter = field(default_factory=Counter)
 
 
 @dataclass
@@ -282,11 +292,11 @@ def _secret_pass(text: str, counts: Counter) -> str:
 
 
 def run(files: list[Path], project: str, kind: str, out: Path | None = None, *, put: bool = False,
-        say=print) -> RunResult:
-    """Clean `files` for `project` into `out` (default ./clean/). See the module text."""
-    from awb import intake
+        say=print, llm=None) -> RunResult:
+    """Clean `files` for `project` into `out` (default ./clean/). See the module text. `llm` (a cleanlm.Model) adds
+    the pass of the local model to a docs run."""
+    from awb import cleanlm, intake
     from awb import extract as _extract
-    from awb.intake.engine import _Engine
 
     if kind not in KINDS:
         raise CleanError("--kind is docs or logs")
@@ -307,7 +317,14 @@ def run(files: list[Path], project: str, kind: str, out: Path | None = None, *, 
     out.mkdir(parents=True, exist_ok=True)
     os.chmod(out, 0o700)
 
-    engine = _Engine(laptop.entries())
+    # the owner's local corrections (teach.tsv): wipe words matched like registered forms, keep words never wiped
+    engine = cleanlm.engine(laptop.entries(), cleanlm.wipe_words())
+    keep = cleanlm.keep_words()
+    if keep:
+        engine.keep = keep
+    model = llm if kind == "docs" else None
+    public = cleanlm.public_terms() if model is not None else None
+    llm_taken: dict[str, str] = {}
     engine.wipe.trusted = kind == "logs"
     if kind == "logs":
         cleanlogs.log_view(engine)
@@ -376,6 +393,14 @@ def run(files: list[Path], project: str, kind: str, out: Path | None = None, *, 
                 if clean.strip():
                     bodies.append(clean.strip("\n") if i == 0 else "## part %d\n\n%s" % (i, clean.strip("\n")))
             body = "\n\n".join(bodies) + "\n"
+            if model is not None:
+                body, c, fr.llm = cleanlm.model_pass(engine, body, name, model, llm_taken, public=public, keep=keep)
+                fr.counts.update(c)
+                if any(v.casefold() in stem.casefold() for v in llm_taken):
+                    taken.discard(stem.casefold())
+                    stem = "file-%d" % fr.number
+                    taken.add(stem)
+                    name = "%s.clean.md" % stem
         body = cleanlogs.drop_secret_lines(body, fr.counts)
         left = _final_hits(engine, body, kind == "docs")
         if left:
@@ -395,7 +420,7 @@ def run(files: list[Path], project: str, kind: str, out: Path | None = None, *, 
     rows = [(h.token, h.cls, h.value, ",".join(sorted(h.where))) for h in engine.hits.values()]
     rows += [(tok, cls, value, "") for tok, cls, value in tokens.rows]
     mapping = laptop.write_map(project, rows)
-    report = _write_report(out, project, customer, kind, results)
+    report = _write_report(out, project, customer, kind, results, llm=model is not None)
     res = RunResult(files=results, report=report, mapping=mapping)
     if put and written:
         res.put = put_files(project, written, say=say)
@@ -406,7 +431,10 @@ def _counts_text(counts: Counter) -> str:
     return ", ".join("%s %d" % kv for kv in sorted(counts.items()) if kv[1]) or "nothing"
 
 
-def _write_report(out: Path, project: str, customer: str, kind: str, results: list[FileResult]) -> Path:
+def _write_report(out: Path, project: str, customer: str, kind: str, results: list[FileResult],
+                  llm: bool = False) -> Path:
+    from awb import cleanlm
+
     stamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
     path, n = out / ("clean-report-%s.md" % stamp), 1
     while path.exists():
@@ -420,6 +448,11 @@ def _write_report(out: Path, project: str, customer: str, kind: str, results: li
         state = fr.state + (" (%s)" % fr.why if fr.why else "")
         lines.append("| %s | %s | %s | %s | %s |" % (label, fr.kind, state, _counts_text(fr.counts),
                                                       _counts_text(fr.removed)))
+    if llm:
+        lines += ["", "## Local model", ""]
+        for fr in results:
+            label = fr.output.name if fr.output else "file %d" % fr.number
+            lines.append("- %s: %s" % (label, cleanlm.stats_line(fr.llm)))
     lines += ["", "Kinds and counts only. The values and their tokens stay in the vault folder of this laptop."]
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -663,7 +696,7 @@ def _parser_files():
 
     ap = SafeParser(prog="awb clean", description="Clean project material on the laptop, offline: docs (office "
                     "and pdf files) or logs (logs, configs, tickets); also awb clean use tcp-xxxx, put, serve, "
-                    "register CUST-XXXX, init, shell, fetch, report, inventory, layout, files, update and doctor.")
+                    "register CUST-XXXX, init, shell, fetch, report, inventory, layout, files, teach, measure, update and doctor.")
     ap.add_argument("files", nargs="+", metavar="FILE", help="the files to clean; the originals are never changed")
     ap.add_argument("--project", default=None, metavar="tcp-xxxx", help="the project code (default: the work "
                     "folder of the current directory, else the project of awb clean use); its customer is CUST- and "
@@ -675,6 +708,10 @@ def _parser_files():
                     "the work folder; with --project ./clean/)")
     ap.add_argument("--put", action="store_true", help="put the clean copies into <YYYY-MM>/tcp-xxxx/in/ of the "
                     "bucket awb with the key of AWB_OBS_AK and AWB_OBS_SK")
+    ap.add_argument("--llm", nargs="?", const="", default=None, metavar="URL", help="a second pass of a docs run by "
+                    "a local model that proposes the names the rules missed (default URL "
+                    "http://localhost:4891/v1/chat/completions of GPT4All, else AWB_CLEAN_LLM_URL; the model "
+                    "AWB_CLEAN_LLM_MODEL); loopback only, no proxy")
     return ap
 
 
@@ -825,6 +862,14 @@ def main(argv: list[str] | None = None) -> int:
             return cleanfiles.main(argv[1:])
         if argv[:1] == ["put"]:
             return _put_main(argv[1:])
+        if argv[:1] == ["teach"]:
+            from awb import cleanlm
+
+            return cleanlm.teach_main(argv[1:])
+        if argv[:1] == ["measure"]:
+            from awb import cleanlm
+
+            return cleanlm.measure_main(argv[1:])
         if argv[:1] == ["serve"]:
             return _serve_main(argv[1:])
         if argv[:1] == ["update"]:
@@ -841,6 +886,15 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as err:
         print("awb clean: %s (operating system error)" % type(err).__name__, file=sys.stderr)
         return EXIT_ERROR
+    model = None
+    if args.llm is not None:
+        from awb import cleanlm
+
+        try:
+            model = cleanlm.Model(args.llm or None)      # the loopback check, before anything is read or sent
+        except cleanlm.LLMError as err:
+            print("awb clean: %s" % err, file=sys.stderr)
+            return EXIT_ERROR
     try:
         project, source = laptop.resolve_project(args.project)
         files = [Path(windows_path(f)) for f in args.files]
@@ -856,7 +910,7 @@ def main(argv: list[str] | None = None) -> int:
             print("%s is not registered on this laptop yet." % customer)
             laptop.ask_forms(customer, tty=True)
         started = time.monotonic()
-        runs = run_files(files, project, args.kind, out, put=args.put)
+        runs = run_files(files, project, args.kind, out, put=args.put, llm=model)
     except (laptop.LaptopError, CleanError, register.RegisterError) as err:
         print("awb clean: %s" % err, file=sys.stderr)
         return EXIT_ERROR
@@ -874,6 +928,11 @@ def main(argv: list[str] | None = None) -> int:
                                                                time.monotonic() - started, res.report))
         ok = ok and all(fr.output for fr in res.files)
         copies += len(res.outputs)
+        if model is not None and kind == "logs":
+            print("local model: no pass on a logs run (no name is guessed in logs)")
+    if model is not None and model.sent:
+        print("local model: %d piece%s sent, %d missed (the rules alone for those)"
+              % (model.sent, "" if model.sent == 1 else "s", model.missed))
     if copies and not args.put:
         print("next: awb clean put sends the %d clean cop%s of this run" % (copies, "y" if copies == 1 else "ies"))
     return EXIT_OK if ok else EXIT_HELD
@@ -888,7 +947,7 @@ def _project_line(project: str, source: str) -> str:
 
 
 def run_files(files: list[Path], project: str, kind: str | None, out: Path | None, *, put: bool = False,
-              say=print) -> list[tuple[str, str, RunResult]]:
+              say=print, llm=None) -> list[tuple[str, str, RunResult]]:
     """One call of `awb clean` or of the page: a run per kind (--kind, else the default rule), its reports kept as
     the last run of the project. Returns (kind, how it was chosen, result) per run."""
     if not files:
@@ -896,7 +955,7 @@ def run_files(files: list[Path], project: str, kind: str | None, out: Path | Non
     how = "--kind" if kind else None
     runs = []
     for k, group in kind_groups(files, kind):
-        res = run(group, project, k, out, put=put, say=say)
+        res = run(group, project, k, out, put=put, say=say, llm=llm)
         runs.append((k, how or ("a .log file" if k == "logs" else "default for a file not ending in .log"), res))
     laptop.record_run(project, [r.report for _, _, r in runs if r.report is not None])
     return runs

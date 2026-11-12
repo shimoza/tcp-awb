@@ -15707,8 +15707,85 @@
    "name": "tenant password command, optional login 401 is one attempt and keeps new store value",
    "run": ".venv/bin/pytest tests/test_tenant_admin_change.py::test_optional_login_401_is_one_attempt_and_keeps_new_store_value",
    "status": "passing"
+  },
+  {
+   "id": "b051-1",
+   "phase": "b051",
+   "name": "clean llm: a proposed name in its piece becomes a token and the rest stays",
+   "run": ".venv/bin/pytest tests/test_lm_clean_llm.py::test_a_proposed_name_in_its_piece_becomes_a_token_and_the_rest_stays",
+   "status": "passing"
+  },
+  {
+   "id": "b051-2",
+   "phase": "b051",
+   "name": "clean llm: a keep word of the owner is never taken from the model",
+   "run": ".venv/bin/pytest tests/test_lm_clean_llm.py::test_a_keep_word_of_the_owner_is_never_taken_from_the_model",
+   "status": "passing"
+  },
+  {
+   "id": "b051-3",
+   "phase": "b051",
+   "name": "clean llm: a url that is not loopback is refused before any request",
+   "run": ".venv/bin/pytest tests/test_lm_clean_llm.py::test_a_url_that_is_not_loopback_is_refused_before_any_request",
+   "status": "passing"
+  },
+  {
+   "id": "b051-4",
+   "phase": "b051",
+   "name": "clean llm: localhost must resolve to loopback and the loopback addresses pass",
+   "run": ".venv/bin/pytest tests/test_lm_clean_llm.py::test_localhost_must_resolve_to_loopback_and_the_loopback_addresses_pass",
+   "status": "passing"
+  },
+  {
+   "id": "b051-5",
+   "phase": "b051",
+   "name": "clean llm: a proxy in the environment does not carry the call",
+   "run": ".venv/bin/pytest tests/test_lm_clean_llm.py::test_a_proxy_in_the_environment_does_not_carry_the_call",
+   "status": "passing"
+  },
+  {
+   "id": "b051-6",
+   "phase": "b051",
+   "name": "clean llm: a timeout, a 500 and no json leave the rules result and count the missed pieces",
+   "run": ".venv/bin/pytest tests/test_lm_clean_llm.py::test_a_timeout_a_500_and_no_json_leave_the_rules_result_and_count_the_missed_pieces",
+   "status": "passing"
+  },
+  {
+   "id": "b051-7",
+   "phase": "b051",
+   "name": "clean llm: without llm the report has no model section",
+   "run": ".venv/bin/pytest tests/test_lm_clean_llm.py::test_without_llm_the_report_has_no_model_section",
+   "status": "passing"
+  },
+  {
+   "id": "b051-8",
+   "phase": "b051",
+   "name": "clean llm: the report and the terminal hold counts only",
+   "run": ".venv/bin/pytest tests/test_lm_clean_llm.py::test_the_report_and_the_terminal_hold_counts_only",
+   "status": "passing"
+  },
+  {
+   "id": "b051-9",
+   "phase": "b051",
+   "name": "clean teach: keep and wipe change the next run and the file is 600",
+   "run": ".venv/bin/pytest tests/test_lm_clean_llm.py::test_teach_keep_and_wipe_change_the_next_run_and_the_file_is_600",
+   "status": "passing"
+  },
+  {
+   "id": "b051-10",
+   "phase": "b051",
+   "name": "clean teach: put, fetch and update never read the teach file",
+   "run": ".venv/bin/pytest tests/test_lm_clean_llm.py::test_put_fetch_and_update_never_read_the_teach_file",
+   "status": "passing"
+  },
+  {
+   "id": "b051-11",
+   "phase": "b051",
+   "name": "clean measure: both columns printed and a proposed leak drops the leak count by one",
+   "run": ".venv/bin/pytest tests/test_lm_clean_llm.py::test_measure_prints_both_columns_and_a_proposed_leak_drops_the_leak_count_by_one",
+   "status": "passing"
   }
  ],
- "total_tests": 2244,
+ "total_tests": 2255,
  "checked": "2026-11-09"
 }

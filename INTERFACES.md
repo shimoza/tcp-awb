@@ -1216,6 +1216,22 @@ root: `layout_root()`, `save_layout(root)`, `layout_project(code)`, `layout_dir(
 `use(code, month=None)`; `work_dir` and `project_of_dir` know the layout. `awb clean layout [ROOT] [--save]` and
 `awb clean use --month` are in `awb/clean.py`; `cleanfetch.fetch` without `to` takes `out/` of the layout.
 
+## The local model pass of awb clean (2026-11-12, B-051)
+
+`awb/cleanlm.py` is `awb clean --llm`, `awb clean teach` and `awb clean measure` (dispatched by `clean.main`):
+`check_url(url, resolve=socket.getaddrinfo) -> url` (http or https to 127.0.0.1, ::1 or a localhost that resolves to
+loopback only, else `LLMError(REFUSED)`), `Model(url=None, model=None, timeout=None)` with `ask(piece) -> [{text,
+kind}] | None` and the counters `sent` and `missed` (an opener with an empty `ProxyHandler`), `parse_spans(content)`,
+`pieces(text, size=PIECE)`, `public_terms()`, `model_pass(engine, body, where, model, taken, public=None, keep=())
+-> (body, counts, stats)`, `stats_line(stats)`, `teach(action, word, kind=None)`, `teach_entries()`,
+`keep_words()`, `wipe_words()`, `teach_lines()`, `engine(entries, wipe=())` (the intake engine, with taught wipe
+words a subclass whose `raw_spans` adds their spans of class person, company or place), `measure(url=None,
+use_model=False, only=None, pack=None, say=print, model=None) -> counts`, `teach_main(argv)`, `measure_main(argv)`.
+`clean.run(..., llm=None)` and `clean.run_files(..., llm=None)` take a `Model`; `FileResult.llm` holds the counts of
+the pass and the report gains a section `## Local model` with one line per file. `clean_compare.clean_once(case,
+root, kind, llm=None)` of the wipe pack passes it on. teach.tsv in the vault folder of the laptop has the columns
+action (keep or wipe), kind (`-` for keep) and the word.
+
 ## The deploy (2026-10-07, T1)
 
 `awb/deploy.py`, `awb deploy` (DELEGATED, refused for the work user). `main(argv, *, root=OPT, etc=Path("/etc"),

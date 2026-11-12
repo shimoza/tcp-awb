@@ -44,7 +44,9 @@ def fresh_laptop(root: Path) -> Path:
     return base
 
 
-def clean_once(case: dict, root: Path, kind: str) -> dict:
+def clean_once(case: dict, root: Path, kind: str, llm=None) -> dict:
+    """One case through `clean.run`; `llm` (a cleanlm.Model) adds the pass of the local model (`awb clean
+    measure --llm`)."""
     from awb import clean
 
     base = fresh_laptop(root)
@@ -56,7 +58,7 @@ def clean_once(case: dict, root: Path, kind: str) -> dict:
         inbox = base / "inbox"
         inbox.mkdir()
         src = Path(case["build"](inbox))
-        res = clean.run([src], PROJECT, kind, base / "out", say=lambda s: None)
+        res = clean.run([src], PROJECT, kind, base / "out", say=lambda s: None, llm=llm)
         rec["outputs"] = len(res.outputs)
         rec["withheld"] = any(f.state == "withheld" for f in res.files)
         rec["skipped"] = any(f.state == "skipped" for f in res.files)

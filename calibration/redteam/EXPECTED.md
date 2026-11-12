@@ -449,3 +449,30 @@ repository.
 ## wipe-losses
 
 - none: every case clean
+
+## wipe-meetings
+
+The meeting transcripts of B-051 (calibration/redteam/wipe/cases_meetings.py, 40 cases, 20 English and 20 German,
+not one of the nine dimensions above), run through `awb clean` (docs) with the rules alone on 2026-11-12 with
+`awb clean measure --only meetings`: 17 cases leak a value and 1 loses a term, no output is withheld. They are the
+baseline the pass of the local model (`awb clean measure --llm`) is measured against. Each leftover is a name with
+no shape the rules know: a first name or a short name in running speech, in lower case, spelled out or in a handle.
+
+- en-nickname: leak. a nickname alone with no surname anywhere (limit)
+- en-spelled-mail: leak. a mail address spelled out in words: first name, surname and company in lower case (limit)
+- en-lowercase-name: leak. a first name in lower case in a chat line (limit)
+- en-place-site: leak. a place after "data centre in" with no address shape (limit)
+- en-intro-round: leak. a company short name after "at" in an introduction (limit)
+- en-handle-mention: leak. an @first.last handle in lower case (limit)
+- en-as-x-said: leak. a first name in reported speech at a sentence start (limit)
+- en-company-lowercase-chat: leak. a company short name in lower case (limit)
+- de-vom-netzwerkteam: leak. a first name at a sentence start before "vom Netzwerkteam" (limit)
+- de-spitzname: leak. a nickname alone with no surname anywhere (limit)
+- de-mail-buchstabiert: leak. a mail address in German words: surname and company in lower case (limit)
+- de-kleingeschrieben: leak. a first name in lower case in a chat line (limit)
+- de-genitiv: loss. the genitive of a first name before a noun is read as one run with the noun (limit)
+- de-ort: leak. a place after "Rechenzentrum in" with no address shape (limit)
+- de-vorstellung: leak. a company short name after "bei" in an introduction (limit)
+- de-wie-gesagt: leak. a first name in reported speech after "Wie" (limit)
+- de-handle: leak. an @vorname.nachname handle in lower case (limit)
+- de-firma-klein: leak. a company short name in lower case (limit)
