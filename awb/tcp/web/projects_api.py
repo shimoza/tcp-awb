@@ -100,7 +100,25 @@ def base_record(record,paths):
     live=sum(row.get('state','').lower() not in ('deleted','kept','not created') for row in resource_rows(resources['text'])) if resources['status']=='available' else None
     dates=[f['modified'] for f in source.values() if f['modified']]
     result={'code':record.code,'kind':record.kind,'customer':record.customer,'state':record.state,'created':record.created,'goal':goal,'goal_redacted':redacted,'open_items':open_count,'live_resources':live,'updated':max(dates) if dates else None,'status':status_of(source['STATE.md'],root,paths)}
+    app=app_for(root,paths)
+    if app is not None:
+        result['app']=app
     return result,source,root
+
+
+def app_for(root,paths):
+    """The configured work user's SSH alias and verified project folder; no guessed destination."""
+    conf=config.host_conf()
+    host=conf.get('work_host','')
+    parent=Path(conf.get('projects',''))
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,252}',host):
+        return None
+    if not parent.is_absolute() or parent!=paths.projects_root or root.parent!=parent:
+        return None
+    safe,redacted=checked(host,paths)
+    if redacted:
+        return None
+    return {'host':safe,'folder':str(parent/root.name)}
 
 
 def status_of(state,root,paths):
@@ -182,6 +200,33 @@ def bullets(text,heading=None):
     return out
 
 
+def waiting_items(texts,total):
+    """Structured companions to the legacy strings, classified only after the data check."""
+    from awb import ownerwait
+
+    def where(text):
+        # The same command recognizer as ownerwait.open_items, including UX3's run/type rule.
+        if projects.item_command(text):
+            return ownerwait.WHERE_TERMINAL
+        label=re.sub(r'^owner:\s*','',text,flags=re.I)
+        if re.match(r'^(tooling|development):',label,re.I):
+            return 'development'
+        if re.match(r'^here:',label,re.I) or text==WITHHELD:
+            return 'here'
+        return ownerwait.WHERE_SESSION
+
+    return {'items':[{'text':text,'where':where(text)} for text in texts],'total':total}
+
+
+def checked_items(texts,paths):
+    """Keep the item count even when the data check withholds a whole block."""
+    if not texts:
+        return [],False
+    joined,redacted=checked('\n'.join(texts),paths)
+    parts=joined.split('\n')
+    return (parts if len(parts)==len(texts) else [WITHHELD]*len(texts)),redacted
+
+
 def board(paths):
     """Every active project for management: the recorded status with its time and lag, what the project waits on,
     its first open items, its deliverables by review state and its live resources. Codes only; the texts of one
@@ -203,17 +248,14 @@ def board(paths):
         opened=source['OPEN.md']['text'] if source['OPEN.md']['status']=='available' else ''
         waiting,items=bullets(state,'Waiting on'),open_items(opened)
         texts=waiting[:BOARD_ITEMS]+items[:BOARD_ITEMS]
-        redacted=False
-        if texts:
-            joined,redacted=checked('\n'.join(texts),paths)
-            parts=joined.split('\n')
-            texts=parts if len(parts)==len(texts) else [WITHHELD]*len(texts)
+        texts,redacted=checked_items(texts,paths)
         found=review_rows(root)
         counts={}
         for r in found or []:
             counts[r['state']]=counts.get(r['state'],0)+1
         n=min(len(waiting),BOARD_ITEMS)
         rows.append(dict(row,waiting_on={'items':texts[:n],'total':len(waiting)},
+                         waiting=waiting_items(texts[:n],len(waiting)),
                          open={'items':texts[n:],'total':len(items)},
                          deliverables={'status':'unavailable' if found is None else 'available','counts':counts},
                          board_redacted=redacted))
@@ -258,6 +300,9 @@ def project_detail(code,paths):
         text,redacted=checked(f['text'],paths) if f['status']=='available' else ('',False)
         documents[name]={'text':text,'status':f['status'],'redacted':redacted,'modified':f['modified']}
     result['documents']=documents
+    waiting=bullets(source['STATE.md']['text'],'Waiting on')
+    texts,_=checked_items(waiting[:BOARD_ITEMS],paths)
+    result['waiting']=waiting_items(texts,len(waiting))
     result['deliverables']=safe_review_status(root,paths)
     result['fetched_at']=datetime.datetime.now(datetime.timezone.utc).isoformat()
     return result

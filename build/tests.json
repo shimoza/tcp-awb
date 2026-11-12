@@ -15784,8 +15784,50 @@
    "name": "clean measure: both columns printed and a proposed leak drops the leak count by one",
    "run": ".venv/bin/pytest tests/test_lm_clean_llm.py::test_measure_prints_both_columns_and_a_proposed_leak_drops_the_leak_count_by_one",
    "status": "passing"
+  },
+  {
+   "id": "ux18-1",
+   "phase": "ux18",
+   "name": "board API: waiting items have locations",
+   "run": ".venv/bin/pytest tests/test_board_api_where.py::test_waiting_items_have_locations",
+   "status": "passing"
+  },
+  {
+   "id": "ux18-2",
+   "phase": "ux18",
+   "name": "board API: command location uses the owner status rule",
+   "run": ".venv/bin/pytest tests/test_board_api_where.py::test_command_location_uses_the_owner_status_rule",
+   "status": "passing"
+  },
+  {
+   "id": "ux18-3",
+   "phase": "ux18",
+   "name": "board API: app comes from paths conf",
+   "run": ".venv/bin/pytest tests/test_board_api_where.py::test_app_comes_from_paths_conf",
+   "status": "passing"
+  },
+  {
+   "id": "ux18-4",
+   "phase": "ux18",
+   "name": "board API: waiting text is checked and capped",
+   "run": ".venv/bin/pytest tests/test_board_api_where.py::test_waiting_text_is_checked_and_capped",
+   "status": "passing"
+  },
+  {
+   "id": "ux18-5",
+   "phase": "ux18",
+   "name": "board API: api check and answers include the new contract",
+   "run": ".venv/bin/pytest tests/test_board_api_where.py::test_api_check_and_answers_include_the_new_contract",
+   "status": "passing"
+  },
+  {
+   "id": "ux18-6",
+   "phase": "ux18",
+   "name": "board API: a forbidden project returns no app",
+   "run": ".venv/bin/pytest tests/test_board_api_where.py::test_a_forbidden_project_returns_no_app",
+   "status": "passing"
   }
  ],
- "total_tests": 2255,
+ "total_tests": 2261,
  "checked": "2026-11-09"
 }

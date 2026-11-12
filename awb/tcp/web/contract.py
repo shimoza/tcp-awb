@@ -424,14 +424,20 @@ P_DETAIL = dict(P_QUERY, documents={
     "RESOURCES.md": {"text": "", "status": "missing", "redacted": False, "modified": None},
 }, deliverables={"status": "available", "truncated": False, "items": [
     {"file": "deliverables/storage-classes.md", "state": "valid", "tier": 1, "redacted": False}]},
+    waiting={"items": [], "total": 0},
+    app={"host": "awb-test", "folder": "/work/tcp-k2wd"},
     fetched_at="2026-10-04T09:30:00.120034+00:00")
 P_BOARD = {"source": "AWB project register", "generated_at": "2026-10-06T12:00:00.204511+00:00",
            "summary": {"projects": 2, "current": 1, "lagging": 1, "without_status": 0},
            "projects": [
                dict(P_QUERY, waiting_on={"items": [], "total": 0},
+                    waiting={"items": [], "total": 0},
+                    app={"host": "awb-test", "folder": "/work/tcp-k2wd"},
                     open={"items": ["confirm the retrieval fee", "check the minimum storage time"], "total": 2},
                     deliverables={"status": "available", "counts": {"valid": 1}}, board_redacted=False),
                dict(P_LAB, waiting_on={"items": ["A ticket to the operator on the disk controller."], "total": 1},
+                    waiting={"items": [{"text": "A ticket to the operator on the disk controller.",
+                                        "where": "project session"}], "total": 1},
                     open={"items": ["boot test on the second flavor", "token path", "test instance", "EIP",
                                     "Terraform deployment"], "total": 5},
                     deliverables={"status": "available", "counts": {"valid": 3, "stale": 1}},
@@ -618,7 +624,12 @@ def _schemas() -> dict:
         }, description="The recorded status of a project: the two lines STATE.md opens with. The working session "
                        "updates them after every step that changes the status; its stop hook holds a reply while "
                        "commits are newer than STATE.md."),
-        "ProjectSummary": obj(dict(summary), description="One project of the list."),
+        "ProjectApp": obj({
+            "host": string("The work_host SSH alias of the work user in paths.conf."),
+            "folder": string("The verified project folder under projects in paths.conf."),
+        }, description="Absent without a configured destination. Project access restrictions also cover app."),
+        "ProjectSummary": obj(dict(summary, app=ref("ProjectApp")), required=list(summary),
+                              description="One project of the list."),
         "ProjectList": obj({
             "source": string(enum=["AWB project register"]),
             "fetched_at": string(format="date-time"),
@@ -642,16 +653,31 @@ def _schemas() -> dict:
             "truncated": boolean("true when there were more than 300. Absent when status is unavailable."),
         }, required=["status", "items"]),
         "ProjectDetail": obj(dict(summary, **{
+            "app": ref("ProjectApp"),
+            "waiting": ref("WaitingItems"),
             "documents": obj({name: ref("ProjectDocument")
                               for name in ("SCOPE.md", "STATE.md", "OPEN.md", "RESOURCES.md")}),
             "deliverables": ref("Deliverables"),
             "fetched_at": string(format="date-time"),
-        }), description="One project with its four files and its deliverables."),
+        }), required=list(summary) + ["waiting", "documents", "deliverables", "fetched_at"],
+            description="One project with its four files, waiting locations and its deliverables."),
+        "WaitingItems": obj({
+            "items": array(obj({
+                "text": string("The waiting item after the data check."),
+                "where": string("Uses the command recognizer of awb owner status. Explicit tooling or "
+                                "development labels select development; here selects here. Otherwise project "
+                                "session. A wholly withheld item selects here.",
+                                enum=["project session", "his terminal", "development", "here"]),
+            }), "At most five items from STATE.md under Waiting on, in file order."),
+            "total": integer("The number of waiting items before the display limit."),
+        }),
         "BoardItems": obj({
             "items": array(string(), "At most five, after the data check, in the order of the file."),
             "total": integer("How many there are in the file."),
         }),
         "BoardProject": obj(dict(summary, **{
+            "app": ref("ProjectApp"),
+            "waiting": ref("WaitingItems"),
             "waiting_on": ref("BoardItems"),
             "open": ref("BoardItems"),
             "deliverables": obj({
@@ -662,7 +688,8 @@ def _schemas() -> dict:
                                                        "out."),
             }),
             "board_redacted": boolean("true when the data check withheld a part of a waiting-on or open item."),
-        }), description="One active project on the board: the summary of the list and what management reads."),
+        }), required=list(summary) + ["waiting", "waiting_on", "open", "deliverables", "board_redacted"],
+            description="One active project on the board. waiting adds locations to the legacy waiting_on strings."),
         "KbFact": obj({
             "id": string("The entry id, KB- and four characters.", pattern="^%s$" % codes.KB_WIDE),
             "statement": string("The checked statement."),

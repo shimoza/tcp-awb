@@ -1035,6 +1035,12 @@ paths:
                           state: valid
                           tier: 1
                           redacted: false
+                    waiting:
+                      items: []
+                      total: 0
+                    app:
+                      host: awb-test
+                      folder: /work/tcp-k2wd
                     fetched_at: "2026-10-04T09:30:00.120034+00:00"
         "401":
           description: No valid session. Sign in first.
@@ -1136,6 +1142,12 @@ paths:
                         waiting_on:
                           items: []
                           total: 0
+                        waiting:
+                          items: []
+                          total: 0
+                        app:
+                          host: awb-test
+                          folder: /work/tcp-k2wd
                         open:
                           items:
                             - confirm the retrieval fee
@@ -1165,6 +1177,11 @@ paths:
                         waiting_on:
                           items:
                             - A ticket to the operator on the disk controller.
+                          total: 1
+                        waiting:
+                          items:
+                            - text: A ticket to the operator on the disk controller.
+                              where: project session
                           total: 1
                         open:
                           items:
@@ -4898,6 +4915,19 @@ components:
         - updated
         - behind
         - redacted
+    ProjectApp:
+      type: object
+      description: Absent without a configured destination. Project access restrictions also cover app.
+      properties:
+        host:
+          type: string
+          description: The work_host SSH alias of the work user in paths.conf.
+        folder:
+          type: string
+          description: The verified project folder under projects in paths.conf.
+      required:
+        - host
+        - folder
     ProjectSummary:
       type: object
       description: One project of the list.
@@ -4943,6 +4973,8 @@ components:
           format: date-time
         status:
           "$ref": "#/components/schemas/ProjectStatus"
+        app:
+          "$ref": "#/components/schemas/ProjectApp"
       required:
         - code
         - kind
@@ -5044,7 +5076,7 @@ components:
         - items
     ProjectDetail:
       type: object
-      description: One project with its four files and its deliverables.
+      description: One project with its four files, waiting locations and its deliverables.
       properties:
         code:
           "$ref": "#/components/schemas/ProjectCode"
@@ -5087,6 +5119,10 @@ components:
           format: date-time
         status:
           "$ref": "#/components/schemas/ProjectStatus"
+        app:
+          "$ref": "#/components/schemas/ProjectApp"
+        waiting:
+          "$ref": "#/components/schemas/WaitingItems"
         documents:
           type: object
           properties:
@@ -5120,9 +5156,39 @@ components:
         - live_resources
         - updated
         - status
+        - waiting
         - documents
         - deliverables
         - fetched_at
+    WaitingItems:
+      type: object
+      properties:
+        items:
+          type: array
+          description: At most five items from STATE.md under Waiting on, in file order.
+          items:
+            type: object
+            properties:
+              text:
+                type: string
+                description: The waiting item after the data check.
+              where:
+                type: string
+                description: "Uses the command recognizer of awb owner status. Explicit tooling or development labels select development; here selects here. Otherwise project session. A wholly withheld item selects here."
+                enum:
+                  - project session
+                  - his terminal
+                  - development
+                  - here
+            required:
+              - text
+              - where
+        total:
+          type: integer
+          description: The number of waiting items before the display limit.
+      required:
+        - items
+        - total
     BoardItems:
       type: object
       properties:
@@ -5139,7 +5205,7 @@ components:
         - total
     BoardProject:
       type: object
-      description: "One active project on the board: the summary of the list and what management reads."
+      description: One active project on the board. waiting adds locations to the legacy waiting_on strings.
       properties:
         code:
           "$ref": "#/components/schemas/ProjectCode"
@@ -5182,6 +5248,10 @@ components:
           format: date-time
         status:
           "$ref": "#/components/schemas/ProjectStatus"
+        app:
+          "$ref": "#/components/schemas/ProjectApp"
+        waiting:
+          "$ref": "#/components/schemas/WaitingItems"
         waiting_on:
           "$ref": "#/components/schemas/BoardItems"
         open:
@@ -5225,6 +5295,7 @@ components:
         - live_resources
         - updated
         - status
+        - waiting
         - waiting_on
         - open
         - deliverables

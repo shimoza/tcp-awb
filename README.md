@@ -356,6 +356,16 @@ marks a key and when it archives one (the row of an archived put goes); it holds
 
 ## The board and the console
 
+`GET /api/board` and `GET /api/projects/CODE` include `waiting.items` with `text` and `where` for each
+waiting item, plus `waiting.total`. The existing board `waiting_on` strings remain available. Locations use
+the command recognizer of `awb owner status`: an explicit run or type instruction with a backticked command
+means `his terminal`; an item labelled `tooling:` or `development:` means `development`; `here:` means `here`;
+otherwise it is `project session`. Classification follows the data check. Both endpoints cap the list at five.
+Each project also has `app: {host, folder}` when `paths.conf` supplies `work_host`, the work user's SSH alias,
+and `projects`, the absolute project root. The folder must match the verified registered project folder.
+No destination is guessed when the configuration is missing. The gateway keeps forbidden projects and their
+app destinations out of responses to a restricted login. `awb api check` checks the matching contract.
+
 Every project keeps its status in the first two lines of `STATE.md` (`Status:` and `Next:`). A session cannot end
 a reply while its commits are newer than that status. Each of the two lines stays at most 300 characters and says no sentence twice; the stop hook holds a reply whose lines break that (with the two counts: move the detail below the two lines), `awb projects sync` lists the projects that do, and the board cuts a longer line at 300 characters with `...`. `awb board show` turns the status of every active project into
 one page for management: what each project waits on, its open items, its deliverables by review state and its live
