@@ -253,7 +253,10 @@ A help built with MadCap Flare draws its contents with JavaScript and its pages 
 URL WORDS` makes the service read the help index the page names (Data/HelpSystem.xml, the Toc file and its chunks)
 and prints every page whose title or path holds all the words, with its URL; the script itself never reaches the
 session and a plain fetch still takes no script. Each file of a find counts in the rate and the ledger. The service fetches by
-GET only, https only, the host exactly a line of `rules/allow-domains.txt` (`awb doc hosts` lists them), no port, no
+GET only, https only, the host exactly a line of `rules/allow-domains.txt` or of the owner-side file that the line
+`doc_hosts = /ABSOLUTE/FILE` of `paths.conf` names (`awb doc hosts` lists them with their source; `awb doc hosts add
+HOST [--why TEXT]` on the owner side appends a host after the checks of the list, read at the next fetch, and
+`awb owner status` counts the hosts not yet in the repository), no port, no
 user info, no query string, no fragment and a path of at most 300 URL-safe characters. It follows at most 3
 redirects and only to a URL that passes the same checks, takes at most 5 MB of HTML, Markdown, plain text or JSON
 and turns HTML into text (headings, paragraphs, lists, code, tables). It also reads a PDF of up to 32 MB (a service

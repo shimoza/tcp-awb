@@ -120,6 +120,39 @@ def allowed_hosts(path: Path | None = None) -> list[str]:
     return out
 
 
+EXTRA_KEY = "doc_hosts"
+"""The key of the host file (paths.conf) that names the owner-side file of the hosts `awb doc hosts add` writes."""
+
+
+def extra_file() -> Path | None:
+    """The file the key `doc_hosts` names; None without the key. The owner writes it, the work user only reads it."""
+    from awb import config
+
+    value = config.host_conf().get(EXTRA_KEY, "").strip()
+    return Path(value) if value.startswith("/") else None
+
+
+def extra_hosts(path: Path | None = None) -> list[str]:
+    """The hosts of the owner-side file, read at each call: a line is `HOST` or `HOST  # why`."""
+    try:
+        f = path or extra_file()
+        text = f.read_text(encoding="utf-8") if f else ""
+    except (OSError, UnicodeDecodeError):
+        return []
+    out = []
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip().lower()
+        if line and line not in out:
+            out.append(line)
+    return out
+
+
+def current_hosts() -> list[str]:
+    """The repository list and then the owner-side list, each read at each call."""
+    hosts = allowed_hosts()
+    return hosts + [h for h in extra_hosts() if h not in hosts]
+
+
 def check_url(url, hosts: list[str] | None = None) -> tuple[str, str]:
     """(host, path) of a URL the reader may fetch; DocError naming the rule otherwise."""
     if not isinstance(url, str) or not url or len(url) > 400 or any(ord(c) < 33 or ord(c) > 126 for c in url):
@@ -142,7 +175,7 @@ def check_url(url, hosts: list[str] | None = None) -> tuple[str, str]:
     host = (parts.hostname or "").lower()
     if not _HOST_RE.match(host) or host != parts.netloc.lower():
         raise DocError("refused: the host is not a plain host name")
-    if host not in (allowed_hosts() if hosts is None else hosts):
+    if host not in (current_hosts() if hosts is None else hosts):
         raise DocError("refused: the host is not on rules/allow-domains.txt (awb doc hosts)")
     path = parts.path or "/"
     if len(path) > MAX_PATH:
@@ -515,7 +548,7 @@ def fetch(url: str, *, getter=https_get, hosts: list[str] | None = None, cap: in
     """The page of a checked URL as text: {"url", "host", "path", "kind", "status", "size", "text", "pages"} (pages
     for a PDF, else None). DocError naming the rule otherwise (with "host" and "path" of the last URL it got to, for
     the ledger)."""
-    hosts = allowed_hosts() if hosts is None else hosts
+    hosts = current_hosts() if hosts is None else hosts
     host, path = check_url(url, hosts)
     for hop in range(MAX_REDIRECTS + 1):
         try:
@@ -652,7 +685,7 @@ def serve(req: dict, project, limiter: Limiter, ledger_dir, *, getter=https_get,
     url = req.get("url")
     if not (isinstance(project, str) and _PROJECT_RE.match(project)):
         return {"ok": False, "error": "refused: a fetch runs for an active project (SCOPE.md of the folder)"}, None
-    hosts = allowed_hosts() if hosts is None else hosts
+    hosts = current_hosts() if hosts is None else hosts
     try:
         host, path = check_url(url, hosts)
     except DocError as err:
@@ -783,11 +816,118 @@ def _fetch_cmd(args) -> int:
 
 
 def _hosts_cmd(args) -> int:
+    rest = list(getattr(args, "rest", None) or [])
+    if rest:
+        if rest[0] != "add" or len(rest) != 2:
+            print("usage: awb doc hosts [add HOST [--why TEXT]]", file=sys.stderr)
+            return 2
+        return _add_cmd(rest[1], getattr(args, "why", None))
     hosts = allowed_hosts()
-    if not hosts:
+    extra = [h for h in extra_hosts() if h not in hosts]
+    if not hosts and not extra:
         print("no host: rules/allow-domains.txt is empty or missing", file=sys.stderr)
         return 1
-    print("\n".join(hosts))
+    print("\n".join(hosts + ["%s  (added on the host, not in the repository)" % h for h in extra]))
+    return 0
+
+
+WHY_MAX = 120
+
+
+def check_new_host(host: str, listed: list[str] | None = None) -> str:
+    """The host to add, lower case, after the checks the repository list has; DocError naming the rule otherwise.
+    Takes a bare host or an https URL of one."""
+    import ipaddress
+
+    from awb import vendorhosts
+    from awb.build_probe import TCP_API_HOST
+
+    text = (host or "").strip().lower()
+    if "://" in text:
+        if not text.startswith("https://"):
+            raise DocError("refused: https only")
+        text = text[len("https://"):].rstrip("/")
+    if "*" in text:
+        raise DocError("refused: no wildcard, one exact host")
+    try:
+        ipaddress.ip_address(text.strip("[]"))
+    except ValueError:
+        pass
+    else:
+        raise DocError("refused: an address is not a host name")
+    if re.fullmatch(r"[0-9.]+", text):
+        raise DocError("refused: an address is not a host name")
+    if not _HOST_RE.match(text):
+        raise DocError("refused: the host is not a plain host name (no path, port, user info or space)")
+    if text == TCP_API_HOST or (text.endswith(".otc.t-systems.com") and not text.startswith("docs")):
+        raise DocError("refused: a TCP API host is never a documentation host")
+    if text in vendorhosts.read()[1]:
+        raise DocError("refused: a portal host of rules/vendor-hosts.txt")
+    if text in (current_hosts() if listed is None else listed):
+        raise DocError("refused: the host is already on the list")
+    return text
+
+
+def _resolves(host: str) -> bool:
+    try:
+        socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except (OSError, UnicodeError):
+        return False
+    return True
+
+
+def sibling_hosts(host: str, *, resolves=None) -> list[str]:
+    """The www. and docs. hosts of the same domain that pass the checks and resolve."""
+    resolves = resolves or _resolves
+    domain = host.split(".", 1)[1] if host.split(".", 1)[0] in ("www", "docs") else host
+    out = []
+    for prefix in ("www", "docs"):
+        name = "%s.%s" % (prefix, domain)
+        if name == host:
+            continue
+        try:
+            check_new_host(name)
+        except DocError:
+            continue
+        if resolves(name):
+            out.append(name)
+    return out
+
+
+def add_host(host: str, why: str | None = None, *, path: Path | None = None) -> str:
+    """Append HOST to the owner-side file after the checks; returns the host. DocError when refused."""
+    from awb import config
+
+    if config.is_work_user():
+        raise DocError("refused: the work user cannot add a host; leave the owner item (awb doc fetch names it)")
+    f = path or extra_file()
+    if f is None:
+        raise DocError("refused: paths.conf has no line %s = /ABSOLUTE/FILE" % EXTRA_KEY)
+    name = check_new_host(host, allowed_hosts() + extra_hosts(f))
+    note = " ".join((why or "").split())
+    if len(note) > WHY_MAX or any(ord(c) < 32 or ord(c) > 126 for c in note):
+        raise DocError("refused: --why is plain ASCII of at most %d characters" % WHY_MAX)
+    line = "%s  # %s%s\n" % (name, datetime.now(timezone.utc).strftime("%Y-%m-%d"), " " + note if note else "")
+    try:
+        new = not f.exists()
+        with open(f, "a", encoding="utf-8") as fh:
+            fh.write(line)
+        if new:
+            os.chmod(f, 0o644)
+    except OSError as err:
+        raise DocError("refused: the file of %s cannot be written (%s)" % (EXTRA_KEY, err.strerror or "error")) from None
+    return name
+
+
+def _add_cmd(host: str, why: str | None) -> int:
+    try:
+        name = add_host(host, why)
+    except DocError as err:
+        print(str(err), file=sys.stderr)
+        return 1
+    print("added %s; the key service reads it at the next fetch" % name)
+    for other in sibling_hosts(name):
+        print("also resolves: %s (awb doc hosts add %s)" % (other, other))
     return 0
 
 
@@ -809,7 +949,10 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("words", metavar="WORDS", nargs="+", help="words that must all be in the title or the path")
     d.add_argument("--out", metavar="FILE", help="write the list to FILE inside the project folder")
     d.set_defaults(func=_fetch_cmd)
-    h = sub.add_parser("hosts", help="the hosts a page may come from (rules/allow-domains.txt)")
+    h = sub.add_parser("hosts", help="the hosts a page may come from (rules/allow-domains.txt and the owner-side "
+                                     "file); `add HOST [--why TEXT]` allows one more, owner side")
+    h.add_argument("rest", nargs="*", metavar="add HOST")
+    h.add_argument("--why", metavar="TEXT", help="a short reason written beside the host")
     h.set_defaults(func=_hosts_cmd)
     args = ap.parse_args(argv)
     if not getattr(args, "func", None):

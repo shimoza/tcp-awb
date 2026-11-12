@@ -6,6 +6,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 ## Week 46, 2026-11-09 to 2026-11-15 (in progress)
 ### Added
 - UX15: `awb build quick [REF]` is a short run before the full one: the import-rule test, the gate selftest and the test files of the modules changed since REF (by name `tests/test_<module>*.py` and by import), the failed test ids, the files it ran and the time printed. A core module that imports the platform package fails it in seconds.
+- UX8: `awb doc hosts add HOST [--why TEXT]` (owner side) allows a documentation host without a deploy: the key service
+  reads a second list at each fetch, the file `doc_hosts` of `paths.conf` names (the owner writes it, the work user
+  cannot). The same checks as the repository list (https, no wildcard, no address, no TCP API host, no portal host);
+  the `www.` and `docs.` hosts of the domain are offered when they resolve. `awb doc hosts` marks the hosts added on
+  the host and `awb owner status` counts them, to commit in one batch.
 - DL: `awb doc fetch URL --links` ends the text with the links of the page as absolute URLs with their texts,
   a host off the list marked. `awb doc find URL WORDS` lists the pages of a MadCap Flare help (the WatchGuard help
   center is one) whose title or path holds every word: the key service reads the help index the page names, the

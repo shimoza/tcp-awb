@@ -254,10 +254,24 @@ def report_items(path: Path | None = None, now: datetime.datetime | None = None)
     return [Item("reports", "the last put of projects.csv failed: %s" % reason, "")]
 
 
+def doc_host_lines() -> list[str]:
+    """One line when documentation hosts were added on the host (`awb doc hosts add`) and are not in the repository
+    list yet, so they are committed in one batch."""
+    from awb.tcp import doc
+
+    n = len([h for h in doc.extra_hosts() if h not in doc.allowed_hosts()])
+    return ["%d host%s added on the host, not in the repository" % (n, "" if n == 1 else "s")] if n else []
+
+
 def notes(path: Path | None = None, now: datetime.datetime | None = None, p: config.Paths | None = None
           ) -> list[str]:
     """The lines that tell him something without waiting on him: the weekly publish of the last 24 hours, after the
-    name check (a line with a hit or a check that cannot run gives nothing)."""
+    name check (a line with a hit or a check that cannot run gives nothing), and the documentation hosts added on
+    the host."""
+    return _publish_notes(path, now, p) + doc_host_lines()
+
+
+def _publish_notes(path: Path | None, now: datetime.datetime | None, p: config.Paths | None) -> list[str]:
     from awb import ledger
 
     state = _dataset_state(path)

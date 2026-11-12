@@ -305,7 +305,8 @@ side (op `doc_get`). Sessions run these.
 | `awb doc fetch URL [--out FILE]` | one page as text with the first line `source: URL, fetched YYYY-MM-DD HH:MM UTC`; `--out` writes it to a file inside the project folder. Only https, the host exactly a line of `rules/allow-domains.txt`, no port, no user info, no query string, no fragment, a path of at most 300 URL-safe characters; redirects only to such a URL (at most 3); at most 5 MB; HTML, Markdown, plain text or JSON (HTML becomes headings, paragraphs, lists, code and tables as text); a PDF of up to 32 MB through pdftotext, each page after `--- page N ---` and the first line ending `, pdf, N pages` (an encrypted PDF, a broken one or a scan without a text layer is refused). No cookie, no auth header, a fixed User-Agent. At most 30 fetches a minute and 500 a day per project; one line per fetch in `<vault>/log/doc-YYYY-MM.tsv` (time, project, host, path, size, status, never content). A refusal is one line naming the rule (exit 1); for a host off the list it says to leave one owner item in OPEN.md under the owner heading, `Steering: allow documentation host HOST (vendor, why)`, instead of a question |
 | `awb doc fetch URL --links` | the page as above, then `## Links (N)`: every link as `- TEXT: URL`, absolute, without the fragment, each once, a host off the list marked `(not an allowed host)`; a MadCap Flare page also names its help root and the find command |
 | `awb doc find URL WORDS [--out FILE]` | the pages of the MadCap Flare help the page belongs to whose title or path holds every word, as `- TITLE: URL` (at most 60); the service reads the help index (Data/HelpSystem.xml, the Toc file, its chunks), each file one fetch of the rate and one ledger line; a page without a help index is refused with the hint to use `--links` |
-| `awb doc hosts` | the hosts a page may come from, one per line |
+| `awb doc hosts` | the hosts a page may come from, one per line; a host from the owner-side file is marked `(added on the host, not in the repository)` |
+| `awb doc hosts add HOST [--why TEXT]` | owner side: allows a documentation host without a deploy. Appends HOST to the file named by `doc_hosts` in `paths.conf` (the owner writes it, the work user cannot); the key service reads it at each fetch. Refused: a non-https URL, a wildcard, an address, a TCP API host, a portal host of `rules/vendor-hosts.txt`, a host already listed. Offers the `www.` and `docs.` hosts of the same domain that resolve. Vendor download hosts stay in the repository list |
 
 ## Offered services of T Cloud Public (TCP)
 
@@ -1504,9 +1505,11 @@ the pages of the help system of a page (MadCap Flare) whose title or path holds 
 - `WORDS...`: words that must all be in the title or the path
 - `--out FILE`: write the list to FILE inside the project folder
 
-### `awb doc hosts`
+### `awb doc hosts [add HOST...] [--why TEXT]`
 
-the hosts a page may come from (rules/allow-domains.txt)
+the hosts a page may come from (rules/allow-domains.txt and the owner-side file); `add HOST [--why TEXT]` allows one more, owner side
+- `[add HOST...]`
+- `--why TEXT`: a short reason written beside the host
 
 ### `awb start KIND --goal GOAL [--customer new] [--tag TAG] [--review-tier 1|2|3] [--from DIR] [--trusted]`
 
