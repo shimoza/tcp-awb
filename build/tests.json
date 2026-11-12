@@ -15826,8 +15826,85 @@
    "name": "board API: a forbidden project returns no app",
    "run": ".venv/bin/pytest tests/test_board_api_where.py::test_a_forbidden_project_returns_no_app",
    "status": "passing"
+  },
+  {
+   "id": "UX5-01",
+   "phase": "UX5",
+   "name": "open work queue: add next list and mine keep the fields and dates",
+   "run": ".venv/bin/pytest tests/test_work_queue.py::test_add_next_list_and_mine_keep_the_fields_and_dates",
+   "status": "passing"
+  },
+  {
+   "id": "UX5-02",
+   "phase": "UX5",
+   "name": "open work queue: done moves the row to the archive and never reuses its id",
+   "run": ".venv/bin/pytest tests/test_work_queue.py::test_done_moves_the_row_to_the_archive_and_never_reuses_its_id",
+   "status": "passing"
+  },
+  {
+   "id": "UX5-03",
+   "phase": "UX5",
+   "name": "open work queue: owner status shows only owner rows with their next step",
+   "run": ".venv/bin/pytest tests/test_work_queue.py::test_owner_status_shows_only_owner_rows_with_their_next_step",
+   "status": "passing"
+  },
+  {
+   "id": "UX5-04",
+   "phase": "UX5",
+   "name": "open work queue: stale uses the next step clock and same step does not reset it",
+   "run": ".venv/bin/pytest tests/test_work_queue.py::test_stale_uses_the_next_step_clock_and_same_step_does_not_reset_it",
+   "status": "passing"
+  },
+  {
+   "id": "UX5-05",
+   "phase": "UX5",
+   "name": "open work queue: registered names are refused on add and next without echo",
+   "run": ".venv/bin/pytest tests/test_work_queue.py::test_registered_names_are_refused_on_add_and_next_without_echo",
+   "status": "passing"
+  },
+  {
+   "id": "UX5-06",
+   "phase": "UX5",
+   "name": "open work queue: reads recheck names and secrets even after a file edit",
+   "run": ".venv/bin/pytest tests/test_work_queue.py::test_reads_recheck_names_and_secrets_even_after_a_file_edit",
+   "status": "passing"
+  },
+  {
+   "id": "UX5-07",
+   "phase": "UX5",
+   "name": "open work queue: missing register refuses writes and listing",
+   "run": ".venv/bin/pytest tests/test_work_queue.py::test_missing_register_refuses_writes_and_listing",
+   "status": "passing"
+  },
+  {
+   "id": "UX5-08",
+   "phase": "UX5",
+   "name": "open work queue: owner side and argument shapes are enforced",
+   "run": ".venv/bin/pytest tests/test_work_queue.py::test_owner_side_and_argument_shapes_are_enforced",
+   "status": "passing"
+  },
+  {
+   "id": "UX5-09",
+   "phase": "UX5",
+   "name": "open work queue: migration keeps only open rows preserves archive and runs once",
+   "run": ".venv/bin/pytest tests/test_work_queue.py::test_migration_keeps_only_open_rows_preserves_archive_and_runs_once",
+   "status": "passing"
+  },
+  {
+   "id": "UX5-10",
+   "phase": "UX5",
+   "name": "open work queue: migration refuses names without marking or writing the queue",
+   "run": ".venv/bin/pytest tests/test_work_queue.py::test_migration_refuses_names_without_marking_or_writing_the_queue",
+   "status": "passing"
+  },
+  {
+   "id": "UX5-11",
+   "phase": "UX5",
+   "name": "open work queue: failed done removal keeps archive and hides completed row",
+   "run": ".venv/bin/pytest tests/test_work_queue.py::test_failed_done_removal_keeps_archive_and_hides_completed_row",
+   "status": "passing"
   }
  ],
- "total_tests": 2261,
+ "total_tests": 2272,
  "checked": "2026-11-09"
 }

@@ -852,7 +852,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | publish the console page by hand | `sudo awb web publish FILE`, `sudo awb web publish --rollback` | a checked page of your own live or a backup back, the old one kept as a backup; the deploy publishes the page of the repository |
 | a login for the console | `sudo awb web user add LOGIN [--level owner]` | a random password, shown once (an owner entry also gets a TOTP key for his phone); `reset`, `remove`, `list`; `projects LOGIN CODE...` limits a reader to those project codes (no list: every project); `sudo awb web status` shows failed sign-ins and waits |
 | the owner host name | `sudo awb web host HOST` | once: the host name of the owner level, kept in `/etc/awb/paths.conf` |
-| what waits on the owner | `awb owner status` | one list of everything that waits on you: the owner items of OPEN.md of the active projects (parked projects as a count), the rows of QUEUE.md whose state waits on you the build tasks that wait on you, a failed weekly publish of the dataset, a failed put of the codes file of the report workbook and every open window of a Windows lab machine and every registered lab machine that is online; one line each with the project code or label, a few words, where it is done (project session, his terminal, steering session) and a ready command block (a command counts only in backticks after run, type or his terminal in the same item, and only then the place is his terminal); the list shows decisions only: the creates kept by lab runs are one line per project (`N creates kept on test-NNNNN, listed in RESOURCES.md`), a build task you stopped yourself or that ended with success is no item, items that start with `owner (tooling)`, `(tooling)` or `Steering:` are left out and printed by `--dev`, and at most five owner items show per project, oldest first, then `and N more: awb owner status --all CODE`; `--all [CODE]` prints every item as it is; `--mail` sends it (the timer `awb-owner-mail` does at 08:00 Europe/Berlin, no mail for an empty list); the line of a weekly publish of the last 24 hours comes after the list and is mailed even when nothing waits on you |
+| what waits on the owner | `awb owner status` | one list of everything that waits on you: the owner items of OPEN.md of the active projects (parked projects as a count), the rows of `queue.tsv` whose `who` is `owner`, with their next step, the build tasks that wait on you, a failed weekly publish of the dataset, a failed put of the codes file of the report workbook and every open window of a Windows lab machine and every registered lab machine that is online; one line each with the project code or label, a few words, where it is done (project session, his terminal, steering session) and a ready command block (a command counts only in backticks after run, type or his terminal in the same item, and only then the place is his terminal); the list shows decisions only: the creates kept by lab runs are one line per project (`N creates kept on test-NNNNN, listed in RESOURCES.md`), a build task you stopped yourself or that ended with success is no item, items that start with `owner (tooling)`, `(tooling)` or `Steering:` are left out and printed by `--dev`, and at most five owner items show per project, oldest first, then `and N more: awb owner status --all CODE`; `--all [CODE]` prints every item as it is; `--mail` sends it (the timer `awb-owner-mail` does at 08:00 Europe/Berlin, no mail for an empty list); the line of a weekly publish of the last 24 hours comes after the list and is mailed even when nothing waits on you |
 | the owner level's status | `awb owner status --json` | what the owner page shows: vault, key service, release, page, UI runs (with each run's summary after the name check, for `GET /api/ui-runs`), intake counts; `--write` writes it for owner-actions, a timer runs that every minute |
 | read the Codex quota | `awb codex usage` | the 5-hour and weekly window, the plan and the reset credits; no tokens spent, no account data shown |
 | hand a bounded code task to Codex | `awb codex run ID.txt`, `awb codex status` | the task checked (`Paths:` and `Acceptance:` lines needed), a worktree on `codex/ID` and `ID/result.md` with the diff stat and any file outside `Paths:`; nothing committed, the steering session reviews and commits |
@@ -1461,6 +1461,36 @@ you enable it when you are ready (`sudo systemctl enable --now awb-buildd.servic
 | a new project, close or delete | as `awb`: projects belong to the work user |
 | a customer's material | as the owner: `awb import tcp-xxxx` (it asks for the customer's names on the first import; a project without a customer needs no names); the session hears of the copies at its next prompt |
 | a mail, a transcript or a table you copied | as the owner: `awb import tcp-xxxx --paste --kind mail` (or `transcript`, `table`) with the text on standard input, in your own terminal; the session hears of the copy at its next prompt |
+
+## The open work queue
+
+Keep the queue: use `awb queue add`, `awb queue next` and `awb queue done` whenever work starts,
+its next step changes or it finishes. Review `awb queue list` when resuming work; `--mine` shows only
+items assigned to `owner`. Use codes and session handles in every field.
+
+```sh
+awb queue add "check the export" --next "review the result" --who owner
+awb queue next Q-0001 "send the export" --who desk
+awb queue done Q-0001
+awb queue list --mine
+```
+
+`--who` accepts `owner`, `desk`, `development` or `session:CODE`; add also accepts `--project CODE`.
+The owner-side file is `~/tcp-awb/presentations/work-profile/queue.tsv`, one open item per row with
+an id, creation and update dates, the date the next step changed, what, next, who and optional project.
+`done` moves an item to `queue-done.tsv` beside it. A next step unchanged for 24 hours is marked `stale`;
+reassigning the same step does not reset that clock. `awb owner status` includes owner rows and their next steps.
+Names, secrets and unchecked text are refused on write and rechecked on read. `AWB_WORK_QUEUE` selects
+another queue file, including for temporary tests.
+
+Run `awb queue migrate` once on the owner host to import the open rows of the old `QUEUE.md` beside the TSV.
+The old text stays intact with an archive notice prepended. Completed, accepted, cancelled and superseded
+rows stay only in that archive. Other rows stay open; waiting or asked rows default to `owner`, development
+steps to `development` and the rest to `desk`, unless a `who` column specifies the handle.
+Missing next steps become `review next step`. Imported rows use the source file's modification time,
+so migration does not hide stale work. Rerunning the migration does not duplicate rows.
+Review `awb queue list` after migration and close resolved work; the host acceptance target is fewer than
+40 open rows. Migration never discards unresolved work to meet that count.
 
 ## The build queue
 

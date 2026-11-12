@@ -3,7 +3,7 @@
 The sources, read on the owner's side only:
 
 - the owner items of OPEN.md of every active project (a parked project is a count, nothing more);
-- the rows of presentations/work-profile/QUEUE.md of the owner's repository whose state says it waits on him
+- the rows of presentations/work-profile/queue.tsv of the owner's repository whose who is owner
   (the file may be missing: then the rows are skipped);
 - the build runs that wait on him (asked, red, held, green), with the commands of `awb build nudge`;
 - the last weekly publish of the dataset TCP Facts (task KS, awb-dataset-weekly.timer, Monday 06:00 UTC): a failed
@@ -41,7 +41,7 @@ from awb import config
 WHERE_SESSION = "project session"
 WHERE_TERMINAL = "his terminal"
 WHERE_STEERING = "steering session"
-QUEUE_REL = Path("presentations/work-profile/QUEUE.md")
+QUEUE_REL = Path("presentations/work-profile/queue.tsv")
 TEXT_MAX = 110
 PER_PROJECT = 5               # owner items shown per project; the others are counted
 FIRST = 3                     # items `awb` with no argument prints
@@ -73,8 +73,10 @@ class Item:
 
 
 def queue_file() -> Path:
-    """The owner's QUEUE.md: ~/tcp-awb/presentations/work-profile/QUEUE.md."""
-    return Path("~/tcp-awb").expanduser() / QUEUE_REL
+    """The owner's TSV queue, with the same override as awb queue."""
+    from awb import workqueue
+
+    return workqueue.queue_file()
 
 
 def _short(text: str) -> str:
@@ -107,11 +109,26 @@ def open_items(p: config.Paths) -> tuple[list[Item], int]:
 
 
 def queue_items(path: Path | None = None) -> list[Item]:
-    """The rows of QUEUE.md whose state waits on the owner; nothing when the file is missing or unreadable."""
-    from awb import projects
+    """Owner rows with their next steps. Explicit Markdown paths retain the legacy reader."""
+    from awb import ledger, projects, workqueue
+
+    path = path or queue_file()
+    if path.suffix != ".md":
+        try:
+            rows = workqueue.load(path)
+        except (workqueue.QueueError, ledger.LedgerError, OSError, UnicodeError):
+            return [Item("queue", "queue unavailable; run awb queue list", WHERE_TERMINAL)]
+        out = []
+        for row in rows:
+            if row["who"] != "owner":
+                continue
+            cmd = projects.item_command(row["next"])
+            out.append(Item(row["id"], "%s; next: %s" % (_short(row["what"]), row["next"]),
+                            WHERE_TERMINAL if cmd else WHERE_STEERING, cmd))
+        return out
 
     try:
-        text = (path or queue_file()).read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return []
     out: list[Item] = []

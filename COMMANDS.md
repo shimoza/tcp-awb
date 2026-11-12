@@ -235,6 +235,34 @@ does not know, and a target that does not descend from it unless `--to` or `--ro
 deploy from a copy that is behind would take back the build runner's work. The deploy runs the installed copy of its own code, so a change of
 `awb/deploy.py` is live from the following deploy. `seal/setup.sh` (full) stays for the first seal of a host.
 
+## The open work queue (owner side)
+
+Keep the queue: use the commands below when work starts, its next step moves or it finishes.
+Resume from `awb queue list`; the queue contains open work only. Text must contain codes and handles,
+never names or secrets. Every write and listing runs the name and safety checks, refusing when they cannot run.
+
+| Command | Meaning |
+|---|---|
+| `awb queue add "WHAT" --next "STEP" --who owner\|desk\|development\|session:CODE [--project CODE]` | add an open row with a stable id and UTC dates |
+| `awb queue next ID "STEP" --who owner\|desk\|development\|session:CODE` | update the next step and responsible handle; repeating the same step does not reset its age |
+| `awb queue done ID` | move the row to `queue-done.tsv`; a repeated completion is harmless |
+| `awb queue list [--mine]` | list open rows with their next steps; `--mine` means `who = owner`; `stale` means the next step has not changed for at least 24 hours |
+| `awb queue migrate` | once, import open rows from the adjacent `QUEUE.md`, leaving its full text under a first-line archive notice |
+
+Storage is `~/tcp-awb/presentations/work-profile/queue.tsv`; `AWB_WORK_QUEUE` selects another file.
+Columns: `id`, `created`, `updated`, `next_changed`, `what`, `next`, `who`, `project`, `done`.
+Open rows have an empty `done`; the archive records the completion date. Writes share a lock and replace whole
+files; a completed id in the archive is excluded even if an interrupted move left it in the open file.
+`awb owner status` reads the same queue and includes owner rows with their next steps.
+
+Migration keeps nonterminal rows, including blocked or parked work. Terminal states begin with done, accepted,
+complete, completed, closed, cancelled, canceled, dropped, superseded, retired or obsolete.
+A legacy `who` column takes precedence; otherwise waiting and asked states go to owner, development steps go to
+development and the rest go to desk. An absent next step becomes `review next step`. Dates start at the source
+file's modification time. Invalid rows or unsafe open text refuse migration before any queue or archive change.
+Run it once on the host, then check that `awb queue list` has fewer than 40 open rows; resolve remaining work
+explicitly with `done`, never by truncating the migration. A marked Markdown archive is never imported again.
+
 ## The build queue (owner side, presentations/self-build)
 
 A build task is a block in `build/queue/QUEUE.md` of your working copy (untracked) and a prompt file beside it.
@@ -306,7 +334,7 @@ count and keeps what it finds. The classes: `probe`, `metadata`, `dns`, `ntp`, `
 | `sudo awb web user remove LOGIN` | the login goes and its sessions end; without logins nobody signs in |
 | `sudo awb web user projects LOGIN [CODE...]` | the project list of a reader (G10): the codes it may open on the main host, kept as `projects` in `users.json` and read by the gateway on every request. A route of any other project answers 404, `/api/projects` and `/api/board` carry the listed codes alone; without a code the list goes and the login sees every project again, as a login without a list does. A reset keeps the list; a code outside `tcp-xxxx` is refused |
 | `awb web user list` | the logins with their level and their project list, never a digest |
-| `awb owner status [--mail]` | one list of everything that waits on you (UX change 4): the owner items of OPEN.md of every active project (a parked project only as a count), the rows of `presentations/work-profile/QUEUE.md` whose state waits on you (skipped when the file is missing), the build tasks that wait on you, a failed weekly publish of the dataset (`dataset: weekly publish failed: <step>: <reason>`, until a publish succeeds), a failed weekly refresh (`refresh: weekly run failed: <reason>`, until a run goes through) and a failed put of the codes file (`reports: the last put of projects.csv failed: <reason>` or `reports: projects.csv older than 24 h, the last put failed: <reason>` when the last good put is older or there was none, until a put succeeds) and every open window of a Windows lab machine (`lab-1  lab machine window open for tcp-xxxx until <end>`, with `awb winlab close lab-1`, until it ends by itself or you close it) and every registered lab machine that is online (`lab-1: lab machine online, its tunnel answers on port 2201`: an SSH banner answers on its loopback port; no key, no login). One line each: project code or label, a few words, `[project session]`, `[his terminal]` or `[steering session]`, and a ready command block where one exists. Codes only: a text with a name hit is withheld. `--mail` sends the list as one mail through the key service's notify (the owner timer `awb-owner-mail`, written by `seal/setup.sh`, runs it every day at 08:00 Europe/Berlin; nothing is sent for an empty list or when the name check cannot run). After the list comes the line `dataset tcp-facts-<date>: N added, M amended, K retired` of a weekly publish of the last 24 hours and the mail is sent for it even when nothing waits on you; owner side |
+| `awb owner status [--mail]` | one list of everything that waits on you (UX change 4): the owner items of OPEN.md of every active project (a parked project only as a count), the rows of `presentations/work-profile/queue.tsv` whose `who` is `owner`, with their next steps (skipped when the file is missing), the build tasks that wait on you, a failed weekly publish of the dataset (`dataset: weekly publish failed: <step>: <reason>`, until a publish succeeds), a failed weekly refresh (`refresh: weekly run failed: <reason>`, until a run goes through) and a failed put of the codes file (`reports: the last put of projects.csv failed: <reason>` or `reports: projects.csv older than 24 h, the last put failed: <reason>` when the last good put is older or there was none, until a put succeeds) and every open window of a Windows lab machine (`lab-1  lab machine window open for tcp-xxxx until <end>`, with `awb winlab close lab-1`, until it ends by itself or you close it) and every registered lab machine that is online (`lab-1: lab machine online, its tunnel answers on port 2201`: an SSH banner answers on its loopback port; no key, no login). One line each: project code or label, a few words, `[project session]`, `[his terminal]` or `[steering session]`, and a ready command block where one exists. Codes only: a text with a name hit is withheld. `--mail` sends the list as one mail through the key service's notify (the owner timer `awb-owner-mail`, written by `seal/setup.sh`, runs it every day at 08:00 Europe/Berlin; nothing is sent for an empty list or when the name check cannot run). After the list comes the line `dataset tcp-facts-<date>: N added, M amended, K retired` of a weekly publish of the last 24 hours and the mail is sent for it even when nothing waits on you; owner side |
 | `awb owner status --json [--write]` | the owner level's status: the vault and the key service, the release, the page, the UI runs and the intake counts per customer code, codes and states only; `--write` checks every field and the names and writes `/var/lib/awb-owner-mail/status.json` for owner-actions (its timer runs it every minute as you) |
 | `sudo awb web host HOST` | the host name of the owner level in `/etc/awb/paths.conf` (`owner_host`), one level under the zone of the site and not the site itself; once, before the deploy that brings the owner level (the web side's installer stops without it) |
 
@@ -1908,6 +1936,35 @@ everything that waits on the owner, one line each with a ready command; --mail s
 - `--mail`: send the list as one mail (the owner's timer)
 - `--dev`: print the tooling and steering items the list leaves out
 - `--all CODE`: print every item as it is, or every item of project CODE
+
+### `awb queue add WHAT --next STEP --who owner|desk|development|session:CODE [--project CODE]`
+
+add open work with its next step and responsible handle
+- `WHAT`
+- `--next STEP`
+- `--who owner|desk|development|session:CODE`
+- `--project CODE`
+
+### `awb queue next ID STEP --who owner|desk|development|session:CODE`
+
+change the next step and responsible handle
+- `ID`
+- `STEP`
+- `--who owner|desk|development|session:CODE`
+
+### `awb queue done ID`
+
+move an item to queue-done.tsv
+- `ID`
+
+### `awb queue list [--mine]`
+
+list open rows; stale means the next step is unchanged for 24 hours
+- `--mine`: only rows whose who is owner
+
+### `awb queue migrate`
+
+once: import open rows of QUEUE.md and mark it as the archive
 
 ### `awb ui submit TASKFILE [--candidate-only] [--mail] [--no-watch]`
 
