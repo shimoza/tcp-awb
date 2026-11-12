@@ -190,6 +190,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/wipe.py": "the old import path of awb/intake/wipe/ (F1 step 8), which no module of a unit imports",
     "awb/tcp/labwrites.py": "awb keys lab-writes --from-recipes, started by the owner's command as a child process",
     "awb/tcp/inbox.py": "awb inbox take, run in a working session",
+    "awb/tcp/codex.py": "awb codex usage|run|status, run by the steering session; the codex CLI is a child process",
     "awb/tcp/fetch.py": "awb fetch, run by the owner in his own terminal",
     "awb/start.py": "awb start, run by the owner in his own terminal",
     "awb/tcp/migrate.py": "awb migrate, run in a working session",
