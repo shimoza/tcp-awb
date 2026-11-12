@@ -227,6 +227,24 @@ def merge_changelog(base_text: str, ours_text: str, theirs_text: str) -> str:
 
 # --------------------------------------------------------------------------- the driver
 
+ATTRIBUTES = "build/tests.json merge=awb-tests\nCHANGELOG.md merge=awb-changelog\n"
+"""The two lines of `.gitattributes`, written to a file outside the branch and named by core.attributesFile."""
+
+
+def git_config(driver: str, attributes: str, python: str) -> list[str]:
+    """The `-c` arguments that make git merge the two files with the copy of this file at DRIVER, run by PYTHON with
+    -I, and read the attributes from the file ATTRIBUTES instead of the branch's own `.gitattributes`."""
+    run = "%s -I %s" % (_quote(python), _quote(driver))
+    return ["-c", "core.attributesFile=%s" % attributes,
+            "-c", "merge.awb-tests.name=build/tests.json by id",
+            "-c", "merge.awb-tests.driver=%s tests %%O %%A %%B" % run,
+            "-c", "merge.awb-changelog.name=CHANGELOG.md by week",
+            "-c", "merge.awb-changelog.driver=%s changelog %%O %%A %%B" % run]
+
+
+def _quote(s: str) -> str:
+    return "'" + s.replace("'", "'\\''") + "'"
+
 MERGES = {"tests": merge_tests, "changelog": merge_changelog}
 
 

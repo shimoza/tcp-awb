@@ -5,6 +5,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ## Week 46, 2026-11-09 to 2026-11-15 (in progress)
 ### Added
+- B-072: the runner's rebase onto a moved main merges `CHANGELOG.md` and `build/tests.json` with the merge drivers of `awb pr take` (a copy of `awb/mergedriver.py` outside the branch), so two tasks that each add a line to one week no longer end `red: rebase conflict`. A conflict in any other file still does, and the check line now names the files.
 - UX15: `awb build quick [REF]` is a short run before the full one: the import-rule test, the gate selftest and the test files of the modules changed since REF (by name `tests/test_<module>*.py` and by import), the failed test ids, the files it ran and the time printed. A core module that imports the platform package fails it in seconds.
 - UX8: `awb doc hosts add HOST [--why TEXT]` (owner side) allows a documentation host without a deploy: the key service
   reads a second list at each fetch, the file `doc_hosts` of `paths.conf` names (the owner writes it, the work user

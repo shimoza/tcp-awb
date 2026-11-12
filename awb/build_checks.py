@@ -8,15 +8,17 @@ checks on a branch from outside (F2 G1).
 from __future__ import annotations
 
 import contextlib
+import inspect
 import json
 import os
 import re
 import stat
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
-from awb import build
+from awb import build, mergedriver
 from awb.build_unit_side import LOG_MAX, LOGIN_KEPT, LOGIN_KEPT_LINE, SHA_RE, failed_nodes, outcomes
 from awb.build_units import SMALL_MAX, Ctx, Ended, Host, Spec, _hidden, _read, _take, _text, _write, wait
 
@@ -929,20 +931,34 @@ def check_branch_commits(host: Host, ctx: Ctx) -> None:
     _ok(ctx, 4, "%d commit(s) after %s" % (len(commits), base[:7]))
 
 
+def _driver_config(ctx: Ctx) -> list[str]:
+    """The `-c` arguments that merge CHANGELOG.md and build/tests.json by the drivers of awb/mergedriver.py. The driver
+    is a copy of the runner's own module in the check's folder and the attributes come from a file there too: the
+    branch under check never runs its own driver and its `.gitattributes` is not read."""
+    driver, attributes = ctx.folder / "mergedriver.py", ctx.folder / "merge-attributes"
+    _write(driver, inspect.getsource(mergedriver))
+    _write(attributes, mergedriver.ATTRIBUTES)
+    return mergedriver.git_config(str(driver), str(attributes), sys.executable)
+
+
 def check_onto_main(host: Host, ctx: Ctx) -> None:
     """A2 for a branch from outside: when main moved past its merge base, the branch's changes go onto the main of
     now before the suite runs, so check 9 and 10 judge it against today's baseline. main.git has no working tree:
     `git merge-tree --write-tree` puts the changes from the merge base to the branch onto main (data only, no hook,
-    no filter) and one commit of that tree on top of main is what the suite exports. A conflict is `red: rebase
-    conflict`. The gate still reads the branch's own commits."""
+    no filter; CHANGELOG.md and build/tests.json go through the merge drivers of awb/mergedriver.py) and one commit
+    of that tree on top of main is what the suite exports. A conflict is `red: rebase conflict` and the check line
+    names the files. The gate still reads the branch's own commits."""
     main = rev(host, "refs/heads/main")
     if main is None or main == ctx.start:
         return
-    r = git(host, "merge-tree", "--write-tree", "--no-messages", "--merge-base=%s" % ctx.start, main, ctx.tip,
-            check=False)
-    tree = r.stdout.decode("ascii", "replace").split("\n", 1)[0].strip()
+    r = git(host, *_driver_config(ctx), "merge-tree", "--write-tree", "--name-only", "--no-messages",
+            "--merge-base=%s" % ctx.start, main, ctx.tip, check=False)
+    out = r.stdout.decode("utf-8", "replace").split("\n")
+    tree = out[0].strip()
     if r.returncode == 1:
-        ctx.lines.append("- main moved to %s: the branch does not rebase onto it without a conflict" % main[:7])
+        files = [ln.strip() for ln in out[1:] if ln.strip()][:10]
+        ctx.lines.append("- main moved to %s: the branch does not rebase onto it without a conflict%s"
+                         % (main[:7], " in " + ", ".join(files) if files else ""))
         raise Stop("red: rebase conflict")
     if r.returncode or not SHA_RE.fullmatch(tree):
         ctx.lines.append("- main moved to %s: the branch could not be put onto it" % main[:7])

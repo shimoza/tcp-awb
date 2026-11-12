@@ -47,7 +47,6 @@ ORIGIN = "origin"
 BRANCH = "take/pr-%d"
 TITLE_MAX = 200
 _SAFE_TITLE_RE = re.compile(r"[\x00-\x1f\x7f]")
-_ATTRIBUTES = "build/tests.json merge=awb-tests\nCHANGELOG.md merge=awb-changelog\n"
 PR_FIELDS = "author,isCrossRepository,headRepositoryOwner"
 """What `gh pr view N --json` is asked for the identity check (R1)."""
 PROTECTED = build.PROTECTED
@@ -212,15 +211,10 @@ class Take:
         driver = scratch / "mergedriver.py"
         driver.write_text(inspect.getsource(mergedriver), encoding="utf-8")
         attributes = scratch / "attributes"
-        attributes.write_text(_ATTRIBUTES, encoding="utf-8")
+        attributes.write_text(mergedriver.ATTRIBUTES, encoding="utf-8")
         wt = scratch / "wt"
         self.git("worktree", "add", "--quiet", str(wt), self.branch)
-        run = "%s -I %s" % (_quote(sys.executable), _quote(str(driver)))
-        r = self.git("-c", "core.attributesFile=%s" % attributes,
-                     "-c", "merge.awb-tests.name=build/tests.json by id",
-                     "-c", "merge.awb-tests.driver=%s tests %%O %%A %%B" % run,
-                     "-c", "merge.awb-changelog.name=CHANGELOG.md by week",
-                     "-c", "merge.awb-changelog.driver=%s changelog %%O %%A %%B" % run,
+        r = self.git(*mergedriver.git_config(str(driver), str(attributes), sys.executable),
                      "-c", "rebase.autoStash=false", "-c", "commit.gpgSign=false",
                      "rebase", "--quiet", MAIN, cwd=wt, check=False)
         if r.returncode != 0:
@@ -346,10 +340,6 @@ def _login(obj) -> str | None:
 def _last(text: str) -> str:
     lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
     return lines[-1][:200] if lines else ""
-
-
-def _quote(s: str) -> str:
-    return "'" + s.replace("'", "'\\''") + "'"
 
 
 def _toplevel() -> Path | None:

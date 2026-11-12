@@ -1445,7 +1445,10 @@ other clone, home or login, have no network and refuse a clone whose git configu
 session (`.git/commondir`, `config.worktree`, `info/attributes`, a key outside a fixed list). The runner judges
 the bundle in `main.git`, never the clone. When `main` moved since the session started, the branch is rebased onto
 the `main` of now before the checks (after `widen` and the checks of a held run too), so the suite and the
-hollow-test check never judge it against an old baseline; a rebase that conflicts is `red: rebase conflict`. The
+hollow-test check never judge it against an old baseline. `CHANGELOG.md` and `build/tests.json` merge with the drivers of
+`awb pr take` (lines of one week and section on both sides, rows by id); the driver is a copy of the runner's own
+`awb/mergedriver.py`, never the branch's. A rebase that conflicts in any other file is `red: rebase conflict` and the
+check line names the files. The
 checks: the unit ended by itself, the client ended well, the last line is `DONE:`, one to five commits as you on `task/<ID>` and nothing else, no changed blob and no commit above 16 MB (sized with `git cat-file --batch-check` before any read), the gate with the
 register, the paths, the CHANGELOG and `build/tests.json`, then the whole suite, every test that passed before
 still passing and the block's `check` on a `git archive` export, as `awb-build` on loopback only. When the whole
@@ -1486,8 +1489,8 @@ A branch from outside, a pull request of a cloud session, is never tested in you
 REF` there. The runner takes the commit into the quarantine of `main.git` and runs on it what it runs for a task:
 the gate with the register over every commit message and changed file, the whole suite and the hollow-test check,
 as `awb-build` in the task's suite unit. When `main` moved past the branch's merge base, its changes go onto the
-`main` of now first (`git merge-tree` in `main.git`, no working tree) and the suite runs on that; a conflict is
-`red: rebase conflict`. It goes through the runner's lock, so
+`main` of now first (`git merge-tree` in `main.git`, no working tree, CHANGELOG.md and build/tests.json by the merge
+drivers) and the suite runs on that; a conflict in another file is `red: rebase conflict` with the file names. It goes through the runner's lock, so
 it never runs beside a task: with no runner it runs at once, else it waits until the runner takes it before its
 next task. No model session runs and nothing is merged, pushed or deployed. It prints the state (`passed` or the
 first failure, as `red: gate name` or `red: tests lost`) and the check lines, exits 0 only for `passed` and keeps
