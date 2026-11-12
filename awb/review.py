@@ -246,14 +246,20 @@ def _counts(hits: list[dict]) -> str:
 
 
 FINAL_SUFFIX = ".final.md"
+_TRANSLATION_RE = re.compile(r"\.(?:de|en|ru)\.md$")
 
 
 def _checked_path(rel: str) -> str:
     """The path of deliverables/<rel> as the name check reads it. The name check takes x.final.md for a web address
     (the suffix .md is a country domain), so a final text of the final check (FX) is checked under the name of its
-    draft, <stem>.md: the stem, where a name could hide, is checked all the same (RV2)."""
+    draft, <stem>.md: the stem, where a name could hide, is checked all the same (RV2). The language suffix
+    `awb write translate` writes (<stem>.de.md, .en.md, .ru.md) is read the same way: .de.md reads as a host."""
     if rel.endswith(FINAL_SUFFIX) and len(rel) > len(FINAL_SUFFIX):
         rel = rel[:-len(FINAL_SUFFIX)] + ".md"
+    else:
+        m = _TRANSLATION_RE.search(rel)
+        if m and m.start() > 0:
+            rel = rel[:m.start()] + ".md"
     return "%s/%s" % (DELIVERABLES, rel)
 
 

@@ -283,6 +283,28 @@ def _listing_part(text: str, start: int, end: int) -> bool:
     if re.match(r":\d\d(?!\d)|\.[A-Za-z][A-Za-z0-9]{0,4}(?![\w.])", text[end:end + 7]):
         return True
     return text[start:start + 1] in ("+", "-") and bool(_CLOCK_BEFORE.search(text[max(0, start - 24):start]))
+_DECIMAL_RE = re.compile(r"\d{1,3}[.,]\d{3,}")
+_PRICE_WORD_RE = re.compile(r"(?i)[€$£]|(?<![^\W_])(?:eur|euro|usd|chf|gbp|ct|cent|price|prices|pricing|preis"
+                            r"|preise|cost|costs|kosten|tarif)(?![^\W_])")
+
+
+def _price_shaped(text: str, start: int, end: int) -> bool:
+    """True for a phone-shaped span that is a number with a decimal separator (`0.123456`, one per cell of a table
+    row) with a currency or a price word near it: in its line or in the header line of its table."""
+    if not all(_DECIMAL_RE.fullmatch(c.strip()) for c in text[start:end].split("|")):
+        return False
+    a = text.rfind("\n", 0, start) + 1
+    b = text.find("\n", end)
+    if _PRICE_WORD_RE.search(text[max(a, start - 40):end + 40 if b < 0 else min(b, end + 40)]):
+        return True
+    if not text[a:start].lstrip().startswith("|"):
+        return False
+    while a > 0 and text[text.rfind("\n", 0, a - 1) + 1:a].lstrip().startswith("|"):
+        a = text.rfind("\n", 0, a - 1) + 1
+    h = text.find("\n", a)
+    return bool(_PRICE_WORD_RE.search(text[a:h if h >= 0 else len(text)]))
+
+
 _DATE_RE = re.compile(r"0?\d{1,2}[ ./-]0?\d{1,2}[ ./-]\d{2,4}|0\d[ ./-]\d{4}")
 """dd.mm.yyyy, dd mm yyyy and mm/yyyy: a date, not a number to call."""
 
@@ -467,8 +489,9 @@ def _view(text: str, wraps: list[tuple[int, int, int, int]] = ()) -> tuple[str, 
 
 # --------------------------------------------------------------------------- the code view (T12)
 
-CODE_SUFFIXES = (".tf", ".tfvars", ".py", ".sh", ".js", ".yaml", ".yml", ".json")
-"""Files read in the code view: a dotted reference (`module.lb.listener_port`, `self.client.name`) is code there."""
+CODE_SUFFIXES = (".tf", ".tfvars", ".py", ".sh", ".js", ".yaml", ".yml", ".json", ".ps1", ".psm1")
+"""Files read in the code view: a dotted reference (`module.lb.listener_port`, `self.client.name`) is code there,
+and so is a member of a PowerShell variable (`$Reply.Host`)."""
 _CODE_TLDS = frozenset({"com", "de", "org", "net", "io", "cloud", "eu"} |
                        {d.rsplit(".", 1)[-1] for d in ALLOW_DOMAINS if "." in d})
 """The last labels a bare host in code may end with to count as a web address: a short built-in list and the
@@ -487,6 +510,8 @@ def code_url_kept(text: str, start: int, end: int) -> bool:
     value = text[start:end]
     if "://" in value:
         return True
+    if value.startswith(".") or text[start - 1:start] == "$":
+        return False      # a member (`$Reply.Host`, `.Server.local`) is code, not an address
     last = _plain_host(value.split("/")[0]).rsplit(".", 1)[-1]
     if last not in _CODE_TLDS:
         return False
@@ -494,9 +519,16 @@ def code_url_kept(text: str, start: int, end: int) -> bool:
     return not (left and left[-1] in _CODE_LEFT)
 
 
+def code_bic_kept(text: str, start: int) -> bool:
+    """Whether a bank code hit at text[start:] stays one in the code view: not a token right after `$` or a dot
+    (`$HOSTNAME1`, `$Obj.ADDOMAIN`), which is a variable or a member of the code."""
+    return text[start - 1:start] not in ("$", ".")
+
+
 def code_view(text: str, spans: list[Span]) -> list[Span]:
-    """`spans` of `text` with the url hits the code view does not keep taken out; every other class stays."""
-    return [s for s in spans if s.cls != "url" or code_url_kept(text, s.start, s.end)]
+    """`spans` of `text` with the url and bic hits the code view does not keep taken out; every other class stays."""
+    return [s for s in spans if (s.cls != "url" or code_url_kept(text, s.start, s.end))
+            and (s.cls != "bic" or code_bic_kept(text, s.start))]
 
 
 def find_structured(text: str, code: bool = False) -> list[Span]:
@@ -561,6 +593,8 @@ def _find_structured(text: str) -> list[Span]:
         if s.cls == "mac" and "|" in text[start:end]:
             continue      # short column names over six cells (| c0 | c1 | ... | c5 |) are no MAC address (T3)
         if s.cls == "phone" and "|" in text[start:end]:
+            if _price_shaped(text, start, end):
+                continue      # the price cells of a table row under a price column
             out.extend(_cell_phones(text, start, end))
             continue
         out.append(Span(start=start, end=end, cls=s.cls))
@@ -611,6 +645,8 @@ def _find(text: str) -> list[Span]:
                     end -= 1
             if end > start:
                 found.append((start, end, kind))
+    # a price with a decimal separator and a currency or a price column near it is no number to call
+    found = [t for t in found if not (t[2] == "PHONE" and _price_shaped(text, t[0], t[1]))]
     # digits inside something shaped like an IBAN are never a phone number, even when the IBAN is invalid
     iban_shaped = [(m.start(), m.end()) for m in _IBAN_SHAPE.finditer(text)]
     found = [t for t in found if not (t[2] == "PHONE" and any(a <= t[0] and t[1] <= b for a, b in iban_shaped))]

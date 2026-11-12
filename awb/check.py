@@ -445,14 +445,16 @@ def _check_extracted(path: Path, names) -> list[dict]:
 
 
 def code_view(text: str, hits: list[dict]) -> list[dict]:
-    """`hits` of `text` (as a scan returns them, local or from the daemon) with the url hits the code view of
-    `patterns.code_url_kept` does not keep taken out. Positions point into the normalised text the scan read."""
-    if not any(h.get("cls") == "url" for h in hits):
+    """`hits` of `text` (as a scan returns them, local or from the daemon) with the url and bic hits the code view of
+    `patterns.code_url_kept` and `patterns.code_bic_kept` does not keep taken out. Positions point into the
+    normalised text the scan read."""
+    if not any(h.get("cls") in ("url", "bic") for h in hits):
         return hits
     views = _bidi_views(text)
     n = normalize.normalize(text + "".join("\n\n" + v for v in views)).text
-    return [h for h in hits if h.get("cls") != "url"
-            or patterns.code_url_kept(n, h["start"], h["start"] + h["length"])]
+    return [h for h in hits if (h.get("cls") != "url"
+                                or patterns.code_url_kept(n, h["start"], h["start"] + h["length"]))
+            and (h.get("cls") != "bic" or patterns.code_bic_kept(n, h["start"]))]
 
 
 def _check_file(path: Path, matcher, code: bool = False) -> list[dict]:

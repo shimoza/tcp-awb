@@ -764,7 +764,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | call the TCP API | `awb cloud call GET vpc "/v1/{project_id}/vpcs" --tenant test-1` | the answer, signed by the key service (an OBS list such as `GET obs /` whole as data); a write needs `--role lab` and runs for the project of the folder |
 | a live check in one command | `awb lab run ecs-boot-ssh --project tcp-q7m4 --tenant test-1` | raise, check, evidence in `evidence/`, always torn down and proven gone (in the project's folder `--project` and `--tenant` default from SCOPE.md); `awb lab list` and `awb lab dry-run RECIPE` first |
 | a migration | `awb migrate init --from azure`, then `awb migrate next` | the next phase, its worker and its files |
-| review a text | `awb review init`, `claims`, `l0`, `pass` | the claim list with evidence and a review record |
+| review a text | `awb review init`, `claims`, `l0`, `pass` | the claim list with evidence and a review record; a translation named `<file>.de.md`, `.en.md` or `.ru.md` is accepted |
 | the week | `awb ledger add ...`, `awb report --by customer` | one line per piece of work, reports by customer, technology or project |
 | the half-year | `awb report --period --from 2026-04-01 --to 2026-09-30` | every project with activity in three blocks: active customer work, finished customer work, technical questions; `--reveal --out FILE` puts the names back, owner only |
 | the files of the projects | `sudo -n -u awb -H awb files inventory --host`, `awb files inventory --buckets` | one TSV per side in `~/tcp-shared/files/` with path, size, time, sha256 and md5 of every file of the project folders or of the two buckets, never the content; a path the name check finds anything in is `[withheld]` |
