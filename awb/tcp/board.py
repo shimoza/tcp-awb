@@ -77,6 +77,13 @@ def _as_of(p: dict) -> str:
     return text
 
 
+def _line(text) -> str:
+    """A Status: or Next: line as the board shows it: at most 300 characters, a longer one cut with ..."""
+    from awb import status
+
+    return status.cut(text) if text else text
+
+
 def _deliverables(p: dict) -> str:
     d = p["deliverables"]
     if d["status"] != "available":
@@ -116,15 +123,15 @@ def markdown(board: dict) -> str:
     for p in board["projects"]:
         st = p["status"]
         out.append("| %s (%s) | %s | %s | %s | %s | %s | %s |" % (
-            p["code"], p["kind"], _customer(p), cell(st.get("summary") or "-"), cell(st.get("next") or "-"),
+            p["code"], p["kind"], _customer(p), cell(_line(st.get("summary")) or "-"), cell(_line(st.get("next")) or "-"),
             cell(_as_of(p)), "-" if p["open_items"] is None else p["open_items"],
             "-" if p["live_resources"] is None else p["live_resources"]))
     for p in board["projects"]:
         st = p["status"]
         out += ["", "## %s: %s" % (p["code"], p["goal"] or "no goal recorded"), "",
                 "- Customer: %s, kind %s, created %s" % (_customer(p), p["kind"], p["created"]),
-                "- Status: %s" % (st.get("summary") or "none recorded yet"),
-                "- Next: %s" % (st.get("next") or "none recorded yet"),
+                "- Status: %s" % (_line(st.get("summary")) or "none recorded yet"),
+                "- Next: %s" % (_line(st.get("next")) or "none recorded yet"),
                 "- Status as of: %s" % _as_of(p)]
         if p["waiting_on"]["items"]:
             out.append("- Waiting on%s:" % _more(p["waiting_on"]))
@@ -174,8 +181,8 @@ def page(board: dict) -> str:
     rows = "".join(
         "<tr><td>%s<br><span class=\"none\">%s</span></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>"
         "<td>%s</td><td>%s</td></tr>" % (
-            e(p["code"]), e(p["kind"]), e(_customer(p)), e(p["status"].get("summary") or "-"),
-            e(p["status"].get("next") or "-"), as_of(p), "-" if p["open_items"] is None else p["open_items"],
+            e(p["code"]), e(p["kind"]), e(_customer(p)), e(_line(p["status"].get("summary")) or "-"),
+            e(_line(p["status"].get("next")) or "-"), as_of(p), "-" if p["open_items"] is None else p["open_items"],
             "-" if p["live_resources"] is None else p["live_resources"]) for p in board["projects"])
 
     def items(block: dict) -> str:
@@ -184,8 +191,8 @@ def page(board: dict) -> str:
     for p in board["projects"]:
         st = p["status"]
         rows_dl = [("Customer", e("%s, kind %s, created %s" % (_customer(p), p["kind"], p["created"]))),
-                   ("Status", e(st.get("summary") or "none recorded yet")),
-                   ("Next", e(st.get("next") or "none recorded yet")),
+                   ("Status", e(_line(st.get("summary")) or "none recorded yet")),
+                   ("Next", e(_line(st.get("next")) or "none recorded yet")),
                    ("Status as of", as_of(p))]
         if p["waiting_on"]["items"]:
             rows_dl.append(("Waiting on", items(p["waiting_on"])))

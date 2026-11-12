@@ -357,7 +357,7 @@ marks a key and when it archives one (the row of an archived put goes); it holds
 ## The board and the console
 
 Every project keeps its status in the first two lines of `STATE.md` (`Status:` and `Next:`). A session cannot end
-a reply while its commits are newer than that status. `awb board show` turns the status of every active project into
+a reply while its commits are newer than that status. Each of the two lines stays at most 300 characters and says no sentence twice; the stop hook holds a reply whose lines break that (with the two counts: move the detail below the two lines), `awb projects sync` lists the projects that do, and the board cuts a longer line at 300 characters with `...`. `awb board show` turns the status of every active project into
 one page for management: what each project waits on, its open items, its deliverables by review state and its live
 resources, with codes only. It also carries the wipe mode as the last refresh measured it: `awb refresh` runs the
 red-team pack of wipe mode through the installed intake and keeps its leaks and losses in `refresh/wipe.tsv`.

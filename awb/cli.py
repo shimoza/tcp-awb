@@ -574,7 +574,7 @@ def _cmd_projects_delete(args, p: config.Paths) -> int:
 
 
 def _cmd_projects_sync(args, p: config.Paths) -> int:
-    from awb import rulesync
+    from awb import projects, rulesync, status
 
     done = rulesync.sync(p, args.codes or None)
     if not done:
@@ -582,6 +582,15 @@ def _cmd_projects_sync(args, p: config.Paths) -> int:
         return EXIT_FINDINGS if args.codes else EXIT_OK
     for code, files in done:
         print("%s: %s" % (code, ("brought up to date: " + ", ".join(files)) if files else "already current"))
+    paths = {r.code: r.path for r in projects.load(p)}
+    for code, _files in done:
+        try:
+            rec = status.lines((Path(paths[code]) / status.STATE).read_text(encoding="utf-8"))
+        except (KeyError, OSError, UnicodeError):
+            continue
+        bad = status.shape(rec.summary, rec.next)
+        if bad:
+            print("%s: Status: and Next: break the shape (%s): move the detail below the two lines" % (code, bad))
     return EXIT_OK
 
 

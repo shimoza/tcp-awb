@@ -24,6 +24,9 @@ HISTORY = 500
 """The most commits read to count the ones newer than STATE.md."""
 GRACE = 60
 """Seconds after STATE.md in which a commit still counts as the same step (the work and the status a moment apart)."""
+LINE_MAX = 300
+"""The most characters of the Status: line and of the Next: line, each."""
+_SENTENCE_RE = re.compile(r"[^.!?]+(?:[.!?]+|$)")
 _LINE_RE = {"summary": re.compile(r"^Status:[ \t]*(\S.*?)\s*$", re.M),
             "next": re.compile(r"^Next:[ \t]*(\S.*?)\s*$", re.M)}
 
@@ -39,6 +42,32 @@ def lines(text: str) -> Recorded:
     head = "\n".join(text.splitlines()[:HEAD_LINES])
     found = {k: (m.group(1) if (m := r.search(head)) else None) for k, r in _LINE_RE.items()}
     return Recorded(found["summary"], found["next"])
+
+
+def shape(summary: str | None, next: str | None) -> str | None:
+    """None when the two lines are short and say nothing twice; else what is wrong, with the counts. A missing line
+    is not judged here (the reminder names it)."""
+    problems = []
+    for label, text in (("Status:", summary), ("Next:", next)):
+        if text is not None and len(text) > LINE_MAX:
+            problems.append("%s has %d characters, at most %d" % (label, len(text), LINE_MAX))
+    seen, again = set(), 0
+    for text in (summary, next):
+        for m in _SENTENCE_RE.finditer(text or ""):
+            key = " ".join(m.group().lower().split()).rstrip(".!? ")
+            if not key:
+                continue
+            if key in seen:
+                again += 1
+            seen.add(key)
+    if again:
+        problems.append("%d sentence(s) occur twice in the two lines" % again)
+    return "; ".join(problems) or None
+
+
+def cut(text: str, limit: int = LINE_MAX) -> str:
+    """A long line cut at limit characters with ..., a short one as it is."""
+    return text if len(text) <= limit else text[:limit].rstrip() + "..."
 
 
 def _git(root: Path, *args: str) -> str | None:
@@ -86,6 +115,10 @@ def reminder(root: Path) -> str | None:
     if rec.summary is None or rec.next is None:
         parts.append("STATE.md needs the two lines Status: and Next: right under its title, one sentence each, "
                      "codes only: the console shows them as the status of the project")
+    bad = shape(rec.summary, rec.next)
+    if bad:
+        parts.append("the two lines of STATE.md are too long or repeat themselves (%s): move the detail below the "
+                     "two lines" % bad)
     if not parts:
         return None
     return "; ".join(parts) + "; then commit."
