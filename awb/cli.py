@@ -11,7 +11,7 @@ awb report, awb career, awb write, awb voice, awb review, awb calc, awb hook, aw
 awb bucket, awb files, awb clean, awb import, awb words, awb reveal, awb price, awb pricebook, awb cloud, awb mirror, awb refresh,
 awb dataset, awb english, awb ask, awb inbox, awb xchg, awb howto, awb start, awb fetch, awb paste, awb material, awb keys,
 awb migrate, awb lab, awb tenant, awb api, awb service, awb board, awb web, awb owner, awb ui, awb build, awb pr,
-awb deploy, awb doc, awb pdf, awb winlab, awb platform-status.
+awb deploy, awb doc, awb pdf, awb winlab, awb platform-status, awb codex.
 
 Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 
@@ -842,6 +842,7 @@ DELEGATED = {
     "web": ("tcp.web.publish", "publish the console page with a backup: sudo awb web publish; awb web status"),
     "owner": ("tcp.owner", "what waits on the owner in one list: awb owner status [--mail|--json|--write]"),
     "ui": ("tcp.ui", "the UI queue: submit a task, list the runs, a result note when a run ends (owner side)"),
+    "codex": ("tcp.codex", "Codex for bounded non-UI work: usage (the quota), run TASKFILE (a worktree, never a commit), status"),
     "build": ("build", "the self-build: the task queue (add, draft, list, status, show, answer, retry, widen, stop), "
                       "a quick test run (quick) and its runner (serve, selftest, probe)"),
     "pr": ("prtake", "take a pull request of a cloud session: rebase, awb build check, merge, push, close"),

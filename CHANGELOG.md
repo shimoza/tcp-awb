@@ -11,6 +11,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
   cannot). The same checks as the repository list (https, no wildcard, no address, no TCP API host, no portal host);
   the `www.` and `docs.` hosts of the domain are offered when they resolve. `awb doc hosts` marks the hosts added on
   the host and `awb owner status` counts them, to commit in one batch.
+- CX: `awb codex usage [--json]` reads the Codex quota from `codex app-server` (5-hour and weekly window, plan, reset credits) without spending tokens and without showing account data. `awb codex run TASKFILE [--base REF]` hands a bounded code task (`Paths:` and `Acceptance:` lines, checked as a UI task is) to `codex exec` in a git worktree on `codex/ID`, writes `result.md` with the diff stat and the files changed outside `Paths:` as a refusal, and never commits, pushes or merges; one run at a time. `awb codex status` lists the runs.
 - DL: `awb doc fetch URL --links` ends the text with the links of the page as absolute URLs with their texts,
   a host off the list marked. `awb doc find URL WORDS` lists the pages of a MadCap Flare help (the WatchGuard help
   center is one) whose title or path holds every word: the key service reads the help index the page names, the

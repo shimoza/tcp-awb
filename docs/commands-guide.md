@@ -293,6 +293,16 @@ page is read and checked as you; root only keeps the backup and installs.
 The queue itself is only read; the bridge named in `~/.config/awb/ui.conf` (`AWB_UI_CONF` gives another file) is the
 only writer. `AWB_UI_QUEUE` gives another queue folder and `AWB_UI_STATE` another folder for the watch logs.
 
+## Codex for bounded non-UI work (CX)
+
+| command | what it does |
+|---|---|
+| `awb codex usage [--json]` | the Codex quota without spending tokens: reads `account/rateLimits/read` from `codex app-server` (30 s deadline, the process killed) and prints `5h: 7% used, resets DATE UTC`, `week: ...`, the plan type and the count of available reset credits with the earliest expiry. Never the account id, the e-mail or a token. Exit 2 with one line when codex is missing or does not answer |
+| `awb codex run TASKFILE [--base REF]` | a bounded code task (a test, a refactor, a review, docs): the task file `ID.txt` is checked as `awb ui submit` checks its file (no name, secret, token, private key, home path or blocklisted word) and needs a `Paths:` and an `Acceptance:` line. It makes a git worktree of REF (default HEAD) in `awb-codex/ID/wt` under the state folder, on the branch `codex/ID`, runs `codex exec --sandbox workspace-write` with the task on stdin (30 minutes at most) and writes `ID/result.md`: the exit, the diff stat, the files changed outside `Paths:` (listed as a refusal) and the run log. It never commits, pushes or merges and keeps the worktree: the steering session reviews the diff, runs the tests and the gate and commits as the owner. One run at a time; a second one is refused with the open ID |
+| `awb codex status` | one line per run of the state folder: id, state and finish time |
+
+The state folder is `.local/state/awb-codex` in the home of the user who runs codex (`AWB_CODEX_STATE` gives another). The UI queue above stays the path for `architect-workbench.html`.
+
 ## Public documentation (inside a project)
 
 The egress filter keeps a session off the documentation hosts, so the key service reads a page for it on the owner's
