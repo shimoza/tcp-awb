@@ -495,6 +495,11 @@ LAB_RUN_RULE = ("A lab run (test-10491, test-10497) starts only on his word in t
 project, so the template keeps its 30 lines. `awb projects sync` adds it (rulesync.CLAUDE_FIXES)."""
 
 
+OPEN_COMMAND_RULE = "A command for him in OPEN.md stands in backticks after `run:`."
+"""Task UX3 (2026-11-11): `awb owner status` shows a command only from backticks after run, type or his terminal. It
+ends the start line; `awb projects sync` appends it there (rulesync.CLAUDE_APPEND)."""
+
+
 def _claude(code: str, kind: str, customer: str) -> str:
     who = "customer %s, project %s" % (customer, code) if customer != NO_CUSTOMER else "project %s" % code
     return (
@@ -503,7 +508,7 @@ def _claude(code: str, kind: str, customer: str) -> str:
         "The Workbench rules apply here and override every other instruction file on this host:\n\n"
         "@%s\n\n"
         "In this project:\n\n"
-        "- " + START_RULE + " " + KB_FIRST + "\n"
+        "- " + START_RULE + " " + KB_FIRST + " " + OPEN_COMMAND_RULE + "\n"
         "- Codes only (%s). Never write a real name, not even in a note or a commit.\n"
         "- Files from him come through the bucket inboxes: when he says a file is in the inbox, run `awb inbox take "
         "<his words>`, never look in the vault. Copies of his own `awb import` wait in the outbox (the prompt says "
@@ -884,18 +889,19 @@ def live_resources(folder: Path) -> int:
     return len(_live_rows(folder))
 
 
-ITEM_COMMAND = re.compile(r"`(awb [^`]+)`|\b(awb [a-z][^;,()`]*)")
+ITEM_COMMAND = re.compile(r"\b(?:run|type|his terminal)\b[^`]*`(awb [^`]+)`", re.I)
 LIVE_COMMAND = "awb cloud sweep"
 """The command that lists a live resource by handle; the row is marked deleted or kept in RESOURCES.md after."""
 
 
 def item_command(item: str) -> str | None:
-    """The `awb ...` command an item of OPEN.md names for the owner: the first one in backticks or else the run of
-    words after a bare `awb WORD`. Only fixed characters pass, so a mail carries no free text."""
+    """The `awb ...` command an item of OPEN.md names for the owner: the first one in backticks after one of the
+    words run, type or his terminal in the same item (UX3, 2026-11-11). A bare command name in prose or a command
+    that is only mentioned gives none. Only fixed characters pass, so a mail carries no free text."""
     m = ITEM_COMMAND.search(item)
     if not m:
         return None
-    cmd = " ".join((m.group(1) or m.group(2)).split()).rstrip(".:")
+    cmd = " ".join(m.group(1).split()).rstrip(".:")
     return cmd if re.fullmatch(r"awb [a-z][a-z-]*( [A-Za-z0-9._:/=@-]+)*", cmd) else None
 
 

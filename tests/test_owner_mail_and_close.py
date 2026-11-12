@@ -26,10 +26,12 @@ def _open(proj, *lines):
 
 
 def test_an_owner_item_with_a_command_is_mailed_once(home, proj):
-    _open(proj, "- Switch to a project for the live test: awb projects kind %s project (owner)" % proj.code,
-          "- Which region holds the backups?")
     mails = []
     send = lambda s, m: mails.append((s, m)) or True
+    _open(proj, "- Switch to a project for the live test: awb projects kind %s project (owner)" % proj.code)
+    assert projects.mail_owner_commands(home, Path(proj.path), send) == 0 and not mails   # the old bare shape
+    _open(proj, "- Switch to a project for the live test, run: `awb projects kind %s project` (owner)" % proj.code,
+          "- Which region holds the backups?")
     assert projects.mail_owner_commands(home, Path(proj.path), send) == 1
     assert projects.mail_owner_commands(home, Path(proj.path), send) == 0
     assert len(mails) == 1

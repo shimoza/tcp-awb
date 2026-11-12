@@ -35,8 +35,8 @@ from pathlib import Path
 
 from awb import config, devnote
 from awb.projects import (FX_AFTER_OLD, FX_HEADING_OLD, FX_PHRASE_OLD, FX_SCRIPT_LINE, KB_FIRST, LAB_LOGS,
-                          LAB_RUN_RULE, LEVEL_2, LEVEL_2_RUN, OWN_OUTPUT_RULE, PROJECT_LINE, PUT_KEY_RULE, REVIEW_L1,
-                          START_RULE)
+                          LAB_RUN_RULE, LEVEL_2, LEVEL_2_RUN, OPEN_COMMAND_RULE, OWN_OUTPUT_RULE, PROJECT_LINE,
+                          PUT_KEY_RULE, REVIEW_L1, START_RULE)
 
 CLAUDE_FIXES = (
     # T6 (2026-10-27): the FX line named /opt/tcp-awb/workflows, a path no release creates
@@ -92,7 +92,8 @@ CLAUDE_ADD += (("- " + OWN_OUTPUT_RULE, devnote.FILE_RULE, "he cannot open it"),
 """His rules of 2026-10-27 (task DN): no link to a file, deliverables as HTML and md, notes from development."""
 CLAUDE_ADD += (("- " + OWN_OUTPUT_RULE, LAB_LOGS, "Logs of our own lab runs"),)
 """Task GT: the lab log line goes right after the line of P1, before the lines of DN."""
-CLAUDE_APPEND = (("- Files for him leave with `awb xchg put FILE`", "--kind WORD", PUT_KEY_RULE),)
+CLAUDE_APPEND = (("- Files for him leave with `awb xchg put FILE`", "--kind WORD", PUT_KEY_RULE),
+                 ("- " + START_RULE, OPEN_COMMAND_RULE, OPEN_COMMAND_RULE))
 """(line start, marker, text): the text goes at the end of the line unless the line carries the marker. Task BK1
 (2026-11-06): the kind word and the language of a put join the put line (the template holds 30 lines at most)."""
 CLAUDE_CUT = (
