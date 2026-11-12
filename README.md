@@ -906,6 +906,18 @@ awb tenant setup test-1 [--domain-id ID] [--lab-key | --lab-user] [--alerts]
 awb keys unlock                  # after every start of the service
 ```
 
+After changing a lab tenant's admin password, run `awb tenant password ALIAS` in your own terminal.
+The alias must be enabled by `lab_admin` in keys.conf and loaded in the running key service. The command asks
+for the new password hidden, replaces `awb/admin/ALIAS/password` through standard input to pass, and reloads
+only that alias. It then asks `test with one login now? [y/N]`; only yes makes one login with the loaded value.
+This updates the stored login after a password change in the tenant. If loading fails, the new store entry stays
+and the command points to `awb keys unlock` without offering a login.
+
+`awb keys status` in the owner's terminal compares each store file's modification time with the time captured
+when its value was loaded. It marks `store newer than loaded` per field handle, without decrypting or logging in;
+a successful password command leaves that alias clean. Missing files and unknown load times are shown explicitly.
+A lab run receiving HTTP 401 stops with `the stored login may be stale: awb keys status` and makes no second try.
+
 Without `--domain-id` setup takes the domain of the admin token and names it (the first 6 characters of its id).
 A tenant connected before setup existed keeps its read key: setup finds the user of that key with the admin login,
 puts it into awb-read (`read key: its user adopted into awb-read`) instead of making a new user and key, then takes

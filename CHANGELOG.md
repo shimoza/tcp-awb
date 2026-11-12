@@ -6,6 +6,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 ## Week 46, 2026-11-09 to 2026-11-15 (in progress)
 ### Added
 - LX-5: `awb exit pack [--to DIR] [--no-transcripts] [--keep N]` saves client memory, owner and work transcripts and local repository files with private permissions, counts, sizes, SHA-256 digests and the repository commit. It refuses model sessions and work users, replaces today's pack and keeps the newest six dated folders by default. Refused noninteractive sudo leaves the owner's archives and returns 1. Optional owner user units run weekly on Sunday 03:00 UTC; installation is manual.
+- UX14: `awb tenant password ALIAS` asks for a changed lab admin password hidden, writes the store entry and loads
+  only that alias into the running key service, then offers one optional login (default no). `awb keys status`
+  compares each store file's modification time with the time captured at load and marks `store newer than loaded`
+  without a login. A lab 401 stops with `the stored login may be stale: awb keys status` and makes no second try.
+  Tests: `tests/test_tenant_admin_change.py`.
 - B-072: the runner's rebase onto a moved main merges `CHANGELOG.md` and `build/tests.json` with the merge drivers of `awb pr take` (a copy of `awb/mergedriver.py` outside the branch), so two tasks that each add a line to one week no longer end `red: rebase conflict`. A conflict in any other file still does, and the check line now names the files.
 - UX15: `awb build quick [REF]` is a short run before the full one: the import-rule test, the gate selftest and the test files of the modules changed since REF (by name `tests/test_<module>*.py` and by import), the failed test ids, the files it ran and the time printed. A core module that imports the platform package fails it in seconds.
 - UX8: `awb doc hosts add HOST [--why TEXT]` (owner side) allows a documentation host without a deploy: the key service

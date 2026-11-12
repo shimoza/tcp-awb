@@ -834,7 +834,7 @@ DELEGATED = {
     "keys": ("tcp.keys", "the key service: keys, logins and passwords of the test tenants, never shown to a session"),
     "migrate": ("tcp.migrate", "a migration to TCP in phases: inventory, mapping, estimate, plan, review"),
     "lab": ("tcp.lab", "lab recipes: a live check on a test tenant in one command (list, dry-run, run)"),
-    "tenant": ("tcp.tenants", "resources on the test tenants over time: add, snapshot, list, now, history, at, project"),
+    "tenant": ("tcp.tenants", "test tenants: setup, password, add, snapshot, list, now, history, at, project"),
     "api": ("tcp.web.contract", "the contract of the web API: write docs/api/openapi.yaml, check it"),
     "service": ("tcp.services", "offered services: the latest service description and nothing else (check, list, update)"),
     "board": ("tcp.board", "the status of every active project for management, as Markdown and HTML"),

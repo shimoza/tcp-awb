@@ -14406,186 +14406,1309 @@
    "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_owner_status_lists_every_registered_machine_that_is_online",
    "status": "passing"
   },
-  {"id": "pc-cmdlet-1", "phase": "pc-cmdlet", "name": "put scrub: a PowerShell cmdlet call after a secret variable is code and stays", "run": ".venv/bin/pytest tests/test_putcopy_cmdlet.py::test_a_cmdlet_call_after_a_secret_variable_is_code_and_stays", "status": "passing"},
-  {"id": "pc-cmdlet-2", "phase": "pc-cmdlet", "name": "put scrub: a value that only looks like a cmdlet is still replaced", "run": ".venv/bin/pytest tests/test_putcopy_cmdlet.py::test_a_value_that_only_looks_like_a_cmdlet_is_still_replaced", "status": "passing"},
-  {"id": "wl-win-1", "phase": "wl-win", "name": "WL: a local account description in setup.ps1 and remove.ps1 has at most 48 characters", "run": ".venv/bin/pytest tests/test_wl_scripts_windows.py::test_a_local_account_description_has_at_most_48_characters", "status": "passing"},
-  {"id": "wl-win-2", "phase": "wl-win", "name": "WL: an array element built with + in setup.ps1 and remove.ps1 stands in parentheses", "run": ".venv/bin/pytest tests/test_wl_scripts_windows.py::test_an_array_element_built_with_plus_stands_in_parentheses", "status": "passing"},
-  {"id": "b039-wl-1", "phase": "b039-wl", "name": "WL: put_chunk goes over sftp with the pinned known_hosts, the broker key, BatchMode and the port; no data on the standard input of ssh", "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_goes_over_sftp_with_the_pinned_options_and_no_data_on_the_standard_input_of_ssh", "status": "passing"},
-  {"id": "b039-wl-2", "phase": "b039-wl", "name": "WL: the temporary file of a chunk is mode 600 and gone after success, an sftp failure and a timeout", "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_temporary_file_is_mode_600_and_gone_after_success_failure_and_timeout", "status": "passing"},
-  {"id": "b039-wl-3", "phase": "b039-wl", "name": "WL: a chunk at another offset than the size of the part gets the offset refusal and leaves the part as it was", "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_at_another_offset_than_the_size_of_the_part_is_refused_and_leaves_it", "status": "passing"},
-  {"id": "b039-wl-4", "phase": "b039-wl", "name": "WL: an sftp exit other than 0 is offline when ssh cannot reach the machine and failed otherwise", "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_sftp_failure_is_offline_when_ssh_cannot_reach_the_machine_and_failed_otherwise", "status": "passing"},
-  {"id": "b039-wl-5", "phase": "b039-wl", "name": "WL: a stale PART.awb-chunk does not end up in the part twice", "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_stale_chunk_file_does_not_end_up_in_the_part_twice", "status": "passing"},
-  {"id": "wl-list-1", "phase": "wl-list", "name": "WL: awb winlab list in a session shows the window of its own project from the broker", "run": ".venv/bin/pytest tests/test_wl_session_list.py::test_wl_session_list_shows_the_window_of_its_own_project_from_the_broker", "status": "passing"},
-  {"id": "wl-list-2", "phase": "wl-list", "name": "WL: awb winlab list of another project sees no machine and names who opens a window", "run": ".venv/bin/pytest tests/test_wl_session_list.py::test_wl_session_list_of_another_project_sees_no_machine_and_says_who_opens_one", "status": "passing"},
-  {"id": "wl-list-3", "phase": "wl-list", "name": "WL: the list command of a session asks the broker, never says no machine registered", "run": ".venv/bin/pytest tests/test_wl_session_list.py::test_wl_list_command_of_a_session_uses_the_broker", "status": "passing"},
-  {"id": "b039-wl-6", "phase": "b039-wl", "name": "WL: a path that cannot be written as /C:/dir/file for sftp is refused before anything is sent", "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_path_that_sftp_cannot_take_is_refused_before_anything_is_sent", "status": "passing"},
-  {"id": "b040-wl-1", "phase": "b040-wl", "name": "WL: each signature (vhdx, vhd at 0 and in the footer, vmdk, qcow2, iso) and a raw img make a disk image that gets the secret check only", "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_each_signature_makes_a_disk_image_that_gets_the_secret_check_only", "status": "passing"},
-  {"id": "b040-wl-2", "phase": "b040-wl", "name": "WL: the name of a disk image without its signature gets the full check, the name check is called", "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_the_name_of_a_disk_image_without_its_signature_gets_the_full_check", "status": "passing"},
-  {"id": "b040-wl-3", "phase": "b040-wl", "name": "WL: an img whose size is not a multiple of 512 gets the full check", "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_an_img_whose_size_is_not_whole_sectors_gets_the_full_check", "status": "passing"},
-  {"id": "b040-wl-4", "phase": "b040-wl", "name": "WL: a disk image with a password assignment or a private key block is refused, the name check never runs", "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_a_disk_image_with_a_secret_is_refused_without_the_name_check", "status": "passing"},
-  {"id": "b040-wl-5", "phase": "b040-wl", "name": "WL: a secret across the border of two pieces of a disk image is refused", "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_a_secret_across_the_border_of_two_pieces_of_a_disk_image_is_refused", "status": "passing"},
-  {"id": "b040-wl-6", "phase": "b040-wl", "name": "WL: the secret check of 4 MB of random bytes takes at most 2 s (AWB_TEST_IMAGE_CHECK_SECONDS widens it)", "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_the_secret_check_of_4_mb_of_random_bytes_keeps_up_with_the_transfer", "status": "passing"},
-  {"id": "b040-wl-7", "phase": "b040-wl", "name": "WL: a known secret in random noise is still found by the check of a disk image", "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_a_known_secret_in_random_noise_is_still_found", "status": "passing"},
-  {"id": "b040-wl-8", "phase": "b040-wl", "name": "WL: a JWK with its kty far from its private part in noise is still found", "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_a_jwk_with_its_kty_far_from_its_private_part_is_still_found", "status": "passing"},
-  {"id": "b040-wl-9", "phase": "b040-wl", "name": "WL: a finding of the secret lines goes to the whole check for its count", "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_a_finding_of_the_lines_goes_to_the_whole_check_for_its_count", "status": "passing"},
-  {"id": "b040-wl-10", "phase": "b040-wl", "name": "WL: the log of a put names the check that ran", "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_the_log_of_a_put_names_the_check_that_ran", "status": "passing"},
-  {"id": "b041-bk1-1", "phase": "b041-bk1", "name": "BK1: a put without --kind and --lang gets doc, the guessed language and the UTC minute", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_put_without_kind_and_lang_gets_doc_the_guessed_language_and_the_minute", "status": "passing"},
-  {"id": "b041-bk1-2", "phase": "b041-bk1", "name": "BK1: --kind and --lang name the kind folder and the key; a bad word or language is refused", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_kind_and_lang_name_the_folder_and_the_key", "status": "passing"},
-  {"id": "b041-bk1-3", "phase": "b041-bk1", "name": "BK1: a second put of the key in the same minute gets -2, -3, never overwrites a put or a page", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_second_put_in_the_same_minute_gets_2_and_never_overwrites", "status": "passing"},
-  {"id": "b041-bk1-4", "phase": "b041-bk1", "name": "BK1: --as with a clean name gives its stem, at most 40 characters", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_as_with_a_clean_name_gives_its_stem", "status": "passing"},
-  {"id": "b041-bk1-5", "phase": "b041-bk1", "name": "BK1: --as with a registered name gives the neutral key and a line without the name", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_as_with_a_registered_name_gives_the_neutral_key_and_a_line_without_the_name", "status": "passing"},
-  {"id": "b041-bk1-6", "phase": "b041-bk1", "name": "BK1: a kind word that is a registered name falls back to doc", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_kind_word_that_is_a_registered_name_falls_back_to_doc", "status": "passing"},
-  {"id": "b041-bk1-7", "phase": "b041-bk1", "name": "BK1: a session never chooses a readable key: the key service builds it", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_session_never_chooses_a_readable_key", "status": "passing"},
-  {"id": "b041-bk1-8", "phase": "b041-bk1", "name": "BK1: put_key_ok takes the readable form and the old put-<hex> form", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_put_key_ok_takes_the_new_and_the_old_form", "status": "passing"},
-  {"id": "b041-bk1-9", "phase": "b041-bk1", "name": "BK1: put_key_ok refuses a key outside <code>/from-session/<date>/<kind>/, a wrong kind folder, .. and another code", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_put_key_ok_refuses_every_other_key", "status": "passing"},
-  {"id": "b041-bk1-10", "phase": "b041-bk1", "name": "BK1: INDEX.md after two puts and one fetch, newest first, no name and no title", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_index_after_two_puts_and_one_fetch", "status": "passing"},
-  {"id": "b041-bk1-11", "phase": "b041-bk1", "name": "BK1: the fetched mark of INDEX.md is the owner's alone", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_fetched_mark_is_the_owners_alone", "status": "passing"},
-  {"id": "b041-bk1-12", "phase": "b041-bk1", "name": "BK1: xchg clean drops the deleted rows of INDEX.md and the last row takes INDEX.md", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_clean_drops_the_deleted_rows_and_the_last_one_takes_index_md", "status": "passing"},
-  {"id": "b041-bk1-13", "phase": "b041-bk1", "name": "BK1: fetch, list and clean still work on an old put-<hex> key", "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_fetch_list_and_clean_still_work_on_an_old_put_key", "status": "passing"},
-  {"id": "b042-ps-1", "phase": "b042-ps", "name": "PS: the pull keeps an open incident and a maintenance in three days and leaves the others", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_the_pull_keeps_an_open_incident_and_a_maintenance_in_three_days_and_leaves_the_others", "status": "passing"},
-  {"id": "b042-ps-2", "phase": "b042-ps", "name": "PS: an incident is open by its end and its status alone", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_an_incident_is_open_by_its_end_and_its_status_alone", "status": "passing"},
-  {"id": "b042-ps-3", "phase": "b042-ps", "name": "PS: the pull asks the fixed host for the two paths within its limits", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_the_pull_asks_the_fixed_host_for_the_two_paths_within_its_limits", "status": "passing"},
-  {"id": "b042-ps-4", "phase": "b042-ps", "name": "PS: the real getter is https on 443 with a timeout a cap and no key", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_the_real_getter_is_https_on_443_with_a_timeout_a_cap_and_no_key", "status": "passing"},
-  {"id": "b042-ps-5", "phase": "b042-ps", "name": "PS: the real getter refuses more than 2 mb and names a slow answer a timeout", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_the_real_getter_refuses_more_than_2_mb_and_names_a_slow_answer_a_timeout", "status": "passing"},
-  {"id": "b042-ps-6", "phase": "b042-ps", "name": "PS: a cell outside its form is dropped on write", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_a_cell_outside_its_form_is_dropped_on_write", "status": "passing"},
-  {"id": "b042-ps-7", "phase": "b042-ps", "name": "PS: a cell outside its form is dropped on read", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_a_cell_outside_its_form_is_dropped_on_read", "status": "passing"},
-  {"id": "b042-ps-8", "phase": "b042-ps", "name": "PS: a failed pull keeps the last rows and the header says the reason", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_a_failed_pull_keeps_the_last_rows_and_the_header_says_the_reason", "status": "passing"},
-  {"id": "b042-ps-9", "phase": "b042-ps", "name": "PS: a failed first pull writes the header alone", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_a_failed_first_pull_writes_the_header_alone", "status": "passing"},
-  {"id": "b042-ps-10", "phase": "b042-ps", "name": "PS: a pull older than two hours shows not pulled since", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_a_pull_older_than_two_hours_shows_not_pulled_since", "status": "passing"},
-  {"id": "b042-ps-11", "phase": "b042-ps", "name": "PS: the board section lists incidents by impact then maintenances by start then the pull", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_the_board_section_lists_incidents_by_impact_then_maintenances_by_start_then_the_pull", "status": "passing"},
-  {"id": "b042-ps-12", "phase": "b042-ps", "name": "PS: no open incident is one line and a stale pull says so", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_no_open_incident_is_one_line_and_a_stale_pull_says_so", "status": "passing"},
-  {"id": "b042-ps-13", "phase": "b042-ps", "name": "PS: a board without the platform field has no section", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_a_board_without_the_platform_field_has_no_section", "status": "passing"},
-  {"id": "b042-ps-14", "phase": "b042-ps", "name": "PS: api board carries the platform field with checked titles", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_api_board_carries_the_platform_field_with_checked_titles", "status": "passing"},
-  {"id": "b042-ps-15", "phase": "b042-ps", "name": "PS: api board without a state file has an empty stale platform", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_api_board_without_a_state_file_has_an_empty_stale_platform", "status": "passing"},
-  {"id": "b042-ps-16", "phase": "b042-ps", "name": "PS: show prints the section alone and the command is registered", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_show_prints_the_section_alone_and_the_command_is_registered", "status": "passing"},
-  {"id": "b042-ps-17", "phase": "b042-ps", "name": "PS: pull command writes the file and reports a failure with exit 1", "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_pull_command_writes_the_file_and_reports_a_failure_with_exit_1", "status": "passing"},
-  {"id": "b043-bk2-1", "phase": "b043-bk2", "name": "BK2: keep an object in its layout place", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_keep_an_object_in_its_layout_place", "status": "passing"},
-  {"id": "b043-bk2-2", "phase": "b043-bk2", "name": "BK2: move a loose object of one project into in or out", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_move_a_loose_object_of_one_project_into_in_or_out", "status": "passing"},
-  {"id": "b043-bk2-3", "phase": "b043-bk2", "name": "BK2: a loose object without a project is unsorted and never deleted", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_a_loose_object_without_a_project_is_unsorted_and_never_deleted", "status": "passing"},
-  {"id": "b043-bk2-4", "phase": "b043-bk2", "name": "BK2: archive a fetched put of the lab bucket", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_archive_a_fetched_put_of_the_lab_bucket", "status": "passing"},
-  {"id": "b043-bk2-5", "phase": "b043-bk2", "name": "BK2: archive an older version in out of the owner bucket", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_archive_an_older_version_in_out_of_the_owner_bucket", "status": "passing"},
-  {"id": "b043-bk2-6", "phase": "b043-bk2", "name": "BK2: delete an identical copy inside one place and a stale in object", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_delete_an_identical_copy_inside_one_place_and_a_stale_in_object", "status": "passing"},
-  {"id": "b043-bk2-7", "phase": "b043-bk2", "name": "BK2: withheld stays withheld and a path that is no key too", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_withheld_stays_withheld_and_a_path_that_is_no_key_too", "status": "passing"},
-  {"id": "b043-bk2-8", "phase": "b043-bk2", "name": "BK2: a fetched put 29 days old stays, 30 days old is archive, never fetched stays", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_a_fetched_put_29_days_old_stays_30_days_old_is_archive_never_fetched_stays", "status": "passing"},
-  {"id": "b043-bk2-9", "phase": "b043-bk2", "name": "BK2: an index that cannot be read keeps every put and is said", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_an_index_that_cannot_be_read_keeps_every_put_and_is_said", "status": "passing"},
-  {"id": "b043-bk2-10", "phase": "b043-bk2", "name": "BK2: without an index in the inventory nothing is read and the puts stay", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_without_an_index_in_the_inventory_nothing_is_read_and_the_puts_stay", "status": "passing"},
-  {"id": "b043-bk2-11", "phase": "b043-bk2", "name": "BK2: an old put-hex key is keep", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_an_old_put_hex_key_is_keep", "status": "passing"},
-  {"id": "b043-bk2-12", "phase": "b043-bk2", "name": "BK2: a delete row names its keeper or is stale-in and unsorted is never a delete", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_a_delete_row_names_its_keeper_or_is_stale_in_and_unsorted_is_never_a_delete", "status": "passing"},
-  {"id": "b043-bk2-13", "phase": "b043-bk2", "name": "BK2: targets are built from codes, months, stamps and key parts only", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_targets_are_built_from_codes_months_stamps_and_key_parts_only", "status": "passing"},
-  {"id": "b043-bk2-14", "phase": "b043-bk2", "name": "BK2: PLAN.tsv keeps the old columns in order and adds size last", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_plan_tsv_keeps_the_old_columns_in_order_and_adds_size_last", "status": "passing"},
-  {"id": "b043-bk2-15", "phase": "b043-bk2", "name": "BK2: the laptop reads by name and refuses a plan without a column it needs", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_the_laptop_reads_by_name_and_refuses_a_plan_without_a_column_it_needs", "status": "passing"},
-  {"id": "b043-bk2-16", "phase": "b043-bk2", "name": "BK2: PLAN.md shows counts and sizes per project and bucket and the totals add up", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_plan_md_shows_counts_and_sizes_per_project_and_bucket_and_the_totals_add_up", "status": "passing"},
-  {"id": "b043-bk2-17", "phase": "b043-bk2", "name": "BK2: the laptop rows are unchanged", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_the_laptop_rows_are_unchanged", "status": "passing"},
-  {"id": "b043-bk2-18", "phase": "b043-bk2", "name": "BK2: the run line has the bucket counts and the delete size and moves nothing", "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_the_run_line_has_the_bucket_counts_and_the_delete_size_and_moves_nothing", "status": "passing"},
-  {"id": "b044-pool-1", "phase": "b044-pool", "name": "price pool: the worked example to the cent at 730 hours", "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_worked_example_to_the_cent_at_730_hours", "status": "passing"},
-  {"id": "b044-pool-2", "phase": "b044-pool", "name": "price pool: n is fixed over the term and the term decides not one month", "run": ".venv/bin/pytest tests/test_price_pool.py::test_n_is_fixed_over_the_term_and_the_term_decides_not_one_month", "status": "passing"},
-  {"id": "b044-pool-3", "phase": "b044-pool", "name": "price pool: a start after the first gives part months pro rata", "run": ".venv/bin/pytest tests/test_price_pool.py::test_a_start_after_the_first_gives_part_months_pro_rata", "status": "passing"},
-  {"id": "b044-pool-4", "phase": "b044-pool", "name": "price pool: n is zero below the threshold and a rest at the threshold takes no unit", "run": ".venv/bin/pytest tests/test_price_pool.py::test_n_is_zero_below_the_threshold_and_a_rest_at_the_threshold_takes_no_unit", "status": "passing"},
-  {"id": "b044-pool-5", "phase": "b044-pool", "name": "price pool: a term with rate zero is not offered", "run": ".venv/bin/pytest tests/test_price_pool.py::test_a_term_with_rate_zero_is_not_offered", "status": "passing"},
-  {"id": "b044-pool-6", "phase": "b044-pool", "name": "price pool: an upfront term uses the monthly equivalent and is invoiced first", "run": ".venv/bin/pytest tests/test_price_pool.py::test_an_upfront_term_uses_the_monthly_equivalent_and_is_invoiced_first", "status": "passing"},
-  {"id": "b044-pool-7", "phase": "b044-pool", "name": "price pool: the command prints the figures the open points and the gpu note", "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_command_prints_the_figures_the_open_points_and_the_gpu_note", "status": "passing"},
-  {"id": "b044-pool-8", "phase": "b044-pool", "name": "price pool: the command takes the calendar months from a start", "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_command_takes_the_calendar_months_from_a_start", "status": "passing"},
-  {"id": "b044-pool-9", "phase": "b044-pool", "name": "price pool: a term with rate zero is refused when asked and listed otherwise", "run": ".venv/bin/pytest tests/test_price_pool.py::test_a_term_with_rate_zero_is_refused_when_asked_and_listed_otherwise", "status": "passing"},
-  {"id": "b044-pool-10", "phase": "b044-pool", "name": "price pool: an upfront term says the whole total is invoiced at the start", "run": ".venv/bin/pytest tests/test_price_pool.py::test_an_upfront_term_says_the_whole_total_is_invoiced_at_the_start", "status": "passing"},
-  {"id": "b044-pool-11", "phase": "b044-pool", "name": "price pool: windows and linux of one flavor are two items never pooled", "run": ".venv/bin/pytest tests/test_price_pool.py::test_windows_and_linux_of_one_flavor_are_two_items_never_pooled", "status": "passing"},
-  {"id": "b044-pool-12", "phase": "b044-pool", "name": "price pool: the totals are recorded in a project", "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_totals_are_recorded_in_a_project", "status": "passing"},
-  {"id": "b044-pool-13", "phase": "b044-pool", "name": "price pool: pricebook writes a pool as two lines with the same totals", "run": ".venv/bin/pytest tests/test_price_pool.py::test_pricebook_writes_a_pool_as_two_lines_with_the_same_totals", "status": "passing"},
-  {"id": "b044-pool-14", "phase": "b044-pool", "name": "price pool: pricebook pool with a start and the refusals", "run": ".venv/bin/pytest tests/test_price_pool.py::test_pricebook_pool_with_a_start_and_the_refusals", "status": "passing"},
-  {"id": "b044-pool-15", "phase": "b044-pool", "name": "price pool: price check notes the pool rule and warns of units per instance", "run": ".venv/bin/pytest tests/test_price_pool.py::test_price_check_notes_the_pool_rule_and_warns_of_units_per_instance", "status": "passing"},
-  {"id": "b044-pool-16", "phase": "b044-pool", "name": "price pool: the module is command only loaded by name and standard library only", "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_module_is_command_only_loaded_by_name_and_standard_library_only", "status": "passing"},
-  {"id": "b044-pool-17", "phase": "b044-pool", "name": "price pool: the texts hold no em dash and no comma before and or", "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_texts_hold_no_em_dash_and_no_comma_before_and_or", "status": "passing"},
-  {"id": "b044-pool-18", "phase": "b044-pool", "name": "price pool: the command is documented and in the test list", "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_command_is_documented_and_in_the_test_list", "status": "passing"},
-  {"id": "b044-pool-19", "phase": "b044-pool", "name": "price pool: pricebook pool with no unit or no rest hours", "run": ".venv/bin/pytest tests/test_price_pool.py::test_pricebook_pool_with_no_unit_or_no_rest_hours", "status": "passing"},
-  {"id": "b045-bk3-1", "phase": "b045-bk3", "name": "BK3: each action on a planted row", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_each_action_on_a_planted_row", "status": "passing"},
-  {"id": "b045-bk3-2", "phase": "b045-bk3", "name": "BK3: a withheld path or a target out of shape is never acted on", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_withheld_path_or_a_target_out_of_shape_is_never_acted_on", "status": "passing"},
-  {"id": "b045-bk3-3", "phase": "b045-bk3", "name": "BK3: a copy that comes back different leaves the source in place", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_copy_that_comes_back_different_leaves_the_source_in_place", "status": "passing"},
-  {"id": "b045-bk3-4", "phase": "b045-bk3", "name": "BK3: a delete without keeper is refused and one whose keeper is gone is skipped", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_delete_without_keeper_is_refused_and_one_whose_keeper_is_gone_is_skipped", "status": "passing"},
-  {"id": "b045-bk3-5", "phase": "b045-bk3", "name": "BK3: an existing target is never overwritten and a changed object is skipped", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_an_existing_target_is_never_overwritten_and_a_changed_object_is_skipped", "status": "passing"},
-  {"id": "b045-bk3-6", "phase": "b045-bk3", "name": "BK3: a plan older than 24 hours is refused", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_plan_older_than_24_hours_is_refused", "status": "passing"},
-  {"id": "b045-bk3-7", "phase": "b045-bk3", "name": "BK3: dry run changes nothing and no yes changes nothing", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_dry_run_changes_nothing_and_no_yes_changes_nothing", "status": "passing"},
-  {"id": "b045-bk3-8", "phase": "b045-bk3", "name": "BK3: the work user and an assistant session are refused", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_the_work_user_and_an_assistant_session_are_refused", "status": "passing"},
-  {"id": "b045-bk3-9", "phase": "b045-bk3", "name": "BK3: a struck row is not acted on", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_struck_row_is_not_acted_on", "status": "passing"},
-  {"id": "b045-bk3-10", "phase": "b045-bk3", "name": "BK3: one failing row does not stop the others and gives exit 1", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_one_failing_row_does_not_stop_the_others_and_gives_exit_1", "status": "passing"},
-  {"id": "b045-bk3-11", "phase": "b045-bk3", "name": "BK3: the log goes to reports tidy of the owner bucket", "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_the_log_goes_to_reports_tidy_of_the_owner_bucket", "status": "passing"},
-  {"id": "bw-1", "phase": "board-write", "name": "board_write leaves no temporary file when the rename fails", "run": ".venv/bin/pytest tests/test_board_write_cleanup.py::test_a_failed_board_write_leaves_no_temporary_file", "status": "passing"},
-  {"id": "bw-2", "phase": "board-write", "name": "board_write replaces the file and leaves nothing else", "run": ".venv/bin/pytest tests/test_board_write_cleanup.py::test_a_good_board_write_replaces_the_file", "status": "passing"},
-  {"id": "gf-1", "phase": "gateway-fonts", "name": "Gateway: the font is served without a session, with its type and a long cache", "run": ".venv/bin/pytest tests/test_gateway_fonts.py::FontTests::test_the_font_is_served_without_a_session_with_its_type_and_a_long_cache", "status": "passing"},
-  {"id": "gf-2", "phase": "gateway-fonts", "name": "Gateway: no other file of the font folder or a path trick is served", "run": ".venv/bin/pytest tests/test_gateway_fonts.py::FontTests::test_no_other_file_of_the_font_folder_or_a_path_trick_is_served", "status": "passing"},
-  {"id": "gf-3", "phase": "gateway-fonts", "name": "Gateway: a POST to the font is not served", "run": ".venv/bin/pytest tests/test_gateway_fonts.py::FontTests::test_a_post_to_the_font_is_not_served", "status": "passing"},
-  {"id": "gf-4", "phase": "gateway-fonts", "name": "Gateway: a font file with another hash is not served", "run": ".venv/bin/pytest tests/test_gateway_fonts.py::FontTests::test_a_font_file_with_another_hash_is_not_served", "status": "passing"},
-  {"id": "gf-5", "phase": "gateway-fonts", "name": "Gateway: the pinned hash and the OFL licence are in the repository", "run": ".venv/bin/pytest tests/test_gateway_fonts.py::FontTests::test_the_pinned_hash_and_the_licence_are_in_the_repository", "status": "passing"},
-  {"id": "b046-portal-1", "phase": "b046-portal", "name": "portal page: every API path the page calls is in the contract", "run": ".venv/bin/pytest tests/test_portal_page.py::test_every_api_path_the_page_calls_is_in_the_contract", "status": "passing"},
-  {"id": "b046-portal-2", "phase": "b046-portal", "name": "portal page: every board field is read by the page or listed with a reason", "run": ".venv/bin/pytest tests/test_portal_page.py::test_every_board_field_is_read_by_the_page_or_listed_with_a_reason", "status": "passing"},
-  {"id": "b046-portal-3", "phase": "b046-portal", "name": "portal page: the page passes the checks of publish", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_passes_the_checks_of_publish", "status": "passing"},
-  {"id": "b046-portal-4", "phase": "b046-portal", "name": "portal page: the page step publishes a changed page with a backup", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_step_publishes_a_changed_page_with_a_backup", "status": "passing"},
-  {"id": "b046-portal-5", "phase": "b046-portal", "name": "portal page: the page step leaves an unchanged page", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_step_leaves_an_unchanged_page", "status": "passing"},
-  {"id": "b046-portal-6", "phase": "b046-portal", "name": "portal page: the page step keeps the live page on a refusal", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_step_keeps_the_live_page_on_a_refusal", "status": "passing"},
-  {"id": "b046-portal-7", "phase": "b046-portal", "name": "portal page: the page step skips a host without the web part", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_step_skips_a_host_without_the_web_part", "status": "passing"},
-  {"id": "b046-portal-8", "phase": "b046-portal", "name": "portal page: a change of the page restarts no unit", "run": ".venv/bin/pytest tests/test_portal_page.py::test_a_change_of_the_page_restarts_no_unit", "status": "passing"},
-  {"id": "b046-portal-9", "phase": "b046-portal", "name": "portal page: the deploy publishes the page after the units and a refusal never fails it", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_deploy_publishes_the_page_after_the_units_and_a_refusal_never_fails_it", "status": "passing"},
-  {"id": "b046-portal-10", "phase": "b046-portal", "name": "portal page: the dry run says what the page step would do", "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_dry_run_says_what_the_page_step_would_do", "status": "passing"},
-  {"id": "df-pdf-1", "phase": "df-pdf", "name": "DF-PDF: a PDF answer becomes text with page markers and the header names pdf and pages", "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_a_pdf_answer_becomes_text_with_page_markers_and_the_header_names_pdf_and_pages", "status": "passing"},
-  {"id": "df-pdf-2", "phase": "df-pdf", "name": "DF-PDF: an octet stream is read only when its body is a PDF", "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_an_octet_stream_is_read_only_when_its_body_is_a_pdf", "status": "passing"},
-  {"id": "df-pdf-3", "phase": "df-pdf", "name": "DF-PDF: a PDF has its own 25 MB cap and HTML keeps the 5 MB cap", "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_a_pdf_has_its_own_cap_and_html_keeps_the_five_mb_cap", "status": "passing"},
-  {"id": "df-pdf-4", "phase": "df-pdf", "name": "DF-PDF: an encrypted, a broken and a scanned PDF are refused with their reason", "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_an_encrypted_a_broken_and_a_scanned_pdf_are_refused_with_their_reason", "status": "passing"},
-  {"id": "df-pdf-5", "phase": "df-pdf", "name": "DF-PDF: the temporary file and folder are private and gone after success, failure and timeout", "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_the_temporary_file_and_folder_are_private_and_gone_after_success_failure_and_timeout", "status": "passing"},
-  {"id": "df-pdf-6", "phase": "df-pdf", "name": "DF-PDF: pdftotext gets an argument list, no shell, no stdin and a timeout", "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_pdftotext_gets_an_argument_list_no_shell_no_stdin_and_a_timeout", "status": "passing"},
-  {"id": "df-pdf-7", "phase": "df-pdf", "name": "DF-PDF: the service answer carries the kind and the pages, the ledger no content", "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_the_service_answer_carries_the_kind_and_the_pages_and_the_ledger_no_content", "status": "passing"},
-  {"id": "b048-cost-1", "phase": "b048-cost", "name": "tenant cost: the snapshot keeps the os family and the server of a disk", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_the_snapshot_keeps_the_os_family_and_the_server_of_a_disk", "status": "passing"},
-  {"id": "b048-cost-2", "phase": "b048-cost", "name": "tenant cost: running servers take the record of their os and a stopped one counts only its disk", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_running_servers_take_the_record_of_their_os_and_a_stopped_one_counts_only_its_disk", "status": "passing"},
-  {"id": "b048-cost-3", "phase": "b048-cost", "name": "tenant cost: a disk takes the project of its server and an untagged one has none", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_a_disk_takes_the_project_of_its_server_and_an_untagged_one_has_none", "status": "passing"},
-  {"id": "b048-cost-4", "phase": "b048-cost", "name": "tenant cost: an item without a price record is listed as no price and the total says so", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_an_item_without_a_price_record_is_listed_as_no_price_and_the_total_says_so", "status": "passing"},
-  {"id": "b048-cost-5", "phase": "b048-cost", "name": "tenant cost: the waste groups and an item with a note is in none of them", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_the_waste_groups_and_an_item_with_a_note_is_in_none_of_them", "status": "passing"},
-  {"id": "b048-cost-6", "phase": "b048-cost", "name": "tenant cost: cost json holds no name and no id and api tenants carries it", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_cost_json_holds_no_name_and_no_id_and_api_tenants_carries_it", "status": "passing"},
-  {"id": "b048-cost-7", "phase": "b048-cost", "name": "tenant cost: an old snapshot without os and attached still prices", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_an_old_snapshot_without_os_and_attached_still_prices", "status": "passing"},
-  {"id": "b048-cost-8", "phase": "b048-cost", "name": "tenant cost: a listing the read key cannot read leaves the tenant unknown and the snapshot runs the estimate", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_a_listing_the_read_key_cannot_read_leaves_the_tenant_unknown_and_the_snapshot_runs_the_estimate", "status": "passing"},
-  {"id": "b048-cost-eip", "phase": "b048-cost", "name": "COST: the elastic IP takes the record with the flavor eip beside the address record of zero", "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_the_elastic_ip_takes_the_record_with_the_flavor_eip_beside_the_address_record_of_zero", "status": "passing"},
-  {"id": "b050-adopt-1", "phase": "b050-adopt", "name": "tenant setup: without domain id the domain comes from the token and setup goes on", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_without_domain_id_the_domain_comes_from_the_token_and_setup_goes_on", "status": "passing"},
-  {"id": "b050-adopt-2", "phase": "b050-adopt", "name": "tenant setup: a read key of a user in no group adopts that user without a new user or key", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_a_read_key_of_a_user_in_no_group_adopts_that_user_without_a_new_user_or_key", "status": "passing"},
-  {"id": "b050-adopt-3", "phase": "b050-adopt", "name": "tenant setup: a snapshot runs after the adoption when one was there already", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_a_snapshot_runs_after_the_adoption_when_one_was_there_already", "status": "passing"},
-  {"id": "b050-adopt-4", "phase": "b050-adopt", "name": "tenant setup: the missing group is created with the inherited tenant guest grant", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_the_missing_group_is_created_with_the_inherited_tenant_guest_grant", "status": "passing"},
-  {"id": "b050-adopt-5", "phase": "b050-adopt", "name": "tenant setup: a second run has nothing to do", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_a_second_run_has_nothing_to_do", "status": "passing"},
-  {"id": "b050-adopt-6", "phase": "b050-adopt", "name": "tenant setup: the access key never appears in the output", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_the_access_key_never_appears_in_the_output", "status": "passing"},
-  {"id": "b050-adopt-7", "phase": "b050-adopt", "name": "tenant setup: a key of the admin or one iam does not know is refused and nothing is written", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_a_key_of_the_admin_or_one_iam_does_not_know_is_refused_and_nothing_is_written", "status": "passing"},
-  {"id": "b050-adopt-8", "phase": "b050-adopt", "name": "tenant setup: a read key of the read user stays the path of t10", "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_a_read_key_of_the_read_user_stays_the_path_of_t10", "status": "passing"},
-  {"id": "vl-1", "phase": "validation-loop", "name": "validation loop: one function gives the level from grade block and due", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_one_function_gives_the_level_from_grade_block_and_due", "status": "passing"},
-  {"id": "vl-2", "phase": "validation-loop", "name": "validation loop: the levels are five with two lines each and no outside confirmation", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_levels_are_five_with_two_lines_each_and_no_outside_confirmation", "status": "passing"},
-  {"id": "vl-3", "phase": "validation-loop", "name": "validation loop: the level of an entry reads its block and its due", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_level_of_an_entry_reads_its_block_and_its_due", "status": "passing"},
-  {"id": "vl-4", "phase": "validation-loop", "name": "validation loop: the dataset carries the level in every record line table and manifest", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_dataset_carries_the_level_in_every_record_line_table_and_manifest", "status": "passing"},
-  {"id": "vl-5", "phase": "validation-loop", "name": "validation loop: the mcp answer carries the level and a search asks for a minimum", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_mcp_answer_carries_the_level_and_a_search_asks_for_a_minimum", "status": "passing"},
-  {"id": "vl-6", "phase": "validation-loop", "name": "validation loop: a fact of an older dataset without a level is left out of a minimum search", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_a_fact_of_an_older_dataset_without_a_level_is_left_out_of_a_minimum_search", "status": "passing"},
-  {"id": "vl-7", "phase": "validation-loop", "name": "validation loop: a request is written once and makes the entry due until a recheck on or after its date", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_a_request_is_written_once_and_makes_the_entry_due_until_a_recheck_on_or_after_its_date", "status": "passing"},
-  {"id": "vl-8", "phase": "validation-loop", "name": "validation loop: a requested entry without a block goes to the list without a block", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_a_requested_entry_without_a_block_goes_to_the_list_without_a_block", "status": "passing"},
-  {"id": "vl-9", "phase": "validation-loop", "name": "validation loop: a weekly run takes a requested entry and clears it", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_a_weekly_run_takes_a_requested_entry_and_clears_it", "status": "passing"},
-  {"id": "vl-10", "phase": "validation-loop", "name": "validation loop: the release notes part requests every matched entry and the report counts them", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_release_notes_part_requests_every_matched_entry_and_the_report_counts_them", "status": "passing"},
-  {"id": "vl-11", "phase": "validation-loop", "name": "validation loop: cited pages follow the source lines of the mirror", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_cited_pages_follow_the_source_lines_of_the_mirror", "status": "passing"},
-  {"id": "vl-12", "phase": "validation-loop", "name": "validation loop: the mirrors part requests contract entries on a new revision and entries of changed pages", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_mirrors_part_requests_contract_entries_on_a_new_revision_and_entries_of_changed_pages", "status": "passing"},
-  {"id": "vl-13", "phase": "validation-loop", "name": "validation loop: an update of the mirror names the changed paths and keeps them out of the manifest", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_an_update_of_the_mirror_names_the_changed_paths_and_keeps_them_out_of_the_manifest", "status": "passing"},
-  {"id": "vl-14", "phase": "validation-loop", "name": "validation loop: a try run checks an entry that is not due and writes nothing back", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_a_try_run_checks_an_entry_that_is_not_due_and_writes_nothing_back", "status": "passing"},
-  {"id": "vl-15", "phase": "validation-loop", "name": "validation loop: a try run proves a block before it is attached", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_a_try_run_proves_a_block_before_it_is_attached", "status": "passing"},
-  {"id": "vl-16", "phase": "validation-loop", "name": "validation loop: the try flag reaches the try run and refuses what it cannot do", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_try_flag_reaches_the_try_run_and_refuses_what_it_cannot_do", "status": "passing"},
-  {"id": "vl-17", "phase": "validation-loop", "name": "validation loop: the refresh unit runs as the owner saturday 17 utc and verify proves it enabled", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_refresh_unit_runs_as_the_owner_saturday_17_utc_and_verify_proves_it_enabled", "status": "passing"},
-  {"id": "vl-18", "phase": "validation-loop", "name": "validation loop: a failed weekly refresh shows in owner status until a run goes through", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_a_failed_weekly_refresh_shows_in_owner_status_until_a_run_goes_through", "status": "passing"},
-  {"id": "vl-19", "phase": "validation-loop", "name": "validation loop: the work user may not run the weekly refresh", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_work_user_may_not_run_the_weekly_refresh", "status": "passing"},
- {"id": "ux15-1", "phase": "ux15", "name": "build quick: a core module that imports the platform package fails quick in under two minutes and names the test", "run": ".venv/bin/pytest tests/test_build_quick.py::test_a_core_module_that_imports_the_platform_package_fails_quick_in_under_two_minutes_and_names_the_test", "status": "passing"},
- {"id": "ux15-2", "phase": "ux15", "name": "build quick: with the fault removed quick is green and prints the files it ran and the time", "run": ".venv/bin/pytest tests/test_build_quick.py::test_with_the_fault_removed_quick_is_green_and_prints_the_files_it_ran_and_the_time", "status": "passing"},
- {"id": "ux15-3", "phase": "ux15", "name": "build quick: a change in one module runs its test file by name and the files that import it", "run": ".venv/bin/pytest tests/test_build_quick.py::test_a_change_in_one_module_runs_its_test_file_by_name_and_the_files_that_import_it", "status": "passing"},
- {"id": "ux15-4", "phase": "ux15", "name": "build quick: a change outside the modules runs no module test and a changed test file runs as itself", "run": ".venv/bin/pytest tests/test_build_quick.py::test_a_change_outside_the_modules_runs_no_module_test_and_a_changed_test_file_runs_as_itself", "status": "passing"},
- {"id": "ux15-5", "phase": "ux15", "name": "build quick: an unknown ref is refused with exit 2", "run": ".venv/bin/pytest tests/test_build_quick.py::test_an_unknown_ref_is_refused_with_exit_2", "status": "passing"},
- {"id": "ux15-6", "phase": "ux15", "name": "build quick: the command takes an optional ref", "run": ".venv/bin/pytest tests/test_build_quick.py::test_the_command_takes_an_optional_ref", "status": "passing"},
- {"id": "lx5-1", "phase": "llm-exit", "name": "exit pack: archives counts digests commit and private modes", "run": ".venv/bin/pytest tests/test_exitpack.py::test_archives_counts_digests_commit_and_private_modes", "status": "passing"},
- {"id": "lx5-2", "phase": "llm-exit", "name": "exit pack: model session refused before any output is written", "run": ".venv/bin/pytest tests/test_exitpack.py::test_model_session_refused_before_any_output_is_written", "status": "passing"},
- {"id": "lx5-3", "phase": "llm-exit", "name": "exit pack: work user refused", "run": ".venv/bin/pytest tests/test_exitpack.py::test_work_user_refused", "status": "passing"},
- {"id": "lx5-4", "phase": "llm-exit", "name": "exit pack: repository must belong to caller", "run": ".venv/bin/pytest tests/test_exitpack.py::test_repository_must_belong_to_caller", "status": "passing"},
- {"id": "lx5-5", "phase": "llm-exit", "name": "exit pack: no transcripts omits both archives and sudo", "run": ".venv/bin/pytest tests/test_exitpack.py::test_no_transcripts_omits_both_archives_and_sudo", "status": "passing"},
- {"id": "lx5-6", "phase": "llm-exit", "name": "exit pack: refused sudo keeps three archives and returns one", "run": ".venv/bin/pytest tests/test_exitpack.py::test_refused_sudo_keeps_three_archives_and_returns_one", "status": "passing"},
- {"id": "lx5-7", "phase": "llm-exit", "name": "exit pack: same day replaced and older day preserved", "run": ".venv/bin/pytest tests/test_exitpack.py::test_same_day_replaced_and_older_day_preserved", "status": "passing"},
- {"id": "lx5-8", "phase": "llm-exit", "name": "exit pack: keep prunes only oldest real dated folders", "run": ".venv/bin/pytest tests/test_exitpack.py::test_keep_prunes_only_oldest_real_dated_folders", "status": "passing"},
- {"id": "lx5-9", "phase": "llm-exit", "name": "exit pack: invalid keep refused without writes", "run": ".venv/bin/pytest tests/test_exitpack.py::test_invalid_keep_refused_without_writes", "status": "passing"},
- {"id": "lx5-10", "phase": "llm-exit", "name": "exit pack: archive failure does not print private path or replace previous pack", "run": ".venv/bin/pytest tests/test_exitpack.py::test_archive_failure_does_not_print_private_path_or_replace_previous_pack", "status": "passing"},
- {"id": "lx5-11", "phase": "llm-exit", "name": "exit pack: timer is an owner user unit weekly utc and persistent", "run": ".venv/bin/pytest tests/test_exitpack.py::test_timer_is_an_owner_user_unit_weekly_utc_and_persistent", "status": "passing"},
- {"id": "lx5-12", "phase": "llm-exit", "name": "exit pack: usage errors never echo transcript names", "run": ".venv/bin/pytest tests/test_exitpack.py::test_usage_errors_never_echo_transcript_names", "status": "passing"}
+  {
+   "id": "pc-cmdlet-1",
+   "phase": "pc-cmdlet",
+   "name": "put scrub: a PowerShell cmdlet call after a secret variable is code and stays",
+   "run": ".venv/bin/pytest tests/test_putcopy_cmdlet.py::test_a_cmdlet_call_after_a_secret_variable_is_code_and_stays",
+   "status": "passing"
+  },
+  {
+   "id": "pc-cmdlet-2",
+   "phase": "pc-cmdlet",
+   "name": "put scrub: a value that only looks like a cmdlet is still replaced",
+   "run": ".venv/bin/pytest tests/test_putcopy_cmdlet.py::test_a_value_that_only_looks_like_a_cmdlet_is_still_replaced",
+   "status": "passing"
+  },
+  {
+   "id": "wl-win-1",
+   "phase": "wl-win",
+   "name": "WL: a local account description in setup.ps1 and remove.ps1 has at most 48 characters",
+   "run": ".venv/bin/pytest tests/test_wl_scripts_windows.py::test_a_local_account_description_has_at_most_48_characters",
+   "status": "passing"
+  },
+  {
+   "id": "wl-win-2",
+   "phase": "wl-win",
+   "name": "WL: an array element built with + in setup.ps1 and remove.ps1 stands in parentheses",
+   "run": ".venv/bin/pytest tests/test_wl_scripts_windows.py::test_an_array_element_built_with_plus_stands_in_parentheses",
+   "status": "passing"
+  },
+  {
+   "id": "b039-wl-1",
+   "phase": "b039-wl",
+   "name": "WL: put_chunk goes over sftp with the pinned known_hosts, the broker key, BatchMode and the port; no data on the standard input of ssh",
+   "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_goes_over_sftp_with_the_pinned_options_and_no_data_on_the_standard_input_of_ssh",
+   "status": "passing"
+  },
+  {
+   "id": "b039-wl-2",
+   "phase": "b039-wl",
+   "name": "WL: the temporary file of a chunk is mode 600 and gone after success, an sftp failure and a timeout",
+   "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_temporary_file_is_mode_600_and_gone_after_success_failure_and_timeout",
+   "status": "passing"
+  },
+  {
+   "id": "b039-wl-3",
+   "phase": "b039-wl",
+   "name": "WL: a chunk at another offset than the size of the part gets the offset refusal and leaves the part as it was",
+   "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_at_another_offset_than_the_size_of_the_part_is_refused_and_leaves_it",
+   "status": "passing"
+  },
+  {
+   "id": "b039-wl-4",
+   "phase": "b039-wl",
+   "name": "WL: an sftp exit other than 0 is offline when ssh cannot reach the machine and failed otherwise",
+   "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_sftp_failure_is_offline_when_ssh_cannot_reach_the_machine_and_failed_otherwise",
+   "status": "passing"
+  },
+  {
+   "id": "b039-wl-5",
+   "phase": "b039-wl",
+   "name": "WL: a stale PART.awb-chunk does not end up in the part twice",
+   "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_stale_chunk_file_does_not_end_up_in_the_part_twice",
+   "status": "passing"
+  },
+  {
+   "id": "wl-list-1",
+   "phase": "wl-list",
+   "name": "WL: awb winlab list in a session shows the window of its own project from the broker",
+   "run": ".venv/bin/pytest tests/test_wl_session_list.py::test_wl_session_list_shows_the_window_of_its_own_project_from_the_broker",
+   "status": "passing"
+  },
+  {
+   "id": "wl-list-2",
+   "phase": "wl-list",
+   "name": "WL: awb winlab list of another project sees no machine and names who opens a window",
+   "run": ".venv/bin/pytest tests/test_wl_session_list.py::test_wl_session_list_of_another_project_sees_no_machine_and_says_who_opens_one",
+   "status": "passing"
+  },
+  {
+   "id": "wl-list-3",
+   "phase": "wl-list",
+   "name": "WL: the list command of a session asks the broker, never says no machine registered",
+   "run": ".venv/bin/pytest tests/test_wl_session_list.py::test_wl_list_command_of_a_session_uses_the_broker",
+   "status": "passing"
+  },
+  {
+   "id": "b039-wl-6",
+   "phase": "b039-wl",
+   "name": "WL: a path that cannot be written as /C:/dir/file for sftp is refused before anything is sent",
+   "run": ".venv/bin/pytest tests/test_wl_broker_sftp.py::test_wl_put_chunk_path_that_sftp_cannot_take_is_refused_before_anything_is_sent",
+   "status": "passing"
+  },
+  {
+   "id": "b040-wl-1",
+   "phase": "b040-wl",
+   "name": "WL: each signature (vhdx, vhd at 0 and in the footer, vmdk, qcow2, iso) and a raw img make a disk image that gets the secret check only",
+   "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_each_signature_makes_a_disk_image_that_gets_the_secret_check_only",
+   "status": "passing"
+  },
+  {
+   "id": "b040-wl-2",
+   "phase": "b040-wl",
+   "name": "WL: the name of a disk image without its signature gets the full check, the name check is called",
+   "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_the_name_of_a_disk_image_without_its_signature_gets_the_full_check",
+   "status": "passing"
+  },
+  {
+   "id": "b040-wl-3",
+   "phase": "b040-wl",
+   "name": "WL: an img whose size is not a multiple of 512 gets the full check",
+   "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_an_img_whose_size_is_not_whole_sectors_gets_the_full_check",
+   "status": "passing"
+  },
+  {
+   "id": "b040-wl-4",
+   "phase": "b040-wl",
+   "name": "WL: a disk image with a password assignment or a private key block is refused, the name check never runs",
+   "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_a_disk_image_with_a_secret_is_refused_without_the_name_check",
+   "status": "passing"
+  },
+  {
+   "id": "b040-wl-5",
+   "phase": "b040-wl",
+   "name": "WL: a secret across the border of two pieces of a disk image is refused",
+   "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_a_secret_across_the_border_of_two_pieces_of_a_disk_image_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "b040-wl-6",
+   "phase": "b040-wl",
+   "name": "WL: the secret check of 4 MB of random bytes takes at most 2 s (AWB_TEST_IMAGE_CHECK_SECONDS widens it)",
+   "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_the_secret_check_of_4_mb_of_random_bytes_keeps_up_with_the_transfer",
+   "status": "passing"
+  },
+  {
+   "id": "b040-wl-7",
+   "phase": "b040-wl",
+   "name": "WL: a known secret in random noise is still found by the check of a disk image",
+   "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_a_known_secret_in_random_noise_is_still_found",
+   "status": "passing"
+  },
+  {
+   "id": "b040-wl-8",
+   "phase": "b040-wl",
+   "name": "WL: a JWK with its kty far from its private part in noise is still found",
+   "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_a_jwk_with_its_kty_far_from_its_private_part_is_still_found",
+   "status": "passing"
+  },
+  {
+   "id": "b040-wl-9",
+   "phase": "b040-wl",
+   "name": "WL: a finding of the secret lines goes to the whole check for its count",
+   "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_a_finding_of_the_lines_goes_to_the_whole_check_for_its_count",
+   "status": "passing"
+  },
+  {
+   "id": "b040-wl-10",
+   "phase": "b040-wl",
+   "name": "WL: the log of a put names the check that ran",
+   "run": ".venv/bin/pytest tests/test_wl_image_check.py::test_wl_the_log_of_a_put_names_the_check_that_ran",
+   "status": "passing"
+  },
+  {
+   "id": "b041-bk1-1",
+   "phase": "b041-bk1",
+   "name": "BK1: a put without --kind and --lang gets doc, the guessed language and the UTC minute",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_put_without_kind_and_lang_gets_doc_the_guessed_language_and_the_minute",
+   "status": "passing"
+  },
+  {
+   "id": "b041-bk1-2",
+   "phase": "b041-bk1",
+   "name": "BK1: --kind and --lang name the kind folder and the key; a bad word or language is refused",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_kind_and_lang_name_the_folder_and_the_key",
+   "status": "passing"
+  },
+  {
+   "id": "b041-bk1-3",
+   "phase": "b041-bk1",
+   "name": "BK1: a second put of the key in the same minute gets -2, -3, never overwrites a put or a page",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_second_put_in_the_same_minute_gets_2_and_never_overwrites",
+   "status": "passing"
+  },
+  {
+   "id": "b041-bk1-4",
+   "phase": "b041-bk1",
+   "name": "BK1: --as with a clean name gives its stem, at most 40 characters",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_as_with_a_clean_name_gives_its_stem",
+   "status": "passing"
+  },
+  {
+   "id": "b041-bk1-5",
+   "phase": "b041-bk1",
+   "name": "BK1: --as with a registered name gives the neutral key and a line without the name",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_as_with_a_registered_name_gives_the_neutral_key_and_a_line_without_the_name",
+   "status": "passing"
+  },
+  {
+   "id": "b041-bk1-6",
+   "phase": "b041-bk1",
+   "name": "BK1: a kind word that is a registered name falls back to doc",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_kind_word_that_is_a_registered_name_falls_back_to_doc",
+   "status": "passing"
+  },
+  {
+   "id": "b041-bk1-7",
+   "phase": "b041-bk1",
+   "name": "BK1: a session never chooses a readable key: the key service builds it",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_session_never_chooses_a_readable_key",
+   "status": "passing"
+  },
+  {
+   "id": "b041-bk1-8",
+   "phase": "b041-bk1",
+   "name": "BK1: put_key_ok takes the readable form and the old put-<hex> form",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_put_key_ok_takes_the_new_and_the_old_form",
+   "status": "passing"
+  },
+  {
+   "id": "b041-bk1-9",
+   "phase": "b041-bk1",
+   "name": "BK1: put_key_ok refuses a key outside <code>/from-session/<date>/<kind>/, a wrong kind folder, .. and another code",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_put_key_ok_refuses_every_other_key",
+   "status": "passing"
+  },
+  {
+   "id": "b041-bk1-10",
+   "phase": "b041-bk1",
+   "name": "BK1: INDEX.md after two puts and one fetch, newest first, no name and no title",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_index_after_two_puts_and_one_fetch",
+   "status": "passing"
+  },
+  {
+   "id": "b041-bk1-11",
+   "phase": "b041-bk1",
+   "name": "BK1: the fetched mark of INDEX.md is the owner's alone",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_a_fetched_mark_is_the_owners_alone",
+   "status": "passing"
+  },
+  {
+   "id": "b041-bk1-12",
+   "phase": "b041-bk1",
+   "name": "BK1: xchg clean drops the deleted rows of INDEX.md and the last row takes INDEX.md",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_clean_drops_the_deleted_rows_and_the_last_one_takes_index_md",
+   "status": "passing"
+  },
+  {
+   "id": "b041-bk1-13",
+   "phase": "b041-bk1",
+   "name": "BK1: fetch, list and clean still work on an old put-<hex> key",
+   "run": ".venv/bin/pytest tests/test_bk1_put_keys.py::test_bk1_fetch_list_and_clean_still_work_on_an_old_put_key",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-1",
+   "phase": "b042-ps",
+   "name": "PS: the pull keeps an open incident and a maintenance in three days and leaves the others",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_the_pull_keeps_an_open_incident_and_a_maintenance_in_three_days_and_leaves_the_others",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-2",
+   "phase": "b042-ps",
+   "name": "PS: an incident is open by its end and its status alone",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_an_incident_is_open_by_its_end_and_its_status_alone",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-3",
+   "phase": "b042-ps",
+   "name": "PS: the pull asks the fixed host for the two paths within its limits",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_the_pull_asks_the_fixed_host_for_the_two_paths_within_its_limits",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-4",
+   "phase": "b042-ps",
+   "name": "PS: the real getter is https on 443 with a timeout a cap and no key",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_the_real_getter_is_https_on_443_with_a_timeout_a_cap_and_no_key",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-5",
+   "phase": "b042-ps",
+   "name": "PS: the real getter refuses more than 2 mb and names a slow answer a timeout",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_the_real_getter_refuses_more_than_2_mb_and_names_a_slow_answer_a_timeout",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-6",
+   "phase": "b042-ps",
+   "name": "PS: a cell outside its form is dropped on write",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_a_cell_outside_its_form_is_dropped_on_write",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-7",
+   "phase": "b042-ps",
+   "name": "PS: a cell outside its form is dropped on read",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_a_cell_outside_its_form_is_dropped_on_read",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-8",
+   "phase": "b042-ps",
+   "name": "PS: a failed pull keeps the last rows and the header says the reason",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_a_failed_pull_keeps_the_last_rows_and_the_header_says_the_reason",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-9",
+   "phase": "b042-ps",
+   "name": "PS: a failed first pull writes the header alone",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_a_failed_first_pull_writes_the_header_alone",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-10",
+   "phase": "b042-ps",
+   "name": "PS: a pull older than two hours shows not pulled since",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_a_pull_older_than_two_hours_shows_not_pulled_since",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-11",
+   "phase": "b042-ps",
+   "name": "PS: the board section lists incidents by impact then maintenances by start then the pull",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_the_board_section_lists_incidents_by_impact_then_maintenances_by_start_then_the_pull",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-12",
+   "phase": "b042-ps",
+   "name": "PS: no open incident is one line and a stale pull says so",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_no_open_incident_is_one_line_and_a_stale_pull_says_so",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-13",
+   "phase": "b042-ps",
+   "name": "PS: a board without the platform field has no section",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_a_board_without_the_platform_field_has_no_section",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-14",
+   "phase": "b042-ps",
+   "name": "PS: api board carries the platform field with checked titles",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_api_board_carries_the_platform_field_with_checked_titles",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-15",
+   "phase": "b042-ps",
+   "name": "PS: api board without a state file has an empty stale platform",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_api_board_without_a_state_file_has_an_empty_stale_platform",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-16",
+   "phase": "b042-ps",
+   "name": "PS: show prints the section alone and the command is registered",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_show_prints_the_section_alone_and_the_command_is_registered",
+   "status": "passing"
+  },
+  {
+   "id": "b042-ps-17",
+   "phase": "b042-ps",
+   "name": "PS: pull command writes the file and reports a failure with exit 1",
+   "run": ".venv/bin/pytest tests/test_platform_status.py::test_ps_pull_command_writes_the_file_and_reports_a_failure_with_exit_1",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-1",
+   "phase": "b043-bk2",
+   "name": "BK2: keep an object in its layout place",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_keep_an_object_in_its_layout_place",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-2",
+   "phase": "b043-bk2",
+   "name": "BK2: move a loose object of one project into in or out",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_move_a_loose_object_of_one_project_into_in_or_out",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-3",
+   "phase": "b043-bk2",
+   "name": "BK2: a loose object without a project is unsorted and never deleted",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_a_loose_object_without_a_project_is_unsorted_and_never_deleted",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-4",
+   "phase": "b043-bk2",
+   "name": "BK2: archive a fetched put of the lab bucket",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_archive_a_fetched_put_of_the_lab_bucket",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-5",
+   "phase": "b043-bk2",
+   "name": "BK2: archive an older version in out of the owner bucket",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_archive_an_older_version_in_out_of_the_owner_bucket",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-6",
+   "phase": "b043-bk2",
+   "name": "BK2: delete an identical copy inside one place and a stale in object",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_delete_an_identical_copy_inside_one_place_and_a_stale_in_object",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-7",
+   "phase": "b043-bk2",
+   "name": "BK2: withheld stays withheld and a path that is no key too",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_withheld_stays_withheld_and_a_path_that_is_no_key_too",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-8",
+   "phase": "b043-bk2",
+   "name": "BK2: a fetched put 29 days old stays, 30 days old is archive, never fetched stays",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_a_fetched_put_29_days_old_stays_30_days_old_is_archive_never_fetched_stays",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-9",
+   "phase": "b043-bk2",
+   "name": "BK2: an index that cannot be read keeps every put and is said",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_an_index_that_cannot_be_read_keeps_every_put_and_is_said",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-10",
+   "phase": "b043-bk2",
+   "name": "BK2: without an index in the inventory nothing is read and the puts stay",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_without_an_index_in_the_inventory_nothing_is_read_and_the_puts_stay",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-11",
+   "phase": "b043-bk2",
+   "name": "BK2: an old put-hex key is keep",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_an_old_put_hex_key_is_keep",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-12",
+   "phase": "b043-bk2",
+   "name": "BK2: a delete row names its keeper or is stale-in and unsorted is never a delete",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_a_delete_row_names_its_keeper_or_is_stale_in_and_unsorted_is_never_a_delete",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-13",
+   "phase": "b043-bk2",
+   "name": "BK2: targets are built from codes, months, stamps and key parts only",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_targets_are_built_from_codes_months_stamps_and_key_parts_only",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-14",
+   "phase": "b043-bk2",
+   "name": "BK2: PLAN.tsv keeps the old columns in order and adds size last",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_plan_tsv_keeps_the_old_columns_in_order_and_adds_size_last",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-15",
+   "phase": "b043-bk2",
+   "name": "BK2: the laptop reads by name and refuses a plan without a column it needs",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_the_laptop_reads_by_name_and_refuses_a_plan_without_a_column_it_needs",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-16",
+   "phase": "b043-bk2",
+   "name": "BK2: PLAN.md shows counts and sizes per project and bucket and the totals add up",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_plan_md_shows_counts_and_sizes_per_project_and_bucket_and_the_totals_add_up",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-17",
+   "phase": "b043-bk2",
+   "name": "BK2: the laptop rows are unchanged",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_the_laptop_rows_are_unchanged",
+   "status": "passing"
+  },
+  {
+   "id": "b043-bk2-18",
+   "phase": "b043-bk2",
+   "name": "BK2: the run line has the bucket counts and the delete size and moves nothing",
+   "run": ".venv/bin/pytest tests/test_bk2_bucket_plan.py::test_bk2_the_run_line_has_the_bucket_counts_and_the_delete_size_and_moves_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-1",
+   "phase": "b044-pool",
+   "name": "price pool: the worked example to the cent at 730 hours",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_worked_example_to_the_cent_at_730_hours",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-2",
+   "phase": "b044-pool",
+   "name": "price pool: n is fixed over the term and the term decides not one month",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_n_is_fixed_over_the_term_and_the_term_decides_not_one_month",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-3",
+   "phase": "b044-pool",
+   "name": "price pool: a start after the first gives part months pro rata",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_a_start_after_the_first_gives_part_months_pro_rata",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-4",
+   "phase": "b044-pool",
+   "name": "price pool: n is zero below the threshold and a rest at the threshold takes no unit",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_n_is_zero_below_the_threshold_and_a_rest_at_the_threshold_takes_no_unit",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-5",
+   "phase": "b044-pool",
+   "name": "price pool: a term with rate zero is not offered",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_a_term_with_rate_zero_is_not_offered",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-6",
+   "phase": "b044-pool",
+   "name": "price pool: an upfront term uses the monthly equivalent and is invoiced first",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_an_upfront_term_uses_the_monthly_equivalent_and_is_invoiced_first",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-7",
+   "phase": "b044-pool",
+   "name": "price pool: the command prints the figures the open points and the gpu note",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_command_prints_the_figures_the_open_points_and_the_gpu_note",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-8",
+   "phase": "b044-pool",
+   "name": "price pool: the command takes the calendar months from a start",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_command_takes_the_calendar_months_from_a_start",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-9",
+   "phase": "b044-pool",
+   "name": "price pool: a term with rate zero is refused when asked and listed otherwise",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_a_term_with_rate_zero_is_refused_when_asked_and_listed_otherwise",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-10",
+   "phase": "b044-pool",
+   "name": "price pool: an upfront term says the whole total is invoiced at the start",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_an_upfront_term_says_the_whole_total_is_invoiced_at_the_start",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-11",
+   "phase": "b044-pool",
+   "name": "price pool: windows and linux of one flavor are two items never pooled",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_windows_and_linux_of_one_flavor_are_two_items_never_pooled",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-12",
+   "phase": "b044-pool",
+   "name": "price pool: the totals are recorded in a project",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_totals_are_recorded_in_a_project",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-13",
+   "phase": "b044-pool",
+   "name": "price pool: pricebook writes a pool as two lines with the same totals",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_pricebook_writes_a_pool_as_two_lines_with_the_same_totals",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-14",
+   "phase": "b044-pool",
+   "name": "price pool: pricebook pool with a start and the refusals",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_pricebook_pool_with_a_start_and_the_refusals",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-15",
+   "phase": "b044-pool",
+   "name": "price pool: price check notes the pool rule and warns of units per instance",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_price_check_notes_the_pool_rule_and_warns_of_units_per_instance",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-16",
+   "phase": "b044-pool",
+   "name": "price pool: the module is command only loaded by name and standard library only",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_module_is_command_only_loaded_by_name_and_standard_library_only",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-17",
+   "phase": "b044-pool",
+   "name": "price pool: the texts hold no em dash and no comma before and or",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_texts_hold_no_em_dash_and_no_comma_before_and_or",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-18",
+   "phase": "b044-pool",
+   "name": "price pool: the command is documented and in the test list",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_the_command_is_documented_and_in_the_test_list",
+   "status": "passing"
+  },
+  {
+   "id": "b044-pool-19",
+   "phase": "b044-pool",
+   "name": "price pool: pricebook pool with no unit or no rest hours",
+   "run": ".venv/bin/pytest tests/test_price_pool.py::test_pricebook_pool_with_no_unit_or_no_rest_hours",
+   "status": "passing"
+  },
+  {
+   "id": "b045-bk3-1",
+   "phase": "b045-bk3",
+   "name": "BK3: each action on a planted row",
+   "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_each_action_on_a_planted_row",
+   "status": "passing"
+  },
+  {
+   "id": "b045-bk3-2",
+   "phase": "b045-bk3",
+   "name": "BK3: a withheld path or a target out of shape is never acted on",
+   "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_withheld_path_or_a_target_out_of_shape_is_never_acted_on",
+   "status": "passing"
+  },
+  {
+   "id": "b045-bk3-3",
+   "phase": "b045-bk3",
+   "name": "BK3: a copy that comes back different leaves the source in place",
+   "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_copy_that_comes_back_different_leaves_the_source_in_place",
+   "status": "passing"
+  },
+  {
+   "id": "b045-bk3-4",
+   "phase": "b045-bk3",
+   "name": "BK3: a delete without keeper is refused and one whose keeper is gone is skipped",
+   "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_delete_without_keeper_is_refused_and_one_whose_keeper_is_gone_is_skipped",
+   "status": "passing"
+  },
+  {
+   "id": "b045-bk3-5",
+   "phase": "b045-bk3",
+   "name": "BK3: an existing target is never overwritten and a changed object is skipped",
+   "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_an_existing_target_is_never_overwritten_and_a_changed_object_is_skipped",
+   "status": "passing"
+  },
+  {
+   "id": "b045-bk3-6",
+   "phase": "b045-bk3",
+   "name": "BK3: a plan older than 24 hours is refused",
+   "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_plan_older_than_24_hours_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "b045-bk3-7",
+   "phase": "b045-bk3",
+   "name": "BK3: dry run changes nothing and no yes changes nothing",
+   "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_dry_run_changes_nothing_and_no_yes_changes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "b045-bk3-8",
+   "phase": "b045-bk3",
+   "name": "BK3: the work user and an assistant session are refused",
+   "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_the_work_user_and_an_assistant_session_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "b045-bk3-9",
+   "phase": "b045-bk3",
+   "name": "BK3: a struck row is not acted on",
+   "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_a_struck_row_is_not_acted_on",
+   "status": "passing"
+  },
+  {
+   "id": "b045-bk3-10",
+   "phase": "b045-bk3",
+   "name": "BK3: one failing row does not stop the others and gives exit 1",
+   "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_one_failing_row_does_not_stop_the_others_and_gives_exit_1",
+   "status": "passing"
+  },
+  {
+   "id": "b045-bk3-11",
+   "phase": "b045-bk3",
+   "name": "BK3: the log goes to reports tidy of the owner bucket",
+   "run": ".venv/bin/pytest tests/test_bk3_tidy.py::test_bk3_the_log_goes_to_reports_tidy_of_the_owner_bucket",
+   "status": "passing"
+  },
+  {
+   "id": "bw-1",
+   "phase": "board-write",
+   "name": "board_write leaves no temporary file when the rename fails",
+   "run": ".venv/bin/pytest tests/test_board_write_cleanup.py::test_a_failed_board_write_leaves_no_temporary_file",
+   "status": "passing"
+  },
+  {
+   "id": "bw-2",
+   "phase": "board-write",
+   "name": "board_write replaces the file and leaves nothing else",
+   "run": ".venv/bin/pytest tests/test_board_write_cleanup.py::test_a_good_board_write_replaces_the_file",
+   "status": "passing"
+  },
+  {
+   "id": "gf-1",
+   "phase": "gateway-fonts",
+   "name": "Gateway: the font is served without a session, with its type and a long cache",
+   "run": ".venv/bin/pytest tests/test_gateway_fonts.py::FontTests::test_the_font_is_served_without_a_session_with_its_type_and_a_long_cache",
+   "status": "passing"
+  },
+  {
+   "id": "gf-2",
+   "phase": "gateway-fonts",
+   "name": "Gateway: no other file of the font folder or a path trick is served",
+   "run": ".venv/bin/pytest tests/test_gateway_fonts.py::FontTests::test_no_other_file_of_the_font_folder_or_a_path_trick_is_served",
+   "status": "passing"
+  },
+  {
+   "id": "gf-3",
+   "phase": "gateway-fonts",
+   "name": "Gateway: a POST to the font is not served",
+   "run": ".venv/bin/pytest tests/test_gateway_fonts.py::FontTests::test_a_post_to_the_font_is_not_served",
+   "status": "passing"
+  },
+  {
+   "id": "gf-4",
+   "phase": "gateway-fonts",
+   "name": "Gateway: a font file with another hash is not served",
+   "run": ".venv/bin/pytest tests/test_gateway_fonts.py::FontTests::test_a_font_file_with_another_hash_is_not_served",
+   "status": "passing"
+  },
+  {
+   "id": "gf-5",
+   "phase": "gateway-fonts",
+   "name": "Gateway: the pinned hash and the OFL licence are in the repository",
+   "run": ".venv/bin/pytest tests/test_gateway_fonts.py::FontTests::test_the_pinned_hash_and_the_licence_are_in_the_repository",
+   "status": "passing"
+  },
+  {
+   "id": "b046-portal-1",
+   "phase": "b046-portal",
+   "name": "portal page: every API path the page calls is in the contract",
+   "run": ".venv/bin/pytest tests/test_portal_page.py::test_every_api_path_the_page_calls_is_in_the_contract",
+   "status": "passing"
+  },
+  {
+   "id": "b046-portal-2",
+   "phase": "b046-portal",
+   "name": "portal page: every board field is read by the page or listed with a reason",
+   "run": ".venv/bin/pytest tests/test_portal_page.py::test_every_board_field_is_read_by_the_page_or_listed_with_a_reason",
+   "status": "passing"
+  },
+  {
+   "id": "b046-portal-3",
+   "phase": "b046-portal",
+   "name": "portal page: the page passes the checks of publish",
+   "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_passes_the_checks_of_publish",
+   "status": "passing"
+  },
+  {
+   "id": "b046-portal-4",
+   "phase": "b046-portal",
+   "name": "portal page: the page step publishes a changed page with a backup",
+   "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_step_publishes_a_changed_page_with_a_backup",
+   "status": "passing"
+  },
+  {
+   "id": "b046-portal-5",
+   "phase": "b046-portal",
+   "name": "portal page: the page step leaves an unchanged page",
+   "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_step_leaves_an_unchanged_page",
+   "status": "passing"
+  },
+  {
+   "id": "b046-portal-6",
+   "phase": "b046-portal",
+   "name": "portal page: the page step keeps the live page on a refusal",
+   "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_step_keeps_the_live_page_on_a_refusal",
+   "status": "passing"
+  },
+  {
+   "id": "b046-portal-7",
+   "phase": "b046-portal",
+   "name": "portal page: the page step skips a host without the web part",
+   "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_page_step_skips_a_host_without_the_web_part",
+   "status": "passing"
+  },
+  {
+   "id": "b046-portal-8",
+   "phase": "b046-portal",
+   "name": "portal page: a change of the page restarts no unit",
+   "run": ".venv/bin/pytest tests/test_portal_page.py::test_a_change_of_the_page_restarts_no_unit",
+   "status": "passing"
+  },
+  {
+   "id": "b046-portal-9",
+   "phase": "b046-portal",
+   "name": "portal page: the deploy publishes the page after the units and a refusal never fails it",
+   "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_deploy_publishes_the_page_after_the_units_and_a_refusal_never_fails_it",
+   "status": "passing"
+  },
+  {
+   "id": "b046-portal-10",
+   "phase": "b046-portal",
+   "name": "portal page: the dry run says what the page step would do",
+   "run": ".venv/bin/pytest tests/test_portal_page.py::test_the_dry_run_says_what_the_page_step_would_do",
+   "status": "passing"
+  },
+  {
+   "id": "df-pdf-1",
+   "phase": "df-pdf",
+   "name": "DF-PDF: a PDF answer becomes text with page markers and the header names pdf and pages",
+   "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_a_pdf_answer_becomes_text_with_page_markers_and_the_header_names_pdf_and_pages",
+   "status": "passing"
+  },
+  {
+   "id": "df-pdf-2",
+   "phase": "df-pdf",
+   "name": "DF-PDF: an octet stream is read only when its body is a PDF",
+   "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_an_octet_stream_is_read_only_when_its_body_is_a_pdf",
+   "status": "passing"
+  },
+  {
+   "id": "df-pdf-3",
+   "phase": "df-pdf",
+   "name": "DF-PDF: a PDF has its own 25 MB cap and HTML keeps the 5 MB cap",
+   "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_a_pdf_has_its_own_cap_and_html_keeps_the_five_mb_cap",
+   "status": "passing"
+  },
+  {
+   "id": "df-pdf-4",
+   "phase": "df-pdf",
+   "name": "DF-PDF: an encrypted, a broken and a scanned PDF are refused with their reason",
+   "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_an_encrypted_a_broken_and_a_scanned_pdf_are_refused_with_their_reason",
+   "status": "passing"
+  },
+  {
+   "id": "df-pdf-5",
+   "phase": "df-pdf",
+   "name": "DF-PDF: the temporary file and folder are private and gone after success, failure and timeout",
+   "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_the_temporary_file_and_folder_are_private_and_gone_after_success_failure_and_timeout",
+   "status": "passing"
+  },
+  {
+   "id": "df-pdf-6",
+   "phase": "df-pdf",
+   "name": "DF-PDF: pdftotext gets an argument list, no shell, no stdin and a timeout",
+   "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_pdftotext_gets_an_argument_list_no_shell_no_stdin_and_a_timeout",
+   "status": "passing"
+  },
+  {
+   "id": "df-pdf-7",
+   "phase": "df-pdf",
+   "name": "DF-PDF: the service answer carries the kind and the pages, the ledger no content",
+   "run": ".venv/bin/pytest tests/test_doc_pdf.py::test_the_service_answer_carries_the_kind_and_the_pages_and_the_ledger_no_content",
+   "status": "passing"
+  },
+  {
+   "id": "b048-cost-1",
+   "phase": "b048-cost",
+   "name": "tenant cost: the snapshot keeps the os family and the server of a disk",
+   "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_the_snapshot_keeps_the_os_family_and_the_server_of_a_disk",
+   "status": "passing"
+  },
+  {
+   "id": "b048-cost-2",
+   "phase": "b048-cost",
+   "name": "tenant cost: running servers take the record of their os and a stopped one counts only its disk",
+   "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_running_servers_take_the_record_of_their_os_and_a_stopped_one_counts_only_its_disk",
+   "status": "passing"
+  },
+  {
+   "id": "b048-cost-3",
+   "phase": "b048-cost",
+   "name": "tenant cost: a disk takes the project of its server and an untagged one has none",
+   "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_a_disk_takes_the_project_of_its_server_and_an_untagged_one_has_none",
+   "status": "passing"
+  },
+  {
+   "id": "b048-cost-4",
+   "phase": "b048-cost",
+   "name": "tenant cost: an item without a price record is listed as no price and the total says so",
+   "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_an_item_without_a_price_record_is_listed_as_no_price_and_the_total_says_so",
+   "status": "passing"
+  },
+  {
+   "id": "b048-cost-5",
+   "phase": "b048-cost",
+   "name": "tenant cost: the waste groups and an item with a note is in none of them",
+   "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_the_waste_groups_and_an_item_with_a_note_is_in_none_of_them",
+   "status": "passing"
+  },
+  {
+   "id": "b048-cost-6",
+   "phase": "b048-cost",
+   "name": "tenant cost: cost json holds no name and no id and api tenants carries it",
+   "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_cost_json_holds_no_name_and_no_id_and_api_tenants_carries_it",
+   "status": "passing"
+  },
+  {
+   "id": "b048-cost-7",
+   "phase": "b048-cost",
+   "name": "tenant cost: an old snapshot without os and attached still prices",
+   "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_an_old_snapshot_without_os_and_attached_still_prices",
+   "status": "passing"
+  },
+  {
+   "id": "b048-cost-8",
+   "phase": "b048-cost",
+   "name": "tenant cost: a listing the read key cannot read leaves the tenant unknown and the snapshot runs the estimate",
+   "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_a_listing_the_read_key_cannot_read_leaves_the_tenant_unknown_and_the_snapshot_runs_the_estimate",
+   "status": "passing"
+  },
+  {
+   "id": "b048-cost-eip",
+   "phase": "b048-cost",
+   "name": "COST: the elastic IP takes the record with the flavor eip beside the address record of zero",
+   "run": ".venv/bin/pytest tests/test_tenant_cost.py::test_the_elastic_ip_takes_the_record_with_the_flavor_eip_beside_the_address_record_of_zero",
+   "status": "passing"
+  },
+  {
+   "id": "b050-adopt-1",
+   "phase": "b050-adopt",
+   "name": "tenant setup: without domain id the domain comes from the token and setup goes on",
+   "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_without_domain_id_the_domain_comes_from_the_token_and_setup_goes_on",
+   "status": "passing"
+  },
+  {
+   "id": "b050-adopt-2",
+   "phase": "b050-adopt",
+   "name": "tenant setup: a read key of a user in no group adopts that user without a new user or key",
+   "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_a_read_key_of_a_user_in_no_group_adopts_that_user_without_a_new_user_or_key",
+   "status": "passing"
+  },
+  {
+   "id": "b050-adopt-3",
+   "phase": "b050-adopt",
+   "name": "tenant setup: a snapshot runs after the adoption when one was there already",
+   "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_a_snapshot_runs_after_the_adoption_when_one_was_there_already",
+   "status": "passing"
+  },
+  {
+   "id": "b050-adopt-4",
+   "phase": "b050-adopt",
+   "name": "tenant setup: the missing group is created with the inherited tenant guest grant",
+   "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_the_missing_group_is_created_with_the_inherited_tenant_guest_grant",
+   "status": "passing"
+  },
+  {
+   "id": "b050-adopt-5",
+   "phase": "b050-adopt",
+   "name": "tenant setup: a second run has nothing to do",
+   "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_a_second_run_has_nothing_to_do",
+   "status": "passing"
+  },
+  {
+   "id": "b050-adopt-6",
+   "phase": "b050-adopt",
+   "name": "tenant setup: the access key never appears in the output",
+   "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_the_access_key_never_appears_in_the_output",
+   "status": "passing"
+  },
+  {
+   "id": "b050-adopt-7",
+   "phase": "b050-adopt",
+   "name": "tenant setup: a key of the admin or one iam does not know is refused and nothing is written",
+   "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_a_key_of_the_admin_or_one_iam_does_not_know_is_refused_and_nothing_is_written",
+   "status": "passing"
+  },
+  {
+   "id": "b050-adopt-8",
+   "phase": "b050-adopt",
+   "name": "tenant setup: a read key of the read user stays the path of t10",
+   "run": ".venv/bin/pytest tests/test_tenant_setup_adopt.py::test_a_read_key_of_the_read_user_stays_the_path_of_t10",
+   "status": "passing"
+  },
+  {
+   "id": "vl-1",
+   "phase": "validation-loop",
+   "name": "validation loop: one function gives the level from grade block and due",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_one_function_gives_the_level_from_grade_block_and_due",
+   "status": "passing"
+  },
+  {
+   "id": "vl-2",
+   "phase": "validation-loop",
+   "name": "validation loop: the levels are five with two lines each and no outside confirmation",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_levels_are_five_with_two_lines_each_and_no_outside_confirmation",
+   "status": "passing"
+  },
+  {
+   "id": "vl-3",
+   "phase": "validation-loop",
+   "name": "validation loop: the level of an entry reads its block and its due",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_level_of_an_entry_reads_its_block_and_its_due",
+   "status": "passing"
+  },
+  {
+   "id": "vl-4",
+   "phase": "validation-loop",
+   "name": "validation loop: the dataset carries the level in every record line table and manifest",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_dataset_carries_the_level_in_every_record_line_table_and_manifest",
+   "status": "passing"
+  },
+  {
+   "id": "vl-5",
+   "phase": "validation-loop",
+   "name": "validation loop: the mcp answer carries the level and a search asks for a minimum",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_mcp_answer_carries_the_level_and_a_search_asks_for_a_minimum",
+   "status": "passing"
+  },
+  {
+   "id": "vl-6",
+   "phase": "validation-loop",
+   "name": "validation loop: a fact of an older dataset without a level is left out of a minimum search",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_a_fact_of_an_older_dataset_without_a_level_is_left_out_of_a_minimum_search",
+   "status": "passing"
+  },
+  {
+   "id": "vl-7",
+   "phase": "validation-loop",
+   "name": "validation loop: a request is written once and makes the entry due until a recheck on or after its date",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_a_request_is_written_once_and_makes_the_entry_due_until_a_recheck_on_or_after_its_date",
+   "status": "passing"
+  },
+  {
+   "id": "vl-8",
+   "phase": "validation-loop",
+   "name": "validation loop: a requested entry without a block goes to the list without a block",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_a_requested_entry_without_a_block_goes_to_the_list_without_a_block",
+   "status": "passing"
+  },
+  {
+   "id": "vl-9",
+   "phase": "validation-loop",
+   "name": "validation loop: a weekly run takes a requested entry and clears it",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_a_weekly_run_takes_a_requested_entry_and_clears_it",
+   "status": "passing"
+  },
+  {
+   "id": "vl-10",
+   "phase": "validation-loop",
+   "name": "validation loop: the release notes part requests every matched entry and the report counts them",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_release_notes_part_requests_every_matched_entry_and_the_report_counts_them",
+   "status": "passing"
+  },
+  {
+   "id": "vl-11",
+   "phase": "validation-loop",
+   "name": "validation loop: cited pages follow the source lines of the mirror",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_cited_pages_follow_the_source_lines_of_the_mirror",
+   "status": "passing"
+  },
+  {
+   "id": "vl-12",
+   "phase": "validation-loop",
+   "name": "validation loop: the mirrors part requests contract entries on a new revision and entries of changed pages",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_mirrors_part_requests_contract_entries_on_a_new_revision_and_entries_of_changed_pages",
+   "status": "passing"
+  },
+  {
+   "id": "vl-13",
+   "phase": "validation-loop",
+   "name": "validation loop: an update of the mirror names the changed paths and keeps them out of the manifest",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_an_update_of_the_mirror_names_the_changed_paths_and_keeps_them_out_of_the_manifest",
+   "status": "passing"
+  },
+  {
+   "id": "vl-14",
+   "phase": "validation-loop",
+   "name": "validation loop: a try run checks an entry that is not due and writes nothing back",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_a_try_run_checks_an_entry_that_is_not_due_and_writes_nothing_back",
+   "status": "passing"
+  },
+  {
+   "id": "vl-15",
+   "phase": "validation-loop",
+   "name": "validation loop: a try run proves a block before it is attached",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_a_try_run_proves_a_block_before_it_is_attached",
+   "status": "passing"
+  },
+  {
+   "id": "vl-16",
+   "phase": "validation-loop",
+   "name": "validation loop: the try flag reaches the try run and refuses what it cannot do",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_try_flag_reaches_the_try_run_and_refuses_what_it_cannot_do",
+   "status": "passing"
+  },
+  {
+   "id": "vl-17",
+   "phase": "validation-loop",
+   "name": "validation loop: the refresh unit runs as the owner saturday 17 utc and verify proves it enabled",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_refresh_unit_runs_as_the_owner_saturday_17_utc_and_verify_proves_it_enabled",
+   "status": "passing"
+  },
+  {
+   "id": "vl-18",
+   "phase": "validation-loop",
+   "name": "validation loop: a failed weekly refresh shows in owner status until a run goes through",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_a_failed_weekly_refresh_shows_in_owner_status_until_a_run_goes_through",
+   "status": "passing"
+  },
+  {
+   "id": "vl-19",
+   "phase": "validation-loop",
+   "name": "validation loop: the work user may not run the weekly refresh",
+   "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_work_user_may_not_run_the_weekly_refresh",
+   "status": "passing"
+  },
+  {
+   "id": "ux15-1",
+   "phase": "ux15",
+   "name": "build quick: a core module that imports the platform package fails quick in under two minutes and names the test",
+   "run": ".venv/bin/pytest tests/test_build_quick.py::test_a_core_module_that_imports_the_platform_package_fails_quick_in_under_two_minutes_and_names_the_test",
+   "status": "passing"
+  },
+  {
+   "id": "ux15-2",
+   "phase": "ux15",
+   "name": "build quick: with the fault removed quick is green and prints the files it ran and the time",
+   "run": ".venv/bin/pytest tests/test_build_quick.py::test_with_the_fault_removed_quick_is_green_and_prints_the_files_it_ran_and_the_time",
+   "status": "passing"
+  },
+  {
+   "id": "ux15-3",
+   "phase": "ux15",
+   "name": "build quick: a change in one module runs its test file by name and the files that import it",
+   "run": ".venv/bin/pytest tests/test_build_quick.py::test_a_change_in_one_module_runs_its_test_file_by_name_and_the_files_that_import_it",
+   "status": "passing"
+  },
+  {
+   "id": "ux15-4",
+   "phase": "ux15",
+   "name": "build quick: a change outside the modules runs no module test and a changed test file runs as itself",
+   "run": ".venv/bin/pytest tests/test_build_quick.py::test_a_change_outside_the_modules_runs_no_module_test_and_a_changed_test_file_runs_as_itself",
+   "status": "passing"
+  },
+  {
+   "id": "ux15-5",
+   "phase": "ux15",
+   "name": "build quick: an unknown ref is refused with exit 2",
+   "run": ".venv/bin/pytest tests/test_build_quick.py::test_an_unknown_ref_is_refused_with_exit_2",
+   "status": "passing"
+  },
+  {
+   "id": "ux15-6",
+   "phase": "ux15",
+   "name": "build quick: the command takes an optional ref",
+   "run": ".venv/bin/pytest tests/test_build_quick.py::test_the_command_takes_an_optional_ref",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-1",
+   "phase": "llm-exit",
+   "name": "exit pack: archives counts digests commit and private modes",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_archives_counts_digests_commit_and_private_modes",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-2",
+   "phase": "llm-exit",
+   "name": "exit pack: model session refused before any output is written",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_model_session_refused_before_any_output_is_written",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-3",
+   "phase": "llm-exit",
+   "name": "exit pack: work user refused",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_work_user_refused",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-4",
+   "phase": "llm-exit",
+   "name": "exit pack: repository must belong to caller",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_repository_must_belong_to_caller",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-5",
+   "phase": "llm-exit",
+   "name": "exit pack: no transcripts omits both archives and sudo",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_no_transcripts_omits_both_archives_and_sudo",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-6",
+   "phase": "llm-exit",
+   "name": "exit pack: refused sudo keeps three archives and returns one",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_refused_sudo_keeps_three_archives_and_returns_one",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-7",
+   "phase": "llm-exit",
+   "name": "exit pack: same day replaced and older day preserved",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_same_day_replaced_and_older_day_preserved",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-8",
+   "phase": "llm-exit",
+   "name": "exit pack: keep prunes only oldest real dated folders",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_keep_prunes_only_oldest_real_dated_folders",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-9",
+   "phase": "llm-exit",
+   "name": "exit pack: invalid keep refused without writes",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_invalid_keep_refused_without_writes",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-10",
+   "phase": "llm-exit",
+   "name": "exit pack: archive failure does not print private path or replace previous pack",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_archive_failure_does_not_print_private_path_or_replace_previous_pack",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-11",
+   "phase": "llm-exit",
+   "name": "exit pack: timer is an owner user unit weekly utc and persistent",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_timer_is_an_owner_user_unit_weekly_utc_and_persistent",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-12",
+   "phase": "llm-exit",
+   "name": "exit pack: usage errors never echo transcript names",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_usage_errors_never_echo_transcript_names",
+   "status": "passing"
+  },
+  {
+   "id": "ux14-1",
+   "phase": "ux14",
+   "name": "tenant password command, password updates store and running service for one alias",
+   "run": ".venv/bin/pytest tests/test_tenant_admin_change.py::test_password_updates_store_and_running_service_for_one_alias",
+   "status": "passing"
+  },
+  {
+   "id": "ux14-2",
+   "phase": "ux14",
+   "name": "tenant password command, status detects touched store without decryption or login and command clears it",
+   "run": ".venv/bin/pytest tests/test_tenant_admin_change.py::test_status_detects_touched_store_without_decryption_or_login_and_command_clears_it",
+   "status": "passing"
+  },
+  {
+   "id": "ux14-3",
+   "phase": "ux14",
+   "name": "tenant password command, optional login is explicit and uses new loaded password once",
+   "run": ".venv/bin/pytest tests/test_tenant_admin_change.py::test_optional_login_is_explicit_and_uses_new_loaded_password_once",
+   "status": "passing"
+  },
+  {
+   "id": "ux14-4",
+   "phase": "ux14",
+   "name": "tenant password command, lab 401 gives stale hint and never attempts a second login",
+   "run": ".venv/bin/pytest tests/test_tenant_admin_change.py::test_lab_401_gives_stale_hint_and_never_attempts_a_second_login",
+   "status": "passing"
+  },
+  {
+   "id": "ux14-5",
+   "phase": "ux14",
+   "name": "tenant password command, password is owner only before prompt or store access",
+   "run": ".venv/bin/pytest tests/test_tenant_admin_change.py::test_password_is_owner_only_before_prompt_or_store_access",
+   "status": "passing"
+  },
+  {
+   "id": "ux14-6",
+   "phase": "ux14",
+   "name": "tenant password command, failed load preserves store and never offers login",
+   "run": ".venv/bin/pytest tests/test_tenant_admin_change.py::test_failed_load_preserves_store_and_never_offers_login",
+   "status": "passing"
+  },
+  {
+   "id": "ux14-7",
+   "phase": "ux14",
+   "name": "tenant password command, optional login 401 is one attempt and keeps new store value",
+   "run": ".venv/bin/pytest tests/test_tenant_admin_change.py::test_optional_login_401_is_one_attempt_and_keeps_new_store_value",
+   "status": "passing"
+  }
  ],
- "total_tests": 2237,
+ "total_tests": 2244,
  "checked": "2026-11-09"
 }

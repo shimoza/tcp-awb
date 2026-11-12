@@ -119,6 +119,9 @@ LISTED_DELETE_LINE = ("refused: the delete names %s, listed live in RESOURCES.md
 REASON_MAX = 200
 
 
+STALE_LOGIN_LINE = "HTTP 401; the stored login may be stale: awb keys status"
+
+
 class LabAdminError(Exception):
     """A step of a lab run that cannot run. The message names aliases, codes, run ids and HTTP codes, never a
     value."""
@@ -287,6 +290,8 @@ def fetch_token(login: dict, region: str, scope: str, endpoint: str | None = Non
     parsed = parsed if isinstance(parsed, dict) else {}
     token = {k.lower(): v for k, v in headers.items()}.get("x-subject-token", "")
     tok = parsed.get("token") if isinstance(parsed.get("token"), dict) else None
+    if status == 401:
+        raise LabAdminError(STALE_LOGIN_LINE)
     if status != 201 or not token or tok is None:
         raise LabAdminError(readonly.refusal(status, parsed, raw or b""))
     project = tok.get("project") if isinstance(tok.get("project"), dict) else {}
@@ -579,6 +584,8 @@ class _Auth:
             status, _h, raw = _http("POST", self._iam() + "/v3.0/OS-CREDENTIAL/securitytokens",
                                     {"Content-Type": "application/json;charset=utf8", "X-Auth-Token": token},
                                     json.dumps(body).encode("utf-8"), timeout=30.0)
+            if status == 401:
+                raise LabAdminError(STALE_LOGIN_LINE)
             try:
                 cred = (json.loads(raw) or {}).get("credential")
             except (ValueError, AttributeError):
@@ -641,57 +648,52 @@ def _base(svc, service: str, region: str) -> str:
 def _send(svc, auth: _Auth, run: str, method: str, service: str, path: str, query: dict, body, headers: dict,
           scope: str | None, held_token: str | None, held_cred) -> tuple[int, dict, bytes, str]:
     """One call with the admin login, the write credential of a customer tenant (TW) or a held token or credential
-    of the run. Returns (status, headers, raw, the expanded path); a 401 of an admin token takes a new one once."""
+    of the run. Returns (status, headers, raw, the expanded path); a 401 stops without another login."""
     from awb import obs, sign
     from awb.tcp import cloud
 
-    for attempt in (0, 1):
-        tscope = "domain" if service == "iam" else (scope or auth.region)
-        expanded = path
-        if "{project_id}" in expanded:
-            _, info = auth.token(scope or auth.region)
-            expanded = expanded.replace("{project_id}", info.get("project_id") or "")
-        if "{domain_id}" in expanded:
-            _, info = auth.token("domain")
-            expanded = expanded.replace("{domain_id}", info.get("domain_id") or "")
-        hdrs = dict(headers)
-        if isinstance(body, (dict, list)):
-            data = json.dumps(body).encode("utf-8")
+    tscope = "domain" if service == "iam" else (scope or auth.region)
+    expanded = path
+    if "{project_id}" in expanded:
+        _, info = auth.token(scope or auth.region)
+        expanded = expanded.replace("{project_id}", info.get("project_id") or "")
+    if "{domain_id}" in expanded:
+        _, info = auth.token("domain")
+        expanded = expanded.replace("{domain_id}", info.get("domain_id") or "")
+    hdrs = dict(headers)
+    if isinstance(body, (dict, list)):
+        data = json.dumps(body).encode("utf-8")
+        hdrs.setdefault("Content-Type", "application/json")
+    elif isinstance(body, str):
+        data = body.encode("utf-8")
+        hdrs.setdefault("Content-Type", "application/octet-stream" if service == "obs" else "application/json")
+    else:
+        data = None
+        if service != "obs":
             hdrs.setdefault("Content-Type", "application/json")
-        elif isinstance(body, str):
-            data = body.encode("utf-8")
-            hdrs.setdefault("Content-Type", "application/octet-stream" if service == "obs" else "application/json")
+    if service == "obs":
+        ak, sk, st = held_cred or auth.credential()
+        client, key, sub, url = cloud.Client(obs.Keys(ak, sk), auth.region, endpoint=svc.endpoint).obs_call(
+            expanded, query)
+        if st:
+            hdrs["x-obs-security-token"] = st
+        client.sign(method, key, hdrs, sub)
+    else:
+        url = _base(svc, service, auth.region) + expanded
+        q = urllib.parse.urlencode(query or {}, doseq=True)
+        url += "?" + q if q else ""
+        if held_cred:
+            hdrs["X-Security-Token"] = held_cred[2]
+            hdrs = sign.sign(method, url, hdrs, data or b"", held_cred[0], held_cred[1])
+        elif held_token:
+            hdrs["X-Auth-Token"] = held_token
+        elif auth.pair:
+            hdrs = sign.sign(method, url, hdrs, data or b"", auth.pair["ak"], auth.pair["sk"])
         else:
-            data = None
-            if service != "obs":
-                hdrs.setdefault("Content-Type", "application/json")
-        if service == "obs":
-            ak, sk, st = held_cred or auth.credential()
-            client, key, sub, url = cloud.Client(obs.Keys(ak, sk), auth.region, endpoint=svc.endpoint).obs_call(
-                expanded, query)
-            if st:
-                hdrs["x-obs-security-token"] = st
-            client.sign(method, key, hdrs, sub)
-        else:
-            url = _base(svc, service, auth.region) + expanded
-            q = urllib.parse.urlencode(query or {}, doseq=True)
-            url += "?" + q if q else ""
-            if held_cred:
-                hdrs["X-Security-Token"] = held_cred[2]
-                hdrs = sign.sign(method, url, hdrs, data or b"", held_cred[0], held_cred[1])
-            elif held_token:
-                hdrs["X-Auth-Token"] = held_token
-            elif auth.pair:
-                hdrs = sign.sign(method, url, hdrs, data or b"", auth.pair["ak"], auth.pair["sk"])
-            else:
-                hdrs["X-Auth-Token"] = auth.token(tscope)[0]
-        status, rh, raw = _http(method, url, hdrs, data)
-        if status == 401 and attempt == 0 and not held_token and not held_cred:
-            if service == "obs":
-                auth.svc.lab.drop((auth.alias, "obs@%s" % auth.region))
-            auth.drop(tscope)
-            continue
-        return status, rh, raw, expanded
+            hdrs["X-Auth-Token"] = auth.token(tscope)[0]
+    status, rh, raw = _http(method, url, hdrs, data)
+    if status == 401:
+        raise LabAdminError(STALE_LOGIN_LINE)
     return status, rh, raw, expanded
 
 
@@ -968,6 +970,10 @@ def _end(svc, run: dict, alias: str, login: dict, p) -> dict:
                 status, _h, raw, _e = _send(svc, signer, run["id"], d["method"], d["service"], d["path"],
                                             d.get("query") or {}, d.get("body"), {}, None, None, None)
             except LabAdminError as err:
+                if str(err) == STALE_LOGIN_LINE:
+                    c["state"], c["error"] = "failed", STALE_LOGIN_LINE
+                    save(p, run)
+                    raise
                 status, raw = 0, str(err).encode()
             ok = 200 <= status < 300 or status == 404
             c["state"] = "removed" if ok else "failed"

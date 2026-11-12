@@ -2,6 +2,7 @@
 
     awb tenant setup ALIAS [--domain-id ID] [--region R] [--lab-key | --lab-user] [--alerts [--topic URN]]
                                                                         owner side: a new tenant in one command
+    awb tenant password ALIAS                                           owner side: store and load an admin password
     awb tenant add ALIAS --keys pass:ENTRY|file:PATH [--region R]...   owner side: a tenant and its read-only key
     awb tenant add-readonly ALIAS --domain-id ID [--login | --key] [--region R]...   (default eu-de and eu-nl)
     awb tenant regions ALIAS --region R [--region R]...   owner side: the regions of a read-only tenant
@@ -904,11 +905,60 @@ def list_lines(p: config.Paths, today: datetime.date) -> list[str]:
 # --------------------------------------------------------------------------- command line
 
 
+def password(alias: str) -> None:
+    """Store a changed lab admin password, load this alias and optionally test one login."""
+    import getpass
+    import warnings
+
+    from awb import vault
+    from awb.tcp import keys, labadmin, xchg
+
+    if config.is_work_user() or vault.in_assistant_session():
+        raise TenantError("tenant passwords are changed in the owner's own terminal")
+    if not _ALIAS_RE.fullmatch(alias) or alias not in labadmin.of_settings(xchg.read_settings()):
+        raise TenantError("the alias needs lab_admin in keys.conf: awb keys unlock")
+    store = Store()
+    entry = "%s/%s" % (ADMIN_PREFIX, alias)
+    if not all(store.has("%s/%s" % (entry, part)) for part in ("domain", "user")):
+        raise TenantError("the admin login needs its domain and user in the store")
+    try:
+        status = keys.request(keys.admin_socket(), {"op": "status"}, timeout=10)
+        if not status.get("ok") or "load_alias" not in status.get("ops", []):
+            raise TenantError("the key service needs alias loading: awb keys reload")
+        if not status.get("tenants", {}).get(alias, {}).get("admin"):
+            raise TenantError("the admin login is not loaded: awb keys unlock")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", getpass.GetPassWarning)
+            value = getpass.getpass("%s new password: " % alias)
+        if not value or value != value.strip() or any(c in value for c in "\r\n\x00"):
+            raise TenantError("the password must be one nonempty line without surrounding whitespace")
+        store.insert(entry + "/password", value, replace=True)
+        value = None
+        try:
+            keys.unlock(alias=alias)
+        except keys.KeysError:
+            raise TenantError("%s password stored but not loaded: awb keys unlock" % alias) from None
+        print("%s admin/password: stored and loaded" % alias)
+        if input("test with one login now? [y/N] ").strip().lower() in ("y", "yes"):
+            answer = keys.request(keys.admin_socket(), {"op": "test_login", "tenant": alias}, timeout=40)
+            if not answer.get("ok"):
+                raise TenantError("%s login failed: %s" % (alias, answer.get("error", "refused")))
+            print("%s login: passed" % alias)
+    except (EOFError, KeyboardInterrupt):
+        raise TenantError("password command cancelled; awb keys status") from None
+    except getpass.GetPassWarning:
+        raise TenantError("a terminal with hidden password input is required") from None
+    except keys.KeysError:
+        raise TenantError("the key service is unavailable: awb keys status") from None
+
+
 def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
     ap = SafeParser(prog="awb tenant", description="Resources on the test tenants, tracked over time.")
     sub = ap.add_subparsers(dest="command")
+    pw = sub.add_parser("password", help="store and load a changed admin password; optional one login (owner side)")
+    pw.add_argument("alias", metavar="ALIAS")
     a = sub.add_parser("add", help="a tenant and its read-only key (owner side)")
     a.add_argument("alias")
     a.add_argument("--keys", required=True)
@@ -988,7 +1038,9 @@ def main(argv: list[str] | None = None) -> int:
     p = config.paths()
     today = datetime.date.today()
     try:
-        if args.command == "add":
+        if args.command == "password":
+            password(args.alias)
+        elif args.command == "add":
             if config.is_work_user():
                 raise TenantError("tenants are added on the owner side")
             t = add(p, args.alias, args.keys, args.region)

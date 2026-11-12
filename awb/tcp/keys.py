@@ -140,7 +140,7 @@ _RANDOM_SPECIAL = "!@%^-_=+"
 LEAVE_WAIT = 70.0
 """Seconds a handed-over service waits for its calls in flight (a cloud call takes at most 60) before it exits."""
 ADMIN_OPS = ("bucket_archive", "bucket_drop_in", "bucket_get", "bucket_list", "bucket_put", "lab_list", "load", "lock",
-             "notify", "ping", "reload", "status", "tenant_readonly")
+             "notify", "ping", "reload", "status", "tenant_readonly", "load_alias", "test_login")
 EXCHANGE_METHODS = ("GET", "HEAD", "PUT", "DELETE", "LIST", "COPY", "MONTHS", "OBS", "OWNER_HAS", "TAKE_OWNER", "INBOX_FIND",
                     "WEB_READ", "TAKE_LAB", "OWNER_FOLDER", "WEB_PUT_IN", "BUCKET_GET", "BUCKET_LIST", "BUCKET_PUT",
                     "BUCKET_DROP_IN", "LAB_LIST", "FETCHED", "ARCHIVE")
@@ -682,6 +682,36 @@ class Service:
             self.tokens.clear()
             self.lab.clear()
             return {"ok": True}
+        if op in ("load_alias", "test_login"):
+            from awb.tcp import labadmin
+
+            alias = req.get("tenant")
+            if not isinstance(alias, str) or alias not in labadmin.of_settings(self.settings):
+                return {"ok": False, "error": "the alias needs lab_admin in the running service: awb keys unlock"}
+            if op == "test_login":
+                try:
+                    _, login = labadmin._tenant(self, alias)
+                    labadmin.fetch_token(login, labadmin._regions(self, alias)[0], "domain", self.endpoint)
+                except (labadmin.LabAdminError, Refused) as err:
+                    return {"ok": False, "error": str(err)}
+                return {"ok": True}
+            data = req.get("tenants")
+            if not isinstance(data, dict) or set(data) != {alias}:
+                return {"ok": False, "error": "load_alias needs exactly one tenant"}
+            with self.lock:
+                if self.handing_over.is_set():
+                    return {"ok": False, "error": "busy"}
+                loaded = _without_writes(data, self.settings)
+                if not loaded.get(alias, {}).get("admin"):
+                    return {"ok": False, "error": "the alias holds no lab admin login"}
+                self.tenants = dict(self.tenants, **loaded)
+            self.tokens.drop(alias)
+            self.tokens.drop(_write_key(alias))
+            with self.lab.lock:
+                for key in list(self.lab.tokens):
+                    if key[0] == alias:
+                        self.lab.drop(key)
+            return {"ok": True, "tenants": self._summary()}
         if op == "load":
             data = req.get("tenants")
             if not isinstance(data, dict):
@@ -804,6 +834,10 @@ class Service:
                     out[a].update(auth="login")
                 if "admin" in t:
                     out[a].update(admin=True)     # LR: an admin login of a lab tenant is held, never its value
+                if t.get("store_times"):
+                    files = set(_store_files(a, t).values())
+                    out[a]["store_times"] = {entry: stamp for entry, stamp in t["store_times"].items()
+                                             if entry in files}
                 if a in held and a in self._write_aliases():
                     # TW: the mode and the kind of the write credential held, never a value
                     out[a].update(mode="write", write=self._write_cred_kind(t, held[a]))
@@ -1791,26 +1825,65 @@ def send_mail(subject: str, message: str) -> str:
     return "sent" if answer.get("sent") else "not sent: no notify_topic or no lab key of bucket_tenant"
 
 
+def _store_files(alias: str, tenant: dict) -> dict[str, str]:
+    """Stable field handles and their store entries; secret labels stay out of new status lines."""
+    files = {}
+    for role, pair in sorted(tenant.get("roles", {}).items()):
+        for part in sorted(pair):
+            suffix = part if role == "read" else "%s/%s" % (role, part)
+            files["%s/%s" % (role, part)] = "%s/%s/%s" % (STORE_PREFIX, alias, suffix)
+    for n, name in enumerate(sorted(tenant.get("secrets", {})), 1):
+        files["secret-%d" % n] = "%s/%s/secret/%s" % (STORE_PREFIX, alias, name)
+    for kind, prefix, suffix in (("admin", "awb/admin", ""), ("login", STORE_PREFIX, "login/"),
+                                 ("write_login", STORE_PREFIX, "write/login/")):
+        for part in sorted(tenant.get(kind, {})):
+            files["%s/%s" % (kind, part)] = "%s/%s/%s%s" % (prefix, alias, suffix, part)
+    return files
+
+
 def unlock(sock: Path | None = None, entries: list[str] | None = None, reader=pass_reader,
-           settings: dict | None = None, admin_reader=None) -> dict:
+           settings: dict | None = None, admin_reader=None, alias: str | None = None) -> dict:
     """Load every tenant of the password store into the service. Returns the summary (aliases, roles, secret
     names). The admin login of each tenant of the lab_admin line (LR) comes from awb/admin/<alias>/domain, user and
-    password; `admin_reader` takes the entry below awb/admin."""
-    tenants = collect(store_entries() if entries is None else entries, reader)
+    password; `admin_reader` takes the entry below awb/admin. With `alias`, replace only that tenant."""
     from awb.tcp import labadmin, xchg
 
     settings = xchg.read_settings() if settings is None else settings
     aliases = labadmin.of_settings(settings)
+    if alias is not None and alias not in aliases:
+        raise KeysError("the alias needs lab_admin in keys.conf: awb keys unlock")
+    entries = store_entries() if entries is None else entries
+    if alias is not None:
+        entries = [e for e in entries if e.split("/", 1)[0] == alias]
+        aliases = [alias]
+    times = {}
+
+    def tracked(entry, prefix, read):
+        # Capture before reading: a concurrent edit must never look loaded when it was not read.
+        full = "%s/%s" % (prefix, entry)
+        try:
+            times[full] = (store_root() / (full + ".gpg")).stat().st_mtime_ns
+        except OSError:
+            pass
+        return read(entry)
+
+    tenants = collect(entries, lambda e: tracked(e, STORE_PREFIX, reader))
     if aliases:
         try:
-            logins = labadmin.load_logins(aliases, admin_reader or (lambda e: pass_reader(e, labadmin.ADMIN_PREFIX)))
+            read_admin = admin_reader or (lambda e: pass_reader(e, labadmin.ADMIN_PREFIX))
+            logins = labadmin.load_logins(aliases, lambda e: tracked(e, labadmin.ADMIN_PREFIX, read_admin))
         except labadmin.LabAdminError as err:
             raise KeysError(str(err)) from None
-        for alias, login in logins.items():
-            tenants.setdefault(alias, {"roles": {}, "secrets": {}})["admin"] = login
+        for name, login in logins.items():
+            tenants.setdefault(name, {"roles": {}, "secrets": {}})["admin"] = login
     if not tenants:
         raise KeysError("the password store holds nothing under awb/tenant")
-    answer = request(sock or admin_socket(), {"op": "load", "tenants": tenants, "settings": settings},
+    for name, tenant in tenants.items():
+        stamps = {e: times[e] for e in _store_files(name, tenant).values() if e in times}
+        if stamps:
+            tenant["store_times"] = stamps
+    answer = request(sock or admin_socket(), {"op": "load_alias" if alias is not None else "load",
+                     "tenant": alias, "tenants": tenants, "settings": settings},
                      timeout=30)
     if not answer.get("ok"):
         raise KeysError("the key service refused the load: %s" % answer.get("error"))
@@ -1835,7 +1908,7 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("lab-writes", help="print the lab_writes line of keys.conf for the recipes (owner)")
     s.add_argument("--from-recipes", action="store_true", required=True,
                    help="the union of the write calls of every recipe and of the recheck watch")
-    sub.add_parser("status", help="the tenants, their roles and the names of their secrets")
+    sub.add_parser("status", help="the tenants, roles and secrets; store files newer than loaded, without a login")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -1916,10 +1989,33 @@ def main(argv: list[str] | None = None) -> int:
             print("locked: the owner runs awb keys unlock")
             return 1
         _print_summary(answer["tenants"])
+        if not config.is_work_user():
+            _print_freshness(answer["tenants"])
         return 0
     except KeysError as err:
         print("awb keys: %s" % err, file=sys.stderr)
         return 2
+
+
+def _print_freshness(tenants: dict) -> None:
+    for alias, tenant in sorted(tenants.items()):
+        # Summary fields contain no credential values. Rebuild only the field handles.
+        shape = {"roles": {r: {"ak": None, "sk": None} for r in tenant["roles"]},
+                 "secrets": dict.fromkeys(tenant["secrets"])}
+        for kind, present in (("admin", tenant.get("admin")), ("login", tenant.get("auth") == "login"),
+                              ("write_login", tenant.get("write") == "login")):
+            if present:
+                shape[kind] = dict.fromkeys(("domain", "user", "password"))
+        for handle, entry in _store_files(alias, shape).items():
+            loaded = tenant.get("store_times", {}).get(entry)
+            try:
+                current = (store_root() / (entry + ".gpg")).stat().st_mtime_ns
+            except OSError:
+                state = "store file unavailable"
+            else:
+                state = "load time unknown" if loaded is None else (
+                    "store newer than loaded" if current > loaded else "loaded")
+            print("%s  %s: %s" % (alias, handle, state))
 
 
 def _print_summary(tenants: dict) -> None:
