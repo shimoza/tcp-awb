@@ -257,9 +257,19 @@ def report_items(path: Path | None = None, now: datetime.datetime | None = None)
 def doc_host_lines() -> list[str]:
     """One line when documentation hosts were added on the host (`awb doc hosts add`) and are not in the repository
     list yet, so they are committed in one batch."""
-    from awb.tcp import doc
+    def lines(f: Path | None) -> list[str]:
+        try:
+            text = f.read_text(encoding="utf-8") if f else ""
+        except (OSError, UnicodeDecodeError):
+            return []
+        return [x for x in (ln.split("#", 1)[0].strip().lower() for ln in text.splitlines()) if x]
 
-    n = len([h for h in doc.extra_hosts() if h not in doc.allowed_hosts()])
+    # Read here, not through awb.tcp.doc: the core never imports the platform package. The same two files as
+    # doc.extra_hosts and doc.allowed_hosts: the file the paths.conf line doc_hosts names, rules/allow-domains.txt.
+    value = config.host_conf().get("doc_hosts", "").strip()
+    extra = lines(Path(value) if value.startswith("/") else None)
+    repo = set(lines(Path(__file__).resolve().parent.parent / "rules" / "allow-domains.txt"))
+    n = len({h for h in extra if h not in repo})
     return ["%d host%s added on the host, not in the repository" % (n, "" if n == 1 else "s")] if n else []
 
 

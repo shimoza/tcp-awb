@@ -840,7 +840,6 @@ def check_new_host(host: str, listed: list[str] | None = None) -> str:
     import ipaddress
 
     from awb import vendorhosts
-    from awb.build_probe import TCP_API_HOST
 
     text = (host or "").strip().lower()
     if "://" in text:
@@ -859,7 +858,9 @@ def check_new_host(host: str, listed: list[str] | None = None) -> str:
         raise DocError("refused: an address is not a host name")
     if not _HOST_RE.match(text):
         raise DocError("refused: the host is not a plain host name (no path, port, user info or space)")
-    if text == TCP_API_HOST or (text.endswith(".otc.t-systems.com") and not text.startswith("docs")):
+    # Every TCP API host ends in .otc.t-systems.com (the probe host of build_probe too); importing build_probe here
+    # would tie every service that reads this module to the build runner in the deploy map.
+    if text.endswith(".otc.t-systems.com") and not text.startswith("docs"):
         raise DocError("refused: a TCP API host is never a documentation host")
     if text in vendorhosts.read()[1]:
         raise DocError("refused: a portal host of rules/vendor-hosts.txt")
