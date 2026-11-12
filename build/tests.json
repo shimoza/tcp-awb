@@ -14566,8 +14566,14 @@
   {"id": "vl-16", "phase": "validation-loop", "name": "validation loop: the try flag reaches the try run and refuses what it cannot do", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_try_flag_reaches_the_try_run_and_refuses_what_it_cannot_do", "status": "passing"},
   {"id": "vl-17", "phase": "validation-loop", "name": "validation loop: the refresh unit runs as the owner saturday 17 utc and verify proves it enabled", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_refresh_unit_runs_as_the_owner_saturday_17_utc_and_verify_proves_it_enabled", "status": "passing"},
   {"id": "vl-18", "phase": "validation-loop", "name": "validation loop: a failed weekly refresh shows in owner status until a run goes through", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_a_failed_weekly_refresh_shows_in_owner_status_until_a_run_goes_through", "status": "passing"},
-  {"id": "vl-19", "phase": "validation-loop", "name": "validation loop: the work user may not run the weekly refresh", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_work_user_may_not_run_the_weekly_refresh", "status": "passing"}
+  {"id": "vl-19", "phase": "validation-loop", "name": "validation loop: the work user may not run the weekly refresh", "run": ".venv/bin/pytest tests/test_validation_loop.py::test_the_work_user_may_not_run_the_weekly_refresh", "status": "passing"},
+ {"id": "ux15-1", "phase": "ux15", "name": "build quick: a core module that imports the platform package fails quick in under two minutes and names the test", "run": ".venv/bin/pytest tests/test_build_quick.py::test_a_core_module_that_imports_the_platform_package_fails_quick_in_under_two_minutes_and_names_the_test", "status": "passing"},
+ {"id": "ux15-2", "phase": "ux15", "name": "build quick: with the fault removed quick is green and prints the files it ran and the time", "run": ".venv/bin/pytest tests/test_build_quick.py::test_with_the_fault_removed_quick_is_green_and_prints_the_files_it_ran_and_the_time", "status": "passing"},
+ {"id": "ux15-3", "phase": "ux15", "name": "build quick: a change in one module runs its test file by name and the files that import it", "run": ".venv/bin/pytest tests/test_build_quick.py::test_a_change_in_one_module_runs_its_test_file_by_name_and_the_files_that_import_it", "status": "passing"},
+ {"id": "ux15-4", "phase": "ux15", "name": "build quick: a change outside the modules runs no module test and a changed test file runs as itself", "run": ".venv/bin/pytest tests/test_build_quick.py::test_a_change_outside_the_modules_runs_no_module_test_and_a_changed_test_file_runs_as_itself", "status": "passing"},
+ {"id": "ux15-5", "phase": "ux15", "name": "build quick: an unknown ref is refused with exit 2", "run": ".venv/bin/pytest tests/test_build_quick.py::test_an_unknown_ref_is_refused_with_exit_2", "status": "passing"},
+ {"id": "ux15-6", "phase": "ux15", "name": "build quick: the command takes an optional ref", "run": ".venv/bin/pytest tests/test_build_quick.py::test_the_command_takes_an_optional_ref", "status": "passing"}
  ],
- "total_tests": 2219,
+ "total_tests": 2225,
  "checked": "2026-11-09"
 }

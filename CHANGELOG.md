@@ -5,6 +5,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ## Week 46, 2026-11-09 to 2026-11-15 (in progress)
 ### Added
+- UX15: `awb build quick [REF]` is a short run before the full one: the import-rule test, the gate selftest and the test files of the modules changed since REF (by name `tests/test_<module>*.py` and by import), the failed test ids, the files it ran and the time printed. A core module that imports the platform package fails it in seconds.
 - DL: `awb doc fetch URL --links` ends the text with the links of the page as absolute URLs with their texts,
   a host off the list marked. `awb doc find URL WORDS` lists the pages of a MadCap Flare help (the WatchGuard help
   center is one) whose title or path holds every word: the key service reads the help index the page names, the

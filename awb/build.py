@@ -1194,6 +1194,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--allow-protected", action="store_true",
                    help="let the branch change %s (else red: protected path); read the diff of those paths first"
                         % ", ".join(PROTECTED))
+    s = sub.add_parser("quick", help="a short test run before the full one: the import rules, the gate selftest and "
+                                     "the test files of the modules changed since REF (default main)")
+    s.add_argument("ref", nargs="?", default="main")
     sub.add_parser("serve", help="the runner of the build queue, the ExecStart of awb-buildd.service")
     sub.add_parser("selftest", help="the runner's planted cases, each must be refused or classified")
     sub.add_parser("probe", help="the probe unit with a task's own properties: the model endpoint connects, a TCP "
@@ -1209,6 +1212,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         ap.print_usage(sys.stderr)
         return 2
+    if args.command == "quick":
+        from awb import buildquick
+
+        return buildquick.quick(ref=args.ref)
     if args.command in ("serve", "selftest", "unit", "probe", "failed", "check", "nudge"):
         from awb import buildrun
 

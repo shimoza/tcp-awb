@@ -1400,6 +1400,7 @@ awb build widen B-012 awb/tcp/keys.py
 awb build widen B-012 --tests-replaced SB1-20   # into the run's task.md, which the checks read
 awb build stop               # the runner ends after the current task
 awb build nudge              # a mail with your next commands for a task asked, red or held for 15 minutes
+awb build quick              # before the full run: import rules, gate selftest, the test files of the changed modules
 awb build check pr-12        # a branch from outside: the gate and the suite as awb-build, nothing merged
 awb build check pr-12 --allow-protected   # the same, a change of seal/, plugin/hooks/, rules/ ... let through
 awb pr take 12               # gh says it is yours; fetch, rebase onto main, the check, merge --no-ff, push, close
