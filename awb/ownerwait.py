@@ -43,6 +43,10 @@ WHERE_TERMINAL = "his terminal"
 WHERE_STEERING = "steering session"
 QUEUE_REL = Path("presentations/work-profile/QUEUE.md")
 TEXT_MAX = 110
+PER_PROJECT = 5               # owner items shown per project; the others are counted
+FIRST = 3                     # items `awb` with no argument prints
+_DEV_START = ("owner (tooling)", "(tooling)", "steering:")
+_DONE_STATES = ("stopped: by_owner", "stopped: success")
 _WAITING_STATE = re.compile(r"^\s*(waiting|asked)\b|\bwaits? on (him|you|the owner)\b", re.IGNORECASE)
 _SEPARATOR = re.compile(r"^\|?[\s:|-]+\|?$")
 _TASK_ID = re.compile(r"B-[0-9]{3,4}")
@@ -64,6 +68,8 @@ class Item:
     text: str
     where: str            # empty: the item renders as one line "label: text"
     block: str | None = None
+    kind: str = ""        # owner, kept, done, dev or more: what `decide` does with the item; empty: shown as it is
+    extra: str = ""       # the tenant of a kept create
 
 
 def queue_file() -> Path:
@@ -96,7 +102,7 @@ def open_items(p: config.Paths) -> tuple[list[Item], int]:
             continue
         for item in projects._owner_items(text):
             cmd = projects.item_command(item)
-            out.append(Item(r.code, _short(item), WHERE_TERMINAL if cmd else WHERE_SESSION, cmd))
+            out.append(Item(r.code, _short(item), WHERE_TERMINAL if cmd else WHERE_SESSION, cmd, "owner"))
     return out, parked
 
 
@@ -167,7 +173,7 @@ def build_items(runs: Path | None = None) -> list[Item]:
         word = state.split(":", 1)[0]
         if word in _BUILD_WAITING and re.fullmatch(r"[a-z0-9: ._-]{1,80}", state):
             out.append(Item(tid, "build task is %s" % _short(state), WHERE_TERMINAL,
-                            "\n".join(build_commands(tid, word))))
+                            "\n".join(build_commands(tid, word)), "done" if state in _DONE_STATES else ""))
     return out
 
 
@@ -332,7 +338,7 @@ def lab_run_items(p: config.Paths, now: float | None = None) -> list[Item]:
         kept = []
     for k in kept:
         text = "lab run on %s kept %s %s: %s" % (k["tenant"], k["label"], str(k["id"])[:8], k["reason"])
-        out.append(Item(str(k.get("project") or "?"), _short(text), WHERE_SESSION, None))
+        out.append(Item(str(k.get("project") or "?"), _short(text), WHERE_SESSION, None, "kept", str(k["tenant"])))
     return out
 
 
@@ -364,9 +370,49 @@ def winlab_online_items(path: Path | None = None, probe=None) -> list[Item]:
             for name, m in winlab.online_machines(path, probe)]
 
 
-def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path | None = None
-            ) -> tuple[list[Item], int]:
-    """All items after the name check, and the count of parked projects."""
+def decide(items: list[Item], view: str = "decisions", code: str | None = None) -> list[Item]:
+    """The items of one view. "all": every item (of project CODE when given). "dev": the tooling and steering items
+    only. "decisions": no task that the owner stopped himself or that ended with success, no tooling or steering
+    item, the creates kept by lab runs as one line per project, and at most PER_PROJECT owner items per project (the
+    oldest first, the order of OPEN.md) with one line that counts the others."""
+    if view == "all":
+        return [it for it in items if code is None or it.label == code]
+    if view == "dev":
+        return [it for it in items if it.kind == "dev"]
+    out: list[Item] = []
+    kept: dict[str, Item] = {}
+    shown: dict[str, int] = {}
+    hidden: dict[str, int] = {}
+    for it in items:
+        if it.kind in ("done", "dev"):
+            continue
+        if it.kind == "kept":
+            line = kept.get(it.label)
+            if line is None:
+                line = kept[it.label] = Item(it.label, "", WHERE_SESSION, None, "kept")
+                out.append(line)
+            line.extra = (line.extra + "," if line.extra else "") + it.extra
+            line.block = str(int(line.block or 0) + 1)
+            continue
+        if it.kind == "owner":
+            shown[it.label] = shown.get(it.label, 0) + 1
+            if shown[it.label] > PER_PROJECT:
+                hidden[it.label] = hidden.get(it.label, 0) + 1
+                continue
+        out.append(it)
+    for line in kept.values():
+        n = int(line.block or 0)
+        tenants = ", ".join(sorted(set(line.extra.split(","))))
+        line.text, line.block = "%d create%s kept on %s, listed in RESOURCES.md" % (n, "" if n == 1 else "s", tenants), None
+    for label, n in hidden.items():
+        last = max(i for i, it in enumerate(out) if it.kind == "owner" and it.label == label)
+        out.insert(last + 1, Item("", "and %d more: awb owner status --all %s" % (n, label), "", None, "more"))
+    return out
+
+
+def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path | None = None,
+            view: str = "decisions", code: str | None = None) -> tuple[list[Item], int]:
+    """The items of VIEW (see `decide`) after the name check, and the count of parked projects."""
     from awb import ledger
 
     p = p or config.paths()
@@ -380,6 +426,9 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
     items += tenant_mode_items()
     items += winlab_items()
     items += winlab_online_items()
+    for it in items:
+        if it.kind != "done" and it.text.lower().startswith(_DEV_START):
+            it.kind = "dev"
     texts = []
     for it in items:
         texts += [it.text, it.block or "", it.label]
@@ -392,7 +441,7 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
             it.text, it.block = ledger.WITHHELD, None
             if 3 * n + 2 in hidden:
                 it.label = "?"
-    return items, parked
+    return decide(items, view, code), parked
 
 
 def check_ran(p: config.Paths | None = None) -> bool:
@@ -407,14 +456,22 @@ def check_ran(p: config.Paths | None = None) -> bool:
     return True
 
 
+def count(items: list[Item]) -> int:
+    """The items without the lines that only count others."""
+    return sum(1 for it in items if it.kind != "more")
+
+
 def render(items: list[Item], parked: int, note_lines: list[str] | tuple = ()) -> list[str]:
     """The list: one line per item, the block indented under it, then the notes."""
     if not items:
         head = ["nothing waits on you"]
     else:
-        head = ["%d item%s wait on you" % (len(items), "" if len(items) == 1 else "s")]
+        head = ["%d item%s wait on you" % (count(items), "" if count(items) == 1 else "s")]
     lines = list(head)
     for it in items:
+        if it.kind == "more":
+            lines.append(it.text)
+            continue
         lines.append("%s  %s  [%s]" % (it.label, it.text, it.where) if it.where else "%s: %s" % (it.label, it.text))
         for ln in (it.block or "").splitlines():
             lines.append("    %s" % ln)
@@ -457,7 +514,7 @@ def mail(p: config.Paths | None = None, send=None, queue: Path | None = None, ru
     if send is None:
         return "not sent: no mail path"      # `awb owner status --mail` (awb/tcp/owner.py) passes the key service's
     body = fit(render(items, parked, note_lines))
-    subject = ("Workbench: %d item%s wait on you" % (len(items), "" if len(items) == 1 else "s") if items
+    subject = ("Workbench: %d item%s wait on you" % (count(items), "" if count(items) == 1 else "s") if items
                else "Workbench: nothing waits on you, %d note%s" % (len(note_lines), "" if len(note_lines) == 1 else "s"))
     try:
         word = send(subject, body)

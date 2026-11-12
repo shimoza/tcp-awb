@@ -1900,12 +1900,14 @@ the logins of the console: add, reset (a new password), remove, projects (the co
 - `[CODE...]`: with projects: the project codes the login may open (tcp-xxxx); none for every project
 - `--level LEVEL`: with add: reader (the default) or owner (also a TOTP code for the owner host)
 
-### `awb owner status [--write] [--json] [--mail]`
+### `awb owner status [--write] [--json] [--mail] [--dev] [--all CODE]`
 
 everything that waits on the owner, one line each with a ready command; --mail sends it, --json and --write give the status of the owner page
 - `--write`: write the status file for owner-actions
 - `--json`: print the status of the owner page as JSON
 - `--mail`: send the list as one mail (the owner's timer)
+- `--dev`: print the tooling and steering items the list leaves out
+- `--all CODE`: print every item as it is, or every item of project CODE
 
 ### `awb ui submit TASKFILE [--candidate-only] [--mail] [--no-watch]`
 

@@ -234,6 +234,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--write", action="store_true", help="write the status file for owner-actions")
     s.add_argument("--json", action="store_true", help="print the status of the owner page as JSON")
     s.add_argument("--mail", action="store_true", help="send the list as one mail (the owner's timer)")
+    s.add_argument("--dev", action="store_true", help="print the tooling and steering items the list leaves out")
+    s.add_argument("--all", nargs="?", const="", metavar="CODE",
+                   help="print every item as it is, or every item of project CODE")
     s.add_argument("--out", help=argparse.SUPPRESS)
     try:
         a = ap.parse_args(sys.argv[1:] if argv is None else argv)
@@ -250,7 +253,8 @@ def main(argv: list[str] | None = None) -> int:
             word = ownerwait.mail(send=keys.send_mail)
             print("awb owner: mail %s" % word)
             return 0 if word in ("sent", "empty") else 1
-        items, parked = ownerwait.collect()
+        view = "all" if a.all is not None else "dev" if a.dev else "decisions"
+        items, parked = ownerwait.collect(view=view, code=a.all or None)
         print("\n".join(ownerwait.render(items, parked, ownerwait.notes())))
         return 0
     status = collect()
