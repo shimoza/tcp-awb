@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from awb import cleanlogs, codes, config, parts, register
+from awb import cleanlogs, codes, config, gate, parts, register
 from awb import extract as _extract
 from awb import images as _images
 from awb import report as _report
@@ -71,6 +71,7 @@ class IntakeResult:
     pictures: int = 0         # pictures held on the vault side, released only by awb images release
     reviewed: int = 0         # candidates handed to the review of --review
     candidates: int = 0       # distinct values the candidate rules found in detection (all of them wiped)
+    gate_left: dict[str, list[str]] = field(default_factory=dict)   # output name -> gate classes still in the copy
 
     @property
     def blocked(self) -> bool:
@@ -613,8 +614,17 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, reviewed: int = 0
             for cls, n in part.counts.items():
                 if cls in wipe.WIPE_CLASSES:
                     wiped[wipe.TOKEN_TEXT[cls]] += n
+    gate_left = {}
+    for out in outputs:
+        try:
+            left = gate.classes_left(out.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        if left:
+            gate_left[out.name] = left
     return IntakeResult(customer=cust, outputs=outputs, public_report=public_written,
                         private_report=private_written, states={f.file_id: f.state for f in rec.files},
+                        gate_left=gate_left,
                         unsealed=unsealed + report_unsealed, wiped=wiped, held=sorted(check_failed),
                         pictures=pictures_total, reviewed=reviewed, candidates=len(rec.candidates))
 
@@ -735,7 +745,9 @@ def _write_one(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Pa
         wiped: Counter = Counter()
         body, counts = engine.sanitize(cleanlogs.wipe_secrets(pex.text or "", wiped), "%s output" % part.part_id)
         body = cleanlogs.drop_secret_lines(body, wiped)
+        body, gate_counts = gate.wipe_gate_classes(body)     # a home path and a blocklist word, also when trusted
         counts.update(wiped)
+        counts.update(gate_counts)
         bodies[part.part_id] = body
         part.counts.update(counts)
         for note in part.notes:

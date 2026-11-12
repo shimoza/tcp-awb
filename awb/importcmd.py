@@ -288,6 +288,11 @@ def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: b
     _say("copies written: %d%s" % (len(copies), " (replacing the earlier ones)" if redo else ""))
     _say("wiped: %s" % intake.wiped_text(res.wiped))
     _say("pictures held: %d" % res.pictures)
+    if res.gate_left:
+        left = sorted({c for classes in res.gate_left.values() for c in classes})
+        _say("gate check: %d of %d copies hold %s" % (len(res.gate_left), len(copies), ", ".join(left)))
+    else:
+        _say("%d copies, gate clean" % len(copies))
     _say("files withheld: %d" % len(res.held))
     if res.held:
         # the final check withheld files: the count goes to the learning (awb/fplearn.py), the strings stay in the

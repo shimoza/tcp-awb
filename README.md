@@ -620,6 +620,8 @@ wipe of `awb clean` before the names: keys, tokens, password fields and password
 vault and is deleted from `in/`, the session of the project reads "new input: N files (FILE IDS)" at its next prompt, a project whose import runs is skipped and each run
 writes one line to the journal and to `~/tcp-vault/import-auto.log`.
 
+Every import copy, also with `--trusted` and `--redo`, has its home paths replaced by `[path]` and its blocklist words by `[withheld]`, so the commit gate accepts the copies; the import ends with the gate's check on them: `N copies, gate clean` or the classes left.
+
 ### Report workbook
 
 The weekly status per project lives in his own workbook `report.xlsx` on the work laptop (sheets Projects, Names and

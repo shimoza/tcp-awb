@@ -669,6 +669,36 @@ def _detect_blocklist(text: str) -> list[int]:
     return [] if rx is None else [m.start() for m in rx.finditer(text) if m.end() > m.start()]
 
 
+PATH_TOKEN = "[path]"
+WITHHELD_TOKEN = "[withheld]"
+
+
+def wipe_gate_classes(text: str) -> tuple[str, Counter]:
+    """`text` with what the commit gate refuses and an import would leave in replaced: a home path by `[path]`, a
+    word of the blocklists by `[withheld]`. The counts per class (home path, blocklist), never a value. A text with
+    neither comes back as it is."""
+    counts: Counter = Counter()
+    spans = []
+    for m in _HOMEPATH_RE.finditer(text):
+        if next((g for g in m.groups() if g), "").lower() not in _GENERIC_USERS:
+            spans.append((m.start(), m.end()))
+    for start, end in reversed(spans):
+        text = text[:start] + PATH_TOKEN + text[end:]
+        counts["homepath"] += 1
+    rx = blocklist_re()
+    if rx is not None:
+        found = [m.span() for m in rx.finditer(text) if m.end() > m.start()]
+        for start, end in reversed(found):
+            text = text[:start] + WITHHELD_TOKEN + text[end:]
+            counts["blocklist"] += 1
+    return text, counts
+
+
+def classes_left(text: str) -> list[str]:
+    """The classes the gate finds in `text` without the register, sorted, the class of a project folder left out."""
+    return sorted({f.cls for f in _scan_text("copy", text, None) if f.cls not in PROJECT_FREE})
+
+
 def _uuid_bounded(text: str, m: re.Match) -> bool:
     """A dash next to the UUID must not continue a hex group (a longer dashed hex id is not a UUID)."""
     before = text[max(0, m.start() - 40):m.start()]
