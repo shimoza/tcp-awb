@@ -16071,8 +16071,71 @@
    "name": "open sweep: refuse missing or unavailable name check",
    "run": ".venv/bin/pytest tests/test_open_sweep.py::test_sweep_refuses_when_the_name_check_is_unavailable",
    "status": "passing"
+  },
+  {
+   "id": "ss-1",
+   "phase": "ss",
+   "name": "side sessions: start runs the brief in a worktree and take copies the result",
+   "run": ".venv/bin/pytest tests/test_side.py::test_start_runs_the_brief_in_a_worktree_and_take_copies_the_result",
+   "status": "passing"
+  },
+  {
+   "id": "ss-2",
+   "phase": "ss",
+   "name": "side sessions: take merge brings the commits and removes the side",
+   "run": ".venv/bin/pytest tests/test_side.py::test_take_merge_brings_the_commits_and_removes_the_side",
+   "status": "passing"
+  },
+  {
+   "id": "ss-3",
+   "phase": "ss",
+   "name": "side sessions: start refuses outside a project a bad name or a brief outside",
+   "run": ".venv/bin/pytest tests/test_side.py::test_start_refuses_outside_a_project_a_bad_name_or_a_brief_outside",
+   "status": "passing"
+  },
+  {
+   "id": "ss-4",
+   "phase": "ss",
+   "name": "side sessions: a second start of the same name is refused and a side cannot start a side",
+   "run": ".venv/bin/pytest tests/test_side.py::test_a_second_start_of_the_same_name_is_refused_and_a_side_cannot_start_a_side",
+   "status": "passing"
+  },
+  {
+   "id": "ss-5",
+   "phase": "ss",
+   "name": "side sessions: take refuses a running side and stop ends it",
+   "run": ".venv/bin/pytest tests/test_side.py::test_take_refuses_a_running_side_and_stop_ends_it",
+   "status": "passing"
+  },
+  {
+   "id": "ss-6",
+   "phase": "ss",
+   "name": "side sessions: the client runs headless without mcp and with the chosen model",
+   "run": ".venv/bin/pytest tests/test_side.py::test_the_client_runs_headless_without_mcp_and_with_the_chosen_model",
+   "status": "passing"
+  },
+  {
+   "id": "ss-7",
+   "phase": "ss",
+   "name": "side sessions: the project rules tell a session how to split work off",
+   "run": ".venv/bin/pytest tests/test_side.py::test_the_project_rules_tell_a_session_how_to_split_work_off",
+   "status": "passing"
+  },
+  {
+   "id": "ss-8",
+   "phase": "ss",
+   "name": "side sessions: the command is wired and documented",
+   "run": ".venv/bin/pytest tests/test_side.py::test_the_command_is_wired_and_documented",
+   "status": "passing"
+  },
+  {
+   "id": "ss-9",
+   "phase": "ss",
+   "name": "side sessions: sync appends the side rule to the note line of an older project once",
+   "run": ".venv/bin/pytest tests/test_side.py::test_sync_appends_the_side_rule_to_the_note_line_of_an_older_project_once",
+   "status": "passing"
   }
  ],
- "total_tests": 2296,
+ "total_tests": 2305,
  "checked": "2026-11-09"
 }

@@ -11,7 +11,7 @@ awb report, awb career, awb write, awb voice, awb review, awb calc, awb hook, aw
 awb bucket, awb files, awb clean, awb import, awb words, awb reveal, awb price, awb pricebook, awb cloud, awb mirror, awb refresh,
 awb dataset, awb english, awb ask, awb inbox, awb xchg, awb howto, awb start, awb fetch, awb paste, awb material, awb keys,
 awb migrate, awb lab, awb tenant, awb api, awb service, awb board, awb web, awb owner, awb ui, awb build, awb pr,
-awb deploy, awb doc, awb pdf, awb winlab, awb platform-status, awb codex, awb exit, awb queue, awb open.
+awb deploy, awb doc, awb pdf, awb winlab, awb platform-status, awb codex, awb exit, awb queue, awb open, awb side.
 
 Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 
@@ -854,6 +854,7 @@ DELEGATED = {
     "owner": ("tcp.owner", "what waits on the owner in one list: awb owner status [--mail|--json|--write]"),
     "queue": ("workqueue", "open work on the owner side: add, next, done, list and one-time migrate"),
     "ui": ("tcp.ui", "the UI queue: submit a task, list the runs, a result note when a run ends (owner side)"),
+    "side": ("side", "side sessions of a project: start NAME --brief FILE [--model] [--effort], status, take, stop, drop"),
     "codex": ("tcp.codex", "Codex for bounded non-UI work: usage (the quota), run TASKFILE (a worktree, never a commit), status"),
     "build": ("build", "the self-build: the task queue (add, draft, list, status, show, answer, retry, widen, stop), "
                       "a quick test run (quick) and its runner (serve, selftest, probe)"),

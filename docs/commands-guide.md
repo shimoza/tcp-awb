@@ -360,6 +360,17 @@ page is read and checked as you; root only keeps the backup and installs.
 The queue itself is only read; the bridge named in `~/.config/awb/ui.conf` (`AWB_UI_CONF` gives another file) is the
 only writer. `AWB_UI_QUEUE` gives another queue folder and `AWB_UI_STATE` another folder for the watch logs.
 
+## Side sessions of a project (SS)
+
+| command | what it does |
+|---|---|
+| `awb side start NAME --brief FILE [--model MODEL] [--effort LEVEL]` | in the root of a project folder: a git worktree `.side/NAME` on the branch `side/NAME` (`.side/` in `.git/info/exclude`) and a headless client session there in the background, with the brief file of the project as its task and the model and effort the main session chose (default sonnet, medium). The side session is a session of the same user in the same project: the managed settings, deny rules and hooks apply; it runs without approval prompts and without MCP servers, writes `SIDE-RESULT.md` in its worktree and commits there. A side session cannot start another one |
+| `awb side status` | one line per side session: name, state (running, done, failed, lost), model and effort, commits on its branch and whether a result is there |
+| `awb side take NAME [--merge]` | copies `SIDE-RESULT.md` to `notes/side-NAME.md` of the main folder and lists the commits and files of the branch; `--merge` merges `side/NAME` (no fast-forward, a conflict is aborted and named) and removes the worktree and the branch |
+| `awb side stop NAME`, `awb side drop NAME` | end a running side session; remove a side session's worktree and branch without taking anything |
+
+The main session never writes in `.side/NAME` and the side session never writes outside it, so two writers never touch the same files.
+
 ## Codex for bounded non-UI work (CX)
 
 | command | what it does |

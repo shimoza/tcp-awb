@@ -521,7 +521,7 @@ def _claude(code: str, kind: str, customer: str) -> str:
         "- RESOURCES.md lists what the project uses, with platform ids and codes.\n"
         "- %s\n"
         "%s\n"
-        + _devnote.FILE_RULE + "\n" + _devnote.NOTE_RULE + "\n"
+        + _devnote.FILE_RULE + "\n" + _devnote.NOTE_RULE + " " + _devnote.SIDE_RULE + "\n"
         "- Run `awb check FILE` on every deliverable and `awb gate` before every commit.\n"
         "- %s\n"
     ) % (code, kind, _rules_ref(), who, code, code, OWN_OUTPUT_RULE, LAB_LOGS,
