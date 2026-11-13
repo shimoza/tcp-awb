@@ -4,7 +4,7 @@ COMMANDS.md lists every command with its options and what it does; `awb --help` 
 `awb NAME --help` shows the options of one. This text names the commands only, so it cannot fall behind a subcommand.
 
 Built in: awb init, awb intake, awb register, awb spawn, awb close, awb projects, awb unlock. `awb` alone
-prints the side and the lock state.
+prints the side and the lock state. `awb projects note CODE FILE --after COMMIT` holds a note for a release.
 
 In their own module (DELEGATED below, each with main(argv)): awb check, awb gate, awb vault, awb kb, awb ledger,
 awb report, awb career, awb write, awb voice, awb review, awb calc, awb hook, awb images, awb seal, awb egress,
@@ -636,11 +636,18 @@ def _cmd_projects_note(args, p: config.Paths) -> int:
         print("awb projects note: cannot read the note (%s)" % type(err).__name__, file=sys.stderr)
         return EXIT_ERROR
     try:
-        path = devnote.write(p, args.code, args.title, text)
+        path = (projects.hold_note(p, args.code, args.title, text, args.after) if args.after is not None
+                else devnote.write(p, args.code, args.title, text))
     except (devnote.NoteError, projects.ProjectError) as err:
         print("awb projects note: %s" % err, file=sys.stderr)
         return EXIT_ERROR
-    print("%s: %s/%s written; its next session prompt shows it" % (args.code, devnote.FOLDER, path.name))
+    except OSError as err:
+        print("awb projects note: cannot store the note (%s)" % type(err).__name__, file=sys.stderr)
+        return EXIT_ERROR
+    if args.after is not None:
+        print("%s: %s/%s held after %s" % (args.code, devnote.FOLDER, path.name, args.after))
+    else:
+        print("%s: %s/%s written; its next session prompt shows it" % (args.code, devnote.FOLDER, path.name))
     return EXIT_OK
 
 
@@ -823,7 +830,8 @@ def _build() -> argparse.ArgumentParser:
                                      "once at the next prompt of its sessions (run it as the work user)")
     s.add_argument("code")
     s.add_argument("file", metavar="FILE|-", help="the note in Markdown, - for standard input")
-    s.add_argument("--title", required=True, help="one line, shown in the notice")
+    s.add_argument("--title", help="one line; required without --after, otherwise defaults to development note")
+    s.add_argument("--after", metavar="COMMIT", help="hold until a successful live release contains this full commit id")
     s.set_defaults(func=_cmd_projects_note)
     return ap
 

@@ -556,12 +556,15 @@ def decide(items: list[Item], view: str = "decisions", code: str | None = None) 
 def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path | None = None,
             view: str = "decisions", code: str | None = None) -> tuple[list[Item], int]:
     """The items of VIEW (see `decide`) after the name check, and the count of parked projects."""
-    from awb import ledger
+    from awb import ledger, projects
 
     p = p or config.paths()
     items, parked = open_items(p)
     items += queue_items(queue)
     items += export_items(p, queue)
+    commits = projects.note_commits()
+    items += [Item(n["project"], "held note %s after %s" % (n["file"], n["after"]), "", kind="dev")
+              for n in projects.held_notes(p) if n["after"] not in commits]
     items += build_items(runs)
     items += dataset_items()
     items += refresh_items()

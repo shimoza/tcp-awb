@@ -21,6 +21,8 @@ this module writes a goal, a tag or a matched value into an exception or any oth
 from __future__ import annotations
 
 import fcntl
+import json
+import secrets
 import os
 import re
 import shutil
@@ -1412,3 +1414,104 @@ def pick_session(p: _config.Paths, read=None, tty=None, run=subprocess.call) -> 
         print("awb projects: no project %s in the list" % answer[:8], file=sys.stderr)
         return 2
     return open_session(p, rows[int(answer) - 1]["code"], run=run)
+
+
+# --- development notes held for a release ---------------------------------------------------------------
+
+NOTE_JOURNAL = Path("/opt/tcp-awb/DEPLOYED")
+_COMMIT_ID = re.compile(r"[0-9a-f]{40}")
+_HELD_ID = re.compile(r"held-[0-9a-f]{16}")
+
+
+def hold_note(p: _config.Paths, code: str, title: str | None, text: str, after: str) -> Path:
+    """Store a note and a separate held notice, never an immediate devnote notice."""
+    from awb import rulesync
+
+    if not _codes.is_project_code(code):
+        raise ProjectError("a note needs a project code")
+    if not _COMMIT_ID.fullmatch(after):
+        raise ProjectError("--after needs a full commit id of 40 lowercase hex characters")
+    title = _devnote.clean_title(title or "development note")
+    if not text.strip() or len(text.encode("utf-8")) > _devnote.MAX_TEXT:
+        raise ProjectError("the note must be nonempty and at most %d bytes" % _devnote.MAX_TEXT)
+    _devnote._secret_check(title, "title")
+    _devnote._secret_check(text, "note")
+    pr = _devnote._project(p, code)
+    root = Path(pr.path)
+    folder = root / _devnote.FOLDER
+    if any(x.is_symlink() for x in (root, root / "notes", folder)):
+        raise ProjectError("the notes folder of %s is a link" % code)
+    folder.mkdir(parents=True, exist_ok=True)
+    handle = "held-" + secrets.token_hex(8)
+    path = folder / (handle + ".md")
+    with path.open("x", encoding="utf-8") as fh:
+        os.fchmod(fh.fileno(), 0o640)
+        fh.write("# %s\n\n%s\n" % (title, text.strip("\n")))
+    notices = _config.make_dir(rulesync.notices_dir(p), 0o750, shared=True)
+    try:
+        with (notices / (handle + ".json")).open("x", encoding="utf-8") as fh:
+            os.fchmod(fh.fileno(), 0o640)
+            json.dump({"project": code, "file": path.name, "after": after}, fh)
+    except OSError:
+        path.unlink()
+        raise
+    return path
+
+
+def held_notes(p: _config.Paths) -> list[dict]:
+    """Read only code, handle and commit fields; malformed notices carry no output."""
+    from awb import rulesync
+
+    out = []
+    for path in sorted(rulesync.notices_dir(p).glob("held-*.json")):
+        if path.is_symlink() or not _HELD_ID.fullmatch(path.stem):
+            continue
+        data = rulesync._read_mark(path)
+        code, file, after = (data.get(k) for k in ("project", "file", "after"))
+        if (isinstance(code, str) and _codes.is_project_code(code)
+                and file == path.stem + ".md" and isinstance(after, str) and _COMMIT_ID.fullmatch(after)):
+            out.append({"project": code, "file": file, "after": after})
+    return out
+
+
+def note_commits(journal: dict | None = None) -> set[str]:
+    """Only a completed deploy supplies ancestry. An absent or incomplete journal keeps notes held."""
+    if journal is None:
+        try:
+            journal = json.loads(NOTE_JOURNAL.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return set()
+    if (not isinstance(journal, dict) or journal.get("state") != "done" or journal.get("pending")
+            or journal.get("notes_ready") is False):
+        return set()
+    target = journal.get("target")
+    commits = journal.get("commits", [target])
+    if (not isinstance(commits, list) or target not in commits
+            or not all(isinstance(c, str) and _COMMIT_ID.fullmatch(c) for c in commits)):
+        return set()
+    return set(commits)
+
+
+def held_note_notices(p: _config.Paths, session_id: str | None, root: Path | None) -> list[str]:
+    """Show eligible held notes once per project session, using the ordinary notes receipt."""
+    from awb import rulesync
+
+    if not session_id or root is None:
+        return []
+    commits = note_commits()
+    mark_path = rulesync._mark(p, session_id)
+    mark = rulesync._read_mark(mark_path)
+    seen = [x for x in (mark.get("notes") or []) if isinstance(x, str)]
+    lines = []
+    for note in held_notes(p):
+        file = note["file"]
+        if (note["project"] != root.name or note["after"] not in commits or file in seen
+                or not (root / _devnote.FOLDER / file).is_file()):
+            continue
+        lines.append("%s: note from development (%s/%s): read it first" % (root.name, _devnote.FOLDER, file))
+        seen.append(file)
+    if lines:
+        mark["notes"] = seen[-200:]
+        mark.setdefault("digest", rulesync.digest(root))
+        rulesync._write_mark(mark_path, mark)
+    return lines

@@ -467,6 +467,13 @@ differ from the live page: the checks of `awb web publish` run as you, the live 
 `index.html.before-deploy-<commit>` and one line says `page published (backup NAME)`, `page unchanged` or `page
 refused (REASON, the live page stays)`. A refused page never fails the deploy. A host without the web side skips the
 step with one line; `--dry-run` says what the step would do. A change of the page restarts no service.
+`awb projects note CODE FILE --after COMMIT [--title TEXT]` stores a held development note. COMMIT is a full
+40-character lowercase commit ID. The project prompt shows the code and note handle once per session only after
+a successful deploy contains that commit, including as an ancestor. The release journal supplies the ancestry;
+a missing, incomplete or failed journal keeps the note held. `awb owner status --dev` lists held notes with their
+commits. Deploy ends with one line per newly released note, naming its project code and handle. Without `--after`,
+`--title` is required and the note reaches the next prompt immediately.
+
 `awb deploy status` shows what runs where, `sudo awb deploy --rollback` goes back to the release before.
 `sudo awb deploy --task B-012` brings a green build task live: it pulls `main` of the build side into your copy
 first. A deploy from a copy that is behind the live release is refused, so it cannot take back a build task's work.

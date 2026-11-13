@@ -535,9 +535,12 @@ def _beat(data: dict) -> None:
 def _rules_text(data: dict) -> str | None:
     """The notice that the rules a running session loaded at its start changed (awb/rulesync.py), once."""
     try:
-        from awb import rulesync
+        from awb import projects, rulesync
 
-        return rulesync.notice(config.paths(), data.get("session_id"), project_root(_session_folder(data))) or None
+        p, sid, root = config.paths(), data.get("session_id"), project_root(_session_folder(data))
+        lines = [rulesync.notice(p, sid, root) or ""]
+        lines += projects.held_note_notices(p, sid, root)
+        return "\n".join(line for line in lines if line) or None
     except Exception:
         return None
 

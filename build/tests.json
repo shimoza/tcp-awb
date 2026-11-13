@@ -16295,8 +16295,57 @@
    "name": "project preflight: start and preflight help never read project register",
    "run": ".venv/bin/pytest tests/test_preflight.py::test_start_and_preflight_help_never_read_project_register",
    "status": "passing"
+  },
+  {
+   "id": "UX12-1",
+   "phase": "UX12",
+   "name": "held notes: hidden before live then shown once",
+   "run": ".venv/bin/pytest tests/test_note_after.py::test_hidden_before_live_then_shown_once",
+   "status": "passing"
+  },
+  {
+   "id": "UX12-2",
+   "phase": "UX12",
+   "name": "held notes: a nonancestor never releases",
+   "run": ".venv/bin/pytest tests/test_note_after.py::test_a_nonancestor_never_releases",
+   "status": "passing"
+  },
+  {
+   "id": "UX12-3",
+   "phase": "UX12",
+   "name": "held notes: incomplete or unreadable journal keeps the note held",
+   "run": ".venv/bin/pytest tests/test_note_after.py::test_incomplete_or_unreadable_journal_keeps_the_note_held",
+   "status": "passing"
+  },
+  {
+   "id": "UX12-4",
+   "phase": "UX12",
+   "name": "held notes: owner dev lists held code handle and commit",
+   "run": ".venv/bin/pytest tests/test_note_after.py::test_owner_dev_lists_held_code_handle_and_commit",
+   "status": "passing"
+  },
+  {
+   "id": "UX12-5",
+   "phase": "UX12",
+   "name": "held notes: deploy ends with one line per released note",
+   "run": ".venv/bin/pytest tests/test_note_after.py::test_deploy_ends_with_one_line_per_released_note",
+   "status": "passing"
+  },
+  {
+   "id": "UX12-6",
+   "phase": "UX12",
+   "name": "held notes: plan records only target ancestors and validates them",
+   "run": ".venv/bin/pytest tests/test_note_after.py::test_plan_records_only_target_ancestors_and_validates_them",
+   "status": "passing"
+  },
+  {
+   "id": "UX12-7",
+   "phase": "UX12",
+   "name": "held notes: invalid commit and secret are refused without output values",
+   "run": ".venv/bin/pytest tests/test_note_after.py::test_invalid_commit_and_secret_are_refused_without_output_values",
+   "status": "passing"
   }
  ],
- "total_tests": 2328,
+ "total_tests": 2335,
  "checked": "2026-11-09"
 }

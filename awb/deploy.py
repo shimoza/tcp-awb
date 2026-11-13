@@ -1340,6 +1340,7 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
         "repo": str(repo),
         "target": target,
         "target_time": target_time,
+        "commits": git(run, repo, "rev-list", target).splitlines(),
         "deployed": base,
         "live": live if live != "plain" else None,
         "first": bool(first),
@@ -1560,6 +1561,10 @@ def validate_plan(plan, allowed_units: set[str]) -> dict:
         bad("not an object")
     if not isinstance(plan.get("target"), str) or not COMMIT_RE.match(plan["target"]):
         bad("target")
+    commits = plan.get("commits", [plan["target"]])
+    if (not isinstance(commits, list) or plan["target"] not in commits
+            or not all(isinstance(c, str) and COMMIT_RE.fullmatch(c) for c in commits)):
+        bad("commits")
     for key in ("deployed", "live"):
         v = plan.get(key)
         if v is not None and not (isinstance(v, str) and (COMMIT_RE.match(v) or v == PRE_DEPLOY)):
@@ -1921,6 +1926,7 @@ class Run:
         self.journal: dict = {}
         self.restarted_at: float | None = None
         self.failed: list[str] = []
+        self.note_lines: list[str] = []
         self.build_held = False
         self.busy: list[str] | None = plan.get("build_busy", [])    # the active task units, None: not listed
         self.status: dict = {}
@@ -1977,6 +1983,7 @@ class Run:
             "pending": sorted(u["unit"] for u in self.plan["units"] if u["action"] in ("restart", "reload")),
             "running": running,
             "daemon_code": dict(self.plan.get("daemon_code") or {}),
+            "reported_notes": old.get("reported_notes", []),
         }
         say("+ write %s running" % self.host.journal)
         self.save()
@@ -2308,7 +2315,23 @@ class Run:
         say("# " + (lines[-1] if ok else "page refused (the page step failed on the host, the live page stays)"))
 
     def finish(self) -> int:
+        from awb import devnote, projects
+
         self.journal["state"] = "done"
+        self.journal["notes_ready"] = (not self.journal["pending"] and not self.failed
+                                       and self.journal["target"] == self.target)
+        self.journal["commits"] = self.plan.get("commits", [self.target]) if self.journal["notes_ready"] else []
+        shared = self.caller.conf.get("shared") or str(Path(self.caller.owner.pw_dir) / "tcp-shared")
+        p = config.paths(shared=shared)
+        commits = projects.note_commits(self.journal)
+        reported = self.journal.get("reported_notes")
+        reported = [n for n in reported if isinstance(n, str)] if isinstance(reported, list) else []
+        for note in projects.held_notes(p):
+            if note["after"] in commits and note["file"] not in reported:
+                self.note_lines.append("%s: released note %s/%s after %s" % (
+                    note["project"], devnote.FOLDER, note["file"], note["after"]))
+                reported.append(note["file"])
+        self.journal["reported_notes"] = reported
         self.journal["finished"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         for kind in DAEMON_ORDER:
             r = (self.status.get(kind) or {}).get("release")
@@ -2727,6 +2750,8 @@ def root_deploy(opts: Options, host: Host) -> int:
                     say(line)
         if run.failed:
             say("# failed: %s" % " ".join(sorted(set(run.failed))))
+        for line in run.note_lines:
+            say(line)
         return code
     finally:
         os.close(lock)
