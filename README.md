@@ -366,6 +366,23 @@ and `projects`, the absolute project root. The folder must match the verified re
 No destination is guessed when the configuration is missing. The gateway keeps forbidden projects and their
 app destinations out of responses to a restricted login. `awb api check` checks the matching contract.
 
+New owner decisions in OPEN.md carry a date: `- YYYY-MM-DD owner: TEXT. Default: X.`.
+The project gate rejects a new undated item; unchanged legacy items keep their text.
+Run `awb open sweep` inside the project to see a numbered table of open owner items,
+ages in days (unknown for legacy undated items), text, defaults and evidence. A `taken`
+receipt requires `Default taken: X.` as a complete commit-message line or a cell in a
+RESOURCES.md handle row, matching the full default apart from case, whitespace and its
+final period. The table shows the commit hash or resource handle and row, never the raw
+evidence. Text that fails the name or secret check is withheld; an unavailable check
+refuses the sweep.
+
+After carrying out a default, run `awb open close N [N ...] --default` with numbers from
+the current sweep. This ticks the selected items, moves them under a Closed heading and
+writes one ledger entry for the selection. Numbers are reassigned on the next sweep.
+When more than 20 owner items remain, run the sweep and show the table once. The stop
+hook asks for that line in the reply once per local calendar day per project, starting
+at 21 items; its marker lives in the shared ledger's `.open-sweep/` folder.
+
 Every project keeps its status in the first two lines of `STATE.md` (`Status:` and `Next:`). A session cannot end
 a reply while its commits are newer than that status. Each of the two lines stays at most 300 characters and says no sentence twice; the stop hook holds a reply whose lines break that (with the two counts: move the detail below the two lines), `awb projects sync` lists the projects that do, and the board cuts a longer line at 300 characters with `...`. `awb board show` turns the status of every active project into
 one page for management: what each project waits on, its open items, its deliverables by review state and its live

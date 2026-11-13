@@ -11,7 +11,7 @@ awb report, awb career, awb write, awb voice, awb review, awb calc, awb hook, aw
 awb bucket, awb files, awb clean, awb import, awb words, awb reveal, awb price, awb pricebook, awb cloud, awb mirror, awb refresh,
 awb dataset, awb english, awb ask, awb inbox, awb xchg, awb howto, awb start, awb fetch, awb paste, awb material, awb keys,
 awb migrate, awb lab, awb tenant, awb api, awb service, awb board, awb web, awb owner, awb ui, awb build, awb pr,
-awb deploy, awb doc, awb pdf, awb winlab, awb platform-status, awb codex, awb exit, awb queue.
+awb deploy, awb doc, awb pdf, awb winlab, awb platform-status, awb codex, awb exit, awb queue, awb open.
 
 Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 
@@ -800,6 +800,7 @@ def _build() -> argparse.ArgumentParser:
 # Commands that live in their own module. Each module has main(argv) -> exit code and parses its own options
 # with cli.SafeParser. The module name is the first value, the help line the second.
 DELEGATED = {
+    "open": ("opensweep", "owner decisions in this project: sweep, close with defaults"),
     "exit": ("exitpack", "local recovery packs of client memory, transcripts and excluded files (owner side)"),
     "check": ("check", "check files for names and structured data"),
     "gate": ("gate", "the commit gate"),

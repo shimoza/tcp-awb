@@ -1260,8 +1260,14 @@ def hook_stop(data: dict) -> int:
         draft_lines = ["the draft check of the stop hook failed (%s): run awb write check on every draft you show"
                        % type(exc).__name__]
     drafts_msg = "\n".join(draft_lines) if draft_lines else None
+    open_msg = None
+    try:
+        from awb import opensweep
+        open_msg = opensweep.reminder(root)
+    except (OSError, UnicodeError, opensweep.OpenError):
+        pass
     # task GT: the stop hook never asks for a review, a tier or a request check
-    said = [m for m in (draft_msg, harvest_msg, late_msg, drafts_msg) if m]
+    said = [m for m in (draft_msg, harvest_msg, late_msg, drafts_msg, open_msg) if m]
     if said:
         print("\n".join(said), file=sys.stderr)
         return BLOCK

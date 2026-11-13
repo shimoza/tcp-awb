@@ -84,7 +84,7 @@ from awb import check, normalize, register
 from awb.extract import text as extract_text
 from awb.matcher import Matcher, Span
 
-CLASSES = ("name", "secret", "private-key", "token", "homepath", "blocklist", "identifier", "opaque", "attribution")
+CLASSES = ("name", "secret", "private-key", "token", "homepath", "blocklist", "identifier", "opaque", "attribution", "owner-date")
 BINARY_PROBE = 8192
 """A NUL byte in this many first bytes makes a file opaque."""
 _OPAQUE_MAGICS = (b"%PDF-", b"PK\x03\x04", b"\x1f\x8b")
@@ -905,6 +905,10 @@ def _scan_paths(files: Iterable[Path], matcher: Matcher | None) -> list[Finding]
             out.extend(sorted(found, key=_order))
             continue
         found.extend(_scan_bytes(str(f), data, matcher, f))
+        if f.name == "OPEN.md" and in_project(f.parent):
+            top = _toplevel(f.parent)
+            rel = f.resolve().relative_to(top).as_posix()
+            found.extend(_owner_dates(top, rel, data, str(f)))
         out.extend(sorted(set(found), key=_order))
     return out
 
@@ -1085,6 +1089,17 @@ def _object_types(top: Path, ids: list[str]) -> dict[str, str]:
     return types
 
 
+def _owner_dates(top: Path, rel: str, data: bytes, label: str) -> list[Finding]:
+    """Compare against HEAD, never the working copy: unchanged legacy items stay valid."""
+    from awb import opensweep
+
+    try:
+        old = _decode(_git(top, "show", "HEAD:" + rel))
+    except GateError:
+        old = ""  # a new file or an unborn branch has no grandfathered owner items
+    return [Finding(label, line, "owner-date") for line in opensweep.undated(_decode(data), old)]
+
+
 def _scan_staged(repo: Path, matcher: Matcher | None) -> list[Finding]:
     """Scan what the commit will carry: the staged content from the index and the staged path names."""
     top = _toplevel(Path(repo))
@@ -1098,6 +1113,8 @@ def _scan_staged(repo: Path, matcher: Matcher | None) -> list[Finding]:
             found.add(Finding(rel, 0, "opaque"))
         else:
             found.update(_scan_bytes(rel, data, matcher, top / rel))
+            if Path(rel).name == "OPEN.md" and in_project((top / rel).parent):
+                found.update(_owner_dates(top, rel, data, rel))
         out.extend(sorted(found, key=_order))
     return out
 
@@ -1556,7 +1573,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="awb gate",
         description="Refuse names, secrets, home paths, blocked words and ids. Prints class and file:line only.",
     )
-    ap.add_argument("--staged", action="store_true", help="scan the staged content of the repository")
+    ap.add_argument("--staged", action="store_true", help="scan the staged content; new owner items in project OPEN.md need an ISO date")
     ap.add_argument("--pushed", action="store_true",
                     help="scan every file of every commit a push carries (the pre-push lines on standard input)")
     ap.add_argument("--remote", default=None,

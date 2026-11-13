@@ -16001,8 +16001,78 @@
    "name": "owner exports: history sealed after import keeps fresh exports visible",
    "run": ".venv/bin/pytest tests/test_ownerwait_exports.py::test_history_sealed_after_import_keeps_fresh_exports_visible",
    "status": "passing"
+  },
+  {
+   "id": "UX6-1",
+   "phase": "UX6",
+   "name": "open sweep: sweep lists 25 ages and six proven defaults",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_sweep_lists_25_ages_and_six_proven_defaults",
+   "status": "passing"
+  },
+  {
+   "id": "UX6-2",
+   "phase": "UX6",
+   "name": "open sweep: close three ticks and writes exactly one ledger line",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_close_three_ticks_and_writes_exactly_one_ledger_line",
+   "status": "passing"
+  },
+  {
+   "id": "UX6-3",
+   "phase": "UX6",
+   "name": "open sweep: gate requires date only for new items in index and files",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_gate_requires_date_only_for_new_items_in_index_and_files",
+   "status": "passing"
+  },
+  {
+   "id": "UX6-4",
+   "phase": "UX6",
+   "name": "open sweep: gate does not grandfather duplicate or invalid date",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_gate_does_not_grandfather_duplicate_or_invalid_date",
+   "status": "passing"
+  },
+  {
+   "id": "UX6-5",
+   "phase": "UX6",
+   "name": "open sweep: stop reminder at 21 once per day and project",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_stop_reminder_at_21_once_per_day_and_project",
+   "status": "passing"
+  },
+  {
+   "id": "UX6-6",
+   "phase": "UX6",
+   "name": "open sweep: legacy sections checked items and unproven defaults",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_legacy_sections_checked_items_and_unproven_defaults",
+   "status": "passing"
+  },
+  {
+   "id": "UX6-7",
+   "phase": "UX6",
+   "name": "open sweep: sweep withholds names secrets and unsafe evidence",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_sweep_withholds_names_secrets_and_unsafe_evidence",
+   "status": "passing"
+  },
+  {
+   "id": "UX6-8",
+   "phase": "UX6",
+   "name": "open sweep: close refuses bad selection missing default and ledger failure",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_close_refuses_bad_selection_missing_default_and_ledger_failure",
+   "status": "passing"
+  },
+  {
+   "id": "UX6-9",
+   "phase": "UX6",
+   "name": "open sweep: work rules require date closure and sweep",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_work_rules_require_date_closure_and_sweep",
+   "status": "passing"
+  },
+  {
+   "id": "UX6-10",
+   "phase": "UX6",
+   "name": "open sweep: refuse missing or unavailable name check",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_sweep_refuses_when_the_name_check_is_unavailable",
+   "status": "passing"
   }
  ],
- "total_tests": 2286,
+ "total_tests": 2296,
  "checked": "2026-11-09"
 }

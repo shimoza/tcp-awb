@@ -542,6 +542,8 @@ The work user of the seal reads the mirrors read-only under `/srv/tcp-mirrors/`:
 | `awb platform-status pull`, `awb platform-status show` | the TCP platform on the board (B-042). `pull` reads the public T-Cloud Status Dashboard without a key: `GET /v2/events` (the last 50 events) and `GET /v2/components` (the regions of an event) over HTTPS, the host `status.otc-service.com` fixed in the code, 20 seconds for each call, at most 2 MB, no redirect, GET only. It replaces `<shared>/platform-status/state.tsv` atomically: a header row `pull` with the time of the pull (UTC), `ok` or the one word of the failure (`timeout`, `http`, `json`) and the time of the last good pull, then one `event` row for each incident that is open now (no end or an end in the future, status not resolved or completed) and each event that starts within the next 14 days and is not called off: type, status, impact 0 to 3, start, end, regions (EU-DE, EU-NL, EU-CH2, Global), the title cut to 100 characters and the event id. Every cell is matched against its form when it is written and again when the board reads it: an event with a type or status outside the word lists, an impact outside 0 to 3, a date that is not ISO or an id that is not a number is dropped; a region outside the list leaves the list and a title with a character that is not printable, a `\|` or a tab leaves its cell empty. A failed pull keeps the rows of the last good one and says the reason in the header; it exits 1. `show` prints the section "TCP platform" of the board alone, titles after the data check. Run it as the work user under a oneshot unit every 15 minutes (the unit, the timer and the egress row `status.otc-service.com` tcp 443 are the seal's); `GET /api/board` carries the same as the field `platform` |
 | `awb unlock` | owner side: `awb vault unlock`, then `awb keys unlock`, each asking its passphrase on the terminal as when run alone (never an argument, no `--stdin`); it stops at the first one that fails and says which |
 | `awb` | without arguments: the side (owner or work), the lock state of the vault and of the key service (`locked since TIME`, `unlocked`, `plain` or `no answer`) and the first owner item of OPEN.md over the active projects after the name check, a few lines, codes only. Exit 0 |
+| `awb open sweep` | inside a project: numbered open owner items with age, text, default and a taken receipt when a commit or RESOURCES.md handle row proves the default |
+| `awb open close N [N ...] --default` | tick the selected owner items, move them under Closed and write one ledger entry using their defaults; numbers come from the current sweep |
 | `awb close tcp-xxxx` | close a project (also a parked one; its line in `parked.tsv` goes): refused while OPEN.md holds items or RESOURCES.md lists a resource that is not deleted, kept or not created; `--force` closes anyway and says what is left; the project `recheck_project` of the host file names is refused without `--force` |
 | `awb english list [--month YYYY-MM]` | the English notes the sessions wrote, kept after a name check; once a month, the three that keep coming back |
 | `awb keys unlock` | load the keys and secrets of every tenant from your password store into the key service (`awb/tenant/<alias>/ak`, `sk`, `lab/ak`, `lab/sk`, `secret/<name>`, `login/domain\|user\|password` of a read-only tenant); after every start of the service. `awb keys lock` forgets them, `awb keys status` shows aliases, roles and secret names, never a value; in the owner terminal it compares store file modification times with the times captured at load, marking each field `store newer than loaded` without decryption or login (missing files and unknown load times are explicit). `awb keys reload` hands the service to a new process of the installed code and keeps the keys (what `awb deploy` and `systemctl reload awb-keyd.service` run). Your own shell |
@@ -742,3 +744,22 @@ On a sealed host `/usr/local/bin/awb` is a root owned wrapper that runs `/opt/tc
 so a package in the invoking user's site folder or on `PYTHONPATH` is never loaded ahead of the installed code. A
 project gets the hooks of that installed command only: `awb spawn` from the repository environment refuses on a
 sealed host (fail closed); run it as the work user.
+
+## Sweeping owner decisions
+
+New owner decisions in OPEN.md carry a date: `- YYYY-MM-DD owner: TEXT. Default: X.`.
+The project gate rejects a new undated item; unchanged legacy items keep their text.
+Run `awb open sweep` inside the project to see a numbered table of open owner items,
+ages in days (unknown for legacy undated items), text, defaults and evidence. A `taken`
+receipt requires `Default taken: X.` as a complete commit-message line or a cell in a
+RESOURCES.md handle row, matching the full default apart from case, whitespace and its
+final period. The table shows the commit hash or resource handle and row, never the raw
+evidence. Text that fails the name or secret check is withheld; an unavailable check
+refuses the sweep.
+
+After carrying out a default, run `awb open close N [N ...] --default` with numbers from
+the current sweep. This ticks the selected items, moves them under a Closed heading and
+writes one ledger entry for the selection. Numbers are reassigned on the next sweep.
+When more than 20 owner items remain, run the sweep and show the table once. The stop
+hook asks for that line in the reply once per local calendar day per project, starting
+at 21 items; its marker lives in the shared ledger's `.open-sweep/` folder.
