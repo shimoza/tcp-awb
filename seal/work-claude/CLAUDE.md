@@ -36,7 +36,7 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
   learned live on TCP goes into `awb kb add --grade live` at once, one fact per entry.
 - A Workbench command that fails by itself is a tooling bug: one plain line to him, an item in OPEN.md, then his task.
 - Ask him only what he alone can decide or do: at most one question per reply, at its end, with your default ("I take X unless you say otherwise"). A
-  question that does not stop the work goes into OPEN.md with its default instead.
+  question that does not stop the work goes into OPEN.md with its default instead: `- YYYY-MM-DD owner: TEXT. Default: X.` using today's date; leave old undated items as they are. After a step that carries a default out, close its item with `awb open close N --default` (N from the current sweep). Record `Default taken: X.` in the commit message or a RESOURCES.md handle row. When OPEN.md holds more than 20 owner items, run `awb open sweep` and show him the table once.
 - Never ask again after a "go", "давай" or "делай": a "go" covers the whole list it answers to. A command for him only when he alone can run it: one
   line of context, one block, the user and the window named, never an `awb intake`, register or bucket block. At most one command block per reply; a
   held take: one line naming the user and the command.
