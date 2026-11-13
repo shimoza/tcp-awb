@@ -104,3 +104,132 @@ def command(p: config.Paths, alias: str | None, today: datetime.date) -> list[st
         tenants.get(p, a)
         out += lines(p, a, today)
     return out or ["no tenant yet"]
+
+
+def preflight_hosts() -> list[str]:
+    """The same exact lists as doc fetch and lab obs fetch, without fetching a page."""
+    from awb import vendorhosts
+    from awb.tcp import doc
+
+    # The existing display readers tolerate missing files. Preflight must not mistake that for evidence.
+    doc.HOSTS_FILE.read_text(encoding="utf-8")
+    vendorhosts.VENDOR_FILE.read_text(encoding="utf-8")
+    extra = doc.extra_file()
+    if extra is not None:
+        extra.read_text(encoding="utf-8")
+    download, portals = vendorhosts.read()
+    return sorted((set(doc.current_hosts()) | set(download)) - set(portals))
+
+
+def preflight_access(p, row, grant, *, request=None, store=None):
+    """GET probes using only read keys. Never acquire a token or open a lab run.
+
+    The call socket exposes loaded timestamps, but no store stat or project grant RPC. On the work side
+    inaccessible owner metadata stays unknown. A successful work-side probe proves a project grant.
+    """
+    import json
+    from pathlib import Path
+
+    from awb import preflight, projects
+    from awb.tcp import keys, readonly
+
+    Check = preflight.Check
+    if not projects.tenant_access(row.kind):
+        return []
+    request = request or keys.request
+    store = Path(store) if store is not None else keys.store_root()
+    out = []
+    try:
+        answer = request(keys.call_socket(), {"op": "tenants"}, timeout=5)
+        if not isinstance(answer, dict) or not answer.get("ok") or not isinstance(answer.get("tenants"), dict):
+            raise ValueError()
+        held = answer["tenants"]
+        if any(not isinstance(a, str) or not keys._ALIAS_RE.fullmatch(a) or not isinstance(t, dict)
+               for a, t in held.items()):
+            raise ValueError()
+    except (OSError, ValueError, keys.KeysError):
+        held = {}
+        out.append(Check("tenants", "unknown", "key-service"))
+    try:
+        registered = {t.alias for t in tenants.load(p)}
+    except (OSError, ValueError):
+        registered = set()
+        out.append(Check("tenant-register", "unknown", "unreadable"))
+    try:
+        tenant_grants = json.loads(readonly.grants_path(p).read_text(encoding="utf-8"))
+        if not isinstance(tenant_grants, dict) or any(
+                not isinstance(a, str) or not keys._ALIAS_RE.fullmatch(a) or not isinstance(codes, list)
+                or any(not isinstance(code, str) for code in codes) for a, codes in tenant_grants.items()):
+            raise ValueError()
+    except FileNotFoundError:
+        tenant_grants = {}
+    except (OSError, ValueError):
+        tenant_grants = None
+    aliases = registered | set(held)
+    if tenant_grants is not None:
+        aliases |= {a for a, codes in tenant_grants.items() if isinstance(a, str)
+                    and keys._ALIAS_RE.fullmatch(a) and isinstance(codes, list) and row.code in codes}
+    if not aliases and not out:
+        out.append(Check("tenants", "unknown", "none-discovered"))
+    token = projects.read_key_token(Path(row.path))
+    for alias in sorted(aliases):
+        tenant = held.get(alias, {})
+        is_readonly = tenant.get("kind") == "readonly" or (
+            tenant_grants is not None and alias in tenant_grants)
+        if is_readonly and tenant_grants is not None and row.code not in tenant_grants.get(alias, []):
+            continue
+        if is_readonly and tenant_grants is None:
+            out.append(Check(alias + "/grant", "unknown", "unreadable"))
+        data, state = None, "unknown"
+        # A read-only login can POST to IAM while handling a GET. Do not enter that path, including write mode.
+        roles = tenant.get("roles")
+        if tenant and tenant.get("auth") in (None, "key") and isinstance(roles, list) and "read" in roles \
+                and not (is_readonly and tenant.get("mode") == "write"):
+            req = {"op": "call", "tenant": alias, "project": row.code, "token": token,
+                   "role": "read", "method": "GET", "service": "vpc",
+                   "path": "/v1/{project_id}/quotas", "query": {}, "body": None}
+            try:
+                response = request(keys.call_socket(), req, timeout=5)
+                if not isinstance(response, dict):
+                    raise ValueError()
+                status = response.get("status")
+                if response.get("ok") and type(status) is int and 200 <= status < 300:
+                    state, data = "ok", response.get("data")
+                    if grant.status == "unknown" and config.is_work_user():
+                        out.append(Check("grant", "ok", "kind=project"))
+                elif status in (401, 403) or "has no grant of the owner" in str(response.get("error", "")):
+                    state = "missing"
+                    if "has no grant of the owner" in str(response.get("error", "")):
+                        out.append(Check("grant", "missing", "kind=project"))
+            except (OSError, ValueError, keys.KeysError):
+                pass
+        out.append(Check(alias + "/read", state))
+        if is_readonly:
+            continue
+        resources = data.get("quotas", {}).get("resources", []) if isinstance(data, dict) \
+            and isinstance(data.get("quotas"), dict) else []
+        for label, types in (("eip", ("floatingip", "eip")), ("vpc", ("vpc",)),
+                             ("route-table", ("routetable", "route_table"))):
+            matches = [r for r in resources if isinstance(r, dict) and r.get("type") in types] \
+                if isinstance(resources, list) else []
+            quota = matches[0] if len(matches) == 1 else {}
+            used, cap = quota.get("used"), quota.get("quota")
+            valid = type(used) is int and type(cap) is int and used >= 0 and cap >= 0
+            free = max(0, cap - used) if valid else None
+            out.append(Check(alias + "/" + label, ("ok" if free else "missing") if valid else "unknown",
+                             "free=%d" % free if valid else "unreadable"))
+        for part in ("domain", "user", "password"):
+            entry = "awb/admin/%s/%s" % (alias, part)
+            stamps = tenant.get("store_times")
+            loaded = stamps.get(entry) if isinstance(stamps, dict) else None
+            state = "unknown"
+            if tenant and tenant.get("admin") in (None, False):
+                state = "missing"
+            elif tenant.get("admin") is True and type(loaded) is int and loaded > 0:
+                try:
+                    current = (store / (entry + ".gpg")).stat().st_mtime_ns
+                    state = "missing" if current > loaded else "ok"
+                except OSError:
+                    pass
+            out.append(Check(alias + "/admin/" + part, state, "store-age"))
+    return out

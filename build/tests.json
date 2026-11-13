@@ -16148,8 +16148,155 @@
    "name": "side sessions: the worktree gets the current template lines even when head has old ones",
    "run": ".venv/bin/pytest tests/test_side.py::test_the_worktree_gets_the_current_template_lines_even_when_head_has_old_ones",
    "status": "passing"
+  },
+  {
+   "id": "UX1-01",
+   "phase": "UX1",
+   "name": "project preflight: planted grant quota and host fail then all fixed",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_planted_grant_quota_and_host_fail_then_all_fixed",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-02",
+   "phase": "UX1",
+   "name": "project preflight: unanswered tenant and absent quota are unknown",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_unanswered_tenant_and_absent_quota_are_unknown",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-03",
+   "phase": "UX1",
+   "name": "project preflight: each capacity is checked including zero and malformed",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_each_capacity_is_checked_including_zero_and_malformed",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-04",
+   "phase": "UX1",
+   "name": "project preflight: grant kind and unreadable record are not ok",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_grant_kind_and_unreadable_record_are_not_ok",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-05",
+   "phase": "UX1",
+   "name": "project preflight: get only leaves real key service and uses target token",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_get_only_leaves_real_key_service_and_uses_target_token",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-06",
+   "phase": "UX1",
+   "name": "project preflight: store newer and unreadable age without login",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_store_newer_and_unreadable_age_without_login",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-07",
+   "phase": "UX1",
+   "name": "project preflight: login tenants and write mode do not spend login or use write key",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_login_tenants_and_write_mode_do_not_spend_login_or_use_write_key",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-08",
+   "phase": "UX1",
+   "name": "project preflight: each granted tenant probed and ungranted tenant skipped",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_each_granted_tenant_probed_and_ungranted_tenant_skipped",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-09",
+   "phase": "UX1",
+   "name": "project preflight: hosts in scope nested input and owner vendor lists",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_hosts_in_scope_nested_input_and_owner_vendor_lists",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-10",
+   "phase": "UX1",
+   "name": "project preflight: unreadable inputs and symlinks are unknown",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_unreadable_inputs_and_symlinks_are_unknown",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-11",
+   "phase": "UX1",
+   "name": "project preflight: output never contains names urls secrets or error text",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_output_never_contains_names_urls_secrets_or_error_text",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-12",
+   "phase": "UX1",
+   "name": "project preflight: hook shows only non ok once per session",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_hook_shows_only_non_ok_once_per_session",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-13",
+   "phase": "UX1",
+   "name": "project preflight: spawn start and unpark print preflight",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_spawn_start_and_unpark_print_preflight",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-14",
+   "phase": "UX1",
+   "name": "project preflight: work side infers grant only from successful read",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_work_side_infers_grant_only_from_successful_read",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-15",
+   "phase": "UX1",
+   "name": "project preflight: query checks grant and hosts without tenant calls",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_query_checks_grant_and_hosts_without_tenant_calls",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-16",
+   "phase": "UX1",
+   "name": "project preflight: unavailable service and malformed metadata are unknown",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_unavailable_service_and_malformed_metadata_are_unknown",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-17",
+   "phase": "UX1",
+   "name": "project preflight: malformed tenant fields preserve checks",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_malformed_tenant_fields_preserve_checks",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-18",
+   "phase": "UX1",
+   "name": "project preflight: bad grant list and unreadable register do not hide tenants",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_bad_grant_list_and_unreadable_register_do_not_hide_tenants",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-19",
+   "phase": "UX1",
+   "name": "project preflight: denied and malformed tenant responses do not pass",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_denied_and_malformed_tenant_responses_do_not_pass",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-20",
+   "phase": "UX1",
+   "name": "project preflight: symlinked input root is unknown without reading target",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_symlinked_input_root_is_unknown_without_reading_target",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-21",
+   "phase": "UX1",
+   "name": "project preflight: start and preflight help never read project register",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_start_and_preflight_help_never_read_project_register",
+   "status": "passing"
   }
  ],
- "total_tests": 2307,
+ "total_tests": 2328,
  "checked": "2026-11-09"
 }

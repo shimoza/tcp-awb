@@ -401,6 +401,15 @@ count and list. The items under a heading of OPEN.md that has closed, done, erle
 the counts of an active project as well. A parked project keeps its folder, grants and tenants, takes material, and
 `awb close` still works on it.
 
+`awb projects preflight CODE` checks the granted kind, tenant reads, free EIP/VPC/route-table quotas, hosts in
+SCOPE.md and input/, and lab admin store freshness. Each line shows a code, a handle and `ok`, `missing` or
+`unknown`; exit 0 means all checks passed, otherwise exit 1. It uses GET with read keys and spends no login.
+Inaccessible owner grant records or store timestamps and login-backed tenants remain unknown. Hosts use stable
+hashed handles so names and URLs stay out of the report. Spawn, start and unpark print the same report without
+changing their operation's exit status; session-start shows non-ok lines once per session and project.
+Start prints the report before its final `open:` line and, with `--from DIR`, its final `app:` line.
+Unreadable or malformed evidence stays unknown, and symlinked input files and directories are not followed.
+
 The console is the web side of the same work, behind a sign-in. Before the sign-in a request holds one of 64 slots
 (at most 4 per address) and has 5 seconds for its headers and its body; a signed-in request has 20 seconds for its
 body. It lists the projects with their status, files and

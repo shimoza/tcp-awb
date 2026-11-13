@@ -280,7 +280,33 @@ def _cmd_spawn(args, p: config.Paths) -> int:
     except ledger.LedgerError as err:
         print("awb spawn: the first ledger entry was not written (%s); add it with awb ledger add" % err,
               file=sys.stderr)
+    _print_preflight(p, pr.code)
     return EXIT_OK
+
+
+def preflight_checks(p: config.Paths, code: str):
+    """The platform boundary for the command and the session hook."""
+    from awb import preflight
+
+    if not codes.is_project_code(code):
+        from awb import projects
+
+        raise projects.ProjectError("preflight needs a project code")
+    if not code.startswith("tcp-"):
+        return preflight.checks(p, code, lambda *_: [preflight.Check("platform", "unknown")],
+                                lambda: (_ for _ in ()).throw(OSError()))
+    adapter = importlib.import_module("awb.%s.tenanttags" % DELEGATED["tenant"][0].rsplit(".", 1)[0])
+    return preflight.checks(p, code, adapter.preflight_access, adapter.preflight_hosts)
+
+
+def _print_preflight(p: config.Paths, code: str) -> int:
+    from awb import preflight
+
+    return preflight.report(code, preflight_checks(p, code))
+
+
+def _cmd_projects_preflight(args, p: config.Paths) -> int:
+    return _print_preflight(p, args.code)
 
 
 def _lock_word(probe) -> str:
@@ -453,12 +479,14 @@ def _cmd_projects_unpark(args, p: config.Paths) -> int:
         return EXIT_ERROR
     if before == "active":
         print("%s is active already" % row.code)
+        _print_preflight(p, row.code)
         return EXIT_OK
     print("unparked %s: it is active again" % row.code)
     try:
         projects.record(p, row, "Unparked %s" % row.code)
     except ledger.LedgerError:
         print("awb projects: the ledger entry was not written", file=sys.stderr)
+    _print_preflight(p, row.code)
     return EXIT_OK
 
 
@@ -752,6 +780,9 @@ def _build() -> argparse.ArgumentParser:
     s.add_argument("--paths", action="store_true", help="the folder of each project instead of its goal")
     s.add_argument("--all", action="store_true", help="also the deleted projects")
     s.set_defaults(func=_cmd_projects_list)
+    s = psub.add_parser("preflight", help="read-only access checks: ok, missing or unknown; exit 1 unless all ok")
+    s.add_argument("code")
+    s.set_defaults(func=_cmd_projects_preflight)
     s = psub.add_parser("kind", help="switch a project between query (knowledge only) and project (test tenants)")
     s.add_argument("code")
     s.add_argument("kind", choices=("query", "project"))

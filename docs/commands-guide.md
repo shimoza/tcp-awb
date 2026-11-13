@@ -532,8 +532,29 @@ The work user of the seal reads the mirrors read-only under `/srv/tcp-mirrors/`:
 
 ## Projects
 
+`awb projects preflight CODE` checks access from the work side without changing the project. Each line carries
+the project code, a check handle and `ok`, `missing` or `unknown`. It checks the granted kind, one GET with the
+read key per reachable granted tenant, free EIPs, VPCs and route tables on lab tenants, hosts in SCOPE.md and
+input/ against the documentation and vendor download lists, and loaded lab admin timestamps against the store.
+Hosts and unreadable files use stable hashed handles; names, URLs, secrets and upstream errors are never printed.
+The documentation list includes the owner's additions; vendor portal hosts remain missing. Unreadable files,
+unavailable quota fields, inaccessible grant records and store timestamps are unknown. Login-backed tenants
+and read-only tenants in write mode are unknown: checking them could spend a login or use a write credential.
+A successful work-side read proves a project grant when its record cannot be read locally. The current key
+service has no work-side RPC for the owner's tenant grant list or current store timestamps; these checks stay
+unknown when those files are inaccessible. Queries check grants and hosts but make no tenant calls.
+Malformed evidence stays unknown. Symlinked input files and directories, including input/ itself, are not
+followed and report unknown. Command help does not read the project register or contact the key service.
+
+Exit 0 means every check is ok; any missing or unknown check returns 1. `awb spawn`, `awb start` and
+`awb projects unpark` also print the report, while preserving their operation's exit status. Start prints the
+report before its final `open:` line and, with `--from DIR`, its final `app:` line. The session-start
+hook includes only the non-ok lines, once per session and project. Preflight never fetches documents, repairs
+access, writes a project token or attempts a login.
+
 | command | what it does |
 |---|---|
+| `awb projects preflight CODE` | read-only access report; exit 1 for any missing or unknown check |
 | `awb spawn query --goal "..." [--customer new] --tag iam` | a query `tcp-<code>` with its files, hooks and git: the knowledge base, the docs mirror, live prices and calculations, no test tenant (the key service refuses it). It ends with the project's folder `<YYYY-MM>/tcp-<code>/` with `in/` and `out/` in the owner bucket, made by the key service; when the service cannot be reached it says so in one line and goes on (the first take or `awb bucket folder CODE` makes it). The console's creation runs the same spawn |
 | `awb spawn project --goal "..." [--customer new] --tag vpn` | a project: everything a query has plus the test tenants through the key service |
 | `awb spawn project --goal "..." --tag vpn --tenant test-1` | a project whose SCOPE.md carries the line `- tenant: test-1`; `awb lab run` takes it as its default tenant. Refused for a query and for an alias that does not read like `test-1` |

@@ -152,7 +152,7 @@ def app_line(p: config.Paths, code: str) -> str:
 def start(p: config.Paths, kind: str, goal: str, customer: str | None = None, tags: list[str] = (), *,
           run=subprocess.run, read=None, tty=None, review_tier: int | None = None, from_dir: str | None = None,
           trusted: bool = False) -> int:
-    from awb import vault
+    from awb import cli, vault
 
     if config.is_work_user() or vault.in_assistant_session():
         raise StartError("awb start runs on the owner side, in your own terminal")
@@ -179,6 +179,7 @@ def start(p: config.Paths, kind: str, goal: str, customer: str | None = None, ta
     except (StartError, importcmd.ImportRefused, intake.IntakeError, register.RegisterError,
             projects.ProjectError) as err:
         raise StartError("%s is spawned; then: %s" % (code, err)) from None
+    cli._print_preflight(p, code)
     _say("open: awb projects open %s" % code)
     if from_dir:
         _say(app_line(p, code))

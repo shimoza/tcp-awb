@@ -1519,6 +1519,7 @@ def hook_session_start(data: dict) -> int:
         parts.append(_section(root, "STATE.md", STATE_LINES, notes, down))
         parts.append(_section(root, "OPEN.md", None, notes, down))
         notes += _project_notes(p, root, data.get("session_id"), shown)
+        notes += _preflight_notes(p, root, data.get("session_id"))
     expired = _kb_expired(p)
     if expired is not None:
         notes.append("knowledge base: %d expired entries (awb kb expired)" % expired)
@@ -1534,6 +1535,28 @@ def hook_session_start(data: dict) -> int:
         body += "\n## Checks\n\n%s\n" % "\n".join("- %s" % n for n in notes)
     _emit(EVENTS["session-start"], body)
     return OK
+
+
+def _preflight_notes(p: config.Paths, root: Path, sid) -> list[str]:
+    """Only non-ok checks, claimed once per session and project across hook processes."""
+    from awb import cli, codes, preflight
+
+    if not codes.is_project_code(root.name):
+        return []
+    if isinstance(sid, str) and sid:
+        mark = p.shared / "sessions" / (preflight.handle("preflight", sid + ":" + root.name) + ".seen")
+        try:
+            mark.parent.mkdir(parents=True, exist_ok=True)
+            with mark.open("x", encoding="utf-8"):
+                pass
+        except FileExistsError:
+            return []
+        except OSError:
+            pass
+    try:
+        return [c.line(root.name) for c in cli.preflight_checks(p, root.name) if c.status != "ok"]
+    except Exception:
+        return [preflight.Check("preflight", "unknown", "unreadable").line(root.name)]
 
 
 def for_this_user() -> bool:
