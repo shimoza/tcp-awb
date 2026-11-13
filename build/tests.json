@@ -16117,8 +16117,8 @@
   {
    "id": "ss-7",
    "phase": "ss",
-   "name": "side sessions: the project rules tell a session how to split work off",
-   "run": ".venv/bin/pytest tests/test_side.py::test_the_project_rules_tell_a_session_how_to_split_work_off",
+   "name": "side sessions: the work rules tell a session how to split work off",
+   "run": ".venv/bin/pytest tests/test_side.py::test_the_work_rules_tell_a_session_how_to_split_work_off",
    "status": "passing"
   },
   {
@@ -16127,15 +16127,8 @@
    "name": "side sessions: the command is wired and documented",
    "run": ".venv/bin/pytest tests/test_side.py::test_the_command_is_wired_and_documented",
    "status": "passing"
-  },
-  {
-   "id": "ss-9",
-   "phase": "ss",
-   "name": "side sessions: sync appends the side rule to the note line of an older project once",
-   "run": ".venv/bin/pytest tests/test_side.py::test_sync_appends_the_side_rule_to_the_note_line_of_an_older_project_once",
-   "status": "passing"
   }
  ],
- "total_tests": 2305,
+ "total_tests": 2304,
  "checked": "2026-11-09"
 }

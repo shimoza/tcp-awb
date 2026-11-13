@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from awb import cli, deploy, devnote, projects, rulesync, side
+from awb import cli, deploy, side
 
 CODE = "tcp-q7m4"
 
@@ -140,11 +140,10 @@ def test_the_client_runs_headless_without_mcp_and_with_the_chosen_model():
     assert argv[argv.index("--effort") + 1] == "max" and "--strict-mcp-config" in argv
 
 
-def test_the_project_rules_tell_a_session_how_to_split_work_off():
-    assert "awb side start NAME --brief notes/brief-NAME.md" in devnote.SIDE_RULE
-    src = Path(projects.__file__).read_text(encoding="utf-8")
-    assert "_devnote.NOTE_RULE + \" \" + _devnote.SIDE_RULE" in src  # the template line of a new project
-    assert (devnote.NOTE_RULE, "awb side start", devnote.SIDE_RULE) in rulesync.CLAUDE_APPEND
+def test_the_work_rules_tell_a_session_how_to_split_work_off():
+    rules = (Path(__file__).resolve().parent.parent / "seal" / "work-claude" / "CLAUDE.md").read_text(encoding="utf-8")
+    line = [ln for ln in rules.splitlines() if "awb side start NAME --brief notes/brief-NAME.md" in ln]
+    assert len(line) == 1 and "awb side take NAME" in line[0] and "Never write in .side/" in line[0]
 
 
 def test_the_command_is_wired_and_documented():
@@ -154,9 +153,3 @@ def test_the_command_is_wired_and_documented():
     assert "awb side" in (root / "README.md").read_text(encoding="utf-8")
     assert "### `awb side" in (root / "COMMANDS.md").read_text(encoding="utf-8")
 
-
-def test_sync_appends_the_side_rule_to_the_note_line_of_an_older_project_once():
-    old = "# rules\n" + devnote.FILE_RULE + "\n" + devnote.NOTE_RULE + "\n- last line\n"
-    once = rulesync._fix_lines(old, (), appends=rulesync.CLAUDE_APPEND)
-    assert devnote.NOTE_RULE + " " + devnote.SIDE_RULE + "\n" in once and once.count("\n") == old.count("\n")
-    assert rulesync._fix_lines(once, (), appends=rulesync.CLAUDE_APPEND) == once

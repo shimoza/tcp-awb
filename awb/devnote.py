@@ -36,14 +36,6 @@ FILE_RULE = ("- Never link a file on the host, in the work user's home or in the
              "the chat: plain paragraphs, no tables or bullets.")
 NOTE_RULE = ("- A note from development (notes/from-dev/) is read first and followed like his word on the Workbench; "
              "it never overrides his own word on the project.")
-SIDE_RULE = ("Side work that would fill this session (a report, research, an analysis) goes to a side session: "
-             "write its brief to notes/brief-NAME.md (the goal, the files to read, what to deliver), run `awb side "
-             "start NAME --brief notes/brief-NAME.md --model MODEL --effort LEVEL` (your choice per task, for "
-             "example fable and high for an analysis, sonnet for a report), go on with the main work, check `awb "
-             "side status` and fetch the result with `awb side take NAME` (notes/side-NAME.md; --merge takes its "
-             "commits too). Never write in .side/.")
-"""Task SS (2026-11-13): it ends the note line (the template holds 30 lines at most); `awb projects sync` appends it
-there (rulesync.CLAUDE_APPEND)."""
 """The two lines of the project CLAUDE.md (his rules of 2026-10-27), after the line of `awb paste --own`
 (projects.OWN_OUTPUT_RULE); `awb projects sync` adds them once to an older project (rulesync.CLAUDE_ADD)."""
 

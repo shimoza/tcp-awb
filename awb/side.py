@@ -7,7 +7,7 @@ its own next to the main session, so it does not fill the main session's context
     awb side stop NAME
     awb side drop NAME
 
-It runs in the root of a project folder (tcp-xxxx or hcs-xxxx). `start` makes a git worktree .side/NAME on the
+It runs in the root of a project folder (a project code). `start` makes a git worktree .side/NAME on the
 branch side/NAME (`.side/` goes into .git/info/exclude, never into a commit), and starts a headless client session
 there in the background with the brief as its task: the brief is a file of the project the main session writes,
 so the side session gets that text and the files it names, never the main session's context. The side session is
@@ -49,7 +49,6 @@ DEFAULT_EFFORT = "medium"
 CLIENT_ENV = "AWB_SIDE_CLIENT"
 _NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,30}")
 _MODEL_RE = re.compile(r"[a-z0-9][a-z0-9.\-\[\]]{0,59}")
-_PROJECT_RE = re.compile(r"(?:tcp|hcs)-[a-z0-9]{4}")
 _DROP_ENV = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT")
 
 PREAMBLE = """You are a side session of project {code}, started by its main session for one piece of side work.
@@ -74,7 +73,9 @@ def now() -> str:
 
 def project_root(cwd: Path | None = None) -> Path:
     root = (cwd or Path.cwd()).resolve()
-    if not _PROJECT_RE.fullmatch(root.name) or not (root / ".git").exists() or not (root / "CLAUDE.md").is_file():
+    from awb import codes
+
+    if not codes.is_project_code(root.name) or not (root / ".git").exists() or not (root / "CLAUDE.md").is_file():
         raise SideError("run awb side in the root of a project folder (tcp-xxxx)")
     if (root / ".git").is_file():
         raise SideError("run awb side in the main folder of the project, not in a side session")

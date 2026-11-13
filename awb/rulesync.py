@@ -93,8 +93,7 @@ CLAUDE_ADD += (("- " + OWN_OUTPUT_RULE, devnote.FILE_RULE, "he cannot open it"),
 CLAUDE_ADD += (("- " + OWN_OUTPUT_RULE, LAB_LOGS, "Logs of our own lab runs"),)
 """Task GT: the lab log line goes right after the line of P1, before the lines of DN."""
 CLAUDE_APPEND = (("- Files for him leave with `awb xchg put FILE`", "--kind WORD", PUT_KEY_RULE),
-                 ("- " + START_RULE, OPEN_COMMAND_RULE, OPEN_COMMAND_RULE),
-                 (devnote.NOTE_RULE, "awb side start", devnote.SIDE_RULE))
+                 ("- " + START_RULE, OPEN_COMMAND_RULE, OPEN_COMMAND_RULE))
 """(line start, marker, text): the text goes at the end of the line unless the line carries the marker. Task BK1
 (2026-11-06): the kind word and the language of a put join the put line (the template holds 30 lines at most)."""
 CLAUDE_CUT = (
