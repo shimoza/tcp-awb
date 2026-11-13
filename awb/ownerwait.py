@@ -5,6 +5,7 @@ The sources, read on the owner's side only:
 - the owner items of OPEN.md of every active project (a parked project is a count, nothing more);
 - the rows of presentations/work-profile/queue.tsv of the owner's repository whose who is owner
   (the file may be missing: then the rows are skipped);
+- export-* folders in the owner's home with a file younger than 30 days and no file in the import history;
 - the build runs that wait on him (asked, red, held, green), with the commands of `awb build nudge`;
 - the last weekly publish of the dataset TCP Facts (task KS, awb-dataset-weekly.timer, Monday 06:00 UTC): a failed
   one is the item "dataset: weekly publish failed: <reason>" until a publish succeeds; a successful one is a note
@@ -30,9 +31,12 @@ mail is not sent.
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import os
 import re
+import shlex
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -153,6 +157,128 @@ def queue_items(path: Path | None = None) -> list[Item]:
         cmd = projects.item_command(nxt) if nxt else None
         words = _short(what or nxt or cells[cols["state"]])
         out.append(Item(_short(cells[0])[:20], words, WHERE_TERMINAL if cmd else WHERE_STEERING, cmd))
+    return out
+
+
+def _export_hash(path: Path) -> str:
+    """Hash bytes without decoding content, following file links or opening special files."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise OSError("not a regular file")
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def _import_hashes(p: config.Paths) -> set[str] | None:
+    """Hash originals recorded by intake reports. Unknown history never means 'not imported'.
+
+    The existing import log is the private report's Files table, not a digest index. Only its recorded originals
+    count, including sealed originals opened through the owner's vault daemon. No report text leaves this reader.
+    """
+    import base64
+
+    from awb import candidates, vault_client
+
+    found: set[str] = set()
+    seen: set[Path] = set()
+    try:
+        for report in p.private_reports.glob("*/*.md*"):
+            if report.is_symlink() or report.suffix not in (".md", ".gpg"):
+                continue
+            text = candidates.read_report(report)
+            if "- mode: stopped for the review" in text:
+                continue
+            inside = False
+            for line in text.splitlines():
+                if line.startswith("## "):
+                    inside = line == "## Files"
+                if not inside or not line.startswith("| F-"):
+                    continue
+                cells = candidates._cells(line)
+                if len(cells) != 6 or cells[5] in ("", "not moved"):
+                    continue
+                original = Path(cells[5])
+                # Encrypting an existing vault seals the file without rewriting older reports.
+                if original.suffix != ".gpg" and not original.exists():
+                    original = original.with_name(original.name + ".gpg")
+                if not original.resolve().is_relative_to(p.originals.resolve()):
+                    return None
+                if original in seen:
+                    continue
+                seen.add(original)
+                if original.suffix == ".gpg":
+                    answer = vault_client.admin_call("open_file", p.admin_sock, path=str(original))
+                    digest = hashlib.sha256(base64.b64decode(answer["data"], validate=True)).hexdigest()
+                else:
+                    digest = _export_hash(original)
+                found.add(digest)
+    except (OSError, UnicodeError, ValueError, KeyError, candidates.ReviewError, vault_client.VaultError):
+        return None
+    return found
+
+
+def _export_code(folder: Path, rows: list[dict[str, str]]) -> str | None:
+    from awb import codes
+
+    # Match the whole folder token, never export-1 inside export-10. Conflicting rows need an owner decision.
+    mention = re.compile(r"(?<![\w.-])%s(?![\w.-])" % re.escape(folder.name))
+    queued = {r["project"] for r in rows if r["project"] and
+              any(mention.search(t) for t in (r["what"], r["next"]))}
+    choices = queued or set(codes.PROJECT_RE.findall(folder.name))
+    return next(iter(choices)) if len(choices) == 1 else None
+
+
+def export_items(p: config.Paths, queue: Path | None = None) -> list[Item]:
+    """Recent, wholly unimported exports. File names and content never enter an item, only folder and count."""
+    from awb import ledger, workqueue
+
+    queue = queue or queue_file()
+    try:
+        rows = workqueue.load(queue) if queue.suffix != ".md" else []
+    except (workqueue.QueueError, ledger.LedgerError, OSError, UnicodeError):
+        rows = []
+    cutoff = datetime.datetime.now(datetime.timezone.utc).timestamp() - 30 * 86400
+    imported = None
+    out = []
+    for folder in sorted(Path.home().glob("export-*")):
+        if folder.is_symlink() or not folder.is_dir():
+            continue
+        try:
+            files = []
+
+            def failed(error):
+                raise error
+
+            for root, dirs, names in os.walk(folder, onerror=failed, followlinks=False):
+                dirs[:] = [d for d in dirs if not (Path(root) / d).is_symlink()]
+                for name in names:
+                    path = Path(root) / name
+                    info = path.lstat()
+                    if stat.S_ISREG(info.st_mode):
+                        files.append((path, info.st_mtime))
+            if not files or max(mtime for _, mtime in files) <= cutoff:
+                continue
+            if imported is None:
+                imported = _import_hashes(p)
+                if imported is None:
+                    return []
+            if any(_export_hash(path) in imported for path, _ in files):
+                continue
+        except OSError:
+            continue
+        try:
+            unsafe = ledger.screen(folder.name, ledger.register_path(p), candidates=False)
+        except ledger.LedgerError:
+            unsafe = True
+        if unsafe or any(ord(c) < 32 or ord(c) == 127 for c in str(folder)):
+            out.append(Item("?", ledger.WITHHELD, WHERE_TERMINAL, kind="export"))
+            continue
+        code = _export_code(folder, rows)
+        directory = shlex.quote(str(folder))
+        command = ("awb import %s --trusted %s" % (code, directory) if code else
+                   'awb start project --from %s --trusted --goal "..."' % directory)
+        out.append(Item("export " + folder.name, "%d files, not imported" % len(files), WHERE_TERMINAL,
+                        command, "export"))
     return out
 
 
@@ -435,6 +561,7 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
     p = p or config.paths()
     items, parked = open_items(p)
     items += queue_items(queue)
+    items += export_items(p, queue)
     items += build_items(runs)
     items += dataset_items()
     items += refresh_items()
@@ -489,7 +616,10 @@ def render(items: list[Item], parked: int, note_lines: list[str] | tuple = ()) -
         if it.kind == "more":
             lines.append(it.text)
             continue
-        lines.append("%s  %s  [%s]" % (it.label, it.text, it.where) if it.where else "%s: %s" % (it.label, it.text))
+        if it.kind == "export":
+            lines.append("%s: %s  [%s]" % (it.label, it.text, it.where))
+        else:
+            lines.append("%s  %s  [%s]" % (it.label, it.text, it.where) if it.where else "%s: %s" % (it.label, it.text))
         for ln in (it.block or "").splitlines():
             lines.append("    %s" % ln)
     if parked:

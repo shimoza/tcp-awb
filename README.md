@@ -858,6 +858,16 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | hand a bounded code task to Codex | `awb codex run ID.txt`, `awb codex status` | the task checked (`Paths:` and `Acceptance:` lines needed), a worktree on `codex/ID` and `ID/result.md` with the diff stat and any file outside `Paths:`; nothing committed, the steering session reviews and commits |
 | hand a UI task to Codex | `awb ui submit presentations/ui-tasks/ID.txt`, `awb ui status` | the task checked and queued; a result note in `presentations/ui-tasks/` when the run ends |
 
+`awb owner status` also lists each `export-*` folder directly in the owner's home whose newest regular file is
+younger than 30 days and none of whose files matches an imported original by SHA-256. Files are counted
+recursively; links are skipped. Import history is read from the private intake reports and the originals they
+record, including sealed originals through the vault daemon. The line is `export NAME: N files, not imported
+[his terminal]`. Only the folder name and count appear, never file names or content. A registered name or
+secret in the folder name withholds the item and its command. A matching open queue row supplies the project
+code before the folder name does: `awb import CODE --trusted DIR`. Without an unambiguous code, the command is
+`awb start project --from DIR --trusted --goal "..."`. A folder with any imported file is omitted; unreadable
+import history gives no export claims.
+
 ## Console how-tos
 
 A how-to for the TCP console starts from the private console reference and never from memory. `awb howto draft

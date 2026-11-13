@@ -15903,8 +15903,106 @@
    "name": "open work queue: failed done removal keeps archive and hides completed row",
    "run": ".venv/bin/pytest tests/test_work_queue.py::test_failed_done_removal_keeps_archive_and_hides_completed_row",
    "status": "passing"
+  },
+  {
+   "id": "UX9-01",
+   "phase": "UX9",
+   "name": "owner exports: imported copy is absent and real import removes fresh export",
+   "run": ".venv/bin/pytest tests/test_ownerwait_exports.py::test_imported_copy_is_absent_and_real_import_removes_fresh_export",
+   "status": "passing"
+  },
+  {
+   "id": "UX9-02",
+   "phase": "UX9",
+   "name": "owner exports: newest file controls age with strict thirty day boundary",
+   "run": ".venv/bin/pytest tests/test_ownerwait_exports.py::test_newest_file_controls_age_with_strict_thirty_day_boundary",
+   "status": "passing"
+  },
+  {
+   "id": "UX9-03",
+   "phase": "UX9",
+   "name": "owner exports: folder code gives trusted import command",
+   "run": ".venv/bin/pytest tests/test_ownerwait_exports.py::test_folder_code_gives_trusted_import_command",
+   "status": "passing"
+  },
+  {
+   "id": "UX9-04",
+   "phase": "UX9",
+   "name": "owner exports: matching queue row takes priority without prefix matches",
+   "run": ".venv/bin/pytest tests/test_ownerwait_exports.py::test_matching_queue_row_takes_priority_without_prefix_matches",
+   "status": "passing"
+  },
+  {
+   "id": "UX9-05",
+   "phase": "UX9",
+   "name": "owner exports: unknown or ambiguous code gives shell quoted start command",
+   "run": ".venv/bin/pytest tests/test_ownerwait_exports.py::test_unknown_or_ambiguous_code_gives_shell_quoted_start_command",
+   "status": "passing"
+  },
+  {
+   "id": "UX9-06",
+   "phase": "UX9",
+   "name": "owner exports: file names and content never enter status or mail",
+   "run": ".venv/bin/pytest tests/test_ownerwait_exports.py::test_file_names_and_content_never_enter_status_or_mail",
+   "status": "passing"
+  },
+  {
+   "id": "UX9-07",
+   "phase": "UX9",
+   "name": "owner exports: registered folder name is withheld with its command",
+   "run": ".venv/bin/pytest tests/test_ownerwait_exports.py::test_registered_folder_name_is_withheld_with_its_command",
+   "status": "passing"
+  },
+  {
+   "id": "UX9-08",
+   "phase": "UX9",
+   "name": "owner exports: secret and control characters in folder are withheld",
+   "run": ".venv/bin/pytest tests/test_ownerwait_exports.py::test_secret_and_control_characters_in_folder_are_withheld",
+   "status": "passing"
+  },
+  {
+   "id": "UX9-09",
+   "phase": "UX9",
+   "name": "owner exports: unavailable name check withholds export and refuses mail",
+   "run": ".venv/bin/pytest tests/test_ownerwait_exports.py::test_unavailable_name_check_withholds_export_and_refuses_mail",
+   "status": "passing"
+  },
+  {
+   "id": "UX9-10",
+   "phase": "UX9",
+   "name": "owner exports: any logged hash excludes folder but unlogged original does not",
+   "run": ".venv/bin/pytest tests/test_ownerwait_exports.py::test_any_logged_hash_excludes_folder_but_unlogged_original_does_not",
+   "status": "passing"
+  },
+  {
+   "id": "UX9-11",
+   "phase": "UX9",
+   "name": "owner exports: empty nonexport links and special files are not exports",
+   "run": ".venv/bin/pytest tests/test_ownerwait_exports.py::test_empty_nonexport_links_and_special_files_are_not_exports",
+   "status": "passing"
+  },
+  {
+   "id": "UX9-12",
+   "phase": "UX9",
+   "name": "owner exports: sealed import history uses plaintext hash without displaying it",
+   "run": ".venv/bin/pytest tests/test_ownerwait_exports.py::test_sealed_import_history_uses_plaintext_hash_without_displaying_it",
+   "status": "passing"
+  },
+  {
+   "id": "UX9-13",
+   "phase": "UX9",
+   "name": "owner exports: unreadable import history does not claim unimported",
+   "run": ".venv/bin/pytest tests/test_ownerwait_exports.py::test_unreadable_import_history_does_not_claim_unimported",
+   "status": "passing"
+  },
+  {
+   "id": "UX9-14",
+   "phase": "UX9",
+   "name": "owner exports: history sealed after import keeps fresh exports visible",
+   "run": ".venv/bin/pytest tests/test_ownerwait_exports.py::test_history_sealed_after_import_keeps_fresh_exports_visible",
+   "status": "passing"
   }
  ],
- "total_tests": 2272,
+ "total_tests": 2286,
  "checked": "2026-11-09"
 }

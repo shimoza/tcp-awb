@@ -338,6 +338,16 @@ count and keeps what it finds. The classes: `probe`, `metadata`, `dns`, `ntp`, `
 | `awb owner status --json [--write]` | the owner level's status: the vault and the key service, the release, the page, the UI runs and the intake counts per customer code, codes and states only; `--write` checks every field and the names and writes `/var/lib/awb-owner-mail/status.json` for owner-actions (its timer runs it every minute as you) |
 | `sudo awb web host HOST` | the host name of the owner level in `/etc/awb/paths.conf` (`owner_host`), one level under the zone of the site and not the site itself; once, before the deploy that brings the owner level (the web side's installer stops without it) |
 
+`awb owner status` also lists each `export-*` folder directly in the owner's home whose newest regular file is
+younger than 30 days and none of whose files matches an imported original by SHA-256. Files are counted
+recursively; links are skipped. Import history is read from the private intake reports and the originals they
+record, including sealed originals through the vault daemon. The line is `export NAME: N files, not imported
+[his terminal]`. Only the folder name and count appear, never file names or content. A registered name or
+secret in the folder name withholds the item and its command. A matching open queue row supplies the project
+code before the folder name does: `awb import CODE --trusted DIR`. Without an unambiguous code, the command is
+`awb start project --from DIR --trusted --goal "..."`. A folder with any imported file is omitted; unreadable
+import history gives no export claims.
+
 A refusal names the class of the finding (name, secret, token, private-key, html) and never the text. Under sudo the
 page is read and checked as you; root only keeps the backup and installs.
 
