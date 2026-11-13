@@ -181,3 +181,15 @@ def test_the_start_guard_finds_the_commit_gate_of_the_project_from_a_side_worktr
     outside.mkdir()
     (outside / ".git").write_text("gitdir: %s/.git/worktrees/g\n" % proj)
     assert receipt._side_git(outside, outside / ".git") is None
+
+
+def test_the_worktree_gets_the_current_template_lines_even_when_head_has_old_ones(proj):
+    from awb import devnote, rulesync
+
+    (proj / "CLAUDE.md").write_text("# rules\n" + devnote.FILE_RULE + "\n- Proof goes to evidence/, results to "
+                                    "deliverables/, review records to reviews/.\n")
+    _git(proj, "commit", "-qam", "old rules")
+    assert not rulesync.current(proj)
+    side.start("rules", "notes/brief-mail.md", cwd=proj)
+    _wait(proj, "rules")
+    assert rulesync.current(proj / ".side" / "rules")

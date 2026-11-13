@@ -160,6 +160,14 @@ def start(name: str, brief: str, model: str = DEFAULT_MODEL, effort: str = DEFAU
     p["base"].mkdir(mode=0o750, exist_ok=True)
     _exclude(root)
     _git(root, "worktree", "add", "--quiet", "-b", "side/" + name, str(p["wt"]), "HEAD")
+    # the template lines of the project as `awb projects sync` keeps them: the main folder may carry them
+    # uncommitted, and the start guard of the side session compares them with the installed rules
+    from awb import rulesync
+
+    try:
+        rulesync.sync_project(p["wt"])
+    except Exception:  # the start guard names the rules then; never a failed start for this
+        pass
     prompt = p["base"] / (name + ".prompt")
     prompt.write_text(PREAMBLE.format(code=root.name, name=name, result=RESULT) + text, encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if k not in _DROP_ENV}

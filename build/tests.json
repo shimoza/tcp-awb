@@ -16141,8 +16141,15 @@
    "name": "side sessions: the start guard finds the commit gate of the project from a side worktree",
    "run": ".venv/bin/pytest tests/test_side.py::test_the_start_guard_finds_the_commit_gate_of_the_project_from_a_side_worktree",
    "status": "passing"
+  },
+  {
+   "id": "ss-12",
+   "phase": "ss",
+   "name": "side sessions: the worktree gets the current template lines even when head has old ones",
+   "run": ".venv/bin/pytest tests/test_side.py::test_the_worktree_gets_the_current_template_lines_even_when_head_has_old_ones",
+   "status": "passing"
   }
  ],
- "total_tests": 2306,
+ "total_tests": 2307,
  "checked": "2026-11-09"
 }
