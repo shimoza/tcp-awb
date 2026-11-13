@@ -101,6 +101,26 @@ def _guard_hooks() -> bool:
         return False
 
 
+def _side_git(root: Path, gitfile: Path) -> Path | None:
+    """The .git folder of the project whose side session's worktree ROOT is (`<project>/.side/NAME`, awb/side.py):
+    only when the worktree's gitdir is `<project>/.git/worktrees/<x>` of exactly that project, else None."""
+    project = root.parent.parent
+    if root.parent.name != ".side":
+        return None
+    try:
+        line = gitfile.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not line.startswith("gitdir: "):
+        return None
+    gitdir = Path(line[len("gitdir: "):])
+    gitdir = (root / gitdir if not gitdir.is_absolute() else gitdir).resolve()
+    main = (project / ".git").resolve()
+    if gitdir.parent != main / "worktrees" or (project / ".git").is_symlink():
+        return None
+    return project / ".git"
+
+
 def _guard_gate(root: Path | None) -> bool:
     """The project's repository carries the three hooks of the commit gate (awb gate --install) and runs its hooks
     from .git/hooks (no core.hooksPath)."""
@@ -110,6 +130,10 @@ def _guard_gate(root: Path | None) -> bool:
 
     git = Path(root) / ".git"
     try:
+        if git.is_file() and not git.is_symlink():
+            git = _side_git(Path(root), git)     # SS: a side session's worktree runs the hooks of its project
+            if git is None:
+                return False
         if not git.is_dir() or git.is_symlink():
             return False
         conf = (git / "config").read_text(encoding="utf-8", errors="replace")

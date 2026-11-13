@@ -198,7 +198,14 @@ def _state(p: dict[str, Path]) -> tuple[str, dict]:
             rc = int(p["exit"].read_text().strip())
         except ValueError:
             rc = 1
-        return ("done" if rc == 0 else "failed"), meta
+        if rc != 0:
+            return "failed", meta
+        try:
+            out = json.loads(p["out"].read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return "failed", meta
+        # a refused prompt (a guard of the start hook) ends with exit 0 and no turn: that is no result
+        return ("done" if isinstance(out, dict) and not out.get("is_error") and out.get("num_turns") else "failed"), meta
     return ("running" if _alive(int(meta.get("pid", 0) or 0)) else "lost"), meta
 
 

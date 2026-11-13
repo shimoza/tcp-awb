@@ -16127,8 +16127,22 @@
    "name": "side sessions: the command is wired and documented",
    "run": ".venv/bin/pytest tests/test_side.py::test_the_command_is_wired_and_documented",
    "status": "passing"
+  },
+  {
+   "id": "ss-10",
+   "phase": "ss",
+   "name": "side sessions: a refused start with no turn is failed not done",
+   "run": ".venv/bin/pytest tests/test_side.py::test_a_refused_start_with_no_turn_is_failed_not_done",
+   "status": "passing"
+  },
+  {
+   "id": "ss-11",
+   "phase": "ss",
+   "name": "side sessions: the start guard finds the commit gate of the project from a side worktree",
+   "run": ".venv/bin/pytest tests/test_side.py::test_the_start_guard_finds_the_commit_gate_of_the_project_from_a_side_worktree",
+   "status": "passing"
   }
  ],
- "total_tests": 2304,
+ "total_tests": 2306,
  "checked": "2026-11-09"
 }

@@ -28,7 +28,7 @@ open("SIDE-RESULT.md", "w").write("result of the side work\n" + ("brief seen\n" 
 subprocess.run(["git", "add", "SIDE-RESULT.md", "deliverables/report.md", "argv.txt"], check=True)
 subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "side"],
                check=True)
-print('{"result": "DONE"}')
+print('{"result": "DONE", "num_turns": 3, "is_error": false}')
 """
 
 
@@ -153,3 +153,31 @@ def test_the_command_is_wired_and_documented():
     assert "awb side" in (root / "README.md").read_text(encoding="utf-8")
     assert "### `awb side" in (root / "COMMANDS.md").read_text(encoding="utf-8")
 
+
+
+def test_a_refused_start_with_no_turn_is_failed_not_done(proj, tmp_path, monkeypatch):
+    refused = tmp_path / "refused-client"
+    refused.write_text("#!%s\nimport sys\nsys.stdin.read()\nprint('{\"is_error\": false, \"num_turns\": 0, "
+                       "\"result\": \"UserPromptSubmit operation blocked by hook\"}')\n" % sys.executable)
+    refused.chmod(0o755)
+    monkeypatch.setenv(side.CLIENT_ENV, str(refused))
+    side.start("blocked", "notes/brief-mail.md", cwd=proj)
+    assert "result: no" in _wait(proj, "blocked", "failed")
+
+
+def test_the_start_guard_finds_the_commit_gate_of_the_project_from_a_side_worktree(proj, tmp_path):
+    from awb import receipt
+
+    side.start("g", "notes/brief-mail.md", cwd=proj)
+    _wait(proj, "g")
+    wt = proj / ".side" / "g"
+    assert receipt._side_git(wt, wt / ".git") == proj / ".git"
+    other = tmp_path / "tcp-z9z9"
+    (other / ".side" / "x").mkdir(parents=True)
+    (other / ".git").mkdir()
+    (other / ".side" / "x" / ".git").write_text("gitdir: %s/.git/worktrees/g\n" % proj)
+    assert receipt._side_git(other / ".side" / "x", other / ".side" / "x" / ".git") is None
+    outside = tmp_path / "loose"
+    outside.mkdir()
+    (outside / ".git").write_text("gitdir: %s/.git/worktrees/g\n" % proj)
+    assert receipt._side_git(outside, outside / ".git") is None
