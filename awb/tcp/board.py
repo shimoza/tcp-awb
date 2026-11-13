@@ -284,7 +284,7 @@ BUILD_WORDS = ("queued", "running", "green", "done", "asked", "answered", "widen
                "red", "stopped", "held", "passed")
 """The state words of awb.build.STATES; a reason after `word: ` shows only when it is in BUILD_REASONS."""
 GATE_CLASSES = ("name", "secret", "private-key", "token", "homepath", "blocklist", "identifier", "opaque",
-                "attribution")                          # awb.gate.CLASSES
+                "attribution", "owner-date")                          # awb.gate.CLASSES
 BUILD_REASONS = {
     "hung": ("suite",),
     "red": ("no commit", "second branch", "not on main", "too many commits", "merge commit", "dirty tree",
