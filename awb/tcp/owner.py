@@ -207,10 +207,14 @@ def _decisions(p: config.Paths, path: Path | None = None) -> tuple[list, int]:
     return ownerwait.page_items(p), int(time.time())
 
 
-def collect(p: config.Paths | None = None, reuse: Path | None = None) -> dict:
-    """The status; with `reuse` (the file `--write` writes) the decisions of that file are reused while fresh."""
+REUSE: Path | None = None
+"""The file `--write` writes, set by main for the run: its decisions are reused while fresh. None for every other
+caller, which always builds a new list (and never reads the host's status file)."""
+
+
+def collect(p: config.Paths | None = None) -> dict:
     p = p or config.paths()
-    decisions, built = _decisions(p, reuse)
+    decisions, built = _decisions(p, REUSE)
     return {"version": 1, "written": now_text(), **daemons(), "deployed": deployed(), "page": page(),
             "ui_runs": ui_runs(screen=summary_screen()), "intake": intake(p), "decisions": decisions,
             "decisions_built": built}
@@ -287,7 +291,9 @@ def main(argv: list[str] | None = None) -> int:
         items, parked = ownerwait.collect(view=view, code=a.all or None)
         print("\n".join(ownerwait.render(items, parked, ownerwait.notes())))
         return 0
-    status = collect(reuse=(Path(a.out) if a.out else STATUS) if a.write else None)
+    global REUSE
+    REUSE = (Path(a.out) if a.out else STATUS) if a.write else None
+    status = collect()
     try:
         if a.write:
             result = write(status, Path(a.out) if a.out else STATUS)
