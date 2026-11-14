@@ -448,9 +448,19 @@ def write(root: Path | None = None) -> Path:
                                       ownerwait.render(items, parked, ownerwait.notes(p=p))]))
         body = "# Hand-over\n\nWritten: %s UTC\n<!-- handover-head: %s -->\n" % (
             dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M"), head)
+        screened = body
         for title, lines in sections:
-            body += "\n## %s\n\n%s\n" % (title, "\n".join(lines) or "(none)")
-        devask.screen(p, body)
+            part = "\n## %s\n\n%s\n" % (title, "\n".join(lines) or "(none)")
+            body += part
+            if title != "Git log":
+                screened += part
+        # the subjects of this repository's own commits passed the commit gate when they were made; they get the
+        # secret check only, as our own output does (a URL or an IP in an old subject refused the whole file)
+        from awb import check
+
+        if check._secret_classes("\n".join(history)):
+            raise HandoverError("a secret in the git log; previous hand-over kept")
+        devask.screen(p, screened)
         _replace(target, body)
     return target
 

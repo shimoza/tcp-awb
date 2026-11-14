@@ -223,3 +223,17 @@ def test_owner_status_commands_name_the_home_as_tilde():
     line = "    awb start project --from %s/export-x --trusted --goal \"...\"" % _P.home()
     assert handover._home_as_tilde(line) == "    awb start project --from ~/export-x --trusted --goal \"...\""
     assert handover._home_as_tilde("no path here") == "no path here"
+
+
+def test_the_git_log_gets_the_secret_check_only(desk, monkeypatch):
+    """2026-11-14: a URL in an old commit subject refused the whole hand-over."""
+    from awb import devask
+
+    seen = []
+    real = devask.screen
+    monkeypatch.setattr(devask, "screen", lambda p, text: seen.append(text) or real(p, text))
+    git(Path.cwd(), "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid",
+        "commit", "-q", "--allow-empty", "-m", "docs: see https://docs.example.invalid/x for the limit")
+    assert cli.main(["handover", "write"]) == 0
+    assert seen and "docs.example.invalid" not in seen[-1]
+    assert "docs.example.invalid" in (Path.cwd() / "build" / "HANDOVER.md").read_text()
