@@ -601,3 +601,25 @@ def test_a_ledger_line_with_a_name_shaped_candidate_is_refused_with_a_reword_hin
         mp.setattr(intake, "_SHORT_ALLOWED", allowed)
         ledger.add("other", "call with %s about the sizing" % fixtures.FIRST_LAST, day="2026-09-22", p=home)
     assert len(ledger.load(home)) == 2
+
+
+def test_hit_indexes_halves_a_chunk_with_a_finding_instead_of_checking_each_text(monkeypatch):
+    """2026-11-14: one finding among the owner status texts sent each text to the daemon alone."""
+    from awb import check
+
+    texts = ["plain line %d" % i for i in range(256)]
+    texts[77] = "PLANTED"
+    calls = []
+
+    def fake(text, reg):
+        calls.append(1)
+        return ["hit"] if "PLANTED" in text else []
+
+    monkeypatch.setattr(check, "check_text", fake)
+    assert ledger.hit_indexes(texts, None) == {77}
+    assert len(calls) <= 1 + 2 * 9
+    calls.clear()
+    texts[200] = "PLANTED again"
+    assert ledger.hit_indexes(texts, None) == {77, 200}
+    calls.clear()
+    assert ledger.hit_indexes(["clean"] * 50, None) == set() and len(calls) == 1

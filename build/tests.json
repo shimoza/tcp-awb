@@ -16582,8 +16582,15 @@
    "name": "work queue: a read sends only new or edited rows to the name check",
    "run": ".venv/bin/pytest tests/test_work_queue.py::test_a_read_sends_only_new_or_edited_rows_to_the_name_check",
    "status": "passing"
+  },
+  {
+   "id": "budget-hot-1",
+   "phase": "ux5",
+   "name": "name check budget: a chunk with a finding is halved, not checked text by text",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_hit_indexes_halves_a_chunk_with_a_finding_instead_of_checking_each_text",
+   "status": "passing"
   }
  ],
- "total_tests": 2369,
+ "total_tests": 2370,
  "checked": "2026-11-09"
 }

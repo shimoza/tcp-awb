@@ -187,11 +187,13 @@ DECISIONS_EVERY = 15 * 60
 and a rebuild each minute (the timer) used up the owner's name check budget (2026-11-14, a write took 92 s)."""
 
 
-def _decisions(p: config.Paths, path: Path = None) -> list:
-    """The decisions of the last written status while they are younger than DECISIONS_EVERY, else a new list."""
+def _decisions(p: config.Paths, path: Path | None = None) -> tuple[list, int]:
+    """The decisions of the status file PATH while they are younger than DECISIONS_EVERY, else a new list. Without
+    PATH (every caller but `--write`) the list is always new."""
     import time
 
-    path = path or STATUS
+    if path is None:
+        return ownerwait.page_items(p), int(time.time())
     try:
         if time.time() - path.stat().st_mtime < DECISIONS_EVERY:
             old = json.loads(path.read_text(encoding="utf-8"))
@@ -205,9 +207,10 @@ def _decisions(p: config.Paths, path: Path = None) -> list:
     return ownerwait.page_items(p), int(time.time())
 
 
-def collect(p: config.Paths | None = None) -> dict:
+def collect(p: config.Paths | None = None, reuse: Path | None = None) -> dict:
+    """The status; with `reuse` (the file `--write` writes) the decisions of that file are reused while fresh."""
     p = p or config.paths()
-    decisions, built = _decisions(p)
+    decisions, built = _decisions(p, reuse)
     return {"version": 1, "written": now_text(), **daemons(), "deployed": deployed(), "page": page(),
             "ui_runs": ui_runs(screen=summary_screen()), "intake": intake(p), "decisions": decisions,
             "decisions_built": built}
@@ -284,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
         items, parked = ownerwait.collect(view=view, code=a.all or None)
         print("\n".join(ownerwait.render(items, parked, ownerwait.notes())))
         return 0
-    status = collect()
+    status = collect(reuse=(Path(a.out) if a.out else STATUS) if a.write else None)
     try:
         if a.write:
             result = write(status, Path(a.out) if a.out else STATUS)

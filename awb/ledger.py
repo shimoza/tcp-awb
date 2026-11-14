@@ -342,15 +342,15 @@ def screen_fields(fields: list[tuple[str, str]], reg: Path | None, *, codes_too:
 
 def hit_indexes(texts: list[str], reg: Path | None) -> set[int]:
     """Indexes of the texts that the name check finds anything in. One check over all texts joined first (the
-    common case: nothing), then one per text only when the joined check found something. Raises LedgerError when
-    the check cannot run."""
+    common case: nothing); a chunk with a finding is halved until the texts with findings are single, so k findings
+    among n texts cost about k * 2 * log2(n) checks instead of n. Raises LedgerError when the check cannot run."""
     from awb import check
 
     idx = [i for i, t in enumerate(texts) if t]
     if not idx:
         return set()
     try:
-        suspects: list[int] = []
+        suspects: list[list[int]] = []
         chunk: list[int] = []
         size = 0
         for i in idx + [None]:
@@ -359,9 +359,24 @@ def hit_indexes(texts: list[str], reg: Path | None) -> set[int]:
                 size += len(texts[i]) + 2
                 continue
             if chunk and check.check_text("\n\n".join(texts[j] for j in chunk), reg):
-                suspects.extend(chunk)
+                suspects.append(chunk)
             chunk, size = ([i], len(texts[i]) + 2) if i is not None else ([], 0)
-        return {i for i in suspects if check.check_text(texts[i], reg)}
+        found: set[int] = set()
+
+        def split(group: list[int]) -> None:
+            # a group whose joined text has a finding: halve it until single texts are left (2026-11-14: one
+            # finding among 500 owner status texts sent each text alone, hundreds of checks, the budget gone)
+            if len(group) == 1:
+                found.add(group[0])
+                return
+            half = len(group) // 2
+            for part in (group[:half], group[half:]):
+                if check.check_text("\n\n".join(texts[j] for j in part), reg):
+                    split(part)
+
+        for group in suspects:
+            split(group)
+        return found
     except Exception as err:  # CheckUnavailable and RegisterError
         raise LedgerError(_check_reason(err)) from None
 
