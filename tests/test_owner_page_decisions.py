@@ -229,3 +229,30 @@ def test_page_decision_interaction(case):
     result = subprocess.run(["node", "-e", "const INPUT=" + json.dumps({"case": case, "html": html,
                              "script": script}) + ";\n" + HARNESS], capture_output=True, text=True, timeout=15)
     assert result.returncode == 0, result.stderr
+
+
+def test_the_decisions_are_rebuilt_at_most_every_fifteen_minutes(tmp_path, monkeypatch):
+    """2026-11-14: the minute timer rebuilt the decisions each run and used up the owner's name check budget."""
+    import json as _json
+    import time as _time
+
+    from awb import ownerwait as _ow
+    from awb.tcp import owner as _owner
+
+    calls = []
+    monkeypatch.setattr(_ow, "page_items", lambda p: calls.append(1) or [])
+    status = tmp_path / "owner-status.json"
+    rows, built = _owner._decisions(None, status)
+    assert calls == [1] and rows == []
+    status.write_text(_json.dumps({"decisions": [], "decisions_built": built}))
+    assert _owner._decisions(None, status) == ([], built) and calls == [1]
+    status.write_text(_json.dumps({"decisions": [], "decisions_built": built - _owner.DECISIONS_EVERY - 1}))
+    _owner._decisions(None, status)
+    assert calls == [1, 1]
+    old = _time.time() - _owner.DECISIONS_EVERY - 5
+    status.write_text(_json.dumps({"decisions": [], "decisions_built": int(_time.time())}))
+    import os as _os
+
+    _os.utime(status, (old, old))
+    _owner._decisions(None, status)
+    assert calls == [1, 1, 1]

@@ -16568,8 +16568,15 @@
    "name": "hand-over: owner only and linked output refused",
    "run": ".venv/bin/pytest tests/test_handover_write.py::test_owner_only_and_linked_output_refused",
    "status": "passing"
+  },
+  {
+   "id": "ux21-hot-1",
+   "phase": "ux21",
+   "name": "owner page decisions: rebuilt at most every fifteen minutes",
+   "run": ".venv/bin/pytest tests/test_owner_page_decisions.py::test_the_decisions_are_rebuilt_at_most_every_fifteen_minutes",
+   "status": "passing"
   }
  ],
- "total_tests": 2367,
+ "total_tests": 2368,
  "checked": "2026-11-09"
 }

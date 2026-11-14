@@ -147,7 +147,10 @@ def validate_status(status: dict) -> None:
     """Validate the optional Decisions extension and the original status shape; accept old timer files."""
     from awb import codes, status_shape
 
-    status_shape.validate({k: v for k, v in status.items() if k != "decisions"})
+    status_shape.validate({k: v for k, v in status.items() if k not in ("decisions", "decisions_built")})
+    built = status.get("decisions_built", 0)
+    if type(built) is not int or built < 0:
+        raise status_shape.StatusError("the status field decisions_built has an unexpected shape")
     rows = status.get("decisions", [])
     keys = {"code", "item", "text", "has_default", "app"}
     seen = set()

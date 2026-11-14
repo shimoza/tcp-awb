@@ -182,10 +182,35 @@ def intake(p: config.Paths) -> list[dict]:
             for code, v in sorted(read_counts(p).items())]
 
 
+DECISIONS_EVERY = 15 * 60
+"""Seconds between two rebuilds of the decisions: the list runs the name check on every owner item of every project,
+and a rebuild each minute (the timer) used up the owner's name check budget (2026-11-14, a write took 92 s)."""
+
+
+def _decisions(p: config.Paths, path: Path = None) -> list:
+    """The decisions of the last written status while they are younger than DECISIONS_EVERY, else a new list."""
+    import time
+
+    path = path or STATUS
+    try:
+        if time.time() - path.stat().st_mtime < DECISIONS_EVERY:
+            old = json.loads(path.read_text(encoding="utf-8"))
+            built = old.get("decisions_built")
+            if isinstance(built, (int, float)) and time.time() - built < DECISIONS_EVERY:
+                rows = old.get("decisions")
+                if isinstance(rows, list):
+                    return rows, built
+    except (OSError, ValueError, AttributeError):
+        pass
+    return ownerwait.page_items(p), int(time.time())
+
+
 def collect(p: config.Paths | None = None) -> dict:
     p = p or config.paths()
+    decisions, built = _decisions(p)
     return {"version": 1, "written": now_text(), **daemons(), "deployed": deployed(), "page": page(),
-            "ui_runs": ui_runs(screen=summary_screen()), "intake": intake(p), "decisions": ownerwait.page_items(p)}
+            "ui_runs": ui_runs(screen=summary_screen()), "intake": intake(p), "decisions": decisions,
+            "decisions_built": built}
 
 
 # --------------------------------------------------------------------------- the checks before the write
