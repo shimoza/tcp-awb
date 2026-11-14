@@ -16603,8 +16603,211 @@
    "name": "hand-over: the git log gets the secret check only",
    "run": ".venv/bin/pytest tests/test_handover_write.py::test_the_git_log_gets_the_secret_check_only",
    "status": "passing"
+  },
+  {
+   "id": "ux13-hard-1",
+   "phase": "ux13",
+   "name": "hand-over hardening: hostile arguments never echo values",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_hostile_arguments_never_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-2",
+   "phase": "ux13",
+   "name": "hand-over hardening: output files are bounded regular files",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_output_files_are_bounded_regular_files",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-3",
+   "phase": "ux13",
+   "name": "hand-over hardening: previous read errors keep file and hide values",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_previous_read_errors_keep_file_and_hide_values",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-4",
+   "phase": "ux13",
+   "name": "hand-over hardening: invalid utf8 previous keeps cursor",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_invalid_utf8_previous_keeps_cursor",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-5",
+   "phase": "ux13",
+   "name": "hand-over hardening: build directory links never write outside",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_build_directory_links_never_write_outside",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-6",
+   "phase": "ux13",
+   "name": "hand-over hardening: directory swap during write keeps both locations",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_directory_swap_during_write_keeps_both_locations",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-7",
+   "phase": "ux13",
+   "name": "hand-over hardening: lock rejects links and special files",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_lock_rejects_links_and_special_files",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-8",
+   "phase": "ux13",
+   "name": "hand-over hardening: legacy queue links refused",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_legacy_queue_links_refused",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-9",
+   "phase": "ux13",
+   "name": "hand-over hardening: malformed legacy row preserves previous",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_malformed_legacy_row_preserves_previous",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-10",
+   "phase": "ux13",
+   "name": "hand-over hardening: all rendered sections are screened",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_all_rendered_sections_are_screened",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-11",
+   "phase": "ux13",
+   "name": "hand-over hardening: git subject is screened before cursor advances",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_git_subject_is_screened_before_cursor_advances",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-12",
+   "phase": "ux13",
+   "name": "hand-over hardening: source exceptions never echo values",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_source_exceptions_never_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-13",
+   "phase": "ux13",
+   "name": "hand-over hardening: atomic failures preserve cursor and clean temps",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_atomic_failures_preserve_cursor_and_clean_temps",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-14",
+   "phase": "ux13",
+   "name": "hand-over hardening: git environment cannot redirect history",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_git_environment_cannot_redirect_history",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-15",
+   "phase": "ux13",
+   "name": "hand-over hardening: git config cannot inject decorations",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_git_config_cannot_inject_decorations",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-16",
+   "phase": "ux13",
+   "name": "hand-over hardening: git failures and invalid heads preserve previous",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_git_failures_and_invalid_heads_preserve_previous",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-17",
+   "phase": "ux13",
+   "name": "hand-over hardening: build subprocess captures errors and uses this tree",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_build_subprocess_captures_errors_and_uses_this_tree",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-18",
+   "phase": "ux13",
+   "name": "hand-over hardening: start notice tolerates disappearing or unreadable file",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_start_notice_tolerates_disappearing_or_unreadable_file",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-19",
+   "phase": "ux13",
+   "name": "hand-over hardening: outside checkout and build user create nothing",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_outside_checkout_and_build_user_create_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-20",
+   "phase": "ux13",
+   "name": "hand-over hardening: compaction rejects malformed and extended receipts",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_compaction_rejects_malformed_and_extended_receipts",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-21",
+   "phase": "ux13",
+   "name": "hand-over hardening: compaction links never touch outside",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_compaction_links_never_touch_outside",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-22",
+   "phase": "ux13",
+   "name": "hand-over hardening: late prompt still claims compaction notice once",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_late_prompt_still_claims_compaction_notice_once",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-23",
+   "phase": "ux13",
+   "name": "hand-over hardening: session identifier is hashed and invalid ids are ignored",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_session_identifier_is_hashed_and_invalid_ids_are_ignored",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-24",
+   "phase": "ux13",
+   "name": "hand-over hardening: concurrent writes serialize cursor updates",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_concurrent_writes_serialize_cursor_updates",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-25",
+   "phase": "ux13",
+   "name": "hand-over hardening: concurrent compactions and prompts do not lose claims",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_concurrent_compactions_and_prompts_do_not_lose_claims",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-26",
+   "phase": "ux13",
+   "name": "hand-over hardening: queue links cannot read or overwrite external files",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_queue_links_cannot_read_or_overwrite_external_files",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-27",
+   "phase": "ux13",
+   "name": "hand-over hardening: queue special files and linked parent refused",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_queue_special_files_and_linked_parent_refused",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-28",
+   "phase": "ux13",
+   "name": "hand-over hardening: malformed modern queue preserves previous",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_malformed_modern_queue_preserves_previous",
+   "status": "passing"
+  },
+  {
+   "id": "ux13-hard-29",
+   "phase": "ux13",
+   "name": "hand-over hardening: receipt directory swap cannot redirect write",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_receipt_directory_swap_cannot_redirect_write",
+   "status": "passing"
   }
  ],
- "total_tests": 2372,
+ "total_tests": 2401,
  "checked": "2026-11-09"
 }

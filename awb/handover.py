@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import socket
 import stat
 import struct
@@ -313,6 +314,7 @@ def hand_over(owner, command, fds: tuple[int, ...], line: dict, deadline: float,
 HANDOVER = "build/HANDOVER.md"
 SECOND_COMPACTION = "second compaction: a new session with the hand-over is cheaper"
 _HEAD = re.compile(r"<!-- handover-head: ([0-9a-f]{40,64}) -->")
+_MAX_TEXT = 8 * 1024 * 1024
 
 
 class HandoverError(Exception):
@@ -331,29 +333,75 @@ def repository_root(folder: Path | str) -> Path | None:
 
 
 @contextmanager
-def _owner_lock(root: Path):
-    folder = root / "build"
-    if folder.is_symlink():
-        raise HandoverError("the build folder is a link")
-    folder.mkdir(exist_ok=True)
-    fd = os.open(folder / ".handover.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+def _directory(path, *, dir_fd=None, create=False):
+    if create:
+        try:
+            os.mkdir(path, mode=0o700, dir_fd=dir_fd)
+        except FileExistsError:
+            pass
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
+        yield fd
     finally:
         os.close(fd)
 
 
-def _replace(path: Path, text: str) -> None:
-    fd, temp = tempfile.mkstemp(prefix=".handover-", dir=path.parent)
+def _same_directory(path, fd: int, *, dir_fd=None) -> None:
+    info = os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
+    opened = os.fstat(fd)
+    if (info.st_dev, info.st_ino) != (opened.st_dev, opened.st_ino):
+        raise HandoverError("the output folder changed")
+
+
+@contextmanager
+def _owner_lock(root: Path):
+    # Anchor every output operation to opened directories, including temporary-file cleanup.
+    with _directory(root) as root_fd, _directory("build", dir_fd=root_fd, create=True) as folder_fd:
+        fd = os.open(".handover.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK,
+                     0o600, dir_fd=folder_fd)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise HandoverError("invalid hand-over lock")
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            current = os.stat(".handover.lock", dir_fd=folder_fd, follow_symlinks=False)
+            if (info.st_dev, info.st_ino) != (current.st_dev, current.st_ino):
+                raise HandoverError("the hand-over lock changed")
+            _same_directory("build", folder_fd, dir_fd=root_fd)
+            yield folder_fd
+        finally:
+            os.close(fd)
+
+
+def _read_text(path, *, dir_fd=None, missing=None, limit=_MAX_TEXT) -> str | None:
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+    except FileNotFoundError:
+        return missing
+    with os.fdopen(fd, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
+            raise HandoverError("the source is not a bounded regular file")
+        data = stream.read(limit + 1)
+        if len(data) > limit:
+            raise HandoverError("the source is too large")
+        return data.decode("utf-8")
+
+
+def _replace(path: Path, text: str, *, dir_fd: int) -> None:
+    temp = ".handover-" + secrets.token_hex(16)
+    fd = os.open(temp, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temp, path)
+        os.replace(temp, path.name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
     finally:
-        Path(temp).unlink(missing_ok=True)
+        try:
+            os.unlink(temp, dir_fd=dir_fd)
+        except FileNotFoundError:
+            pass
 
 
 def _queue_lines() -> list[str]:
@@ -361,11 +409,25 @@ def _queue_lines() -> list[str]:
 
     path = workqueue.queue_file()
     legacy = path.with_name("QUEUE.md")
+    # The queue reader also opens a lock and writes its check cache. Refuse redirected or
+    # special files before either it or the owner-status reader can touch those paths.
+    if any(parent.is_symlink() for parent in path.parents):
+        raise HandoverError("the queue folder is a link")
+    for source in (path, legacy, workqueue.archive_file(path), path.with_name(".queue.lock"),
+                   path.with_name("queue-checked.json"), path.with_name("queue-checked.json.tmp")):
+        try:
+            info = source.lstat()
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > _MAX_TEXT:
+            raise HandoverError("invalid queue file")
     if path.exists() or not legacy.exists():
         return ["%s  %s  %s  %s  next: %s" %
                 (r["id"], r["project"] or "-", r["who"], r["what"], r["next"])
                 for r in workqueue.load(path)]
-    text = legacy.read_text(encoding="utf-8")
+    text = _read_text(legacy)
+    if text is None:
+        raise HandoverError("the legacy queue disappeared")
     if text.startswith(workqueue.ARCHIVE_NOTICE):
         return []
     columns = []
@@ -393,8 +455,10 @@ def _queue_lines() -> list[str]:
 
 
 def _git(root: Path, *args: str) -> str:
-    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
-                            stdin=subprocess.DEVNULL, timeout=15)
+    # -C does not override an inherited GIT_DIR or injected Git configuration.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    result = subprocess.run(["git", "--no-pager", "-C", str(root), *args], capture_output=True, text=True,
+                            stdin=subprocess.DEVNULL, timeout=15, env=env)
     if result.returncode:
         raise HandoverError("git history unavailable; previous hand-over kept")
     return result.stdout.strip()
@@ -422,17 +486,18 @@ def write(root: Path | None = None) -> Path:
     if root is None:
         raise HandoverError("run in an owner repository checkout")
     p = config.paths()
-    with _owner_lock(root):
+    with _owner_lock(root) as folder_fd:
         target = root / HANDOVER
         if target.is_symlink():
             raise HandoverError("the hand-over file is a link")
-        previous = target.read_text(encoding="utf-8") if target.exists() else ""
+        previous = _read_text(target.name, dir_fd=folder_fd, missing="")
         head = _git(root, "rev-parse", "HEAD")
         if not re.fullmatch(r"[0-9a-f]{40,64}", head):
             raise HandoverError("invalid git head")
         cursor = _HEAD.search(previous)
         revision = cursor.group(1) + ".." + head if cursor else head
         history = _git(root, "log", "--format=%h %s", revision, "--").splitlines()
+        queue = _queue_lines()
         tasks = [line for line in _build_lines()
                  if len(line.split("  ")) > 1 and
                  line.split("  ")[1].split(":", 1)[0] not in ("done", "stopped")]
@@ -442,7 +507,7 @@ def write(root: Path | None = None) -> Path:
         asks = ["%s  %s  %s%s" % (d["project"], path.name, d["title"], " [blocks]" if d["blocks"] else "")
                 for path, d in devask.open_asks(p)]
         items, parked = ownerwait.collect(p)
-        sections = (("Open queue", _queue_lines()), ("Git log", history), ("Open build tasks", tasks),
+        sections = (("Open queue", queue), ("Git log", history), ("Open build tasks", tasks),
                     ("Held notes", held), ("Open asks", asks),
                     ("Owner status", [_home_as_tilde(line) for line in
                                       ownerwait.render(items, parked, ownerwait.notes(p=p))]))
@@ -454,6 +519,8 @@ def write(root: Path | None = None) -> Path:
             body += part
             if title != "Git log":
                 screened += part
+        if len(body.encode("utf-8")) > _MAX_TEXT:
+            raise HandoverError("the hand-over is too large")
         # the subjects of this repository's own commits passed the commit gate when they were made; they get the
         # secret check only, as our own output does (a URL or an IP in an old subject refused the whole file)
         from awb import check
@@ -461,7 +528,8 @@ def write(root: Path | None = None) -> Path:
         if check._secret_classes("\n".join(history)):
             raise HandoverError("a secret in the git log; previous hand-over kept")
         devask.screen(p, screened)
-        _replace(target, body)
+        _same_directory(root / "build", folder_fd)
+        _replace(target, body, dir_fd=folder_fd)
     return target
 
 
@@ -477,9 +545,12 @@ def start_line(folder: Path | str) -> str:
     if root is None:
         return ""
     target = root / HANDOVER
-    if (root / "build").is_symlink() or target.is_symlink() or not target.is_file():
+    try:
+        if (root / "build").is_symlink() or target.is_symlink() or not target.is_file():
+            return ""
+        stamp = dt.datetime.fromtimestamp(target.stat().st_mtime, dt.timezone.utc).strftime("%H:%M")
+    except (OSError, ValueError, OverflowError):
         return ""
-    stamp = dt.datetime.fromtimestamp(target.stat().st_mtime, dt.timezone.utc).strftime("%H:%M")
     return "hand-over: %s, written %s" % (HANDOVER, stamp)
 
 
@@ -488,34 +559,43 @@ def compaction(folder: Path | str, session_id, *, prompt: bool = False) -> str:
     root = repository_root(folder)
     if root is None or not isinstance(session_id, str) or not session_id:
         return ""
-    with _owner_lock(root):
+    with _owner_lock(root) as folder_fd:
         marks = root / "build/.handover-sessions"
         if marks.is_symlink():
             raise HandoverError("the compaction folder is a link")
-        marks.mkdir(mode=0o700, exist_ok=True)
-        path = marks / (hashlib.sha256(session_id.encode()).hexdigest() + ".json")
-        if path.is_symlink():
-            raise HandoverError("the compaction receipt is a link")
-        state = json.loads(path.read_text()) if path.exists() else {"count": 0, "shown": False}
-        if (not isinstance(state, dict) or type(state.get("count")) is not int or state["count"] < 0
-                or type(state.get("shown")) is not bool):
-            raise HandoverError("invalid compaction receipt")
-        line = ""
-        if prompt:
-            if state["count"] == 2 and not state["shown"]:
-                state["shown"] = True
-                line = SECOND_COMPACTION
-        else:
-            state["count"] += 1
-        _replace(path, json.dumps(state) + "\n")
-        return line
+        with _directory(marks.name, dir_fd=folder_fd, create=True) as marks_fd:
+            path = marks / (hashlib.sha256(session_id.encode()).hexdigest() + ".json")
+            try:
+                raw = _read_text(path.name, dir_fd=marks_fd, limit=4096)
+                state = json.loads(raw) if raw is not None else {"count": 0, "shown": False}
+            except (ValueError, RecursionError):
+                raise HandoverError("invalid compaction receipt") from None
+            if (not isinstance(state, dict) or set(state) != {"count", "shown"}
+                    or type(state.get("count")) is not int or state["count"] < 0
+                    or type(state.get("shown")) is not bool):
+                raise HandoverError("invalid compaction receipt")
+            line = ""
+            if prompt:
+                if state["count"] >= 2 and not state["shown"]:
+                    state["shown"] = True
+                    line = SECOND_COMPACTION
+            else:
+                state["count"] += 1
+            _same_directory(root / "build", folder_fd)
+            _same_directory(marks.name, marks_fd, dir_fd=folder_fd)
+            _replace(path, json.dumps(state) + "\n", dir_fd=marks_fd)
+            return line
 
 
 def main(argv: list[str] | None = None) -> int:
     import sys
     from awb.cli import SafeParser
 
-    parser = SafeParser(prog="awb handover", description="Source-only owner session hand-over; codes and handles only.")
+    class Parser(SafeParser):
+        def error(self, message):
+            super().error("invalid hand-over arguments")
+
+    parser = Parser(prog="awb handover", description="Source-only owner session hand-over; codes and handles only.")
     parser.add_subparsers(dest="command", required=True).add_parser(
         "write", help="write build/HANDOVER.md from open work, git history and default owner status")
     parser.parse_args(argv)

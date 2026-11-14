@@ -237,3 +237,569 @@ def test_the_git_log_gets_the_secret_check_only(desk, monkeypatch):
     assert cli.main(["handover", "write"]) == 0
     assert seen and "docs.example.invalid" not in seen[-1]
     assert "docs.example.invalid" in (Path.cwd() / "build" / "HANDOVER.md").read_text()
+
+
+# These cases use only the temporary checkout supplied by desk, including under a source export.
+_REAL_BUILD_LINES = handover._build_lines
+
+
+def test_hostile_arguments_never_echo_values(capsys):
+    secret = "pass" + "word=handover-argument"
+    for value in ("bad'quoted'" + secret, "bad'" + secret, 'bad"' + secret, "bad\n" + secret):
+        with pytest.raises(SystemExit) as exc:
+            handover.main([value])
+        assert exc.value.code != 0
+        out, err = capsys.readouterr()
+        assert secret not in out + err
+        assert value not in out + err
+
+
+def test_output_files_are_bounded_regular_files(desk, monkeypatch):
+    import stat
+
+    root, _ = desk
+    folder = root / "build"
+    folder.mkdir()
+    target = folder / "HANDOVER.md"
+    # Inspect the descriptor before reading, so a regression fails without hanging on the FIFO.
+    real_io_open = io.open
+    def guarded_path(path, *args, **kwargs):
+        if isinstance(path, (str, Path)) and Path(path) == target and target.exists():
+            assert not stat.S_ISFIFO(target.stat().st_mode), "blocking FIFO read"
+        return real_io_open(path, *args, **kwargs)
+    monkeypatch.setattr(io, "open", guarded_path)
+    real_fdopen = os.fdopen
+    def guarded(fd, *args, **kwargs):
+        if stat.S_ISFIFO(os.fstat(fd).st_mode):
+            assert os.get_blocking(fd) is False
+        return real_fdopen(fd, *args, **kwargs)
+    monkeypatch.setattr(os, "fdopen", guarded)
+    os.mkfifo(target)
+    # Keep a writer open to make a blocking implementation observable without a timeout.
+    keep = os.open(target, os.O_RDWR | os.O_NONBLOCK)
+    try:
+        os.write(keep, b"old\n")
+        with pytest.raises(handover.HandoverError):
+            handover.write(root)
+    finally:
+        os.close(keep)
+        target.unlink()
+    target.write_bytes(b"x" * (8 * 1024 * 1024 + 1))
+    with pytest.raises(handover.HandoverError):
+        handover.write(root)
+    assert target.stat().st_size == 8 * 1024 * 1024 + 1
+    target.write_text("previous")
+    from awb import devask
+    monkeypatch.setattr(devask, "screen", lambda *args: None)
+    monkeypatch.setattr(handover, "_build_lines", lambda: ["B-012  ready  " + "x" * (8 * 1024 * 1024)])
+    with pytest.raises(handover.HandoverError):
+        handover.write(root)
+    assert target.read_text() == "previous"
+
+
+def test_previous_read_errors_keep_file_and_hide_values(desk, monkeypatch, capsys):
+    root, _ = desk
+    handover.write(root)
+    target = root / "build/HANDOVER.md"
+    before = target.read_bytes()
+    secret = "pass" + "word=read-error"
+    real_open = os.open
+    def unreadable(path, *args, **kwargs):
+        if Path(path).name == target.name:
+            raise PermissionError(secret)
+        return real_open(path, *args, **kwargs)
+    real_io_open = io.open
+    def unreadable_stream(path, *args, **kwargs):
+        if isinstance(path, (str, Path)) and Path(path).name == target.name:
+            raise PermissionError(secret)
+        return real_io_open(path, *args, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "open", unreadable)
+        patch.setattr(io, "open", unreadable_stream)
+        assert handover.main(["write"]) == 2
+    assert target.read_bytes() == before
+    out, err = capsys.readouterr()
+    assert not out and secret not in err
+    assert "previous hand-over kept" in err
+
+
+def test_invalid_utf8_previous_keeps_cursor(desk, capsys):
+    root, _ = desk
+    folder = root / "build"
+    folder.mkdir()
+    target = folder / "HANDOVER.md"
+    before = b"\xff\n<!-- handover-head: " + b"a" * 40 + b" -->\n"
+    target.write_bytes(before)
+    assert handover.main(["write"]) == 2
+    assert target.read_bytes() == before
+    assert "Unicode" not in capsys.readouterr().err
+
+
+def test_build_directory_links_never_write_outside(desk):
+    root, _ = desk
+    outside = root.parent / "outside"
+    outside.mkdir()
+    (root / "build").symlink_to(outside, target_is_directory=True)
+    with pytest.raises((OSError, handover.HandoverError)):
+        handover.write(root)
+    assert list(outside.iterdir()) == []
+
+
+def test_directory_swap_during_write_keeps_both_locations(desk, monkeypatch):
+    root, _ = desk
+    handover.write(root)
+    before = written(root)
+    outside = root.parent / "outside"
+    outside.mkdir()
+    target = outside / "HANDOVER.md"
+    target.write_text("outside stays\n")
+    def swap():
+        (root / "build").rename(root / "old-build")
+        (root / "build").symlink_to(outside, target_is_directory=True)
+        return []
+    monkeypatch.setattr(handover, "_build_lines", swap)
+    with pytest.raises((OSError, handover.HandoverError)):
+        handover.write(root)
+    assert target.read_text() == "outside stays\n"
+    assert (root / "old-build/HANDOVER.md").read_text() == before
+    assert sorted(p.name for p in outside.iterdir()) == ["HANDOVER.md"]
+    assert not list((root / "old-build").glob(".handover-*"))
+
+
+def test_lock_rejects_links_and_special_files(desk):
+    root, _ = desk
+    folder = root / "build"
+    folder.mkdir()
+    lock = folder / ".handover.lock"
+    outside = root.parent / "outside-lock"
+    outside.write_text("untouched")
+    for kind in ("symlink", "hardlink", "fifo"):
+        if kind == "symlink":
+            lock.symlink_to(outside)
+        elif kind == "hardlink":
+            os.link(outside, lock)
+        else:
+            os.mkfifo(lock)
+        try:
+            with pytest.raises((OSError, handover.HandoverError)):
+                handover.write(root)
+            assert not (folder / "HANDOVER.md").exists()
+            assert outside.read_text() == "untouched"
+        finally:
+            lock.unlink()
+
+
+def test_legacy_queue_links_refused(desk):
+    root, _ = desk
+    handover.write(root)
+    before = written(root)
+    outside = root.parent / "outside-queue"
+    outside.write_text("| ID | What | State |\n| UX13 | private task | waiting |\n")
+    legacy = root / "QUEUE.md"
+    legacy.symlink_to(outside)
+    with pytest.raises((OSError, handover.HandoverError)):
+        handover.write(root)
+    assert written(root) == before
+    legacy.unlink()
+    legacy.symlink_to(outside.with_name("missing"))
+    with pytest.raises((OSError, handover.HandoverError)):
+        handover.write(root)
+    assert written(root) == before
+
+
+def test_malformed_legacy_row_preserves_previous(desk, capsys):
+    root, _ = desk
+    handover.write(root)
+    before = written(root)
+    secret = "pass" + "word=malformed-row"
+    (root / "QUEUE.md").write_text("| ID | What | State |\n| UX13 | " + secret + " |\n")
+    assert handover.main(["write"]) == 2
+    assert written(root) == before
+    assert secret not in "".join(capsys.readouterr())
+
+
+def test_all_rendered_sections_are_screened(desk, monkeypatch, capsys):
+    from awb import devask
+
+    root, _ = desk
+    handover.write(root)
+    before = written(root)
+    for unsafe in (fx.CUSTOMER_FORMS[0], "pass" + "word=secret-value-ux13-section"):
+        sources = (
+            (handover, "_queue_lines", lambda: [unsafe]),
+            (handover, "_build_lines", lambda: ["B-012  ready  " + unsafe]),
+            (projects, "held_notes", lambda p: [dict(project="tcp-q7m4", file=unsafe, after="a" * 40)]),
+            (devask, "open_asks", lambda p: [(Path(unsafe), dict(project="tcp-q7m4", title="review", blocks=False))]),
+            (ownerwait, "notes", lambda **kw: [unsafe]),
+        )
+        for module, name, reader in sources:
+            with monkeypatch.context() as patch:
+                patch.setattr(module, name, reader)
+                assert handover.main(["write"]) == 2
+            assert written(root) == before
+            assert unsafe not in "".join(capsys.readouterr())
+
+
+def test_git_subject_is_screened_before_cursor_advances(desk, capsys):
+    root, _ = desk
+    handover.write(root)
+    before = written(root)
+    secret = "pass" + "word=secret-value-ux13-commit"
+    git(root, "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid",
+        "commit", "--allow-empty", "-qm", secret)
+    assert handover.main(["write"]) == 2
+    assert written(root) == before
+    assert secret not in "".join(capsys.readouterr())
+
+
+def test_source_exceptions_never_echo_values(desk, monkeypatch, capsys):
+    import subprocess
+
+    root, _ = desk
+    handover.write(root)
+    before = written(root)
+    secret = "pass" + "word=reader-error"
+    for error in (RuntimeError(secret), PermissionError(secret),
+                  subprocess.TimeoutExpired([secret], 1, output=secret, stderr=secret)):
+        def fail():
+            raise error
+        monkeypatch.setattr(handover, "_build_lines", fail)
+        assert handover.main(["write"]) == 2
+        assert written(root) == before
+        out, err = capsys.readouterr()
+        assert not out and secret not in err
+        assert "previous hand-over kept" in err
+
+
+def test_atomic_failures_preserve_cursor_and_clean_temps(desk, monkeypatch, capsys):
+    root, _ = desk
+    handover.write(root)
+    before = written(root)
+    git(root, "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid",
+        "commit", "--allow-empty", "-qm", "retry this commit")
+    secret = "pass" + "word=storage-error"
+    for operation in ("fsync", "replace"):
+        with monkeypatch.context() as patch:
+            def fail(*args, **kwargs):
+                raise OSError(secret)
+            patch.setattr(os, operation, fail)
+            assert handover.main(["write"]) == 2
+        assert written(root) == before
+        assert not list((root / "build").glob(".handover-*"))
+        assert secret not in "".join(capsys.readouterr())
+    handover.write(root)
+    assert "retry this commit" in written(root)
+    assert (root / "build/HANDOVER.md").stat().st_mode & 0o777 == 0o600
+
+
+def test_git_environment_cannot_redirect_history(desk, monkeypatch):
+    root, _ = desk
+    outside = root.parent / "other-repo"
+    outside.mkdir()
+    git(outside, "init", "-q")
+    git(outside, "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid",
+        "commit", "--allow-empty", "-qm", "unrelated history")
+    monkeypatch.setenv("GIT_DIR", str(outside / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(outside))
+    handover.write(root)
+    assert "UX13 initial" in written(root)
+    assert "unrelated history" not in written(root)
+
+
+def test_git_config_cannot_inject_decorations(desk):
+    root, _ = desk
+    git(root, "config", "log.decorate", "full")
+    git(root, "tag", "unrequested-label")
+    handover.write(root)
+    assert "unrequested-label" not in written(root)
+    assert "UX13 initial" in written(root)
+
+
+def test_git_failures_and_invalid_heads_preserve_previous(desk, monkeypatch, capsys):
+    import subprocess
+
+    root, _ = desk
+    handover.write(root)
+    before = written(root)
+    secret = "pass" + "word=git-error"
+    for status, output in ((1, "a" * 40), (0, "--" + secret)):
+        with monkeypatch.context() as patch:
+            patch.setattr(subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(
+                a[0], status, stdout=output, stderr=secret))
+            assert handover.main(["write"]) == 2
+        assert written(root) == before
+        assert secret not in "".join(capsys.readouterr())
+
+
+def test_build_subprocess_captures_errors_and_uses_this_tree(monkeypatch):
+    import subprocess
+    import sys
+
+    secret = "pass" + "word=build-error"
+    seen = []
+    def run(command, **kwargs):
+        seen.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 2, stdout=secret, stderr=secret)
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.raises(handover.HandoverError) as exc:
+        _REAL_BUILD_LINES()
+    assert secret not in str(exc.value)
+    command, kwargs = seen[0]
+    assert command[:3] == [sys.executable, "-I", "-c"]
+    assert str(Path(handover.__file__).resolve().parent.parent) in command[3]
+    assert kwargs["capture_output"] is True and kwargs["timeout"] == 30
+    assert kwargs["stdin"] == subprocess.DEVNULL
+
+
+def test_start_notice_tolerates_disappearing_or_unreadable_file(desk, monkeypatch):
+    root, _ = desk
+    handover.write(root)
+    target = root / "build/HANDOVER.md"
+    real_stat = Path.stat
+    for error in (FileNotFoundError(), PermissionError()):
+        count = 0
+        def vanished(path, *args, **kwargs):
+            nonlocal count
+            if path == target and kwargs.get("follow_symlinks", True):
+                count += 1
+                if count >= 2:
+                    raise error
+            return real_stat(path, *args, **kwargs)
+        with monkeypatch.context() as patch:
+            patch.setattr(Path, "stat", vanished)
+            assert handover.start_line(root) == ""
+
+
+def test_outside_checkout_and_build_user_create_nothing(desk, monkeypatch):
+    root, _ = desk
+    outside = root.parent / "not-a-repository"
+    outside.mkdir()
+    with pytest.raises(handover.HandoverError):
+        handover.write(outside)
+    assert handover.start_line(outside) == ""
+    assert handover.compaction(outside, "session") == ""
+    assert list(outside.iterdir()) == []
+    monkeypatch.setattr(config, "is_build_user", lambda: True)
+    with pytest.raises(handover.HandoverError):
+        handover.write(root)
+    assert handover.compaction(root, "session") == ""
+    assert not (root / "build").exists()
+
+
+def test_compaction_rejects_malformed_and_extended_receipts(desk):
+    import hashlib
+
+    root, _ = desk
+    handover.compaction(root, "receipt")
+    path = root / "build/.handover-sessions" / (hashlib.sha256(b"receipt").hexdigest() + ".json")
+    secret = "pass" + "word=receipt-value"
+    cases = ["[]", "{", '{"count":true,"shown":false}', '{"count":-1,"shown":false}',
+             '{"count":1,"shown":0}', "[" * 2000, "x" * 4097,
+             json.dumps(dict(count=1, shown=False, extra=secret))]
+    for raw in cases:
+        path.write_text(raw)
+        with pytest.raises(handover.HandoverError) as exc:
+            handover.compaction(root, "receipt")
+        assert secret not in str(exc.value)
+        assert path.read_text() == raw
+
+
+def test_compaction_links_never_touch_outside(desk):
+    import hashlib
+
+    root, _ = desk
+    handover.compaction(root, "receipt")
+    marks = root / "build/.handover-sessions"
+    receipt = marks / (hashlib.sha256(b"receipt").hexdigest() + ".json")
+    outside = root.parent / "outside-receipt"
+    original = '{"count":1,"shown":false}'
+    outside.write_text(original)
+    receipt.unlink()
+    receipt.symlink_to(outside)
+    with pytest.raises((OSError, handover.HandoverError)):
+        handover.compaction(root, "receipt")
+    assert outside.read_text() == original
+    receipt.unlink()
+    marks.rmdir()
+    marks.symlink_to(root.parent, target_is_directory=True)
+    with pytest.raises((OSError, handover.HandoverError)):
+        handover.compaction(root, "receipt")
+    assert not (root.parent / receipt.name).exists()
+
+
+def test_late_prompt_still_claims_compaction_notice_once(desk):
+    root, _ = desk
+    for _ in range(3):
+        handover.compaction(root, "late-session")
+    assert handover.compaction(root, "late-session", prompt=True) == handover.SECOND_COMPACTION
+    assert handover.compaction(root, "late-session", prompt=True) == ""
+
+
+def test_session_identifier_is_hashed_and_invalid_ids_are_ignored(desk):
+    import hashlib
+
+    root, _ = desk
+    for sid in (None, 12, {}, [], ""):
+        assert handover.compaction(root, sid) == ""
+    assert not (root / "build").exists()
+    sid = "../../" + "pass" + "word=session-value"
+    handover.compaction(root, sid)
+    files = list((root / "build/.handover-sessions").iterdir())
+    assert [p.name for p in files] == [hashlib.sha256(sid.encode()).hexdigest() + ".json"]
+    assert sid not in files[0].read_text()
+    assert files[0].stat().st_mode & 0o777 == 0o600
+
+
+def test_concurrent_writes_serialize_cursor_updates(desk, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+
+    root, _ = desk
+    entered = threading.Event()
+    release = threading.Event()
+    second_started = threading.Event()
+    second_read = threading.Event()
+    real_git = handover._git
+    calls = 0
+    def controlled_git(*args):
+        nonlocal calls
+        if args[1] == "rev-parse":
+            calls += 1
+            if calls == 1:
+                entered.set()
+                assert release.wait(5)
+            else:
+                second_read.set()
+        return real_git(*args)
+    monkeypatch.setattr(handover, "_git", controlled_git)
+    def second():
+        second_started.set()
+        return handover.write(root)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(handover.write, root)
+        try:
+            assert entered.wait(5)
+            other = pool.submit(second)
+            assert second_started.wait(5)
+            assert not second_read.wait(0.2)
+        finally:
+            release.set()
+        assert first.result(timeout=5) == other.result(timeout=5)
+    assert "UX13 initial" not in written(root)
+    assert not list((root / "build").glob(".handover-*"))
+
+
+def test_concurrent_compactions_and_prompts_do_not_lose_claims(desk, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    import time
+
+    root, _ = desk
+    handover.compaction(root, "parallel")
+    marks = root / "build/.handover-sessions"
+    real_loads = json.loads
+    def delayed_loads(*args, **kwargs):
+        state = real_loads(*args, **kwargs)
+        time.sleep(0.02)
+        return state
+    monkeypatch.setattr(json, "loads", delayed_loads)
+    barrier = threading.Barrier(4)
+    def compact(prompt):
+        barrier.wait(timeout=5)
+        return handover.compaction(root, "parallel", prompt=prompt)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = [pool.submit(compact, False) for _ in range(4)]
+        assert [f.result(timeout=5) for f in results] == [""] * 4
+        assert real_loads(next(marks.iterdir()).read_text())["count"] == 5
+        next(marks.iterdir()).write_text(json.dumps(dict(count=2, shown=False)))
+        results = [pool.submit(compact, True) for _ in range(4)]
+        assert [f.result(timeout=5) for f in results].count(handover.SECOND_COMPACTION) == 1
+
+
+def test_queue_links_cannot_read_or_overwrite_external_files(desk):
+    root, _ = desk
+    handover.write(root)
+    before = written(root)
+    external = root.parent / "external"
+    workqueue._write(root / "queue.tsv", [workqueue._new("Q-0001", "review result", "check result", "owner")])
+    # Include the cache's temporary output: workqueue.load writes it before replacing the cache.
+    for name in ("queue.tsv", "queue-done.tsv", ".queue.lock", "queue-checked.json", "queue-checked.json.tmp"):
+        path = root / name
+        if name == "queue.tsv":
+            external.write_bytes(path.read_bytes())
+        elif name == "queue-done.tsv":
+            workqueue._write(external, [])
+        else:
+            external.write_text("[]")
+        external_before = external.read_bytes()
+        saved = path.read_bytes() if path.exists() else None
+        path.unlink(missing_ok=True)
+        path.symlink_to(external)
+        try:
+            with pytest.raises(handover.HandoverError):
+                handover.write(root)
+            assert external.read_bytes() == external_before
+            assert written(root) == before
+        finally:
+            path.unlink()
+            if saved is not None:
+                path.write_bytes(saved)
+
+
+def test_queue_special_files_and_linked_parent_refused(desk, monkeypatch):
+    root, _ = desk
+    handover.write(root)
+    before = written(root)
+    queue = root / "queue.tsv"
+    os.mkfifo(queue)
+    # The preflight must reject this before the downstream queue reader can block.
+    real_load = workqueue.load
+    def no_fifo(path=None):
+        import stat
+        assert not stat.S_ISFIFO(queue.lstat().st_mode), "blocking queue read"
+        return real_load(path)
+    monkeypatch.setattr(workqueue, "load", no_fifo)
+    with pytest.raises(handover.HandoverError):
+        handover.write(root)
+    queue.unlink()
+    external = root.parent / "queue-folder"
+    external.mkdir()
+    link = root / "queue-link"
+    link.symlink_to(external, target_is_directory=True)
+    monkeypatch.setenv("AWB_WORK_QUEUE", str(link / "queue.tsv"))
+    with pytest.raises(handover.HandoverError):
+        handover.write(root)
+    assert list(external.iterdir()) == []
+    assert written(root) == before
+
+
+def test_malformed_modern_queue_preserves_previous(desk, capsys):
+    root, _ = desk
+    handover.write(root)
+    before = written(root)
+    secret = "pass" + "word=queue-row-value"
+    (root / "queue.tsv").write_text("id\twhat\nQ-0001\t" + secret + "\n")
+    assert handover.main(["write"]) == 2
+    assert written(root) == before
+    assert secret not in "".join(capsys.readouterr())
+
+
+def test_receipt_directory_swap_cannot_redirect_write(desk, monkeypatch):
+    root, _ = desk
+    handover.compaction(root, "receipt")
+    marks = root / "build/.handover-sessions"
+    receipt = next(marks.iterdir())
+    before = receipt.read_bytes()
+    external = root.parent / "external-marks"
+    external.mkdir()
+    real_loads = json.loads
+    def swap(*args, **kwargs):
+        state = real_loads(*args, **kwargs)
+        marks.rename(marks.with_name("old-marks"))
+        marks.symlink_to(external, target_is_directory=True)
+        return state
+    monkeypatch.setattr(json, "loads", swap)
+    with pytest.raises((OSError, handover.HandoverError)):
+        handover.compaction(root, "receipt")
+    assert list(external.iterdir()) == []
+    assert (marks.with_name("old-marks") / receipt.name).read_bytes() == before
