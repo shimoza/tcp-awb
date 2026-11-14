@@ -4,7 +4,8 @@
 
 It runs as its own system user (awb-owner), never as the owner, on /run/awb-owner.sock (a socket unit: root, group
 awb-web, 0660). It answers a connection only when the peer's uid is the gateway's (SO_PEERCRED) and reads one file,
-the status the owner's timer writes (`awb owner status --write`): codes, numbers, fixed words and times. It opens
+the status the owner's timer writes (`awb owner status --write`): codes, numbers, fixed words, times and checked
+decision text and app lines. It opens
 nothing else, holds no key, reaches no vault and runs no command.
 
     GET /api/owner/state      the vault and the key service (state and since), the deployed release, the page
@@ -13,6 +14,7 @@ nothing else, holds no key, reaches no vault and runs no command.
                               validation and the summary the owner's timer let pass the name check, else withheld
                               with its class
     GET /api/owner/intake     per customer code the candidates that wait for a review and the time of the report
+    GET /api/owner/items      checked project decisions, source indexes, defaults and app lines from the status file
     POST /api/owner/publish   {run_id, code}: Publish (T9 step 3). The TOTP code is checked again here against this
                               service's own copy of the secret (/etc/awb/owner-publish.json, awb-owner 600), fresh
                               and once; then the run id alone goes to the root unit on /run/awb-web-publish.sock,
@@ -61,7 +63,7 @@ PAGE_RUN_KEYS = ("id", "state", "created", "finished", "validation", "summary", 
 
 def read_status(path: Path, opener=None) -> dict | None:
     """The status file, checked field by field; None when it is missing, too large, a link or of another shape."""
-    from awb import status_shape
+    from awb import ownerwait, status_shape
 
     try:
         fd = (opener or os.open)(str(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
@@ -76,7 +78,7 @@ def read_status(path: Path, opener=None) -> dict | None:
         return None
     try:
         data = json.loads(raw)
-        status_shape.validate(data)
+        ownerwait.validate_status(data)
     except (ValueError, status_shape.StatusError, TypeError, AttributeError, KeyError):
         return None
     return data
@@ -101,6 +103,8 @@ def answer(route: str, status: dict | None, now: float) -> tuple[int, dict]:
         return 200, {"runs": [{k: r[k] for k in OWNER_RUN_KEYS} for r in status["ui_runs"]], **meta}
     if route == "/api/ui-runs":
         return 200, {"runs": [{k: r[k] for k in PAGE_RUN_KEYS} for r in status["ui_runs"]], **meta}
+    if route == "/api/owner/items":
+        return 200, {"items": status.get("decisions", []), **meta}
     return 200, {"customers": status["intake"], **meta}
 
 

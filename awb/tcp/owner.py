@@ -8,8 +8,9 @@
 
 The owner-actions service runs as its own system user and reads this one file and nothing else, so everything the
 owner page shows comes from here: the state of the vault and of the key service from their pings, the deployed
-release, the page facts, the runs of the UI queue and the intake counts per customer code. Every value is a code, a
-number, a fixed word or a time, checked field by field before the file is written, and the whole text passes the
+release, the page facts, the runs of the UI queue, the intake counts per customer code and the project decisions.
+Decision text and app lines pass the owner-status name check before export. Values are checked field by field
+before the file is written, and the whole text passes the
 name check when the check can run (a locked vault cannot check; the fixed shape still holds then).
 
 The intake and `awb register review` keep `<vault>/intake-counts.json`: per customer code the candidates that wait
@@ -26,9 +27,10 @@ import sys
 import tempfile
 from pathlib import Path
 
-from awb import config
+from awb import config, ownerwait
 from awb.intake_counts import now_text, read_counts
-from awb.status_shape import DAEMON_STATES, RUN_RE, RUN_STATES, SUMMARY_MAX, TIME_RE, StatusError, validate
+from awb.status_shape import DAEMON_STATES, RUN_RE, RUN_STATES, SUMMARY_MAX, TIME_RE, StatusError
+from awb.ownerwait import validate_status as validate
 
 STATUS = Path("/var/lib/awb-owner-status/status.json")
 MAX_RUNS = 20
@@ -183,7 +185,7 @@ def intake(p: config.Paths) -> list[dict]:
 def collect(p: config.Paths | None = None) -> dict:
     p = p or config.paths()
     return {"version": 1, "written": now_text(), **daemons(), "deployed": deployed(), "page": page(),
-            "ui_runs": ui_runs(screen=summary_screen()), "intake": intake(p)}
+            "ui_runs": ui_runs(screen=summary_screen()), "intake": intake(p), "decisions": ownerwait.page_items(p)}
 
 
 # --------------------------------------------------------------------------- the checks before the write

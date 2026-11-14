@@ -4309,6 +4309,90 @@ paths:
           variables:
             owner_host:
               default: owner.example.com
+  /api/owner/items:
+    get:
+      operationId: listOwnerItems
+      tags:
+        - owner
+      summary: The project decisions shown on the owner page.
+      description: From the status file written by awb owner status --write, including the checked app line. Owner-actions reads no project files. Old status files return an empty items list. The page posts code and item to take-default only when has_default is true.
+      responses:
+        "200":
+          description: From the status file of the owner's timer.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/OwnerItems"
+              examples:
+                sample:
+                  value:
+                    items:
+                      - code: tcp-q7m4
+                        item: 0
+                        text: "owner: review ecs-1."
+                        has_default: false
+                        app: "app: SSH host awb-test, folder /work/tcp-q7m4"
+                    written: "2026-10-08T12:00:00Z"
+                    stale: false
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "403":
+          description: "The request did not come through the gateway's owner host. The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                not-allowed:
+                  value:
+                    error: Not allowed.
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The owner's timer has not written its status yet, or it cannot be read.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-owner-status-is-not:
+                  value:
+                    error: The owner status is not available yet.
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
   /api/owner/items/take-default:
     post:
       operationId: takeOwnerItemDefault
@@ -7200,6 +7284,49 @@ components:
           type: boolean
       required:
         - customers
+        - written
+        - stale
+    OwnerItem:
+      type: object
+      properties:
+        code:
+          "$ref": "#/components/schemas/ProjectCode"
+        item:
+          type: integer
+          description: Original zero-based projects._owner_items index in OPEN.md, before filtering.
+          minimum: 0
+        text:
+          type: string
+          description: The short owner-status text after the name check.
+          maxLength: 110
+        has_default:
+          type: boolean
+          description: "A nonempty Default: on the full checked item, even beyond the short text."
+        app:
+          type: string
+          description: The checked UX18 app line from paths.conf, or a fixed unavailable/withheld line.
+      required:
+        - code
+        - item
+        - text
+        - has_default
+        - app
+      additionalProperties: false
+    OwnerItems:
+      type: object
+      properties:
+        items:
+          type: array
+          description: Project decisions in owner status order and limits.
+          items:
+            "$ref": "#/components/schemas/OwnerItem"
+        written:
+          type: string
+          format: date-time
+        stale:
+          type: boolean
+      required:
+        - items
         - written
         - stale
     ChatTurn:

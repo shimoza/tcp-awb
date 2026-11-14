@@ -16519,8 +16519,50 @@
    "name": "development asks: owner notice does not need write access to work sessions",
    "run": ".venv/bin/pytest tests/test_dev_ask.py::test_owner_notice_does_not_need_write_access_to_work_sessions",
    "status": "passing"
+  },
+  {
+   "id": "ux21-1",
+   "phase": "ux21",
+   "name": "owner page: written status keeps checked items original indexes and app",
+   "run": ".venv/bin/pytest tests/test_owner_page_decisions.py::test_written_status_keeps_checked_items_original_indexes_and_app",
+   "status": "passing"
+  },
+  {
+   "id": "ux21-2",
+   "phase": "ux21",
+   "name": "owner page: names and unavailable checks never offer a default",
+   "run": ".venv/bin/pytest tests/test_owner_page_decisions.py::test_names_and_unavailable_checks_never_offer_a_default",
+   "status": "passing"
+  },
+  {
+   "id": "ux21-3",
+   "phase": "ux21",
+   "name": "owner page: app line is checked and never guessed",
+   "run": ".venv/bin/pytest tests/test_owner_page_decisions.py::test_app_line_is_checked_and_never_guessed",
+   "status": "passing"
+  },
+  {
+   "id": "ux21-4",
+   "phase": "ux21",
+   "name": "owner page: get decisions uses only the status file and owner host",
+   "run": ".venv/bin/pytest tests/test_owner_page_decisions.py::test_get_decisions_uses_only_the_status_file_and_owner_host",
+   "status": "passing"
+  },
+  {
+   "id": "ux21-5",
+   "phase": "ux21",
+   "name": "owner page: malformed decisions are refused on write and read",
+   "run": ".venv/bin/pytest tests/test_owner_page_decisions.py::test_malformed_decisions_are_refused_on_write_and_read",
+   "status": "passing"
+  },
+  {
+   "id": "ux21-6",
+   "phase": "ux21",
+   "name": "owner page: page decision interaction",
+   "run": ".venv/bin/pytest tests/test_owner_page_decisions.py::test_page_decision_interaction",
+   "status": "passing"
   }
  ],
- "total_tests": 2360,
+ "total_tests": 2366,
  "checked": "2026-11-09"
 }

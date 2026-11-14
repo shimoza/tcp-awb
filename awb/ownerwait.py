@@ -74,6 +74,10 @@ class Item:
     block: str | None = None
     kind: str = ""        # owner, kept, done, dev or more: what `decide` does with the item; empty: shown as it is
     extra: str = ""       # the tenant of a kept create
+    item: int | None = None  # original projects._owner_items index, before filtering
+    has_default: bool = False
+    app: str = ""
+    source: str = ""      # full owner item for the name check, never serialized
 
 
 def queue_file() -> Path:
@@ -106,10 +110,59 @@ def open_items(p: config.Paths) -> tuple[list[Item], int]:
             text = (Path(r.path) / "OPEN.md").read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        for item in projects._owner_items(text):
+        app = project_app(p, r.code, Path(r.path))
+        for index, item in enumerate(projects._owner_items(text)):
             cmd = projects.item_command(item)
-            out.append(Item(r.code, _short(item), WHERE_TERMINAL if cmd else WHERE_SESSION, cmd, "owner"))
+            parts = re.split(r"\bDefault:\s*", item.replace("**", "").replace("`", ""), maxsplit=1, flags=re.I)
+            out.append(Item(r.code, _short(item), WHERE_TERMINAL if cmd else WHERE_SESSION, cmd, "owner",
+                            item=index, has_default=len(parts) == 2 and bool(parts[1].strip()), app=app,
+                            source=item))
     return out, parked
+
+
+def project_app(p: config.Paths, code: str, root: Path) -> str:
+    """UX18's configured work host and project root, checked with the item before export."""
+    from awb import codes
+
+    conf = config.host_conf()
+    host, parent = conf.get("work_host", ""), Path(conf.get("projects", ""))
+    if (not codes.is_project_code(code) or root.name != code or
+            not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,252}", host) or
+            not parent.is_absolute() or parent != p.projects_root or root.parent != parent):
+        return "app: destination unavailable."
+    return "app: SSH host %s, folder %s" % (host, root)
+
+
+def page_items(p: config.Paths) -> list[dict]:
+    """Only the checked project decisions of the normal owner status view, with stable source indexes."""
+    from awb import codes
+
+    items, _ = collect(p)
+    return [{"code": it.label, "item": it.item, "text": it.text,
+             "has_default": it.has_default, "app": it.app}
+            for it in items if it.kind == "owner" and it.item is not None and codes.is_project_code(it.label)]
+
+
+def validate_status(status: dict) -> None:
+    """Validate the optional Decisions extension and the original status shape; accept old timer files."""
+    from awb import codes, status_shape
+
+    status_shape.validate({k: v for k, v in status.items() if k != "decisions"})
+    rows = status.get("decisions", [])
+    keys = {"code", "item", "text", "has_default", "app"}
+    seen = set()
+    if not isinstance(rows, list):
+        raise status_shape.StatusError("the status field decisions has an unexpected shape")
+    for row in rows:
+        if (not isinstance(row, dict) or set(row) != keys or not isinstance(row["code"], str) or
+                not codes.is_project_code(row["code"]) or type(row["item"]) is not int or row["item"] < 0 or
+                not isinstance(row["has_default"], bool) or
+                not isinstance(row["text"], str) or not 0 < len(row["text"]) <= TEXT_MAX or
+                not row["text"].isprintable() or not isinstance(row["app"], str) or
+                not 0 < len(row["app"]) <= 4096 or not row["app"].isprintable() or
+                (row["code"], row["item"]) in seen):
+            raise status_shape.StatusError("the status field decisions has an unexpected shape")
+        seen.add((row["code"], row["item"]))
 
 
 def queue_items(path: Path | None = None) -> list[Item]:
@@ -581,16 +634,19 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
             it.kind = "dev"
     texts = []
     for it in items:
-        texts += [it.text, it.block or "", it.label]
+        texts += [it.text, it.block or "", it.label, it.app, it.source]
     try:
         hidden = ledger.hit_indexes(texts, ledger.register_path(p))
     except ledger.LedgerError:
         hidden = set(range(len(texts)))
     for n, it in enumerate(items):
-        if {3 * n, 3 * n + 1, 3 * n + 2} & hidden:
+        if {5 * n, 5 * n + 1, 5 * n + 2, 5 * n + 4} & hidden:
             it.text, it.block = ledger.WITHHELD, None
-            if 3 * n + 2 in hidden:
+            it.has_default = False
+            if 5 * n + 2 in hidden:
                 it.label = "?"
+        if 5 * n + 3 in hidden:
+            it.app = ledger.WITHHELD
     return decide(items, view, code), parked
 
 

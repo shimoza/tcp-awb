@@ -1100,6 +1100,15 @@ def _schemas() -> dict:
         }),
         "OwnerIntake": obj({"customers": array(ref("IntakeCount"), "Ordered by code."),
                             "written": string(format="date-time"), "stale": boolean()}),
+        "OwnerItem": obj({
+            "code": ref("ProjectCode"),
+            "item": integer("Original zero-based projects._owner_items index in OPEN.md, before filtering.", minimum=0),
+            "text": string("The short owner-status text after the name check.", maxLength=110),
+            "has_default": boolean("A nonempty Default: on the full checked item, even beyond the short text."),
+            "app": string("The checked UX18 app line from paths.conf, or a fixed unavailable/withheld line."),
+        }, closed=True),
+        "OwnerItems": obj({"items": array(ref("OwnerItem"), "Project decisions in owner status order and limits."),
+                           "written": string(format="date-time"), "stale": boolean()}),
         "ChatTurn": obj({
             "id": ref("RequestId"),
             "project": ref("ProjectCode"),
@@ -1801,6 +1810,13 @@ def _owner_paths() -> dict:
             "listOwnerIntake", "Per customer code the candidates that wait for a review.", "OwnerIntake",
             {"customers": [{"customer": "CUST-Q7M4", "waiting": 3, "time": "2026-10-08T09:12:40Z"}]},
             "From <vault>/intake-counts.json through the status file; no report is opened to count.")},
+        "/api/owner/items": {"get": owner_op(
+            "listOwnerItems", "The project decisions shown on the owner page.", "OwnerItems",
+            {"items": [{"code": "tcp-q7m4", "item": 0, "text": "owner: review ecs-1.",
+                        "has_default": False, "app": "app: SSH host awb-test, folder /work/tcp-q7m4"}]},
+            "From the status file written by awb owner status --write, including the checked app line. "
+            "Owner-actions reads no project files. Old status files return an empty items list. "
+            "The page posts code and item to take-default only when has_default is true.")},
         "/api/owner/items/take-default": {"post": operation(
             "takeOwnerItemDefault", "owner", "Take the default of a project owner item.", {
                 "200": answer("One project note, its prompt notice and one ledger line; a repeat writes nothing.",

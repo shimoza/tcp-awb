@@ -859,6 +859,7 @@ OWNER_ROUTES = (
     ('GET', '/api/owner/state', 'owner_socket', False),
     ('GET', '/api/owner/ui-runs', 'owner_socket', False),
     ('GET', '/api/owner/intake', 'owner_socket', False),
+    ('GET', '/api/owner/items', 'owner_socket', False),
     ('GET', '/api/ui-runs', 'owner_socket', False),
     ('POST', '/api/owner/publish', 'owner_socket', False),
     ('POST', '/api/owner/items/take-default', 'project_socket', False),
