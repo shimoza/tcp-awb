@@ -1087,6 +1087,17 @@ def _schemas() -> dict:
             "published": boolean("Always true."),
             "backup": string("The name the page before was kept under; null when there was none.", nullable=True),
         }),
+        "TakeDefaultRequest": obj({
+            "code": ref("ProjectCode"),
+            "item": integer("Zero-based index into the project's OPEN.md owner items, in owner status --all CODE "
+                            "order. The service reads the list itself.", minimum=0),
+        }, description="Additional fields are ignored; no request text enters the note."),
+        "TakeDefaultResult": obj({
+            "code": ref("ProjectCode"),
+            "item": integer(minimum=0),
+            "note": string("Project-relative note handle under notes/from-dev/."),
+            "taken": boolean("True for a new note; false for an item already recorded in the ledger."),
+        }),
         "OwnerIntake": obj({"customers": array(ref("IntakeCount"), "Ordered by code."),
                             "written": string(format="date-time"), "stale": boolean()}),
         "ChatTurn": obj({
@@ -1790,6 +1801,31 @@ def _owner_paths() -> dict:
             "listOwnerIntake", "Per customer code the candidates that wait for a review.", "OwnerIntake",
             {"customers": [{"customer": "CUST-Q7M4", "waiting": 3, "time": "2026-10-08T09:12:40Z"}]},
             "From <vault>/intake-counts.json through the status file; no report is opened to count.")},
+        "/api/owner/items/take-default": {"post": operation(
+            "takeOwnerItemDefault", "owner", "Take the default of a project owner item.", {
+                "200": answer("One project note, its prompt notice and one ledger line; a repeat writes nothing.",
+                              ref("TakeDefaultResult"), {
+                                  "taken": {"code": "tcp-q7m4", "item": 0,
+                                            "note": "notes/from-dev/2026-11-14-1.md", "taken": True},
+                                  "repeat": {"code": "tcp-q7m4", "item": 0,
+                                             "note": "notes/from-dev/2026-11-14-1.md", "taken": False}}),
+                "400": refusal("A project code and an integer item index are required.",
+                               "Invalid take-default request."),
+                "403": refusal("The request did not come through the gateway's owner host.", "Not allowed."),
+                "409": refusal("The project is not active, the index is out of range or the item fails its check.",
+                               "The project or owner item is unavailable."),
+                "503": refusal("The project, note writer, name check or ledger is unavailable.",
+                               "The owner action could not finish."),
+            }, description="Development only. Uses the owner session, exact origin, same-origin Sec-Fetch-Site "
+                           "and X-AWB-CSRF checks of publish. The gateway routes to /run/awb-project-create.sock; "
+                           "the create service projects role runs as awb and checks the owner level header. "
+                           "Here code is a project code. The service reads "
+                           "OPEN.md with the owner status parser and writes through awb projects note's writer: "
+                           "the owner takes the default of item: <first 110 characters as owner status prints it>. "
+                           "Extra body fields are ignored. A receipt for the full item prevents duplicate writes "
+                           "across concurrent requests and service restarts. At its next prompt the session reads "
+                           "the note, acts on the default and closes the item under UX6.",
+            body=json_body("TakeDefaultRequest", {"first": {"code": "tcp-q7m4", "item": 0}}), post=True)},
         "/api/owner/publish": {"post": operation(
             "publishOwnerRun", "owner", "Publish the newest PASS run of the UI queue.", {
                 "200": answer("Published; the page before is kept as a backup and the newest 10 backups stay.",

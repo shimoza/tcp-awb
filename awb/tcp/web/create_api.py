@@ -1,4 +1,4 @@
-"""Narrow customer and project creation adapters. No model or cloud calls.
+"""Narrow customer and project creation adapters and owner default notes. No model or cloud calls.
 
 Run as two different users behind permissioned, socket-activated Unix sockets.
 Only the owner process sees names. Journals contain codes and keyed digests only.
@@ -27,6 +27,10 @@ from socketserver import ThreadingMixIn
 from awb import codes, config, intake, ledger, projects, register, vault
 
 PROJECT_SOCKET = '/run/awb-project-create.sock'
+TAKE_DEFAULT = '/api/owner/items/take-default'
+DEFAULT_INVALID = 'Invalid take-default request.'
+DEFAULT_REFUSED = 'The project or owner item is unavailable.'
+DEFAULT_DOWN = 'The owner action could not finish.'
 REQUEST = re.compile(r'[a-f0-9]{32}')
 CUSTOMER = re.compile(codes.CUST)
 WEB_REGISTER_OFF = "New customers are registered on the owner's terminal, not in the console."
@@ -221,6 +225,53 @@ class ProjectStore:
     def options(self):
         return {'kinds': list(projects.PROJECT_KINDS), 'tags': projects.known_tags()}
 
+    def take_default(self, code: str, item: int) -> tuple[int, dict, str]:
+        """Index the same OPEN.md items as owner status --all CODE, never request text.
+
+        The project lock serializes clicks across threads and processes, including park/close. The ledger
+        receipt hashes the full item, so retries survive restarts and equal displayed prefixes stay distinct.
+        The session receives the existing note notice and carries out and closes the item under UX6.
+        """
+        from awb import devnote, ownerwait
+
+        p = self.p
+        try:
+            with projects.locked(p):
+                pr = next((row for row in projects.load(p) if row.code == code), None)
+                if pr is None or pr.state != "active":
+                    return 409, {"error": DEFAULT_REFUSED}, "refused"
+                root = Path(pr.path)
+                if root.is_symlink():
+                    return 409, {"error": DEFAULT_REFUSED}, "refused"
+                fd = os.open(root / "OPEN.md", os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                with os.fdopen(fd, encoding="utf-8") as stream:
+                    items = projects._owner_items(stream.read())
+                if item < 0 or item >= len(items):
+                    return 409, {"error": DEFAULT_REFUSED}, "refused"
+                selected = items[item]
+                reg = ledger.register_path(p)
+                ledger.ensure_checkable(reg)
+                if ledger.screen(selected, reg):
+                    return 409, {"error": DEFAULT_REFUSED}, "refused"
+                receipt = "owner-default sha256 " + hashlib.sha256(selected.encode("utf-8")).hexdigest()
+                previous = next((entry for entry in ledger.load(p)
+                                 if entry.project == code and entry.outcome == receipt), None)
+                if previous is not None:
+                    return 200, {"code": code, "item": item, "note": previous.deliverables[0],
+                                 "taken": False}, "already-taken"
+                # Check the ledger text before creating a note, so a refused check writes nothing.
+                entry = ledger.make_entry(kind="other", done="the owner takes the default of an item",
+                                          project=code, outcome=receipt)
+                ledger.check_entry(entry, reg)
+                text = "the owner takes the default of item: " + ownerwait._short(selected)[:110]
+                note = devnote.write(p, code, "owner default", text)
+                handle = devnote.FOLDER + "/" + note.name
+                entry.deliverables = [handle]
+                ledger.append_line(ledger.week_file(p, entry.date), entry.as_dict())
+                return 200, {"code": code, "item": item, "note": handle, "taken": True}, "taken"
+        except (projects.ProjectError, devnote.NoteError, ledger.LedgerError, OSError, UnicodeError):
+            return 503, {"error": DEFAULT_DOWN}, "unavailable"
+
     def publish_material(self, code, data):
         from awb import check, gate
         if not isinstance(data, dict) or set(data) != {'id', 'customer', 'text', 'sha256'}:
@@ -386,6 +437,29 @@ class Handler(BaseHTTPRequestHandler):
                 if self.server.mode == 'projects' and self.path == '/api/project-options':
                     return self.reply(200, store.options())
                 raise Problem(404, 'Not found.')
+            if self.server.mode == 'projects' and self.path == TAKE_DEFAULT:
+                if self.headers.get('X-AWB-Level') != 'owner':
+                    raise Problem(403, 'Not allowed.')
+                try:
+                    lengths = self.headers.get_all('Content-Length', [])
+                    if len(lengths) != 1 or self.headers.get('Transfer-Encoding') or \
+                            self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
+                        raise ValueError
+                    length = int(lengths[0])
+                    if not 0 < length <= 1024:
+                        raise ValueError
+                    raw = self.rfile.read(length)
+                    self.drained = True
+                    if len(raw) != length:
+                        raise ValueError
+                    data = json.loads(raw)
+                    if not isinstance(data, dict) or not isinstance(data.get('code'), str) or \
+                            not codes.is_project_code(data['code']) or type(data.get('item')) is not int:
+                        raise ValueError
+                except (ValueError, UnicodeError):
+                    raise Problem(400, DEFAULT_INVALID) from None
+                status, result, _ = store.take_default(data['code'], data['item'])
+                return self.reply(status, result)
             route = '/api/customers' if self.server.mode == 'customers' else '/api/projects'
             if self.path != route:
                 raise Problem(404, 'Not found.')

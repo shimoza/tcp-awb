@@ -474,6 +474,15 @@ a missing, incomplete or failed journal keeps the note held. `awb owner status -
 commits. Deploy ends with one line per newly released note, naming its project code and handle. Without `--after`,
 `--title` is required and the note reaches the next prompt immediately.
 
+In development, `POST /api/owner/items/take-default` on the owner host takes `{"code":"tcp-q7m4","item":0}`.
+It uses the owner sign-in, exact origin and CSRF checks of publish. `item` is a zero-based index into that
+project's OPEN.md owner items in `awb owner status --all CODE` order. The gateway sends the action to
+`/run/awb-project-create.sock`. The create service's `projects` role runs as `awb`, checks the owner level
+header and reads and checks the item. It then uses the `awb projects note` writer for the fixed text `the owner takes the default of item: ` followed
+by its first 110 characters as owner status prints it. Extra request fields are ignored. One ledger receipt
+prevents duplicate notes across concurrent clicks and restarts. Invalid indexes and inactive projects are
+refused. The next session prompt shows the note; the session acts on the default and closes the item under UX6.
+
 `awb deploy status` shows what runs where, `sudo awb deploy --rollback` goes back to the release before.
 `sudo awb deploy --task B-012` brings a green build task live: it pulls `main` of the build side into your copy
 first. A deploy from a copy that is behind the live release is refused, so it cannot take back a build task's work.

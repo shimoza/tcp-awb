@@ -861,13 +861,14 @@ OWNER_ROUTES = (
     ('GET', '/api/owner/intake', 'owner_socket', False),
     ('GET', '/api/ui-runs', 'owner_socket', False),
     ('POST', '/api/owner/publish', 'owner_socket', False),
+    ('POST', '/api/owner/items/take-default', 'project_socket', False),
     # the IAM domain names: on the tenant service's owner socket, which answers this uid alone (finding 14)
     ('GET', '/api/owner/tenants', 'owner_tenants_socket', True),
 )
 OWNER_PATHS = frozenset(path for _, path, _, _ in OWNER_ROUTES)
 OWNER_ACTIONS = tuple(path for method, path, sock, _ in OWNER_ROUTES if method == 'GET' and sock == 'owner_socket')
 OWNER_ONLY_TEXT = b'{"error":"Owner only."}'
-OWNER_POSTS = tuple(path for method, path, _, _ in OWNER_ROUTES if method == 'POST')
+OWNER_POSTS = tuple(path for method, path, sock, _ in OWNER_ROUTES if method == 'POST' and sock == 'owner_socket')
 
 
 def restrict(answer, only):
@@ -1420,7 +1421,7 @@ class Gateway(BaseHTTPRequestHandler):
                 self.refusal = 'owner-csrf'
                 self.reply(403, b'The owner page expired. Reload it.\n')
                 return
-            if not (path == '/api/projects' or is_moved(path, 'POST') or path in OWNER_POSTS):
+            if not (path == '/api/projects' or is_moved(path, 'POST') or owner_route_of('POST', path) is not None):
                 self.reply(405, b'Method not allowed.\n')
                 return
             upload = bool(UPLOAD_PATH.fullmatch(path))

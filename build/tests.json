@@ -16344,8 +16344,99 @@
    "name": "held notes: invalid commit and secret are refused without output values",
    "run": ".venv/bin/pytest tests/test_note_after.py::test_invalid_commit_and_secret_are_refused_without_output_values",
    "status": "passing"
+  },
+  {
+   "id": "UX20-1",
+   "phase": "UX20",
+   "name": "owner default: valid call writes one fixed note one ledger line and prompt notice",
+   "run": ".venv/bin/pytest tests/test_owner_take_default.py::test_valid_call_writes_one_fixed_note_one_ledger_line_and_prompt_notice",
+   "status": "passing"
+  },
+  {
+   "id": "UX20-2",
+   "phase": "UX20",
+   "name": "owner default: out of range index writes nothing",
+   "run": ".venv/bin/pytest tests/test_owner_take_default.py::test_out_of_range_index_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "UX20-3",
+   "phase": "UX20",
+   "name": "owner default: parked project writes nothing",
+   "run": ".venv/bin/pytest tests/test_owner_take_default.py::test_parked_project_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "UX20-4",
+   "phase": "UX20",
+   "name": "owner default: another origin or fetch site writes nothing",
+   "run": ".venv/bin/pytest tests/test_owner_take_default.py::test_another_origin_or_fetch_site_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "UX20-5",
+   "phase": "UX20",
+   "name": "owner default: owner session and its csrf are required",
+   "run": ".venv/bin/pytest tests/test_owner_take_default.py::test_owner_session_and_its_csrf_are_required",
+   "status": "passing"
+  },
+  {
+   "id": "UX20-6",
+   "phase": "UX20",
+   "name": "owner default: repeated call uses a durable receipt and writes nothing",
+   "run": ".venv/bin/pytest tests/test_owner_take_default.py::test_repeated_call_uses_a_durable_receipt_and_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "UX20-7",
+   "phase": "UX20",
+   "name": "owner default: extra request text never enters the note or ledger",
+   "run": ".venv/bin/pytest tests/test_owner_take_default.py::test_extra_request_text_never_enters_the_note_or_ledger",
+   "status": "passing"
+  },
+  {
+   "id": "UX20-8",
+   "phase": "UX20",
+   "name": "owner default: request types cannot select an item or path",
+   "run": ".venv/bin/pytest tests/test_owner_take_default.py::test_request_types_cannot_select_an_item_or_path",
+   "status": "passing"
+  },
+  {
+   "id": "UX20-9",
+   "phase": "UX20",
+   "name": "owner default: unsafe item is refused without repeating its text",
+   "run": ".venv/bin/pytest tests/test_owner_take_default.py::test_unsafe_item_is_refused_without_repeating_its_text",
+   "status": "passing"
+  },
+  {
+   "id": "UX20-10",
+   "phase": "UX20",
+   "name": "owner default: concurrent calls write only one note and ledger line",
+   "run": ".venv/bin/pytest tests/test_owner_take_default.py::test_concurrent_calls_write_only_one_note_and_ledger_line",
+   "status": "passing"
+  },
+  {
+   "id": "UX20-11",
+   "phase": "UX20",
+   "name": "owner default: items with the same printed prefix have distinct receipts",
+   "run": ".venv/bin/pytest tests/test_owner_take_default.py::test_items_with_the_same_printed_prefix_have_distinct_receipts",
+   "status": "passing"
+  },
+  {
+   "id": "UX20-12",
+   "phase": "UX20",
+   "name": "owner default: gateway sends take default to project socket not owner socket",
+   "run": ".venv/bin/pytest tests/test_owner_take_default.py::test_gateway_sends_take_default_to_project_socket_not_owner_socket",
+   "status": "passing"
+  },
+  {
+   "id": "UX20-13",
+   "phase": "UX20",
+   "name": "owner default: take default requires project role web peer and owner level",
+   "run": ".venv/bin/pytest tests/test_web_create_api.py::test_take_default_requires_project_role_web_peer_and_owner_level",
+   "status": "passing"
   }
  ],
- "total_tests": 2335,
+ "total_tests": 2348,
  "checked": "2026-11-09"
 }

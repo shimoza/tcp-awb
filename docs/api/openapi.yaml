@@ -4309,6 +4309,172 @@ paths:
           variables:
             owner_host:
               default: owner.example.com
+  /api/owner/items/take-default:
+    post:
+      operationId: takeOwnerItemDefault
+      tags:
+        - owner
+      summary: Take the default of a project owner item.
+      description: "Development only. Uses the owner session, exact origin, same-origin Sec-Fetch-Site and X-AWB-CSRF checks of publish. The gateway routes to /run/awb-project-create.sock; the create service projects role runs as awb and checks the owner level header. Here code is a project code. The service reads OPEN.md with the owner status parser and writes through awb projects note's writer: the owner takes the default of item: <first 110 characters as owner status prints it>. Extra body fields are ignored. A receipt for the full item prevents duplicate writes across concurrent requests and service restarts. At its next prompt the session reads the note, acts on the default and closes the item under UX6."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/TakeDefaultRequest"
+            examples:
+              first:
+                value:
+                  code: tcp-q7m4
+                  item: 0
+      responses:
+        "200":
+          description: "One project note, its prompt notice and one ledger line; a repeat writes nothing."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/TakeDefaultResult"
+              examples:
+                taken:
+                  value:
+                    code: tcp-q7m4
+                    item: 0
+                    note: notes/from-dev/2026-11-14-1.md
+                    taken: true
+                repeat:
+                  value:
+                    code: tcp-q7m4
+                    item: 0
+                    note: notes/from-dev/2026-11-14-1.md
+                    taken: false
+        "400":
+          description: A project code and an integer item index are required. The gateway refused the request.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                invalid-take-default-request:
+                  value:
+                    error: Invalid take-default request.
+            text/html:
+              schema:
+                type: string
+              examples:
+                a-single-content-length-is:
+                  value: |
+                    A single content length is required.
+                incomplete-request:
+                  value: |
+                    Incomplete request.
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "403":
+          description: "The request did not come through the gateway's owner host. The gateway refused a request from another site. The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie. The owner host refused the request: another origin, Sec-Fetch-Site other than same-origin, or no valid X-AWB-CSRF of this owner session."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                not-allowed:
+                  value:
+                    error: Not allowed.
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-ask-on-the-awb:
+                  value: |
+                    Open Ask on the AWB site to submit a question.
+                cross-site-requests-are-not:
+                  value: |
+                    Cross-site requests are not allowed.
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
+                the-owner-page-expired-reload:
+                  value: |
+                    The owner page expired. Reload it.
+        "408":
+          description: The body did not arrive in time.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-timed-out:
+                  value: |
+                    Request timed out.
+        "409":
+          description: The project is not active, the index is out of range or the item fails its check.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-project-or-owner-item:
+                  value:
+                    error: The project or owner item is unavailable.
+        "413":
+          description: The body is larger than 16384 bytes.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                request-is-too-large:
+                  value: |
+                    Request is too large.
+        "415":
+          description: The body has the wrong content type.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                use-the-ask-form:
+                  value: |
+                    Use the Ask form.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The project, note writer, name check or ledger is unavailable.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-owner-action-could-not:
+                  value:
+                    error: The owner action could not finish.
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
   /api/owner/publish:
     post:
       operationId: publishOwnerRun
@@ -6987,6 +7153,38 @@ components:
       required:
         - published
         - backup
+    TakeDefaultRequest:
+      type: object
+      description: "Additional fields are ignored; no request text enters the note."
+      properties:
+        code:
+          "$ref": "#/components/schemas/ProjectCode"
+        item:
+          type: integer
+          description: Zero-based index into the project's OPEN.md owner items, in owner status --all CODE order. The service reads the list itself.
+          minimum: 0
+      required:
+        - code
+        - item
+    TakeDefaultResult:
+      type: object
+      properties:
+        code:
+          "$ref": "#/components/schemas/ProjectCode"
+        item:
+          type: integer
+          minimum: 0
+        note:
+          type: string
+          description: Project-relative note handle under notes/from-dev/.
+        taken:
+          type: boolean
+          description: "True for a new note; false for an item already recorded in the ledger."
+      required:
+        - code
+        - item
+        - note
+        - taken
     OwnerIntake:
       type: object
       properties:

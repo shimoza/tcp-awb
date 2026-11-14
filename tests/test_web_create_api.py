@@ -4,12 +4,16 @@ submission idempotent by its request id, names never in the journal, answers tha
 Ported from the tests the web side wrote for the deployed service. The projects use the kinds of the repository
 (query and project) where the deployed backend still had topic and engagement; the contract checks are new.
 """
+import io
 import json
 import os
+import struct
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from email.message import Message
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -310,3 +314,41 @@ def test_the_answers_fit_the_contract(home, tmp_path):
     with pytest.raises(Problem) as e:
         customers.create({**customer_payload("f" * 32), "name": fixtures.CUSTOMER_FORMS[0].upper()})
     fits(e.value.data, "Error")
+
+
+def test_take_default_requires_project_role_web_peer_and_owner_level(home, tmp_path):
+    pr = projects.spawn(home, "project", "check the cluster", fixtures.CUSTOMER_CODE, home.register)
+    (Path(pr.path) / "OPEN.md").write_text("## Waiting on the owner\n- owner: Default: keep ecs-1 stopped.\n")
+    server = SimpleNamespace(mode="projects", web_uid=os.getuid(),
+                             store=ProjectStore(home, tmp_path / "default-state"))
+    body = json.dumps({"code": pr.code, "item": 0}).encode()
+
+    def ask(level=None):
+        response = []
+        handler = object.__new__(Handler)
+        handler.server, handler.command, handler.path = server, "POST", "/api/owner/items/take-default"
+        handler.connection = SimpleNamespace(getsockopt=lambda *args: struct.pack("3i", 0, os.getuid(), 0))
+        handler.headers = Message()
+        handler.headers["Content-Type"] = "application/json"
+        handler.headers["Content-Length"] = str(len(body))
+        if level is not None:
+            handler.headers["X-AWB-Level"] = level
+        handler.rfile = io.BytesIO(body)
+        handler.reply = lambda status, result: response.append((status, result))
+        handler.do_POST()
+        assert len(response) == 1
+        return response[0]
+
+    assert ask()[0] == 403
+    assert ask("reader")[0] == 403
+    server.web_uid += 10000
+    assert ask("owner")[0] == 403
+    server.web_uid = os.getuid()
+    server.mode = "customers"
+    assert ask("owner")[0] == 404
+    assert not list((Path(pr.path) / "notes/from-dev").glob("*.md"))
+    assert not create_api.ledger.load(home)
+    server.mode = "projects"
+    status, result = ask("owner")
+    assert status == 200 and result["taken"] is True
+    assert result["code"] == pr.code and result["item"] == 0
