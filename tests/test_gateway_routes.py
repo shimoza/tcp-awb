@@ -161,6 +161,6 @@ def test_each_owner_route_goes_to_the_socket_of_its_row(site):
 def test_owner_actions_answers_the_rows_of_its_socket():
     rows = [(m, p) for m, p, sock, _ in gateway.OWNER_ROUTES if sock == "owner_socket"]
     assert owner_actions.ROUTES == tuple(p for m, p in rows if m == "GET") == gateway.OWNER_ACTIONS
-    assert owner_actions.ROUTES == ("/api/owner/state", "/api/owner/ui-runs", "/api/owner/intake", "/api/ui-runs")
+    assert owner_actions.ROUTES == ("/api/owner/state", "/api/owner/ui-runs", "/api/owner/intake", "/api/owner/items", "/api/ui-runs")
     assert [p for m, p in rows if m == "POST"] == [owner_actions.PUBLISH] == ["/api/owner/publish"]
     assert gateway.OWNER_POSTS == ("/api/owner/publish",)
