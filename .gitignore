@@ -17,5 +17,6 @@ build/PROGRESS.md
 build/COVERAGE.md
 build/DECISIONS.md
 build/OPEN.md
+build/HANDOVER.md
 # the build queue is his, never in git (presentations/self-build, D-S15)
 build/queue/
