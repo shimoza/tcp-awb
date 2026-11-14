@@ -558,7 +558,7 @@ def decide(items: list[Item], view: str = "decisions", code: str | None = None) 
 def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path | None = None,
             view: str = "decisions", code: str | None = None) -> tuple[list[Item], int]:
     """The items of VIEW (see `decide`) after the name check, and the count of parked projects."""
-    from awb import ledger, projects
+    from awb import devask, ledger, projects
 
     p = p or config.paths()
     items, parked = open_items(p)
@@ -575,6 +575,7 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
     items += tenant_mode_items()
     items += winlab_items()
     items += winlab_online_items()
+    items += devask.status_items(p, view)
     for it in items:
         if it.kind != "done" and it.text.lower().startswith(_DEV_START):
             it.kind = "dev"
@@ -618,7 +619,7 @@ def render(items: list[Item], parked: int, note_lines: list[str] | tuple = ()) -
         head = ["%d item%s wait on you" % (count(items), "" if count(items) == 1 else "s")]
     lines = list(head)
     for it in items:
-        if it.kind == "more":
+        if it.kind in ("more", "dev-overdue"):
             lines.append(it.text)
             continue
         if it.kind == "export":

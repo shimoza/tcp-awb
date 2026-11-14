@@ -563,9 +563,18 @@ def _kb_text(data: dict) -> str | None:
 def _rules_notice(data: dict, extra: str | None = None) -> None:
     """Tell a running session once that its rules changed; `extra` is a context line of its own (T8). The block of
     the knowledge base comes last, when the prompt starts a new task (KF)."""
-    said = "\n".join(t for t in (extra, _rules_text(data), _kb_text(data)) if t)
+    said = "\n".join(t for t in (extra, _rules_text(data), _kb_text(data), _dev_requests(data)) if t)
     if said:
         _emit(EVENTS["prompt"], said)
+
+
+def _dev_requests(data: dict) -> str:
+    from awb import devask
+
+    try:
+        return "\n".join(devask.notices(config.paths(), _session_folder(data), data.get("session_id")))
+    except (OSError, ValueError, devask.AskError):
+        return ""
 
 
 SOFT_CLASSES = ("url", "phone", "ip", "mac")
@@ -1648,6 +1657,16 @@ def main(argv: list[str] | None = None) -> int:
         print("PASS  the tool guard refuses its planted cases" if not problems else "# the tool guard failed")
         return ERROR if problems else OK
     if not for_this_user():
+        if args.name == "prompt":
+            try:
+                raw = sys.stdin.read() if sys.stdin is not None else ""
+                data = json.loads(raw) if raw.strip() else {}
+                said = _dev_requests(data) if isinstance(data, dict) else ""
+                if said:
+                    _emit(EVENTS["prompt"], said)
+                return OK
+            except (OSError, ValueError):
+                return OK
         if args.name != "session-start" or not _sealed():
             return OK
         try:

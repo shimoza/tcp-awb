@@ -16435,8 +16435,92 @@
    "name": "owner default: take default requires project role web peer and owner level",
    "run": ".venv/bin/pytest tests/test_web_create_api.py::test_take_default_requires_project_role_web_peer_and_owner_level",
    "status": "passing"
+  },
+  {
+   "id": "ux4-1",
+   "phase": "ux4",
+   "name": "development asks: work ask keeps code text command error and blocks",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_work_ask_keeps_code_text_command_error_and_blocks",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-2",
+   "phase": "ux4",
+   "name": "development asks: owner repository prompt shows each request once per session",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_owner_repository_prompt_shows_each_request_once_per_session",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-3",
+   "phase": "ux4",
+   "name": "development asks: registered name in any ask field refuses without writing",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_registered_name_in_any_ask_field_refuses_without_writing",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-4",
+   "phase": "ux4",
+   "name": "development asks: secret in any ask field refuses without writing",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_secret_in_any_ask_field_refuses_without_writing",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-5",
+   "phase": "ux4",
+   "name": "development asks: unavailable name check refuses without writing",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_unavailable_name_check_refuses_without_writing",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-6",
+   "phase": "ux4",
+   "name": "development asks: answer note closes only its ask and reaches project",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_answer_note_closes_only_its_ask_and_reaches_project",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-7",
+   "phase": "ux4",
+   "name": "development asks: overdue unanswered asks give one default line per project",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_overdue_unanswered_asks_give_one_default_line_per_project",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-8",
+   "phase": "ux4",
+   "name": "development asks: invalid answer target and unsafe answer leave ask open",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_invalid_answer_target_and_unsafe_answer_leave_ask_open",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-9",
+   "phase": "ux4",
+   "name": "development asks: tampered ask is withheld by hook and status",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_tampered_ask_is_withheld_by_hook_and_status",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-10",
+   "phase": "ux4",
+   "name": "development asks: work rules send tooling bugs to dev",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_work_rules_send_tooling_bugs_to_dev",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-11",
+   "phase": "ux4",
+   "name": "development asks: escaped metadata is checked before display",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_escaped_metadata_is_checked_before_display",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-12",
+   "phase": "ux4",
+   "name": "development asks: owner notice does not need write access to work sessions",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_owner_notice_does_not_need_write_access_to_work_sessions",
+   "status": "passing"
   }
  ],
- "total_tests": 2348,
+ "total_tests": 2360,
  "checked": "2026-11-09"
 }

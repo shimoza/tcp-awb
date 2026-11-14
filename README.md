@@ -1515,6 +1515,31 @@ you enable it when you are ready (`sudo systemctl enable --now awb-buildd.servic
 | a customer's material | as the owner: `awb import tcp-xxxx` (it asks for the customer's names on the first import; a project without a customer needs no names); the session hears of the copies at its next prompt |
 | a mail, a transcript or a table you copied | as the owner: `awb import tcp-xxxx --paste --kind mail` (or `transcript`, `table`) with the text on standard input, in your own terminal; the session hears of the copy at its next prompt |
 
+## Requests to development
+
+From a project session, run `awb dev ask "TEXT" [--blocks]`. It writes
+`<shared>/notices/dev/<YYYY-MM-DD>-<code>-<n>.md` with the project code, UTC creation time,
+text, command and error. Supply failure details with `--command "COMMAND" --error "ERROR"`;
+without those options the fields say `not supplied`. The command is recorded without being run.
+`--blocks` marks a blocked project task. The first line of TEXT becomes the title (at most 120 characters).
+The name and secret checks run before writing; a hit or an unavailable name check refuses the ask.
+
+An owner-side session in this repository sees `request from tcp-xxxx: TITLE (notices/dev/FILE)`
+once per ask per session at its next prompt. `awb owner status --dev` lists open asks with their
+file handles. After 24 hours without an answer, the default status shows one line per project:
+`development owes tcp-xxxx an answer`.
+
+Development answers through the existing note path, as the work user on a sealed host:
+
+```sh
+awb projects note tcp-xxxx --answers ASK_FILE --title "filter ready" ANSWER_FILE
+```
+
+ASK_FILE is the ask's full path, `notices/dev/FILE` or its basename. ANSWER_FILE contains the answer;
+use `-` to read it from standard input. The answer title and text pass the name and secret checks.
+Only a successfully delivered note closes the matching project's ask, removing it from `--dev`
+and overdue reminders. The project prompt shows the answer note once through the existing note notice.
+
 ## The open work queue
 
 Keep the queue: use `awb queue add`, `awb queue next` and `awb queue done` whenever work starts,

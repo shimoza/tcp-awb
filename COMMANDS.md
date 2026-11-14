@@ -571,7 +571,7 @@ access, writes a project token or attempts a login.
 | `awb projects open` | owner side, without a code: the active projects numbered, each with its `Next:` line of STATE.md and its owner items of OPEN.md (every item under a heading that names the owner and an item that names him; five at most, then a count), after the name check as `awb projects list` checks the goals. Type the number and that project's session opens as above; an empty answer opens nothing. Without a terminal it prints the list only |
 | `awb projects check` | tcp- folders that no project registered (a name that is not a code shows as "a folder"); run by you, also every granted project whose grant records no customer while its row names one (with the `awb projects kind` line to run) and every row whose customer differs from its grant, by code only |
 | `awb projects sync [CODE...]` | bring the template lines of CLAUDE.md and STATE.md of every active project (or the ones named) up to the current rules: an old line is replaced, a line the template gained is added, every other line and the project's own notes stay; nothing is committed. It also lists the projects whose Status: or Next: is over 300 characters or repeats a sentence (the shape of `awb/status.py`) and changes nothing for them. Running sessions hear of changed rules by themselves: the prompt hook tells a session once when the rules it loaded at its start changed |
-| `awb projects note CODE --title TEXT FILE\|-` | a note from development into a project (task DN): `notes/from-dev/<YYYY-MM-DD>-<n>.md` (mode 640) and a notice in `<shared>/notices/`; the prompt hook of a session of that project shows `note from development: TITLE (notes/from-dev/FILE): read it first` once. The project rules say a note is followed like his word on the Workbench and never overrides his word on the project. The title and the text pass the secret check only. The steering session runs it as the work user (`sudo -n -u awb -H awb projects note ...`); he relays nothing |
+| `awb projects note CODE --title TEXT [--answers ASK_FILE] FILE\|-` | a note from development into a project (task DN): `notes/from-dev/<YYYY-MM-DD>-<n>.md` (mode 640) and a notice in `<shared>/notices/`; the prompt hook of a session of that project shows `note from development: TITLE (notes/from-dev/FILE): read it first` once. The project rules say a note is followed like his word on the Workbench and never overrides his word on the project. Without `--answers` the title and text pass the secret check only; an answer also passes the name check and closes its ask after delivery. The steering session runs it as the work user (`sudo -n -u awb -H awb projects note ...`); he relays nothing |
 | `awb projects note CODE FILE\|- --after COMMIT [--title TEXT]` | stores a held note for a full 40-character lowercase commit ID. The prompt hook shows the project code and note handle once per session when the successful live release journal contains that commit or a descendant. Missing, incomplete or failed journals keep notes held; an unrelated commit never releases them. The title defaults to development note and is kept in the file, never in the prompt. Deploy records Git ancestry in its journal and ends with one line per newly released note, naming its project code and handle. `awb owner status --dev` lists held notes with their commits. Run as the work user on a sealed host |
 | `POST /api/owner/items/take-default {code, item}` | development, owner host only: the owner session, exact origin, same-origin fetch and CSRF checks of publish. Here code is the project code and item is a zero-based index into its OPEN.md owner items in `awb owner status --all CODE` order. The gateway routes it to `/run/awb-project-create.sock`; the create service in the `projects` role runs as `awb`, checks the owner level header, reads and checks the item itself, ignores extra fields and uses the `awb projects note` writer for `the owner takes the default of item: ` plus the first 110 characters as owner status prints it. One note, a prompt notice and one ledger line; a repeated or concurrent call for the same full item writes nothing, including after a restart. Invalid indexes and inactive projects are refused. The response carries the project code, item index and note handle. At its next prompt the session reads the note, carries out the default and closes the item under UX6 |
 | `awb board write [--out DIR]`, `awb board show` | the status of every active project for management, on demand: the Status: and Next: lines of STATE.md with their date and time, the commits newer than them (marked, never written), what each project waits on (a Status: or Next: over 300 characters is cut with `...`), its first open items (the items under a heading of OPEN.md with closed, done, erledigt or abgeschlossen in it, any case, are settled and not counted or listed),  its deliverables by review state and its live resources, the line of the last wipe measurement (`wipe: L leaks, M losses of N (date)`) and the build line from `<shared>/build/state.tsv` (`build: B-012 done 14:02, B-013 running since 14:10; live eb928d2, main 1a2b3c4, 1 not deployed`, ids, fixed state words, short hashes and times only; `build: no runner state yet` without the file) and the recheck line from `<shared>/recheck/state.tsv` (`recheck: read 2026-10-18 12 confirmed, 1 refuted, 3 undecided; write 2026-11-02 4 confirmed, inventory equal; 9 for the owner`, the newest run of each tier of `awb kb recheck-run`, counts and fixed words only, a cell outside its form dropped; `recheck: no run yet` without the file), then the section "TCP platform" from `<shared>/platform-status/state.tsv` (see `awb platform-status`: the open incidents first with impact, regions, since and title, the planned maintenances by start, then `status of <time of pull>` or `status not pulled since <time>` when the last good pull is older than 2 hours; `no open incident` when there is none; the titles pass the data check). `write` puts `board-<date>-<time>.md` and `.html` (prints on A4) into `presentations/board/`, `show` prints the Markdown; codes only. Parked projects (`awb projects park`) are in no count: the header reads `N active, M parked project(s)` and a short Parked section after the active projects names code, customer, reason and the day (`parked` in `GET /api/board`). The console shows the same live under Board (`GET /api/board`) |
@@ -800,6 +800,31 @@ When more than 20 owner items remain, run the sweep and show the table once. The
 hook asks for that line in the reply once per local calendar day per project, starting
 at 21 items; its marker lives in the shared ledger's `.open-sweep/` folder.
 
+## Requests to development
+
+From a project session, run `awb dev ask "TEXT" [--blocks]`. It writes
+`<shared>/notices/dev/<YYYY-MM-DD>-<code>-<n>.md` with the project code, UTC creation time,
+text, command and error. Supply failure details with `--command "COMMAND" --error "ERROR"`;
+without those options the fields say `not supplied`. The command is recorded without being run.
+`--blocks` marks a blocked project task. The first line of TEXT becomes the title (at most 120 characters).
+The name and secret checks run before writing; a hit or an unavailable name check refuses the ask.
+
+An owner-side session in this repository sees `request from tcp-xxxx: TITLE (notices/dev/FILE)`
+once per ask per session at its next prompt. `awb owner status --dev` lists open asks with their
+file handles. After 24 hours without an answer, the default status shows one line per project:
+`development owes tcp-xxxx an answer`.
+
+Development answers through the existing note path, as the work user on a sealed host:
+
+```sh
+awb projects note tcp-xxxx --answers ASK_FILE --title "filter ready" ANSWER_FILE
+```
+
+ASK_FILE is the ask's full path, `notices/dev/FILE` or its basename. ANSWER_FILE contains the answer;
+use `-` to read it from standard input. The answer title and text pass the name and secret checks.
+Only a successfully delivered note closes the matching project's ask, removing it from `--dev`
+and overdue reminders. The project prompt shows the answer note once through the existing note notice.
+
 ## Reference of every command and option
 
 Taken from the parsers of the code. A command with a hand-written explanation above is described there in full;
@@ -932,13 +957,22 @@ find tcp- folders that no project registered
 bring the template lines of CLAUDE.md and STATE.md of every active project up to the current rules, every other line kept
 - `[CODE...]`
 
-### `awb projects note CODE FILE|- [--title TITLE] [--after COMMIT]`
+### `awb projects note CODE FILE|- [--title TITLE] [--after COMMIT] [--answers FILE]`
 
 a note from development into a project: notes/from-dev/<date>-<n>.md, shown once at the next prompt of its sessions (run it as the work user)
 - `CODE`
 - `FILE|-`: the note in Markdown, - for standard input
 - `--title TITLE`: one line; required without --after, otherwise defaults to development note
 - `--after COMMIT`: hold until a successful live release contains this full commit id
+- `--answers FILE`: close this project's development ask after delivering the note
+
+### `awb dev ask TEXT [--blocks] [--command COMMAND] [--error ERROR]`
+
+write a checked request from the current project
+- `TEXT`
+- `--blocks`: mark the request as blocking the project task
+- `--command COMMAND`: the command that failed, recorded without running it
+- `--error ERROR`: the error text of that command
 
 ### `awb open sweep`
 
