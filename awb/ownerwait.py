@@ -240,7 +240,9 @@ def export_items(p: config.Paths, queue: Path | None = None) -> list[Item]:
     cutoff = datetime.datetime.now(datetime.timezone.utc).timestamp() - 30 * 86400
     imported = None
     out = []
-    for folder in sorted(Path.home().glob("export-*")):
+    # the owner's home; AWB_EXPORTS_ROOT names another folder (the tests keep the host's own exports out)
+    root = Path(os.environ.get("AWB_EXPORTS_ROOT") or Path.home())
+    for folder in sorted(root.glob("export-*")):
         if folder.is_symlink() or not folder.is_dir():
             continue
         try:

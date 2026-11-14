@@ -463,6 +463,8 @@ def invented_blocklist(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("AWB_THROTTLE_DIR", str(own / "throttle"))
     # a refused `awb paste` keeps its text in the user's own state folder (P1): never the real one of the host
     monkeypatch.setenv("XDG_STATE_HOME", str(own / "state"))
+    # export-* folders waiting on the owner are looked for in a folder of the test's own, never the host's home
+    monkeypatch.setenv("AWB_EXPORTS_ROOT", str(own / "exports"))
     monkeypatch.setattr(config, "HOST_CONF", str(none / "paths.conf"))
     monkeypatch.setattr(hooks, "HOST_FILE", none / "paths.conf")
     # nothing of the host a run could share with another run (two runs waited on each other for hours on

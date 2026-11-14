@@ -18,6 +18,7 @@ def world(home, tmp_path, monkeypatch):
     owner_home = tmp_path / "owner"
     owner_home.mkdir()
     monkeypatch.setenv("HOME", str(owner_home))
+    monkeypatch.setenv("AWB_EXPORTS_ROOT", str(owner_home))
     monkeypatch.setattr(config, "is_work_user", lambda: False)
     monkeypatch.setattr(ownerwait, "open_items", lambda *a, **k: ([], 0))
     for name in ("build_items", "dataset_items", "refresh_items", "report_items", "lab_run_items",
