@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from awb import build, cli, config, hooks, ownerwait, projects, workqueue
+from awb import build, cli, config, handover, hooks, ownerwait, projects, workqueue
 from tests import fixtures as fx
 from tests.test_build_queue import BLOCK, queue as build_queue
 from tests.test_deploy import git
@@ -32,6 +32,17 @@ def desk(home, tmp_path, monkeypatch):
     monkeypatch.setenv("AWB_BUILD_QUEUE", str(root / "build/queue"))
     monkeypatch.setenv("AWB_BUILD_RUNS", str(root / "runs"))
     monkeypatch.setattr(projects, "NOTE_JOURNAL", root / "DEPLOYED")
+    # the child process of _build_lines runs as the real user: as the build user (the runner) `awb build` refuses
+    # it, so the test reads the same command in this process, where the owner check above holds
+    def build_lines():
+        import contextlib
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            assert cli.main(["build", "list"]) == 0
+        return buf.getvalue().splitlines()
+
+    monkeypatch.setattr(handover, "_build_lines", build_lines)
     return root, home
 
 
