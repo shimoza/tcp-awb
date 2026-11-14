@@ -72,7 +72,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - rules/allow-domains.txt: watchguard.com and www.watchguard.com, the vendor docs of Firebox V on KVM.
 
 ### Fixed
-- UX21 hotfix: `awb owner status --write` rebuilds the decisions of the owner page at most every 15 minutes and keeps the last list in between; a rebuild each minute used up the owner's name check budget
+- UX21 hotfix: `awb owner status --write` rebuilds the decisions of the owner page at most every 15 minutes and keeps the last list in between; a rebuild each minute used up the owner's name check budget. A read of `queue.tsv` sends only new or edited rows to the name check (a cache by row content and register)
 - UX17: three false findings of the name check. The code view now covers `.ps1` and `.psm1`, and a token right after `$` or a dot is no bank code and no web address there. A number with a decimal separator and a currency or a price column near it (`0.123456 EUR`) is no phone number. `awb review init` accepts the `<file>.de.md`, `.en.md` and `.ru.md` names that `awb write translate` writes (the stem is checked as before).
 - IST: `awb import` failed with PermissionError after the originals had moved when an older intake-report.md of
   another user sat in the sticky outbox folder. The intake now refuses before anything is written or moved and names

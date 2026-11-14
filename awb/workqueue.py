@@ -9,6 +9,7 @@ import csv
 import datetime as dt
 import fcntl
 import io
+import json
 import os
 import re
 import sys
@@ -71,13 +72,51 @@ def _shape(row: dict[str, str]) -> None:
         _date(row["done"])
 
 
-def _check(rows: list[dict[str, str]]) -> None:
+def _register_stamp(reg) -> str:
+    try:
+        st = os.stat(reg)
+        return "%d-%d" % (st.st_mtime_ns, st.st_size)
+    except (OSError, TypeError):
+        return ""
+
+
+def _row_key(row: dict[str, str], stamp: str) -> str:
+    import hashlib
+
+    text = "\0".join(row[k] for k in ("id", "what", "next", "who", "project")) + "\0" + stamp
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _check(rows: list[dict[str, str]], cache: Path | None = None) -> None:
+    """The shape and the name and secret check of every row. With `cache` (a file next to the queue), a row whose
+    fields and register are unchanged since it last passed is not sent to the daemon again: a read of the whole
+    queue each minute cost about 190 checks and used up the owner's budget (2026-11-14). An edited row or a grown
+    register gives a new key, so the row is checked again."""
     reg = ledger.register_path()
     ledger.ensure_checkable(reg)
+    stamp = _register_stamp(reg)
+    passed: set[str] = set()
+    if cache is not None:
+        try:
+            passed = set(json.loads(cache.read_text(encoding="utf-8")))
+        except (OSError, ValueError, TypeError):
+            passed = set()
+    fresh = set()
     for row in rows:
         _shape(row)
-        # Recheck every printable field, including handles: the register can grow.
-        ledger.screen_fields([(key, row[key]) for key in ("id", "what", "next", "who", "project")], reg)
+        key = _row_key(row, stamp)
+        if key not in passed:
+            # Recheck every printable field, including handles: the register can grow.
+            ledger.screen_fields([(k, row[k]) for k in ("id", "what", "next", "who", "project")], reg)
+        fresh.add(key)
+    if cache is not None and fresh != passed:
+        try:
+            tmp = cache.with_name(cache.name + ".tmp")
+            tmp.write_text(json.dumps(sorted(fresh)), encoding="utf-8")
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, cache)
+        except OSError:
+            pass
 
 
 def _read(path: Path) -> list[dict[str, str]]:
@@ -143,7 +182,7 @@ def load(path: Path | None = None) -> list[dict[str, str]]:
         return []
     with _locked(path):
         rows = _open(path)
-        _check(rows)
+        _check(rows, path.with_name("queue-checked.json"))
         return rows
 
 
@@ -243,7 +282,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("queue: %d open rows migrated" % _migrate(path))
                 return 0
             rows = _open(path)
-            _check(rows)
+            _check(rows, path.with_name("queue-checked.json"))
             if args.command == "list":
                 for row in rows:
                     if args.mine and row["who"] != "owner":

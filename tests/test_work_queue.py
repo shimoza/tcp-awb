@@ -217,3 +217,22 @@ def test_failed_done_removal_keeps_archive_and_hides_completed_row(queue, monkey
     assert cli.main(["queue", "done", ident]) == 0
     assert rows(path) == []
     assert len(rows(path.with_name("queue-done.tsv"))) == 1
+
+
+def test_a_read_sends_only_new_or_edited_rows_to_the_name_check(queue, monkeypatch, capsys):
+    """2026-11-14: a read checked every field of every row (about 190 checks per read, each minute)."""
+    from awb import ledger, workqueue
+
+    path, _ = queue
+    assert add("owner") == 0 and add("owner") == 0
+    capsys.readouterr()
+    calls = []
+    real = ledger.screen_fields
+    monkeypatch.setattr(ledger, "screen_fields", lambda fields, reg, **k: calls.append(1) or real(fields, reg, **k))
+    workqueue.load(path)
+    first = len(calls)
+    workqueue.load(path)
+    assert len(calls) == first
+    path.write_text(path.read_text().replace("review the result", "review the result again", 1))
+    workqueue.load(path)
+    assert len(calls) == first + 1

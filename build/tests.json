@@ -16575,8 +16575,15 @@
    "name": "owner page decisions: rebuilt at most every fifteen minutes",
    "run": ".venv/bin/pytest tests/test_owner_page_decisions.py::test_the_decisions_are_rebuilt_at_most_every_fifteen_minutes",
    "status": "passing"
+  },
+  {
+   "id": "ux5-hot-1",
+   "phase": "ux5",
+   "name": "work queue: a read sends only new or edited rows to the name check",
+   "run": ".venv/bin/pytest tests/test_work_queue.py::test_a_read_sends_only_new_or_edited_rows_to_the_name_check",
+   "status": "passing"
   }
  ],
- "total_tests": 2368,
+ "total_tests": 2369,
  "checked": "2026-11-09"
 }
