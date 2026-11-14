@@ -1575,6 +1575,18 @@ so migration does not hide stale work. Rerunning the migration does not duplicat
 Review `awb queue list` after migration and close resolved work; the host acceptance target is fewer than
 40 open rows. Migration never discards unresolved work to meet that count.
 
+## Session hand-over
+
+`awb handover write` saves `build/HANDOVER.md` in the owner's repository checkout from open queue rows,
+Git history since the last successful write, open build tasks, held release notes, open development asks
+and the default owner status. It uses no model and checks the complete file for names and secrets before
+replacing it. A failure keeps the previous hand-over.
+
+Development installs the owner's PreCompact, SessionStart and prompt hooks on his word, using
+`awb.hooks.owner_client_settings("awb hook")`. Before compaction they write the file; session start
+reports its path and UTC time. The prompt after the second compaction suggests a new session once.
+Host settings are not installed by the command. See [COMMANDS.md](COMMANDS.md#session-hand-over).
+
 ## The build queue
 
 The Workbench builds itself from a queue (`presentations/self-build`). A task is one block in

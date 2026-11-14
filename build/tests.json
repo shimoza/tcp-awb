@@ -11314,65 +11314,65 @@
   },
   {
    "id": "ux13-1",
-   "phase": "ux13-start-from-and-fast-import",
-   "name": "UX13: from walks the subfolders and skips links",
-   "run": ".venv/bin/pytest tests/test_ux13.py::test_from_walks_the_subfolders_and_skips_links",
+   "phase": "ux13",
+   "name": "hand-over: every open queue row and no done row",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_every_open_queue_row_and_no_done_row",
    "status": "passing"
   },
   {
    "id": "ux13-2",
-   "phase": "ux13-start-from-and-fast-import",
-   "name": "UX13: from imports the whole folder trusted and ends with the app line",
-   "run": ".venv/bin/pytest tests/test_ux13.py::test_from_imports_every_file_of_the_folder_trusted_and_ends_with_the_app_line",
+   "phase": "ux13",
+   "name": "hand-over: legacy waiting rows without migrating",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_legacy_waiting_rows_without_migrating",
    "status": "passing"
   },
   {
    "id": "ux13-3",
-   "phase": "ux13-start-from-and-fast-import",
-   "name": "UX13: from without trusted runs the wipe mode import",
-   "run": ".venv/bin/pytest tests/test_ux13.py::test_from_without_trusted_runs_the_wipe_mode_import",
+   "phase": "ux13",
+   "name": "hand-over: git log advances only after a successful write",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_git_log_advances_only_after_a_successful_write",
    "status": "passing"
   },
   {
    "id": "ux13-4",
-   "phase": "ux13-start-from-and-fast-import",
-   "name": "UX13: from is checked before anything is made",
-   "run": ".venv/bin/pytest tests/test_ux13.py::test_from_is_checked_before_anything_is_made",
+   "phase": "ux13",
+   "name": "hand-over: build open tasks held notes asks and default status",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_build_open_tasks_held_notes_asks_and_default_status",
    "status": "passing"
   },
   {
    "id": "ux13-5",
-   "phase": "ux13-start-from-and-fast-import",
-   "name": "UX13: without from the start ends with the open line as before",
-   "run": ".venv/bin/pytest tests/test_ux13.py::test_without_from_the_start_ends_with_the_open_line_as_before",
+   "phase": "ux13",
+   "name": "hand-over: unsafe source is refused without replacing previous handover",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_unsafe_source_is_refused_without_replacing_previous_handover",
    "status": "passing"
   },
   {
    "id": "ux13-6",
-   "phase": "ux13-start-from-and-fast-import",
-   "name": "UX13: the command line takes from and trusted",
-   "run": ".venv/bin/pytest tests/test_ux13.py::test_the_command_line_takes_from_and_trusted",
+   "phase": "ux13",
+   "name": "hand-over: locked check keeps previous file",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_locked_check_keeps_previous_file",
    "status": "passing"
   },
   {
    "id": "ux13-7",
-   "phase": "ux13-start-from-and-fast-import",
-   "name": "UX13: an auto import posts a notice and the next prompt prints one line",
-   "run": ".venv/bin/pytest tests/test_ux13.py::test_an_auto_import_posts_a_notice_and_the_next_prompt_prints_one_line",
+   "phase": "ux13",
+   "name": "hand-over: compaction writes and only second prompt notifies once",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_compaction_writes_and_only_second_prompt_notifies_once",
    "status": "passing"
   },
   {
    "id": "ux13-8",
-   "phase": "ux13-start-from-and-fast-import",
-   "name": "UX13: a manual import keeps its older notice line",
-   "run": ".venv/bin/pytest tests/test_ux13.py::test_a_manual_import_keeps_its_older_notice_line",
+   "phase": "ux13",
+   "name": "hand-over: session start prints existing handover time",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_session_start_prints_existing_handover_time",
    "status": "passing"
   },
   {
    "id": "ux13-9",
-   "phase": "ux13-start-from-and-fast-import",
-   "name": "UX13: a long auto notice shows eight ids and a count",
-   "run": ".venv/bin/pytest tests/test_ux13.py::test_a_long_auto_notice_shows_eight_ids_and_the_rest_as_a_count",
+   "phase": "ux13",
+   "name": "hand-over: owner settings include all three hooks",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_owner_settings_include_all_three_hooks",
    "status": "passing"
   },
   {
@@ -16561,8 +16561,15 @@
    "name": "owner page: page decision interaction",
    "run": ".venv/bin/pytest tests/test_owner_page_decisions.py::test_page_decision_interaction",
    "status": "passing"
+  },
+  {
+   "id": "ux13-10",
+   "phase": "ux13",
+   "name": "hand-over: owner only and linked output refused",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_owner_only_and_linked_output_refused",
+   "status": "passing"
   }
  ],
- "total_tests": 2366,
+ "total_tests": 2367,
  "checked": "2026-11-09"
 }

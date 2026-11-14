@@ -6,18 +6,26 @@ nobody reaches before its mode is set, `_adopt` and `_inherited` take one over, 
 anonymous socket pair (`_Pair`), waits for its ok and its serving and tells systemd the new main pid (`sd_notify`).
 `no_dump` keeps the owner's other processes out of a daemon; `release_path` names the release a daemon runs.
 Every name of this module is still reached through awb/vault.py (awb/parts.py).
+
+UX13 also uses this module for `awb handover write`: a source-only owner session snapshot, with a Git cursor
+in build/HANDOVER.md and per-session compaction receipts. It does not alter the daemon reload protocol.
 """
 from __future__ import annotations
 
 import ctypes
+import datetime as dt
+import fcntl
+import hashlib
 import json
 import os
+import re
 import socket
 import stat
 import struct
 import subprocess
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from awb.vault_client import VaultError
@@ -298,3 +306,203 @@ def hand_over(owner, command, fds: tuple[int, ...], line: dict, deadline: float,
     except BaseException:
         fail("internal error")
         raise
+
+
+# --------------------------------------------------------------------------- owner session hand-over (UX13)
+
+HANDOVER = "build/HANDOVER.md"
+SECOND_COMPACTION = "second compaction: a new session with the hand-over is cheaper"
+_HEAD = re.compile(r"<!-- handover-head: ([0-9a-f]{40,64}) -->")
+
+
+class HandoverError(Exception):
+    """Fixed diagnostic text only; source values never enter an error message."""
+
+
+def repository_root(folder: Path | str) -> Path | None:
+    """Only an owner checkout, including a Git worktree, has hand-over hooks."""
+    from awb import config
+
+    if config.is_work_user() or config.is_build_user():
+        return None
+    folder = Path(folder).resolve()
+    return next((p for p in (folder, *folder.parents)
+                 if (p / ".git").exists() and (p / "awb/cli.py").is_file()), None)
+
+
+@contextmanager
+def _owner_lock(root: Path):
+    folder = root / "build"
+    if folder.is_symlink():
+        raise HandoverError("the build folder is a link")
+    folder.mkdir(exist_ok=True)
+    fd = os.open(folder / ".handover.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def _replace(path: Path, text: str) -> None:
+    fd, temp = tempfile.mkstemp(prefix=".handover-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, path)
+    finally:
+        Path(temp).unlink(missing_ok=True)
+
+
+def _queue_lines() -> list[str]:
+    from awb import workqueue
+
+    path = workqueue.queue_file()
+    legacy = path.with_name("QUEUE.md")
+    if path.exists() or not legacy.exists():
+        return ["%s  %s  %s  %s  next: %s" %
+                (r["id"], r["project"] or "-", r["who"], r["what"], r["next"])
+                for r in workqueue.load(path)]
+    text = legacy.read_text(encoding="utf-8")
+    if text.startswith(workqueue.ARCHIVE_NOTICE):
+        return []
+    columns = []
+    out = []
+    for line in text.splitlines():
+        if not line.startswith("|"):
+            if not line.strip() or line.startswith("#"):
+                columns = []
+            continue
+        cells = [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
+        names = [c.lower() for c in cells]
+        if "state" in names and "what" in names and ("id" in names or "step" in names):
+            columns = names
+            continue
+        if not columns or all(re.fullmatch(r"[-: ]+", c) for c in cells):
+            continue
+        if len(cells) != len(columns):
+            raise HandoverError("invalid legacy queue row")
+        row = dict(zip(columns, cells))
+        state = row["state"].strip("*` ")
+        if not workqueue.CLOSED.match(state) and re.search(
+                r"^(waiting|asked)\b|\bwaits? on (him|you|the owner)\b", state, re.I):
+            out.append(line)
+    return out
+
+
+def _git(root: Path, *args: str) -> str:
+    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
+                            stdin=subprocess.DEVNULL, timeout=15)
+    if result.returncode:
+        raise HandoverError("git history unavailable; previous hand-over kept")
+    return result.stdout.strip()
+
+
+def _build_lines() -> list[str]:
+    """Read the command across a process boundary: daemon reload helpers must not import the build runner."""
+    import sys
+
+    result = subprocess.run([sys.executable, "-I", "-m", "awb", "build", "list"], capture_output=True,
+                            text=True, stdin=subprocess.DEVNULL, timeout=30)
+    if result.returncode:
+        raise HandoverError("build list unavailable; previous hand-over kept")
+    return result.stdout.splitlines()
+
+
+def write(root: Path | None = None) -> Path:
+    """Snapshot checked sources atomically. The previous file holds the Git cursor too."""
+    from awb import config, devask, ownerwait, projects
+
+    root = repository_root(root or Path.cwd())
+    if root is None:
+        raise HandoverError("run in an owner repository checkout")
+    p = config.paths()
+    with _owner_lock(root):
+        target = root / HANDOVER
+        if target.is_symlink():
+            raise HandoverError("the hand-over file is a link")
+        previous = target.read_text(encoding="utf-8") if target.exists() else ""
+        head = _git(root, "rev-parse", "HEAD")
+        if not re.fullmatch(r"[0-9a-f]{40,64}", head):
+            raise HandoverError("invalid git head")
+        cursor = _HEAD.search(previous)
+        revision = cursor.group(1) + ".." + head if cursor else head
+        history = _git(root, "log", "--format=%h %s", revision, "--").splitlines()
+        tasks = [line for line in _build_lines()
+                 if len(line.split("  ")) > 1 and
+                 line.split("  ")[1].split(":", 1)[0] not in ("done", "stopped")]
+        commits = projects.note_commits()
+        held = ["%s  %s  after %s" % (n["project"], n["file"], n["after"])
+                for n in projects.held_notes(p) if n["after"] not in commits]
+        asks = ["%s  %s  %s%s" % (d["project"], path.name, d["title"], " [blocks]" if d["blocks"] else "")
+                for path, d in devask.open_asks(p)]
+        items, parked = ownerwait.collect(p)
+        sections = (("Open queue", _queue_lines()), ("Git log", history), ("Open build tasks", tasks),
+                    ("Held notes", held), ("Open asks", asks),
+                    ("Owner status", ownerwait.render(items, parked, ownerwait.notes(p=p))))
+        body = "# Hand-over\n\nWritten: %s UTC\n<!-- handover-head: %s -->\n" % (
+            dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M"), head)
+        for title, lines in sections:
+            body += "\n## %s\n\n%s\n" % (title, "\n".join(lines) or "(none)")
+        devask.screen(p, body)
+        _replace(target, body)
+    return target
+
+
+def start_line(folder: Path | str) -> str:
+    root = repository_root(folder)
+    if root is None:
+        return ""
+    target = root / HANDOVER
+    if (root / "build").is_symlink() or target.is_symlink() or not target.is_file():
+        return ""
+    stamp = dt.datetime.fromtimestamp(target.stat().st_mtime, dt.timezone.utc).strftime("%H:%M")
+    return "hand-over: %s, written %s" % (HANDOVER, stamp)
+
+
+def compaction(folder: Path | str, session_id, *, prompt: bool = False) -> str:
+    """Persist the count across hook processes; claim the second notice under the same lock."""
+    root = repository_root(folder)
+    if root is None or not isinstance(session_id, str) or not session_id:
+        return ""
+    with _owner_lock(root):
+        marks = root / "build/.handover-sessions"
+        if marks.is_symlink():
+            raise HandoverError("the compaction folder is a link")
+        marks.mkdir(mode=0o700, exist_ok=True)
+        path = marks / (hashlib.sha256(session_id.encode()).hexdigest() + ".json")
+        if path.is_symlink():
+            raise HandoverError("the compaction receipt is a link")
+        state = json.loads(path.read_text()) if path.exists() else {"count": 0, "shown": False}
+        if (not isinstance(state, dict) or type(state.get("count")) is not int or state["count"] < 0
+                or type(state.get("shown")) is not bool):
+            raise HandoverError("invalid compaction receipt")
+        line = ""
+        if prompt:
+            if state["count"] == 2 and not state["shown"]:
+                state["shown"] = True
+                line = SECOND_COMPACTION
+        else:
+            state["count"] += 1
+        _replace(path, json.dumps(state) + "\n")
+        return line
+
+
+def main(argv: list[str] | None = None) -> int:
+    import sys
+    from awb.cli import SafeParser
+
+    parser = SafeParser(prog="awb handover", description="Source-only owner session hand-over; codes and handles only.")
+    parser.add_subparsers(dest="command", required=True).add_parser(
+        "write", help="write build/HANDOVER.md from open work, git history and default owner status")
+    parser.parse_args(argv)
+    try:
+        write()
+    except Exception:
+        # Source readers can raise messages containing source values or host paths.
+        print("awb handover: sources or output unavailable or unsafe; previous hand-over kept", file=sys.stderr)
+        return 2
+    print(start_line(Path.cwd()))
+    return 0

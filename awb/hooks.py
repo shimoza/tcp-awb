@@ -139,7 +139,7 @@ from awb.toolguard import (BLOCK, BUILD_HOOKS, ERROR, GUARD_MATCHER, HOST_FILE, 
                            hook_pre_tool, project_root, refusals, selftest)
 
 
-HOOKS = ("prompt", "pre-write", "pre-tool", "post-write", "stop", "session-start", "selftest")
+HOOKS = ("prompt", "pre-write", "pre-tool", "post-write", "stop", "session-start", "pre-compact", "selftest")
 EVENTS = {
     "prompt": "UserPromptSubmit",
     "pre-write": "PreToolUse",
@@ -147,6 +147,7 @@ EVENTS = {
     "post-write": "PostToolUse",
     "stop": "Stop",
     "session-start": "SessionStart",
+    "pre-compact": "PreCompact",
 }
 WRITE_MATCHER = "Write|Edit|MultiEdit|NotebookEdit"
 """The tools whose target file the pre-write hook guards and whose written file the post-write hook checks."""
@@ -208,6 +209,12 @@ def client_settings(prefix: str) -> dict:
             EVENTS["session-start"]: entry("session-start"),
         }
     }
+
+
+def owner_client_settings(prefix: str) -> dict:
+    """Host settings for development to merge on the owner's word; never installed by this command."""
+    return {"hooks": {EVENTS[name]: [{"hooks": [{"type": "command", "command": prefix + " " + name}]}]
+                      for name in ("pre-compact", "session-start", "prompt")}}
 
 
 class ForeignPrefix(Exception):
@@ -563,7 +570,8 @@ def _kb_text(data: dict) -> str | None:
 def _rules_notice(data: dict, extra: str | None = None) -> None:
     """Tell a running session once that its rules changed; `extra` is a context line of its own (T8). The block of
     the knowledge base comes last, when the prompt starts a new task (KF)."""
-    said = "\n".join(t for t in (extra, _rules_text(data), _kb_text(data), _dev_requests(data)) if t)
+    said = "\n".join(t for t in (extra, _rules_text(data), _kb_text(data), _dev_requests(data),
+                               _handover_notice(data)) if t)
     if said:
         _emit(EVENTS["prompt"], said)
 
@@ -575,6 +583,32 @@ def _dev_requests(data: dict) -> str:
         return "\n".join(devask.notices(config.paths(), _session_folder(data), data.get("session_id")))
     except (OSError, ValueError, devask.AskError):
         return ""
+
+
+def _handover_notice(data: dict, *, start: bool = False) -> str:
+    from awb import handover
+
+    try:
+        folder = _session_folder(data)
+        return handover.start_line(folder) if start else handover.compaction(
+            folder, data.get("session_id"), prompt=True)
+    except (OSError, ValueError, handover.HandoverError):
+        return ""
+
+
+def hook_pre_compact(data: dict) -> int:
+    from awb import handover
+
+    root = handover.repository_root(_session_folder(data))
+    if root is None:
+        return OK
+    handover.compaction(root, data.get("session_id"))
+    try:
+        handover.write(root)
+    except Exception:
+        print("awb handover: sources or output unavailable or unsafe; previous hand-over kept", file=sys.stderr)
+        return ERROR
+    return OK
 
 
 SOFT_CLASSES = ("url", "phone", "ip", "mac")
@@ -1460,6 +1494,7 @@ def owner_session_start(data: dict) -> int:
     p = config.paths()
     root = project_root(_session_folder(data))
     ok, line = _start_receipt(p, data, root, owner=True)
+    line = "\n".join(t for t in (line, _handover_notice(data, start=True)) if t)
     _emit(EVENTS["session-start"], line, None if ok else "awb: " + line)
     return OK
 
@@ -1498,6 +1533,9 @@ def hook_session_start(data: dict) -> int:
         pass
     notes: list[str] = []
     parts: list[str] = []
+    handover_line = _handover_notice(data, start=True)
+    if handover_line:
+        parts.append(handover_line + "\n")
     if _sealed():
         ok, line = _start_receipt(p, data, root, owner=False)
         if not ok:
@@ -1600,6 +1638,7 @@ HANDLERS = {
     "post-write": hook_post_write,
     "stop": hook_stop,
     "session-start": hook_session_start,
+    "pre-compact": hook_pre_compact,
 }
 
 
@@ -1661,18 +1700,33 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 raw = sys.stdin.read() if sys.stdin is not None else ""
                 data = json.loads(raw) if raw.strip() else {}
-                said = _dev_requests(data) if isinstance(data, dict) else ""
+                said = "\n".join(t for t in (_dev_requests(data), _handover_notice(data)) if t) \
+                    if isinstance(data, dict) else ""
                 if said:
                     _emit(EVENTS["prompt"], said)
                 return OK
             except (OSError, ValueError):
                 return OK
-        if args.name != "session-start" or not _sealed():
+        if args.name == "pre-compact":
+            try:
+                raw = sys.stdin.read() if sys.stdin is not None else ""
+                data = json.loads(raw) if raw.strip() else {}
+                return hook_pre_compact(data) if isinstance(data, dict) else ERROR
+            except Exception:
+                print("awb handover: compaction input or state unavailable", file=sys.stderr)
+                return ERROR
+        if args.name != "session-start":
             return OK
         try:
             raw = sys.stdin.read() if sys.stdin is not None else ""
             data = json.loads(raw) if raw.strip() else {}
-            return owner_session_start(data if isinstance(data, dict) else {})
+            data = data if isinstance(data, dict) else {}
+            if _sealed():
+                return owner_session_start(data)
+            line = _handover_notice(data, start=True)
+            if line:
+                _emit(EVENTS["session-start"], line)
+            return OK
         except Exception as exc:
             print("awb hook session-start: the receipt failed (%s)" % type(exc).__name__, file=sys.stderr)
             return ERROR

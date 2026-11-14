@@ -799,6 +799,36 @@ When more than 20 owner items remain, run the sweep and show the table once. The
 hook asks for that line in the reply once per local calendar day per project, starting
 at 21 items; its marker lives in the shared ledger's `.open-sweep/` folder.
 
+## Session hand-over
+
+Run `awb handover write` from the owner's repository checkout, including a subfolder. It atomically
+writes `build/HANDOVER.md`, using sources only and no model: every open UX5 queue row (or waiting
+rows of the adjacent `QUEUE.md` before migration), Git commit handles and subjects since the previous
+successful hand-over, open `awb build list` tasks, UX12 notes still held for release, UX4 open asks and
+the default owner status. Completed and stopped build tasks are excluded. The first write includes
+all available Git history. The existing queue and build environment overrides apply.
+
+The complete snapshot passes the name and secret checks before replacement. A failed read or check
+keeps the previous file and Git cursor; exit 2 prints a fixed diagnostic without source values.
+Success prints `hand-over: build/HANDOVER.md, written HH:MM` (UTC). The command is owner-only.
+
+Development installs the owner client hooks as a host setting on the owner's word, merging them
+with existing settings. `awb.hooks.owner_client_settings("awb hook")` supplies this block:
+
+```json
+{"hooks": {
+  "PreCompact": [{"hooks": [{"type": "command", "command": "awb hook pre-compact"}]}],
+  "SessionStart": [{"hooks": [{"type": "command", "command": "awb hook session-start"}]}],
+  "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "awb hook prompt"}]}]
+}}
+```
+
+PreCompact runs the same writer. SessionStart prints the existing file's UTC modification time.
+The prompt after the second compaction adds once: `second compaction: a new session with the hand-over
+is cheaper`. The first and third compactions add no reminder. Counts persist across hook processes
+under `build/.handover-sessions/`, keyed by a hash of the session id; a new id starts at zero.
+The command does not install host settings. The work-user hook settings remain separate.
+
 ## Requests to development
 
 From a project session, run `awb dev ask "TEXT" [--blocks]`. It writes
