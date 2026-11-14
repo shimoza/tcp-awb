@@ -404,7 +404,10 @@ def _build_lines() -> list[str]:
     """Read the command across a process boundary: daemon reload helpers must not import the build runner."""
     import sys
 
-    result = subprocess.run([sys.executable, "-I", "-m", "awb", "build", "list"], capture_output=True,
+    # the code of this checkout, also where the package is not installed (the runner's fresh export)
+    code = str(Path(__file__).resolve().parent.parent)
+    run = "import sys; sys.path.insert(0, %r); from awb import cli; sys.exit(cli.main(['build', 'list']))" % code
+    result = subprocess.run([sys.executable, "-I", "-c", run], capture_output=True,
                             text=True, stdin=subprocess.DEVNULL, timeout=30)
     if result.returncode:
         raise HandoverError("build list unavailable; previous hand-over kept")
