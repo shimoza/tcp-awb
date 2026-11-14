@@ -444,7 +444,8 @@ def write(root: Path | None = None) -> Path:
         items, parked = ownerwait.collect(p)
         sections = (("Open queue", _queue_lines()), ("Git log", history), ("Open build tasks", tasks),
                     ("Held notes", held), ("Open asks", asks),
-                    ("Owner status", ownerwait.render(items, parked, ownerwait.notes(p=p))))
+                    ("Owner status", [_home_as_tilde(line) for line in
+                                      ownerwait.render(items, parked, ownerwait.notes(p=p))]))
         body = "# Hand-over\n\nWritten: %s UTC\n<!-- handover-head: %s -->\n" % (
             dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M"), head)
         for title, lines in sections:
@@ -452,6 +453,13 @@ def write(root: Path | None = None) -> Path:
         devask.screen(p, body)
         _replace(target, body)
     return target
+
+
+def _home_as_tilde(line: str) -> str:
+    """A ready command of owner status names the owner's home (an export folder, B-060); the hand-over writes it as
+    ~, since a home path in the file is refused by its secret check (2026-11-14)."""
+    home = str(Path.home())
+    return line.replace(home + "/", "~/") if home not in ("", "/") else line
 
 
 def start_line(folder: Path | str) -> str:

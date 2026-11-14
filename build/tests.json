@@ -16589,8 +16589,15 @@
    "name": "name check budget: a chunk with a finding is halved, not checked text by text",
    "run": ".venv/bin/pytest tests/test_ledger.py::test_hit_indexes_halves_a_chunk_with_a_finding_instead_of_checking_each_text",
    "status": "passing"
+  },
+  {
+   "id": "ux13-hot-1",
+   "phase": "ux13",
+   "name": "hand-over: owner status commands name the home as tilde",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_owner_status_commands_name_the_home_as_tilde",
+   "status": "passing"
   }
  ],
- "total_tests": 2370,
+ "total_tests": 2371,
  "checked": "2026-11-09"
 }

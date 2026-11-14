@@ -215,3 +215,11 @@ def test_owner_only_and_linked_output_refused(desk, monkeypatch):
     target.symlink_to(outside)
     assert cli.main(["handover", "write"]) != 0
     assert outside.read_text() == "keep\n"
+
+
+def test_owner_status_commands_name_the_home_as_tilde():
+    from pathlib import Path as _P
+
+    line = "    awb start project --from %s/export-x --trusted --goal \"...\"" % _P.home()
+    assert handover._home_as_tilde(line) == "    awb start project --from ~/export-x --trusted --goal \"...\""
+    assert handover._home_as_tilde("no path here") == "no path here"
