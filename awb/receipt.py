@@ -57,14 +57,14 @@ RECEIPTS_LOG = "receipts.tsv"
 
 
 def _release() -> str:
-    """The short name of the running release: the first 7 characters of its commit, else the folder name."""
+    """The short name of the running release: the first 7 characters of its commit, else an unknown release."""
     try:
         from awb import vault
 
         name = os.path.basename(vault.release_path())
     except Exception:
         return "unknown release"
-    return name[:7] if re.fullmatch(r"[0-9a-f]{40}", name) else (name or "unknown release")
+    return name[:7] if re.fullmatch(r"[0-9a-f]{40}", name) else "unknown release"
 
 
 def _hook_entries(data) -> set[tuple[str, str, str]] | None:
@@ -76,7 +76,10 @@ def _hook_entries(data) -> set[tuple[str, str, str]] | None:
         for entry in entries if isinstance(entries, list) else ():
             if not isinstance(entry, dict):
                 continue
-            for h in entry.get("hooks") or ():
+            hooks = entry.get("hooks", [])
+            if not isinstance(hooks, list):
+                return None
+            for h in hooks:
                 if isinstance(h, dict) and h.get("type") == "command" and isinstance(h.get("command"), str):
                     out.add((str(event), str(entry.get("matcher") or ""), h["command"]))
     return out
@@ -104,21 +107,33 @@ def _guard_hooks() -> bool:
 def _side_git(root: Path, gitfile: Path) -> Path | None:
     """The .git folder of the project whose side session's worktree ROOT is (`<project>/.side/NAME`, awb/side.py):
     only when the worktree's gitdir is `<project>/.git/worktrees/<x>` of exactly that project, else None."""
+    from awb import codes, side
+
     project = root.parent.parent
-    if root.parent.name != ".side":
+    if root.parent.name != ".side" or not codes.is_project_code(project.name):
         return None
     try:
-        line = gitfile.read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeDecodeError):
+        if not side._plain(project, project / ".git", directory=True):
+            return None
+        line = side._read(project, gitfile, 4096).strip()
+        if not line.startswith("gitdir: "):
+            return None
+        target = Path(line[len("gitdir: "):])
+        gitdir = root / target if not target.is_absolute() else target
+        # Resolve parent components with filesystem semantics before checking project containment.
+        gitdir = gitdir.resolve()
+        main = project / ".git"
+        if gitdir.parent != main / "worktrees" or not side._plain(project, gitdir, directory=True):
+            return None
+        back = Path(side._read(project, gitdir / "gitdir", 4096).strip())
+        common = Path(side._read(project, gitdir / "commondir", 4096).strip())
+        back = (gitdir / back).resolve()
+        common = (gitdir / common).resolve()
+        if back != gitfile or common != main:
+            return None
+        return main
+    except (OSError, ValueError, RuntimeError, side.SideError):
         return None
-    if not line.startswith("gitdir: "):
-        return None
-    gitdir = Path(line[len("gitdir: "):])
-    gitdir = (root / gitdir if not gitdir.is_absolute() else gitdir).resolve()
-    main = (project / ".git").resolve()
-    if gitdir.parent != main / "worktrees" or (project / ".git").is_symlink():
-        return None
-    return project / ".git"
 
 
 def _guard_gate(root: Path | None) -> bool:
@@ -126,7 +141,7 @@ def _guard_gate(root: Path | None) -> bool:
     from .git/hooks (no core.hooksPath)."""
     if root is None:
         return False
-    from awb import gate
+    from awb import gate, side
 
     git = Path(root) / ".git"
     try:
@@ -136,16 +151,16 @@ def _guard_gate(root: Path | None) -> bool:
                 return False
         if not git.is_dir() or git.is_symlink():
             return False
-        conf = (git / "config").read_text(encoding="utf-8", errors="replace")
+        conf = side._read(git, git / "config")
         if re.search(r"(?im)^\s*hookspath\s*=", conf):
             return False
         for name in gate.HOOK_NAMES:
             hook = git / "hooks" / name
-            if not hook.is_file() or not os.access(hook, os.X_OK):
+            if not side._plain(git, hook) or not os.access(hook, os.X_OK):
                 return False
-            if gate.HOOK_MARK not in hook.read_text(encoding="utf-8", errors="replace"):
+            if gate.HOOK_MARK not in side._read(git, hook):
                 return False
-    except OSError:
+    except (OSError, ValueError, RuntimeError, side.SideError):
         return False
     return True
 

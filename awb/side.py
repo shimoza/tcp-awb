@@ -28,14 +28,21 @@ analysis, sonnet for a report). AWB_SIDE_CLIENT names another client binary (tes
 """
 from __future__ import annotations
 
-import argparse
+import fcntl
+import functools
+import inspect
 import json
 import os
 import re
 import shutil
 import signal
+import time
 import subprocess
 import sys
+import stat
+import secrets
+import unicodedata
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -43,6 +50,8 @@ SIDE_DIR = ".side"
 RESULT = "SIDE-RESULT.md"
 NOTES = "notes"
 MAX_BRIEF = 64 * 1024
+MAX_RECORD = 1024 * 1024
+MAX_RESULT = 8 * 1024 * 1024
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_MODEL = "sonnet"
 DEFAULT_EFFORT = "medium"
@@ -75,21 +84,156 @@ def project_root(cwd: Path | None = None) -> Path:
     root = (cwd or Path.cwd()).resolve()
     from awb import codes
 
-    if not codes.is_project_code(root.name) or not (root / ".git").exists() or not (root / "CLAUDE.md").is_file():
+    if not codes.is_project_code(root.name):
         raise SideError("run awb side in the root of a project folder (tcp-xxxx)")
-    if (root / ".git").is_file():
+    if (root / ".git").is_file() and not (root / ".git").is_symlink():
         raise SideError("run awb side in the main folder of the project, not in a side session")
+    if not _plain(root, root / ".git", directory=True) or not _plain(root, root / "CLAUDE.md"):
+        raise SideError("run awb side in the root of a project folder (tcp-xxxx)")
     return root
 
 
+def _plain(root: Path, path: Path, *, directory: bool = False) -> bool:
+    """Check every component, including dangling links. Reads also use directory descriptors below."""
+    try:
+        parts = path.relative_to(root).parts
+        if ".." in parts:
+            return False
+        current = root
+        for i, part in enumerate(parts):
+            current /= part
+            mode = current.lstat().st_mode
+            if i < len(parts) - 1 or directory:
+                if not stat.S_ISDIR(mode):
+                    return False
+            elif not stat.S_ISREG(mode):
+                return False
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+@contextmanager
+def _parent(root: Path, path: Path):
+    parts = path.relative_to(root).parts
+    if not parts or ".." in parts:
+        raise SideError("the path must stay inside the project")
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in parts[:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd, parts[-1]
+    finally:
+        os.close(fd)
+
+
+def _read(root: Path, path: Path, limit: int = MAX_RECORD) -> str:
+    with _parent(root, path) as (parent, name):
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        with os.fdopen(fd, "rb") as f:
+            st = os.fstat(f.fileno())
+            if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+                raise SideError("a regular unlinked project file is required")
+            raw = f.read(limit + 1)
+    if len(raw) > limit:
+        raise SideError("the file is too large")
+    return raw.decode("utf-8")
+
+
+def _write(root: Path, path: Path, text: str) -> None:
+    """Replace atomically without truncating a linked inode or following a parent link."""
+    with _parent(root, path) as (parent, name):
+        try:
+            st = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+                raise SideError("a regular unlinked project file is required")
+        temp = ".side-write-" + secrets.token_hex(12)
+        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(text)
+            os.replace(temp, name, src_dir_fd=parent, dst_dir_fd=parent)
+        finally:
+            try:
+                os.unlink(temp, dir_fd=parent)
+            except FileNotFoundError:
+                pass
+
+
+def _safe(text: str) -> bool:
+    from awb import ledger
+
+    try:
+        ledger.ensure_checkable(ledger.register_path())
+        return not any(ord(c) < 32 and c not in "\n\t" for c in text) and not ledger.screen(
+            text, ledger.register_path(), candidates=False)
+    except Exception:
+        return False
+
+
+def _display_safe(text: str) -> bool:
+    return not any(unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") for c in text) and _safe(text)
+
+
+def _require_safe(text: str) -> None:
+    if not _safe(text):
+        raise SideError("text withheld: a name or secret was found, or the text check is unavailable")
+
+
+def _command(fn):
+    """One cooperating command per project; never leave a stale lock after a crash."""
+    signature = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    def run(*args, **kwargs):
+        try:
+            bound = signature.bind(*args, **kwargs)
+            root = project_root(bound.arguments.get("cwd"))
+            with _parent(root, root / ".git" / "awb-side.lock") as (parent, name):
+                fd = os.open(name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                             0o600, dir_fd=parent)
+            try:
+                st = os.fstat(fd)
+                if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+                    raise SideError("the side session lock is not a regular file")
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    raise SideError("side sessions are busy; try again") from None
+                base = root / SIDE_DIR
+                if os.path.lexists(base) and not _plain(root, base, directory=True):
+                    raise SideError(".side must be a directory of this project")
+                return fn(*args, **kwargs)
+            finally:
+                os.close(fd)
+        except (OSError, ValueError, RuntimeError):
+            raise SideError("the side session operation failed; check project files and permissions") from None
+    return run
+
+
 def _name(name: str) -> str:
-    if not _NAME_RE.fullmatch(name or ""):
+    if not isinstance(name, str) or not _NAME_RE.fullmatch(name):
         raise SideError("NAME is 1-31 lowercase letters, digits or hyphens")
+    _require_safe(name)
     return name
 
 
+def _environment() -> dict[str, str]:
+    # Repository selectors and injected Git config can override -C and the client's worktree cwd.
+    identity = {"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE",
+                "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE"}
+    return {k: v for k, v in os.environ.items()
+            if k not in _DROP_ENV and (not k.startswith("GIT_") or k in identity)}
+
+
 def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+    r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, errors="replace",
+                       env=_environment())
     if check and r.returncode != 0:
         raise SideError("git %s failed" % args[0])
     return r
@@ -105,10 +249,9 @@ def _exclude(root: Path) -> None:
     info = root / ".git" / "info"
     info.mkdir(parents=True, exist_ok=True)
     f = info / "exclude"
-    text = f.read_text(encoding="utf-8") if f.exists() else ""
+    text = _read(root, f) if os.path.lexists(f) else ""
     if not any(line.strip() in (SIDE_DIR + "/", "/" + SIDE_DIR + "/") for line in text.splitlines()):
-        f.write_text(text + ("" if not text or text.endswith("\n") else "\n") + "/" + SIDE_DIR + "/\n",
-                     encoding="utf-8")
+        _write(root, f, text + ("" if not text or text.endswith("\n") else "\n") + "/" + SIDE_DIR + "/\n")
 
 
 def _client() -> str:
@@ -125,7 +268,8 @@ def client_argv(client: str, model: str, effort: str) -> list[str]:
             "--strict-mcp-config", "--output-format", "json"]
 
 
-_WRAPPER = r"""
+# Retain the exact launch signature to recognize sessions already running during an upgrade.
+_LEGACY_WRAPPER = r"""
 import os, subprocess, sys
 argv, wt, out, err, exitf, prompt = sys.argv[1:-5], *sys.argv[-5:]
 with open(prompt, "rb") as p, open(out, "wb") as o, open(err, "wb") as e:
@@ -136,50 +280,116 @@ with open(exitf + ".tmp", "w") as f:
 os.replace(exitf + ".tmp", exitf)
 """
 
+_WRAPPER = r"""
+import os, secrets, subprocess, sys
+argv = sys.argv[1:-5]
+base, prompt, out, err = map(int, sys.argv[-5:-1])
+exitf = sys.argv[-1]
+rc = 1
+try:
+    with os.fdopen(prompt, "rb") as p, os.fdopen(out, "wb") as o, os.fdopen(err, "wb") as e:
+        rc = subprocess.run(argv, stdin=p, stdout=o, stderr=e).returncode
+finally:
+    temp = ".exit-" + secrets.token_hex(12)
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=base)
+    with os.fdopen(fd, "w") as f:
+        f.write("%d\n" % rc)
+    os.replace(temp, exitf, src_dir_fd=base, dst_dir_fd=base)
+    os.close(base)
+"""
 
+
+@_command
 def start(name: str, brief: str, model: str = DEFAULT_MODEL, effort: str = DEFAULT_EFFORT,
           cwd: Path | None = None) -> str:
     root = project_root(cwd)
     name = _name(name)
-    if not _MODEL_RE.fullmatch(model or ""):
+    if not isinstance(model, str) or not _MODEL_RE.fullmatch(model):
         raise SideError("MODEL is a model alias or id such as sonnet, opus or fable")
     if effort not in EFFORTS:
         raise SideError("LEVEL is one of: %s" % ", ".join(EFFORTS))
-    bpath = (root / brief).resolve()
-    if not bpath.is_relative_to(root) or bpath.is_relative_to(root / SIDE_DIR) or not bpath.is_file():
+    _require_safe(model)
+    bpath = root / brief
+    if not _plain(root, bpath) or bpath.is_relative_to(root / SIDE_DIR):
         raise SideError("the brief is a file of this project, outside .side/")
     if bpath.stat().st_size > MAX_BRIEF:
         raise SideError("the brief is longer than 64 KiB; point to files instead of pasting them")
-    text = bpath.read_text(encoding="utf-8")
+    text = _read(root, bpath, MAX_BRIEF)
+    _require_safe(text)
     p = _paths(root, name)
-    if p["wt"].exists() or p["state"].exists():
+    prompt = p["base"] / (name + ".prompt")
+    if any(os.path.lexists(path) for key, path in p.items() if key != "base") or os.path.lexists(prompt):
         raise SideError("a side session of that name exists: awb side status, awb side drop NAME")
     if _git(root, "rev-parse", "--verify", "--quiet", "refs/heads/side/" + name, check=False).returncode == 0:
         raise SideError("the branch side/NAME exists: awb side drop NAME")
     client = _client()
-    p["base"].mkdir(mode=0o750, exist_ok=True)
+    p["base"].mkdir(mode=0o700, exist_ok=True)
+    p["base"].chmod(0o700)
     _exclude(root)
-    _git(root, "worktree", "add", "--quiet", "-b", "side/" + name, str(p["wt"]), "HEAD")
-    # the template lines of the project as `awb projects sync` keeps them: the main folder may carry them
-    # uncommitted, and the start guard of the side session compares them with the installed rules
     from awb import rulesync
 
+    proc = None
+    fds = []
     try:
-        rulesync.sync_project(p["wt"])
-    except Exception:  # the start guard names the rules then; never a failed start for this
-        pass
-    prompt = p["base"] / (name + ".prompt")
-    prompt.write_text(PREAMBLE.format(code=root.name, name=name, result=RESULT) + text, encoding="utf-8")
-    env = {k: v for k, v in os.environ.items() if k not in _DROP_ENV}
-    proc = subprocess.Popen([sys.executable, "-I", "-c", _WRAPPER, *client_argv(client, model, effort),
-                             str(p["wt"]), str(p["out"]), str(p["err"]), str(p["exit"]), str(prompt)],
-                            cwd=str(p["wt"]), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, start_new_session=True)
-    p["state"].write_text(json.dumps({"name": name, "model": model, "effort": effort, "started": now(),
-                                      "pid": proc.pid, "brief": bpath.relative_to(root).as_posix()}) + "\n",
-                          encoding="utf-8")
+        _git(root, "worktree", "add", "--quiet", "-b", "side/" + name, str(p["wt"]), "HEAD")
+        try:
+            rulesync.sync_project(p["wt"])
+        except Exception:  # the start guard names the rules then
+            pass
+        _write(root, prompt, PREAMBLE.format(code=root.name, name=name, result=RESULT) + text)
+        basefd = os.open(p["base"], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        fds.append(basefd)
+        fds.append(os.open(prompt.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=basefd))
+        for key in ("out", "err"):
+            fds.append(os.open(p[key].name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                               0o600, dir_fd=basefd))
+        env = _environment()
+        proc = subprocess.Popen([sys.executable, "-I", "-c", _WRAPPER, *client_argv(client, model, effort),
+                                 *map(str, fds), p["exit"].name], cwd=str(p["wt"]), env=env,
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                start_new_session=True, pass_fds=tuple(fds))
+        os.unlink(prompt.name, dir_fd=basefd)
+        _write(root, p["state"], json.dumps({"name": name, "model": model, "effort": effort, "started": now(),
+                                           "pid": proc.pid, "birth": _birth(proc.pid),
+                                           "brief": bpath.relative_to(root).as_posix()}) + "\n")
+    except Exception:
+        if proc is not None:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait()
+        _drop(root, name)
+        raise SideError("the side session could not start") from None
+    finally:
+        for fd in fds:
+            os.close(fd)
     return ("side session %s started (%s, effort %s) in %s/%s; awb side status, then awb side take %s"
             % (name, model, effort, SIDE_DIR, name, name))
+
+
+def _birth(pid: int) -> str:
+    try:
+        return Path("/proc/%d/stat" % pid).read_text().rsplit(")", 1)[1].split()[19]
+    except (OSError, IndexError):
+        return ""
+
+
+def _owned(meta: dict, wt: Path) -> bool:
+    pid = meta.get("pid")
+    if type(pid) is not int or not 1 < pid <= 2147483647:
+        return False
+    try:
+        argv = Path("/proc/%d/cmdline" % pid).read_bytes().split(b"\0")
+        signature = (_WRAPPER.encode() in argv and bool(meta.get("birth"))
+                     and meta["birth"] == _birth(pid))
+        legacy = not meta.get("birth") and _LEGACY_WRAPPER.encode() in argv
+        return ((signature or legacy) and os.getpgid(pid) == pid
+                and Path("/proc/%d" % pid).stat().st_uid == os.getuid()
+                and Path("/proc/%d/cwd" % pid).resolve() == wt
+                and _alive(pid))
+    except (OSError, ValueError):
+        return False
 
 
 def _alive(pid: int) -> bool:
@@ -197,41 +407,52 @@ def _alive(pid: int) -> bool:
 
 
 def _state(p: dict[str, Path]) -> tuple[str, dict]:
+    root = p["base"].parent
     try:
-        meta = json.loads(p["state"].read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        meta = json.loads(_read(root, p["state"]))
+        if not isinstance(meta, dict):
+            return "lost", {}
+    except (OSError, ValueError, SideError, RecursionError):
         return "lost", {}
-    if p["exit"].exists():
+    if _owned(meta, p["wt"]):
+        return "running", meta
+    if os.path.lexists(p["exit"]):
         try:
-            rc = int(p["exit"].read_text().strip())
-        except ValueError:
-            rc = 1
-        if rc != 0:
+            rc = int(_read(root, p["exit"], 32).strip())
+            if rc != 0:
+                return "failed", meta
+            out = json.loads(_read(root, p["out"]))
+        except (OSError, ValueError, SideError, RecursionError):
             return "failed", meta
-        try:
-            out = json.loads(p["out"].read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return "failed", meta
-        # a refused prompt (a guard of the start hook) ends with exit 0 and no turn: that is no result
-        return ("done" if isinstance(out, dict) and not out.get("is_error") and out.get("num_turns") else "failed"), meta
-    return ("running" if _alive(int(meta.get("pid", 0) or 0)) else "lost"), meta
+        turns = out.get("num_turns") if isinstance(out, dict) else None
+        done = (type(turns) is int and turns > 0 and out.get("is_error", False) is False)
+        return ("done" if done else "failed"), meta
+    return "lost", meta
 
 
+@_command
 def status_lines(cwd: Path | None = None) -> list[str]:
     root = project_root(cwd)
     base = root / SIDE_DIR
     lines = []
     for f in sorted(base.glob("*.state")) if base.is_dir() else []:
         name = f.name[:-len(".state")]
+        if not _NAME_RE.fullmatch(name) or not _safe(name):
+            continue
         p = _paths(root, name)
         st, meta = _state(p)
         n = _git(root, "rev-list", "--count", "HEAD..side/" + name, check=False).stdout.strip() or "0"
+        model, effort = meta.get("model"), meta.get("effort")
+        model = model if isinstance(model, str) and _MODEL_RE.fullmatch(model) and _safe(model) else "?"
+        effort = effort if isinstance(effort, str) and effort in EFFORTS else "?"
+        n = n if re.fullmatch(r"[0-9]+", n) else "0"
         lines.append("%s  %s  %s/%s  %s commit(s)  result: %s"
-                     % (name, st, meta.get("model", "?"), meta.get("effort", "?"), n,
-                        "yes" if (p["wt"] / RESULT).is_file() else "no"))
+                     % (name, st, model, effort, n,
+                        "yes" if _plain(root, p["wt"] / RESULT) else "no"))
     return lines or ["no side sessions"]
 
 
+@_command
 def take(name: str, merge: bool = False, cwd: Path | None = None) -> list[str]:
     root = project_root(cwd)
     p = _paths(root, _name(name))
@@ -242,19 +463,24 @@ def take(name: str, merge: bool = False, cwd: Path | None = None) -> list[str]:
         raise SideError("the side session still runs: awb side status, or awb side stop NAME")
     out = []
     result = p["wt"] / RESULT
-    if result.is_file():
+    if os.path.lexists(p["wt"]) and not _plain(root, p["wt"], directory=True):
+        raise SideError("the worktree must be a directory of this project")
+    if os.path.lexists(result):
+        text = _read(root, result, MAX_RESULT)
+        _require_safe(text)
         notes = root / NOTES
         notes.mkdir(exist_ok=True)
-        shutil.copyfile(result, notes / ("side-%s.md" % name))
+        _write(root, notes / ("side-%s.md" % name), text)
         out.append("result: %s/side-%s.md" % (NOTES, name))
     else:
         out.append("result: none (%s missing)" % RESULT)
-    log = _git(root, "log", "--format=%h %s", "HEAD..side/" + name, check=False).stdout.strip()
-    files = _git(root, "diff", "--name-only", "HEAD...side/" + name, check=False).stdout.split()
+    log = _git(root, "log", "--format=%h %s", "HEAD..side/" + name).stdout.strip()
+    files = [f for f in _git(root, "diff", "--name-only", "-z", "HEAD...side/" + name).stdout.split("\0") if f]
     out.append("commits: %d" % (len(log.splitlines()) if log else 0))
-    out += ["  " + ln for ln in log.splitlines()[:20]]
-    out.append("files: %s" % (", ".join(files[:30]) if files else "none"))
-    if merge and files:
+    out += ["  " + (ln if _display_safe(ln) else "[withheld]") for ln in log.splitlines()[:20]]
+    out.append("files: %s" % (", ".join(f if _display_safe(f) else "[withheld]" for f in files[:30])
+                              if files else "none"))
+    if merge and log:
         r = _git(root, "merge", "--no-ff", "--no-edit", "side/" + name, check=False)
         if r.returncode != 0:
             conflict = _git(root, "diff", "--name-only", "--diff-filter=U", check=False).stdout.strip()
@@ -269,15 +495,19 @@ def take(name: str, merge: bool = False, cwd: Path | None = None) -> list[str]:
 
 def _drop(root: Path, name: str) -> str:
     p = _paths(root, name)
-    _git(root, "worktree", "remove", "--force", str(p["wt"]), check=False)
-    _git(root, "worktree", "prune", check=False)
-    _git(root, "branch", "-D", "side/" + name, check=False)
+    if os.path.lexists(p["wt"]):
+        if not _plain(root, p["wt"], directory=True):
+            raise SideError("the worktree must be a directory of this project")
+        _git(root, "worktree", "remove", "--force", str(p["wt"]))
+    if _git(root, "rev-parse", "--verify", "--quiet", "refs/heads/side/" + name, check=False).returncode == 0:
+        _git(root, "branch", "-D", "side/" + name)
     for k in ("state", "exit", "out", "err"):
         p[k].unlink(missing_ok=True)
     (p["base"] / (name + ".prompt")).unlink(missing_ok=True)
     return "side session %s removed" % name
 
 
+@_command
 def stop(name: str, cwd: Path | None = None) -> str:
     root = project_root(cwd)
     p = _paths(root, _name(name))
@@ -286,13 +516,24 @@ def stop(name: str, cwd: Path | None = None) -> str:
         return "side session %s is %s" % (name, st)
     try:
         os.killpg(int(meta["pid"]), signal.SIGTERM)
-    except (ProcessLookupError, PermissionError, KeyError, ValueError):
+    except ProcessLookupError:
         pass
-    if not p["exit"].exists():
-        p["exit"].write_text("143\n")
+    # A client may ignore TERM even after the wrapper exits. Finish the whole process group before
+    # publishing completion, so drop cannot remove a worktree that still has a writer.
+    time.sleep(0.1)
+    try:
+        os.killpg(meta["pid"], signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    try:
+        os.waitpid(meta["pid"], 0)
+    except ChildProcessError:
+        pass
+    _write(root, p["exit"], "143\n")
     return "side session %s stopped" % name
 
 
+@_command
 def drop(name: str, cwd: Path | None = None) -> str:
     root = project_root(cwd)
     p = _paths(root, _name(name))
@@ -331,5 +572,8 @@ def main(argv: list[str] | None = None) -> int:
             print(drop(args.name))
     except SideError as err:
         print("awb side: %s" % err, file=sys.stderr)
+        return 2
+    except (OSError, ValueError, RuntimeError):
+        print("awb side: the operation failed; check project files and permissions", file=sys.stderr)
         return 2
     return 0

@@ -16806,8 +16806,267 @@
    "name": "hand-over hardening: receipt directory swap cannot redirect write",
    "run": ".venv/bin/pytest tests/test_handover_write.py::test_receipt_directory_swap_cannot_redirect_write",
    "status": "passing"
+  },
+  {
+   "id": "ss-hardening-1",
+   "phase": "ss",
+   "name": "side hardening: brief read failures are fixed errors",
+   "run": ".venv/bin/pytest tests/test_side.py::test_brief_read_failures_are_fixed_errors",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-2",
+   "phase": "ss",
+   "name": "side hardening: brief links and special files are refused",
+   "run": ".venv/bin/pytest tests/test_side.py::test_brief_links_and_special_files_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-3",
+   "phase": "ss",
+   "name": "side hardening: project and side directory links are refused",
+   "run": ".venv/bin/pytest tests/test_side.py::test_project_and_side_directory_links_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-4",
+   "phase": "ss",
+   "name": "side hardening: start refuses linked artifacts and exclude",
+   "run": ".venv/bin/pytest tests/test_side.py::test_start_refuses_linked_artifacts_and_exclude",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-5",
+   "phase": "ss",
+   "name": "side hardening: state shapes and pids never signal a process",
+   "run": ".venv/bin/pytest tests/test_side.py::test_state_shapes_and_pids_never_signal_a_process",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-6",
+   "phase": "ss",
+   "name": "side hardening: invalid exit and client json are failed",
+   "run": ".venv/bin/pytest tests/test_side.py::test_invalid_exit_and_client_json_are_failed",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-7",
+   "phase": "ss",
+   "name": "side hardening: linked state and exit are not trusted",
+   "run": ".venv/bin/pytest tests/test_side.py::test_linked_state_and_exit_are_not_trusted",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-8",
+   "phase": "ss",
+   "name": "side hardening: status withholds hostile metadata and filenames",
+   "run": ".venv/bin/pytest tests/test_side.py::test_status_withholds_hostile_metadata_and_filenames",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-9",
+   "phase": "ss",
+   "name": "side hardening: take refuses result and destination links",
+   "run": ".venv/bin/pytest tests/test_side.py::test_take_refuses_result_and_destination_links",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-10",
+   "phase": "ss",
+   "name": "side hardening: take refuses worktree link and drop keeps external files",
+   "run": ".venv/bin/pytest tests/test_side.py::test_take_refuses_worktree_link_and_drop_keeps_external_files",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-11",
+   "phase": "ss",
+   "name": "side hardening: take does not copy secrets or print commit values",
+   "run": ".venv/bin/pytest tests/test_side.py::test_take_does_not_copy_secrets_or_print_commit_values",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-12",
+   "phase": "ss",
+   "name": "side hardening: names are checked in session labels and git output",
+   "run": ".venv/bin/pytest tests/test_side.py::test_names_are_checked_in_session_labels_and_git_output",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-13",
+   "phase": "ss",
+   "name": "side hardening: output checks fail closed without echoing errors",
+   "run": ".venv/bin/pytest tests/test_side.py::test_output_checks_fail_closed_without_echoing_errors",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-14",
+   "phase": "ss",
+   "name": "side hardening: cli io errors never echo values",
+   "run": ".venv/bin/pytest tests/test_side.py::test_cli_io_errors_never_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-15",
+   "phase": "ss",
+   "name": "side hardening: failed spawn rolls back worktree and private files",
+   "run": ".venv/bin/pytest tests/test_side.py::test_failed_spawn_rolls_back_worktree_and_private_files",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-16",
+   "phase": "ss",
+   "name": "side hardening: side artifacts are private and prompt is removed",
+   "run": ".venv/bin/pytest tests/test_side.py::test_side_artifacts_are_private_and_prompt_is_removed",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-17",
+   "phase": "ss",
+   "name": "side hardening: overlapping commands are serialized",
+   "run": ".venv/bin/pytest tests/test_side.py::test_overlapping_commands_are_serialized",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-18",
+   "phase": "ss",
+   "name": "side hardening: failed worktree removal keeps branch and state",
+   "run": ".venv/bin/pytest tests/test_side.py::test_failed_worktree_removal_keeps_branch_and_state",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-19",
+   "phase": "ss",
+   "name": "side hardening: merge keeps empty commits",
+   "run": ".venv/bin/pytest tests/test_side.py::test_merge_keeps_empty_commits",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-20",
+   "phase": "ss",
+   "name": "side hardening: receipt rejects unregistered or redirected worktrees",
+   "run": ".venv/bin/pytest tests/test_side.py::test_receipt_rejects_unregistered_or_redirected_worktrees",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-21",
+   "phase": "ss",
+   "name": "side hardening: receipt rejects linked gate files",
+   "run": ".venv/bin/pytest tests/test_side.py::test_receipt_rejects_linked_gate_files",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-22",
+   "phase": "ss",
+   "name": "side hardening: receipt malformed hook entries fail closed",
+   "run": ".venv/bin/pytest tests/test_side.py::test_receipt_malformed_hook_entries_fail_closed",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-23",
+   "phase": "ss",
+   "name": "side hardening: receipt release does not print arbitrary folder names",
+   "run": ".venv/bin/pytest tests/test_side.py::test_receipt_release_does_not_print_arbitrary_folder_names",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-24",
+   "phase": "ss",
+   "name": "side hardening: reads are bounded even if brief grows after stat",
+   "run": ".venv/bin/pytest tests/test_side.py::test_reads_are_bounded_even_if_brief_grows_after_stat",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-25",
+   "phase": "ss",
+   "name": "side hardening: deep and oversized state are lost",
+   "run": ".venv/bin/pytest tests/test_side.py::test_deep_and_oversized_state_are_lost",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-26",
+   "phase": "ss",
+   "name": "side hardening: cli parser never echoes quoted or control values",
+   "run": ".venv/bin/pytest tests/test_side.py::test_cli_parser_never_echoes_quoted_or_control_values",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-27",
+   "phase": "ss",
+   "name": "side hardening: live process cannot be hidden by an exit file",
+   "run": ".venv/bin/pytest tests/test_side.py::test_live_process_cannot_be_hidden_by_an_exit_file",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-28",
+   "phase": "ss",
+   "name": "side hardening: stop does not report success when signal is denied",
+   "run": ".venv/bin/pytest tests/test_side.py::test_stop_does_not_report_success_when_signal_is_denied",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-29",
+   "phase": "ss",
+   "name": "side hardening: git filenames are checked whole and controls withheld",
+   "run": ".venv/bin/pytest tests/test_side.py::test_git_filenames_are_checked_whole_and_controls_withheld",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-30",
+   "phase": "ss",
+   "name": "side hardening: unreadable brief is a fixed refusal",
+   "run": ".venv/bin/pytest tests/test_side.py::test_unreadable_brief_is_a_fixed_refusal",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-31",
+   "phase": "ss",
+   "name": "side hardening: partial worktree creation is rolled back",
+   "run": ".venv/bin/pytest tests/test_side.py::test_partial_worktree_creation_is_rolled_back",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-32",
+   "phase": "ss",
+   "name": "side hardening: failed history read never drops unmerged work",
+   "run": ".venv/bin/pytest tests/test_side.py::test_failed_history_read_never_drops_unmerged_work",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-33",
+   "phase": "ss",
+   "name": "side hardening: stop kills a client that ignores termination",
+   "run": ".venv/bin/pytest tests/test_side.py::test_stop_kills_a_client_that_ignores_termination",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-34",
+   "phase": "ss",
+   "name": "side hardening: missing name register withholds output and refuses start",
+   "run": ".venv/bin/pytest tests/test_side.py::test_missing_name_register_withholds_output_and_refuses_start",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-35",
+   "phase": "ss",
+   "name": "side hardening: git environment cannot redirect side work outside project",
+   "run": ".venv/bin/pytest tests/test_side.py::test_git_environment_cannot_redirect_side_work_outside_project",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-36",
+   "phase": "ss",
+   "name": "side hardening: receipt resolves parent components before trusting common directory",
+   "run": ".venv/bin/pytest tests/test_side.py::test_receipt_resolves_parent_components_before_trusting_common_directory",
+   "status": "passing"
+  },
+  {
+   "id": "ss-hardening-37",
+   "phase": "ss",
+   "name": "side hardening: running sessions from before hardening remain protected",
+   "run": ".venv/bin/pytest tests/test_side.py::test_running_sessions_from_before_hardening_remain_protected",
+   "status": "passing"
   }
  ],
- "total_tests": 2401,
+ "total_tests": 2438,
  "checked": "2026-11-09"
 }
