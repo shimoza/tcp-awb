@@ -227,3 +227,537 @@ def test_work_rules_send_tooling_bugs_to_dev(world):
     ask(world)
     text = (ROOT / "seal/work-claude/CLAUDE.md").read_text()
     assert "a tooling bug: `awb dev ask`, one plain line to him, then his task." in text
+
+
+def _metadata(path, **changes):
+    from awb import devask
+
+    original = path.read_text()
+    data = devask.read(path)
+    data.update(changes)
+    path.write_text("<!-- %s -->\n%s" % (json.dumps(data), original.split("\n", 1)[1]))
+
+
+def test_deep_metadata_is_refused_without_breaking_other_asks(world):
+    from awb import devask
+
+    home, _ = world
+    bad, good = ask(world), ask(world)
+    bad.write_text("<!-- " + "[" * 10000 + "0" + "]" * 10000 + " -->\n")
+    with pytest.raises(devask.AskError):
+        devask.read(bad)
+    assert [p for p, _ in devask.open_asks(home)] == [good]
+
+
+def test_duplicate_metadata_keys_are_refused(world):
+    from awb import devask
+
+    path = ask(world)
+    path.write_text(path.read_text().replace('{"project":', '{"state": "closed", "project":', 1))
+    with pytest.raises(devask.AskError):
+        devask.read(path)
+
+
+def test_invalid_metadata_types_and_unicode_are_withheld(world):
+    from awb import devask
+
+    home, _ = world
+    path = ask(world)
+    original = path.read_text()
+    for changes in ({"project": []}, {"blocks": 1}, {"title": "bad\ud800"},
+                    {"created": "2026-01-01"}, {"created": {}}, {"title": "bad\x1b"}):
+        path.write_text(original)
+        _metadata(path, **changes)
+        with pytest.raises(devask.AskError):
+            devask.read(path)
+        assert devask.open_asks(home) == []
+
+
+def test_growth_after_stat_is_still_bounded(world, monkeypatch):
+    from awb import devask
+
+    path = ask(world)
+    path.write_bytes(b"x" * (devask.MAX_BYTES + 1))
+    real_stat = os.fstat
+
+    def stale_size(fd):
+        values = list(real_stat(fd))
+        values[6] = 1
+        return os.stat_result(values)
+
+    monkeypatch.setattr(os, "fstat", stale_size)
+    with pytest.raises(devask.AskError):
+        devask._bytes(path)
+
+
+def test_ask_file_links_special_missing_and_unreadable_are_refused(world, monkeypatch, tmp_path):
+    from awb import devask
+
+    home, _ = world
+    path = ask(world)
+    saved = tmp_path / "original"
+    path.rename(saved)
+    for kind in ("missing", "link", "directory", "fifo", "bytes", "large"):
+        if kind == "link":
+            path.symlink_to(saved)
+        elif kind == "directory":
+            path.mkdir()
+        elif kind == "fifo":
+            os.mkfifo(path)
+        elif kind == "bytes":
+            path.write_bytes(b"\xff")
+        elif kind == "large":
+            path.write_bytes(b"x" * (devask.MAX_BYTES + 1))
+        with pytest.raises(devask.AskError):
+            devask.read(path)
+        assert devask.open_asks(home) == []
+        if kind == "directory":
+            path.rmdir()
+        else:
+            path.unlink(missing_ok=True)
+    saved.rename(path)
+    real_open = os.open
+
+    def denied(name, *args, **kwargs):
+        if Path(name).name == path.name:
+            raise PermissionError("unreadable fixture")
+        return real_open(name, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", denied)
+    with pytest.raises(devask.AskError):
+        devask.read(path)
+    assert devask.open_asks(home) == []
+
+
+def test_answer_header_without_body_does_not_crash(world):
+    from awb import devask
+
+    home, pr = world
+    path = ask(world)
+    path.write_text(path.read_text().splitlines()[0])
+    note = devask.answer(home, pr.code, str(path), "ready", "use the filter")
+    assert note.is_file()
+    assert devask.read(path)["state"] == "closed"
+
+
+def test_answer_checks_existing_body_and_decoded_metadata(world, monkeypatch):
+    from awb import devask, devnote
+
+    home, pr = world
+    path = ask(world)
+    original = path.read_text()
+    secret = "pass" + "word=" + "invented-value-123"
+    calls = []
+    monkeypatch.setattr(devnote, "write", lambda *a: calls.append(a) or Path("2026-11-15-1.md"))
+    for value in (secret, fx.PERSON_FORMS[0]):
+        for field in ("body", "title", "extra"):
+            path.write_text(original)
+            if field == "body":
+                path.write_text(original + value)
+            else:
+                _metadata(path, **{field: value})
+                path.write_text(path.read_text().replace(value, "".join("\\u%04x" % ord(c) for c in value)))
+            before = path.read_bytes()
+            with pytest.raises(devask.AskError) as err:
+                devask.answer(home, pr.code, str(path), "ready", "use the filter")
+            assert value not in str(err.value)
+            assert path.read_bytes() == before
+    assert calls == []
+
+
+def test_answer_uses_one_checked_snapshot(world, monkeypatch):
+    from awb import devask, devnote
+
+    home, pr = world
+    path = ask(world)
+    real_bytes = devask._bytes
+    reads = []
+    secret = "pass" + "word=" + "invented-value-123"
+
+    def changing_read(*args, **kwargs):
+        reads.append(1)
+        return real_bytes(*args, **kwargs) if len(reads) == 1 else "header\n" + secret
+
+    monkeypatch.setattr(devask, "_bytes", changing_read)
+    monkeypatch.setattr(devnote, "write", lambda *a: Path("2026-11-15-1.md"))
+    devask.answer(home, pr.code, str(path), "ready", "use the filter")
+    assert len(reads) == 1
+    assert secret not in path.read_text()
+
+
+def test_answer_delivery_failure_preserves_request(world, monkeypatch):
+    from awb import devask, devnote
+
+    home, pr = world
+    path = ask(world)
+    before = path.read_bytes()
+
+    def fail(*args):
+        raise devnote.NoteError("delivery refused")
+
+    monkeypatch.setattr(devnote, "write", fail)
+    with pytest.raises(devnote.NoteError):
+        devask.answer(home, pr.code, str(path), "ready", "use the filter")
+    assert path.read_bytes() == before
+    assert sorted(path.parent.iterdir()) == [path]
+
+
+def test_concurrent_answers_deliver_once(world, monkeypatch):
+    import fcntl
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from awb import devask, devnote
+
+    home, pr = world
+    path = ask(world)
+    entered, release, second, competing = Event(), Event(), Event(), Event()
+    calls = []
+    real_flock = fcntl.flock
+
+    def observed_lock(fd, operation):
+        if entered.is_set():
+            competing.set()
+        return real_flock(fd, operation)
+
+    def deliver(*args):
+        calls.append(args)
+        if len(calls) > 1:
+            competing.set()
+        entered.set()
+        assert release.wait(5)
+        return Path("2026-11-15-1.md")
+
+    def answer_one(started=None):
+        if started:
+            started.set()
+        try:
+            return devask.answer(home, pr.code, str(path), "ready", "use the filter")
+        except devask.AskError:
+            return None
+
+    monkeypatch.setattr(devnote, "write", deliver)
+    monkeypatch.setattr(fcntl, "flock", observed_lock)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(answer_one)
+        try:
+            assert entered.wait(5)
+            other = pool.submit(answer_one, second)
+            assert second.wait(5)
+            assert competing.wait(5)
+            assert not other.done()
+        finally:
+            release.set()
+        results = [first.result(timeout=5), other.result(timeout=5)]
+    assert len(calls) == 1
+    assert results.count(None) == 1
+    assert devask.read(path)["state"] == "closed"
+
+
+def test_concurrent_asks_keep_distinct_complete_files(world):
+    from concurrent.futures import ThreadPoolExecutor
+    from awb import devask
+
+    home, _ = world
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        paths = list(pool.map(lambda n: devask.write(home, "request number %d" % n), range(8)))
+    assert len(set(paths)) == 8
+    assert {devask.read(p)["title"] for p in paths} == {"request number %d" % n for n in range(8)}
+    assert all(p.stat().st_mode & 0o777 == 0o640 for p in paths)
+
+
+def test_failed_ask_write_leaves_no_partial_request(world, monkeypatch):
+    import stat
+    from awb import devask
+
+    home, _ = world
+    path = ask(world)
+    before = path.read_bytes()
+
+    real_chmod = os.fchmod
+
+    def fail(fd, mode):
+        if stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("disk full")
+        return real_chmod(fd, mode)
+
+    monkeypatch.setattr(os, "fchmod", fail)
+    with pytest.raises((devask.AskError, OSError)):
+        devask.write(home, "another request")
+    assert list(path.parent.iterdir()) == [path]
+    assert path.read_bytes() == before
+
+
+def test_request_is_published_only_when_complete(world, monkeypatch):
+    from awb import devask
+
+    home, _ = world
+    target = home.shared / devask.FOLDER
+    real_fdopen = os.fdopen
+    observed = []
+
+    def inspecting_fdopen(*args, **kwargs):
+        observed.extend(target.glob("*.md"))
+        return real_fdopen(*args, **kwargs)
+
+    monkeypatch.setattr(os, "fdopen", inspecting_fdopen)
+    path = devask.write(home, "another request")
+    assert observed == []
+    assert devask.read(path)["state"] == "open"
+
+
+def test_answer_outside_notices_and_linked_parent_are_refused(world, tmp_path):
+    from awb import devask
+
+    home, pr = world
+    path = ask(world)
+    outside = tmp_path / path.name
+    outside.write_bytes(path.read_bytes())
+    alias = tmp_path / "alias"
+    alias.symlink_to(path.parent, target_is_directory=True)
+    for target in (outside, alias / path.name):
+        with pytest.raises(devask.AskError):
+            devask.answer(home, pr.code, str(target), "ready", "use the filter")
+    assert devask.read(path)["state"] == "open"
+    assert not list((Path(pr.path) / "notes/from-dev").glob("*.md"))
+
+
+def test_linked_ancestor_withholds_requests(world, tmp_path):
+    from dataclasses import replace
+    from awb import devask
+
+    home, _ = world
+    ask(world)
+    alias = tmp_path / "alias"
+    alias.symlink_to(home.shared.parent, target_is_directory=True)
+    linked = replace(home, shared=alias / home.shared.name)
+    assert devask.open_asks(linked) == []
+
+
+def test_directory_swap_cannot_redirect_ask_write(world, monkeypatch, tmp_path):
+    from awb import devask
+
+    home, _ = world
+    ask(world)
+    target = home.shared / devask.FOLDER
+    moved = target.with_name("saved-dev")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    real_open = os.open
+    swapped = []
+
+    def swapping_open(name, flags, *args, **kwargs):
+        if flags & os.O_CREAT and not swapped:
+            swapped.append(True)
+            target.rename(moved)
+            target.symlink_to(outside, target_is_directory=True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", swapping_open)
+    try:
+        devask.write(home, "another request")
+    except (devask.AskError, OSError):
+        pass
+    assert swapped
+    assert list(outside.iterdir()) == []
+
+
+def test_receipt_directory_swap_cannot_write_outside(world, monkeypatch, tmp_path):
+    import hashlib
+    from awb import devask
+
+    home, _ = world
+    path = ask(world)
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    monkeypatch.setattr(config, "is_build_user", lambda: False)
+    checkout = _checkout(tmp_path)
+    sid = "receipt-session"
+    marks = path.parent / (".seen-" + hashlib.sha256(sid.encode()).hexdigest())
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    real_open = os.open
+    swapped = []
+
+    def swapping_open(name, flags, *args, **kwargs):
+        if flags & os.O_CREAT and Path(name).name == path.name and not swapped:
+            swapped.append(True)
+            marks.rename(marks.with_name("saved-marks"))
+            marks.symlink_to(outside, target_is_directory=True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", swapping_open)
+    devask.notices(home, str(checkout), sid)
+    assert swapped
+    assert list(outside.iterdir()) == []
+
+
+def test_notice_storage_failure_is_silent_and_retryable(world, monkeypatch, tmp_path):
+    from awb import devask
+
+    home, _ = world
+    path = ask(world)
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    monkeypatch.setattr(config, "is_build_user", lambda: False)
+    checkout = _checkout(tmp_path)
+    real_open = os.open
+
+    def denied(name, flags, *args, **kwargs):
+        if flags & os.O_CREAT and Path(name).name == path.name:
+            raise PermissionError("receipt denied")
+        return real_open(name, flags, *args, **kwargs)
+
+    with monkeypatch.context() as m:
+        m.setattr(os, "open", denied)
+        assert devask.notices(home, str(checkout), "retry-session") == []
+    assert len(devask.notices(home, str(checkout), "retry-session")) == 1
+    assert devask.notices(home, str(checkout), "retry-session") == []
+
+
+def test_parser_errors_never_echo_hostile_arguments(world, capsys):
+    from awb import devask
+
+    secret = "pass" + "word=" + "invented-value-123"
+    for value in (secret, fx.CUSTOMER_FORMS[0]):
+        for args in (["'safe' " + value], ["ask", "safe", "--" + value], ["ask", "safe", "--command"]):
+            capsys.readouterr()
+            with pytest.raises(SystemExit) as err:
+                devask.main(args)
+            assert err.value.code == 2
+            output = capsys.readouterr()
+            assert value not in output.out + output.err
+
+
+def test_unicode_input_refusal_has_no_traceback_or_value(world, capsys):
+    from awb import devask
+
+    for args in (["ask", "bad\ud800"], ["ask", "safe", "--command", "bad\ud800"],
+                 ["ask", "safe", "--error", "bad\ud800"]):
+        assert devask.main(args) == 2
+        output = capsys.readouterr()
+        assert "bad" not in output.out + output.err
+
+
+def test_write_refuses_unregistered_inactive_and_external_projects(world, monkeypatch, tmp_path):
+    from dataclasses import replace
+    from awb import devask
+
+    home, pr = world
+    for rows in ([], [replace(pr, state="closed")], [replace(pr, path=str(tmp_path))]):
+        monkeypatch.setattr(projects, "load", lambda *args, rows=rows: rows)
+        with pytest.raises(devask.AskError):
+            devask.write(home, "another request")
+    assert not list((home.shared / devask.FOLDER).glob("*.md"))
+
+
+def test_checker_and_io_errors_do_not_echo_values(world, monkeypatch, capsys):
+    from awb import devask, ledger
+
+    home, _ = world
+    secret = "pass" + "word=" + "invented-value-123"
+    for failure in (ledger.LedgerError, PermissionError):
+        def fail(*args, **kwargs):
+            raise failure(secret + fx.CUSTOMER_FORMS[0])
+
+        with monkeypatch.context() as m:
+            if failure is ledger.LedgerError:
+                m.setattr(ledger, "screen", fail)
+            else:
+                m.setattr(os, "open", fail)
+            assert devask.main(["ask", "another request"]) == 2
+        output = capsys.readouterr()
+        assert secret not in output.out + output.err
+        fx.assert_no_fixture_name(output.out + output.err)
+    assert not list((home.shared / devask.FOLDER).glob("*.md"))
+
+
+def test_empty_control_and_oversized_asks_leave_no_files(world):
+    from awb import devask
+
+    home, _ = world
+    for text in (" \n\t", "bad\x00text", "x" * devask.MAX_BYTES):
+        with pytest.raises(devask.AskError):
+            devask.write(home, text)
+    assert not list((home.shared / devask.FOLDER).glob("*.md"))
+
+
+def test_answer_directory_swap_preserves_external_file(world, monkeypatch, tmp_path):
+    from awb import devask, devnote
+
+    home, pr = world
+    path = ask(world)
+    moved = path.parent.with_name("saved-dev")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    victim = outside / path.name
+    victim.write_text("keep this file")
+
+    def deliver(*args):
+        path.parent.rename(moved)
+        path.parent.symlink_to(outside, target_is_directory=True)
+        return Path("2026-11-15-1.md")
+
+    monkeypatch.setattr(devnote, "write", deliver)
+    devask.answer(home, pr.code, str(path), "ready", "use the filter")
+    assert victim.read_text() == "keep this file"
+    assert devask.read(moved / path.name)["state"] == "closed"
+
+
+def test_concurrent_notices_claim_each_request_once(world, monkeypatch, tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from awb import devask
+
+    home, _ = world
+    ask(world)
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    monkeypatch.setattr(config, "is_build_user", lambda: False)
+    checkout = _checkout(tmp_path)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: devask.notices(home, str(checkout), "shared-session"), range(4)))
+    assert sum(map(len, results)) == 1
+
+
+def test_invalid_session_unicode_is_silent(world, monkeypatch, tmp_path):
+    from awb import devask
+
+    home, _ = world
+    ask(world)
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    monkeypatch.setattr(config, "is_build_user", lambda: False)
+    assert devask.notices(home, str(_checkout(tmp_path)), "session\ud800") == []
+
+
+def test_answer_io_error_is_safe_and_keeps_original(world, monkeypatch, capsys):
+    from awb import devask, devnote
+
+    home, pr = world
+    path = ask(world)
+    before = path.read_bytes()
+    secret = "pass" + "word=" + "invented-value-123"
+
+    def fail(*args, **kwargs):
+        raise PermissionError(secret + fx.PERSON_FORMS[0])
+
+    monkeypatch.setattr(devnote, "write", lambda *a: Path("2026-11-15-1.md"))
+    monkeypatch.setattr(os, "replace", fail)
+    with pytest.raises(devask.AskError) as err:
+        devask.answer(home, pr.code, str(path), "ready", "use the filter")
+    assert secret not in str(err.value)
+    fx.assert_no_fixture_name(str(err.value))
+    assert path.read_bytes() == before
+    assert sorted(path.parent.iterdir()) == [path]
+
+
+def test_existing_receipt_directory_is_private(world, monkeypatch, tmp_path):
+    import hashlib
+    from awb import devask
+
+    home, _ = world
+    path = ask(world)
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    monkeypatch.setattr(config, "is_build_user", lambda: False)
+    session = "pass" + "word=" + "invented-value-123"
+    marks = path.parent / (".seen-" + hashlib.sha256(session.encode()).hexdigest())
+    marks.mkdir(mode=0o755)
+    assert len(devask.notices(home, str(_checkout(tmp_path)), session)) == 1
+    assert marks.stat().st_mode & 0o777 == 0o700
+    assert (marks / path.name).stat().st_mode & 0o777 == 0o600
+    assert session not in str(marks)

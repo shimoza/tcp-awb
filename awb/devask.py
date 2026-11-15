@@ -1,13 +1,15 @@
 """UX4: checked project requests to development and their answer notes."""
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
 import re
+import secrets
 import stat
 import sys
-import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -25,6 +27,10 @@ class AskError(Exception):
 def screen(p: config.Paths, text: str) -> None:
     from awb import check, ledger
 
+    try:
+        text.encode("utf-8")
+    except UnicodeError:
+        raise AskError("the text is not valid UTF-8") from None
     if any((ord(c) < 32 and c not in "\n\r\t") or ord(c) == 127 for c in text):
         raise AskError("the text carries a control character")
     if check._secret_classes(text):
@@ -45,13 +51,86 @@ def folder(p: config.Paths) -> Path:
     return p.shared / FOLDER
 
 
-def _bytes(path: Path) -> str:
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+@contextmanager
+def _directory(path: Path):
+    """Anchor every component before using it, including ancestors of the shared root."""
+    path = Path(os.path.abspath(path))
+    fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in path.parts[1:]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+@contextmanager
+def _child_directory(parent: int, name: str, *, create: bool = False, private: bool = False):
+    created = False
+    if create:
+        try:
+            os.mkdir(name, 0o700 if private else 0o750, dir_fd=parent)
+            created = True
+        except FileExistsError:
+            pass
+    fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+    try:
+        if created or private:
+            inherited = os.fstat(parent).st_mode
+            mode = 0o700 if private else (stat.S_ISGID | (inherited & 0o770)
+                                         if inherited & stat.S_ISGID else 0o750)
+            os.fchmod(fd, mode)
+        yield fd
+    finally:
+        os.close(fd)
+
+
+@contextmanager
+def _notices_directory(p: config.Paths, *, create: bool = False):
+    with _directory(p.shared) as shared:
+        with _child_directory(shared, "notices", create=create) as notices_fd:
+            with _child_directory(notices_fd, "dev", create=create) as fd:
+                yield fd
+
+
+@contextmanager
+def _staged(directory: int, body: str):
+    """Only complete files become visible requests; failures leave no partial ask."""
+    name = ".ask-" + secrets.token_hex(16)
+    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640, dir_fd=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            os.fchmod(stream.fileno(), 0o640)
+            stream.write(body)
+        yield name
+    finally:
+        try:
+            os.unlink(name, dir_fd=directory)
+        except FileNotFoundError:
+            pass
+
+
+def _bytes(path: Path, *, dir_fd: int | None = None) -> str:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
     with os.fdopen(fd, "rb") as stream:
         info = os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_BYTES:
             raise AskError("the ask is not a bounded regular file")
-        return stream.read(MAX_BYTES + 1).decode("utf-8")
+        body = stream.read(MAX_BYTES + 1)
+        if len(body) > MAX_BYTES:
+            raise AskError("the ask is not a bounded regular file")
+        return body.decode("utf-8")
+
+
+def _unique_keys(pairs: list) -> dict:
+    data = {}
+    for key, value in pairs:
+        if key in data:
+            raise ValueError
+        data[key] = value
+    return data
 
 
 def read(path: Path, *, text: str | None = None) -> dict:
@@ -59,10 +138,15 @@ def read(path: Path, *, text: str | None = None) -> dict:
     if not FILE_RE.fullmatch(path.name):
         raise AskError("give a development ask file")
     try:
-        line = (_bytes(path) if text is None else text).splitlines()[0]
+        content = _bytes(path) if text is None else text
+        if len(content.encode("utf-8")) > MAX_BYTES:
+            raise ValueError
+        line = content.splitlines()[0]
         if not line.startswith("<!-- ") or not line.endswith(" -->"):
             raise ValueError
-        data = json.loads(line[5:-4])
+        data = json.loads(line[5:-4], object_pairs_hook=_unique_keys)
+        # Escaped lone surrogates otherwise survive parsing and break later output.
+        json.dumps(data, ensure_ascii=False).encode("utf-8")
         if not isinstance(data, dict) or not codes.is_project_code(data.get("project", "")):
             raise ValueError
         if not path.name[11:].startswith(data["project"] + "-"):
@@ -76,7 +160,7 @@ def read(path: Path, *, text: str | None = None) -> dict:
         created = datetime.fromisoformat(data["created"])
         if created.utcoffset() is None:
             raise ValueError
-    except (OSError, UnicodeError, ValueError, KeyError, TypeError, IndexError):
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError, IndexError, RecursionError):
         raise AskError("the development ask cannot be read") from None
     return data
 
@@ -103,37 +187,38 @@ def write(p: config.Paths, text: str, blocks: bool = False, command: str = "not 
     if len(body.encode("utf-8")) > MAX_BYTES:
         raise AskError("the ask is too large")
     target = folder(p)
-    config.make_dir(target.parent, 0o750, shared=True)
-    config.make_dir(target, 0o750, shared=True)
-    for n in range(1, 10000):
-        path = target / ("%s-%s-%d.md" % (now.date(), pr.code, n))
-        try:
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640)
-        except FileExistsError:
-            continue
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            os.fchmod(stream.fileno(), 0o640)
-            stream.write(body)
-        return path
+    with _notices_directory(p, create=True) as directory:
+        with _staged(directory, body) as temp:
+            for n in range(1, 10000):
+                path = target / ("%s-%s-%d.md" % (now.date(), pr.code, n))
+                try:
+                    os.link(temp, path.name, src_dir_fd=directory, dst_dir_fd=directory,
+                            follow_symlinks=False)
+                except FileExistsError:
+                    continue
+                return path
     raise AskError("too many requests today")
 
 
 def open_asks(p: config.Paths) -> list[tuple[Path, dict]]:
     out = []
     try:
-        paths = sorted(folder(p).glob("*.md"))
+        with _notices_directory(p) as directory:
+            for name in sorted(os.listdir(directory)):
+                if not FILE_RE.fullmatch(name):
+                    continue
+                path = p.shared / FOLDER / name
+                try:
+                    body = _bytes(Path(name), dir_fd=directory)
+                    data = read(path, text=body)
+                    if data["state"] != "open":
+                        continue
+                    screen(p, body + "\n" + json.dumps(data, ensure_ascii=False))
+                except (AskError, OSError, UnicodeError):
+                    continue
+                out.append((path, data))
     except (OSError, AskError):
         return out
-    for path in paths:
-        try:
-            body = _bytes(path)
-            data = read(path, text=body)
-            if data["state"] != "open":
-                continue
-            screen(p, body + "\n" + data["title"])
-        except (AskError, OSError, UnicodeError):
-            continue
-        out.append((path, data))
     return out
 
 
@@ -149,24 +234,26 @@ def answer(p: config.Paths, code: str, file: str, title: str, text: str) -> Path
         path = target / path.name
     elif path.parent == Path(FOLDER):
         path = p.shared / path
-    if path.parent.resolve() != target.resolve() or path.is_symlink():
+    if Path(os.path.abspath(path.parent)) != Path(os.path.abspath(target)) or not FILE_RE.fullmatch(path.name):
         raise AskError("the answer must name a development ask file")
-    data = read(path)
-    if data["project"] != code or data["state"] != "open":
-        raise AskError("the ask is closed or belongs to another project")
-    screen(p, title + "\n" + text)
-    body = _bytes(path).split("\n", 1)[1]
-    note = devnote.write(p, code, title, text)
-    data.update(state="closed", answer=devnote.FOLDER + "/" + note.name,
-                answered=datetime.now(timezone.utc).isoformat())
-    fd, temp = tempfile.mkstemp(prefix=".answer-", dir=target)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            os.fchmod(stream.fileno(), 0o640)
-            stream.write("<!-- %s -->\n%s" % (json.dumps(data), body))
-        os.replace(temp, path)
-    finally:
-        Path(temp).unlink(missing_ok=True)
+        with _notices_directory(p) as directory:
+            # Lock the directory, not the request inode which closing replaces.
+            fcntl.flock(directory, fcntl.LOCK_EX)
+            content = _bytes(Path(path.name), dir_fd=directory)
+            data = read(path, text=content)
+            if data["project"] != code or data["state"] != "open":
+                raise AskError("the ask is closed or belongs to another project")
+            screen(p, content + "\n" + json.dumps(data, ensure_ascii=False))
+            screen(p, title + "\n" + text)
+            body = content.partition("\n")[2]
+            note = devnote.write(p, code, title, text)
+            data.update(state="closed", answer=devnote.FOLDER + "/" + note.name,
+                        answered=datetime.now(timezone.utc).isoformat())
+            with _staged(directory, "<!-- %s -->\n%s" % (json.dumps(data), body)) as temp:
+                os.replace(temp, path.name, src_dir_fd=directory, dst_dir_fd=directory)
+    except (OSError, UnicodeError, ValueError):
+        raise AskError("the development answer cannot be stored") from None
     return note
 
 
@@ -178,21 +265,29 @@ def notices(p: config.Paths, cwd: str, session_id: str | None) -> list[str]:
     if not any((r / ".git").exists() and (r / "awb/cli.py").is_file() and
                (r / "seal/work-claude/CLAUDE.md").is_file() for r in (root, *root.parents)):
         return []
-    sid = hashlib.sha256(session_id.encode()).hexdigest()
-    # The owner's group may write notices, but not the work user's sessions directory.
-    marks = folder(p) / (".seen-" + sid)
-    if marks.parent.is_symlink() or marks.is_symlink():
+    try:
+        sid = hashlib.sha256(session_id.encode()).hexdigest()
+    except UnicodeError:
         return []
     out = []
-    for path, data in open_asks(p):
-        config.make_dir(marks.parent, 0o750, shared=True)
-        config.make_dir(marks, 0o700)
-        try:
-            fd = os.open(marks / path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        except FileExistsError:
-            continue
-        os.close(fd)
-        out.append("request from %s: %s (%s/%s)" % (data["project"], data["title"], FOLDER, path.name))
+    asks = open_asks(p)
+    if not asks:
+        return out
+    # The owner's group may write notices, but not the work user's sessions directory.
+    try:
+        with _notices_directory(p) as directory:
+            with _child_directory(directory, ".seen-" + sid, create=True, private=True) as marks:
+                for path, data in asks:
+                    try:
+                        fd = os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                     0o600, dir_fd=marks)
+                    except FileExistsError:
+                        continue
+                    os.close(fd)
+                    out.append("request from %s: %s (%s/%s)" %
+                               (data["project"], data["title"], FOLDER, path.name))
+    except OSError:
+        return out
     return out
 
 
@@ -213,7 +308,12 @@ def main(argv: list[str] | None = None) -> int:
     from awb import projects
     from awb.cli import SafeParser
 
-    ap = SafeParser(prog="awb dev", description="Requests from a project to development.")
+    class AskParser(SafeParser):
+        def error(self, message):
+            # argparse's repr quoting can defeat value masking when an argument contains quotes.
+            super().error("invalid arguments")
+
+    ap = AskParser(prog="awb dev", description="Requests from a project to development.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     ask = sub.add_parser("ask", help="write a checked request from the current project")
     ask.add_argument("text", metavar="TEXT")

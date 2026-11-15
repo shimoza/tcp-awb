@@ -17065,8 +17065,204 @@
    "name": "side hardening: running sessions from before hardening remain protected",
    "run": ".venv/bin/pytest tests/test_side.py::test_running_sessions_from_before_hardening_remain_protected",
    "status": "passing"
+  },
+  {
+   "id": "ux4-hard-1",
+   "phase": "ux4",
+   "name": "dev ask hardening: deep metadata is refused without breaking other asks",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_deep_metadata_is_refused_without_breaking_other_asks",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-2",
+   "phase": "ux4",
+   "name": "dev ask hardening: duplicate metadata keys are refused",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_duplicate_metadata_keys_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-3",
+   "phase": "ux4",
+   "name": "dev ask hardening: invalid metadata types and unicode are withheld",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_invalid_metadata_types_and_unicode_are_withheld",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-4",
+   "phase": "ux4",
+   "name": "dev ask hardening: growth after stat is still bounded",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_growth_after_stat_is_still_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-5",
+   "phase": "ux4",
+   "name": "dev ask hardening: ask file links special missing and unreadable are refused",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_ask_file_links_special_missing_and_unreadable_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-6",
+   "phase": "ux4",
+   "name": "dev ask hardening: answer header without body does not crash",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_answer_header_without_body_does_not_crash",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-7",
+   "phase": "ux4",
+   "name": "dev ask hardening: answer checks existing body and decoded metadata",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_answer_checks_existing_body_and_decoded_metadata",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-8",
+   "phase": "ux4",
+   "name": "dev ask hardening: answer uses one checked snapshot",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_answer_uses_one_checked_snapshot",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-9",
+   "phase": "ux4",
+   "name": "dev ask hardening: answer delivery failure preserves request",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_answer_delivery_failure_preserves_request",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-10",
+   "phase": "ux4",
+   "name": "dev ask hardening: concurrent answers deliver once",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_concurrent_answers_deliver_once",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-11",
+   "phase": "ux4",
+   "name": "dev ask hardening: concurrent asks keep distinct complete files",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_concurrent_asks_keep_distinct_complete_files",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-12",
+   "phase": "ux4",
+   "name": "dev ask hardening: failed ask write leaves no partial request",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_failed_ask_write_leaves_no_partial_request",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-13",
+   "phase": "ux4",
+   "name": "dev ask hardening: request is published only when complete",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_request_is_published_only_when_complete",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-14",
+   "phase": "ux4",
+   "name": "dev ask hardening: answer outside notices and linked parent are refused",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_answer_outside_notices_and_linked_parent_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-15",
+   "phase": "ux4",
+   "name": "dev ask hardening: linked ancestor withholds requests",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_linked_ancestor_withholds_requests",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-16",
+   "phase": "ux4",
+   "name": "dev ask hardening: directory swap cannot redirect ask write",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_directory_swap_cannot_redirect_ask_write",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-17",
+   "phase": "ux4",
+   "name": "dev ask hardening: receipt directory swap cannot write outside",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_receipt_directory_swap_cannot_write_outside",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-18",
+   "phase": "ux4",
+   "name": "dev ask hardening: notice storage failure is silent and retryable",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_notice_storage_failure_is_silent_and_retryable",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-19",
+   "phase": "ux4",
+   "name": "dev ask hardening: parser errors never echo hostile arguments",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_parser_errors_never_echo_hostile_arguments",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-20",
+   "phase": "ux4",
+   "name": "dev ask hardening: unicode input refusal has no traceback or value",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_unicode_input_refusal_has_no_traceback_or_value",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-21",
+   "phase": "ux4",
+   "name": "dev ask hardening: write refuses unregistered inactive and external projects",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_write_refuses_unregistered_inactive_and_external_projects",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-22",
+   "phase": "ux4",
+   "name": "dev ask hardening: checker and io errors do not echo values",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_checker_and_io_errors_do_not_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-23",
+   "phase": "ux4",
+   "name": "dev ask hardening: empty control and oversized asks leave no files",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_empty_control_and_oversized_asks_leave_no_files",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-24",
+   "phase": "ux4",
+   "name": "dev ask hardening: answer directory swap preserves external file",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_answer_directory_swap_preserves_external_file",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-25",
+   "phase": "ux4",
+   "name": "dev ask hardening: concurrent notices claim each request once",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_concurrent_notices_claim_each_request_once",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-26",
+   "phase": "ux4",
+   "name": "dev ask hardening: invalid session unicode is silent",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_invalid_session_unicode_is_silent",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-27",
+   "phase": "ux4",
+   "name": "dev ask hardening: answer io error is safe and keeps original",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_answer_io_error_is_safe_and_keeps_original",
+   "status": "passing"
+  },
+  {
+   "id": "ux4-hard-28",
+   "phase": "ux4",
+   "name": "dev ask hardening: existing receipt directory is private",
+   "run": ".venv/bin/pytest tests/test_dev_ask.py::test_existing_receipt_directory_is_private",
+   "status": "passing"
   }
  ],
- "total_tests": 2438,
+ "total_tests": 2466,
  "checked": "2026-11-09"
 }
