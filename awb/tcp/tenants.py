@@ -74,8 +74,10 @@ identifier the commit gate refuses.
 from __future__ import annotations
 
 import datetime
+import fcntl
 import json
 import os
+import stat
 import re
 import subprocess
 import sys
@@ -91,13 +93,16 @@ REGISTER = "tenants.tsv"
 EVENTS = "events.jsonl"
 SNAPSHOTS = "snapshots"
 HANDLES = "handles.json"
-_ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}\Z")      # \Z: "$" lets a trailing newline through
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\Z")
 _PROJECT_TAG_RE = re.compile(codes.TCP_PROJECT_WIDE)          # as tenant_api.project_tag of the console
-_CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
+_CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)       # pinned by test_codes: callers use fullmatch
+_REGION_OK = re.compile(r"^[a-z]{2}-[a-z0-9]{2,10}\Z")       # check_region's "$" lets a trailing newline through
 FIELDS = ("alias", "regions", "keys", "added")
 PASS_REF, FILE_REF = "pass" + ":", "file" + ":"
 """The two ways a tenant names its read-only key."""
+LOCK = ".lock"
+_ERROR_CODE_RE = re.compile(r"^[A-Za-z0-9._-]{1,40}\Z")
 
 
 class TenantError(Exception):
@@ -123,11 +128,75 @@ def folder(p: config.Paths, alias: str) -> Path:
 # --------------------------------------------------------------------------- the register of tenants
 
 
+def _shown_alias(alias) -> str:
+    """The alias for a message: itself when it reads like one, else a neutral word (an error never echoes a value)."""
+    return alias if isinstance(alias, str) and _ALIAS_RE.match(alias) else "that alias"
+
+
+def _printable(text: str) -> str:
+    """Text from outside (a domain name of a token) for one output line: control and line characters dropped."""
+    return "".join(c for c in str(text) if c.isprintable())[:80]
+
+
+def _read_regular(path: Path) -> str:
+    """The text of a regular file, opened without following a link and without blocking on a FIFO."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise TenantError("%s is no regular file" % path.name)
+        chunks = []
+        while True:
+            chunk = os.read(fd, 1 << 16)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    finally:
+        os.close(fd)
+    return b"".join(chunks).decode("utf-8")
+
+
+def _append(path: Path, text: str) -> None:
+    """Append to a file without following a link planted where it stands."""
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o666)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise TenantError("%s is no regular file" % path.name)
+        data = text.encode("utf-8")
+        while data:
+            data = data[os.write(fd, data):]
+    finally:
+        os.close(fd)
+
+
+class _Lock:
+    """An exclusive lock on `folder/.lock` (opened without following a link): two runs at once go in turn."""
+
+    def __init__(self, where: Path):
+        self.path = where / LOCK
+        self.fd = -1
+
+    def __enter__(self):
+        try:
+            self.fd = os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o660)
+        except OSError:
+            raise TenantError("the lock of %s cannot be taken" % self.path.parent.name) from None
+        fcntl.flock(self.fd, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *exc):
+        os.close(self.fd)
+        return False
+
+
 def load(p: config.Paths) -> list[Tenant]:
     try:
-        lines = (root(p) / REGISTER).read_text(encoding="utf-8").splitlines()
+        lines = _read_regular(root(p) / REGISTER).splitlines()
     except FileNotFoundError:
         return []
+    except OSError:
+        raise TenantError("the register of tenants cannot be read (a link or no regular file)") from None
+    except UnicodeDecodeError:
+        raise TenantError("the register of tenants is not UTF-8") from None
     out = []
     for line in lines[1:]:
         cols = line.split("\t")
@@ -140,27 +209,34 @@ def get(p: config.Paths, alias: str) -> Tenant:
     for t in load(p):
         if t.alias == alias:
             return t
-    raise TenantError("no tenant with the alias %s (awb tenant list)" % alias)
+    raise TenantError("no tenant with the alias %s (awb tenant list)" % _shown_alias(alias))
 
 
 def add(p: config.Paths, alias: str, keys: str, regions: list[str], today: str | None = None) -> Tenant:
     if not _ALIAS_RE.match(alias or ""):
         raise TenantError("an alias reads like test-1: small letters, digits and dashes")
-    if not keys.startswith((PASS_REF, FILE_REF)) or len(keys) < 6:
+    # a tab or a line character in the reference would split the row: a second, forged tenant in the register
+    if (not isinstance(keys, str) or not keys.startswith((PASS_REF, FILE_REF)) or len(keys) < 6
+            or not keys.isprintable()):
         raise TenantError("the key reads pass:ENTRY or file:PATH")
     from awb.tcp.cloud import check_region
 
     regions = [check_region(r) for r in (regions or ["eu-de"])]
-    if any(t.alias == alias for t in load(p)):
-        raise TenantError("the alias %s is taken" % alias)
+    if any(not _REGION_OK.match(r) for r in regions):
+        raise TenantError("a region reads like eu-de")
     t = Tenant(alias, tuple(regions), keys, today or datetime.date.today().isoformat())
     config.make_dir(root(p), 0o770, shared=True)
     reg = root(p) / REGISTER
-    new = not reg.exists()
-    with open(reg, "a", encoding="utf-8") as fh:
-        if new:
-            fh.write("\t".join(FIELDS) + "\n")
-        fh.write("\t".join([t.alias, ",".join(t.regions), t.keys, t.added]) + "\n")
+    # two adds at once: the second waits, sees the first row and writes no second head line
+    with _Lock(root(p)):
+        if any(x.alias == alias for x in load(p)):
+            raise TenantError("the alias %s is taken" % alias)
+        try:
+            new = reg.lstat().st_size == 0
+        except FileNotFoundError:
+            new = True
+        _append(reg, ("\t".join(FIELDS) + "\n" if new else "")
+                + "\t".join([t.alias, ",".join(t.regions), t.keys, t.added]) + "\n")
     return t
 
 
@@ -172,12 +248,19 @@ def keys_of(t: Tenant) -> obs.Keys:
             raise TenantError("the key of %s: %s" % (t.alias, err)) from None
     path = Path(os.path.expanduser(t.keys[5:]))
     try:
-        st = path.stat()
-        text = path.read_text(encoding="utf-8")
+        # one handle for the mode check and the read, never blocking on a FIFO, a regular file only
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode) or st.st_size > 1 << 16:
+                raise OSError("no regular key file")
+            if st.st_mode & 0o077:
+                raise TenantError("the key file of %s is open to others: chmod 600 it" % t.alias)
+            text = os.read(fd, (1 << 16) + 1).decode("utf-8")
+        finally:
+            os.close(fd)
     except (OSError, UnicodeDecodeError):
         raise TenantError("the key file of %s cannot be read" % t.alias) from None
-    if st.st_mode & 0o077:
-        raise TenantError("the key file of %s is open to others: chmod 600 it" % t.alias)
     vals = dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
     ak, sk = vals.get("ak", "").strip(), vals.get("sk", "").strip()
     if not ak or not sk:
@@ -305,19 +388,32 @@ def diff(before: dict | None, after: dict) -> list[dict]:
 
 def record(p: config.Paths, snap: dict) -> list[dict]:
     """Keep the snapshot of the day (a second one on the same day replaces the first) and append its events."""
+    if not _ALIAS_RE.match(str(snap.get("alias"))) or not _DATE_RE.match(str(snap.get("date"))):
+        raise TenantError("a snapshot names an alias and a day")
     d = folder(p, snap["alias"])
     config.make_dir(d / SNAPSHOTS, 0o770, shared=True)
-    earlier = [s for s in snapshots(p, snap["alias"]) if s.stem < snap["date"]]
-    today = [s for s in snapshots(p, snap["alias"]) if s.stem == snap["date"]]
-    base = read_snapshot(today[0]) if today else (read_snapshot(earlier[-1]) if earlier else None)
-    events = diff(base, snap)
-    target = d / SNAPSHOTS / ("%s.json" % snap["date"])
-    tmp = target.with_name("." + target.name + ".tmp")
-    tmp.write_text(json.dumps(snap, indent=1) + "\n", encoding="utf-8")
-    os.replace(tmp, target)
-    with open(d / EVENTS, "a", encoding="utf-8") as fh:
-        for e in events:
-            fh.write(json.dumps(e, sort_keys=True) + "\n")
+    # two snapshots at once: the second waits, reads the first as its base and records no event twice
+    with _Lock(d):
+        earlier = [s for s in snapshots(p, snap["alias"]) if s.stem < snap["date"]]
+        today = [s for s in snapshots(p, snap["alias"]) if s.stem == snap["date"]]
+        base = read_snapshot(today[0]) if today else (read_snapshot(earlier[-1]) if earlier else None)
+        events = diff(base, snap)
+        target = d / SNAPSHOTS / ("%s.json" % snap["date"])
+        # a fresh name, created exclusively: a link planted at a known temp name is never written through
+        tmp = target.with_name(".%s.%d.%s.tmp" % (target.name, os.getpid(), os.urandom(4).hex()))
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o666)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(snap, indent=1) + "\n")
+            os.replace(tmp, target)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        if events:
+            _append(d / EVENTS, "".join(json.dumps(e, sort_keys=True) + "\n" for e in events))
     return events
 
 
@@ -361,8 +457,8 @@ GLOBAL_SERVICES = ("obs",)
 """The system role shown as Tenant Guest: list and read rights on every service, nothing else."""
 ALERT_NAME = "awb_new_access_key"
 ALERT_OPERATIONS = [{"service_type": "IAM", "resource_type": "credential", "trace_names": ["createCredential"]}]
-_DOMAIN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
-_URN_RE = re.compile(r"^urn:smn:([a-z]{2}-[a-z0-9]{2,10}):([0-9a-f]{32}):[A-Za-z0-9_-]{1,255}$")
+_DOMAIN_ID_RE = re.compile(r"^[0-9a-f]{32}\Z")
+_URN_RE = re.compile(r"^urn:smn:([a-z]{2}-[a-z0-9]{2,10}):([0-9a-f]{32}):[A-Za-z0-9_-]{1,255}\Z")
 
 
 class Store:
@@ -412,6 +508,7 @@ class Iam:
 
     def _send(self, method: str, service: str, path: str, body=None, query: dict | None = None,
               token: str | None = None) -> tuple[int, dict, dict]:
+        import http.client
         import urllib.error
         import urllib.parse
         import urllib.request
@@ -428,8 +525,13 @@ class Iam:
                 status, raw, headers = resp.status, resp.read(), dict(resp.headers)
         except urllib.error.HTTPError as err:
             status, raw, headers = err.code, err.read(), dict(err.headers or {})
-        except (urllib.error.URLError, OSError) as err:
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as err:
             raise TenantError("no answer from %s (%s)" % (service, type(err).__name__)) from None
+        except ValueError:
+            # http.client refuses a control character or a blank in the URL with the URL in its message: the path
+            # may hold a key, so nothing of it is shown
+            raise TenantError("the request to %s could not be sent: the path holds a character a URL cannot "
+                              "carry" % service) from None
         try:
             parsed = json.loads(raw) if raw else {}
         except ValueError:
@@ -439,9 +541,9 @@ class Iam:
     @staticmethod
     def _code(data: dict) -> str:
         err = data.get("error")
-        if isinstance(err, dict):
-            return str(err.get("code") or "")
-        return str(data.get("error_code") or "")
+        code = str(err.get("code") or "") if isinstance(err, dict) else str(data.get("error_code") or "")
+        # the code is the answer's text: shown only in the form of an error code, never a value it may carry
+        return code if _ERROR_CODE_RE.match(code) else ("(code withheld)" if code else "")
 
     def login(self, domain: str, user: str, password: str, domain_id: str | None, project: str | None = None) -> dict:
         """A password token, scoped to the domain (by its id; without one by its name) or to the project named
@@ -586,7 +688,10 @@ def _key_owner(iam: Iam, store: Store, prefix: str, reader: dict | None, admin_i
         _, data = iam.call("GET", "iam", "/v3.0/OS-CREDENTIAL/credentials", query={"user_id": reader["id"]})
         if access in {c.get("access") for c in data.get("credentials") or [] if isinstance(c, dict)}:
             return None
-    status, data = iam.call("GET", "iam", "/v3.0/OS-CREDENTIAL/credentials/%s" % access, ok=(200, 404),
+    import urllib.parse
+
+    status, data = iam.call("GET", "iam", "/v3.0/OS-CREDENTIAL/credentials/%s" % urllib.parse.quote(access, safe=""),
+                            ok=(200, 404),
                             shown="/v3.0/OS-CREDENTIAL/credentials/{the key of %s/ak}" % prefix)
     owner = str((data.get("credential") or {}).get("user_id") or "") if status == 200 else ""
     if not owner:
@@ -656,7 +761,7 @@ def setup(p: config.Paths, alias: str, domain_id: str | None, *, region: str = "
         tok = iam.login(domain, user, password, domain_id)
         if not given:
             domain_id, domain_name = _token_domain(iam, tok, domain)
-            done.append("domain %s (id %s...): from the admin token" % (domain_name, domain_id[:6]))
+            done.append("domain %s (id %s...): from the admin token" % (_printable(domain_name), domain_id[:6]))
         project_tok = iam.login(domain, user, password, domain_id, project=region) if alerts else None
     finally:
         del password
@@ -1107,6 +1212,8 @@ def main(argv: list[str] | None = None) -> int:
             get(p, args.alias)
             if args.since and not _DATE_RE.match(args.since):
                 raise TenantError("--since reads YYYY-MM-DD")
+            if args.project and not _CODE_RE.fullmatch(args.project):
+                raise TenantError("a project code reads like tcp-q7m4")
             print("\n".join(history_lines(p, args.alias, args.project, args.since)))
         elif args.command == "at":
             get(p, args.alias)
@@ -1122,7 +1229,7 @@ def main(argv: list[str] | None = None) -> int:
                 if rows:
                     print("\n".join(table(rows, ["handle", "kind", "region", "size", "project", "created", "state"])))
         elif args.command == "project":
-            if not _CODE_RE.match(args.code):
+            if not _CODE_RE.fullmatch(args.code):
                 raise TenantError("a project code reads like tcp-q7m4")
             print("\n".join(project_lines(p, args.code, today)))
     except (TenantError, _sweep.SweepError) as err:
@@ -1130,6 +1237,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except OSError as err:
         print("awb tenant: %s (operating system error)" % type(err).__name__, file=sys.stderr)
+        return 1
+    except (ValueError, KeyError, TypeError) as err:
+        # a broken file in the tenant folder: the kind of the error, never the text it read
+        print("awb tenant: %s (a broken tenant file)" % type(err).__name__, file=sys.stderr)
         return 1
     return 0
 

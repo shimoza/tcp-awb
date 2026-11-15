@@ -18416,8 +18416,141 @@
    "name": "hooks: session start does not load a file linked from outside the project",
    "run": ".venv/bin/pytest tests/test_hooks_review.py::test_session_start_does_not_load_a_file_linked_from_outside_the_project",
    "status": "passing"
+  },
+  {
+   "id": "tenants-review-1",
+   "phase": "tenants-review",
+   "name": "tenants: an alias with a trailing newline is refused",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_an_alias_with_a_trailing_newline_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-2",
+   "phase": "tenants-review",
+   "name": "tenants: a key reference with a line character cannot forge a row",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_a_key_reference_with_a_line_character_cannot_forge_a_row",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-3",
+   "phase": "tenants-review",
+   "name": "tenants: a region with a trailing newline is refused",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_a_region_with_a_trailing_newline_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-4",
+   "phase": "tenants-review",
+   "name": "tenants: a domain id with a trailing newline is refused before any login",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_a_domain_id_with_a_trailing_newline_is_refused_before_any_login",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-5",
+   "phase": "tenants-review",
+   "name": "tenants: an alert topic with a trailing newline is refused",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_an_alert_topic_with_a_trailing_newline_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-6",
+   "phase": "tenants-review",
+   "name": "tenants: an unknown alias is not echoed",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_an_unknown_alias_is_not_echoed",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-7",
+   "phase": "tenants-review",
+   "name": "tenants: the error code of an answer is not echoed",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_the_error_code_of_an_answer_is_not_echoed",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-8",
+   "phase": "tenants-review",
+   "name": "tenants: a key in a url path never reaches an error",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_a_key_in_a_url_path_never_reaches_an_error",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-9",
+   "phase": "tenants-review",
+   "name": "tenants: the key lookup quotes the stored key",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_the_key_lookup_quotes_the_stored_key",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-10",
+   "phase": "tenants-review",
+   "name": "tenants: a domain name from the token is printed without control characters",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_a_domain_name_from_the_token_is_printed_without_control_characters",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-11",
+   "phase": "tenants-review",
+   "name": "tenants: a link in place of the register is not written through",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_a_link_in_place_of_the_register_is_not_written_through",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-12",
+   "phase": "tenants-review",
+   "name": "tenants: a link planted at the temp name of a snapshot is not written through",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_a_link_planted_at_the_temp_name_of_a_snapshot_is_not_written_through",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-13",
+   "phase": "tenants-review",
+   "name": "tenants: a link in place of the events file is not appended to",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_a_link_in_place_of_the_events_file_is_not_appended_to",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-14",
+   "phase": "tenants-review",
+   "name": "tenants: a fifo as the key file is refused without hanging",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_a_fifo_as_the_key_file_is_refused_without_hanging",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-15",
+   "phase": "tenants-review",
+   "name": "tenants: a register that is not utf8 is a tenant error",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_a_register_that_is_not_utf8_is_a_tenant_error",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-16",
+   "phase": "tenants-review",
+   "name": "tenants: a broken snapshot ends with exit 1 and none of its text",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_a_broken_snapshot_ends_with_exit_1_and_none_of_its_text",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-17",
+   "phase": "tenants-review",
+   "name": "tenants: history refuses a project that is no code",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_history_refuses_a_project_that_is_no_code",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-18",
+   "phase": "tenants-review",
+   "name": "tenants: two adds at once keep one row and one head line",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_two_adds_at_once_keep_one_row_and_one_head_line",
+   "status": "passing"
+  },
+  {
+   "id": "tenants-review-19",
+   "phase": "tenants-review",
+   "name": "tenants: two snapshots at once record each event once",
+   "run": ".venv/bin/pytest tests/test_tenants_review.py::test_two_snapshots_at_once_record_each_event_once",
+   "status": "passing"
   }
  ],
- "total_tests": 2631,
+ "total_tests": 2650,
  "checked": "2026-11-09"
 }
