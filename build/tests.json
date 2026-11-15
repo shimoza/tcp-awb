@@ -18927,8 +18927,344 @@
    "name": "send check: an error inside the check refuses and never raises",
    "run": ".venv/bin/pytest tests/test_send_check_review.py::test_an_error_inside_the_check_refuses_and_never_raises",
    "status": "passing"
+  },
+  {
+   "id": "ledger-review-01",
+   "phase": "ledger-review",
+   "name": "ledger: storage links cannot reach outside[file-read]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_storage_links_cannot_reach_outside[file-read]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-02",
+   "phase": "ledger-review",
+   "name": "ledger: storage links cannot reach outside[file-append]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_storage_links_cannot_reach_outside[file-append]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-03",
+   "phase": "ledger-review",
+   "name": "ledger: storage links cannot reach outside[folder-read]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_storage_links_cannot_reach_outside[folder-read]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-04",
+   "phase": "ledger-review",
+   "name": "ledger: storage links cannot reach outside[folder-append]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_storage_links_cannot_reach_outside[folder-append]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-05",
+   "phase": "ledger-review",
+   "name": "ledger: storage links cannot reach outside[ancestor-read]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_storage_links_cannot_reach_outside[ancestor-read]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-06",
+   "phase": "ledger-review",
+   "name": "ledger: storage links cannot reach outside[ancestor-append]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_storage_links_cannot_reach_outside[ancestor-append]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-07",
+   "phase": "ledger-review",
+   "name": "ledger: storage links cannot reach outside[hard-read]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_storage_links_cannot_reach_outside[hard-read]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-08",
+   "phase": "ledger-review",
+   "name": "ledger: storage links cannot reach outside[hard-append]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_storage_links_cannot_reach_outside[hard-append]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-09",
+   "phase": "ledger-review",
+   "name": "ledger: special week files are refused before io[read]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_special_week_files_are_refused_before_io[read]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-10",
+   "phase": "ledger-review",
+   "name": "ledger: special week files are refused before io[append]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_special_week_files_are_refused_before_io[append]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-11",
+   "phase": "ledger-review",
+   "name": "ledger: reader takes shared lock",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_reader_takes_shared_lock",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-12",
+   "phase": "ledger-review",
+   "name": "ledger: failed append restores previous bytes[write]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_failed_append_restores_previous_bytes[write]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-13",
+   "phase": "ledger-review",
+   "name": "ledger: failed append restores previous bytes[zero]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_failed_append_restores_previous_bytes[zero]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-14",
+   "phase": "ledger-review",
+   "name": "ledger: failed append restores previous bytes[sync]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_failed_append_restores_previous_bytes[sync]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-15",
+   "phase": "ledger-review",
+   "name": "ledger: batch keeps findings across split boundaries",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_batch_keeps_findings_across_split_boundaries",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-16",
+   "phase": "ledger-review",
+   "name": "ledger: batch bounds every request and keeps original indexes",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_batch_bounds_every_request_and_keeps_original_indexes",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-17",
+   "phase": "ledger-review",
+   "name": "ledger: batch missing register fails closed",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_batch_missing_register_fails_closed",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-18",
+   "phase": "ledger-review",
+   "name": "ledger: check errors never echo dependency values[screen]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_check_errors_never_echo_dependency_values[screen]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-19",
+   "phase": "ledger-review",
+   "name": "ledger: check errors never echo dependency values[batch]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_check_errors_never_echo_dependency_values[batch]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-20",
+   "phase": "ledger-review",
+   "name": "ledger: check errors never echo dependency values[source]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_check_errors_never_echo_dependency_values[source]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-21",
+   "phase": "ledger-review",
+   "name": "ledger: check class is not untrusted output",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_check_class_is_not_untrusted_output",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-22",
+   "phase": "ledger-review",
+   "name": "ledger: detectors fail closed[missing]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_detectors_fail_closed[missing]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-23",
+   "phase": "ledger-review",
+   "name": "ledger: detectors fail closed[broken]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_detectors_fail_closed[broken]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-24",
+   "phase": "ledger-review",
+   "name": "ledger: secret views are refused on add[plain]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_secret_views_are_refused_on_add[plain]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-25",
+   "phase": "ledger-review",
+   "name": "ledger: secret views are refused on add[entities]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_secret_views_are_refused_on_add[entities]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-26",
+   "phase": "ledger-review",
+   "name": "ledger: secret views are refused on add[base64]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_secret_views_are_refused_on_add[base64]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-27",
+   "phase": "ledger-review",
+   "name": "ledger: stored private fields never reach list or report[done]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_stored_private_fields_never_reach_list_or_report[done]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-28",
+   "phase": "ledger-review",
+   "name": "ledger: stored private fields never reach list or report[outcome]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_stored_private_fields_never_reach_list_or_report[outcome]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-29",
+   "phase": "ledger-review",
+   "name": "ledger: stored private fields never reach list or report[deliverables]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_stored_private_fields_never_reach_list_or_report[deliverables]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-30",
+   "phase": "ledger-review",
+   "name": "ledger: stored private fields never reach list or report[open]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_stored_private_fields_never_reach_list_or_report[open]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-31",
+   "phase": "ledger-review",
+   "name": "ledger: stored private fields never reach list or report[tags]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_stored_private_fields_never_reach_list_or_report[tags]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-32",
+   "phase": "ledger-review",
+   "name": "ledger: hostile json is a safe line error[surrogate]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_hostile_json_is_a_safe_line_error[surrogate]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-33",
+   "phase": "ledger-review",
+   "name": "ledger: hostile json is a safe line error[nested]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_hostile_json_is_a_safe_line_error[nested]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-34",
+   "phase": "ledger-review",
+   "name": "ledger: hostile json is a safe line error[duplicate]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_hostile_json_is_a_safe_line_error[duplicate]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-35",
+   "phase": "ledger-review",
+   "name": "ledger: last iso week does not overflow",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_last_iso_week_does_not_overflow",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-36",
+   "phase": "ledger-review",
+   "name": "ledger: tags file links are refused",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_tags_file_links_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-37",
+   "phase": "ledger-review",
+   "name": "ledger: directory swap stays on opened directory[read]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_directory_swap_stays_on_opened_directory[read]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-38",
+   "phase": "ledger-review",
+   "name": "ledger: directory swap stays on opened directory[append]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_directory_swap_stays_on_opened_directory[append]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-39",
+   "phase": "ledger-review",
+   "name": "ledger: week read failure is not an empty ledger[missing]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_week_read_failure_is_not_an_empty_ledger[missing]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-40",
+   "phase": "ledger-review",
+   "name": "ledger: week read failure is not an empty ledger[unreadable]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_week_read_failure_is_not_an_empty_ledger[unreadable]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-41",
+   "phase": "ledger-review",
+   "name": "ledger: week reads are bounded even if file grows[False]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_week_reads_are_bounded_even_if_file_grows[False]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-42",
+   "phase": "ledger-review",
+   "name": "ledger: week reads are bounded even if file grows[True]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_week_reads_are_bounded_even_if_file_grows[True]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-43",
+   "phase": "ledger-review",
+   "name": "ledger: append rejects parent traversal",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_append_rejects_parent_traversal",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-44",
+   "phase": "ledger-review",
+   "name": "ledger: short writes still append one complete line",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_short_writes_still_append_one_complete_line",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-45",
+   "phase": "ledger-review",
+   "name": "ledger: malformed check replies fail closed[None]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_malformed_check_replies_fail_closed[None]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-46",
+   "phase": "ledger-review",
+   "name": "ledger: malformed check replies fail closed[reply1]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_malformed_check_replies_fail_closed[reply1]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-47",
+   "phase": "ledger-review",
+   "name": "ledger: malformed check replies fail closed[invalid]",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_malformed_check_replies_fail_closed[invalid]",
+   "status": "passing"
+  },
+  {
+   "id": "ledger-review-48",
+   "phase": "ledger-review",
+   "name": "ledger: withheld tags do not duplicate report rows",
+   "run": ".venv/bin/pytest tests/test_ledger.py::test_review_withheld_tags_do_not_duplicate_report_rows",
+   "status": "passing"
   }
  ],
- "total_tests": 2704,
+ "total_tests": 2752,
  "checked": "2026-11-09"
 }

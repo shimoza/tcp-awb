@@ -37,9 +37,11 @@ import html
 import json
 import os
 import re
+import stat
 import sys
 import unicodedata
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -56,6 +58,9 @@ BY = ("customer", "tech", "kind", "project")
 FORMATS = ("md", "html")
 NONE = "none"
 WITHHELD = "(withheld by the name check)"
+
+MAX_FILE_BYTES = 32 * 1024 * 1024
+"""Maximum bytes read from one weekly ledger file."""
 
 MAX_TEXT = 2000
 """Characters of done and outcome."""
@@ -157,14 +162,15 @@ def _week_span(name: str) -> tuple[date, date] | None:
         monday = date.fromisocalendar(int(m.group("year")), int(m.group("week")), 1)
     except ValueError:
         return None
-    return monday, monday + timedelta(days=6)
+    return monday, monday + timedelta(days=min(6, (date.max - monday).days))
 
 
 def load_tags(path: Path | None = None) -> list[str]:
     """The controlled tag list: one tag per line, # starts a comment line."""
     f = Path(path) if path is not None else TAGS_FILE
     try:
-        text = f.read_text(encoding="utf-8")
+        with _directory(f.parent) as folder:
+            text = _read_file(folder, f.name, 256 * 1024)
     except (OSError, UnicodeDecodeError):
         raise LedgerError("the tag list rules/tags.txt cannot be read") from None
     out: list[str] = []
@@ -212,7 +218,7 @@ def clean_text(value, what: str, *, required: bool = False, limit: int = MAX_TEX
         raise LedgerError("%s is empty" % what)
     if len(value) > limit:
         raise LedgerError("%s is longer than %d characters" % (what, limit))
-    if any(unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") for c in value):
+    if any(unicodedata.category(c) in ("Cc", "Cf", "Cs", "Zl", "Zp") for c in value):
         raise LedgerError("%s must be one line without control or invisible characters" % what)
     return value
 
@@ -260,8 +266,12 @@ def _detectors() -> dict:
     try:
         from awb import gate
     except ImportError:
-        return {}
-    return dict(getattr(gate, "DETECTORS", {}) or {})
+        raise LedgerError("pattern checks unavailable") from None
+    detectors = getattr(gate, "DETECTORS", {})
+    expected = {"secret", "private-key", "token", "homepath", "blocklist", "identifier"}
+    if not isinstance(detectors, dict) or not expected.issubset(detectors):
+        raise LedgerError("pattern checks unavailable")
+    return {cls: detectors[cls] for cls in expected}
 
 
 def register_path(p: config.Paths | None = None) -> Path:
@@ -285,36 +295,51 @@ def _check_reason(err: Exception) -> str:
     from awb import check
 
     if isinstance(err, check.CheckUnavailable):
-        return str(err) or "name check unavailable"
+        return "name check unavailable"
     return "the register cannot be read"
+
+
+def _pattern_counts(text: str) -> dict[str, int]:
+    """Screen raw, decoded and normalised views; an unavailable detector is never a clean result."""
+    from awb import check, normalize
+
+    try:
+        views = check.with_hidden_views(text)
+        normalized = normalize.normalize(views).text
+        return {cls: max(len(fn(views)), len(fn(normalized))) for cls, fn in _detectors().items()}
+    except Exception:
+        raise LedgerError("pattern checks unavailable") from None
+
+
+def _name_hits(text: str, reg: Path | None) -> list:
+    from awb import check
+
+    hits = check.check_text(text, reg)
+    if not isinstance(hits, list):
+        raise LedgerError("invalid name check response")
+    return hits
 
 
 def screen(text: str, reg: Path | None, *, codes_too: bool = False, candidates: bool = True) -> dict[str, int]:
     """Counts per class of what makes `text` unfit for the shared side: hits of the name check (a registered
     name or structured data), hits of the gate detectors and, with `codes_too`, register codes and project codes.
     Raises LedgerError when the name check cannot run. Never returns or raises with a value."""
-    from awb import check
-
     counts: Counter = Counter()
     try:
-        hits = check.check_text(text, reg)
+        hits = _name_hits(text, reg)
     except Exception as err:  # CheckUnavailable and RegisterError
         raise LedgerError(_check_reason(err)) from None
     for h in hits:
-        counts[h.get("cls", "unknown") if isinstance(h, dict) else "unknown"] += 1
+        cls = h.get("cls") if isinstance(h, dict) else None
+        allowed = {"name", "mail", "url", "domain", "ipv4", "ipv6", "mac", "iban", "bic", "vat", "phone", "hrb"}
+        counts[cls if isinstance(cls, str) and cls in allowed else "unknown"] += 1
     if candidates and not counts.get("name"):
         # after the register check, the name-shaped candidates of the strong rules (TM0): a name not registered
         from awb import intake
 
         for cls, _ in intake.short_text_candidates(text):
             counts["candidate-%s" % cls] += 1
-    for cls, fn in _detectors().items():
-        try:
-            n = len(fn(text))
-        except Exception:
-            n = 0
-        if n:
-            counts[cls] += n
+    counts.update(_pattern_counts(text))
     if codes_too:
         # also a code written with a look-alike dash, fullwidth characters or invisible characters inside
         n_reg, n_proj = codes.count_codes(text)
@@ -322,7 +347,7 @@ def screen(text: str, reg: Path | None, *, codes_too: bool = False, candidates: 
             counts["code"] += n_reg
         if n_proj:
             counts["project-code"] += n_proj
-    return dict(counts)
+    return {cls: n for cls, n in counts.items() if n}
 
 
 def screen_fields(fields: list[tuple[str, str]], reg: Path | None, *, codes_too: bool = False,
@@ -344,21 +369,24 @@ def hit_indexes(texts: list[str], reg: Path | None) -> set[int]:
     """Indexes of the texts that the name check finds anything in. One check over all texts joined first (the
     common case: nothing); a chunk with a finding is halved until the texts with findings are single, so k findings
     among n texts cost about k * 2 * log2(n) checks instead of n. Raises LedgerError when the check cannot run."""
-    from awb import check
-
+    if any(not isinstance(t, str) or len(t) > _CHECK_CHUNK or
+           any(unicodedata.category(c) == "Cs" for c in t) for t in texts):
+        raise LedgerError("name check text is invalid or too long")
     idx = [i for i, t in enumerate(texts) if t]
     if not idx:
         return set()
+    if reg is not None:
+        ensure_checkable(reg)
     try:
         suspects: list[list[int]] = []
         chunk: list[int] = []
         size = 0
         for i in idx + [None]:
-            if i is not None and size + len(texts[i]) < _CHECK_CHUNK:
+            if i is not None and size + len(texts[i]) <= _CHECK_CHUNK:
                 chunk.append(i)
                 size += len(texts[i]) + 2
                 continue
-            if chunk and check.check_text("\n\n".join(texts[j] for j in chunk), reg):
+            if chunk and _name_hits("\n\n".join(texts[j] for j in chunk), reg):
                 suspects.append(chunk)
             chunk, size = ([i], len(texts[i]) + 2) if i is not None else ([], 0)
         found: set[int] = set()
@@ -370,9 +398,15 @@ def hit_indexes(texts: list[str], reg: Path | None) -> set[int]:
                 found.add(group[0])
                 return
             half = len(group) // 2
-            for part in (group[:half], group[half:]):
-                if check.check_text("\n\n".join(texts[j] for j in part), reg):
-                    split(part)
+            parts = (group[:half], group[half:])
+            flagged = [bool(_name_hits("\n\n".join(texts[j] for j in part), reg)) for part in parts]
+            if not any(flagged):
+                # Normalisation can match a name across fields. Splitting must not erase that finding.
+                found.update(group)
+            else:
+                for part, hit in zip(parts, flagged):
+                    if hit:
+                        split(part)
 
         for group in suspects:
             split(group)
@@ -382,22 +416,22 @@ def hit_indexes(texts: list[str], reg: Path | None) -> set[int]:
 
 
 def withhold(entries: list[Entry], reg: Path | None) -> tuple[list[Entry], int]:
-    """The entries with every text that now carries a name hit replaced by WITHHELD. Also the count of texts
-    replaced."""
+    """Copy entries, withholding text and tags with name or pattern findings. Return the number withheld."""
     texts: list[str] = []
     where: list[tuple[int, str, int | None]] = []
     for n, e in enumerate(entries):
         for name in ("done", "outcome"):
             texts.append(getattr(e, name))
             where.append((n, name, None))
-        for name in ("deliverables", "open"):
+        for name in ("deliverables", "open", "tags"):
             for k, v in enumerate(getattr(e, name)):
                 texts.append(v)
                 where.append((n, name, k))
     hits = hit_indexes(texts, reg)
+    hits.update(i for i, text in enumerate(texts) if text and any(_pattern_counts(text).values()))
     if not hits:
         return list(entries), 0
-    out = [dataclasses.replace(e, deliverables=list(e.deliverables), open=list(e.open)) for e in entries]
+    out = [dataclasses.replace(e, deliverables=list(e.deliverables), open=list(e.open), tags=list(e.tags)) for e in entries]
     for i in hits:
         n, name, k = where[i]
         if k is None:
@@ -445,27 +479,78 @@ def check_entry(e: Entry, reg: Path | None) -> None:
     screen_fields(fields, reg)
 
 
-def append_line(path: Path, obj: dict, mode: int = 0o640) -> None:
-    """Append one JSON line to `path` under an exclusive fcntl lock on the file, written whole. A last line left
-    without its line break by a crashed writer gets one first, so this line stays whole."""
-    data = (json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_RDWR | os.O_APPEND | os.O_CREAT, mode)
+@contextmanager
+def _directory(path: Path, *, create: bool = False):
+    """Walk without following links and keep the directory pinned for all later file operations."""
+    path = Path(path).absolute()
+    fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        try:
-            size = os.fstat(fd).st_size
-            if size and os.pread(fd, 1, size - 1) != b"\n":
-                data = b"\n" + data
-            view = memoryview(data)
-            while view:
-                written = os.write(fd, view)
-                view = view[written:]
-            os.fsync(fd)
-        finally:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+        for part in path.parts[1:]:
+            if part == "..":
+                raise LedgerError("parent traversal is not allowed")
+            if create:
+                try:
+                    os.mkdir(part, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            nxt = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = nxt
+        yield fd
     finally:
         os.close(fd)
+
+
+@contextmanager
+def _regular(folder: int, name: str, flags: int, mode: int = 0o640):
+    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, mode, dir_fd=folder)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise LedgerError("expected a regular file with one link")
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _read_file(folder: int, name: str, limit: int = MAX_FILE_BYTES) -> str:
+    with _regular(folder, name, os.O_RDONLY) as fd:
+        fcntl.flock(fd, fcntl.LOCK_SH)
+        if os.fstat(fd).st_size > limit:
+            raise LedgerError("file is too large")
+        data = bytearray()
+        while True:
+            chunk = os.read(fd, min(65536, limit + 1 - len(data)))
+            if not chunk:
+                return data.decode("utf-8")
+            data.extend(chunk)
+            if len(data) > limit:
+                raise LedgerError("file is too large")
+
+
+def append_line(path: Path, obj: dict, mode: int = 0o640) -> None:
+    """Append under an exclusive file lock. Restore the original length if a write fails."""
+    try:
+        data = (json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8")
+    except (ValueError, TypeError, RecursionError):
+        raise LedgerError("entry cannot be encoded as JSON") from None
+    with _directory(path.parent, create=True) as folder:
+        with _regular(folder, path.name, os.O_RDWR | os.O_APPEND | os.O_CREAT, mode) as fd:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            size = os.fstat(fd).st_size
+            try:
+                if size and os.pread(fd, 1, size - 1) != b"\n":
+                    data = b"\n" + data
+                view = memoryview(data)
+                while view:
+                    written = os.write(fd, view)
+                    if written <= 0:
+                        raise LedgerError("ledger write made no progress")
+                    view = view[written:]
+                os.fsync(fd)
+            except BaseException:
+                os.ftruncate(fd, size)
+                raise
 
 
 def add(kind: str, done: str, *, project=None, customer=None, partner=None, tags=(), outcome="",
@@ -509,11 +594,25 @@ def load(p: config.Paths | None = None, start=None, end=None) -> list[Entry]:
     start = parse_date(start) if start is not None else None
     end = parse_date(end) if end is not None else None
     try:
-        names = sorted(n for n in os.listdir(p.ledger) if _WEEK_FILE_RE.fullmatch(n))
+        with _directory(p.ledger) as folder:
+            return _load_folder(folder, start, end)
     except FileNotFoundError:
         return []
     except OSError as err:
         raise LedgerError("the ledger folder cannot be read (%s)" % type(err).__name__) from None
+
+
+def _unique_object(pairs):
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError("duplicate field")
+        obj[key] = value
+    return obj
+
+
+def _load_folder(folder: int, start, end) -> list[Entry]:
+    names = sorted(n for n in os.listdir(folder) if _WEEK_FILE_RE.fullmatch(n))
     out: list[Entry] = []
     for name in names:
         span = _week_span(name)
@@ -522,7 +621,7 @@ def load(p: config.Paths | None = None, start=None, end=None) -> list[Entry]:
         if (start and span[1] < start) or (end and span[0] > end):
             continue
         try:
-            text = (p.ledger / name).read_text(encoding="utf-8")
+            text = _read_file(folder, name)
         except UnicodeDecodeError:
             raise LedgerError("ledger %s is not valid UTF-8" % name) from None
         except OSError as err:
@@ -535,8 +634,8 @@ def load(p: config.Paths | None = None, start=None, end=None) -> list[Entry]:
             if not line.strip():
                 raise LedgerError("%s: blank line" % where)
             try:
-                obj = json.loads(line)
-            except ValueError:
+                obj = json.loads(line, object_pairs_hook=_unique_object)
+            except (ValueError, RecursionError):
                 raise LedgerError("%s: not a JSON object" % where) from None
             try:
                 e = _entry_from(obj)
@@ -563,7 +662,7 @@ def _keys(e: Entry, by: str) -> list[str]:
     if by == "kind":
         return [e.kind]
     if by == "tech":
-        return list(e.tags) or [NONE]
+        return list(dict.fromkeys(e.tags)) or [NONE]
     raise LedgerError("by must be one of %s" % ", ".join(BY))
 
 

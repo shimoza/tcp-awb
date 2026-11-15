@@ -623,3 +623,344 @@ def test_hit_indexes_halves_a_chunk_with_a_finding_instead_of_checking_each_text
     assert ledger.hit_indexes(texts, None) == {77, 200}
     calls.clear()
     assert ledger.hit_indexes(["clean"] * 50, None) == set() and len(calls) == 1
+
+
+# Review regressions. All paths and private values belong to these fixtures.
+
+def _review_row(home, **changes):
+    path = ledger.week_file(home, "2026-09-22")
+    path.write_text(json.dumps(dict(FULL_EXPECTED, **changes)) + "\n", encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize("operation", ["read", "append"])
+@pytest.mark.parametrize("link", ["file", "folder", "ancestor", "hard"])
+def test_review_storage_links_cannot_reach_outside(home, tmp_path, operation, link):
+    path = _review_row(home)
+    original = path.read_bytes()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = outside / path.name
+    target.write_bytes(original)
+    if link in ("file", "hard"):
+        path.unlink()
+        if link == "file":
+            path.symlink_to(target)
+        else:
+            os.link(target, path)
+    elif link == "folder":
+        path.unlink()
+        home.ledger.rmdir()
+        home.ledger.symlink_to(outside, target_is_directory=True)
+    else:
+        moved = tmp_path / "moved-shared"
+        home.shared.rename(moved)
+        home.shared.symlink_to(moved, target_is_directory=True)
+    with pytest.raises((ledger.LedgerError, OSError)):
+        if operation == "read":
+            ledger.load(home)
+        else:
+            ledger.append_line(path, FULL_EXPECTED)
+    assert target.read_bytes() == original
+
+
+@pytest.mark.parametrize("operation", ["read", "append"])
+def test_review_special_week_files_are_refused_before_io(home, monkeypatch, operation):
+    path = ledger.week_file(home, "2026-09-22")
+    os.mkfifo(path)
+    real_open = os.open
+    opened = []
+
+    def nonblocking(path_, flags, *args, **kwargs):
+        if str(path_).endswith(path.name):
+            opened.append(flags)
+            # Prevent a planted unsafe open from hanging the test.
+            assert flags & os.O_NONBLOCK
+        return real_open(path_, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", nonblocking)
+    # A read_text implementation would bypass os.open and block on the FIFO.
+    monkeypatch.setattr(type(path), "read_text", lambda *a, **kw: pytest.fail("unchecked read"))
+    with pytest.raises((ledger.LedgerError, OSError)):
+        ledger.load(home) if operation == "read" else ledger.append_line(path, FULL_EXPECTED)
+    assert opened
+
+
+def test_review_reader_takes_shared_lock(home, monkeypatch):
+    path = _review_row(home)
+    calls = []
+    real_flock = fcntl.flock
+
+    def record(fd, mode):
+        if os.fstat(fd).st_ino == path.stat().st_ino:
+            calls.append(mode)
+        return real_flock(fd, mode)
+
+    monkeypatch.setattr(fcntl, "flock", record)
+    assert ledger.load(home)[0].as_dict() == FULL_EXPECTED
+    assert fcntl.LOCK_SH in calls
+
+
+@pytest.mark.parametrize("failure", ["write", "zero", "sync"])
+def test_review_failed_append_restores_previous_bytes(home, monkeypatch, failure):
+    path = _review_row(home)
+    original = path.read_bytes().rstrip(b"\n")
+    path.write_bytes(original)
+    real_write = os.write
+    calls = []
+
+    def broken(fd, data):
+        calls.append(1)
+        if len(calls) == 1:
+            return real_write(fd, data[:11])
+        if failure == "zero":
+            assert len(calls) == 2, "zero write must not loop"
+            return 0
+        raise OSError("private write detail")
+
+    if failure == "sync":
+        monkeypatch.setattr(os, "fsync", lambda fd: (_ for _ in ()).throw(OSError("private sync detail")))
+    else:
+        monkeypatch.setattr(os, "write", broken)
+    with pytest.raises((ledger.LedgerError, OSError)):
+        ledger.append_line(path, FULL_EXPECTED)
+    assert path.read_bytes() == original
+
+
+def test_review_batch_keeps_findings_across_split_boundaries(monkeypatch):
+    from awb import check
+
+    monkeypatch.setattr(check, "check_text", lambda text, reg: ["hit"] if "alpha\n\nbeta" in text else [])
+    assert ledger.hit_indexes(["alpha", "beta"], None) == {0, 1}
+
+
+def test_review_batch_bounds_every_request_and_keeps_original_indexes(monkeypatch):
+    from awb import check
+
+    monkeypatch.setattr(ledger, "_CHECK_CHUNK", 12)
+    calls = []
+
+    def scan(text, reg):
+        calls.append(text)
+        assert len(text) <= 12
+        return ["hit"] if "hit" in text else []
+
+    monkeypatch.setattr(check, "check_text", scan)
+    assert ledger.hit_indexes(["", "clean", "", "hit", "tail", "hit"], None) == {3, 5}
+    with pytest.raises(ledger.LedgerError):
+        ledger.hit_indexes(["x" * 13], None)
+    assert all(len(text) <= 12 for text in calls)
+
+
+def test_review_batch_missing_register_fails_closed(home):
+    home.register.unlink()
+    with pytest.raises(ledger.LedgerError, match="names cannot be checked"):
+        ledger.hit_indexes([fixtures.CUSTOMER_FORMS[0]], home.register)
+
+
+@pytest.mark.parametrize("entrypoint", ["screen", "batch", "source"])
+def test_review_check_errors_never_echo_dependency_values(home, monkeypatch, entrypoint):
+    from awb import check
+
+    private = "pass" + "word=fixture-" + "value"
+
+    def broken(*args, **kwargs):
+        raise check.CheckUnavailable(private)
+
+    monkeypatch.setattr(check, "register_source" if entrypoint == "source" else "check_text", broken)
+    with pytest.raises(ledger.LedgerError) as exc:
+        if entrypoint == "screen":
+            ledger.screen("plain", home.register)
+        elif entrypoint == "batch":
+            ledger.hit_indexes(["plain"], home.register)
+        else:
+            ledger.ensure_checkable(home.register)
+    assert private not in str(exc.value)
+    assert "name check unavailable" in str(exc.value)
+
+
+def test_review_check_class_is_not_untrusted_output(home, monkeypatch, capsys):
+    from awb import check
+
+    private = "pass" + "word=fixture-" + "value"
+    monkeypatch.setattr(check, "check_text", lambda *args: [{"cls": private}])
+    code, out, err = run(["ledger", "add", "--kind", "code", "--done", "plain"], capsys)
+    assert code == 1 and private not in out + err
+
+
+@pytest.mark.parametrize("failure", ["missing", "broken"])
+def test_review_detectors_fail_closed(home, monkeypatch, failure):
+    from awb import gate
+
+    def broken(text):
+        raise RuntimeError("private detector detail")
+
+    monkeypatch.setattr(gate, "DETECTORS", {} if failure == "missing" else dict(gate.DETECTORS, secret=broken))
+    with pytest.raises(ledger.LedgerError) as exc:
+        ledger.add("code", "plain", p=home)
+    assert "private detector detail" not in str(exc.value)
+    assert all_ledger_lines(home) == []
+
+
+@pytest.mark.parametrize("encoding", ["plain", "entities", "base64"])
+def test_review_secret_views_are_refused_on_add(home, encoding):
+    import base64
+
+    private = "pass" + "word=" + "r7Q9" + "m2L8" + "v4S6" + "z1B3"
+    text = {"plain": private, "entities": private.replace("a", "&#97;"),
+            "base64": base64.b64encode(private.encode()).decode()}[encoding]
+    with pytest.raises(ledger.Refused):
+        ledger.add("code", text, p=home)
+    assert all_ledger_lines(home) == []
+
+
+@pytest.mark.parametrize("field", ["done", "outcome", "deliverables", "open", "tags"])
+def test_review_stored_private_fields_never_reach_list_or_report(home, capsys, field):
+    private = fixtures.CUSTOMER_FORMS[1].lower() if field == "tags" else "pass" + "word=" + "r7Q9" + "m2L8" + "v4S6" + "z1B3"
+    _review_row(home, **{field: [private] if field in ("deliverables", "open", "tags") else private})
+    for argv in (["ledger", "list"], ["report", "--by", "tech"], ["report", "--by", "kind", "--format", "html"]):
+        code, out, err = run(argv, capsys)
+        assert code == 0, err
+        assert private not in out + err
+        assert ledger.WITHHELD in out
+
+
+@pytest.mark.parametrize("bad", ["surrogate", "nested", "duplicate"])
+def test_review_hostile_json_is_a_safe_line_error(home, capsys, bad):
+    path = ledger.week_file(home, "2026-09-22")
+    text = json.dumps(dict(FULL_EXPECTED, done="bad\ud800"))
+    if bad == "nested":
+        text = '[' * 20000 + '0' + ']' * 20000
+    elif bad == "duplicate":
+        text = json.dumps(FULL_EXPECTED)[:-1] + ', "done": "replacement"}'
+    path.write_text(text + "\n", encoding="utf-8")
+    code = ledger.main(["list"])
+    out, err = capsys.readouterr()
+    assert code == 2 and not out
+    assert "2026-W39.jsonl line 1" in err
+    assert "replacement" not in err
+
+
+def test_review_last_iso_week_does_not_overflow(home):
+    e = ledger.add("code", "plain", day="9999-12-31", p=home)
+    assert ledger.load(home) == [e]
+
+
+def test_review_tags_file_links_are_refused(tmp_path):
+    target = tmp_path / "outside"
+    target.write_text("ecs\n", encoding="utf-8")
+    link = tmp_path / "tags.txt"
+    link.symlink_to(target)
+    with pytest.raises(ledger.LedgerError):
+        ledger.load_tags(link)
+
+
+@pytest.mark.parametrize("operation", ["read", "append"])
+def test_review_directory_swap_stays_on_opened_directory(home, tmp_path, monkeypatch, operation):
+    path = _review_row(home)
+    outside = tmp_path / "external"
+    outside.mkdir()
+    target = outside / path.name
+    target.write_text("external content\n", encoding="utf-8")
+    moved = tmp_path / "original-ledger"
+    real_open = os.open
+    swapped = []
+
+    def swap(name, flags, *args, **kwargs):
+        if str(name).endswith(path.name) and not swapped:
+            swapped.append(True)
+            home.ledger.rename(moved)
+            home.ledger.symlink_to(outside, target_is_directory=True)
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", swap)
+    if operation == "read":
+        assert ledger.load(home)[0].as_dict() == FULL_EXPECTED
+    else:
+        ledger.append_line(path, FULL_EXPECTED)
+        assert len(lines_of(moved / path.name)) == 2
+    assert swapped and target.read_text(encoding="utf-8") == "external content\n"
+
+
+@pytest.mark.parametrize("failure", ["missing", "unreadable"])
+def test_review_week_read_failure_is_not_an_empty_ledger(home, monkeypatch, capsys, failure):
+    path = _review_row(home)
+    real_open = os.open
+    private = "pass" + "word=" + "r7Q9" + "m2L8"
+
+    def broken(name, *args, **kwargs):
+        if str(name).endswith(path.name):
+            raise (FileNotFoundError if failure == "missing" else PermissionError)(private)
+        return real_open(name, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", broken)
+    code = ledger.main(["list"])
+    out, err = capsys.readouterr()
+    assert code == 2 and not out and private not in err
+    assert path.name in err
+
+
+@pytest.mark.parametrize("stale_size", [False, True])
+def test_review_week_reads_are_bounded_even_if_file_grows(home, monkeypatch, stale_size):
+    path = ledger.week_file(home, "2026-09-22")
+    with path.open("wb") as stream:
+        stream.truncate(ledger.MAX_FILE_BYTES + 1)
+    if stale_size:
+        real_stat = os.fstat
+
+        def small(fd):
+            info = real_stat(fd)
+            values = list(info)
+            values[6] = 0
+            return os.stat_result(values)
+
+        monkeypatch.setattr(os, "fstat", small)
+    with pytest.raises(ledger.LedgerError, match="too large"):
+        ledger.load(home)
+
+
+def test_review_append_rejects_parent_traversal(tmp_path):
+    inside = tmp_path / "project"
+    inside.mkdir()
+    outside = tmp_path / "outside.jsonl"
+    with pytest.raises((ledger.LedgerError, OSError)):
+        ledger.append_line(inside / ".." / outside.name, FULL_EXPECTED)
+    assert not outside.exists()
+
+
+def test_review_short_writes_still_append_one_complete_line(tmp_path, monkeypatch):
+    path = tmp_path / "week.jsonl"
+    real_write = os.write
+    monkeypatch.setattr(os, "write", lambda fd, data: real_write(fd, data[:7]))
+    ledger.append_line(path, FULL_EXPECTED)
+    assert lines_of(path) == [json.dumps(FULL_EXPECTED, ensure_ascii=False)]
+
+
+@pytest.fixture(autouse=True)
+def _review_build_user_blocklist(monkeypatch):
+    """Build users ignore AWB_BLOCKLIST; keep the suite's invented list active through the self-test hook."""
+    from pathlib import Path
+    from awb import config, gate
+
+    if config.is_build_user():
+        monkeypatch.setattr(gate, "_SELFTEST_FILES", [*gate._SELFTEST_FILES, Path(__file__).with_name("blocklist.txt")])
+
+
+@pytest.mark.parametrize("reply", [None, {}, "invalid"])
+def test_review_malformed_check_replies_fail_closed(monkeypatch, reply):
+    from awb import check
+
+    monkeypatch.setattr(check, "check_text", lambda *args: reply)
+    with pytest.raises(ledger.LedgerError):
+        ledger.hit_indexes(["plain"], None)
+
+
+def test_review_withheld_tags_do_not_duplicate_report_rows(home, monkeypatch):
+    from awb import check
+
+    monkeypatch.setattr(check, "check_text", lambda text, reg: [{"cls": "name"}] if "ecs" in text or "elb" in text else [])
+    entry = ledger.Entry(date="2026-09-22", done="plain", tags=["ecs", "elb"])
+    masked, count = ledger.withhold([entry], home.register)
+    assert count == 2 and entry.tags == ["ecs", "elb"]
+    assert masked[0].tags == [ledger.WITHHELD, ledger.WITHHELD]
+    assert ledger.group(masked, "tech") == {ledger.WITHHELD: masked}
