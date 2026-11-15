@@ -106,9 +106,11 @@ imported only when a hook needs it; a module that is missing or fails makes its 
 a warning and never crashes a hook. The name check is the exception: without it the prompt and the written file
 are refused and the start loads no file.
 
-Exit codes follow the client: 0 go on, 2 block. A usage error or an unexpected error exits 1, which the client
-shows without blocking. A hook that runs longer than HOOK_BUDGET seconds stops itself and fails closed (exit 2
-for the blocking hooks), before the client's own limit would cancel it and let the input through unchecked.
+Exit codes follow the client: 0 go on, 2 block. A usage error exits 1, which the client shows without blocking;
+so does an unexpected error of the stop, start and compaction hooks. An unexpected error of a blocking hook
+(BLOCKING_HOOKS) exits 2, and so does input of a write or tool hook that is no JSON object. A hook that runs
+longer than HOOK_BUDGET seconds, the reading of its input included, stops itself and fails closed (exit 2 for the
+blocking hooks), before the client's own limit would cancel it and let the input through unchecked.
 Nothing here prints a matched value, a form or a code of the register: messages carry counts, classes, line
 numbers and file names that passed the name check.
 
@@ -117,7 +119,9 @@ start is awb/receipt.py. Every name of theirs is still reached through this modu
 """
 from __future__ import annotations
 
+import bisect
 import datetime
+import stat
 import subprocess
 
 import importlib
@@ -435,6 +439,14 @@ def _plain_text(path: Path) -> str | None:
         return None
 
 
+def _loose_text(path: Path) -> str | None:
+    """The text of a file with every byte that is no UTF-8 replaced; None when it cannot be read."""
+    try:
+        return path.read_bytes().decode("utf-8", "replace")
+    except OSError:
+        return None
+
+
 def file_hits(path: Path, p: config.Paths | None = None) -> list[dict]:
     """`check.check_file` over a file with the Workbench register (it goes to the vault daemon when the register
     cannot be read here). Raises Unavailable, also for a check module without the remote path and no readable
@@ -617,7 +629,48 @@ output is full of addresses, resource names and times. A registered name, a mail
 a tax number and a secret still block; text he typed keeps the strict rule."""
 _PASTE_RE = re.compile(r'<pasted_content(?P<attr>(?: id="[^"<>\n]{1,80}")?)>(?P<body>.*?)</pasted_content(?P=attr)>',
                        re.S)
-"""A block the client marks as pasted: `<pasted_content id="X">...</pasted_content id="X">` or without the id."""
+"""A block the client marks as pasted: `<pasted_content id="X">...</pasted_content id="X">` or without the id.
+Kept as the definition of a block; the hooks find the blocks with _paste_spans, which gives the same blocks in
+linear time (the lazy body with a back reference took minutes on a prompt of many opening tags; a regular
+expression is not stopped by the hook's alarm)."""
+_PASTE_OPEN_RE = re.compile(r'<pasted_content(?P<attr>(?: id="[^"<>\n]{1,80}")?)>')
+_PASTE_CLOSE_RE = re.compile(r'</pasted_content(?P<attr>(?: id="[^"<>\n]{1,80}")?)>')
+
+
+def _paste_spans(text: str) -> list[tuple[int, int]]:
+    """(start, end) of each block _PASTE_RE finds, left to right and without overlap, in linear time: every
+    opening tag takes the first closing tag of the same id after it."""
+    closes: dict[str, list[int]] = {}
+    ends: dict[str, list[int]] = {}
+    for m in _PASTE_CLOSE_RE.finditer(text):
+        closes.setdefault(m.group("attr"), []).append(m.start())
+        ends.setdefault(m.group("attr"), []).append(m.end())
+    out: list[tuple[int, int]] = []
+    pos = 0
+    for m in _PASTE_OPEN_RE.finditer(text):
+        if m.start() < pos:
+            continue
+        starts = closes.get(m.group("attr"))
+        if not starts:
+            continue
+        i = bisect.bisect_left(starts, m.end())
+        if i == len(starts):
+            continue
+        end = ends[m.group("attr")][i]
+        out.append((m.start(), end))
+        pos = end
+    return out
+
+
+def _without_pastes(text: str) -> str:
+    """The text with every pasted block replaced by a line end (what _PASTE_RE.sub("\\n", text) gives)."""
+    out, pos = [], 0
+    for a, b in _paste_spans(text):
+        out.append(text[pos:a])
+        out.append("\n")
+        pos = b
+    out.append(text[pos:])
+    return "".join(out)
 _EVENT_RE = re.compile(r"\A\s*(?:<system-reminder>[^<]{0,400})?<(?P<tag>task-notification|ci-monitor-event)>"
                        r".*</(?P=tag)>\s*(?:</system-reminder>\s*)?\Z", re.S)
 """A whole prompt that is the client's own event: a finished background agent or a CI event. A prompt that
@@ -632,7 +685,7 @@ def _prompt_kind(text: str) -> str:
     m = _EVENT_RE.match(text)
     if m:
         return "agent" if m.group("tag") == "task-notification" else "ci"
-    return "paste" if _PASTE_RE.search(text) else "typed"
+    return "paste" if _paste_spans(text) else "typed"
 
 
 def _typed_has_data(text: str) -> bool:
@@ -641,7 +694,7 @@ def _typed_has_data(text: str) -> bool:
     try:
         from awb import check, normalize, patterns
 
-        typed = check.with_hidden_views(_PASTE_RE.sub("\n", text))
+        typed = check.with_hidden_views(_without_pastes(text))
         return bool(patterns.find_structured(normalize.normalize(typed).text))
     except Exception:
         return True
@@ -768,6 +821,38 @@ def _written_file(data: dict) -> Path | None:
     return path
 
 
+_PATH_KEYS = ("file_path", "notebook_path", "path")
+
+
+def _written_targets(data: dict) -> list[Path]:
+    """Every place a write tool may reach with its input, real paths, without repeats: each path field the input
+    carries (a tool reads one of them, the hook cannot know which), each taken as written, with ~ expanded and with
+    ~ and variables expanded (the tool expands no variable); each with its links resolved before and after a
+    `..` is taken away in the text (a tool that normalises the path first goes where the second leads). Raises
+    ValueError like _written_file."""
+    tool_input = data.get("tool_input")
+    if tool_input is None:
+        return []
+    if not isinstance(tool_input, dict):
+        raise ValueError("tool input of an unexpected shape")
+    base = data.get("cwd") if isinstance(data.get("cwd"), str) else os.getcwd()
+    out: list[Path] = []
+    for key in _PATH_KEYS:
+        raw = tool_input.get(key)
+        if raw is None or raw == "":
+            continue
+        if not isinstance(raw, str) or "\x00" in raw:
+            raise ValueError("a path the hook cannot read")
+        for text in (raw, os.path.expanduser(raw), os.path.expandvars(os.path.expanduser(raw))):
+            path = Path(text)
+            if not path.is_absolute():
+                path = Path(base) / path
+            for real in (os.path.realpath(path), os.path.realpath(os.path.normpath(path))):
+                if Path(real) not in out:
+                    out.append(Path(real))
+    return out
+
+
 def _shares_inode(target: Path, kb_root: Path) -> bool:
     """True when `target` is a hard link to a file of the knowledge base: realpath resolves symbolic links only,
     a hard link shares the inode (the security review of 2026-09-27, sec-session-1)."""
@@ -797,11 +882,11 @@ def hook_pre_write(data: dict) -> int:
         if path is None:
             return OK
         kb_root = Path(os.path.realpath(config.paths().kb))
-        target = Path(os.path.realpath(path))
+        targets = [Path(os.path.realpath(path))] + _written_targets(data)
     except ValueError:
         print("the hook could not read the path of this write; nothing passes unchecked", file=sys.stderr)
         return BLOCK
-    if target == kb_root or kb_root in target.parents or _shares_inode(target, kb_root):
+    if any(target == kb_root or kb_root in target.parents or _shares_inode(target, kb_root) for target in targets):
         print("the knowledge base takes facts only through `awb kb add`, `awb kb amend` and `awb kb retire`, "
               "which run every check. Write the fact with one of them instead of editing the file.", file=sys.stderr)
         return BLOCK
@@ -840,8 +925,24 @@ def hook_post_write(data: dict, names: bool = True) -> int:
         print("the hook could not read the path of this write; the written file is not checked and goes nowhere",
               file=sys.stderr)
         return BLOCK
-    if path is None or not path.is_file():
+    if path is None:
         return OK
+    try:
+        files = {t for t in _written_targets(data) if t.is_file()}
+    except (ValueError, OSError):
+        files = set()
+    if path.is_file():
+        files.add(Path(os.path.realpath(path)))
+    if not files:
+        return OK
+    if len(files) > 1:
+        # the path reads as more than one file (a variable, a ~ or a .. after a link): the hook cannot tell which
+        # one the tool wrote, so none of them counts as checked
+        print("the path of this write leads to %d different files; the written file is not checked and goes "
+              "nowhere. Write it again with a plain absolute path." % len(files), file=sys.stderr)
+        return BLOCK
+    if not path.is_file() or Path(os.path.realpath(path)) not in files:
+        path = next(iter(files))
     root = project_root(path.parent)
     deliverable = _is_deliverable(path, root)
     try:
@@ -861,6 +962,10 @@ def hook_post_write(data: dict, names: bool = True) -> int:
     if text is not None and root is not None and not _binary_file(path):
         # task GT: a log of our own lab runs keeps every id; its secrets are shortened or replaced in place
         text, shortened = _shorten_in_place(path, text)
+    if text is None and not _binary_file(path):
+        # a text file with one byte that is no UTF-8 is still text: its secrets and overrides are looked for in
+        # what decodes (it is never rewritten), so a stray byte does not take the file past the check
+        text = _loose_text(path)
     if text is not None:
         secrets = _secret_hits(text)
         if secrets:
@@ -1052,6 +1157,8 @@ review records."""
 DRAFT_SUFFIXES = (".md", ".txt", ".eml", ".html", ".htm", ".docx", ".odt", ".rtf")
 DRAFT_SCAN_LIMIT = 2000
 _DRAFT_PATH_RE = re.compile(r"[\w./~@+-]*[\w-]+\.(?:md|txt|eml|html?|docx|odt|rtf)(?![\w])", re.IGNORECASE)
+_DRAFT_TOKEN_RE = re.compile(r"[\w./~@+-]+")
+_DRAFT_END_RE = re.compile(r"(?<=[\w-])\.(?:md|txt|eml|html?|docx|odt|rtf)(?![\w])", re.IGNORECASE)
 _MAIL_NAME_RE = re.compile(r"(?i)(?:^|[^a-z])e?-?mails?(?:[^a-z]|$)|\.eml$")
 _INLINE_MAIL_RE = re.compile(
     r"(?im)^[ \t>*_]*(?:subject|betreff)[ \t*_]*:|^[ \t>*_]*(?:best|kind|warm|many thanks and)[ \t]+regards\b"
@@ -1074,7 +1181,10 @@ class _Turn:
 
 
 def _blocks(entry: dict) -> list:
-    content = (entry.get("message") or {}).get("content")
+    """The content blocks of a transcript entry; nothing for an entry of another shape (a message that is no
+    object), which the client may write and which must not take the draft gate down."""
+    message = entry.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
     if isinstance(content, str):
         return [{"type": "text", "text": content}]
     return content if isinstance(content, list) else []
@@ -1093,7 +1203,7 @@ def _result_text(block: dict) -> str:
     if isinstance(c, str):
         return c
     if isinstance(c, list):
-        return "\n".join(x.get("text", "") for x in c if isinstance(x, dict))
+        return "\n".join(x["text"] for x in c if isinstance(x, dict) and isinstance(x.get("text"), str))
     return ""
 
 
@@ -1161,10 +1271,24 @@ def _draft_files(root: Path) -> dict[str, Path]:
     return out
 
 
+def _draft_paths(text: str) -> list[str]:
+    """The strings _DRAFT_PATH_RE finds in `text`, in linear time. A match lies inside one run of path characters
+    and runs from its start to the last file suffix in it, so each run gives at most one; the regular expression
+    itself took seconds on a run of a few thousand letters (a key, a hash, base64), past the hook's budget."""
+    out = []
+    for tok in _DRAFT_TOKEN_RE.finditer(text):
+        last = None
+        for last in _DRAFT_END_RE.finditer(tok.group(0)):
+            pass
+        if last is not None:
+            out.append(tok.group(0)[:last.end()])
+    return out
+
+
 def _named_in(text: str, rel: str, root: Path) -> bool:
     name = rel.rsplit("/", 1)[-1]
-    for m in _DRAFT_PATH_RE.finditer(text):
-        found = m.group(0).strip("./") if not m.group(0).startswith("/") else m.group(0)
+    for raw in _draft_paths(text):
+        found = raw.strip("./") if not raw.startswith("/") else raw
         if found == rel or found.endswith("/" + rel) or found == name:
             return True
         if found.startswith("/"):
@@ -1391,14 +1515,38 @@ def _career_days(p: config.Paths) -> int | None:
         return None
 
 
+def _project_text(root: Path, name: str) -> str | None:
+    """The text of a file of the project for the start context; None when it is missing, unreadable, no regular
+    file (a named pipe would hold the start until its budget is spent) or a link that leads out of the project
+    folder (the start would load another project's file past the tool guard)."""
+    path = root / name
+    try:
+        if Path(os.path.realpath(root)) not in Path(os.path.realpath(path)).parents:
+            return None
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
+    except (OSError, ValueError):
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        fh = os.fdopen(fd, "r", encoding="utf-8")
+        fd = -1                             # the file object closes it now
+        with fh:
+            return fh.read()
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
 def _section(root: Path, name: str, max_lines: int | None, notes: list[str], down: list[str] | None = None) -> str:
     """One file as a section of the session context. Withheld when it carries any hit of the name check and when
     the check cannot run (`down` carries the reason once the check failed, so the next sections do not wait for
     it again)."""
     title = name if max_lines is None else "%s (first %d lines)" % (name, max_lines)
-    try:
-        text = (root / name).read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    text = _project_text(root, name)
+    if text is None:
         return "## %s\n\n(missing or unreadable)\n" % title
     if max_lines is not None:
         text = "\n".join(text.splitlines()[:max_lines])
@@ -1459,7 +1607,8 @@ def _project_notes(p: config.Paths, root: Path, sid, shown: str | None = None) -
         if age > projects.IDLE_DAYS:
             out.append("STATE.md was last changed %d days ago: when the work is over, `awb close %s`"
                        % (age, shown))
-        lines = state.read_text(encoding="utf-8").count("\n")
+        body = _project_text(root, "STATE.md")
+        lines = body.count("\n") if body is not None else 0
         if lines > projects.MAX_STATE_LINES:
             out.append("STATE.md has %d lines, over %d: move the older layers to history/"
                        % (lines, projects.MAX_STATE_LINES))
@@ -1649,8 +1798,9 @@ BUILD_HANDLERS = {
 }
 
 
-class _OverBudget(Exception):
-    """The hook ran longer than HOOK_BUDGET seconds."""
+class _OverBudget(BaseException):
+    """The hook ran longer than HOOK_BUDGET seconds. Not an Exception: the many `except Exception` of the hooks
+    (a module that fails steps back) must not swallow it: else the rest of the hook runs on without a budget."""
 
 
 def _on_alarm(signum, frame) -> None:
@@ -1695,68 +1845,29 @@ def main(argv: list[str] | None = None) -> int:
             print("FAIL  the tool guard: %s" % line)
         print("PASS  the tool guard refuses its planted cases" if not problems else "# the tool guard failed")
         return ERROR if problems else OK
-    if not for_this_user():
-        if args.name == "prompt":
-            try:
-                raw = sys.stdin.read() if sys.stdin is not None else ""
-                data = json.loads(raw) if raw.strip() else {}
-                said = "\n".join(t for t in (_dev_requests(data), _handover_notice(data)) if t) \
-                    if isinstance(data, dict) else ""
-                if said:
-                    _emit(EVENTS["prompt"], said)
-                return OK
-            except (OSError, ValueError):
-                return OK
-        if args.name == "pre-compact":
-            try:
-                raw = sys.stdin.read() if sys.stdin is not None else ""
-                data = json.loads(raw) if raw.strip() else {}
-                return hook_pre_compact(data) if isinstance(data, dict) else ERROR
-            except Exception:
-                print("awb handover: compaction input or state unavailable", file=sys.stderr)
-                return ERROR
-        if args.name != "session-start":
-            return OK
-        try:
-            raw = sys.stdin.read() if sys.stdin is not None else ""
-            data = json.loads(raw) if raw.strip() else {}
-            data = data if isinstance(data, dict) else {}
-            if _sealed():
-                return owner_session_start(data)
-            line = _handover_notice(data, start=True)
-            if line:
-                _emit(EVENTS["session-start"], line)
-            return OK
-        except Exception as exc:
-            print("awb hook session-start: the receipt failed (%s)" % type(exc).__name__, file=sys.stderr)
-            return ERROR
-    build = config.is_build_user()
-    if build and args.name not in BUILD_HOOKS:
-        return OK
-    try:
-        raw = sys.stdin.read() if sys.stdin is not None else ""
-        data = json.loads(raw) if raw.strip() else {}
-    except (ValueError, OSError):
-        print("awb hook %s: the hook input is not JSON" % args.name, file=sys.stderr)
-        return BLOCK if args.name == "pre-tool" else ERROR
-    if not isinstance(data, dict):
-        print("awb hook %s: the hook input is not a JSON object" % args.name, file=sys.stderr)
-        return BLOCK if args.name == "pre-tool" else ERROR
+    # the budget runs from here: a standard input that never closes, a host file or a project file that blocks
+    # stops the hook too, before the client's own limit cancels it and lets the input through unchecked
     budget = _budget_possible()
     before = None
+    guarded = True
     try:
         if budget:
             before = (signal.getsignal(signal.SIGALRM), signal.getitimer(signal.ITIMER_REAL), time.monotonic())
             signal.signal(signal.SIGALRM, _on_alarm)
             signal.setitimer(signal.ITIMER_REAL, HOOK_BUDGET)
-        if build:
-            return BUILD_HANDLERS[args.name](data)
-        return HANDLERS[args.name](data)
+        try:
+            guarded = for_this_user()
+        except Exception:
+            guarded = True                  # a host file the hook cannot read guards this user (fails closed)
+        if not guarded:
+            return _owner_hook(args.name)
+        return _guarded_hook(args.name)
     except _OverBudget:
+        if not guarded:
+            print("awb hook %s: the hook ran longer than %d seconds and was stopped" % (args.name, HOOK_BUDGET),
+                  file=sys.stderr)
+            return OK
         return _over_budget(args.name)
-    except Exception as exc:
-        print("awb hook %s: internal error (%s)" % (args.name, type(exc).__name__), file=sys.stderr)
-        return BLOCK if args.name == "pre-tool" else ERROR
     finally:
         if budget:
             signal.setitimer(signal.ITIMER_REAL, 0)
@@ -1766,6 +1877,74 @@ def main(argv: list[str] | None = None) -> int:
                 signal.signal(signal.SIGALRM, handler if handler is not None else signal.SIG_DFL)
                 if left > 0:
                     signal.setitimer(signal.ITIMER_REAL, max(left - (time.monotonic() - since), 0.001), interval)
+
+
+BLOCKING_HOOKS = ("prompt", "pre-write", "pre-tool", "post-write")
+"""The hooks that guard an input: an internal error of theirs blocks (fails closed), as their spent budget does."""
+UNREADABLE_BLOCKS = ("pre-write", "pre-tool", "post-write")
+"""The hooks whose input that is not a JSON object blocks; the prompt hook's stays a non-blocking error (the
+client always sends JSON there; a test pins it)."""
+
+
+def _owner_hook(name: str) -> int:
+    """The hooks of a user the seal does not guard (the owner on a sealed host)."""
+    if name == "prompt":
+        try:
+            raw = sys.stdin.read() if sys.stdin is not None else ""
+            data = json.loads(raw) if raw.strip() else {}
+            said = "\n".join(t for t in (_dev_requests(data), _handover_notice(data)) if t) \
+                if isinstance(data, dict) else ""
+            if said:
+                _emit(EVENTS["prompt"], said)
+            return OK
+        except (OSError, ValueError):
+            return OK
+    if name == "pre-compact":
+        try:
+            raw = sys.stdin.read() if sys.stdin is not None else ""
+            data = json.loads(raw) if raw.strip() else {}
+            return hook_pre_compact(data) if isinstance(data, dict) else ERROR
+        except Exception:
+            print("awb handover: compaction input or state unavailable", file=sys.stderr)
+            return ERROR
+    if name != "session-start":
+        return OK
+    try:
+        raw = sys.stdin.read() if sys.stdin is not None else ""
+        data = json.loads(raw) if raw.strip() else {}
+        data = data if isinstance(data, dict) else {}
+        if _sealed():
+            return owner_session_start(data)
+        line = _handover_notice(data, start=True)
+        if line:
+            _emit(EVENTS["session-start"], line)
+        return OK
+    except Exception as exc:
+        print("awb hook session-start: the receipt failed (%s)" % type(exc).__name__, file=sys.stderr)
+        return ERROR
+
+
+def _guarded_hook(name: str) -> int:
+    """The hooks of a guarded user: the work user, the build user or any user of a host that is not sealed."""
+    build = config.is_build_user()
+    if build and name not in BUILD_HOOKS:
+        return OK
+    try:
+        raw = sys.stdin.read() if sys.stdin is not None else ""
+        data = json.loads(raw) if raw.strip() else {}
+    except (ValueError, OSError):
+        print("awb hook %s: the hook input is not JSON" % name, file=sys.stderr)
+        return BLOCK if name in UNREADABLE_BLOCKS else ERROR
+    if not isinstance(data, dict):
+        print("awb hook %s: the hook input is not a JSON object" % name, file=sys.stderr)
+        return BLOCK if name in UNREADABLE_BLOCKS else ERROR
+    try:
+        if build:
+            return BUILD_HANDLERS[name](data)
+        return HANDLERS[name](data)
+    except Exception as exc:
+        print("awb hook %s: internal error (%s)" % (name, type(exc).__name__), file=sys.stderr)
+        return BLOCK if name in BLOCKING_HOOKS else ERROR
 
 
 # --------------------------------------------------------------------------- the parts (F1 step 6)

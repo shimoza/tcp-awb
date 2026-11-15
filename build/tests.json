@@ -18290,8 +18290,134 @@
    "name": "keys: a project code with a trailing newline is no project code",
    "run": ".venv/bin/pytest tests/test_keys_review.py::test_kr_a_project_code_with_a_trailing_newline_is_no_project_code",
    "status": "passing"
+  },
+  {
+   "id": "hooks-review-1",
+   "phase": "hooks-review",
+   "name": "hooks: paste blocks are found in linear time",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_paste_blocks_are_found_in_linear_time",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-2",
+   "phase": "hooks-review",
+   "name": "hooks: paste blocks are the blocks of the old pattern",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_paste_blocks_are_the_blocks_of_the_old_pattern",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-3",
+   "phase": "hooks-review",
+   "name": "hooks: draft paths are found in linear time",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_draft_paths_are_found_in_linear_time",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-4",
+   "phase": "hooks-review",
+   "name": "hooks: draft paths are the matches of the old pattern",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_draft_paths_are_the_matches_of_the_old_pattern",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-5",
+   "phase": "hooks-review",
+   "name": "hooks: a standard input that never closes is stopped by the budget",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_a_standard_input_that_never_closes_is_stopped_by_the_budget",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-6",
+   "phase": "hooks-review",
+   "name": "hooks: a spent budget is not swallowed by a part that steps back",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_a_spent_budget_is_not_swallowed_by_a_part_that_steps_back",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-7",
+   "phase": "hooks-review",
+   "name": "hooks: an internal error of the write guard blocks",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_an_internal_error_of_the_write_guard_blocks",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-8",
+   "phase": "hooks-review",
+   "name": "hooks: an internal error of the prompt hook blocks",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_an_internal_error_of_the_prompt_hook_blocks",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-9",
+   "phase": "hooks-review",
+   "name": "hooks: write hook input that is no json object blocks",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_write_hook_input_that_is_no_json_object_blocks",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-10",
+   "phase": "hooks-review",
+   "name": "hooks: pre write checks every path field of the input",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_pre_write_checks_every_path_field_of_the_input",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-11",
+   "phase": "hooks-review",
+   "name": "hooks: pre write takes a variable as the tool does",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_pre_write_takes_a_variable_as_the_tool_does",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-12",
+   "phase": "hooks-review",
+   "name": "hooks: pre write takes a dotdot after a link both ways",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_pre_write_takes_a_dotdot_after_a_link_both_ways",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-13",
+   "phase": "hooks-review",
+   "name": "hooks: post write checks the file the tool wrote when a variable misleads",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_post_write_checks_the_file_the_tool_wrote_when_a_variable_misleads",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-14",
+   "phase": "hooks-review",
+   "name": "hooks: post write refuses a path that reads as two files",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_post_write_refuses_a_path_that_reads_as_two_files",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-15",
+   "phase": "hooks-review",
+   "name": "hooks: post write finds a secret in a file with a stray byte",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_post_write_finds_a_secret_in_a_file_with_a_stray_byte",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-16",
+   "phase": "hooks-review",
+   "name": "hooks: the draft gate reads a transcript with entries of another shape",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_the_draft_gate_reads_a_transcript_with_entries_of_another_shape",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-17",
+   "phase": "hooks-review",
+   "name": "hooks: session start skips a named pipe instead of waiting",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_session_start_skips_a_named_pipe_instead_of_waiting",
+   "status": "passing"
+  },
+  {
+   "id": "hooks-review-18",
+   "phase": "hooks-review",
+   "name": "hooks: session start does not load a file linked from outside the project",
+   "run": ".venv/bin/pytest tests/test_hooks_review.py::test_session_start_does_not_load_a_file_linked_from_outside_the_project",
+   "status": "passing"
   }
  ],
- "total_tests": 2613,
+ "total_tests": 2631,
  "checked": "2026-11-09"
 }
