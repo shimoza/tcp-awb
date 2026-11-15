@@ -18549,8 +18549,71 @@
    "name": "tenants: two snapshots at once record each event once",
    "run": ".venv/bin/pytest tests/test_tenants_review.py::test_two_snapshots_at_once_record_each_event_once",
    "status": "passing"
+  },
+  {
+   "id": "kx-review-1",
+   "phase": "kx-review",
+   "name": "a get that grows past the limit after the head is refused and leaves no file",
+   "run": ".venv/bin/pytest tests/test_keys_exchange_review.py::test_a_get_that_grows_past_the_limit_after_the_head_is_refused_and_leaves_no_file",
+   "status": "passing"
+  },
+  {
+   "id": "kx-review-2",
+   "phase": "kx-review",
+   "name": "a failed get leaves no temporary file in the service folder",
+   "run": ".venv/bin/pytest tests/test_keys_exchange_review.py::test_a_failed_get_leaves_no_temporary_file_in_the_service_folder",
+   "status": "passing"
+  },
+  {
+   "id": "kx-review-3",
+   "phase": "kx-review",
+   "name": "a get and a take close the descriptor of their temporary file",
+   "run": ".venv/bin/pytest tests/test_keys_exchange_review.py::test_a_get_and_a_take_close_the_descriptor_of_their_temporary_file",
+   "status": "passing"
+  },
+  {
+   "id": "kx-review-4",
+   "phase": "kx-review",
+   "name": "an INDEX.md that grows past its limit after the head is not read",
+   "run": ".venv/bin/pytest tests/test_keys_exchange_review.py::test_an_index_that_grows_past_its_limit_after_the_head_is_not_read",
+   "status": "passing"
+  },
+  {
+   "id": "kx-review-5",
+   "phase": "kx-review",
+   "name": "an INDEX.md whose length is no number reads as none",
+   "run": ".venv/bin/pytest tests/test_keys_exchange_review.py::test_an_index_whose_length_is_no_number_reads_as_none",
+   "status": "passing"
+  },
+  {
+   "id": "kx-review-6",
+   "phase": "kx-review",
+   "name": "the page of a put takes no title from a name the name check finds",
+   "run": ".venv/bin/pytest tests/test_keys_exchange_review.py::test_the_page_of_a_put_takes_no_title_from_a_name_the_name_check_finds",
+   "status": "passing"
+  },
+  {
+   "id": "kx-review-7",
+   "phase": "kx-review",
+   "name": "a plain name still gives the title of the page",
+   "run": ".venv/bin/pytest tests/test_keys_exchange_review.py::test_a_plain_name_still_gives_the_title_of_the_page",
+   "status": "passing"
+  },
+  {
+   "id": "kx-review-8",
+   "phase": "kx-review",
+   "name": "a key with a control character is outside the allowed folders",
+   "run": ".venv/bin/pytest tests/test_keys_exchange_review.py::test_a_key_with_a_control_character_is_outside_the_allowed_folders",
+   "status": "passing"
+  },
+  {
+   "id": "kx-review-9",
+   "phase": "kx-review",
+   "name": "one failing row of an archive never stops the others and echoes no error text",
+   "run": ".venv/bin/pytest tests/test_keys_exchange_review.py::test_one_failing_row_of_an_archive_never_stops_the_others_and_echoes_no_error_text",
+   "status": "passing"
   }
  ],
- "total_tests": 2650,
+ "total_tests": 2659,
  "checked": "2026-11-09"
 }

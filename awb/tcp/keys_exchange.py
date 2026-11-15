@@ -56,7 +56,8 @@ def allowed_key(key: str, method: str, project: str | None) -> bool:
     its own active project. A put only into from-session/ (in/ is written by serve_take_lab with a copy of the
     service). A get or a delete of the lab inbox goes through serve_take_lab alone, so the name check of the service
     cannot be skipped (F6)."""
-    if not isinstance(key, str) or not key or key.startswith("/") or ".." in key.split("/") or "//" in key:
+    if not isinstance(key, str) or not key or key.startswith("/") or ".." in key.split("/") or "//" in key or \
+            any(ord(ch) < 32 or ord(ch) == 127 for ch in key):
         return False
     if key.startswith(INBOX):
         return method == "HEAD" and all(valid_name(part) for part in key[len(INBOX):].split("/"))
@@ -156,8 +157,11 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
                         raise XchgError("the key service built no valid key")
                 c.put_file(key, body, "application/octet-stream")
                 size = body.stat().st_size
-                # the page is made from the bytes that went up, their secrets replaced
-                page = put_page(c, key, req.get("name"), body, project)
+                # the page is made from the bytes that went up, their secrets replaced; its title never comes
+                # from a name the name check finds anything in
+                name = req.get("name")
+                page = put_page(c, key, name, body, project,
+                                title_ok=valid_name(name) and not _name_hits([name], ctx.paths_fn()))
                 if built:
                     try:
                         index_put(ctx, c, project, key, kind, lang, size, req.get("review"))
@@ -182,17 +186,30 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
     size = int(h.get("Content-Length", 0) or 0)
     if size > ctx.max_bytes():
         raise XchgError("the object is larger than the limit of keys.conf (max_mb)")
-    tmp = Path(tempfile.mkstemp(prefix="awb-xchg-", dir=_tmp_dir(ctx))[1])
-    c.get(key, tmp)
+    tmp = _temp_file(ctx, "awb-xchg-")
+    try:
+        c.get(key, tmp)
+        if tmp.stat().st_size > ctx.max_bytes():
+            raise XchgError("the object grew past the limit of keys.conf (max_mb)")
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return {"ok": True, "exists": True, "size": tmp.stat().st_size}, tmp
 
 
-def put_page(c, key: str, name, body_path: Path, project: str) -> str | None:
+def _temp_file(ctx: Context, prefix: str) -> Path:
+    """A new empty file of the service's temporary folder, its descriptor closed (mkstemp leaves it open)."""
+    fd, name = tempfile.mkstemp(prefix=prefix, dir=_tmp_dir(ctx))
+    os.close(fd)
+    return Path(name)
+
+
+def put_page(c, key: str, name, body_path: Path, project: str, title_ok: bool = True) -> str | None:
     """A Markdown deliverable goes out as md and HTML (task DN, 2026-10-27): after the put of the judged bytes the
     service writes the HTML page of the same bytes beside it under the same stem with .html (`put-<hex>.html`, since
     task BK1 `<code>-<kind>-<rest>.html`), rendered by bucket.md_to_html. The
     page is made from the bytes the checks judged and from nothing else. None for any other file and for bytes that
-    are not UTF-8 text."""
+    are not UTF-8 text. With `title_ok` false the name gives no title (the stem of the key stands in for it)."""
     from awb import bucket
 
     ident = key.rsplit("/", 1)[-1]
@@ -207,7 +224,7 @@ def put_page(c, key: str, name, body_path: Path, project: str) -> str | None:
         text = body_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
-    title = bucket.md_title(text, os.path.splitext(name)[0] if named and valid_name(name) else stem)
+    title = bucket.md_title(text, os.path.splitext(name)[0] if named and title_ok and valid_name(name) else stem)
     c.put_bytes(page, bucket.md_to_html(text, title).encode("utf-8"), "text/html")
     return page
 
@@ -388,15 +405,20 @@ def read_index(ctx: Context, c, project: str) -> list[dict]:
     is left out."""
     key = index_key(project)
     h = c.head(key)
-    if h is None or int(h.get("Content-Length", 0) or 0) > INDEX_MAX:
-        return []
-    fd, name = tempfile.mkstemp(prefix="awb-index-", dir=_tmp_dir(ctx))
-    os.close(fd)
     try:
-        c.get(key, Path(name))
-        text = Path(name).read_text(encoding="utf-8", errors="replace")
+        length = int(h.get("Content-Length", 0) or 0) if h is not None else -1
+    except (TypeError, ValueError):
+        length = -1                         # a length that is no number reads as no INDEX.md
+    if not 0 <= length <= INDEX_MAX:
+        return []
+    name = _temp_file(ctx, "awb-index-")
+    try:
+        c.get(key, name)
+        if name.stat().st_size > INDEX_MAX:
+            return []                       # grew past the limit after the head: never read in full
+        text = name.read_text(encoding="utf-8", errors="replace")
     finally:
-        os.unlink(name)
+        name.unlink(missing_ok=True)
     return index_rows(text, project)
 
 
@@ -477,18 +499,25 @@ def archive_fetched(ctx: Context, c, project: str) -> dict:
             if age < filesplan.ARCHIVE_DAYS or put_kind(r["key"]) is None:
                 keep.append(r)
                 continue
-            if c.head(r["key"]) is None:
-                continue                    # gone already (awb xchg clean): its row goes
-            result, reason = filestidy.move_object(c, r["key"], archive_key(r["key"]))
+            try:
+                if c.head(r["key"]) is None:
+                    continue                # gone already (awb xchg clean): its row goes
+                result, reason = filestidy.move_object(c, r["key"], archive_key(r["key"]))
+            except Exception as err:        # one row never stops the others, nor the rewrite of INDEX.md
+                result, reason = filestidy.FAILED, "a call failed (%s); the source stays" % type(err).__name__
             if result != filestidy.OK:
                 failures.append("%s: %s" % (r["key"], reason))
                 keep.append(r)
                 continue
             archived += 1
             page = _page_of(r["key"], rows)
-            if page is not None and c.head(page) is not None:
+            try:
+                if page is None or c.head(page) is None:
+                    continue
                 result, reason = filestidy.move_object(c, page, archive_key(page))
-                if result != filestidy.OK:
+            except Exception as err:
+                result, reason = filestidy.FAILED, "a call failed (%s); the source stays" % type(err).__name__
+            if result != filestidy.OK:
                     failures.append("%s: %s" % (page, reason))
         if len(keep) != len(rows):
             write_index(c, project, keep)
@@ -770,7 +799,7 @@ def serve_take_lab(ctx: Context, req: dict) -> tuple[dict, Path | None]:
         opaque = gate.is_opaque(name, local.read_bytes())
         c.copy(f["key"], "%s/%s%s" % (code, IN, name))
         c.delete(f["key"])
-        out = Path(tempfile.mkstemp(prefix="awb-xchg-", dir=_tmp_dir(ctx))[1])
+        out = _temp_file(ctx, "awb-xchg-")
         os.replace(local, out)
         return {"ok": True, "state": "taken", "name": name, "opaque": opaque}, out
     finally:
