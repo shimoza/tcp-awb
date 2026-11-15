@@ -149,7 +149,12 @@ def test_the_work_rules_tell_a_session_how_to_split_work_off():
 def test_the_command_is_wired_and_documented():
     root = Path(__file__).resolve().parent.parent
     assert "side" in cli.DELEGATED and "awb side" in cli.__doc__
-    assert "awb/side.py" in deploy.COMMAND_ONLY
+    # the deploy reaches the module either as a listed command or through an import of a unit module (the start
+    # guard, awb/receipt.py, imports it since the review of 2026-11-14)
+    receipt_src = (root / "awb" / "receipt.py").read_text(encoding="utf-8")
+    import re as _re
+
+    assert "awb/side.py" in deploy.COMMAND_ONLY or _re.search(r"(?m)^\s*from awb import [^\n]*\bside\b", receipt_src)
     assert "awb side" in (root / "README.md").read_text(encoding="utf-8")
     assert "### `awb side" in (root / "COMMANDS.md").read_text(encoding="utf-8")
 
