@@ -19263,8 +19263,232 @@
    "name": "ledger: withheld tags do not duplicate report rows",
    "run": ".venv/bin/pytest tests/test_ledger.py::test_review_withheld_tags_do_not_duplicate_report_rows",
    "status": "passing"
+  },
+  {
+   "id": "receipt-review-01",
+   "phase": "receipt-review",
+   "name": "receipt: vault malformed state fails closed",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_vault_malformed_state_fails_closed",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-02",
+   "phase": "receipt-review",
+   "name": "receipt: locked time is typed ascii and one line",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_locked_time_is_typed_ascii_and_one_line",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-03",
+   "phase": "receipt-review",
+   "name": "receipt: managed settings cannot disable all hooks",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_managed_settings_cannot_disable_all_hooks",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-04",
+   "phase": "receipt-review",
+   "name": "receipt: managed settings reject linked or special files",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_managed_settings_reject_linked_or_special_files",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-05",
+   "phase": "receipt-review",
+   "name": "receipt: hook entries reject malformed shapes",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_hook_entries_reject_malformed_shapes",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-06",
+   "phase": "receipt-review",
+   "name": "receipt: gate rejects config includes and boolean hookspath",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_gate_rejects_config_includes_and_boolean_hookspath",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-07",
+   "phase": "receipt-review",
+   "name": "receipt: gate checks worktree config",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_gate_checks_worktree_config",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-08",
+   "phase": "receipt-review",
+   "name": "receipt: gate rejects linked project root",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_gate_rejects_linked_project_root",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-09",
+   "phase": "receipt-review",
+   "name": "receipt: side git rejects link aliases in registration",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_side_git_rejects_link_aliases_in_registration",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-10",
+   "phase": "receipt-review",
+   "name": "receipt: side git rejects link aliases in backlink",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_side_git_rejects_link_aliases_in_backlink",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-11",
+   "phase": "receipt-review",
+   "name": "receipt: side git rejects link aliases in common directory",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_side_git_rejects_link_aliases_in_common_directory",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-12",
+   "phase": "receipt-review",
+   "name": "receipt: side git rejects outside missing and unreadable metadata",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_side_git_rejects_outside_missing_and_unreadable_metadata",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-13",
+   "phase": "receipt-review",
+   "name": "receipt: keys call rejects unframed oversized and deep answers",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_keys_call_rejects_unframed_oversized_and_deep_answers",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-14",
+   "phase": "receipt-review",
+   "name": "receipt: keys call errors do not echo socket or parser values",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_keys_call_errors_do_not_echo_socket_or_parser_values",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-15",
+   "phase": "receipt-review",
+   "name": "receipt: keys call uses a total deadline",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_keys_call_uses_a_total_deadline",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-16",
+   "phase": "receipt-review",
+   "name": "receipt: session identifiers do not alias after cleaning or truncation",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_session_identifiers_do_not_alias_after_cleaning_or_truncation",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-17",
+   "phase": "receipt-review",
+   "name": "receipt: receipt log and mark withhold names secrets and unknown guards",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_receipt_log_and_mark_withhold_names_secrets_and_unknown_guards",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-18",
+   "phase": "receipt-review",
+   "name": "receipt: receipt log does not follow links or special files",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_receipt_log_does_not_follow_links_or_special_files",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-19",
+   "phase": "receipt-review",
+   "name": "receipt: receipt sessions directory cannot redirect writes",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_receipt_sessions_directory_cannot_redirect_writes",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-20",
+   "phase": "receipt-review",
+   "name": "receipt: receipt mark does not truncate link targets",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_receipt_mark_does_not_truncate_link_targets",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-21",
+   "phase": "receipt-review",
+   "name": "receipt: concurrent starts cannot restore a stale success mark",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_concurrent_starts_cannot_restore_a_stale_success_mark",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-22",
+   "phase": "receipt-review",
+   "name": "receipt: refused today ignores malformed rows and matches the whole day",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_refused_today_ignores_malformed_rows_and_matches_the_whole_day",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-23",
+   "phase": "receipt-review",
+   "name": "receipt: refused today missing and unreadable log",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_refused_today_missing_and_unreadable_log",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-24",
+   "phase": "receipt-review",
+   "name": "receipt: managed command hooks cannot run asynchronously",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_managed_command_hooks_cannot_run_asynchronously",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-25",
+   "phase": "receipt-review",
+   "name": "receipt: receipt log directory swap does not escape opened directory",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_receipt_log_directory_swap_does_not_escape_opened_directory",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-26",
+   "phase": "receipt-review",
+   "name": "receipt: receipt mark is published only after complete write",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_receipt_mark_is_published_only_after_complete_write",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-27",
+   "phase": "receipt-review",
+   "name": "receipt: side git rejects parent traversal through a regular file",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_side_git_rejects_parent_traversal_through_a_regular_file",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-28",
+   "phase": "receipt-review",
+   "name": "receipt: release and guard exceptions never echo private values",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_release_and_guard_exceptions_never_echo_private_values",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-29",
+   "phase": "receipt-review",
+   "name": "receipt: side gate checks its own worktree configuration",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_side_gate_checks_its_own_worktree_configuration",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-30",
+   "phase": "receipt-review",
+   "name": "receipt: receipt lock rejects links and special files",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_receipt_lock_rejects_links_and_special_files",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-31",
+   "phase": "receipt-review",
+   "name": "receipt: refused today bounds reads and rejects invalid utf8",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_refused_today_bounds_reads_and_rejects_invalid_utf8",
+   "status": "passing"
+  },
+  {
+   "id": "receipt-review-32",
+   "phase": "receipt-review",
+   "name": "receipt: screening outage cannot leave stale marks or double count sessions",
+   "run": ".venv/bin/pytest tests/test_receipt.py::test_screening_outage_cannot_leave_stale_marks_or_double_count_sessions",
+   "status": "passing"
   }
  ],
- "total_tests": 2752,
+ "total_tests": 2784,
  "checked": "2026-11-09"
 }
