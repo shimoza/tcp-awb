@@ -214,23 +214,30 @@ def _locked(path: Path):
         os.close(fd)
 
 
-def _open(path: Path) -> list[dict[str, str]]:
+def _open_read(path: Path) -> list[dict[str, str]]:
+    """The open rows for a reader: a completed row that never reached the archive counts as closed."""
+    return _open(path, False)
+
+
+def _open(path: Path, strict: bool = True) -> list[dict[str, str]]:
     if not _regular(path):
         source = path.with_name("QUEUE.md")
         if _regular(source) and not _text(source).startswith(ARCHIVE_NOTICE):
             raise QueueError("legacy queue exists; run awb queue migrate")
-    rows, archive = _history(path)
+    rows, archive = _history(path, strict)
     done = {r["id"] for r in archive}
-    return [r for r in rows if r["id"] not in done]
+    return [r for r in rows if r["id"] not in done and not r["done"]]
 
 
-def _history(path: Path) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+def _history(path: Path, strict: bool = True) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     archive = _read(archive_file(path))
     if any(not r["done"] for r in archive):
         raise QueueError("archive row has no completion date")
     done = {r["id"] for r in archive}
     rows = _read(path)
-    if any(r["done"] and r["id"] not in done for r in rows):
+    # a write refuses a completed row that never reached the archive (its id must not be reused or the row dropped);
+    # a read (owner status, the hand-over, list) counts it as closed instead of refusing the whole queue
+    if strict and any(r["done"] and r["id"] not in done for r in rows):
         raise QueueError("completed queue row is missing from the archive")
     return rows, archive
 
@@ -242,7 +249,7 @@ def load(path: Path | None = None) -> list[dict[str, str]]:
     if not path.parent.exists():
         return []
     with _locked(path):
-        rows = _open(path)
+        rows = _open_read(path)
         _check(rows, path.with_name("queue-checked.json"))
         return rows
 
@@ -348,7 +355,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "migrate":
                 print("queue: %d open rows migrated" % _migrate(path))
                 return 0
-            rows = _open(path)
+            rows = _open_read(path) if args.command == "list" else _open(path)
             _check(rows, path.with_name("queue-checked.json"))
             if args.command == "list":
                 for row in rows:
