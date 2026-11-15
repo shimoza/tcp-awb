@@ -1805,9 +1805,9 @@ _MAX_MATCH_CHARS = 400_000
 _MAX_MATCH_WORDS = 20_000
 
 
-def _text_of(path: Path) -> str:
+def _text_of(path: Path, limit: int | None = _MAX_MATCH_CHARS) -> str:
     """The text a reader gets from the file, its children included (an archive, a mail, an office file), through
-    awb.extract when it is there; else the bytes as UTF-8."""
+    awb.extract when it is there; else the bytes as UTF-8. Cut at `limit` characters (None: the whole text)."""
     try:
         from awb import extract
 
@@ -1822,11 +1822,11 @@ def _text_of(path: Path) -> str:
         walk(ex)
         text = "\n".join(parts)
         if text.strip():
-            return text[:_MAX_MATCH_CHARS]
+            return text[:limit]
     except Exception:
         pass
     try:
-        return Path(path).read_text(encoding="utf-8", errors="replace")[:_MAX_MATCH_CHARS]
+        return Path(path).read_text(encoding="utf-8", errors="replace")[:limit]
     except OSError:
         return ""
 
@@ -1875,9 +1875,40 @@ def _pick(matches: list[tuple[str, str]]) -> str | None:
     return matches[0][0] if matches else None
 
 
-def _match_deliverable(f: Path, digest: str, project: Path) -> tuple[str | None, bool]:
+def _open_regular(path) -> int:
+    """A read descriptor of the regular file at `path`: a last link is not followed and a fifo does not block the
+    open. OSError for anything else (a fifo, a device, a socket, a folder, a link put in its place)."""
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("not a regular file")
+        os.set_blocking(fd, True)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _sha256_regular(path) -> str:
+    """sha256_file for a regular file only (OSError for anything else, never a read that blocks)."""
+    h = hashlib.sha256()
+    with os.fdopen(_open_regular(path), "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 16), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _is_regular(path) -> bool:
+    try:
+        return stat.S_ISREG(os.stat(path).st_mode)
+    except OSError:
+        return False
+
+
+def _match_deliverable(f: Path, digest: str, project: Path, judged: Path | None = None) -> tuple[str | None, bool]:
     """(relative name of the deliverable the file is, whether the file is a changed copy of it). By path, then
-    by bytes, then by text."""
+    by bytes, then by text. `judged` is the copy of the file whose text is compared (default: the file)."""
     base = Path(os.path.realpath(project / DELIVERABLES))
     if _under(f, base):
         return f.relative_to(base).as_posix(), False
@@ -1885,14 +1916,15 @@ def _match_deliverable(f: Path, digest: str, project: Path) -> tuple[str | None,
     same_bytes: list[tuple[str, str]] = []
     for rel, real, state in rows:
         try:
-            if sha256_file(real) == digest:
+            if _sha256_regular(real) == digest:
                 same_bytes.append((rel, state))
         except OSError:
             continue
     if same_bytes:
         return _pick(same_bytes), False
-    file_words = _words(_text_of(f))
-    same_text = [(rel, state) for rel, real, state in rows if _same_text(file_words, _words(_text_of(real)))]
+    file_words = _words(_text_of(judged if judged is not None else f))
+    same_text = [(rel, state) for rel, real, state in rows
+                 if _is_regular(real) and _same_text(file_words, _words(_text_of(real)))]
     if same_text:
         return _pick(same_text), True
     return None, False
@@ -2138,16 +2170,24 @@ def _request_lens_for(folder: Path, rel: str) -> bool:
         return False
     for f in sorted(lens_dir.glob("*.json")):
         try:
-            data = json.loads(f.read_text(encoding="utf-8"))
+            with os.fdopen(_open_regular(f), "rb") as fh:       # a fifo or a device never blocks the gate
+                raw = fh.read(_LENS_MAX_BYTES + 1)
+            if len(raw) > _LENS_MAX_BYTES:
+                continue
+            data = json.loads(raw.decode("utf-8"))
         except (OSError, UnicodeDecodeError, ValueError):
             continue
         if not isinstance(data, dict) or data.get("kind") != REQUEST_KIND or not isinstance(data.get("findings"), list):
             continue
-        named = data.get("deliverable")
-        if isinstance(named, str) and named not in ("%s/%s" % (DELIVERABLES, rel), rel):
-            continue
+        if "deliverable" in data:
+            named = data["deliverable"]
+            if not isinstance(named, str) or named not in ("%s/%s" % (DELIVERABLES, rel), rel):
+                continue
         return True
     return False
+
+
+_LENS_MAX_BYTES = 4_000_000
 
 
 def _content_hits(f: Path, register_path) -> tuple[int, Counter]:
@@ -2180,15 +2220,88 @@ def send_check(project: Path, file: Path, for_customer: bool, register_path=None
     (`workbench`, the Paths) never leave. Anything else is an internal file: it leaves with a warning, unless it
     or its name carries a registered name, which refuses whatever the project (a name in a text a session wrote
     is a leak; the owner puts names back with --reveal after the gate). The message carries states, tiers and
-    counts, never a file name or a value."""
+    counts, never a file name or a value.
+
+    It fails closed: a file that is not a regular file, a project folder or register that cannot be read, a
+    secret in the file or any error of the check refuses, never a traceback and never a pass. Every check after
+    the hash reads a private copy of the bytes that were hashed, so a file that changes during the check cannot
+    pass with bytes nobody checked."""
+    try:
+        return _send_check(project, file, for_customer, register_path, workbench, digest_out, name)
+    except Exception:
+        return SEND_REFUSE, "the check did not finish, nothing leaves unchecked"
+
+
+def _snapshot(f: Path, folder: Path) -> tuple[Path, str]:
+    """A private copy of the regular file `f` under its own name in `folder`, with the sha256 of the bytes copied."""
+    h = hashlib.sha256()
+    copy = folder / f.name
+    src = _open_regular(f)
+    with os.fdopen(src, "rb") as fin, \
+            os.fdopen(os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600),
+                      "wb") as fout:
+        for block in iter(lambda: fin.read(1 << 16), b""):
+            h.update(block)
+            fout.write(block)
+    return copy, h.hexdigest()
+
+
+def _secret_hits(f: Path) -> list[str]:
+    """The secret classes (a key, a token, a password, a home path) in the text of the file, its children included."""
+    from awb import check
+
+    texts = [_text_of(f, None)]
+    try:
+        raw = f.read_bytes().decode("utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    if raw and raw != texts[0]:
+        texts.append(raw)
+    found: set[str] = set()
+    for t in texts:
+        found.update(check._secret_classes(t))
+    return sorted(found)
+
+
+def _record_digest(record: Path) -> str | None:
+    try:
+        data = json.loads(record.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    return data.get("sha256") if isinstance(data, dict) and isinstance(data.get("sha256"), str) else None
+
+
+def _shown(code) -> str:
+    """`project CODE` for a project code, else a neutral word: a folder name is never echoed."""
+    return "project %s" % code if isinstance(code, str) and codes.is_project_code(code) else "a project folder"
+
+
+def _project_folders(root: Path) -> list[Path]:
+    """The folders under the projects root whose name starts like a project code. A missing root is none; a root
+    that cannot be listed raises OSError (pathlib's glob would see nothing and let the file pass)."""
+    try:
+        with os.scandir(root) as it:
+            names = [e.name for e in it]
+    except FileNotFoundError:
+        return []
+    return [root / n for n in sorted(names) if n.startswith(("tcp-", "hcs-"))]
+
+
+def _send_check(project, file, for_customer, register_path, workbench, digest_out, name) -> tuple[str, str]:
     project = Path(os.path.realpath(project))
     f = Path(os.path.realpath(file))
-    try:
-        digest = sha256_file(f)
-    except OSError:
-        return SEND_REFUSE, "the file cannot be read"
-    if digest_out is not None:
-        digest_out.append(digest)
+    with tempfile.TemporaryDirectory(prefix="awb-send-") as tmp:
+        try:
+            snap, digest = _snapshot(f, Path(tmp))
+        except OSError:
+            return SEND_REFUSE, "the file cannot be read as a regular file"
+        if digest_out is not None:
+            digest_out.append(digest)
+        return _judge(project, f, snap, digest, for_customer, register_path, workbench, name)
+
+
+def _judge(project, f, snap, digest, for_customer, register_path, workbench, name) -> tuple[str, str]:
+    """send_check on the copy `snap` of `f` whose bytes hash to `digest`."""
     others: list[Path] = []
     registered: dict[Path, tuple[str, str]] = {}
     if workbench is not None:
@@ -2199,22 +2312,24 @@ def send_check(project: Path, file: Path, for_customer: bool, register_path=None
 
             for pr in _projects.load(workbench):
                 registered[Path(os.path.realpath(pr.path))] = (pr.code, pr.state)
-            found.update(registered)
         except Exception:
-            pass
+            return SEND_REFUSE, "the project register cannot be read, nothing leaves unchecked"
+        found.update(registered)
         try:
-            for d in Path(workbench.projects_root).glob("tcp-*"):
-                try:
-                    if (d / DELIVERABLES).is_dir():
-                        found.add(Path(os.path.realpath(d)))
-                except OSError:        # a folder the owner cannot look into: a project all the same
-                    if codes.is_project_code(d.name):
-                        found.add(Path(os.path.realpath(d)))
+            folders = _project_folders(Path(workbench.projects_root))
         except OSError:
-            pass
+            return SEND_REFUSE, "the projects folder cannot be read, nothing leaves unchecked"
+        for d in folders:
+            try:
+                if (d / DELIVERABLES).is_dir():
+                    found.add(Path(os.path.realpath(d)))
+            except OSError:        # a folder the owner cannot look into: a project all the same
+                if codes.is_project_code(d.name):
+                    found.add(Path(os.path.realpath(d)))
         others = sorted(d for d in found if d != project)
     for root in [project] + others:
-        if _under(f, root / REVIEWS):
+        material = root / REVIEWS
+        if _under(f, material) or _under(f, Path(os.path.realpath(material))):
             return SEND_REFUSE, "the review material of a project (its contract, claims and lenses) never leaves"
     try:
         from awb import check
@@ -2224,48 +2339,58 @@ def send_check(project: Path, file: Path, for_customer: bool, register_path=None
             return SEND_REFUSE, "the file name carries a registered name"
     except Exception:
         return SEND_REFUSE, "the name check did not run, nothing leaves unchecked"
-    rel, edited = _match_deliverable(f, digest, project)
+    try:
+        _readable_tree(project)
+    except OSError:
+        return SEND_REFUSE, "the project folder cannot be read here, nothing leaves unchecked"
+    rel, edited = _match_deliverable(f, digest, project, snap)
+    secrets = _secret_hits(snap)
+    if secrets:
+        return SEND_REFUSE, "the file carries a secret (%s): nothing with a secret leaves" % ", ".join(secrets)
     if rel is None:
-        words: list[list[str]] = []
-
-        def file_words() -> list[str]:
-            if not words:
-                words.append(_words(_text_of(f)))
-            return words[0]
-
-        for root in others:
-            try:
-                _readable_tree(root)
-                carried = _match_deliverable(f, digest, root)[0] is not None
-            except Exception:
-                # a folder the owner cannot read: a closed project answers through its fingerprint, anything
-                # else refuses (never a pass, never a traceback)
-                code, state = registered.get(root, (root.name, ""))
-                fp, why = None, ""
-                if state == "closed":
-                    from awb import fppin
-
-                    raw, why = fppin.pinned_bytes(workbench, code)
-                    fp = _parse_fingerprint(raw) if raw is not None else None
-                if why in ("conflict", "changed"):
-                    return SEND_REFUSE, ("the fingerprint of project %s does not match the one pinned at close: "
-                                         "nothing leaves unchecked" % code)
-                if fp is None and state == "closed":
-                    return SEND_REFUSE, ("project %s cannot be read here and has no usable fingerprint: run awb "
-                                         "close %s as the work user, nothing leaves unchecked" % (code, code))
-                if fp is None:
-                    return SEND_REFUSE, ("project %s cannot be read here: let the owner read its deliverables and "
-                                         "reviews, nothing leaves unchecked" % code)
-                carried = _fp_carries(fp, digest, file_words)
-            if carried:
-                return SEND_REFUSE, "the file carries the text of a deliverable of another project"
+        # the content name check runs on internal files only: a deliverable is our own output, checked by its
+        # review, and a name check that is down never refuses it
         try:
-            names, other = _content_hits(f, register_path)
+            names, other = _content_hits(snap, register_path)
         except Exception:
             return SEND_REFUSE, "the name check did not run, nothing leaves unchecked"
         if names:
             return SEND_REFUSE, ("the file carries %d registered name(s): nothing with a name leaves through the "
                                  "bucket, put names back with --reveal after the gate" % names)
+        words: list[list[str]] = []
+
+        def file_words() -> list[str]:
+            if not words:
+                words.append(_words(_text_of(snap)))
+            return words[0]
+
+        for root in others:
+            try:
+                _readable_tree(root)
+                carried = _match_deliverable(f, digest, root, snap)[0] is not None
+            except Exception:
+                # a folder the owner cannot read: a closed project answers through its fingerprint, anything
+                # else refuses (never a pass, never a traceback)
+                code, state = registered.get(root, (root.name, ""))
+                fp, why = None, ""
+                if state == "closed" and codes.is_project_code(code):
+                    from awb import fppin
+
+                    raw, why = fppin.pinned_bytes(workbench, code)
+                    fp = _parse_fingerprint(raw) if raw is not None else None
+                if why in ("conflict", "changed"):
+                    return SEND_REFUSE, ("the fingerprint of %s does not match the one pinned at close: "
+                                         "nothing leaves unchecked" % _shown(code))
+                if fp is None and state == "closed":
+                    return SEND_REFUSE, ("%s cannot be read here and has no usable fingerprint: run awb "
+                                         "close %s as the work user, nothing leaves unchecked"
+                                         % (_shown(code), code if codes.is_project_code(code) else "CODE"))
+                if fp is None:
+                    return SEND_REFUSE, ("%s cannot be read here: let the owner read its deliverables and "
+                                         "reviews, nothing leaves unchecked" % _shown(code))
+                carried = _fp_carries(fp, digest, file_words)
+            if carried:
+                return SEND_REFUSE, "the file carries the text of a deliverable of another project"
         if other:
             counts = ", ".join("%s %d" % kv for kv in sorted(other.items()))
             return SEND_WARN, ("not a reviewed deliverable of the project: it leaves as an internal file, and it "
@@ -2280,6 +2405,8 @@ def send_check(project: Path, file: Path, for_customer: bool, register_path=None
     if state != VALID:
         return (SEND_REFUSE if for_customer else SEND_WARN,
                 "the deliverable has no valid review record (%s): run awb review pass" % state)
+    if _record_digest(folder / RECORD) != digest:
+        return SEND_REFUSE, "the file changed during the check: the review does not cover the bytes that leave"
     try:
         contract = load_contract(folder / CONTRACT, _platform(project))
     except ReviewError:

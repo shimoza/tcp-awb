@@ -18829,8 +18829,106 @@
    "name": "gate review: the bounded patterns still find a host a phone and an id",
    "run": ".venv/bin/pytest tests/test_gate_review.py::test_the_bounded_patterns_still_find_a_host_a_phone_and_an_id",
    "status": "passing"
+  },
+  {
+   "id": "send-check-review-1",
+   "phase": "send-check-review",
+   "name": "send check: an unreadable own project folder refuses and never raises",
+   "run": ".venv/bin/pytest tests/test_send_check_review.py::test_an_unreadable_own_project_folder_refuses_and_never_raises",
+   "status": "passing"
+  },
+  {
+   "id": "send-check-review-2",
+   "phase": "send-check-review",
+   "name": "send check: a fifo is refused without blocking",
+   "run": ".venv/bin/pytest tests/test_send_check_review.py::test_a_fifo_is_refused_without_blocking",
+   "status": "passing"
+  },
+  {
+   "id": "send-check-review-3",
+   "phase": "send-check-review",
+   "name": "send check: a device is refused",
+   "run": ".venv/bin/pytest tests/test_send_check_review.py::test_a_device_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "send-check-review-4",
+   "phase": "send-check-review",
+   "name": "send check: a fifo among the lenses does not block the gate",
+   "run": ".venv/bin/pytest tests/test_send_check_review.py::test_a_fifo_among_the_lenses_does_not_block_the_gate",
+   "status": "passing"
+  },
+  {
+   "id": "send-check-review-5",
+   "phase": "send-check-review",
+   "name": "send check: a file that changes during the check is judged by the bytes hashed",
+   "run": ".venv/bin/pytest tests/test_send_check_review.py::test_a_file_that_changes_during_the_check_is_judged_by_the_bytes_hashed",
+   "status": "passing"
+  },
+  {
+   "id": "send-check-review-6",
+   "phase": "send-check-review",
+   "name": "send check: a deliverable swapped back during the check does not pass",
+   "run": ".venv/bin/pytest tests/test_send_check_review.py::test_a_deliverable_swapped_back_during_the_check_does_not_pass",
+   "status": "passing"
+  },
+  {
+   "id": "send-check-review-7",
+   "phase": "send-check-review",
+   "name": "send check: review material behind a linked reviews folder never leaves",
+   "run": ".venv/bin/pytest tests/test_send_check_review.py::test_review_material_behind_a_linked_reviews_folder_never_leaves",
+   "status": "passing"
+  },
+  {
+   "id": "send-check-review-8",
+   "phase": "send-check-review",
+   "name": "send check: a folder name is never echoed in a refusal",
+   "run": ".venv/bin/pytest tests/test_send_check_review.py::test_a_folder_name_is_never_echoed_in_a_refusal",
+   "status": "passing"
+  },
+  {
+   "id": "send-check-review-9",
+   "phase": "send-check-review",
+   "name": "send check: an unreadable hcs folder under the projects root refuses",
+   "run": ".venv/bin/pytest tests/test_send_check_review.py::test_an_unreadable_hcs_folder_under_the_projects_root_refuses",
+   "status": "passing"
+  },
+  {
+   "id": "send-check-review-10",
+   "phase": "send-check-review",
+   "name": "send check: a malformed project register refuses",
+   "run": ".venv/bin/pytest tests/test_send_check_review.py::test_a_malformed_project_register_refuses",
+   "status": "passing"
+  },
+  {
+   "id": "send-check-review-11",
+   "phase": "send-check-review",
+   "name": "send check: a projects root that cannot be listed refuses",
+   "run": ".venv/bin/pytest tests/test_send_check_review.py::test_a_projects_root_that_cannot_be_listed_refuses",
+   "status": "passing"
+  },
+  {
+   "id": "send-check-review-12",
+   "phase": "send-check-review",
+   "name": "send check: a secret in an internal file refuses and is not echoed",
+   "run": ".venv/bin/pytest tests/test_send_check_review.py::test_a_secret_in_an_internal_file_refuses_and_is_not_echoed",
+   "status": "passing"
+  },
+  {
+   "id": "send-check-review-13",
+   "phase": "send-check-review",
+   "name": "send check: a request lens whose deliverable is no string does not count",
+   "run": ".venv/bin/pytest tests/test_send_check_review.py::test_a_request_lens_whose_deliverable_is_no_string_does_not_count",
+   "status": "passing"
+  },
+  {
+   "id": "send-check-review-14",
+   "phase": "send-check-review",
+   "name": "send check: an error inside the check refuses and never raises",
+   "run": ".venv/bin/pytest tests/test_send_check_review.py::test_an_error_inside_the_check_refuses_and_never_raises",
+   "status": "passing"
   }
  ],
- "total_tests": 2690,
+ "total_tests": 2704,
  "checked": "2026-11-09"
 }
