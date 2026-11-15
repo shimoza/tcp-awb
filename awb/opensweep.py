@@ -8,12 +8,16 @@ Only the commit hash or resource handle and row number leave the evidence reader
 from __future__ import annotations
 
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 import fcntl
+import os
 import re
+import stat
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 
 from awb import codes, config, ledger
@@ -21,6 +25,63 @@ from awb import codes, config, ledger
 
 class OpenError(Exception):
     """A refusal carrying no item text or filesystem path."""
+
+
+_MAX_BYTES = 4 * 1024 * 1024
+
+
+@contextmanager
+def _directory(path: Path, *, create: bool = False):
+    """Walk from the filesystem root without following any directory links."""
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in Path(os.path.abspath(path)).parts[1:]:
+            if create:
+                try:
+                    os.mkdir(part, mode=0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+@contextmanager
+def _file(path: Path, *, write: bool = False, create: bool = False, lock: bool = True):
+    """Open bounded regular data with exactly one link, anchored to its directory."""
+    with _directory(path.parent, create=create) as parent:
+        flags = os.O_RDWR if write else os.O_RDONLY
+        fd = os.open(path.name, flags | os.O_NOFOLLOW | os.O_NONBLOCK |
+                     (os.O_CREAT if create else 0), 0o600, dir_fd=parent)
+        with os.fdopen(fd, "r+" if write else "r", encoding="utf-8", newline="") as stream:
+            before = os.fstat(fd)
+            if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > _MAX_BYTES:
+                raise OpenError("project data must be a bounded regular file without links")
+            if lock:
+                fcntl.flock(stream, fcntl.LOCK_EX if write else fcntl.LOCK_SH)
+            current = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+            after = os.fstat(fd)
+            if ((current.st_dev, current.st_ino) != (before.st_dev, before.st_ino) or
+                    after.st_nlink != 1 or (write and not create and
+                    (before.st_mtime_ns, before.st_ctime_ns, before.st_size) !=
+                    (after.st_mtime_ns, after.st_ctime_ns, after.st_size))):
+                raise OpenError("project data changed; run awb open sweep again")
+            yield stream
+
+
+def _read(stream) -> str:
+    text = stream.read(_MAX_BYTES + 1)
+    if len(text.encode("utf-8")) > _MAX_BYTES:
+        raise OpenError("project data is too large")
+    return text
+
+
+def _read_file(path: Path) -> str:
+    with _file(path) as stream:
+        return _read(stream)
 
 
 @dataclass(frozen=True)
@@ -42,12 +103,16 @@ def parse(text: str) -> list[Item]:
 
     result = []
     headings: list[tuple[int, str]] = []
-    fenced = False
+    fence = ""
     for number, line in enumerate(text.splitlines(), 1):
-        if line.lstrip().startswith(("```", "~~~")):
-            fenced = not fenced
+        marker = re.match(r"^\s*(`{3,}|~{3,})(.*)$", line)
+        if fence:
+            if (marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence)
+                    and not marker[2].strip()):
+                fence = ""
             continue
-        if fenced:
+        if marker:
+            fence = marker[1]
             continue
         heading = re.match(r"^(#{1,6})\s+(.*)", line)
         if heading:
@@ -93,7 +158,7 @@ def undated(new: str, old: str) -> list[int]:
 
 
 def _key(text: str) -> str:
-    return " ".join(text.split()).rstrip(".").casefold()
+    return " ".join(text.split()).removesuffix(".").casefold()
 
 
 def _receipt(text: str) -> str | None:
@@ -105,8 +170,14 @@ def evidence(root: Path) -> dict[str, str]:
     """Exact receipts mapped to safe locations, never raw commit or resource text."""
     found = {}
     try:
-        result = subprocess.run(["git", "-C", str(root), "log", "--format=%H%x00%B%x00"],
-                                capture_output=True, text=True, timeout=10)
+        if (root / ".git").is_symlink():
+            raise OSError("linked repository metadata")
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env["GIT_CEILING_DIRECTORIES"] = str(root.parent.absolute())
+        result = subprocess.run(["git", "--no-pager", "--no-replace-objects", "-C", str(root),
+                                 "log", "--format=%H%x00%B%x00"],
+                                capture_output=True, text=True, timeout=10, env=env,
+                                stdin=subprocess.DEVNULL)
         if result.returncode == 0:
             fields = result.stdout.split("\0")
             for pos in range(0, len(fields) - 1, 2):
@@ -119,7 +190,7 @@ def evidence(root: Path) -> dict[str, str]:
     except (OSError, UnicodeError, subprocess.SubprocessError):
         pass
     try:
-        text = (root / "RESOURCES.md").read_text(encoding="utf-8")
+        text = _read_file(root / "RESOURCES.md")
     except FileNotFoundError:
         text = ""
     for number, row in enumerate(text.splitlines(), 1):
@@ -135,6 +206,8 @@ def evidence(root: Path) -> dict[str, str]:
 def _code(root: Path) -> str:
     if not codes.is_project_code(root.name):
         raise OpenError("run inside a project with a project code and SCOPE.md")
+    with _file(root / "SCOPE.md", lock=False):
+        pass
     return root.name
 
 
@@ -144,7 +217,7 @@ def _cell(text: str) -> str:
 
 def sweep(root: Path) -> str:
     code = _code(root)
-    items = parse((root / "OPEN.md").read_text(encoding="utf-8"))
+    items = parse(_read_file(root / "OPEN.md"))
     proof = evidence(root)
     reg = ledger.register_path()
     ledger.ensure_checkable(reg)
@@ -156,7 +229,8 @@ def sweep(root: Path) -> str:
         text, default = item.text, item.default
         receipt = proof.get(_key(default), "")
         # Check again on every display: the register can grow after the item was written.
-        if ledger.screen(text + "\n" + default, reg):
+        if (any(unicodedata.category(c) in ("Cc", "Cf") and c != "\t" for c in text + default)
+                or ledger.screen(text + "\n" + default, reg)):
             text, default, receipt = "[withheld]", "[withheld]", ""
         elif receipt and ledger.screen(receipt, reg):
             receipt = ""
@@ -168,9 +242,8 @@ def sweep(root: Path) -> str:
 def close(root: Path, numbers: list[int]) -> int:
     code = _code(root)
     # Serialize closes against the same numbering, keeping the file's mode and owner.
-    with (root / "OPEN.md").open("r+", encoding="utf-8", newline="") as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX)
-        original = stream.read()
+    with _file(root / "OPEN.md", write=True) as stream:
+        original = _read(stream)
         items = parse(original)
         chosen = sorted(set(numbers))
         if not chosen or any(n < 1 or n > len(items) for n in chosen):
@@ -181,7 +254,7 @@ def close(root: Path, numbers: list[int]) -> int:
         settled = []
         for n in chosen:
             pos = items[n - 1].line - 1
-            settled.append(re.sub(r"^- (?:\[ \] )?", "- [x] ", lines[pos], count=1).rstrip("\r\n"))
+            settled.append(re.sub(r"^- (?:\[ \][ \t]*)?", "- [x] ", lines[pos], count=1).rstrip("\r\n"))
             lines[pos] = ""
         # Existing board and project-close readers exclude closed sections. Keep the
         # ticks there so every reader agrees that these items are settled.
@@ -198,18 +271,15 @@ def reminder(root: Path, p: config.Paths | None = None) -> str | None:
     """Claim today's reminder under a lock shared by this project's sessions."""
     code = _code(root)
     try:
-        count = len(parse((root / "OPEN.md").read_text(encoding="utf-8")))
+        count = len(parse(_read_file(root / "OPEN.md")))
     except FileNotFoundError:
         return None
     if count <= 20:
         return None
     marker = (p or config.paths()).ledger / ".open-sweep" / (code + ".day")
-    marker.parent.mkdir(parents=True, exist_ok=True)
     stamp = today().isoformat()
-    with marker.open("a+", encoding="utf-8") as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX)
-        stream.seek(0)
-        if stream.read().strip() == stamp:
+    with _file(marker, write=True, create=True) as stream:
+        if _read(stream).strip() == stamp:
             return None
         stream.seek(0)
         stream.truncate()
@@ -222,7 +292,12 @@ def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
     from awb.toolguard import project_root
 
-    parser = SafeParser(prog="awb open", description="Sweep and close owner decisions in this project.")
+    class OpenParser(SafeParser):
+        def error(self, message):
+            # argparse's quoting is not a privacy boundary for hostile values.
+            super().error("invalid arguments; see --help")
+
+    parser = OpenParser(prog="awb open", description="Sweep and close owner decisions in this project.")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("sweep", help="list open owner items with ages, defaults and proven taken receipts")
     closer = sub.add_parser("close", help="tick numbered owner items and write one ledger entry")
@@ -241,8 +316,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except SystemExit as exc:
         return int(exc.code)
-    except (OpenError, ledger.LedgerError) as exc:
+    except OpenError as exc:
         print("awb open: %s" % exc, file=sys.stderr)
+    except ledger.LedgerError:
+        print("awb open: ledger operation refused or name check unavailable (possibly no register)", file=sys.stderr)
     except (OSError, UnicodeError):
         print("awb open: project data could not be read or written", file=sys.stderr)
     return 2

@@ -17618,8 +17618,162 @@
    "name": "work queue: hardlinked storage is refused without changing either name",
    "run": ".venv/bin/pytest tests/test_work_queue.py::test_hardlinked_storage_is_refused_without_changing_either_name",
    "status": "passing"
+  },
+  {
+   "id": "ux6-hard-01",
+   "phase": "ux6",
+   "name": "open sweep hardening: hostile arguments are never echoed",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_hostile_arguments_are_never_echoed",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-02",
+   "phase": "ux6",
+   "name": "open sweep hardening: dependency errors never echo values",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_dependency_errors_never_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-03",
+   "phase": "ux6",
+   "name": "open sweep hardening: open links cannot read or change outside",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_open_links_cannot_read_or_change_outside",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-04",
+   "phase": "ux6",
+   "name": "open sweep hardening: resource links do not supply outside receipts",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_resource_links_do_not_supply_outside_receipts",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-05",
+   "phase": "ux6",
+   "name": "open sweep hardening: linked project parent is refused",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_linked_project_parent_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-06",
+   "phase": "ux6",
+   "name": "open sweep hardening: project requires regular scope",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_project_requires_regular_scope",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-07",
+   "phase": "ux6",
+   "name": "open sweep hardening: special files are refused without blocking",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_special_files_are_refused_without_blocking",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-08",
+   "phase": "ux6",
+   "name": "open sweep hardening: missing unreadable and invalid data are private",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_missing_unreadable_and_invalid_data_are_private",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-09",
+   "phase": "ux6",
+   "name": "open sweep hardening: git environment cannot supply foreign receipts",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_git_environment_cannot_supply_foreign_receipts",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-10",
+   "phase": "ux6",
+   "name": "open sweep hardening: git does not search parent repository",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_git_does_not_search_parent_repository",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-11",
+   "phase": "ux6",
+   "name": "open sweep hardening: fences require matching character length and empty closer",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_fences_require_matching_character_length_and_empty_closer",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-12",
+   "phase": "ux6",
+   "name": "open sweep hardening: close ticks compact checkbox once",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_close_ticks_compact_checkbox_once",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-13",
+   "phase": "ux6",
+   "name": "open sweep hardening: terminal controls are withheld",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_terminal_controls_are_withheld",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-14",
+   "phase": "ux6",
+   "name": "open sweep hardening: overlapping close refuses changed numbering",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_overlapping_close_refuses_changed_numbering",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-15",
+   "phase": "ux6",
+   "name": "open sweep hardening: reminder links cannot overwrite outside",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_reminder_links_cannot_overwrite_outside",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-16",
+   "phase": "ux6",
+   "name": "open sweep hardening: concurrent reminders claim once",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_concurrent_reminders_claim_once",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-17",
+   "phase": "ux6",
+   "name": "open sweep hardening: receipts require exact complete defaults",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_receipts_require_exact_complete_defaults",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-18",
+   "phase": "ux6",
+   "name": "open sweep hardening: sweep waits for close to finish writing",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_sweep_waits_for_close_to_finish_writing",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-19",
+   "phase": "ux6",
+   "name": "open sweep hardening: oversized data is refused",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_oversized_data_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-20",
+   "phase": "ux6",
+   "name": "open sweep hardening: linked git directory cannot supply outside receipts",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_linked_git_directory_cannot_supply_outside_receipts",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-21",
+   "phase": "ux6",
+   "name": "open sweep hardening: close preserves mode and deduplicates selection",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_close_preserves_mode_and_deduplicates_selection",
+   "status": "passing"
+  },
+  {
+   "id": "ux6-hard-22",
+   "phase": "ux6",
+   "name": "open sweep hardening: receipt normalization ignores only one final period",
+   "run": ".venv/bin/pytest tests/test_open_sweep.py::test_receipt_normalization_ignores_only_one_final_period",
+   "status": "passing"
   }
  ],
- "total_tests": 2517,
+ "total_tests": 2539,
  "checked": "2026-11-09"
 }
