@@ -443,7 +443,7 @@ def test_receipts_require_exact_complete_defaults(project):
     (project / "RESOURCES.md").write_text(
         "| ecs-0 | proposal Default taken: keep ecs-0 stopped. |\n"
         "| ecs-1 | Default taken: keep ecs-0 stopped. tomorrow |\n")
-    git(project, "commit", "--allow-empty", "-qm", "Proposed Default taken: keep ecs-0 stopped.")
+    git(project, "commit", "--allow-empty", "-qm", "proposed Default taken: keep ecs-0 stopped.")
     assert "taken" not in opensweep.sweep(project)
     (project / "RESOURCES.md").write_text("| ecs-0 | Default taken: KEEP   ecs-0 stopped |\n")
     assert "taken (RESOURCES.md:1 ecs-0)" in opensweep.sweep(project)
