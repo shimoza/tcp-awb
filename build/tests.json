@@ -17261,8 +17261,176 @@
    "name": "dev ask hardening: existing receipt directory is private",
    "run": ".venv/bin/pytest tests/test_dev_ask.py::test_existing_receipt_directory_is_private",
    "status": "passing"
+  },
+  {
+   "id": "UX1-22",
+   "phase": "UX1",
+   "name": "project preflight: grant links and special files are unknown",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_grant_links_and_special_files_are_unknown",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-23",
+   "phase": "UX1",
+   "name": "project preflight: grant duplicate keys and excessive nesting are unknown",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_grant_duplicate_keys_and_excessive_nesting_are_unknown",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-24",
+   "phase": "UX1",
+   "name": "project preflight: grant read is bounded even if stat size is stale",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_grant_read_is_bounded_even_if_stat_size_is_stale",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-25",
+   "phase": "UX1",
+   "name": "project preflight: scope and nested directory links never read outside",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_scope_and_nested_directory_links_never_read_outside",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-26",
+   "phase": "UX1",
+   "name": "project preflight: project root and ancestor links are refused",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_project_root_and_ancestor_links_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-27",
+   "phase": "UX1",
+   "name": "project preflight: file swap to link is refused",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_file_swap_to_link_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-28",
+   "phase": "UX1",
+   "name": "project preflight: directory swap cannot redirect reads",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_directory_swap_cannot_redirect_reads",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-29",
+   "phase": "UX1",
+   "name": "project preflight: non utf8 filename is an opaque unknown",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_non_utf8_filename_is_an_opaque_unknown",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-30",
+   "phase": "UX1",
+   "name": "project preflight: input limits never report success",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_input_limits_never_report_success",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-31",
+   "phase": "UX1",
+   "name": "project preflight: input depth is bounded",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_input_depth_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-32",
+   "phase": "UX1",
+   "name": "project preflight: input total read budget is bounded",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_input_total_read_budget_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-33",
+   "phase": "UX1",
+   "name": "project preflight: missing unreadable and nonregular inputs are unknown",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_missing_unreadable_and_nonregular_inputs_are_unknown",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-34",
+   "phase": "UX1",
+   "name": "project preflight: malformed url is unknown without echo",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_malformed_url_is_unknown_without_echo",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-35",
+   "phase": "UX1",
+   "name": "project preflight: ipv6 url without path is checked",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_ipv6_url_without_path_is_checked",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-36",
+   "phase": "UX1",
+   "name": "project preflight: malformed host lists are unknown",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_malformed_host_lists_are_unknown",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-37",
+   "phase": "UX1",
+   "name": "project preflight: failed host list is unknown even without hosts",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_failed_host_list_is_unknown_even_without_hosts",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-38",
+   "phase": "UX1",
+   "name": "project preflight: bad access results do not crash or hide host checks",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_bad_access_results_do_not_crash_or_hide_host_checks",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-39",
+   "phase": "UX1",
+   "name": "project preflight: failed access iterator does not publish partial success",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_failed_access_iterator_does_not_publish_partial_success",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-40",
+   "phase": "UX1",
+   "name": "project preflight: report and hook lines refuse unchecked fields",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_report_and_hook_lines_refuse_unchecked_fields",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-41",
+   "phase": "UX1",
+   "name": "project preflight: two preflights are independent and read only",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_two_preflights_are_independent_and_read_only",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-42",
+   "phase": "UX1",
+   "name": "project preflight: hardlinked evidence is unknown",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_hardlinked_evidence_is_unknown",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-43",
+   "phase": "UX1",
+   "name": "project preflight: absent invalid utf8 and denied grants never pass",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_absent_invalid_utf8_and_denied_grants_never_pass",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-44",
+   "phase": "UX1",
+   "name": "project preflight: callback iteration is bounded",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_callback_iteration_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "UX1-45",
+   "phase": "UX1",
+   "name": "project preflight: invalid encoding still consumes read budget",
+   "run": ".venv/bin/pytest tests/test_preflight.py::test_invalid_encoding_still_consumes_read_budget",
+   "status": "passing"
   }
  ],
- "total_tests": 2466,
+ "total_tests": 2490,
  "checked": "2026-11-09"
 }

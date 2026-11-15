@@ -382,3 +382,356 @@ def test_start_and_preflight_help_never_read_project_register(home, monkeypatch,
     assert "usage: awb start" in capsys.readouterr().out
     assert cli.main(["projects", "preflight", "--help"]) == 0
     assert "usage: awb projects preflight" in capsys.readouterr().out
+
+
+def test_grant_links_and_special_files_are_unknown(home, rig, tmp_path, monkeypatch):
+    target = tmp_path / "record"
+    target.write_bytes(grants.path(home).read_bytes())
+    path = grants.path(home)
+    path.unlink()
+    for destination in (target, tmp_path / "absent"):
+        path.symlink_to(destination)
+        assert preflight.grant(home, rig.row).status == "unknown"
+        path.unlink()
+    os.mkfifo(path)
+    # A blocking open is a defect, but must not hang the suite when planted.
+    real_open = os.open
+
+    def opened(name, flags, *args, **kwargs):
+        if Path(name).name == path.name:
+            assert flags & os.O_NONBLOCK
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", opened)
+    assert preflight.grant(home, rig.row).status == "unknown"
+
+
+def test_grant_duplicate_keys_and_excessive_nesting_are_unknown(home, rig):
+    for raw in ('{"%s":{"kind":"query","kind":"project"}}' % CODE,
+                '{"%s":{"kind":"query"},"%s":{"kind":"project"}}' % (CODE, CODE),
+                '[' * 2000 + ']' * 2000):
+        grants.path(home).write_text(raw)
+        assert preflight.grant(home, rig.row).status == "unknown"
+
+
+def test_grant_read_is_bounded_even_if_stat_size_is_stale(home, rig, monkeypatch):
+    monkeypatch.setattr(preflight, "_FILE_LIMIT", 64, raising=False)
+    grants.path(home).write_text(json.dumps({CODE: {"kind": "project", "padding": "x" * 100}}))
+    real_fstat = os.fstat
+
+    def stale(fd):
+        value = real_fstat(fd)
+        return SimpleNamespace(st_mode=value.st_mode, st_size=0, st_nlink=value.st_nlink)
+
+    monkeypatch.setattr(os, "fstat", stale)
+    assert preflight.grant(home, rig.row).status == "unknown"
+
+
+def test_scope_and_nested_directory_links_never_read_outside(rig, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "links").write_text(fx.CUSTOMER_DOMAIN)
+    (rig.root / "SCOPE.md").unlink()
+    (rig.root / "SCOPE.md").symlink_to(outside / "links")
+    (rig.root / "input" / "nested").symlink_to(outside, target_is_directory=True)
+    found = {c.handle: c for c in preflight.host_checks(rig.root, lambda: [])}
+    for relative in ("SCOPE.md", "input/nested"):
+        assert found[preflight.handle("file", relative)].status == "unknown"
+    assert not any(h.startswith("host-") for h in found)
+
+
+def test_project_root_and_ancestor_links_are_refused(rig, tmp_path):
+    for suffix in (Path(), Path(CODE)):
+        link = tmp_path / ("linked-" + str(len(suffix.parts)))
+        link.symlink_to(rig.root if not suffix.parts else rig.root.parent, target_is_directory=True)
+        checks = preflight.host_checks(link / suffix, lambda: [])
+        assert checks and all(c.status == "unknown" for c in checks)
+        assert not any(c.handle.startswith("host-") for c in checks)
+
+
+def test_file_swap_to_link_is_refused(rig, tmp_path, monkeypatch):
+    outside = tmp_path / "outside"
+    outside.write_text(fx.CUSTOMER_DOMAIN)
+    path = rig.root / "input" / "links"
+    path.write_text("no hosts")
+    real_open = os.open
+    real_path_open = Path.open
+    swapped = []
+
+    def swap(name):
+        if Path(name).name == "links" and not swapped:
+            path.unlink()
+            path.symlink_to(outside)
+            swapped.append(True)
+
+    def opened(name, flags, *args, **kwargs):
+        swap(name)
+        return real_open(name, flags, *args, **kwargs)
+
+    def path_opened(path, *args, **kwargs):
+        swap(path)
+        return real_path_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", opened)
+    monkeypatch.setattr(Path, "open", path_opened)
+    found = {c.handle: c for c in preflight.host_checks(rig.root, lambda: [])}
+    assert swapped
+    assert found[preflight.handle("file", "input/links")].status == "unknown"
+    assert preflight.handle("host", fx.CUSTOMER_DOMAIN) not in found
+
+
+def test_directory_swap_cannot_redirect_reads(rig, tmp_path, monkeypatch):
+    inside = rig.root / "input" / "nested"
+    inside.mkdir()
+    (inside / "links").write_text("no hosts")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "links").write_text(fx.CUSTOMER_DOMAIN)
+    real_open = os.open
+    real_scandir = os.scandir
+    swapped = []
+
+    def swap(name):
+        if not isinstance(name, int) and Path(name).name == "nested" and not swapped:
+            inside.rename(rig.root / "moved")
+            inside.symlink_to(outside, target_is_directory=True)
+            swapped.append(True)
+
+    def opened(name, flags, *args, **kwargs):
+        swap(name)
+        return real_open(name, flags, *args, **kwargs)
+
+    def scanned(name):
+        swap(name)
+        return real_scandir(name)
+
+    monkeypatch.setattr(os, "open", opened)
+    monkeypatch.setattr(os, "scandir", scanned)
+    found = preflight.host_checks(rig.root, lambda: [])
+    assert swapped
+    assert any(c.status == "unknown" for c in found)
+    assert preflight.handle("host", fx.CUSTOMER_DOMAIN) not in {c.handle for c in found}
+
+
+def test_non_utf8_filename_is_an_opaque_unknown(rig, capsys):
+    name = os.fsdecode(b"private-\xff")
+    (rig.root / "input" / name).write_bytes(b"\xff")
+    checks = preflight.host_checks(rig.root, lambda: [])
+    assert len(checks) == 1 and checks[0].status == "unknown"
+    assert checks[0].handle == preflight.handle("file", "input/" + name)
+    assert preflight.report(CODE, checks) == 1
+    assert "private" not in capsys.readouterr().out
+
+
+def test_input_limits_never_report_success(rig, monkeypatch):
+    monkeypatch.setattr(preflight, "_FILE_LIMIT", 64, raising=False)
+    path = rig.root / "input" / "large"
+    path.write_text("x" * 65)
+    checks = preflight.host_checks(rig.root, lambda: [])
+    assert preflight.Check(preflight.handle("file", "input/large"), "unknown", "unreadable") in checks
+    path.unlink()
+    monkeypatch.setattr(preflight, "_ENTRY_LIMIT", 2, raising=False)
+    for n in range(3):
+        (rig.root / "input" / str(n)).write_text("no hosts")
+    assert any(c.status == "unknown" for c in preflight.host_checks(rig.root, lambda: []))
+
+
+def test_input_depth_is_bounded(rig, monkeypatch):
+    monkeypatch.setattr(preflight, "_DEPTH_LIMIT", 2, raising=False)
+    folder = rig.root / "input" / "a" / "b" / "c"
+    folder.mkdir(parents=True)
+    (folder / "links").write_text(fx.CUSTOMER_DOMAIN)
+    checks = preflight.host_checks(rig.root, lambda: [])
+    assert any(c.status == "unknown" for c in checks)
+    assert preflight.handle("host", fx.CUSTOMER_DOMAIN) not in {c.handle for c in checks}
+
+
+def test_input_total_read_budget_is_bounded(rig, monkeypatch):
+    monkeypatch.setattr(preflight, "_TOTAL_LIMIT", 64, raising=False)
+    for n in range(3):
+        (rig.root / "input" / str(n)).write_text("x" * 32)
+    assert any(c.status == "unknown" for c in preflight.host_checks(rig.root, lambda: []))
+
+
+def test_missing_unreadable_and_nonregular_inputs_are_unknown(rig, monkeypatch, capsys):
+    scope = rig.root / "SCOPE.md"
+    scope.unlink()
+    os.mkfifo(rig.root / "input" / "pipe")
+    found = {c.handle: c for c in preflight.host_checks(rig.root, lambda: [])}
+    for name in ("SCOPE.md", "input/pipe"):
+        assert found[preflight.handle("file", name)].status == "unknown"
+    scope.write_text("no hosts")
+    real_open = os.open
+    real_path_open = Path.open
+    secret = "pass" + "word" + "-private"
+
+    def opened(name, flags, *args, **kwargs):
+        if Path(name).name == "SCOPE.md":
+            raise PermissionError(secret)
+        return real_open(name, flags, *args, **kwargs)
+
+    def path_opened(path, *args, **kwargs):
+        if path.name == "SCOPE.md":
+            raise PermissionError(secret)
+        return real_path_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", opened)
+    monkeypatch.setattr(Path, "open", path_opened)
+    found = preflight.host_checks(rig.root, lambda: [])
+    assert preflight.Check(preflight.handle("file", "SCOPE.md"), "unknown", "unreadable") in found
+    assert preflight.report(CODE, found) == 1
+    assert secret not in capsys.readouterr().out
+
+
+def test_malformed_url_is_unknown_without_echo(rig, capsys):
+    secret = "pass" + "word" + "-private"
+    for url in ("https://[broken", "https://", "https:///path", "https://host.test:bad", "https://ho%00st.test"):
+        (rig.root / "SCOPE.md").write_text(url + " " + secret)
+        checks = preflight.host_checks(rig.root, lambda: [])
+        assert preflight.Check(preflight.handle("file", "SCOPE.md"), "unknown", "unreadable") in checks
+        assert preflight.report(CODE, checks) == 1
+        output = capsys.readouterr().out
+        assert secret not in output and url not in output
+
+
+def test_ipv6_url_without_path_is_checked(rig):
+    (rig.root / "SCOPE.md").write_text("https://[2001:db8::1]")
+    checks = preflight.host_checks(rig.root, lambda: ["2001:db8::1"])
+    assert preflight.Check(preflight.handle("host", "2001:db8::1"), "ok", "host-list") in checks
+
+
+def test_malformed_host_lists_are_unknown(rig):
+    (rig.root / "SCOPE.md").write_text(fx.CUSTOMER_DOMAIN)
+    for value in (None, fx.CUSTOMER_DOMAIN, {fx.CUSTOMER_DOMAIN: True}, [[fx.CUSTOMER_DOMAIN]], [None]):
+        checks = preflight.host_checks(rig.root, lambda: value)
+        host = next(c for c in checks if c.handle == preflight.handle("host", fx.CUSTOMER_DOMAIN))
+        assert host.status == "unknown"
+
+
+def test_failed_host_list_is_unknown_even_without_hosts(rig, capsys):
+    secret = "pass" + "word" + "-private"
+
+    def failed():
+        raise RuntimeError(secret)
+
+    checks = preflight.host_checks(rig.root, failed)
+    assert preflight.Check("host-list", "unknown", "unreadable") in checks
+    assert preflight.report(CODE, checks) == 1
+    assert secret not in capsys.readouterr().out
+
+
+def test_bad_access_results_do_not_crash_or_hide_host_checks(home, rig):
+    (rig.root / "SCOPE.md").write_text(fx.CUSTOMER_DOMAIN)
+    for value in (None, [None], [{}], [preflight.Check("grant", "ok", "private")]):
+        checks = preflight.checks(home, CODE, lambda *args: value, lambda: [])
+        assert preflight.Check("tenants", "unknown", "unreadable") in checks
+        assert any(c.handle == preflight.handle("host", fx.CUSTOMER_DOMAIN) for c in checks)
+
+
+def test_failed_access_iterator_does_not_publish_partial_success(home, rig, capsys):
+    grants.path(home).write_text("{")
+    secret = "pass" + "word" + "-private"
+
+    def access(*args):
+        yield preflight.Check("grant", "ok", "kind=project")
+        raise RuntimeError(secret)
+
+    checks = preflight.checks(home, CODE, access, lambda: [])
+    assert checks[0].handle == "grant" and checks[0].status == "unknown"
+    assert preflight.Check("tenants", "unknown", "unreadable") in checks
+    assert preflight.report(CODE, checks) == 1
+    assert secret not in capsys.readouterr().out
+
+
+def test_report_and_hook_lines_refuse_unchecked_fields(capsys):
+    secret = "pass" + "word" + "-private"
+    for check in (preflight.Check(secret, "ok"), preflight.Check("grant", secret),
+                  preflight.Check("grant", "ok", secret), preflight.Check("grant\n" + secret, "ok")):
+        assert secret not in check.line(CODE)
+        assert preflight.report(CODE, [check]) == 1
+        assert secret not in capsys.readouterr().out
+    with pytest.raises(projects.ProjectError, match="project code"):
+        preflight.report(secret, [preflight.Check("grant", "ok")])
+    assert secret not in capsys.readouterr().out
+
+
+def test_two_preflights_are_independent_and_read_only(home, rig):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    barrier = Barrier(2)
+    before = {p: p.read_bytes() for root in (rig.root, home.vault)
+              for p in root.rglob("*") if p.is_file()}
+
+    def access(*args):
+        barrier.wait(timeout=5)
+        return [preflight.Check("tenants", "unknown", "none-discovered")]
+
+    def run():
+        return preflight.checks(home, CODE, access, lambda: [])
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(run) for _ in range(2)]
+        first, second = [future.result(timeout=10) for future in futures]
+    assert first == second and first is not second
+    assert before == {p: p.read_bytes() for root in (rig.root, home.vault)
+                      for p in root.rglob("*") if p.is_file()}
+
+
+def test_hardlinked_evidence_is_unknown(home, rig, tmp_path):
+    outside = tmp_path / "outside"
+    outside.write_text(fx.CUSTOMER_DOMAIN)
+    os.link(outside, rig.root / "input" / "hardlink")
+    checks = preflight.host_checks(rig.root, lambda: [])
+    assert preflight.Check(preflight.handle("file", "input/hardlink"), "unknown", "unreadable") in checks
+    assert preflight.handle("host", fx.CUSTOMER_DOMAIN) not in {c.handle for c in checks}
+    os.link(grants.path(home), tmp_path / "record")
+    assert preflight.grant(home, rig.row).status == "unknown"
+
+
+def test_absent_invalid_utf8_and_denied_grants_never_pass(home, rig, monkeypatch, capsys):
+    path = grants.path(home)
+    path.unlink()
+    assert preflight.grant(home, rig.row).status == "missing"
+    path.write_bytes(b"\xff")
+    assert preflight.grant(home, rig.row).status == "unknown"
+    path.write_text(json.dumps({CODE: {"kind": "project"}}))
+    secret = "pass" + "word" + "-private"
+    real_open = os.open
+    real_path_open = Path.open
+
+    def opened(name, flags, *args, **kwargs):
+        if Path(name).name == path.name:
+            raise PermissionError(secret)
+        return real_open(name, flags, *args, **kwargs)
+
+    def path_opened(candidate, *args, **kwargs):
+        if candidate == path:
+            raise PermissionError(secret)
+        return real_path_open(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", opened)
+    monkeypatch.setattr(Path, "open", path_opened)
+    check = preflight.grant(home, rig.row)
+    assert check.status == "unknown"
+    assert preflight.report(CODE, [check]) == 1
+    assert secret not in capsys.readouterr().out
+
+
+def test_callback_iteration_is_bounded(home, rig, monkeypatch):
+    monkeypatch.setattr(preflight, "_ENTRY_LIMIT", 2, raising=False)
+    checks = preflight.host_checks(rig.root, lambda: iter([fx.CUSTOMER_DOMAIN] * 3))
+    assert preflight.Check("host-list", "unknown", "unreadable") in checks
+    checks = preflight.checks(home, CODE, lambda *args: iter([preflight.Check("platform", "ok")] * 3),
+                             lambda: [])
+    assert preflight.Check("tenants", "unknown", "unreadable") in checks
+    assert not any(c.handle == "platform" for c in checks)
+
+
+def test_invalid_encoding_still_consumes_read_budget(rig, monkeypatch):
+    monkeypatch.setattr(preflight, "_TOTAL_LIMIT", 64, raising=False)
+    (rig.root / "input" / "a").write_bytes(b"\xff" * 40)
+    (rig.root / "input" / "b").write_text("https://" + fx.CUSTOMER_DOMAIN)
+    checks = preflight.host_checks(rig.root, lambda: [])
+    assert preflight.Check(preflight.handle("file", "input/b"), "unknown", "unreadable") in checks
+    assert preflight.handle("host", fx.CUSTOMER_DOMAIN) not in {c.handle for c in checks}
