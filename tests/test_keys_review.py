@@ -238,3 +238,158 @@ def test_a_tf_services_line_that_is_no_list_of_services_stops_the_unlock(tmp_pat
     conf.write_text("bucket_tenant = test-1\ntf_services = %s\n" % value, encoding="utf-8")
     with pytest.raises(xchg.XchgError, match="line 2"):
         xchg.read_settings(conf)
+
+
+# --------------------------------------------------------------------------- the review of 2026-11-15
+#
+# The socket, the checks of a call and the log against a hostile peer: a name with a trailing newline, a dot
+# segment, a value written into the log, a call socket held full, a line sent a byte at a time, descriptors sent
+# with every piece of the line and a request of a shape no check foresaw. Each test fails on the code before.
+
+import select  # noqa: E402
+import socket  # noqa: E402
+import time  # noqa: E402
+
+from tests import test_keys as tk  # noqa: E402
+from tests import test_tw_tenant_write as tw  # noqa: E402
+from tests.test_keys import gw  # noqa: E402,F401
+from tests.test_tw_tenant_write import world  # noqa: E402,F401
+
+
+@pytest.fixture
+def ksvc(gw, tmp_path, monkeypatch):  # noqa: F811
+    """The key service of tests/test_keys.py: the stand-in gateway, both sockets in a short folder, loaded."""
+    with tk.running_service(gw, tmp_path / "log") as s:
+        tk.load(s)
+        yield s
+
+
+def test_kr_a_service_name_with_a_trailing_newline_never_passes_the_iam_guard(world):  # noqa: F811
+    """A service "iam" plus a newline matched the service pattern (`$` matches before a final newline) and was
+    not "iam", so write mode of a customer tenant signed a write to IAM."""
+    w = world
+    a = tw.call(w, "POST", "/v3/users", service="iam\n", body={"user": {}})
+    assert not a["ok"] and "service name" in a["error"], a
+    assert w.api.calls == []
+
+
+def test_kr_a_dot_segment_never_stands_in_for_a_template_segment(ksvc, gw):  # noqa: F811
+    """A `.` segment filled the {id} of `DELETE ecs /v1/{project_id}/cloudservers/{id}`; a server removes it before
+    it routes, so the write reached the collection."""
+    tk.lab_gateway(gw)
+    before = len(gw.calls)
+    a = tk.call(ksvc, role="lab", method="DELETE", service="ecs", path="/v1/{project_id}/cloudservers/.",
+                project=tk.PROJECT)
+    b = tk.call(ksvc, method="GET", service="vpc", path="/v1/./vpcs")
+    assert not a["ok"] and "a path is plain" in a["error"], a
+    assert not b["ok"] and "a path is plain" in b["error"], b
+    assert len(gw.calls) == before
+
+
+def test_kr_a_project_the_caller_wrote_never_reaches_the_log(ksvc, gw, tmp_path):  # noqa: F811
+    """The log keeps the project only as a project code: any other value of the request becomes `-`."""
+    written = "word-" + "of-the-" + "caller"
+    a = tk.call(ksvc, method="GET", service="vpc", path="/v1/{project_id}/vpcs", project=written)
+    assert a["ok"], a
+    b = tk.call(ksvc, method="GET", service="vpc", path="/v1/{project_id}/vpcs", project=tk.PROJECT + "\n")
+    assert b["ok"], b
+    text = next((tmp_path / "log").glob("cloud-*.tsv")).read_text(encoding="utf-8")
+    assert written not in text
+    assert [ln.split("\t")[-1] for ln in text.splitlines()] == ["-", "-"]
+
+
+def test_kr_a_full_call_socket_never_locks_the_owner_out_of_the_admin_socket(ksvc, monkeypatch):
+    """The two sockets shared one count of open connections: sessions that held the call socket full made the
+    service close every admin connection, so the owner could not lock it."""
+    monkeypatch.setattr(keys, "MAX_CONNECTIONS", 2)
+    held = []
+    try:
+        for _ in range(2):
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.connect(str(ksvc.call_path))
+            held.append(s)
+        end = time.monotonic() + 3
+        while ksvc._open < 2 and time.monotonic() < end:
+            time.sleep(0.02)
+        assert ksvc._open == 2
+        answer = keys.request(ksvc.admin_path, {"op": "ping"}, timeout=5)
+        assert answer["ok"], answer
+    finally:
+        for s in held:
+            s.close()
+
+
+def test_kr_a_request_line_sent_a_byte_at_a_time_ends_at_the_read_timeout(ksvc, monkeypatch):
+    """The read timeout counted from the last byte, so a peer that sent one byte now and then held its connection
+    as long as it liked; the whole request line has READ_TIMEOUT now."""
+    monkeypatch.setattr(keys, "READ_TIMEOUT", 0.5)
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(str(ksvc.call_path))
+    start = time.monotonic()
+    closed_at = None
+    try:
+        s.sendall(b"{")
+        while time.monotonic() - start < 3.0:
+            time.sleep(0.15)
+            ready, _, _ = select.select([s], [], [], 0)
+            if ready and s.recv(64) == b"":
+                closed_at = time.monotonic() - start
+                break
+            try:
+                s.sendall(b" ")
+            except OSError:
+                closed_at = time.monotonic() - start
+                break
+    finally:
+        s.close()
+    assert closed_at is not None and closed_at < 2.0, closed_at
+
+
+def test_kr_descriptors_beyond_max_fds_are_closed_as_they_arrive(ksvc):
+    """Each piece of the request line could bring MAX_FDS more descriptors, all held until the end and all handed to
+    lab_obs; a peer could fill the descriptor table of the service."""
+    seen = []
+
+    def record(req, uid, upload=None, caller=None, fds=()):
+        seen.append(len(fds))
+        return {"ok": True}
+
+    ksvc._call_socket = record
+    mine = [os.open(os.devnull, os.O_RDONLY) for _ in range(6)]
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.connect(str(ksvc.call_path))
+        pieces = [b'{"op": ', b'"lab_obs"', b"}\n"]
+        for n, piece in enumerate(pieces):
+            socket.send_fds(s, [piece], mine[2 * n:2 * n + 2])
+            time.sleep(0.1)
+        s.settimeout(5)
+        assert b'"ok": true' in s.recv(4096)
+    finally:
+        s.close()
+        for fd in mine:
+            os.close(fd)
+    assert seen and seen[0] <= keys.MAX_FDS, seen
+
+
+def test_kr_a_request_of_an_unforeseen_shape_gets_one_refusal_without_its_value(ksvc, monkeypatch):
+    """A role that is a list raised a TypeError and the service closed the connection without a word; any fault no
+    check foresaw now gets one refusal that names its kind and never a value of the request."""
+    a = tk.call(ksvc, role=["lab"], method="GET", service="vpc", path="/v1/{project_id}/vpcs")
+    assert not a["ok"] and "the role is read or lab" in a["error"], a
+    planted = "value-" + "of-the-" + "fault"
+
+    def fault(req, uid, caller=None):
+        raise ValueError(planted)
+
+    monkeypatch.setattr(ksvc, "_call", fault)
+    b = tk.call(ksvc, method="GET", service="vpc", path="/v1/{project_id}/vpcs")
+    assert not b["ok"] and "ValueError" in b["error"] and planted not in b["error"], b
+
+
+def test_kr_a_project_code_with_a_trailing_newline_is_no_project_code(ksvc):
+    """The project pattern ends with `$`, which also matches before a final newline: a lease policy and the OBS
+    read check took such a code for the project."""
+    policy = ksvc.lease_policy(tk.PROJECT + "\n")
+    assert not [st for st in policy["Statement"] if st["Effect"] == "Allow" and "obs:*:*" in st["Action"]]
+    assert not keys.Service._obs_read_ok(tk.PROJECT + "\n-x", "", None, tk.PROJECT + "\n")

@@ -18234,8 +18234,64 @@
    "name": "deploy review: the plan childs error is relayed without control characters",
    "run": ".venv/bin/pytest tests/test_deploy_review.py::test_the_plan_childs_error_is_relayed_without_control_characters",
    "status": "passing"
+  },
+  {
+   "id": "kr-hardening-1",
+   "phase": "keys-review",
+   "name": "keys: a service name with a trailing newline never passes the iam guard of write mode",
+   "run": ".venv/bin/pytest tests/test_keys_review.py::test_kr_a_service_name_with_a_trailing_newline_never_passes_the_iam_guard",
+   "status": "passing"
+  },
+  {
+   "id": "kr-hardening-2",
+   "phase": "keys-review",
+   "name": "keys: a dot segment never stands in for a template segment of lab_writes",
+   "run": ".venv/bin/pytest tests/test_keys_review.py::test_kr_a_dot_segment_never_stands_in_for_a_template_segment",
+   "status": "passing"
+  },
+  {
+   "id": "kr-hardening-3",
+   "phase": "keys-review",
+   "name": "keys: the call log keeps the project only as a project code",
+   "run": ".venv/bin/pytest tests/test_keys_review.py::test_kr_a_project_the_caller_wrote_never_reaches_the_log",
+   "status": "passing"
+  },
+  {
+   "id": "kr-hardening-4",
+   "phase": "keys-review",
+   "name": "keys: a full call socket never locks the owner out of the admin socket",
+   "run": ".venv/bin/pytest tests/test_keys_review.py::test_kr_a_full_call_socket_never_locks_the_owner_out_of_the_admin_socket",
+   "status": "passing"
+  },
+  {
+   "id": "kr-hardening-5",
+   "phase": "keys-review",
+   "name": "keys: a request line sent a byte at a time ends at the read timeout",
+   "run": ".venv/bin/pytest tests/test_keys_review.py::test_kr_a_request_line_sent_a_byte_at_a_time_ends_at_the_read_timeout",
+   "status": "passing"
+  },
+  {
+   "id": "kr-hardening-6",
+   "phase": "keys-review",
+   "name": "keys: descriptors beyond MAX_FDS are closed as they arrive",
+   "run": ".venv/bin/pytest tests/test_keys_review.py::test_kr_descriptors_beyond_max_fds_are_closed_as_they_arrive",
+   "status": "passing"
+  },
+  {
+   "id": "kr-hardening-7",
+   "phase": "keys-review",
+   "name": "keys: a request of an unforeseen shape gets one refusal without its value",
+   "run": ".venv/bin/pytest tests/test_keys_review.py::test_kr_a_request_of_an_unforeseen_shape_gets_one_refusal_without_its_value",
+   "status": "passing"
+  },
+  {
+   "id": "kr-hardening-8",
+   "phase": "keys-review",
+   "name": "keys: a project code with a trailing newline is no project code",
+   "run": ".venv/bin/pytest tests/test_keys_review.py::test_kr_a_project_code_with_a_trailing_newline_is_no_project_code",
+   "status": "passing"
   }
  ],
- "total_tests": 2605,
+ "total_tests": 2613,
  "checked": "2026-11-09"
 }

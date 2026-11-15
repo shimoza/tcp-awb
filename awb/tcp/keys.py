@@ -121,18 +121,24 @@ MAX_ANSWER = 8 * 1024 * 1024
 READ_TIMEOUT = 10.0
 CALL_TIMEOUT = 180.0
 MAX_CONNECTIONS = 16
+"""Connections open at once on each socket: the call socket has its own count, so sessions that hold it full never
+lock the owner out of the admin socket (lock, status, unlock)."""
 MAX_FDS = 2
 """Descriptors a request may pass (lab_obs: the file and the run log); those of any other op are closed unread."""
 RATE_LIMIT = 120
 RATE_WINDOW = 60.0
-_ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
-_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,40}$")
-_PATH_RE = re.compile(r"^/[A-Za-z0-9_{}.:/-]{0,500}$")
+# every pattern ends with \Z, never $: `$` also matches before a trailing newline, and "iam\n" would pass as a
+# service name that is not iam
+_ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}\Z")
+_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,40}\Z")
+_SERVICE_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}\Z")
+_PATH_RE = re.compile(r"^/[A-Za-z0-9_{}.:/-]{0,500}\Z")
 _PROJECT_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
-_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
-_REF_RE = re.compile(r"^\{\{secret:([a-z0-9][a-z0-9_.-]{0,40})\}\}$")
+"""Used with fullmatch only: `$` alone also matches before a trailing newline."""
+_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
+_REF_RE = re.compile(r"^\{\{secret:([a-z0-9][a-z0-9_.-]{0,40})\}\}\Z")
 _SECRET_FIELD_RE = re.compile(r"(?i)^(?:admin_?pass(?:word)?|password|passwd|user_?password|root_?password"
-                              r"|db_?password|login_?password)$")
+                              r"|db_?password|login_?password)\Z")
 MASK = "<secret>"
 RANDOM_PASSWORD = "{{random:password}}"
 _RANDOM_SPECIAL = "!@%^-_=+"
@@ -306,6 +312,7 @@ class Service:
         self._servers: list[tuple[socket.socket, Path, tuple[int, int]]] = []
         self._threads: list[threading.Thread] = []
         self._open = 0
+        self._open_by = {True: 0, False: 0}   # open connections per socket (True: admin), each up to MAX_CONNECTIONS
         self._rate: dict[int, deque] = {}
         self.handing_over = threading.Event()
         self.handed_over = threading.Event()
@@ -453,32 +460,48 @@ class Service:
                 time.sleep(0.05)
                 continue
             with self.lock:
-                if self._open >= MAX_CONNECTIONS:
+                if self._open_by[admin] >= MAX_CONNECTIONS:
                     conn.close()
                     continue
                 self._open += 1
+                self._open_by[admin] += 1
             try:
                 uid = handover._peer_uid(conn)
             except OSError:
-                self._done(conn)
+                self._done(conn, admin)
                 continue
             threading.Thread(target=self._serve, args=(conn, admin, uid), daemon=True).start()
 
-    def _done(self, conn: socket.socket) -> None:
+    def _done(self, conn: socket.socket, admin: bool | None = None) -> None:
         try:
             conn.close()
         finally:
             with self.lock:
                 self._open -= 1
+                if admin is not None:
+                    self._open_by[admin] -= 1
 
     def _serve(self, conn: socket.socket, admin: bool, uid: int) -> None:
         fds: list[int] = []
         try:
-            conn.settimeout(READ_TIMEOUT)
+            # the whole request line within READ_TIMEOUT: a peer that sends a byte now and then holds no slot
+            end = time.monotonic() + READ_TIMEOUT
             buf = bytearray()
             while b"\n" not in buf:
+                left = end - time.monotonic()
+                if left <= 0:
+                    return
+                conn.settimeout(left)
                 chunk, got, _flags, _addr = socket.recv_fds(conn, 1 << 16, MAX_FDS)
-                fds.extend(got)
+                for fd in got:
+                    # at most MAX_FDS descriptors per request: one sent with each piece of the line is closed
+                    if len(fds) < MAX_FDS:
+                        fds.append(fd)
+                    else:
+                        try:
+                            os.close(fd)
+                        except OSError:
+                            pass
                 if not chunk:
                     return
                 buf += chunk
@@ -540,6 +563,13 @@ class Service:
                             conn.sendall(chunk)
             except KeysError as err:
                 self._send(conn, {"ok": False, "error": str(err)})
+            except (OSError, socket.timeout):
+                raise
+            except Exception as err:
+                # a request of a shape no check foresaw: one refusal with the kind of the fault, never a value
+                # of the request, and never a silent close
+                self._send(conn, {"ok": False, "error": "refused: the request could not be served (%s)"
+                                  % type(err).__name__})
             finally:
                 for f in (upload, stream):
                     if f is not None:
@@ -555,7 +585,7 @@ class Service:
                     os.close(fd)
                 except OSError:
                     pass
-            self._done(conn)
+            self._done(conn, admin)
 
     def _xchg(self):
         from awb.tcp import keys_exchange
@@ -627,7 +657,7 @@ class Service:
     def _project_row(self, code):
         from awb import projects
 
-        if not isinstance(code, str) or not _PROJECT_RE.match(code):
+        if not isinstance(code, str) or not _PROJECT_RE.fullmatch(code):
             return None
         try:
             return next((r for r in projects.load(self.paths_fn()) if r.code == code and r.state in projects.LIVE_STATES),
@@ -1043,7 +1073,7 @@ class Service:
 
         project = caller if isinstance(caller, str) else None
         named = req.get("project")
-        if project is None and isinstance(named, str) and _PROJECT_RE.match(named) and self._active_project(named):
+        if project is None and isinstance(named, str) and _PROJECT_RE.fullmatch(named) and self._active_project(named):
             project = named
         tmp = None
         try:
@@ -1121,7 +1151,7 @@ class Service:
         return found
 
     def _unbound(self, project, caller, what: str) -> Refused:
-        if caller is None and isinstance(project, str) and _PROJECT_RE.match(project):
+        if caller is None and isinstance(project, str) and _PROJECT_RE.fullmatch(project):
             if self._granted(project) and project not in self._grant_tokens():
                 return Refused("the grant of %s holds no key token: the owner runs awb projects kind %s project once "
                                "more" % (project, project))
@@ -1145,7 +1175,7 @@ class Service:
             return self._call_readonly(req, uid, caller, alias, tenant, entry)
         if "login" in tenant:
             raise Refused(readonly.UNREGISTERED_LINE % alias)
-        if role not in ROLES:
+        if not isinstance(role, str) or role not in ROLES:
             raise Refused("the role is read or lab")
         pair = tenant.get("roles", {}).get(role)
         if not pair:
@@ -1181,14 +1211,14 @@ class Service:
                 raise Refused("%s has no grant of the owner: he runs awb projects kind %s project in his own "
                               "terminal" % (project, project))
         if method in WRITE_METHODS:
-            if not (isinstance(project, str) and _PROJECT_RE.match(project) and self._active_project(project)):
+            if not (isinstance(project, str) and _PROJECT_RE.fullmatch(project) and self._active_project(project)):
                 raise Refused("a write needs the code of an active project")
-        if not isinstance(service, str) or not re.match(r"^[a-z][a-z0-9-]{1,30}$", service):
+        if not isinstance(service, str) or not _SERVICE_NAME_RE.match(service):
             raise Refused("a service name reads like ecs or vpc")
         if method in WRITE_METHODS and service in NO_WRITE_SERVICES:
             raise Refused("the key service does not write to %s; credentials and identities are an owner task"
                           % service)
-        if not isinstance(path, str) or not _PATH_RE.match(path) or ".." in path or "//" in path:
+        if not _plain_path(path):
             raise Refused("a path is plain: /v1/{project_id}/cloudservers")
         if method in WRITE_METHODS:
             # K9: the write is one METHOD service path triple of the lab_writes line, matched whole with its query
@@ -1225,7 +1255,7 @@ class Service:
         client = cloud.Client(keys, region, endpoint=self.endpoint, label=alias, timeout=60.0)
         # PT: every create of a project carries its awb-project tag (awb/tcp/projecttags.py)
         tagged = None
-        if method in WRITE_METHODS and isinstance(project, str) and _PROJECT_RE.match(project):
+        if method in WRITE_METHODS and isinstance(project, str) and _PROJECT_RE.fullmatch(project):
             body, tagged = projecttags.inject(method, service, path, body, project)
         try:
             r = client.request(method, service, path, query=query or None, body=body)
@@ -1395,7 +1425,7 @@ class Service:
         else:
             if method not in labadmin.METHODS:
                 raise Refused("a method is one of %s" % ", ".join(labadmin.METHODS))
-            if role not in ROLES:
+            if not isinstance(role, str) or role not in ROLES:
                 raise Refused("the role is read or lab")
         scope = req.get("scope")
         if scope is not None:
@@ -1409,9 +1439,9 @@ class Service:
             raise Refused("the region is not one of the tenant's")
         project = req.get("project") or ""
         self._readonly_caller(uid, caller, alias, project)
-        if not isinstance(service, str) or not re.match(r"^[a-z][a-z0-9-]{1,30}$", service):
+        if not isinstance(service, str) or not _SERVICE_NAME_RE.match(service):
             raise Refused("a service name reads like ecs or vpc")
-        if not isinstance(path, str) or not _PATH_RE.match(path) or ".." in path or "//" in path:
+        if not _plain_path(path):
             raise Refused("a path is plain: /v1/{project_id}/cloudservers")
         query = req.get("query") or {}
         if not isinstance(query, dict) or not all(isinstance(k, str) and isinstance(v, (str, list))
@@ -1420,7 +1450,7 @@ class Service:
         auth = ("key" if "ak" in self._write_cred(alias) else "login") if write else entry["auth"]
         if method in WRITE_METHODS:
             # TW: only in write mode (the checks above), like a write of the lab key: an active project, never IAM
-            if not (isinstance(project, str) and _PROJECT_RE.match(project) and self._active_project(project)):
+            if not (isinstance(project, str) and _PROJECT_RE.fullmatch(project) and self._active_project(project)):
                 raise Refused("a write needs the code of an active project")
             if service in NO_WRITE_SERVICES:
                 raise Refused("the key service does not write to %s here; a lab run on the tenant does (awb lab run "
@@ -1471,7 +1501,7 @@ class Service:
             return True
         if isinstance(query, dict) and list(query) == ["tagging"] and not key:
             return True
-        return isinstance(project, str) and bool(_PROJECT_RE.match(project)) and bucket.startswith(project + "-")
+        return isinstance(project, str) and bool(_PROJECT_RE.fullmatch(project)) and bucket.startswith(project + "-")
 
     def _lab_write_allowed(self, method: str, service: str, path: str, query=None) -> bool:
         """True when one METHOD service path triple of the lab_writes line of keys.conf is this write, matched
@@ -1498,12 +1528,12 @@ class Service:
         # a tf_services line of keys.conf is the list, an empty one included (no service); no line is the default
         value = self.settings.get("tf_services")
         listed = [s.strip() for s in (str(value) if value is not None else ",".join(TF_SERVICES)).split(",")]
-        services = [s for s in listed if re.match(r"^[a-z][a-z0-9]{1,20}$", s) and s != "iam"]
+        services = [s for s in listed if re.match(r"^[a-z][a-z0-9]{1,20}\Z", s) and s != "iam"]
         statements = []
         plain = [s for s in services if s != "obs"]
         if plain:
             statements.append({"Effect": "Allow", "Action": ["%s:*:*" % s for s in plain]})
-        if "obs" in services and isinstance(project, str) and _PROJECT_RE.match(project):
+        if "obs" in services and isinstance(project, str) and _PROJECT_RE.fullmatch(project):
             statements.append({"Effect": "Allow", "Action": ["obs:*:*"],
                                "Resource": ["obs:*:*:bucket:%s-*" % project, "obs:*:*:object:%s-*/*" % project]})
         statements.append({"Effect": "Deny", "Action": ["iam:*:*"]})
@@ -1590,7 +1620,7 @@ class Service:
             code = (r.data or {}).get("error", {}).get("code") if isinstance(r.data, dict) and isinstance(
                 (r.data or {}).get("error"), dict) else None
             raise Refused("the lease failed: IAM answered HTTP %d%s" % (
-                r.status, " %s" % code if isinstance(code, str) and re.match(r"^[A-Za-z0-9._]{1,30}$", code) else ""))
+                r.status, " %s" % code if isinstance(code, str) and re.match(r"^[A-Za-z0-9._]{1,30}\Z", code) else ""))
         self._log(uid, alias, "lab", "LEASE", "iam", region, "%d %s %dmin" % (r.status, cred["access"][:4], minutes),
                   project)
         return {"ok": True, "tenant": alias, "region": region, "minutes": minutes, "ak": cred["access"],
@@ -1617,11 +1647,22 @@ class Service:
             folder.mkdir(parents=True, exist_ok=True)
             path = folder / ("cloud-%s.tsv" % datetime.now(timezone.utc).strftime("%Y-%m"))
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
-            fields = (_now(), uid, alias, role, method, service, region, status, project or "-")
+            # the project only as a project code: a value the caller wrote never reaches the log
+            project = project if isinstance(project, str) and _PROJECT_RE.fullmatch(project) else "-"
+            fields = (_now(), uid, alias, role, method, service, region, status, project)
             with os.fdopen(fd, "a", encoding="utf-8") as fh:
                 fh.write("\t".join(re.sub(r"[\t\r\n]+", " ", str(x)) for x in fields) + "\n")
         except OSError:
             pass
+
+
+def _plain_path(path) -> bool:
+    """True for a plain path: the allowed characters, no `..`, no empty segment and no `.` segment. A server
+    removes a `.` segment before it routes, so `/v1/{project_id}/cloudservers/.` would pass the {id} of a lab_writes
+    triple and reach the collection."""
+    if not isinstance(path, str) or not _PATH_RE.match(path) or ".." in path or "//" in path:
+        return False
+    return "." not in path.split("/")
 
 
 def _old_lab_writes(settings: dict) -> bool:
