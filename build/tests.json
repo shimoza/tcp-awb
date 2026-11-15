@@ -17772,8 +17772,176 @@
    "name": "open sweep hardening: receipt normalization ignores only one final period",
    "run": ".venv/bin/pytest tests/test_open_sweep.py::test_receipt_normalization_ignores_only_one_final_period",
    "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-1",
+   "phase": "llm-exit",
+   "name": "exit pack: hostile usage values are never echoed",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_hostile_usage_values_are_never_echoed",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-2",
+   "phase": "llm-exit",
+   "name": "exit pack: nul destination is a private error",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_nul_destination_is_a_private_error",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-3",
+   "phase": "llm-exit",
+   "name": "exit pack: source links never pack outside data",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_source_links_never_pack_outside_data",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-4",
+   "phase": "llm-exit",
+   "name": "exit pack: transcripts must be single regular files",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_transcripts_must_be_single_regular_files",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-5",
+   "phase": "llm-exit",
+   "name": "exit pack: source root types are checked",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_source_root_types_are_checked",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-6",
+   "phase": "llm-exit",
+   "name": "exit pack: file replaced with link at open is refused",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_file_replaced_with_link_at_open_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-7",
+   "phase": "llm-exit",
+   "name": "exit pack: unsafe destination does not change outside directories",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_unsafe_destination_does_not_change_outside_directories",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-8",
+   "phase": "llm-exit",
+   "name": "exit pack: lock rejects links and special files without chmod",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_lock_rejects_links_and_special_files_without_chmod",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-9",
+   "phase": "llm-exit",
+   "name": "exit pack: replaced lock is detected before packing",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_replaced_lock_is_detected_before_packing",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-10",
+   "phase": "llm-exit",
+   "name": "exit pack: destination swap does not redirect output",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_destination_swap_does_not_redirect_output",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-11",
+   "phase": "llm-exit",
+   "name": "exit pack: publication failure preserves previous pack",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_publication_failure_preserves_previous_pack",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-12",
+   "phase": "llm-exit",
+   "name": "exit pack: git environment cannot select another repository",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_git_environment_cannot_select_another_repository",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-13",
+   "phase": "llm-exit",
+   "name": "exit pack: malformed git commit is not published",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_malformed_git_commit_is_not_published",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-14",
+   "phase": "llm-exit",
+   "name": "exit pack: recovery hint does not disclose paths",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_recovery_hint_does_not_disclose_paths",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-15",
+   "phase": "llm-exit",
+   "name": "exit pack: unsafe work archive is not published",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_unsafe_work_archive_is_not_published",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-16",
+   "phase": "llm-exit",
+   "name": "exit pack: missing optional sources produce explicit empty archives",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_missing_optional_sources_produce_explicit_empty_archives",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-17",
+   "phase": "llm-exit",
+   "name": "exit pack: unreadable transcript scan preserves previous pack",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_unreadable_transcript_scan_preserves_previous_pack",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-18",
+   "phase": "llm-exit",
+   "name": "exit pack: build user is refused without writes",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_build_user_is_refused_without_writes",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-19",
+   "phase": "llm-exit",
+   "name": "exit pack: concurrent runs wait for lock and publish complete pack",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_concurrent_runs_wait_for_lock_and_publish_complete_pack",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-20",
+   "phase": "llm-exit",
+   "name": "exit pack: work archive exclusive create does not remove existing file",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_work_archive_exclusive_create_does_not_remove_existing_file",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-21",
+   "phase": "llm-exit",
+   "name": "exit pack: source read failure preserves pack and hides values",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_source_read_failure_preserves_pack_and_hides_values",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-22",
+   "phase": "llm-exit",
+   "name": "exit pack: source directory swap cannot redirect reads",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_source_directory_swap_cannot_redirect_reads",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-23",
+   "phase": "llm-exit",
+   "name": "exit pack: private source names and contents stay in archives",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_private_source_names_and_contents_stay_in_archives",
+   "status": "passing"
+  },
+  {
+   "id": "lx5-hardening-24",
+   "phase": "llm-exit",
+   "name": "exit pack: corrupt successful work output is a private failure",
+   "run": ".venv/bin/pytest tests/test_exitpack.py::test_corrupt_successful_work_output_is_a_private_failure",
+   "status": "passing"
   }
  ],
- "total_tests": 2539,
+ "total_tests": 2563,
  "checked": "2026-11-09"
 }
