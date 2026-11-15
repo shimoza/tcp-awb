@@ -16,11 +16,12 @@ one of them is a planted case now.
 """
 from __future__ import annotations
 
+import bisect
 import functools
 import ipaddress
 import re
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
 from awb.matcher import Span
 
@@ -97,7 +98,9 @@ the way defanged addresses are written."""
 _AT = r"(?:[ \t]{0,2}\\?@[ \t]*(?:\n[ \t]*)?|\uff20|[ \t]*(?:\(at\)|\[at\]|\{at\}|<at>|\(a\))[ \t]*|(?-i:[ \t]+AT[ \t]+))"
 _LABEL = r"[^\W_](?:(?:[^\W\s]|-){0,61}[^\W_])?"
 """A host label: letters and digits of any script, with hyphens and underscores inside."""
-_HOST = r"(?:%s%s)+(?:%s)" % (_LABEL, _DOT, _TLDS)
+_HOST = r"(?:%s%s){1,%d}(?:%s)" % (_LABEL, _DOT, 24, _TLDS)
+"""At most 24 labels before the top level domain: without a bound a chain of defanged labels (a [dot] a [dot] ...)
+was read to its end from every label and back again, n squared steps (review 2026-11-15)."""
 _DEFANG_RE = re.compile(r"(?i)[ \t]*(?:\(dot\)|\[dot\]|\{dot\}|\(\.\)|\[\.\]|\{\.\})[ \t]*|[ \t]+DOT[ \t]+|\\\.|[\u2024\uff0e]")
 _ABBREVIATION_RE = re.compile(r"[A-ZÄÖÜ][a-zäöüß]{0,5}\.[A-Za-z]{2}")
 """Tel.Nr, St.Nr, Bsp.AG: a short capitalised word, a dot and two letters is an abbreviation, not a host."""
@@ -413,7 +416,7 @@ _IBAN_SHAPE = re.compile(r"\b[A-Za-z]{2}\d{2}(?: ?[A-Za-z0-9]{4}){2,7}(?: ?[A-Za
 """The strict shape of an IBAN, for the rule that digits inside it are never a phone number: the loose pattern
 above would swallow any spaced number between two letters."""
 _ID_SHAPE = re.compile(
-    r"(?<![0-9A-Za-z])(?=[0-9-]*[a-fA-F])(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    r"(?<![0-9A-Za-z])(?=[0-9-]{0,64}[a-fA-F])(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
     r"|[0-9a-fA-F]{64}|[0-9a-fA-F]{40}|[0-9a-fA-F]{32}|[0-9a-fA-F]{16})(?![0-9A-Za-z])")
 """An id of 16, 32, 40 or 64 hex digits with a letter among them or a uuid (a request id, a resource id): what lies
 inside it is no phone number, IBAN or address (task T7). A run of digits alone stays a number."""
@@ -580,6 +583,12 @@ def _cell_phones(text: str, start: int, end: int) -> list[Span]:
     return out
 
 
+def _disjoint(spans: list[Span]) -> bool:
+    """Whether no two of `spans` overlap (the overlap check in log time needs it)."""
+    ordered = sorted((s.start, s.end) for s in spans)
+    return all(ordered[i][1] <= ordered[i + 1][0] for i in range(len(ordered) - 1))
+
+
 def _find_structured(text: str) -> list[Span]:
     wraps = _wrap_joins(text)
     view, positions = _view(text, wraps)
@@ -602,10 +611,15 @@ def _find_structured(text: str) -> list[Span]:
     wrapped = [(a, d) for a, _, _, d in wraps]
     # a value that lies wholly inside markup (an address in an href, an IP in a comment) is gone from the view:
     # the text as written is searched as well and what the view did not find is added
+    taken = _Intervals((a.start, a.end) for a in out) if _disjoint(out) else None
     for s in _find(text):
         if s.cls == "url" and any(a < s.end and s.start < d for a, d in wrapped):
             continue
-        if not any(a.start < s.end and s.start < a.end for a in out):
+        if taken is None:
+            if not any(a.start < s.end and s.start < a.end for a in out):
+                out.append(s)
+        elif not taken.overlaps(s.start, s.end):
+            taken.add(s.start, s.end)
             out.append(s)
     out.sort(key=lambda s: (s.start, s.end))
     return out
@@ -615,6 +629,33 @@ def _tcp_cover(text: str, start: int, end: int) -> bool:
     """Whether the web address at text[start:end] is the TCP service host that starts there (or a part of it)."""
     m = _TCP_IN_TEXT.match(text, start)
     return m is not None and end <= m.end()
+
+
+class _Intervals:
+    """Spans that do not overlap, kept sorted, for an overlap check in log time (a check against every kept span
+    made a text of many short numbers cost n squared steps, review 2026-11-15)."""
+
+    def __init__(self, spans: Iterable[tuple[int, int]] = ()):
+        self.starts: list[int] = []
+        self.ends: list[int] = []
+        for a, b in sorted(spans):
+            self.starts.append(a)
+            self.ends.append(b)
+
+    def overlaps(self, start: int, end: int) -> bool:
+        i = bisect.bisect_left(self.starts, end)
+        return i > 0 and self.ends[i - 1] > start
+
+    def add(self, start: int, end: int) -> None:
+        i = bisect.bisect_left(self.starts, start)
+        self.starts.insert(i, start)
+        self.ends.insert(i, end)
+
+
+def _inside_any(spans: list[tuple[int, int]], start: int, end: int) -> bool:
+    """Whether start..end lies inside one of `spans` (sorted, not overlapping, as finditer gives them)."""
+    i = bisect.bisect_right(spans, (start, float("inf"))) - 1
+    return i >= 0 and spans[i][0] <= start and end <= spans[i][1]
 
 
 def _find(text: str) -> list[Span]:
@@ -649,11 +690,11 @@ def _find(text: str) -> list[Span]:
     found = [t for t in found if not (t[2] == "PHONE" and _price_shaped(text, t[0], t[1]))]
     # digits inside something shaped like an IBAN are never a phone number, even when the IBAN is invalid
     iban_shaped = [(m.start(), m.end()) for m in _IBAN_SHAPE.finditer(text)]
-    found = [t for t in found if not (t[2] == "PHONE" and any(a <= t[0] and t[1] <= b for a, b in iban_shaped))]
+    found = [t for t in found if not (t[2] == "PHONE" and _inside_any(iban_shaped, t[0], t[1]))]
     # a request id or a resource id is an id: nothing found inside it counts (T7)
     ids = [(m.start(), m.end()) for m in _ID_SHAPE.finditer(text)]
     if ids:
-        found = [t for t in found if not any(a <= t[0] and t[1] <= b for a, b in ids)]
+        found = [t for t in found if not _inside_any(ids, t[0], t[1])]
     # the size, date and clock columns of a listing, a file name and the zone offset of a time are not a number
     found = [t for t in found if not (t[2] == "PHONE" and _listing_part(text, t[0], t[1]))]
     # a dotted number announced as a section of a document is a section, not an address: service
@@ -676,8 +717,10 @@ def _find(text: str) -> list[Span]:
     # longer first, then priority, then position; keep a span only when it overlaps nothing kept so far
     found.sort(key=lambda t: (-(t[1] - t[0]), _PRIORITY[t[2]], t[0]))
     kept: list[tuple[int, int, str]] = []
+    taken = _Intervals()
     for s, e, k in found:
-        if all(e <= ks or s >= ke for ks, ke, _ in kept):
+        if not taken.overlaps(s, e):
+            taken.add(s, e)
             kept.append((s, e, k))
     kept.sort()
     return [Span(start=s, end=e, cls=k.lower()) for s, e, k in kept]

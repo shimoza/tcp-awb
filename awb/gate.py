@@ -37,7 +37,10 @@ Classes of findings:
 Every detector runs over the text as given and, when it differs, over its normalised form (awb.normalize:
 escapes, entities, percent encoding, invisible characters, terminal colour sequences) with the hits mapped
 back, and over what the base64 and hex blocks of the text decode to (such a finding is on the line of the
-block). A commit message is scanned the same way (`awb gate --message FILE`, the commit-msg hook) and so are
+block), and over its skeleton (`_skeleton`: Cyrillic, Greek and fullwidth lookalikes made Latin or ASCII, one
+for one). A file with a byte that is not UTF-8 is scanned as UTF-8 with that byte replaced and as Latin-1. A link
+is scanned by its target text (what git commits), a special file is opaque and never opened for reading; a PDF
+is scanned by its text and by its bytes outside the streams. A commit message is scanned the same way (`awb gate --message FILE`, the commit-msg hook) and so are
 the author, the committer, the message and the ref names of every pushed commit. One exception: when the owner
 pushes a repository he owns, an author or committer line that is exactly the name or the mail of the identity in
 that repository's own git config passes, because that identity is his and he signs every commit with it; his
@@ -60,7 +63,8 @@ Limits, kept on purpose: a submodule's content (its gitlink is left out, .gitmod
 content (the commit carries the pointer text only), the path of an older pushed commit whose blob comes back
 in a newer pushed commit (content is scanned once per blob, that older path is not), a key body without any
 armour line, an armour line in lower case or wrapped over two lines, a key id and its secret three or more
-lines apart, a placeholder word inside a real value.
+lines apart, a placeholder word inside a real value, an assignment nested more than 32 levels inside a value, a
+JWT or a Discord token glued to a dash before it.
 
 The patterns below are written so that this file does not match them itself (a character class or a split
 string where a literal would match), so the gate can check its own source.
@@ -72,9 +76,11 @@ import math
 import os
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -158,7 +164,7 @@ _NESTED_ASSIGN_RE = re.compile(r"[A-Za-z0-9_.-]+[ \t]*(?::[ \t]|=[^=\s])")
 """A line that is itself an assignment is not the value of the key on the line before it."""
 
 # secrets written without a key, or with the key and value apart: (pattern, minimum length, minimum entropy)
-_USERINFO_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9+.-]*://[^/\s@:\"'`]*:(?P<value>[^/\s@\"'`]{8,})@")
+_USERINFO_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9+.-]{0,31}://[^/\s@:\"'`]*:(?P<value>[^/\s@\"'`]{8,})@")
 _HEADER_RE = re.compile(
     r"""(?i)(?<![A-Za-z0-9_-])(?:proxy-)?authorization["']?[ \t]*[:=][ \t]*["']?"""
     r"""(?:(?:basic|bearer|token|digest|oauth|negotiate|ntlm|apikey|api-key)[ \t]+)?(?P<value>[^\s"'`,;]{8,})"""
@@ -291,7 +297,7 @@ _XML_ELEMENT_RE = re.compile(
     r"<(?P<key>[A-Za-z_][A-Za-z0-9_.:-]*)(?:[ \t][^<>\n]*)?>(?P<value>[^<>\n]+)</(?P=key)[ \t]*>"
 )
 _XML_PAIR_RE = re.compile(
-    r"""(?i)(?<![A-Za-z0-9_-])(?:key|name)[ \t]*=[ \t]*(?P<q>["'])(?P<key>[^"'\n]+)(?P=q)[^<>\n]*?"""
+    r"""(?i)(?<![A-Za-z0-9_-])(?:key|name)[ \t]*=[ \t]*(?P<q>["'])(?P<key>[^"'\n]+)(?P=q)[^<>\n]{0,500}?"""
     r"""(?<![A-Za-z0-9_-])value[ \t]*=[ \t]*(?P<q2>["'])(?P<value>[^"'\n]*)(?P=q2)"""
 )
 _TABLE_DELIMITERS = ("|", "\t", ";", ",")
@@ -335,17 +341,17 @@ _TOKEN_PATTERNS = tuple(
         r"pypi-([A-Za-z0-9_-]{40,})",
         r"hf_([A-Za-z0-9]{30,})",
         r"[0-9]{8,10}:AA([A-Za-z0-9_-]{30,})",
-        r"[MN][A-Za-z0-9_-]{23,}\.[A-Za-z0-9_-]{6}\.([A-Za-z0-9_-]{27,})",
+        r"(?<!-)[MN][A-Za-z0-9_-]{23,}\.[A-Za-z0-9_-]{6}\.([A-Za-z0-9_-]{27,})",
         r"(?:AC|SK)([0-9a-f]{32})(?![A-Za-z0-9])",
-        r"ey([J][A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})",
+        r"(?<!-)ey([J][A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})",
     )
 )
 
 _GENERIC_USERS = frozenset(("user", "username", "you", "yourname", "name", "me", "someone", "example"))
 _HOMEPATH_RE = re.compile(
-    r"(?<![\w.-])(?:/export|/data)?(?:/|\\/)+home(?:/|\\/)+(?P<a>\w[\w.-]*)"
-    r"|(?<![\w.-])/(?:mnt/[a-z]/)?Users/(?P<c>[A-Za-z_][\w.-]*)"
-    r"|(?<![\w.-])[A-Za-z]:\\+Users\\+(?P<d>[A-Za-z_][\w.-]*)"
+    r"(?<![\w.-])(?:/export|/data)?(?:/|\\/){1,8}home(?:/|\\/){1,8}(?P<a>\w[\w.-]*)"
+    r"|(?<![\w.-])/(?:mnt/[a-z]/[Uu]|(?:[A-Za-z]/)?U)sers/(?P<c>[A-Za-z_][\w.-]*)"
+    r"|(?<![\w.-])[A-Za-z]:(?:\\+[Uu]sers\\+|/+users/+)(?P<d>[A-Za-z_][\w.-]*)"
     r"|\\home\\(?P<e>[A-Za-z_][\w.-]*)"
     r"|(?<![\w.-])/r[o]ot(?=/)"
     r"|(?<![\w.-])~(?P<f>[A-Za-z_][\w.-]*)(?=/)"
@@ -516,12 +522,17 @@ def _next_line_value(text: str, end: int, heredoc: bool, key_column: int) -> tup
     return None
 
 
+_NESTED_DEPTH = 32
+"""How deep an assignment inside a value is looked for (url=...&password=v is one level). Without a bound a run
+like a=a=a=... of n characters cost n squared steps (review 2026-11-15)."""
+
+
 def _assignments(text: str) -> Iterator[tuple[str, str, int, bool]]:
     """(key, value, offset of the value, quoted) of every assignment in `text`, also inside a longer value
     (url=...&password=v, Cookie: token=v) and with the value on the line after the key."""
-    todo = [(text, 0)]
+    todo = [(text, 0, 0)]
     while todo:
-        chunk, base = todo.pop()
+        chunk, base, depth = todo.pop()
         for m in _ASSIGN_RE.finditer(chunk):
             value, quoted = _unquote(m.group("value"))
             start = m.start("value") + (1 if quoted else 0)
@@ -532,8 +543,8 @@ def _assignments(text: str) -> Iterator[tuple[str, str, int, bool]]:
                     continue
                 value, start, quoted = found
             yield m.group("key"), value, base + start, quoted
-            if "=" in value or ":" in value:
-                todo.append((value, base + start))
+            if ("=" in value or ":" in value) and depth < _NESTED_DEPTH:
+                todo.append((value, base + start, depth + 1))
 
 
 def _cells(line: str, delimiter: str) -> list[str]:
@@ -627,17 +638,22 @@ def _detect_keypair(text: str) -> list[int]:
     lines before or after it, a secret of 40 letters, digits, slashes and plus signs in both cases. A git commit
     id is lower-case hex and never matches."""
     out: list[int] = []
+    ids = list(_AK_RE.finditer(text))
+    if not ids:
+        return out
+    # every secret once (a window per key id cost a long line once per id: n squared, review 2026-11-15); the
+    # window ends at line starts, where the bounds of _SK_RE hold as they did on the window alone
+    secrets = [(s.start(), s.end()) for s in _SK_RE.finditer(text) if _entropy(s.group(0)) >= _MIN_SK_ENTROPY]
+    begins = [a for a, _ in secrets]
     starts = _line_starts(text)
-    for m in _AK_RE.finditer(text):
+    for m in ids:
         line = bisect.bisect_right(starts, m.start()) - 1
         lo = starts[max(0, line - _KEYPAIR_LINES)]
         hi_line = line + _KEYPAIR_LINES + 1
         hi = starts[hi_line] if hi_line < len(starts) else len(text)
-        window = text[lo:hi]
-        for s in _SK_RE.finditer(window):
-            if _entropy(s.group(0)) >= _MIN_SK_ENTROPY:
-                out.append(lo + s.start())
-                break
+        i = bisect.bisect_left(begins, lo)
+        if i < len(secrets) and secrets[i][1] <= hi:
+            out.append(secrets[i][0])
     return out
 
 
@@ -775,6 +791,34 @@ def _detect_names(text: str, matcher) -> list[int]:
     return [normalize.original_span(n, s.start, s.end)[0] for s in _name_spans(text, n, matcher)]
 
 
+_LOOKALIKES = dict(zip(
+    "\u0430\u0435\u043e\u0440\u0441\u0443\u0445\u0456\u0458\u0455\u04bb\u0501\u051b\u051d\u04cf\u043a"
+    "\u0410\u0412\u0415\u041a\u041c\u041d\u041e\u0420\u0421\u0422\u0425\u0406\u0408\u0405\u04ae\u051a"
+    "\u051c\u0391\u0392\u0395\u0396\u0397\u0399\u039a\u039c\u039d\u039f\u03a1\u03a4\u03a5\u03a7\u03bf",
+    "aeopcyxijshdqwlkABEKMHOPCTXIJSYQWABEZHIKMNOPTYXo"))
+"""Cyrillic and Greek letters that look like a Latin one."""
+
+
+def _skeleton(text: str) -> str:
+    """`text` with every lookalike letter (Cyrillic, Greek) and every character whose compatibility form is one
+    ASCII character (fullwidth letters, digits and slashes, a no-break space) replaced by that Latin or ASCII
+    character, one for one, so that every offset stays the same. A key, a token prefix or a home path written
+    with such a character is found in it (review 2026-11-15)."""
+    if text.isascii():
+        return text
+    out = []
+    for c in text:
+        if c.isascii():
+            out.append(c)
+            continue
+        m = _LOOKALIKES.get(c)
+        if m is None:
+            k = unicodedata.normalize("NFKC", c)
+            m = k if len(k) == 1 and k.isascii() else c
+        out.append(m)
+    return "".join(out)
+
+
 def _detect_all(text: str, matcher, path: Path | str | None = None) -> list[tuple[str, int]]:
     """(class, offset in `text`) of every hit: the name class over the normalised text, every pattern detector
     over the text as given and, when it differs, over the normalised text with the offsets mapped back. `path`
@@ -789,6 +833,15 @@ def _detect_all(text: str, matcher, path: Path | str | None = None) -> list[tupl
         out.extend((cls, off) for off in detect(text))
         if n.text != text:
             out.extend((cls, normalize.original_span(n, off, off + 1)[0]) for off in detect(n.text))
+    skeleton = _skeleton(text)
+    if skeleton != text:
+        # one for one: an offset in the skeleton is the offset in `text`
+        if matcher is not None:
+            out.extend(("name", off) for off in _detect_names(skeleton, matcher))
+        for cls, detect in list(DETECTORS.items()):
+            if detect is _detect_identifier:
+                detect = (lambda t, _p=path: _detect_identifier(t, _p))
+            out.extend((cls, off) for off in detect(skeleton))
     return out
 
 
@@ -831,6 +884,25 @@ def _decode(data: bytes) -> str:
         return data.decode("latin-1")
 
 
+def _decodings(data: bytes) -> list[str]:
+    """The texts a file is scanned as: UTF-8, or when one byte is not UTF-8 both UTF-8 with that byte replaced and
+    Latin-1. Latin-1 alone turned every umlaut of a UTF-8 file into two other letters, so one stray byte hid a
+    registered form (review 2026-11-15). A line has the same number in both."""
+    try:
+        return [data.decode("utf-8")]
+    except UnicodeDecodeError:
+        return [data.decode("utf-8", errors="replace"), data.decode("latin-1")]
+
+
+def _scan_decoded(label: str, data: bytes, matcher, path: Path | str | None = None,
+                  prepare: Callable[[str], str] = lambda t: t) -> list[Finding]:
+    """`_scan_text` over every decoding of `data` (after `prepare`), each finding once."""
+    found: set[Finding] = set()
+    for text in _decodings(data):
+        found.update(_scan_text(label, prepare(text), matcher, path))
+    return sorted(found, key=_order)
+
+
 def _is_opaque(label: str, data: bytes) -> bool:
     return (b"\x00" in data[:BINARY_PROBE] or data.startswith(_OPAQUE_MAGICS)
             or Path(label).suffix.lower() in _OPAQUE_SUFFIXES)
@@ -864,14 +936,56 @@ def pdf_text(data: bytes) -> str | None:
     return ex.detect_text or ex.text
 
 
+_PDF_RAW_CLASSES = frozenset(("name", "secret", "private-key", "token", "homepath", "blocklist"))
+"""The classes looked for in the bytes of a PDF outside its streams; not the identifier class, since every PDF
+carries a document id of 32 hex digits in its trailer."""
+
+
+def _pdf_outside_streams(data: bytes) -> bytes:
+    """The bytes of a PDF without the content of its streams (compressed, binary), NUL bytes made spaces."""
+    out: list[bytes] = []
+    pos = 0
+    while True:
+        start = data.find(b"stream", pos)
+        if start < 0:
+            out.append(data[pos:])
+            break
+        body = start + len(b"stream")
+        if not data[max(0, start - 64):start].rstrip().endswith(b">>"):    # a stream opens after its dictionary
+            out.append(data[pos:body])
+            pos = body
+            continue
+        if data.startswith(b"\r\n", body):
+            body += 2
+        elif data.startswith(b"\n", body) or data.startswith(b"\r", body):
+            body += 1
+        else:
+            out.append(data[pos:body])
+            pos = body
+            continue
+        out.append(data[pos:body])
+        end = data.find(b"endstream", body)
+        if end < 0:                 # a stream that never ends: the rest is kept, never dropped
+            out.append(data[body:])
+            break
+        out.append(b"endstream")
+        pos = end + len(b"endstream")
+    return b"".join(out).replace(b"\x00", b" ")
+
+
 def _scan_bytes(label: str, data: bytes, matcher: Matcher | None, path: Path | str | None = None) -> list[Finding]:
     if data.startswith(b"%PDF-") and Path(label).suffix.lower() in (".pdf", ""):
         text = pdf_text(data)
         if text is not None:
-            return _scan_text(label, text, matcher, path)
+            found = set(_scan_text(label, text, matcher, path))
+            # the commit carries the bytes, not the text pdftotext reads: a comment, a key outside a stream or
+            # text after the last %%EOF is in the file and in no page (review 2026-11-15)
+            found.update(Finding(label, 0, f.cls) for f in _scan_decoded(label, _pdf_outside_streams(data), matcher)
+                         if f.cls in _PDF_RAW_CLASSES)
+            return sorted(found, key=_order)
     if _is_opaque(label, data):
         return [Finding(label, 0, "opaque")]
-    return _scan_text(label, _decode(data), matcher, path)
+    return _scan_decoded(label, data, matcher, path)
 
 
 RATE_WAIT = check.RATE_WAIT
@@ -891,6 +1005,31 @@ def _load_matcher(register_path: Path | None, rate_wait: float = 0.0):
     return check.RemoteCheck(check.remote_socket(), rate_wait)
 
 
+def _read_regular(f: Path) -> bytes | None:
+    """The bytes of a regular file, or None for a file that cannot be read or is no regular file (a named pipe, a
+    device, a socket, a folder). Opened without blocking, so that a named pipe never holds the gate (review
+    2026-11-15: a pipe in a walked folder hung `awb gate DIR` for good), and judged by the opened file itself."""
+    try:
+        fd = os.open(f, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        os.set_blocking(fd, True)
+        chunks = []
+        while True:
+            chunk = os.read(fd, 1 << 20)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
 def _scan_paths(files: Iterable[Path], matcher: Matcher | None) -> list[Finding]:
     out: list[Finding] = []
     for f in files:
@@ -899,10 +1038,19 @@ def _scan_paths(files: Iterable[Path], matcher: Matcher | None) -> list[Finding]
         if matcher is not None and _detect_names(str(f), matcher):
             found.append(Finding(str(f), 0, "name"))
         try:
-            data = f.read_bytes()
+            if stat.S_ISLNK(os.lstat(f).st_mode):
+                # git commits the link's target as text: it is scanned like content, on line 0
+                found.extend(Finding(str(f), 0, x.cls) for x in _scan_decoded(str(f), os.readlink(os.fsencode(f)),
+                                                                               matcher))
+                if os.path.isdir(f):
+                    out.extend(sorted(set(found), key=_order))
+                    continue
         except OSError:
+            pass
+        data = _read_regular(f)
+        if data is None:
             found.append(Finding(str(f), 0, "opaque"))
-            out.extend(sorted(found, key=_order))
+            out.extend(sorted(set(found), key=_order))
             continue
         found.extend(_scan_bytes(str(f), data, matcher, f))
         if f.name == "OPEN.md" and in_project(f.parent):
@@ -950,9 +1098,33 @@ def scan_message(path: Path, matcher: Matcher | None) -> list[Finding]:
         data = Path(path).read_bytes()
     except OSError:
         return [Finding(MESSAGE_LABEL, 0, "opaque")]
-    text = message_text(_decode(data))
-    found = _scan_text(MESSAGE_LABEL, text, matcher) + _attribution(MESSAGE_LABEL, text)
-    return sorted(found + _candidates(MESSAGE_LABEL, text, {f.line for f in found if f.cls == "name"}), key=_order)
+    found: list[Finding] = []
+    for raw in _decodings(data):
+        text = message_text(raw)
+        found.extend(_scan_text(MESSAGE_LABEL, text, matcher) + _attribution(MESSAGE_LABEL, text))
+        found.extend(f for f in _scan_text(MESSAGE_LABEL, _comment_lines(raw), None) if f.cls in _COMMENT_CLASSES)
+        found.extend(_candidates(MESSAGE_LABEL, text, {f.line for f in found if f.cls == "name"}))
+    return sorted(set(found), key=_order)
+
+
+_COMMENT_CLASSES = frozenset(("secret", "private-key", "token"))
+"""The classes looked for in the comment lines of a commit message: git keeps a comment line when the message
+comes with -m or -F (cleanup "whitespace"), so a key there would be committed (review 2026-11-15). Git's own
+comment lines name branches, files and the folder of a merge, never a key; the other classes stay out of them."""
+
+
+def _comment_lines(raw: str) -> str:
+    """The comment lines of a commit message before the scissors line, every other line emptied (the line count
+    stays)."""
+    out: list[str] = []
+    for line in raw.split("\n"):
+        if line.startswith("#"):
+            if _SCISSORS in line:
+                break
+            out.append(line)
+        else:
+            out.append("")
+    return "\n".join(out)
 
 
 def _candidates(label: str, text: str, named: set[int]) -> list[Finding]:
@@ -985,6 +1157,23 @@ def masked_path(path: str, matcher) -> str:
     size = len(n.text)
     spans = _merged([Span(min(s.start, size), min(s.end, size), s.cls) for s in spans])
     return Matcher([]).replace(n.text, spans, lambda s: "[name]")
+
+
+_PATH_VALUE_CLASSES = frozenset(("secret", "private-key", "token"))
+WITHHELD_PART = "[withheld]"
+
+
+def withheld_path(path: str) -> str:
+    """`path` for printing with every part (between slashes and spaces) that carries a key, a private key or a token
+    replaced by [withheld]: the refusal of a file named after a token printed the token (review 2026-11-15)."""
+    parts = re.split(r"([/\\ ])", path)
+    changed = False
+    for i in range(0, len(parts), 2):
+        part = parts[i]
+        if part and any(cls in _PATH_VALUE_CLASSES for cls, _ in _detect_all(part, None)):
+            parts[i] = WITHHELD_PART
+            changed = True
+    return "".join(parts) if changed else path
 
 
 def scan_files(files: list[Path], register_path: Path | None) -> list[Finding]:
@@ -1362,7 +1551,7 @@ def _scan_pushed(repo: Path, updates: list[tuple[str, str, str, str]], matcher: 
     tags = _read_objects(top, [i for i, t in types.items() if t == "tag"], b"tag")
     for object_id, data in tags.items():
         label = "ref " + tag_candidates[object_id]
-        out.extend(sorted({Finding(label, 0, f.cls) for f in _scan_text(label, _decode(data), matcher)}, key=_order))
+        out.extend(sorted({Finding(label, 0, f.cls) for f in _scan_decoded(label, data, matcher)}, key=_order))
     out.extend(scan_commits(top, pushed_commits(top, updates, remote), matcher))
     return out
 
@@ -1533,7 +1722,9 @@ def _expand(paths: Iterable[Path]) -> list[Path]:
             continue
         for root, dirs, files in os.walk(p):
             dirs[:] = sorted(d for d in dirs if d not in _SKIP_DIRS and not d.endswith(".egg-info"))
-            out.extend(Path(root) / name for name in sorted(files))
+            # a link to a folder is not walked into, but git commits it: its target is scanned as a file's is
+            links = [d for d in dirs if os.path.islink(os.path.join(root, d))]
+            out.extend(Path(root) / name for name in sorted(files + links))
     return out
 
 
@@ -1647,7 +1838,7 @@ def main(argv: list[str] | None = None) -> int:
             findings.extend(_scan_paths(_expand(args.paths), matcher))
         if in_project(args.repo if args.repo is not None else Path.cwd()):
             findings = [f for f in findings if f.cls not in PROJECT_FREE]
-        lines = ["%s  %s:%d" % (f.cls, masked_path(f.file, matcher), f.line) for f in findings]
+        lines = ["%s  %s:%d" % (f.cls, withheld_path(masked_path(f.file, matcher)), f.line) for f in findings]
     except (GateError, register.RegisterError) as err:   # check.CheckUnavailable is a RegisterError
         print("awb gate: %s" % err, file=sys.stderr)
         return 2

@@ -18724,8 +18724,113 @@
    "name": "sweep: a state or a date with a line break adds no line to the report",
    "run": ".venv/bin/pytest tests/test_sweep_review.py::test_a_state_or_a_date_with_a_line_break_adds_no_line_to_the_report",
    "status": "passing"
+  },
+  {
+   "id": "gate-review-1",
+   "phase": "gate-review",
+   "name": "gate review: a long run is scanned in linear time",
+   "run": ".venv/bin/pytest tests/test_gate_review.py::test_a_long_run_is_scanned_in_linear_time",
+   "status": "passing"
+  },
+  {
+   "id": "gate-review-2",
+   "phase": "gate-review",
+   "name": "gate review: a lookalike letter does not hide a finding",
+   "run": ".venv/bin/pytest tests/test_gate_review.py::test_a_lookalike_letter_does_not_hide_a_finding",
+   "status": "passing"
+  },
+  {
+   "id": "gate-review-3",
+   "phase": "gate-review",
+   "name": "gate review: windows spellings of a home folder are found",
+   "run": ".venv/bin/pytest tests/test_gate_review.py::test_windows_spellings_of_a_home_folder_are_found",
+   "status": "passing"
+  },
+  {
+   "id": "gate-review-4",
+   "phase": "gate-review",
+   "name": "gate review: the windows spellings keep an api path",
+   "run": ".venv/bin/pytest tests/test_gate_review.py::test_the_windows_spellings_keep_an_api_path",
+   "status": "passing"
+  },
+  {
+   "id": "gate-review-5",
+   "phase": "gate-review",
+   "name": "gate review: a key nine levels deep in a value is still found",
+   "run": ".venv/bin/pytest tests/test_gate_review.py::test_a_key_nine_levels_deep_in_a_value_is_still_found",
+   "status": "passing"
+  },
+  {
+   "id": "gate-review-6",
+   "phase": "gate-review",
+   "name": "gate review: a stray byte does not hide a name in a utf8 file",
+   "run": ".venv/bin/pytest tests/test_gate_review.py::test_a_stray_byte_does_not_hide_a_name_in_a_utf8_file",
+   "status": "passing"
+  },
+  {
+   "id": "gate-review-7",
+   "phase": "gate-review",
+   "name": "gate review: a stray byte does not hide a name in a commit message",
+   "run": ".venv/bin/pytest tests/test_gate_review.py::test_a_stray_byte_does_not_hide_a_name_in_a_commit_message",
+   "status": "passing"
+  },
+  {
+   "id": "gate-review-8",
+   "phase": "gate-review",
+   "name": "gate review: a comment line git keeps is scanned for keys",
+   "run": ".venv/bin/pytest tests/test_gate_review.py::test_a_comment_line_git_keeps_is_scanned_for_keys",
+   "status": "passing"
+  },
+  {
+   "id": "gate-review-9",
+   "phase": "gate-review",
+   "name": "gate review: a refusal never prints the token a file is named after",
+   "run": ".venv/bin/pytest tests/test_gate_review.py::test_a_refusal_never_prints_the_token_a_file_is_named_after",
+   "status": "passing"
+  },
+  {
+   "id": "gate-review-10",
+   "phase": "gate-review",
+   "name": "gate review: withheld path leaves a clean path alone",
+   "run": ".venv/bin/pytest tests/test_gate_review.py::test_withheld_path_leaves_a_clean_path_alone",
+   "status": "passing"
+  },
+  {
+   "id": "gate-review-11",
+   "phase": "gate-review",
+   "name": "gate review: a named pipe in a walked folder is opaque and never hangs",
+   "run": ".venv/bin/pytest tests/test_gate_review.py::test_a_named_pipe_in_a_walked_folder_is_opaque_and_never_hangs",
+   "status": "passing"
+  },
+  {
+   "id": "gate-review-12",
+   "phase": "gate-review",
+   "name": "gate review: the target of a link is scanned as git commits it",
+   "run": ".venv/bin/pytest tests/test_gate_review.py::test_the_target_of_a_link_is_scanned_as_git_commits_it",
+   "status": "passing"
+  },
+  {
+   "id": "gate-review-13",
+   "phase": "gate-review",
+   "name": "gate review: a pdf is judged by its bytes too",
+   "run": ".venv/bin/pytest tests/test_gate_review.py::test_a_pdf_is_judged_by_its_bytes_too",
+   "status": "passing"
+  },
+  {
+   "id": "gate-review-14",
+   "phase": "gate-review",
+   "name": "gate review: the structured patterns take linear time on a long run",
+   "run": ".venv/bin/pytest tests/test_gate_review.py::test_the_structured_patterns_take_linear_time_on_a_long_run",
+   "status": "passing"
+  },
+  {
+   "id": "gate-review-15",
+   "phase": "gate-review",
+   "name": "gate review: the bounded patterns still find a host a phone and an id",
+   "run": ".venv/bin/pytest tests/test_gate_review.py::test_the_bounded_patterns_still_find_a_host_a_phone_and_an_id",
+   "status": "passing"
   }
  ],
- "total_tests": 2675,
+ "total_tests": 2690,
  "checked": "2026-11-09"
 }
