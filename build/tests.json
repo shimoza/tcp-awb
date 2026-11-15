@@ -17940,8 +17940,211 @@
    "name": "exit pack: corrupt successful work output is a private failure",
    "run": ".venv/bin/pytest tests/test_exitpack.py::test_corrupt_successful_work_output_is_a_private_failure",
    "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-01",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: open items refuse external project and linked sources",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_open_items_refuse_external_project_and_linked_sources",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-02",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: open items reject oversize sources",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_open_items_reject_oversize_sources",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-03",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: build runs ignore non ascii numbers and linked states",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_build_runs_ignore_non_ascii_numbers_and_linked_states",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-04",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: state and summary readers refuse links and special files",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_state_and_summary_readers_refuse_links_and_special_files",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-05",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: deep json and nonfinite counts are unavailable",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_deep_json_and_nonfinite_counts_are_unavailable",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-06",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: weekly writer does not follow predictable temp link",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_weekly_writer_does_not_follow_predictable_temp_link",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-07",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: concurrent weekly writers publish complete private files",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_concurrent_weekly_writers_publish_complete_private_files",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-08",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: failed weekly replace cleans temp and preserves previous",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_failed_weekly_replace_cleans_temp_and_preserves_previous",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-09",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: kept tenant and location are screened before rendering",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_kept_tenant_and_location_are_screened_before_rendering",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-10",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: truncated failure reasons are screened in full",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_truncated_failure_reasons_are_screened_in_full",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-11",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: truncated queue text is screened in full",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_truncated_queue_text_is_screened_in_full",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-12",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: mail sender failures never echo values or exception names",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_mail_sender_failures_never_echo_values_or_exception_names",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-13",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: mail refuses if check becomes unavailable after probe",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_mail_refuses_if_check_becomes_unavailable_after_probe",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-14",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: status bad container types raise value free errors",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_status_bad_container_types_raise_value_free_errors",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-15",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: decisions cache rebuilds invalid shapes and timestamps",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_decisions_cache_rebuilds_invalid_shapes_and_timestamps",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-16",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: decisions cache refuses links",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_decisions_cache_refuses_links",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-17",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: ui queue uri quotes path and open failures are empty",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_ui_queue_uri_quotes_path_and_open_failures_are_empty",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-18",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: ui summary checks full text before truncation",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_ui_summary_checks_full_text_before_truncation",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-19",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: ui runs refuse linked validation and summary",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_ui_runs_refuse_linked_validation_and_summary",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-20",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: status json uses name check and does not echo failures",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_status_json_uses_name_check_and_does_not_echo_failures",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-21",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: collection oserror is caught without values",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_collection_oserror_is_caught_without_values",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-22",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: export hash refuses symlinked parent",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_export_hash_refuses_symlinked_parent",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-23",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: unknown import history never claims exports are unimported",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_unknown_import_history_never_claims_exports_are_unimported",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-24",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: malformed vault reply makes import history unknown",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_malformed_vault_reply_makes_import_history_unknown",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-25",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: unavailable status check withholds cached free text",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_unavailable_status_check_withholds_cached_free_text",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-26",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: text status collection failure is private",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_text_status_collection_failure_is_private",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-27",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: lab and tenant full reasons are screened",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_lab_and_tenant_full_reasons_are_screened",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-28",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: ui queue link is not opened",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_ui_queue_link_is_not_opened",
+   "status": "passing"
+  },
+  {
+   "id": "ownerwait-hardening-29",
+   "phase": "ownerwait-hardening",
+   "name": "owner wait: ui run ids require a whole safe token",
+   "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_ui_run_ids_require_a_whole_safe_token",
+   "status": "passing"
   }
  ],
- "total_tests": 2563,
+ "total_tests": 2592,
  "checked": "2026-11-09"
 }

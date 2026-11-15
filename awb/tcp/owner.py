@@ -90,9 +90,21 @@ def ui_runs(queue: Path | None = None, screen=None) -> list[dict]:
 
     queue = queue or publish.queue_dir()
     db = queue / "queue.sqlite3"
-    if not db.is_file():
+    try:
+        # SQLite opens its own descriptor. Keep a checked descriptor and verify its identity after opening.
+        with ownerwait._regular_file(db) as stream:
+            before = os.fstat(stream.fileno())
+            con = sqlite3.connect(db.absolute().as_uri() + "?mode=ro", uri=True)
+            try:
+                after = db.stat(follow_symlinks=False)
+                if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+                    con.close()
+                    return []
+            except OSError:
+                con.close()
+                return []
+    except (OSError, sqlite3.Error):
         return []
-    con = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
     try:
         rows = con.execute("SELECT id, state, created, finished, apply_changes FROM jobs ORDER BY created DESC, id "
                            "DESC LIMIT ?", (MAX_RUNS,)).fetchall()
@@ -102,18 +114,21 @@ def ui_runs(queue: Path | None = None, screen=None) -> list[dict]:
         con.close()
     out = []
     for run_id, state, created, finished, applies in rows:
-        if not isinstance(run_id, str) or not RUN_RE.match(run_id):
+        if not isinstance(run_id, str) or not RUN_RE.fullmatch(run_id) or run_id in (".", ".."):
             continue
         folder = queue / "runs" / run_id
         try:
-            first = (folder / "validation.txt").read_text(encoding="utf-8", errors="replace")[:4]
+            with ownerwait._regular_file(folder / "validation.txt") as stream:
+                first = stream.read(4).decode("utf-8", errors="replace")
         except OSError:
             first = ""
         try:
-            diff = (folder / "change.diff").stat().st_size
+            with ownerwait._regular_file(folder / "change.diff") as stream:
+                diff = os.fstat(stream.fileno()).st_size
         except OSError:
             diff = None
-        summary, withheld = screen(run_summary(folder)) if screen else (None, None)
+        summary, withheld = screen(_summary_text(folder)) if screen else (None, None)
+        summary = _format_summary(summary) if summary is not None else None
         out.append({"id": run_id, "state": state if state in RUN_STATES else "unknown",
                     "created": created if isinstance(created, str) and TIME_RE.match(created) else None,
                     "finished": finished if isinstance(finished, str) and TIME_RE.match(finished) else None,
@@ -130,21 +145,27 @@ def ui_runs(queue: Path | None = None, screen=None) -> list[dict]:
 FILE_RE = re.compile(r"(?:[\w.~-]*/)+[\w.-]*|\b[\w-]+(?:\.[\w-]+)*\.[A-Za-z][A-Za-z0-9]{0,7}\b")
 
 
-def run_summary(folder: Path) -> str | None:
-    """The summary of a run's result.json on one line, a path or a file name in it masked as [file], at most
-    SUMMARY_MAX characters; None when there is none."""
+def _summary_text(folder: Path) -> str | None:
+    """Read the complete bounded summary before any display transformation or screening."""
     try:
-        with open(folder / "result.json", "rb") as fh:
-            data = json.loads(fh.read(65536).decode("utf-8", errors="replace"))
-    except (OSError, ValueError):
+        data = json.loads(ownerwait._read_text(folder / "result.json", 65536))
+    except (OSError, ValueError, RecursionError):
         return None
     text = data.get("summary") if isinstance(data, dict) else None
-    if not isinstance(text, str):
-        return None
+    return text if isinstance(text, str) and text else None
+
+
+def _format_summary(text: str) -> str | None:
     text = FILE_RE.sub("[file]", " ".join("".join(c if c.isprintable() else " " for c in text).split()))
     if len(text) > SUMMARY_MAX:
         text = text[:SUMMARY_MAX - 3].rstrip() + "..."
     return text or None
+
+
+def run_summary(folder: Path) -> str | None:
+    """The bounded one-line display summary, with file names masked."""
+    text = _summary_text(folder)
+    return _format_summary(text) if text is not None else None
 
 
 def summary_screen():
@@ -194,15 +215,20 @@ def _decisions(p: config.Paths, path: Path | None = None) -> tuple[list, int]:
 
     if path is None:
         return ownerwait.page_items(p), int(time.time())
+    now = time.time()
     try:
-        if time.time() - path.stat().st_mtime < DECISIONS_EVERY:
-            old = json.loads(path.read_text(encoding="utf-8"))
-            built = old.get("decisions_built")
-            if isinstance(built, (int, float)) and time.time() - built < DECISIONS_EVERY:
-                rows = old.get("decisions")
-                if isinstance(rows, list):
-                    return rows, built
-    except (OSError, ValueError, AttributeError):
+        with ownerwait._regular_file(path) as stream:
+            if not 0 <= now - os.fstat(stream.fileno()).st_mtime < DECISIONS_EVERY:
+                raise ValueError("stale status")
+            raw = stream.read(1024 * 1024 + 1)
+        if len(raw) > 1024 * 1024:
+            raise ValueError("status too large")
+        old = json.loads(raw)
+        ownerwait._validate_decisions(old)
+        built = old.get("decisions_built")
+        if type(built) is int and 0 <= now - built < DECISIONS_EVERY and "decisions" in old:
+            return old["decisions"], built
+    except (OSError, ValueError, AttributeError, TypeError, RecursionError, StatusError):
         pass
     return ownerwait.page_items(p), int(time.time())
 
@@ -226,24 +252,37 @@ def collect(p: config.Paths | None = None) -> dict:
 def name_check(text: str) -> str:
     """'passed', 'unavailable' (the vault cannot check now) or StatusError when the text carries a name, a secret,
     a token or a private key (check.screen, the classes of publish.CLASSES refuse)."""
-    from awb import check
+    from awb import check, register
     from awb.tcp.web import publish
 
     try:
         matcher = publish.name_matcher()
         found = set(check.screen(text, matcher).found) & set(publish.CLASSES)
-    except (publish.Refused, check.CheckUnavailable):
+    except (publish.Refused, check.CheckUnavailable, register.RegisterError, OSError):
         return "unavailable"
     if found:
         raise StatusError("the status is withheld: the name check found %s" % ", ".join(sorted(found)))
     return "passed"
 
 
-def write(status: dict, path: Path = STATUS, checker=name_check) -> str:
-    """Check and write the status atomically (mode 640); returns the result of the name check."""
+def _status_text(status: dict, checker) -> tuple[str, str]:
     validate(status)
     text = json.dumps(status, sort_keys=True, indent=1) + "\n"
     result = checker(text)
+    if result == "unavailable":
+        status = dict(status)
+        if "decisions" in status:
+            status["decisions"] = []
+            status["decisions_built"] = 0
+        status["ui_runs"] = [dict(run, summary=None, withheld="unavailable") if run.get("summary") else run
+                             for run in status["ui_runs"]]
+        text = json.dumps(status, sort_keys=True, indent=1) + "\n"
+    return text, result
+
+
+def write(status: dict, path: Path = STATUS, checker=name_check) -> str:
+    """Check and write the status atomically (mode 640); returns the result of the name check."""
+    text, result = _status_text(status, checker)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".status.", dir=path.parent)
     try:
@@ -279,29 +318,29 @@ def main(argv: list[str] | None = None) -> int:
     if config.is_work_user():
         print("awb owner: the work user has no owner status", file=sys.stderr)
         return 2
-    if not a.write and not a.json:
-        from awb import ownerwait
-        from awb.tcp import keys
-
-        if a.mail:
-            word = ownerwait.mail(send=keys.send_mail)
-            print("awb owner: mail %s" % word)
-            return 0 if word in ("sent", "empty") else 1
-        view = "all" if a.all is not None else "dev" if a.dev else "decisions"
-        items, parked = ownerwait.collect(view=view, code=a.all or None)
-        print("\n".join(ownerwait.render(items, parked, ownerwait.notes())))
-        return 0
-    global REUSE
-    REUSE = (Path(a.out) if a.out else STATUS) if a.write else None
-    status = collect()
     try:
+        if not a.write and not a.json:
+            from awb import ownerwait
+            from awb.tcp import keys
+
+            if a.mail:
+                word = ownerwait.mail(send=keys.send_mail)
+                print("awb owner: mail %s" % word)
+                return 0 if word in ("sent", "empty") else 1
+            view = "all" if a.all is not None else "dev" if a.dev else "decisions"
+            items, parked = ownerwait.collect(view=view, code=a.all or None)
+            print("\n".join(ownerwait.render(items, parked, ownerwait.notes())))
+            return 0
+        global REUSE
+        REUSE = (Path(a.out) if a.out else STATUS) if a.write else None
+        status = collect()
         if a.write:
             result = write(status, Path(a.out) if a.out else STATUS)
             print("written: %d runs, %d customers, name check %s" % (len(status["ui_runs"]), len(status["intake"]),
                                                                        result))
         else:
-            validate(status)
-            print(json.dumps(status, sort_keys=True, indent=1))
+            text, _ = _status_text(status, name_check)
+            print(text, end="")
     except StatusError as err:
         print("awb owner: %s" % err, file=sys.stderr)
         return 1

@@ -37,6 +37,8 @@ import os
 import re
 import shlex
 import stat
+import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -80,6 +82,43 @@ class Item:
     source: str = ""      # full owner item for the name check, never serialized
 
 
+@contextmanager
+def _directory(path: Path):
+    """Pin a directory while refusing links in every path component."""
+    path = Path(path).absolute()
+    if ".." in path.parts:
+        raise OSError("parent traversal refused")
+    directory = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in path.parts[1:]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            os.close(directory)
+            directory = child
+        yield directory
+    finally:
+        os.close(directory)
+
+
+@contextmanager
+def _regular_file(path: Path):
+    """Open a regular input through pinned directories, without blocking on a FIFO."""
+    path = Path(path)
+    with _directory(path.parent) as directory:
+        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+        with os.fdopen(fd, "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise OSError("not a regular file")
+            yield stream
+
+
+def _read_text(path: Path, limit: int = 1024 * 1024) -> str:
+    with _regular_file(path) as stream:
+        raw = stream.read(limit + 1)
+    if len(raw) > limit:
+        raise ValueError("input too large")
+    return raw.decode("utf-8")
+
+
 def queue_file() -> Path:
     """The owner's TSV queue, with the same override as awb queue."""
     from awb import workqueue
@@ -96,7 +135,7 @@ def _short(text: str) -> str:
 
 def open_items(p: config.Paths) -> tuple[list[Item], int]:
     """(owner items of every active project's OPEN.md, count of parked projects)."""
-    from awb import projects
+    from awb import codes, projects
 
     out: list[Item] = []
     parked = 0
@@ -106,9 +145,12 @@ def open_items(p: config.Paths) -> tuple[list[Item], int]:
             continue
         if r.state != "active":
             continue
+        root = Path(r.path)
+        if not codes.is_project_code(r.code) or root != p.projects_root / r.code:
+            continue
         try:
-            text = (Path(r.path) / "OPEN.md").read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+            text = _read_text(root / "OPEN.md")
+        except (OSError, ValueError):
             continue
         app = project_app(p, r.code, Path(r.path))
         for index, item in enumerate(projects._owner_items(text)):
@@ -144,10 +186,25 @@ def page_items(p: config.Paths) -> list[dict]:
 
 
 def validate_status(status: dict) -> None:
+    from awb import status_shape
+
+    try:
+        _validate_status(status)
+    except (AttributeError, TypeError, KeyError, ValueError, RecursionError):
+        raise status_shape.StatusError("the status has an unexpected shape") from None
+
+
+def _validate_status(status: dict) -> None:
     """Validate the optional Decisions extension and the original status shape; accept old timer files."""
-    from awb import codes, status_shape
+    from awb import status_shape
 
     status_shape.validate({k: v for k, v in status.items() if k not in ("decisions", "decisions_built")})
+    _validate_decisions(status)
+
+
+def _validate_decisions(status: dict) -> None:
+    from awb import codes, status_shape
+
     built = status.get("decisions_built", 0)
     if type(built) is not int or built < 0:
         raise status_shape.StatusError("the status field decisions_built has an unexpected shape")
@@ -184,12 +241,12 @@ def queue_items(path: Path | None = None) -> list[Item]:
                 continue
             cmd = projects.item_command(row["next"])
             out.append(Item(row["id"], "%s; next: %s" % (_short(row["what"]), row["next"]),
-                            WHERE_TERMINAL if cmd else WHERE_STEERING, cmd))
+                            WHERE_TERMINAL if cmd else WHERE_STEERING, cmd, source=row["what"] + "\n" + row["next"]))
         return out
 
     try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        text = _read_text(path)
+    except (OSError, ValueError):
         return []
     out: list[Item] = []
     cols: dict[str, int] = {}
@@ -212,17 +269,31 @@ def queue_items(path: Path | None = None) -> list[Item]:
         nxt = cells[cols["next"]] if cols.get("next", 99) < len(cells) else ""
         cmd = projects.item_command(nxt) if nxt else None
         words = _short(what or nxt or cells[cols["state"]])
-        out.append(Item(_short(cells[0])[:20], words, WHERE_TERMINAL if cmd else WHERE_STEERING, cmd))
+        out.append(Item(_short(cells[0])[:20], words, WHERE_TERMINAL if cmd else WHERE_STEERING, cmd, source=line))
     return out
 
 
 def _export_hash(path: Path) -> str:
     """Hash bytes without decoding content, following file links or opening special files."""
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    with os.fdopen(fd, "rb") as stream:
-        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise OSError("not a regular file")
+    with _regular_file(path) as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def _reports(root: Path):
+    """Enumerate history explicitly: an unreadable or linked directory is unknown history."""
+    with _directory(root) as directory:
+        with os.scandir(directory) as entries:
+            children = [(e.name, e.is_dir(follow_symlinks=False), e.is_symlink()) for e in entries]
+    for name, is_dir, is_link in children:
+        if is_link:
+            raise OSError("linked history")
+        if not is_dir:
+            continue
+        with _directory(root / name) as directory:
+            with os.scandir(directory) as entries:
+                reports = [e.name for e in entries if Path(e.name).suffix in (".md", ".gpg")]
+        for report in reports:
+            yield root / name / report
 
 
 def _import_hashes(p: config.Paths) -> set[str] | None:
@@ -238,10 +309,12 @@ def _import_hashes(p: config.Paths) -> set[str] | None:
     found: set[str] = set()
     seen: set[Path] = set()
     try:
-        for report in p.private_reports.glob("*/*.md*"):
-            if report.is_symlink() or report.suffix not in (".md", ".gpg"):
-                continue
-            text = candidates.read_report(report)
+        for report in _reports(p.private_reports):
+            if report.suffix == ".gpg":
+                with _regular_file(report):
+                    text = candidates.read_report(report)
+            else:
+                text = _read_text(report)
             if "- mode: stopped for the review" in text:
                 continue
             inside = False
@@ -263,12 +336,14 @@ def _import_hashes(p: config.Paths) -> set[str] | None:
                     continue
                 seen.add(original)
                 if original.suffix == ".gpg":
-                    answer = vault_client.admin_call("open_file", p.admin_sock, path=str(original))
+                    with _regular_file(original):
+                        answer = vault_client.admin_call("open_file", p.admin_sock, path=str(original))
                     digest = hashlib.sha256(base64.b64decode(answer["data"], validate=True)).hexdigest()
                 else:
                     digest = _export_hash(original)
                 found.add(digest)
-    except (OSError, UnicodeError, ValueError, KeyError, candidates.ReviewError, vault_client.VaultError):
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError, AttributeError, RuntimeError,
+            candidates.ReviewError, vault_client.VaultError):
         return None
     return found
 
@@ -366,9 +441,9 @@ def build_items(runs: Path | None = None) -> list[Item]:
     out: list[Item] = []
     for tid in ids:
         try:
-            nums = sorted(int(n) for n in os.listdir(runs / tid) if n.isdigit() and not n.startswith("0"))
-            raw = (runs / tid / str(nums[-1]) / "state").read_text(encoding="utf-8")[:512]
-        except (OSError, UnicodeDecodeError, IndexError):
+            nums = sorted(int(n) for n in os.listdir(runs / tid) if re.fullmatch(r"[1-9][0-9]*", n))
+            raw = _read_text(runs / tid / str(nums[-1]) / "state", 512)
+        except (OSError, ValueError, IndexError):
             continue
         state = raw.split("\t", 1)[0].strip()
         word = state.split(":", 1)[0]
@@ -388,19 +463,28 @@ def write_dataset_state(state: dict, path: Path | None = None) -> Path | None:
     writable (a run by hand outside the unit): the publish itself is not changed by that."""
     path = path or dataset_state_path()
     state = dict(state, at=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
-    tmp = path.with_name(".%s.new" % path.name)
+    tmp = None
     try:
-        tmp.write_text(json.dumps(state, sort_keys=True) + "\n", encoding="utf-8")
+        text = json.dumps(state, sort_keys=True) + "\n"
+        fd, tmp = tempfile.mkstemp(prefix=".%s." % path.name, dir=path.parent)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(text)
         os.replace(tmp, path)
     except OSError:
         return None
+    finally:
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except FileNotFoundError:
+                pass
     return path
 
 
 def _dataset_state(path: Path | None) -> dict:
     try:
-        state = json.loads((path or dataset_state_path()).read_text(encoding="utf-8")[:4096])
-    except (OSError, UnicodeDecodeError, ValueError):
+        state = json.loads(_read_text(path or dataset_state_path(), 4096))
+    except (OSError, ValueError, RecursionError):
         return {}
     return state if isinstance(state, dict) else {}
 
@@ -417,7 +501,8 @@ def dataset_items(path: Path | None = None) -> list[Item]:
     state = _dataset_state(path)
     if state.get("state") != "failed":
         return []
-    return [Item("dataset", "weekly publish failed: %s" % _short(str(state.get("reason") or "unknown")), "")]
+    return [Item("dataset", "weekly publish failed: %s" % _short(str(state.get("reason") or "unknown")), "",
+                 source=str(state.get("reason") or "unknown"))]
 
 
 def refresh_state_path() -> Path:
@@ -430,7 +515,8 @@ def refresh_items(path: Path | None = None) -> list[Item]:
     state = _dataset_state(path or refresh_state_path())
     if state.get("state") != "failed":
         return []
-    return [Item("refresh", "weekly run failed: %s" % _short(str(state.get("reason") or "unknown")), "")]
+    return [Item("refresh", "weekly run failed: %s" % _short(str(state.get("reason") or "unknown")), "",
+                 source=str(state.get("reason") or "unknown"))]
 
 
 def report_dir() -> Path:
@@ -448,7 +534,8 @@ def report_items(path: Path | None = None, now: datetime.datetime | None = None)
     state = _dataset_state(path or report_state_path())
     if state.get("state") != "failed":
         return []
-    reason = _short(str(state.get("reason") or "unknown"))
+    source = str(state.get("reason") or "unknown")
+    reason = _short(source)
     now = now or datetime.datetime.now(datetime.timezone.utc)
     try:
         last = datetime.datetime.strptime(str(state.get("last_put", "")), "%Y-%m-%dT%H:%M:%SZ").replace(
@@ -457,8 +544,8 @@ def report_items(path: Path | None = None, now: datetime.datetime | None = None)
     except ValueError:
         old = True
     if old:
-        return [Item("reports", "projects.csv older than 24 h, the last put failed: %s" % reason, "")]
-    return [Item("reports", "the last put of projects.csv failed: %s" % reason, "")]
+        return [Item("reports", "projects.csv older than 24 h, the last put failed: %s" % reason, "", source=source)]
+    return [Item("reports", "the last put of projects.csv failed: %s" % reason, "", source=source)]
 
 
 def doc_host_lines() -> list[str]:
@@ -498,7 +585,7 @@ def _publish_notes(path: Path | None, now: datetime.datetime | None, p: config.P
         at = datetime.datetime.strptime(str(state.get("at", "")), "%Y-%m-%dT%H:%M:%SZ").replace(
             tzinfo=datetime.timezone.utc)
         line = dataset_line(state)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return []
     now = now or datetime.datetime.now(datetime.timezone.utc)
     if not datetime.timedelta(0) <= now - at <= datetime.timedelta(hours=NOTE_HOURS):
@@ -532,14 +619,14 @@ def lab_run_items(p: config.Paths, now: float | None = None) -> list[Item]:
             text = "lab run on %s ended with %d failed delete%s: %s" % (run["tenant"], failed,
                                                                        "" if failed == 1 else "s", kinds)
         out.append(Item(str(run.get("project") or "?"), _short(text), WHERE_SESSION,
-                        "awb lab run end --tenant %s" % run["tenant"]))
+                        "awb lab run end --tenant %s" % run["tenant"], source=text))
     try:
         kept = labruns.kept(p, now)
     except Exception:
         kept = []
     for k in kept:
         text = "lab run on %s kept %s %s: %s" % (k["tenant"], k["label"], str(k["id"])[:8], k["reason"])
-        out.append(Item(str(k.get("project") or "?"), _short(text), WHERE_SESSION, None, "kept", str(k["tenant"])))
+        out.append(Item(str(k.get("project") or "?"), _short(text), WHERE_SESSION, None, "kept", str(k["tenant"]), source=text))
     return out
 
 
@@ -551,7 +638,7 @@ def tenant_mode_items(path: Path | None = None) -> list[Item]:
     out: list[Item] = []
     for alias, e in sorted(tenantmode.read(path).items()):
         text = "customer tenant in write mode since %s: %s" % (e["since"], e.get("note") or "no note")
-        out.append(Item(alias, _short(text), WHERE_TERMINAL, "awb tenant mode %s readonly" % alias))
+        out.append(Item(alias, _short(text), WHERE_TERMINAL, "awb tenant mode %s readonly" % alias, source=text))
     return out
 
 
@@ -637,18 +724,23 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
             it.kind = "dev"
     texts = []
     for it in items:
-        texts += [it.text, it.block or "", it.label, it.app, it.source]
+        texts += [it.text, it.block or "", it.label, it.app, it.source, it.extra, it.where]
     try:
         hidden = ledger.hit_indexes(texts, ledger.register_path(p))
     except ledger.LedgerError:
         hidden = set(range(len(texts)))
     for n, it in enumerate(items):
-        if {5 * n, 5 * n + 1, 5 * n + 2, 5 * n + 4} & hidden:
+        if {7 * n, 7 * n + 1, 7 * n + 2, 7 * n + 4, 7 * n + 5, 7 * n + 6} & hidden:
             it.text, it.block = ledger.WITHHELD, None
             it.has_default = False
-            if 5 * n + 2 in hidden:
+            if it.kind == "kept":
+                it.kind = ""
+            it.extra = ""
+            if 7 * n + 6 in hidden:
+                it.where = ""
+            if 7 * n + 2 in hidden:
                 it.label = "?"
-        if 5 * n + 3 in hidden:
+        if 7 * n + 3 in hidden:
             it.app = ledger.WITHHELD
     return decide(items, view, code), parked
 
@@ -725,11 +817,18 @@ def mail(p: config.Paths | None = None, send=None, queue: Path | None = None, ru
         return "empty"
     if send is None:
         return "not sent: no mail path"      # `awb owner status --mail` (awb/tcp/owner.py) passes the key service's
+    from awb import ledger
+
     body = fit(render(items, parked, note_lines))
+    try:
+        if ledger.hit_indexes([body], ledger.register_path(p)):
+            return "not sent: the mail is withheld"
+    except ledger.LedgerError:
+        return "not sent: the name check cannot run"
     subject = ("Workbench: %d item%s wait on you" % (count(items), "" if count(items) == 1 else "s") if items
                else "Workbench: nothing waits on you, %d note%s" % (len(note_lines), "" if len(note_lines) == 1 else "s"))
     try:
         word = send(subject, body)
-    except Exception as err:
-        return "not sent: %s" % type(err).__name__
-    return "sent" if word == "sent" or word is True else "not sent: %s" % (word if isinstance(word, str) else "refused")
+    except Exception:
+        return "not sent: refused"
+    return "sent" if word == "sent" or word is True else "not sent: refused"
