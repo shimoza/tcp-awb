@@ -332,7 +332,11 @@ def test_kr_a_request_line_sent_a_byte_at_a_time_ends_at_the_read_timeout(ksvc, 
         while time.monotonic() - start < 3.0:
             time.sleep(0.15)
             ready, _, _ = select.select([s], [], [], 0)
-            if ready and s.recv(64) == b"":
+            try:
+                gone = ready and s.recv(64) == b""
+            except ConnectionResetError:
+                gone = True
+            if gone:
                 closed_at = time.monotonic() - start
                 break
             try:
