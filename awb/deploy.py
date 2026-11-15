@@ -96,9 +96,9 @@ LOCK_NAME = "awb-deploy.lock"
 JOURNAL_NAME = "DEPLOYED"
 LOG_NAME = "deploy.log"
 PRE_DEPLOY = "pre-deploy"
-COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-UNIT_RE = re.compile(r"^awb-[a-z0-9-]+\.(service|socket)$")
-TASK_UNIT_RE = re.compile(r"^awb-task-[A-Za-z0-9-]{1,40}\.service$")
+COMMIT_RE = re.compile(r"^[0-9a-f]{40}\Z")   # \Z: a "$" would let a trailing newline through
+UNIT_RE = re.compile(r"^awb-[a-z0-9-]+\.(service|socket)\Z")
+TASK_UNIT_RE = re.compile(r"^awb-task-[A-Za-z0-9-]{1,40}\.service\Z")
 RESTART_WANTED = "restart-wanted"   # in <build_root>/runs: the build runner exits between two tasks
 RUNNER_STATE = "runner.state"       # in <build_root>/runs: `pid release idle|busy since` of the serving runner
 RUNNER_GRACE = 120.0                # an idle runner on an older release past this long after the flip fails the status
@@ -106,7 +106,9 @@ BUILD_PENDING = "BUILD-PENDING"     # in the install root: the build side a depl
 WAIT_BUILD_TOTAL = 3600.0           # --wait-build waits this long at most for the task units to end
 WAIT_BUILD_POLL = 10.0
 RUNNING_STATES = ("active", "activating", "reloading")
-SINCE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+SINCE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z")
+ALIAS_RE = re.compile(r"^[\w.-]{1,40}\Z")
+PROBE_RE = re.compile(r"^/run/[A-Za-z0-9._/-]+\Z")
 ACTIONS = ("restart", "reload", "unchanged", "not installed")
 KINDS = ("vault", "keys", "service", "web")
 STATES = ("unlocked", "locked", "plain", "down", "unknown")
@@ -959,7 +961,12 @@ def read_journal(path: Path) -> dict | None:
 
 def write_journal(path: Path, data: dict) -> None:
     tmp = path.with_name(".%s.next" % path.name)
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    if tmp.is_symlink() or tmp.exists():         # a leftover or a planted link: never written through
+        if tmp.is_dir() and not tmp.is_symlink():
+            shutil.rmtree(tmp)
+        else:
+            tmp.unlink()
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=1, sort_keys=True)
         fh.write("\n")
@@ -1202,6 +1209,9 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
         want = prev
     else:
         want = opts.to or "HEAD"
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/@{}^~+-]{0,199}", want) or ".." in want:
+        # git would read "-x" as an option and a range or a control character is no single commit
+        raise Refused("--to names no commit of the repository" if opts.to else "the target names no commit")
     res = run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", "%s^{commit}" % want],
               capture_output=True, text=True)
     target = res.stdout.strip()
@@ -1549,6 +1559,16 @@ def _plain(value, limit: int = 300) -> bool:
     return isinstance(value, str) and len(value) <= limit and all(c.isprintable() for c in value)
 
 
+def probe_ok(path) -> bool:
+    """A socket path under /run that no component climbs out of (the plan's probes and the status child's)."""
+    return isinstance(path, str) and PROBE_RE.match(path) is not None and ".." not in path
+
+
+def printable(text: str, limit: int = 2000) -> str:
+    """The tail of a child's output as root relays it: control characters (a terminal escape) become "?"."""
+    return "".join(c if c.isprintable() or c == "\n" else "?" for c in text[-limit:])
+
+
 def validate_plan(plan, allowed_units: set[str]) -> dict:
     """The plan as root may use it, or Refused. Commit ids are 40 hex characters, unit names come from the
     template set of the installed release (a unit the target adds may only be `not installed`), actions and kinds
@@ -1621,7 +1641,7 @@ def validate_plan(plan, allowed_units: set[str]) -> dict:
         if d.get("codes") is not None and not isinstance(d["codes"], int):
             bad("codes")
         al = d.get("aliases")
-        if al is not None and not (isinstance(al, list) and all(isinstance(a, str) and re.match(r"^[\w.-]{1,40}$", a)
+        if al is not None and not (isinstance(al, list) and all(isinstance(a, str) and ALIAS_RE.match(a)
                                                                 for a in al)):
             bad("aliases")
     activated = plan.get("activated", [])
@@ -1629,7 +1649,7 @@ def validate_plan(plan, allowed_units: set[str]) -> dict:
         bad("activated")
     probes = plan.get("probes")
     if not isinstance(probes, dict) or not all(
-            k in seen and isinstance(v, str) and re.match(r"^/run/[A-Za-z0-9._/-]+$", v) and ".." not in v
+            k in seen and isinstance(v, str) and probe_ok(v)
             for k, v in probes.items()):
         bad("probes")
     code = plan.get("daemon_code", {})
@@ -1765,7 +1785,14 @@ def take_lock(run_dir: Path) -> int:
     """The deploy lock: a root file opened O_CREAT 0600, flock on the descriptor, never unlinked, closed on exec.
     The kernel releases it with its holder. Refused with the pid and the start of the holder."""
     path = run_dir / LOCK_NAME
-    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+    try:
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    except OSError as err:
+        raise Refused("the deploy lock %s cannot be opened (%s): a link or no file, nothing was changed"
+                      % (path, os.strerror(err.errno or 0))) from None
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        raise Refused("the deploy lock %s is not a regular file: nothing was changed" % path)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -1991,7 +2018,12 @@ class Run:
         rel = self.host.releases / self.target
         partial = self.host.releases / (".%s.partial" % self.target)
         tar_file = self.host.releases / (".%s.tar" % self.target)
+        if self.host.releases.is_symlink() or (self.host.releases.exists() and not self.host.releases.is_dir()):
+            raise StepFailed("%s is a link or no folder: the old release stays live" % self.host.releases)
         os.makedirs(self.host.releases, mode=0o755, exist_ok=True)
+        if rel.is_symlink() or rel.is_file():
+            say("+ rm -f -- %s   # a link or a file where the release folder goes" % rel)
+            rel.unlink()
         for leftover in (partial, tar_file):
             if leftover.is_symlink() or leftover.is_file():
                 leftover.unlink()
@@ -2342,9 +2374,19 @@ class Run:
             "ok" if not self.journal["pending"] and not self.failed else "failed",
             ",".join(self.journal["pending"]) or "none")
         log = self.host.root / LOG_NAME
-        fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
-        with os.fdopen(fd, "a", encoding="utf-8") as fh:
-            fh.write(line)
+        try:
+            fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                         0o644)
+        except OSError:
+            fd = None
+        if fd is not None and not stat.S_ISREG(os.fstat(fd).st_mode):
+            os.close(fd)
+            fd = None
+        if fd is None:
+            say("# %s is a link or no file: the line of this run is not logged" % log)
+        else:
+            with os.fdopen(fd, "a", encoding="utf-8") as fh:
+                fh.write(line)
         if not self.journal["pending"] and not self.failed:
             keep = {self.target, self.journal.get("previous")} | set(self.plan["keep"]) | set(
                 self.journal["running"].values()) | {(self.status.get(k) or {}).get("release") for k in DAEMON_ORDER}
@@ -2360,6 +2402,9 @@ def flip(root: Path, release: str) -> None:
     nxt, src = root / "src.next", root / "src"
     if nxt.is_symlink() or nxt.is_file():
         nxt.unlink()
+    elif nxt.exists():
+        say("+ rm -rf -- %s   # a leftover that is no link" % nxt)
+        shutil.rmtree(nxt)
     say("+ ln -sfn releases/%s %s" % (release, nxt))
     os.symlink("releases/%s" % release, nxt)
     say("+ exchange %s %s   # renameat2 RENAME_EXCHANGE, one call" % (nxt, src))
@@ -2392,6 +2437,13 @@ def retain(releases: Path, keep: set) -> list[str]:
 def check_archive(path: Path) -> None:
     """The archive of the owner child may hold folders, regular files and links only, no mode bit above 0o777, no
     absolute or climbing name and no entry under a link."""
+    try:
+        _check_archive(path)
+    except tarfile.TarError:
+        raise StepFailed("the archive is no readable tar archive") from None
+
+
+def _check_archive(path: Path) -> None:
     links: set[str] = set()
     with tarfile.open(path, "r:") as tf:
         for m in tf:
@@ -2413,9 +2465,16 @@ def check_archive(path: Path) -> None:
 
 
 def check_tree(folder: Path) -> None:
+    """Every entry of the extracted release is a folder, a regular file or a link that resolves inside it: the
+    archive check reads each link's text alone, so a link through another link (`s -> d/..`, `l -> s/..`) is
+    resolved here."""
+    top = os.path.realpath(folder)
     for dirpath, dirnames, filenames in os.walk(folder):
         for n in dirnames + filenames:
-            st = os.lstat(os.path.join(dirpath, n))
+            full = os.path.join(dirpath, n)
+            st = os.lstat(full)
+            if stat.S_ISLNK(st.st_mode) and not _under(os.path.realpath(full), top):
+                raise StepFailed("the extracted release holds a link out of the release")
             if not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode) or stat.S_ISLNK(st.st_mode)):
                 raise StepFailed("the extracted release holds a special file")
             if st.st_mode & 0o7000:
@@ -2435,7 +2494,7 @@ def validate_status(data) -> dict:
         since = d.get("since") if isinstance(d.get("since"), str) and SINCE_RE.match(d["since"]) else None
         release = _release_word(d.get("release"))
         codes = d.get("codes") if isinstance(d.get("codes"), int) else None
-        aliases = [a for a in d.get("aliases") or [] if isinstance(a, str) and re.match(r"^[\w.-]{1,40}$", a)]
+        aliases = [a for a in d.get("aliases") or [] if isinstance(a, str) and ALIAS_RE.match(a)]
         out[kind] = {"state": state, "since": since, "release": release, "codes": codes, "aliases": aliases}
     probes = data.get("probes")
     if isinstance(probes, dict):
@@ -2623,7 +2682,7 @@ def _owner_main(argv: list[str], host: Host, opts: Options | None = None) -> int
         if cmd == "status":
             if "--json" in argv:
                 probes = [argv[i + 1] for i, a in enumerate(argv) if a == "--probe" and i + 1 < len(argv)]
-                print(json.dumps(owner_status_json([p for p in probes if p.startswith("/run/")])))
+                print(json.dumps(owner_status_json([p for p in probes if probe_ok(p)])))
                 return 0
             return owner_status(host)
     except Refused as err:
@@ -2695,7 +2754,7 @@ def root_deploy(opts: Options, host: Host) -> int:
                       host.getgrouplist, capture_output=True, text=True)
         if res.returncode != 0:
             if res.stderr:
-                sys.stderr.write(res.stderr[-2000:])
+                sys.stderr.write(printable(res.stderr))
             raise Refused("the plan was refused, nothing was changed")
         try:
             plan = json.loads(res.stdout)
@@ -2730,8 +2789,13 @@ def root_deploy(opts: Options, host: Host) -> int:
             run.final_check()
             run.page()
             code = run.finish()
-        except StepFailed as err:
-            say("# awb deploy: %s" % err)
+        except (StepFailed, OSError) as err:
+            # an OSError names its errno only: its message can carry a path of the release or the owner's copy
+            if isinstance(err, StepFailed):
+                say("# awb deploy: %s" % err)
+            else:
+                say("# awb deploy: a step failed (%s): the journal keeps what is pending"
+                    % (os.strerror(err.errno) if err.errno else type(err).__name__))
             try:
                 run.save()
             except OSError:

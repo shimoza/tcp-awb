@@ -18143,8 +18143,99 @@
    "name": "owner wait: ui run ids require a whole safe token",
    "run": ".venv/bin/pytest tests/test_ownerwait_decisions.py::test_ui_run_ids_require_a_whole_safe_token",
    "status": "passing"
+  },
+  {
+   "id": "deploy-review-1",
+   "phase": "deploy",
+   "name": "deploy review: a trailing newline does not pass the plan validation",
+   "run": ".venv/bin/pytest tests/test_deploy_review.py::test_a_trailing_newline_does_not_pass_the_plan_validation",
+   "status": "passing"
+  },
+  {
+   "id": "deploy-review-2",
+   "phase": "deploy",
+   "name": "deploy review: the archive child refuses a commit with a trailing newline",
+   "run": ".venv/bin/pytest tests/test_deploy_review.py::test_the_archive_child_refuses_a_commit_with_a_trailing_newline",
+   "status": "passing"
+  },
+  {
+   "id": "deploy-review-3",
+   "phase": "deploy",
+   "name": "deploy review: a malformed to ref never reaches git",
+   "run": ".venv/bin/pytest tests/test_deploy_review.py::test_a_malformed_to_ref_never_reaches_git",
+   "status": "passing"
+  },
+  {
+   "id": "deploy-review-4",
+   "phase": "deploy",
+   "name": "deploy review: status json drops a probe that climbs out of run",
+   "run": ".venv/bin/pytest tests/test_deploy_review.py::test_status_json_drops_a_probe_that_climbs_out_of_run",
+   "status": "passing"
+  },
+  {
+   "id": "deploy-review-5",
+   "phase": "deploy",
+   "name": "deploy review: the journal is never written through a planted link",
+   "run": ".venv/bin/pytest tests/test_deploy_review.py::test_the_journal_is_never_written_through_a_planted_link",
+   "status": "passing"
+  },
+  {
+   "id": "deploy-review-6",
+   "phase": "deploy",
+   "name": "deploy review: the lock refuses a link or a special file",
+   "run": ".venv/bin/pytest tests/test_deploy_review.py::test_the_lock_refuses_a_link_or_a_special_file",
+   "status": "passing"
+  },
+  {
+   "id": "deploy-review-7",
+   "phase": "deploy",
+   "name": "deploy review: the log line is never appended through a link",
+   "run": ".venv/bin/pytest tests/test_deploy_review.py::test_the_log_line_is_never_appended_through_a_link",
+   "status": "passing"
+  },
+  {
+   "id": "deploy-review-8",
+   "phase": "deploy",
+   "name": "deploy review: extract refuses a linked releases folder and replaces a link at the release",
+   "run": ".venv/bin/pytest tests/test_deploy_review.py::test_extract_refuses_a_linked_releases_folder_and_replaces_a_link_at_the_release",
+   "status": "passing"
+  },
+  {
+   "id": "deploy-review-9",
+   "phase": "deploy",
+   "name": "deploy review: a link out through another link is refused after extraction",
+   "run": ".venv/bin/pytest tests/test_deploy_review.py::test_a_link_out_through_another_link_is_refused_after_extraction",
+   "status": "passing"
+  },
+  {
+   "id": "deploy-review-10",
+   "phase": "deploy",
+   "name": "deploy review: a corrupt archive is a step failure",
+   "run": ".venv/bin/pytest tests/test_deploy_review.py::test_a_corrupt_archive_is_a_step_failure",
+   "status": "passing"
+  },
+  {
+   "id": "deploy-review-11",
+   "phase": "deploy",
+   "name": "deploy review: an os error in a step fails the run without a path",
+   "run": ".venv/bin/pytest tests/test_deploy_review.py::test_an_os_error_in_a_step_fails_the_run_without_a_path",
+   "status": "passing"
+  },
+  {
+   "id": "deploy-review-12",
+   "phase": "deploy",
+   "name": "deploy review: flip replaces a leftover folder at src next",
+   "run": ".venv/bin/pytest tests/test_deploy_review.py::test_flip_replaces_a_leftover_folder_at_src_next",
+   "status": "passing"
+  },
+  {
+   "id": "deploy-review-13",
+   "phase": "deploy",
+   "name": "deploy review: the plan childs error is relayed without control characters",
+   "run": ".venv/bin/pytest tests/test_deploy_review.py::test_the_plan_childs_error_is_relayed_without_control_characters",
+   "status": "passing"
   }
  ],
- "total_tests": 2592,
+ "total_tests": 2605,
  "checked": "2026-11-09"
 }
