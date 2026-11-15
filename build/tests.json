@@ -18612,8 +18612,120 @@
    "name": "one failing row of an archive never stops the others and echoes no error text",
    "run": ".venv/bin/pytest tests/test_keys_exchange_review.py::test_one_failing_row_of_an_archive_never_stops_the_others_and_echoes_no_error_text",
    "status": "passing"
+  },
+  {
+   "id": "sweep-review-1",
+   "phase": "sweep-review",
+   "name": "sweep: a link planted as the temp file is not written through and the file stays regular",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_a_link_planted_as_the_temp_file_is_not_written_through_and_the_file_stays_regular",
+   "status": "passing"
+  },
+  {
+   "id": "sweep-review-2",
+   "phase": "sweep-review",
+   "name": "sweep: the temp file of another run is left alone",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_the_temp_file_of_another_run_is_left_alone",
+   "status": "passing"
+  },
+  {
+   "id": "sweep-review-3",
+   "phase": "sweep-review",
+   "name": "sweep: a handle file that is a link is refused",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_a_handle_file_that_is_a_link_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "sweep-review-4",
+   "phase": "sweep-review",
+   "name": "sweep: a handle file that is a pipe is refused without waiting",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_a_handle_file_that_is_a_pipe_is_refused_without_waiting",
+   "status": "passing"
+  },
+  {
+   "id": "sweep-review-5",
+   "phase": "sweep-review",
+   "name": "sweep: a handle list in place of the map is a sweep error",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_a_handle_list_in_place_of_the_map_is_a_sweep_error",
+   "status": "passing"
+  },
+  {
+   "id": "sweep-review-6",
+   "phase": "sweep-review",
+   "name": "sweep: a handle with a trailing newline is not taken",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_a_handle_with_a_trailing_newline_is_not_taken",
+   "status": "passing"
+  },
+  {
+   "id": "sweep-review-7",
+   "phase": "sweep-review",
+   "name": "sweep: a link in place of the lock is refused",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_a_link_in_place_of_the_lock_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "sweep-review-8",
+   "phase": "sweep-review",
+   "name": "sweep: two runs that add different handles keep both",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_two_runs_that_add_different_handles_keep_both",
+   "status": "passing"
+  },
+  {
+   "id": "sweep-review-9",
+   "phase": "sweep-review",
+   "name": "sweep: two runs that give one handle to two resources refuse the second save",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_two_runs_that_give_one_handle_to_two_resources_refuse_the_second_save",
+   "status": "passing"
+  },
+  {
+   "id": "sweep-review-10",
+   "phase": "sweep-review",
+   "name": "sweep: mask never masks a handle it put in",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_mask_never_masks_a_handle_it_put_in",
+   "status": "passing"
+  },
+  {
+   "id": "sweep-review-11",
+   "phase": "sweep-review",
+   "name": "sweep: a lab name with a trailing newline gives no tags",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_a_lab_name_with_a_trailing_newline_gives_no_tags",
+   "status": "passing"
+  },
+  {
+   "id": "sweep-review-12",
+   "phase": "sweep-review",
+   "name": "sweep: a relative state home is ignored",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_a_relative_state_home_is_ignored",
+   "status": "passing"
+  },
+  {
+   "id": "sweep-review-13",
+   "phase": "sweep-review",
+   "name": "sweep: a resources file that is a link adds no id",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_a_resources_file_that_is_a_link_adds_no_id",
+   "status": "passing"
+  },
+  {
+   "id": "sweep-review-14",
+   "phase": "sweep-review",
+   "name": "sweep: a resources file that is a pipe adds no id and does not wait",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_a_resources_file_that_is_a_pipe_adds_no_id_and_does_not_wait",
+   "status": "passing"
+  },
+  {
+   "id": "sweep-review-15",
+   "phase": "sweep-review",
+   "name": "sweep: tag values that are no code or date never reach the report",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_tag_values_that_are_no_code_or_date_never_reach_the_report",
+   "status": "passing"
+  },
+  {
+   "id": "sweep-review-16",
+   "phase": "sweep-review",
+   "name": "sweep: a state or a date with a line break adds no line to the report",
+   "run": ".venv/bin/pytest tests/test_sweep_review.py::test_a_state_or_a_date_with_a_line_break_adds_no_line_to_the_report",
+   "status": "passing"
   }
  ],
- "total_tests": 2659,
+ "total_tests": 2675,
  "checked": "2026-11-09"
 }

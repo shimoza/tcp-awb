@@ -33,10 +33,14 @@ to `$XDG_STATE_HOME/awb/handles.json` (default `~/.local/state/awb/`) and the sw
 from __future__ import annotations
 
 import datetime
+import fcntl
 import hashlib
 import json
 import os
 import re
+import stat
+import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -46,7 +50,13 @@ from awb import codes, config, jobs
 PROJECT_TAG = "awb-project"
 EXPIRY_TAG = "awb-expiry"
 HANDLES_FILE = "handles.json"
-_HANDLE_RE = re.compile(r"^(?P<kind>[a-z]{2,5})-(?P<n>[1-9][0-9]{0,5})$")
+_HANDLE_RE = re.compile(r"(?P<kind>[a-z]{2,5})-(?P<n>[1-9][0-9]{0,5})\Z")
+_MAX_FILE = 16 * 1024 * 1024            # a handle file or a RESOURCES.md larger than this is refused
+_LOCK_WAIT = 10.0                       # seconds a save waits for another run's save
+_CODE_RE = re.compile(r"\A" + codes.PROJECT + r"\Z")
+_DATE_RE = re.compile(r"\A\d{4}-\d{2}-\d{2}\Z")
+_STATE_RE = re.compile(r"\A[A-Za-z_]{1,24}\Z")
+_CREATED_RE = re.compile(r"\A[0-9TZ:. +-]{1,40}\Z")
 
 # (kind, service, path, key of the list, paging)
 SOURCES = (
@@ -93,6 +103,45 @@ class SweepError(Exception):
     """The handle file cannot be read or written. The message carries no value."""
 
 
+def _read_file(path: Path) -> str | None:
+    """The text of a regular file, opened without following a link and without waiting on a pipe; None when there is
+    no file. A link, a special file, a file over _MAX_FILE or one that is no UTF-8 raises OSError or ValueError."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
+    except FileNotFoundError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > _MAX_FILE:
+            raise OSError("not a regular file of a readable size")
+        chunks, total = [], 0
+        while True:
+            chunk = os.read(fd, 1 << 16)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > _MAX_FILE:
+                raise OSError("not a regular file of a readable size")
+            chunks.append(chunk)
+    finally:
+        os.close(fd)
+    return b"".join(chunks).decode("utf-8")
+
+
+def _handles_of(path: Path) -> dict[str, str]:
+    """{handle: id} of a handle file ({} when there is none). Raises SweepError when it cannot be read."""
+    try:
+        text = _read_file(path)
+        data = json.loads(text) if text is not None else {}
+    except (OSError, ValueError):
+        raise SweepError("the handle file cannot be read") from None
+    raw = (data.get("handles") or {}) if isinstance(data, dict) else {}
+    if not isinstance(raw, dict):
+        raise SweepError("the handle file cannot be read")
+    return {h: rid for h, rid in raw.items()
+            if isinstance(h, str) and _HANDLE_RE.match(h) and isinstance(rid, str) and rid}
+
+
 # --------------------------------------------------------------------------- T-97, neutral handles
 
 
@@ -104,16 +153,10 @@ class Handles:
         self.by_id: dict[str, str] = {}
         self.ids: dict[str, str] = {}
         self.names: dict[str, str] = {}      # name -> handle, in memory only, never written
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            data = {}
-        except (OSError, ValueError):
-            raise SweepError("the handle file cannot be read") from None
-        for handle, rid in (data.get("handles") or {}).items() if isinstance(data, dict) else ():
-            if _HANDLE_RE.match(handle) and isinstance(rid, str) and rid:
-                self.ids[handle] = rid
-                self.by_id[rid] = handle
+        for handle, rid in _handles_of(self.path).items():
+            self.ids[handle] = rid
+            self.by_id[rid] = handle
+        self._base = dict(self.ids)          # the file as this run last read or wrote it: the base of a merge
 
     def handle(self, kind: str, rid: str, name: str = "") -> str:
         h = self.by_id.get(rid)
@@ -150,24 +193,79 @@ class Handles:
         return rid
 
     def mask(self, text: str) -> str:
-        """`text` with every known id and every name met in this run replaced by its handle, longest first."""
-        pairs = sorted(list(self.by_id.items()) + list(self.names.items()), key=lambda kv: -len(kv[0]))
-        for value, handle in pairs:
+        """`text` with every known id and every name met in this run replaced by its handle, longest first, in one
+        pass: a handle put in is never read again as a name."""
+        pairs: dict[str, str] = {}
+        for value, handle in list(self.by_id.items()) + list(self.names.items()):
             if value:
-                text = text.replace(value, handle)
-        return text
+                pairs.setdefault(value, handle)
+        if not pairs:
+            return text
+        pattern = re.compile("|".join(re.escape(v) for v in sorted(pairs, key=len, reverse=True)))
+        return pattern.sub(lambda m: pairs[m.group(0)], text)
+
+    def _merge(self) -> None:
+        """Take in what another run wrote to the file since this run read it: a three-way merge per handle of the
+        base, this run and the file. A handle both changed to different ids is a SweepError and nothing is written."""
+        disk = _handles_of(self.path)
+        merged: dict[str, str] = {}
+        for h in set(self._base) | set(self.ids) | set(disk):
+            base, ours, theirs = self._base.get(h), self.ids.get(h), disk.get(h)
+            if ours == base:
+                value = theirs
+            elif theirs in (base, ours):
+                value = ours
+            else:
+                raise SweepError("another run gave the same handle to another resource at the same time: run again")
+            if value is not None:
+                merged[h] = value
+        by_id = {rid: h for h, rid in sorted(merged.items())}
+        by_id.update({rid: h for rid, h in self.by_id.items() if merged.get(h) == rid})
+        self.ids, self.by_id = merged, by_id
+        self.names = {n: h for n, h in self.names.items() if h in merged}
 
     def save(self) -> None:
+        """Write the file through a new private temp file and a rename, under a lock beside it, merged with what
+        another run wrote meanwhile. A link or a special file in the place of the lock or the file is refused."""
+        tmp = None
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_name("." + self.path.name + ".tmp")
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump({"handles": dict(sorted(self.ids.items()))}, fh, indent=1)
-                fh.write("\n")
-            os.replace(tmp, self.path)
+            folder = self.path.parent
+            folder.mkdir(parents=True, exist_ok=True)
+            lock = os.open(folder / ("." + self.path.name + ".lock"),
+                           os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0), 0o600)
+            try:
+                if not stat.S_ISREG(os.fstat(lock).st_mode):
+                    raise OSError("the lock is not a regular file")
+                deadline = time.monotonic() + _LOCK_WAIT
+                while True:
+                    try:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        if time.monotonic() > deadline:
+                            raise SweepError("another run holds the handle file: run again") from None
+                        time.sleep(0.05)
+                self._merge()
+                fd, tmp = tempfile.mkstemp(prefix="." + self.path.name + ".", suffix=".tmp", dir=folder)
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    os.fchmod(fh.fileno(), 0o600)
+                    json.dump({"handles": dict(sorted(self.ids.items()))}, fh, indent=1)
+                    fh.write("\n")
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(tmp, self.path)
+                tmp = None
+                self._base = dict(self.ids)
+            finally:
+                os.close(lock)
         except OSError:
             raise SweepError("the handle file cannot be written") from None
+        finally:
+            if tmp is not None:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
 
 
 def handles_path(p: config.Paths) -> Path:
@@ -176,7 +274,9 @@ def handles_path(p: config.Paths) -> Path:
 
 def owner_handles_path() -> Path:
     """The handle file of a user who may not write the shared one (the owner on a sealed host)."""
-    base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    base = os.environ.get("XDG_STATE_HOME") or ""
+    if not os.path.isabs(base):          # the XDG rule: a relative value is ignored
+        base = str(Path.home() / ".local" / "state")
     return Path(base) / "awb" / HANDLES_FILE
 
 
@@ -259,7 +359,7 @@ def _state(kind: str, item: dict) -> str:
 
 def name_tags(name: str) -> dict[str, str]:
     """The project and expiry tags a lab resource carries in its name (`<code>-lab-<YYYYMMDD>-<rand>`), else none."""
-    m = _LAB_NAME_RE.match(name or "")
+    m = _LAB_NAME_RE.fullmatch(name or "")      # fullmatch: its $ would let a trailing newline through
     if not m:
         return {}
     return {PROJECT_TAG: m.group("code"), EXPIRY_TAG: "%s-%s-%s" % (m.group("y"), m.group("m"), m.group("d"))}
@@ -277,8 +377,10 @@ def known_ids(projects_root: Path) -> dict[str, str]:
         try:
             if not (folder / "SCOPE.md").is_file():
                 continue
-            text = (folder / "RESOURCES.md").read_text(encoding="utf-8")
-        except OSError:
+            text = _read_file(folder / "RESOURCES.md")
+        except (OSError, ValueError):
+            continue
+        if text is None:
             continue
         head: list[str] | None = None
         for line in text.splitlines():
@@ -417,13 +519,20 @@ def inventory_diff(before: dict, after: dict) -> list[str]:
     return out
 
 
+def _shown(value: str, pattern: re.Pattern) -> str:
+    """A value from the cloud as the report shows it: itself when it has the expected shape, else "?" (a tag value or
+    a state can carry a name or a line break)."""
+    return value if not value or pattern.match(value) else "?"
+
+
 def report_lines(rep: SweepReport) -> list[str]:
-    out = ["%-8s  %-5s  %-20s  %-10s  %-10s  %-10s  %-10s  %s" % ("handle", "kind", "created", "state", "project",
+    out =["%-8s  %-5s  %-20s  %-10s  %-10s  %-10s  %-10s  %s" % ("handle", "kind", "created", "state", "project",
                                                                   "expiry", "known", "why")]
     for i in rep.items:
-        out.append("%-8s  %-5s  %-20s  %-10s  %-10s  %-10s  %-10s  %s" % (i.handle, i.kind, i.created[:19], i.state,
-                                                                          i.project or "-", i.expiry or "-",
-                                                                          i.known or "-", ", ".join(i.reasons)))
+        out.append("%-8s  %-5s  %-20s  %-10s  %-10s  %-10s  %-10s  %s" % (
+            i.handle, i.kind, _shown(i.created, _CREATED_RE)[:19], _shown(i.state, _STATE_RE),
+            _shown(i.project, _CODE_RE) or "-", _shown(i.expiry, _DATE_RE) or "-", _shown(i.known, _CODE_RE) or "-",
+            ", ".join(i.reasons)))
     summary = ", ".join("%s %d" % kv for kv in sorted(rep.counts.items())) or "nothing to report"
     out.append("sweep: %d resource(s): %s" % (len(rep.items), summary))
     if rep.unknown:
