@@ -8,10 +8,11 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import fcntl
+import hashlib
 import io
-import json
 import os
 import re
+import stat
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -23,6 +24,7 @@ FIELDS = ("id", "created", "updated", "next_changed", "what", "next", "who", "pr
 ARCHIVE_NOTICE = "Archive: open work moved to queue.tsv; use awb queue add|next|done|list."
 HANDLE = re.compile(r"[A-Za-z][A-Za-z0-9-]{0,39}")
 CLOSED = re.compile(r"^(done|accepted|complete|completed|closed|cancelled|canceled|dropped|superseded|retired|obsolete)\b", re.I)
+_CHECKED: dict[Path, tuple[str, set[str]]] = {}
 
 
 class QueueError(Exception):
@@ -74,33 +76,31 @@ def _shape(row: dict[str, str]) -> None:
 
 def _register_stamp(reg) -> str:
     try:
-        st = os.stat(reg)
-        return "%d-%d" % (st.st_mtime_ns, st.st_size)
+        return hashlib.sha256(os.fsencode(reg) + b"\0" + Path(reg).read_bytes()).hexdigest()
     except (OSError, TypeError):
         return ""
 
 
 def _row_key(row: dict[str, str], stamp: str) -> str:
-    import hashlib
-
     text = "\0".join(row[k] for k in ("id", "what", "next", "who", "project")) + "\0" + stamp
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _check(rows: list[dict[str, str]], cache: Path | None = None) -> None:
-    """The shape and the name and secret check of every row. With `cache` (a file next to the queue), a row whose
-    fields and register are unchanged since it last passed is not sent to the daemon again: a read of the whole
-    queue each minute cost about 190 checks and used up the owner's budget (2026-11-14). An edited row or a grown
-    register gives a new key, so the row is checked again."""
+    """Cache only verdicts earned in this process, with a readable register fingerprint.
+
+    A disk hash list is editable input, not evidence of a safety check. An unreadable
+    or remote register has no known revision, so its verdicts must not be reused.
+    `cache` identifies the queue without reading or writing the old cache file.
+    """
     reg = ledger.register_path()
     ledger.ensure_checkable(reg)
     stamp = _register_stamp(reg)
     passed: set[str] = set()
-    if cache is not None:
-        try:
-            passed = set(json.loads(cache.read_text(encoding="utf-8")))
-        except (OSError, ValueError, TypeError):
-            passed = set()
+    if cache is not None and stamp:
+        previous_stamp, previous = _CHECKED.get(cache.absolute(), ("", set()))
+        if previous_stamp == stamp:
+            passed = previous
     fresh = set()
     for row in rows:
         _shape(row)
@@ -109,25 +109,57 @@ def _check(rows: list[dict[str, str]], cache: Path | None = None) -> None:
             # Recheck every printable field, including handles: the register can grow.
             ledger.screen_fields([(k, row[k]) for k in ("id", "what", "next", "who", "project")], reg)
         fresh.add(key)
-    if cache is not None and fresh != passed:
+    if cache is not None:
+        if len(_CHECKED) >= 32:
+            _CHECKED.clear()
+        _CHECKED[cache.absolute()] = (stamp, fresh)
+
+
+def _safe_parent(path: Path) -> None:
+    if "\0" in os.fspath(path):
+        raise QueueError("invalid queue storage path")
+    for parent in reversed(path.parents):
         try:
-            tmp = cache.with_name(cache.name + ".tmp")
-            tmp.write_text(json.dumps(sorted(fresh)), encoding="utf-8")
-            os.chmod(tmp, 0o600)
-            os.replace(tmp, cache)
-        except OSError:
-            pass
+            mode = parent.lstat().st_mode
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISDIR(mode):
+            raise QueueError("queue parent must be a directory without links")
+
+
+def _regular(path: Path) -> bool:
+    _safe_parent(path)
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise QueueError("queue storage must be a regular file without links")
+    return True
+
+
+def _text(path: Path) -> str:
+    _regular(path)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "r", encoding="utf-8", newline="") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise QueueError("queue storage must be a regular file without links")
+        return stream.read()
 
 
 def _read(path: Path) -> list[dict[str, str]]:
     try:
-        text = path.read_text(encoding="utf-8")
+        text = _text(path)
     except FileNotFoundError:
         return []
-    reader = csv.DictReader(io.StringIO(text), delimiter="\t")
-    if reader.fieldnames != list(FIELDS):
-        raise QueueError("invalid queue header")
-    rows = list(reader)
+    try:
+        reader = csv.DictReader(io.StringIO(text), delimiter="\t", strict=True)
+        if reader.fieldnames != list(FIELDS):
+            raise QueueError("invalid queue header")
+        rows = list(reader)
+    except csv.Error:
+        raise QueueError("invalid queue data") from None
     for row in rows:
         _shape(row)
     if len({r["id"] for r in rows}) != len(rows):
@@ -136,13 +168,20 @@ def _read(path: Path) -> list[dict[str, str]]:
 
 
 def _atomic(path: Path, text: str) -> None:
+    _regular(path)
     fd, name = tempfile.mkstemp(prefix=".queue-", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as stream:
             stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())
+        _regular(path)
         os.replace(name, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     finally:
         Path(name).unlink(missing_ok=True)
 
@@ -157,9 +196,18 @@ def _write(path: Path, rows: list[dict[str, str]]) -> None:
 
 @contextmanager
 def _locked(path: Path):
+    if "\0" in os.fspath(path) or path.name in (
+            "queue-done.tsv", "QUEUE.md", ".queue.lock", "queue-checked.json", "queue-checked.json.tmp"):
+        raise QueueError("invalid queue storage path")
+    _safe_parent(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path.with_name(".queue.lock"), os.O_CREAT | os.O_RDWR, 0o600)
+    lock = path.with_name(".queue.lock")
+    _regular(lock)
+    fd = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
     try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise QueueError("queue lock must be a regular file without links")
         fcntl.flock(fd, fcntl.LOCK_EX)
         yield
     finally:
@@ -167,17 +215,30 @@ def _locked(path: Path):
 
 
 def _open(path: Path) -> list[dict[str, str]]:
-    if not path.exists():
+    if not _regular(path):
         source = path.with_name("QUEUE.md")
-        if source.exists() and not source.read_text(encoding="utf-8").startswith(ARCHIVE_NOTICE):
+        if _regular(source) and not _text(source).startswith(ARCHIVE_NOTICE):
             raise QueueError("legacy queue exists; run awb queue migrate")
-    done = {r["id"] for r in _read(archive_file(path))}
-    return [r for r in _read(path) if r["id"] not in done and not r["done"]]
+    rows, archive = _history(path)
+    done = {r["id"] for r in archive}
+    return [r for r in rows if r["id"] not in done]
+
+
+def _history(path: Path) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    archive = _read(archive_file(path))
+    if any(not r["done"] for r in archive):
+        raise QueueError("archive row has no completion date")
+    done = {r["id"] for r in archive}
+    rows = _read(path)
+    if any(r["done"] and r["id"] not in done for r in rows):
+        raise QueueError("completed queue row is missing from the archive")
+    return rows, archive
 
 
 def load(path: Path | None = None) -> list[dict[str, str]]:
     """Checked open rows for the CLI and owner status. A missing queue is empty."""
     path = path or queue_file()
+    _safe_parent(path)
     if not path.parent.exists():
         return []
     with _locked(path):
@@ -194,7 +255,7 @@ def _new(ident: str, what: str, step: str, who: str, project: str = "", at: str 
 
 def _migrate(path: Path) -> int:
     source = path.with_name("QUEUE.md")
-    text = source.read_text(encoding="utf-8")
+    text = _text(source)
     if text.startswith(ARCHIVE_NOTICE):
         return 0
     at = dt.datetime.fromtimestamp(source.stat().st_mtime, dt.timezone.utc).isoformat()
@@ -209,6 +270,8 @@ def _migrate(path: Path) -> int:
         cells = [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
         names = [c.lower() for c in cells]
         if "state" in names and "what" in names and ("id" in names or "step" in names):
+            if len(set(names)) != len(names):
+                raise QueueError("duplicate legacy queue column")
             columns = names
             tables += 1
             continue
@@ -235,8 +298,8 @@ def _migrate(path: Path) -> int:
     _check(imported)
     if len({r["id"] for r in imported}) != len(imported):
         raise QueueError("duplicate legacy queue id")
-    existing = _read(path)
-    archived = {r["id"] for r in _read(archive_file(path))}
+    existing, archive = _history(path)
+    archived = {r["id"] for r in archive}
     by_id = {r["id"]: r for r in existing}
     for row in imported:
         if row["id"] in archived:
@@ -256,7 +319,11 @@ def _migrate(path: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
-    parser = SafeParser(prog="awb queue", description="Open work on the owner side; codes and handles only.")
+    class QueueParser(SafeParser):
+        def error(self, message):
+            super().error("invalid queue arguments")
+
+    parser = QueueParser(prog="awb queue", description="Open work on the owner side; codes and handles only.")
     sub = parser.add_subparsers(dest="command", required=True)
     add = sub.add_parser("add", help="add open work with its next step and responsible handle")
     add.add_argument("what", metavar="WHAT")
@@ -323,8 +390,11 @@ def main(argv: list[str] | None = None) -> int:
     except ledger.Refused:
         print("awb queue: row refused by the name or safety check", file=sys.stderr)
         return 1
-    except (QueueError, ledger.LedgerError) as err:
+    except QueueError as err:
         print("awb queue: %s" % err, file=sys.stderr)
+        return 2
+    except ledger.LedgerError:
+        print("awb queue: name or safety check unavailable", file=sys.stderr)
         return 2
     except (OSError, UnicodeError, csv.Error):
         print("awb queue: storage could not be read or written", file=sys.stderr)
