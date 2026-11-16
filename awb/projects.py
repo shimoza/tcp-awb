@@ -138,12 +138,24 @@ def goal_of(path: str | os.PathLike) -> str:
 
             goal = " ".join(line[len("- goal:"):].split())
             try:
-                if ledger._pattern_counts(goal):
+                if _goal_shows_secret(goal):
                     return ledger.WITHHELD
-            except ledger.LedgerError:
+            except Exception:  # LedgerError or a broken detector: never a clean result
                 return ledger.WITHHELD
             return goal
     return ""
+
+
+def _goal_shows_secret(goal: str) -> bool:
+    """A goal is prose. Beyond the gate's pattern findings (a dict of counts, zero when clean), any value under
+    a key that names a secret and any token-prefixed run is withheld, even a low-entropy one the gate lets pass."""
+    from awb import gate, ledger
+
+    if any(ledger._pattern_counts(goal).values()):
+        return True
+    if any(gate._key_is_secret(key) and value.strip() for key, value, _, _ in gate._assignments(goal)):
+        return True
+    return any(rx.search(goal) for rx in gate._TOKEN_PATTERNS)
 
 
 def short_goal(goal: str, width: int = GOAL_WIDTH) -> str:
