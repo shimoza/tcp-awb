@@ -935,3 +935,395 @@ def test_the_exchange_is_the_door_to_its_service_side(monkeypatch):
         assert res.stdout.split() == ["True"] * 4, (first, res.stderr)
     text = (root / "awb" / "tcp" / "keys.py").read_text(encoding="utf-8")
     assert "xchg.serve_" not in text and "xchg.Context" not in text and "keys_exchange.serve_obs" in text
+
+
+# --------------------------------------------------------------------------- exchange hardening
+
+
+@pytest.fixture
+def local_exchange(tmp_path, home, register_path, monkeypatch):
+    """A standalone project, independent of the checkout, installed package and build identity."""
+    root = tmp_path / "project"
+    root.mkdir()
+    for folder in ("input", "evidence", "deliverables"):
+        (root / folder).mkdir()
+    (root / "SCOPE.md").write_text("- code: tcp-q7m4\n- customer: none\n")
+    monkeypatch.chdir(root)
+    return root
+
+
+def _lab_entry(name="notes.txt"):
+    return {"bucket": "lab", "id": "lab-0123456789ab", "kind": "txt", "size": 5, "name": name}
+
+
+def _fake_put(monkeypatch, calls):
+    def call(req, upload=None, **kwargs):
+        calls.append((req, upload.read_bytes()))
+        return {"ok": True, "key": "tcp-q7m4/from-session/2026-11-15/put-0123456789ab.txt", "size": 5}
+    monkeypatch.setattr(xchg, "_call", call)
+
+
+def test_xh_names_reject_trailing_newlines_and_controls():
+    for name in ("notes.txt\n", "notes\x85.txt", "notes\u202e.txt", "notes\udcff.txt"):
+        assert not xchg.valid_name(name)
+    assert xchg.valid_name("notes.txt") and xchg.valid_name("Größe.txt")
+
+
+def test_xh_invalid_ids_and_project_codes_never_reach_calls_or_errors(local_exchange, monkeypatch, capsys):
+    calls = []
+    monkeypatch.setattr(xchg, "_call", lambda req: calls.append(req) or {"ok": True, "matches": []})
+    private = "pass" + "word" + "=never-echo-this"
+    for args in (["take", "--id", private], ["take", "--project", private, "from in"],
+                 ["take", "--id", "lab-0123456789ab\n"]):
+        assert xchg.main_inbox(args) == 1
+        out, err = capsys.readouterr()
+        assert private not in out + err and not calls
+
+
+def test_xh_owner_outputs_cannot_escape_outbox(local_exchange, home, monkeypatch):
+    outside = home.outbox / "outside.txt"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text("keep outside")
+    (home.outbox / "tcp-q7m4").mkdir()
+    entry = dict(_lab_entry(), bucket="project")
+    for output in ("../outside.txt", str(outside), "sub/file.txt", "notes.txt\n"):
+        monkeypatch.setattr(xchg, "_call", lambda *a, **k: {
+            "ok": True, "state": "taken", "customer": "tcp-q7m4", "outputs": [output]})
+        with pytest.raises(xchg.XchgError):
+            xchg._take_one(local_exchange, "tcp-q7m4", entry, None)
+        assert outside.read_text() == "keep outside"
+        assert not (local_exchange / "outside.txt").exists()
+
+
+def test_xh_owner_copy_rejects_links_missing_files_and_collisions(local_exchange, home, monkeypatch):
+    outbox = home.outbox / "tcp-q7m4"
+    outbox.mkdir(parents=True)
+    outside = local_exchange.parent / "outside.txt"
+    outside.write_text("keep outside")
+    src = outbox / "copy.txt"
+    dst = local_exchange / "input" / src.name
+    monkeypatch.setattr(xchg, "_call", lambda *a, **k: {
+        "ok": True, "state": "taken", "customer": "tcp-q7m4", "outputs": [src.name]})
+    entry = dict(_lab_entry(), bucket="owner")
+    for state in ("missing", "source-link", "destination-link", "collision"):
+        if state == "source-link":
+            src.symlink_to(outside)
+        elif state in ("destination-link", "collision"):
+            src.write_text("copy")
+            if state == "destination-link":
+                dst.symlink_to(outside)
+            else:
+                dst.write_text("existing")
+        with pytest.raises(xchg.XchgError):
+            xchg._take_one(local_exchange, "tcp-q7m4", entry, None)
+        assert outside.read_text() == "keep outside"
+        if state == "collision":
+            assert dst.read_text() == "existing"
+        if src.is_symlink() or src.exists():
+            src.unlink()
+        if dst.is_symlink() or dst.exists():
+            dst.unlink()
+
+
+def test_xh_lab_destination_links_are_refused_before_remote_take(local_exchange, monkeypatch):
+    outside = local_exchange.parent / "outside"
+    outside.mkdir()
+    calls = []
+    def call(*args, download, **kwargs):
+        calls.append(1)
+        download.write_text("copy")
+        return {"ok": True, "state": "taken"}
+    monkeypatch.setattr(xchg, "_call", call)
+    dest = local_exchange / "input" / "notes.txt"
+    dest.symlink_to(outside / "missing.txt")
+    with pytest.raises(xchg.XchgError):
+        xchg._take_one(local_exchange, "tcp-q7m4", _lab_entry(), None)
+    dest.unlink()
+    (local_exchange / "input").rmdir()
+    (local_exchange / "input").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(xchg.XchgError):
+        xchg._take_one(local_exchange, "tcp-q7m4", _lab_entry(), None)
+    assert not calls and not list(outside.iterdir())
+
+
+def test_xh_lab_take_cannot_overwrite_a_file_created_during_download(local_exchange, monkeypatch):
+    dest = local_exchange / "input" / "notes.txt"
+    def call(*args, download, **kwargs):
+        dest.write_text("concurrent work")
+        download.write_text("copy")
+        return {"ok": True, "state": "taken"}
+    monkeypatch.setattr(xchg, "_call", call)
+    with pytest.raises(xchg.XchgError):
+        xchg._take_one(local_exchange, "tcp-q7m4", _lab_entry(), None)
+    assert dest.read_text() == "concurrent work"
+
+
+def test_xh_two_takes_of_same_name_preserve_first_copy(local_exchange, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    entered, release, second_started, second_remote = Event(), Event(), Event(), Event()
+    calls = []
+    def call(*args, download, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            second_remote.set()
+        entered.set()
+        assert release.wait(5)
+        download.write_text("copy %d" % len(calls))
+        return {"ok": True, "state": "taken"}
+    monkeypatch.setattr(xchg, "_call", call)
+    def take(second=False):
+        if second:
+            second_started.set()
+        try:
+            return xchg._take_one(local_exchange, "tcp-q7m4", _lab_entry(), None)
+        except xchg.XchgError:
+            return "refused"
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(take)
+        assert entered.wait(5)
+        second = pool.submit(take, True)
+        assert second_started.wait(5)
+        second_remote.wait(0.2)  # Give an unlocked second take time to reach the blocked download.
+        release.set()
+        results = [first.result(timeout=5), second.result(timeout=5)]
+    assert len(calls) == 1 and results.count("refused") == 1
+    assert (local_exchange / "input" / "notes.txt").read_text() == "copy 1"
+
+
+def test_xh_ignore_file_refuses_symlinks_and_hardlinks(local_exchange):
+    outside = local_exchange.parent / "outside.txt"
+    outside.write_text("keep outside\n")
+    ignore = local_exchange / ".gitignore"
+    for link in (lambda: ignore.symlink_to(outside), lambda: os.link(outside, ignore)):
+        link()
+        with pytest.raises(xchg.XchgError):
+            xchg._ignore_opaque(local_exchange)
+        assert outside.read_text() == "keep outside\n"
+        ignore.unlink()
+
+
+def test_xh_put_refuses_external_linked_and_special_sources(local_exchange, monkeypatch):
+    calls = []
+    _fake_put(monkeypatch, calls)
+    outside = local_exchange.parent / "outside.txt"
+    outside.write_text("private outside")
+    linked = local_exchange / "linked.txt"
+    linked.symlink_to(outside)
+    fifo = local_exchange / "pipe.txt"
+    os.mkfifo(fifo)
+    for path in (outside, linked, fifo, local_exchange / "missing.txt", local_exchange):
+        with pytest.raises(xchg.XchgError):
+            xchg.put(path)
+    assert not calls and outside.read_text() == "private outside"
+
+
+def test_xh_put_uses_one_snapshot_for_picture_check_and_upload(local_exchange, monkeypatch):
+    page = local_exchange / "page.md"
+    page.write_text("plain text")
+    calls = []
+    _fake_put(monkeypatch, calls)
+    real = xchg.check_problems
+    def swap(path, **kwargs):
+        result = real(path, **kwargs)
+        page.write_text("![console](private.png)")
+        return result
+    monkeypatch.setattr(xchg, "check_problems", swap)
+    xchg.put(page)
+    assert calls[0][1] == b"plain text"
+
+
+def test_xh_picture_check_fails_closed_on_read_error(local_exchange, monkeypatch):
+    import builtins
+
+    page = local_exchange / "page.md"
+    page.write_text("![console](private.png)")
+    real = builtins.open
+    def denied(path, *args, **kwargs):
+        if Path(path) == page:
+            raise PermissionError("pass" + "word" + "=private")
+        return real(path, *args, **kwargs)
+    monkeypatch.setattr(builtins, "open", denied)
+    problems = xchg.check_problems(page, names=False)
+    assert problems and "private" not in str(problems)
+
+
+def test_xh_picture_markdown_spanning_chunks_is_detected(tmp_path):
+    page = tmp_path / "page.md"
+    for body in (b"![" + b"a" * ((1 << 20) + 100) + b"](console.png)",
+                 b"![console]" + b" " * ((1 << 20) + 100) + b"[reference]"):
+        page.write_bytes(body)
+        assert xchg.check_problems(page, names=False)
+    page.write_text("[ordinary](guide.txt)")
+    assert xchg.check_problems(page, names=False) == []
+
+
+def test_xh_put_hides_private_source_and_fallback_names(local_exchange, monkeypatch):
+    path = local_exchange / (fx.CUSTOMER_FORMS[0] + ".txt")
+    path.write_text("plain text")
+    def call(*a, **k):
+        return {"ok": True, "key": "tcp-q7m4/from-session/2026-11-15/put-0123456789ab.txt",
+                "size": 10, "notes": [xchg.AS_NOT_USED]}
+    monkeypatch.setattr(xchg, "_call", call)
+    for alias in (None, fx.CUSTOMER_FORMS[1] + ".txt"):
+        out = xchg.put(path, as_name=alias)
+        fx.assert_no_fixture_name(out, "the put result")
+    private = "pass" + "word=" + "t7Kq2Zp9" + "Lw4Rx8Vn3Bm6Yc"
+    secret_path = local_exchange / (private + ".txt")
+    secret_path.write_text("plain text")
+    assert private not in xchg.put(secret_path)
+
+
+def test_xh_image_reason_is_scrubbed_in_request_and_log(local_exchange, monkeypatch):
+    path = local_exchange / "shot.png"
+    path.write_bytes(b"\x89PNG\r\n\x1a\n")
+    calls = []
+    _fake_put(monkeypatch, calls)
+    value = "t7Kq2Zp9" + "Lw4Rx8Vn3Bm6Yc"
+    reason = "checked screenshot, " + "pass" + "word=" + value + " for " + fx.CUSTOMER_FORMS[0]
+    xchg.put(path, image=True, reason=reason)
+    log = (local_exchange / "evidence" / "images-put.log").read_text()
+    text = json.dumps([req for req, body in calls]) + log
+    assert value not in text
+    fx.assert_no_fixture_name(text, "the image reason")
+
+
+def test_xh_image_log_refuses_linked_files_and_directories(local_exchange):
+    outside = local_exchange.parent / "outside"
+    outside.mkdir()
+    target = outside / "images-put.log"
+    target.write_text("keep outside\n")
+    log = local_exchange / "evidence" / target.name
+    log.symlink_to(target)
+    with pytest.raises(xchg.XchgError):
+        xchg._log_image(local_exchange, "put-0123456789ab.png", "checked console")
+    log.unlink()
+    (local_exchange / "evidence").rmdir()
+    (local_exchange / "evidence").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(xchg.XchgError):
+        xchg._log_image(local_exchange, "put-0123456789ab.png", "checked console")
+    assert target.read_text() == "keep outside\n"
+
+
+def test_xh_transport_errors_never_echo_values(local_exchange, monkeypatch, capsys):
+    value = "pass" + "word" + "=Example987654321"
+    def fail(*a, **k):
+        raise keys.KeysError(value)
+    monkeypatch.setattr(xchg, "_call", fail)
+    for main, args in ((xchg.main_inbox, ["list"]), (xchg.main_xchg, ["list"])):
+        assert main(args) == 2
+        out, err = capsys.readouterr()
+        assert value not in out + err and "Traceback" not in out + err
+
+
+def test_xh_unreadable_settings_and_scope_have_fixed_errors(local_exchange, monkeypatch):
+    (local_exchange / "SCOPE.md").write_bytes(b"\xff")
+    with pytest.raises(xchg.XchgError):
+        xchg._project()
+    conf = local_exchange / "keys.conf"
+    conf.write_bytes(b"\xff")
+    with pytest.raises(xchg.XchgError):
+        xchg.read_settings(conf)
+    real = Path.read_text
+    def denied(path, *a, **k):
+        if path == conf:
+            raise PermissionError("pass" + "word" + "=private")
+        return real(path, *a, **k)
+    monkeypatch.setattr(Path, "read_text", denied)
+    with pytest.raises(xchg.XchgError, match="^the settings file cannot be read$"):
+        xchg.read_settings(conf)
+
+
+def test_xh_hidden_names_cannot_escape_as_unknown_file_kinds(home):
+    from types import SimpleNamespace
+
+    private = fx.CUSTOMER_FORMS[1]
+    key = "inbox/notes." + private
+    listing = SimpleNamespace(objects=[(key, 5, "etag")], modified={key: "2026-11-15T12:00:00Z"})
+    ctx = SimpleNamespace(client=lambda which: SimpleNamespace(list=lambda prefix: listing), paths_fn=lambda: home)
+    answer = xchg.serve_inbox_find(ctx, {})
+    fx.assert_no_fixture_name(json.dumps(answer), "the hidden file kind")
+    assert {entry["kind"] for entry in answer["files"]} == {"FILE"}
+    assert xchg.suffix("notes.pdf") == "pdf"
+
+
+def test_xh_error_replies_are_validated_and_screened(local_exchange):
+    private = "pass" + "word=" + "t7Kq2Zp9" + "Lw4Rx8Vn3Bm6Yc"
+    for answer in (None, [], {"ok": "yes"}, {"ok": False, "error": {"value": private}},
+                   {"ok": False, "error": private}, {"ok": False, "error": fx.CUSTOMER_FORMS[0]}):
+        with pytest.raises(xchg.XchgError) as caught:
+            xchg._ok(answer)
+        assert private not in str(caught.value)
+        fx.assert_no_fixture_name(str(caught.value), "the service error")
+    assert xchg._ok({"ok": True}) == {"ok": True}
+
+
+def test_xh_secret_alias_is_not_forwarded_for_key_generation(local_exchange, monkeypatch):
+    path = local_exchange / "notes.txt"
+    path.write_text("plain text")
+    value = "t7Kq2Zp9" + "Lw4Rx8Vn3Bm6Yc"
+    alias = "pass" + "word=" + value + ".txt"
+    calls = []
+    _fake_put(monkeypatch, calls)
+    out = xchg.put(path, as_name=alias)
+    assert value not in json.dumps([req for req, body in calls]) + out
+    assert xchg.AS_NOT_USED in out
+
+
+def test_xh_scope_link_cannot_select_an_outside_project(local_exchange):
+    scope = local_exchange / "SCOPE.md"
+    outside = local_exchange.parent / "outside.md"
+    outside.write_text("- code: tcp-zz22\n")
+    scope.unlink()
+    scope.symlink_to(outside)
+    with pytest.raises(xchg.XchgError):
+        xchg._project()
+
+
+def test_xh_batch_take_continues_after_a_missing_download(local_exchange, monkeypatch):
+    first, second = _lab_entry("missing.txt"), _lab_entry("present.txt")
+    second["id"] = "lab-abcdef012345"
+    def call(req, download=None, **kwargs):
+        if req["op"] == "inbox_find":
+            return {"ok": True, "matches": [first, second]}
+        if req["id"] == second["id"]:
+            download.write_text("present")
+        return {"ok": True, "state": "taken"}
+    monkeypatch.setattr(xchg, "_call", call)
+    text, ok = xchg.take(take_all=True)
+    assert not ok and "not taken" in text and "input/present.txt" in text
+    assert (local_exchange / "input" / "present.txt").read_text() == "present"
+
+
+def test_xh_put_scrubs_upload_without_changing_source(local_exchange, monkeypatch, capsys):
+    path = local_exchange / "notes.txt"
+    value = "t7Kq2Zp9" + "Lw4Rx8Vn3Bm6Yc"
+    original = "db_pass" + "word = " + value + "\n"
+    path.write_text(original)
+    calls = []
+    _fake_put(monkeypatch, calls)
+    out = xchg.put(path)
+    _, err = capsys.readouterr()
+    assert value.encode() not in calls[0][1] and b"[secret]" in calls[0][1]
+    assert value not in out + err and "1 secret replaced" in err
+    assert path.read_text() == original
+
+
+def test_xh_inbox_listing_and_copy_summaries_hide_secret_names(local_exchange, home, monkeypatch):
+    value = "t7Kq2Zp9" + "Lw4Rx8Vn3Bm6Yc"
+    name = "pass" + "word=" + value + ".txt"
+    entry = _lab_entry(name)
+    assert value not in xchg.describe(entry)
+    def lab_call(req, download=None, **kwargs):
+        download.write_text("plain text")
+        return {"ok": True, "state": "taken"}
+    monkeypatch.setattr(xchg, "_call", lab_call)
+    assert value not in xchg._take_one(local_exchange, "tcp-q7m4", entry, None)
+    (local_exchange / "input" / name).unlink()
+    outbox = home.outbox / "tcp-q7m4"
+    outbox.mkdir(parents=True)
+    (outbox / name).write_text("sanitised copy")
+    monkeypatch.setattr(xchg, "_call", lambda *a, **k: {
+        "ok": True, "state": "taken", "customer": "tcp-q7m4", "outputs": [name]})
+    assert value not in xchg._take_one(local_exchange, "tcp-q7m4", dict(entry, bucket="owner"), None)

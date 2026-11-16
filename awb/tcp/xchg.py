@@ -74,10 +74,13 @@ another version fails as changed. It never writes, deletes or copies, and only t
 """
 from __future__ import annotations
 
+import contextlib
 import datetime
+import fcntl
 import os
 import re
 import shutil
+import stat
 import sys
 import tempfile
 import unicodedata
@@ -123,6 +126,8 @@ def read_settings(path: Path | None = None) -> dict:
         text = (path or settings_file()).read_text(encoding="utf-8")
     except FileNotFoundError:
         return out
+    except (OSError, UnicodeError):
+        raise XchgError("the settings file cannot be read") from None
     for n, line in enumerate(text.splitlines(), start=1):
         line = line.strip()
         if not line or line.startswith("#"):
@@ -242,8 +247,8 @@ def tf_services_ok(value: str) -> bool:
 
 
 def valid_name(name: str) -> bool:
-    return isinstance(name, str) and bool(_NAME_RE.match(name)) and name not in (".", "..") and \
-        not name.startswith(".")
+    return isinstance(name, str) and bool(_NAME_RE.fullmatch(name)) and name not in (".", "..") and \
+        not name.startswith(".") and not any(unicodedata.category(c).startswith("C") for c in name)
 
 
 # --------------------------------------------------------------------------- which file he means
@@ -288,7 +293,10 @@ def _fold(text: str) -> str:
 
 def suffix(rel: str) -> str:
     base = rel.rsplit("/", 1)[-1]
-    return base.rsplit(".", 1)[-1].lower() if "." in base[1:] else ""
+    ext = base.rsplit(".", 1)[-1].lower() if "." in base[1:] else ""
+    # Unknown extensions are part of a hidden name, not a safe public kind.
+    known = set().union(*KIND_WORDS.values(), (s[1:] for s in TEXT_SUFFIXES + IMAGE_SUFFIXES))
+    return ext if ext in known else ""
 
 
 def _forms(rel: str) -> set[str]:
@@ -360,8 +368,9 @@ def _project() -> tuple[Path, str, str]:
 
     root = review.find_project()
     try:
-        lines = (root / "SCOPE.md").read_text(encoding="utf-8").splitlines()
-    except OSError:
+        with _directory(root) as directory, _regular(directory, "SCOPE.md") as stream:
+            lines = stream.read().decode("utf-8").splitlines()
+    except (OSError, UnicodeError):
         raise XchgError("not inside a project (no SCOPE.md)") from None
     code = next((l.split(":", 1)[1].strip() for l in lines if l.startswith("- code:")), "")
     customer = next((l.split(":", 1)[1].strip() for l in lines if l.startswith("- customer:")), "none")
@@ -377,8 +386,12 @@ def _call(obj: dict, upload: Path | None = None, download: Path | None = None) -
 
 
 def _ok(answer: dict) -> dict:
-    if not answer.get("ok"):
-        raise XchgError(answer.get("error") or "the key service said no")
+    if not isinstance(answer, dict) or type(answer.get("ok")) is not bool:
+        raise XchgError("the key service gave an invalid answer")
+    if not answer["ok"]:
+        error = answer.get("error")
+        raise XchgError(_public_text(error, "the key service said no")
+                        if isinstance(error, str) and error else "the key service said no")
     return answer
 
 
@@ -398,21 +411,33 @@ def name_problems(name: str, register: Path | None = None) -> list[str]:
     return []
 
 
-_PICTURE_RE = re.compile(rb"data:image/|<img[\s/>]|!\[[^\]]*\]\s*[(\[]", re.I)
+_PICTURE_RE = re.compile(rb"data:image/|<img[\s/>]", re.I)
 
 
 def _embeds_picture(path: Path) -> bool:
-    """A page or a text that embeds a picture as a data URI, an img tag or a Markdown image (`awb howto render`,
-    `awb howto draft --internal`) or links one."""
-    tail = b""
+    """Scan without an unbounded carry buffer, including Markdown split across read boundaries."""
+    tail, markdown = b"", 0
     try:
         with open(path, "rb") as fh:
             while chunk := fh.read(1 << 20):
                 if _PICTURE_RE.search(tail + chunk):
                     return True
-                tail = chunk[-64:]
+                tail = chunk[-10:]
+                for ch in chunk:
+                    if markdown == 2:       # inside the alternative text
+                        if ch == ord("]"):
+                            markdown = 3
+                    elif markdown == 3:     # optional whitespace before ( or [
+                        if ch in (ord("("), ord("[")):
+                            return True
+                        if ch not in b" \t\n\r\v\f":
+                            markdown = 1 if ch == ord("!") else 0
+                    elif markdown == 1 and ch == ord("["):
+                        markdown = 2
+                    else:
+                        markdown = 1 if ch == ord("!") else 0
     except OSError:
-        return False
+        raise XchgError("the picture check cannot read the file") from None
     return False
 
 
@@ -426,9 +451,13 @@ def check_problems(path: Path, image: bool = False, register: Path | None = None
     suffix = path.suffix.lower()
     if suffix in IMAGE_SUFFIXES:
         return [] if image else ["a picture crosses only with --image and a reason"]
-    if suffix in (".html", ".htm", ".md", ".markdown") and not mirror_image and _embeds_picture(path):
-        return ["a page or text that embeds or links an image never crosses; console images stay internal "
-                "(only the owner passes --internal-image)"]
+    if suffix in (".html", ".htm", ".md", ".markdown") and not mirror_image:
+        try:
+            if _embeds_picture(path):
+                return ["a page or text that embeds or links an image never crosses; console images stay internal "
+                        "(only the owner passes --internal-image)"]
+        except XchgError:
+            return ["the picture check cannot read the file"]
     if not names:
         return []
     try:
@@ -454,12 +483,71 @@ def describe(e: dict) -> str:
     if e["bucket"] in ("owner", "project"):
         name = "name not shown"
     else:
-        name = e.get("name") or "name withheld: the name check found a hit"
+        name = _public_text(e.get("name") or "", "name withheld: the name check found a hit") \
+            if e.get("name") else "name withheld: the name check found a hit"
     return "%s  %-11s  %-4s  %8s  %s  %s" % (e["id"], where, e["kind"], _size(e["size"]),
                                             (when + " UTC") if when else "time unknown", name)
 
 
+@contextlib.contextmanager
+def _directory(path: Path, create: bool = False):
+    """Pin every directory component. No link can redirect a later open outside this tree."""
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in Path(os.path.abspath(path)).parts[1:]:
+            if create:
+                try:
+                    os.mkdir(part, mode=0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    except (OSError, ValueError):
+        raise XchgError("the exchange folder cannot be opened safely") from None
+    finally:
+        os.close(fd)
+
+
+@contextlib.contextmanager
+def _regular(directory: int, name: str, flags: int = os.O_RDONLY):
+    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=directory)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise XchgError("the exchange needs a regular file without links")
+        with os.fdopen(fd, "r+b" if flags & os.O_RDWR else "rb", closefd=False) as stream:
+            yield stream
+    finally:
+        os.close(fd)
+
+
+def _copy_input(root: Path, folder: str, name: str, source) -> None:
+    """Exclusive creation also protects against a file installed after the preflight check."""
+    with _directory(root / folder, create=True) as directory:
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+        try:
+            with os.fdopen(fd, "wb") as target:
+                shutil.copyfileobj(source, target)
+        except BaseException:
+            os.unlink(name, dir_fd=directory)
+            raise
+
+
 def _take_one(root: Path, code: str, e: dict, customer: str | None) -> str:
+    # The project directory is a stable shared lock, with no lock file that can be replaced.
+    with _directory(root) as directory:
+        fcntl.flock(directory, fcntl.LOCK_EX)
+        try:
+            return _take_one_locked(root, code, e, customer)
+        except (OSError, ValueError, UnicodeError):
+            raise XchgError("the inbox copy cannot be read or saved safely") from None
+        finally:
+            fcntl.flock(directory, fcntl.LOCK_UN)
+
+
+def _take_one_locked(root: Path, code: str, e: dict, customer: str | None) -> str:
     from awb import projects
 
     what = "%s of %s" % (e["kind"], _size(e["size"]))
@@ -473,25 +561,40 @@ def _take_one(root: Path, code: str, e: dict, customer: str | None) -> str:
         if a.get("state") != "taken":
             raise XchgError("the file left %s before the take" % whence)
         cust = a.get("customer")
-        if not (isinstance(cust, str) and (_CUST_RE.match(cust) or cust == code)):
+        if not (isinstance(cust, str) and (_CUST_RE.fullmatch(cust) or cust == code)):
             raise XchgError("the key service named no customer code for the copies")
         outbox = config.paths().outbox / cust
+        outputs = a.get("outputs", [])
+        if not isinstance(outputs, list) or not all(valid_name(out) for out in outputs):
+            raise XchgError("the key service named an invalid intake copy")
         moved = []
-        for out in a.get("outputs", []):
-            src = outbox / out
-            if src.is_file():
-                shutil.move(str(src), str(root / "input" / out))
+        with _directory(outbox) as directory:
+            for out in outputs:
+                with _regular(directory, out) as source:
+                    _copy_input(root, "input", out, source)
+                    # Do not remove a replacement installed while the copy was read.
+                    current = os.stat(out, dir_fd=directory, follow_symlinks=False)
+                    opened = os.fstat(source.fileno())
+                    if (current.st_dev, current.st_ino) == (opened.st_dev, opened.st_ino):
+                        os.unlink(out, dir_fd=directory)
                 moved.append(out)
         return "%s taken from %s through the intake: %d sanitised copy(ies) in input/ (%s)" % (
-            what, whence, len(moved), ", ".join(moved) or "-")
+            what, whence, len(moved), ", ".join(_public_text(out, "copy") for out in moved) or "-")
     rel = e.get("name")
     if not rel:
         return "%s in the lab inbox: held, its name holds a hit of the name check; the owner renames it or moves " \
                "it to the owner inbox" % what
+    if not isinstance(rel, str) or not all(valid_name(part) for part in rel.split("/")):
+        raise XchgError("the key service named an invalid lab file")
     name = rel.rsplit("/", 1)[-1]
     for where in ("input", projects.OPAQUE_DIR):
-        if (root / where / name).exists():
-            raise XchgError("%s/ already holds a file of that name" % where)
+        with _directory(root / where, create=True) as directory:
+            try:
+                os.stat(name, dir_fd=directory, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            else:
+                raise XchgError("%s/ already holds a file of that name" % where)
     with tempfile.TemporaryDirectory(prefix="awb-take-") as tmp:
         local = Path(tmp) / name
         # the key service checks the file and moves it in the bucket; a held file never reaches this process (F6)
@@ -504,15 +607,15 @@ def _take_one(root: Path, code: str, e: dict, customer: str | None) -> str:
         # a file the commit gate cannot read (a pdf, a sheet, an archive) would block every commit that stages
         # it: it goes to input/opaque/, which .gitignore keeps out of git
         opaque = bool(a.get("opaque"))
-        dest = root / (projects.OPAQUE_DIR if opaque else "input") / name
         if opaque:
             _ignore_opaque(root)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(local, dest)
+        with _directory(local.parent) as directory, _regular(directory, local.name) as source:
+            _copy_input(root, projects.OPAQUE_DIR if opaque else "input", name, source)
+    shown = _public_text(name, "file")
     if opaque:
         return ("taken from the lab inbox: %s/%s, a copy in the project's in/ folder; the commit gate cannot read "
-                "it, so .gitignore keeps it out of git" % (projects.OPAQUE_DIR, name))
-    return "taken from the lab inbox: input/%s, a copy in the project's in/ folder" % name
+                "it, so .gitignore keeps it out of git" % (projects.OPAQUE_DIR, shown))
+    return "taken from the lab inbox: input/%s, a copy in the project's in/ folder" % shown
 
 
 def _ignore_opaque(root: Path) -> None:
@@ -520,15 +623,17 @@ def _ignore_opaque(root: Path) -> None:
     none)."""
     from awb import projects
 
-    f = root / ".gitignore"
     try:
-        text = f.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        f.write_text(projects.GITIGNORE, encoding="utf-8")
-        return
-    if projects.OPAQUE_DIR + "/" not in text.splitlines():
-        with open(f, "a", encoding="utf-8") as fh:
-            fh.write(("" if text.endswith("\n") or not text else "\n") + projects.OPAQUE_DIR + "/\n")
+        with _directory(root) as directory, _regular(
+                directory, ".gitignore", os.O_RDWR | os.O_CREAT) as stream:
+            fcntl.flock(stream, fcntl.LOCK_EX)
+            text = stream.read().decode("utf-8")
+            if not text:
+                stream.write(projects.GITIGNORE.encode("utf-8"))
+            elif projects.OPAQUE_DIR + "/" not in text.splitlines():
+                stream.write((("" if text.endswith("\n") else "\n") + projects.OPAQUE_DIR + "/\n").encode())
+    except (OSError, UnicodeError):
+        raise XchgError("the opaque input ignore file cannot be updated safely") from None
 
 
 def take(words: str | None = None, project: str | None = None, customer: str | None = None,
@@ -536,6 +641,10 @@ def take(words: str | None = None, project: str | None = None, customer: str | N
     """The files he means, taken one by one. Returns the lines for him and whether every take went through."""
     root, code, _ = _project()
     code = project or code
+    if not isinstance(code, str) or not _CODE_RE.fullmatch(code):
+        raise XchgError("the project code is invalid")
+    if ids and not all(isinstance(ident, str) and _ID_RE.fullmatch(ident) for ident in ids):
+        raise XchgError("use an id from awb inbox list")
     if ids:
         picked = []
         for ident in ids:
@@ -594,9 +703,9 @@ def put(path: Path, as_name: str | None = None, image: bool = False, reason: str
                          or os.environ.get("CLAUDE_CODE_ENTRYPOINT")):
         raise XchgError("--internal-image is for the owner's own terminal, never a session")
     root, code, _ = _project()
-    path = Path(os.path.realpath(path))
-    if not path.is_file():
-        raise XchgError("the file to put is not there")
+    path = Path(os.path.abspath(path))
+    if not path.is_relative_to(Path(os.path.abspath(root))):
+        raise XchgError("the file to put must be inside this project")
     name = as_name or path.name
     if not valid_name(name):
         raise XchgError("a name without a folder")
@@ -610,17 +719,30 @@ def put(path: Path, as_name: str | None = None, image: bool = False, reason: str
             raise XchgError("--lang takes the two letters of the language (de, en, ru)")
     if image and not (reason and len(reason.strip()) >= 10):
         raise XchgError("--image needs a reason of one line: what it shows and that you checked it for names")
-    # task GT: no name check, no structured data, no review state; only the picture rule and the secrets
-    problems = check_problems(path, image=image, mirror_image=mirror_image, names=False)
-    if problems:
-        raise XchgError("; ".join(problems))
-    line = putcopy.review_line(root, path)
+    if image:
+        reason = _public_text(reason, "checked image; private reason withheld")
+    secret_alias = as_name is not None and _metadata_secrets(as_name)
     with tempfile.TemporaryDirectory(prefix="awb-put-") as tmp:
+        snapshot = Path(tmp) / ("source" + path.suffix)
+        try:
+            with _directory(path.parent) as directory, _regular(directory, path.name) as source:
+                with open(snapshot, "xb") as target:
+                    shutil.copyfileobj(source, target)
+        except (OSError, ValueError):
+            raise XchgError("the file to put cannot be read safely") from None
+        # The picture check and scrubber see the same private snapshot, including its real suffix.
+        problems = check_problems(snapshot, image=image, mirror_image=mirror_image, names=False)
+        if problems:
+            raise XchgError("; ".join(problems))
+        line = putcopy.review_line(root, snapshot)
         copy = Path(tmp) / "upload"
-        secrets = putcopy.scrub(path, copy)
+        secrets = putcopy.scrub(snapshot, copy)
         # task BK1: no key in the request; the key service builds the readable key from these and checks it
-        req = {"op": "obs", "method": "PUT", "project": code, "name": name, "review": line}
+        request_name = "file" + path.suffix if _metadata_secrets(name) else name
+        req = {"op": "obs", "method": "PUT", "project": code, "name": request_name, "review": line}
         req.update({k: v for k, v in (("kind", kind_word), ("lang", lang), ("as", as_name)) if v is not None})
+        if secret_alias:
+            req["as"] = "."  # The service supplies its neutral key and the usual fixed fallback note.
         if image:
             req.update(image=True, reason=reason)
         a = _ok(_call(req, upload=copy))
@@ -633,7 +755,9 @@ def put(path: Path, as_name: str | None = None, image: bool = False, reason: str
     # the lines of the key service are its fixed ones; they never carry the name; an --as name it did not use
     # is not repeated either
     notes = [n for n in a.get("notes") or () if n in (AS_NOT_USED, KIND_NOT_USED, INDEX_NOT_WRITTEN)]
-    shown = path.name if AS_NOT_USED in notes else name
+    if secret_alias and AS_NOT_USED not in notes:
+        notes.append(AS_NOT_USED)
+    shown = _public_text(path.name if AS_NOT_USED in notes else name, "file")
     lines = ["put: %s as %s (%d bytes); the owner gets a mail" % (shown, key, a.get("size", 0))]
     lines += ["put: %s" % n for n in notes]
     page = a.get("page")
@@ -652,10 +776,34 @@ def get_it_line(bucket, key: str) -> str:
             "owner bucket)" % (name, key.rsplit("/", 1)[0] + "/"))
 
 
+def _metadata_secrets(text: str) -> bool:
+    from awb import putcopy
+
+    # A filename suffix can make a secret assignment look like a dotted reference to the scrubber.
+    return any(putcopy.scrub_text(value)[1] for value in (text, text.rsplit(".", 1)[0]))
+
+
+def _public_text(text: str, fallback: str) -> str:
+    """Metadata is output too. A failed name check withholds it without refusing the put."""
+    from awb import putcopy
+
+    clean, count = putcopy.scrub_text(text)
+    if count or _metadata_secrets(text) or name_problems(clean) or \
+            any(unicodedata.category(c).startswith("C") for c in clean):
+        return fallback
+    return clean
+
+
 def _log_image(root: Path, ident: str, reason: str) -> None:
-    with open(root / "evidence" / "images-put.log", "a", encoding="utf-8") as f:
-        f.write("%s\t%s\t%s\n" % (datetime.datetime.now().isoformat(timespec="seconds"), ident,
-                                  " ".join(reason.split())))
+    reason = _public_text(reason, "checked image; private reason withheld")
+    try:
+        with _directory(root / "evidence") as directory, _regular(
+                directory, "images-put.log", os.O_RDWR | os.O_CREAT | os.O_APPEND) as stream:
+            fcntl.flock(stream, fcntl.LOCK_EX)
+            stream.write(("%s\t%s\t%s\n" % (datetime.datetime.now().isoformat(timespec="seconds"), ident,
+                                               " ".join(reason.split()))).encode("utf-8"))
+    except OSError:
+        raise XchgError("the image log cannot be updated safely") from None
 
 
 def put_list() -> list[str]:
@@ -733,6 +881,18 @@ def leftovers(code: str) -> int | None:
 # --------------------------------------------------------------------------- command line
 
 
+def _transport_error(err: Exception) -> str:
+    if type(err).__name__ != "KeysError":
+        return type(err).__name__
+    # Only fixed messages from the transport may be shown; exception values are not a protocol.
+    text = str(err)
+    if text in ("the key service is not running", "the key service refused this user",
+                "the file is larger than the limit of keys.conf (max_mb)",
+                "the key service gave no readable answer", "the file from the key service ended early"):
+        return text
+    return "the key service request failed"
+
+
 def main_inbox(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
@@ -767,7 +927,7 @@ def main_inbox(argv: list[str] | None = None) -> int:
         print(text if codes.HOLD_LINE_RE.match(text) else "awb inbox: %s" % text, file=sys.stderr)
         return 1
     except Exception as err:
-        print("awb inbox: %s" % (str(err) if type(err).__name__ == "KeysError" else type(err).__name__),
+        print("awb inbox: %s" % _transport_error(err),
               file=sys.stderr)
         return 2
 
@@ -817,7 +977,7 @@ def main_xchg(argv: list[str] | None = None) -> int:
         print("awb xchg: %s" % err, file=sys.stderr)
         return 1
     except Exception as err:
-        print("awb xchg: %s" % (str(err) if type(err).__name__ == "KeysError" else type(err).__name__),
+        print("awb xchg: %s" % _transport_error(err),
               file=sys.stderr)
         return 2
 

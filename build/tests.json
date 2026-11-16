@@ -19921,8 +19921,176 @@
    "name": "Merge driver: added sections follow the week introduction",
    "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_changelog_added_section_stays_after_week_introduction",
    "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-01",
+   "phase": "xchg-hardening",
+   "name": "exchange: names reject trailing newlines and controls",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_names_reject_trailing_newlines_and_controls",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-02",
+   "phase": "xchg-hardening",
+   "name": "exchange: invalid ids and project codes never reach calls or errors",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_invalid_ids_and_project_codes_never_reach_calls_or_errors",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-03",
+   "phase": "xchg-hardening",
+   "name": "exchange: owner outputs cannot escape outbox",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_owner_outputs_cannot_escape_outbox",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-04",
+   "phase": "xchg-hardening",
+   "name": "exchange: owner copy rejects links missing files and collisions",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_owner_copy_rejects_links_missing_files_and_collisions",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-05",
+   "phase": "xchg-hardening",
+   "name": "exchange: lab destination links are refused before remote take",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_lab_destination_links_are_refused_before_remote_take",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-06",
+   "phase": "xchg-hardening",
+   "name": "exchange: lab take cannot overwrite a file created during download",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_lab_take_cannot_overwrite_a_file_created_during_download",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-07",
+   "phase": "xchg-hardening",
+   "name": "exchange: two takes of same name preserve first copy",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_two_takes_of_same_name_preserve_first_copy",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-08",
+   "phase": "xchg-hardening",
+   "name": "exchange: ignore file refuses symlinks and hardlinks",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_ignore_file_refuses_symlinks_and_hardlinks",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-09",
+   "phase": "xchg-hardening",
+   "name": "exchange: put refuses external linked and special sources",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_put_refuses_external_linked_and_special_sources",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-10",
+   "phase": "xchg-hardening",
+   "name": "exchange: put uses one snapshot for picture check and upload",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_put_uses_one_snapshot_for_picture_check_and_upload",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-11",
+   "phase": "xchg-hardening",
+   "name": "exchange: picture check fails closed on read error",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_picture_check_fails_closed_on_read_error",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-12",
+   "phase": "xchg-hardening",
+   "name": "exchange: picture markdown spanning chunks is detected",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_picture_markdown_spanning_chunks_is_detected",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-13",
+   "phase": "xchg-hardening",
+   "name": "exchange: put hides private source and fallback names",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_put_hides_private_source_and_fallback_names",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-14",
+   "phase": "xchg-hardening",
+   "name": "exchange: image reason is scrubbed in request and log",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_image_reason_is_scrubbed_in_request_and_log",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-15",
+   "phase": "xchg-hardening",
+   "name": "exchange: image log refuses linked files and directories",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_image_log_refuses_linked_files_and_directories",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-16",
+   "phase": "xchg-hardening",
+   "name": "exchange: transport errors never echo values",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_transport_errors_never_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-17",
+   "phase": "xchg-hardening",
+   "name": "exchange: unreadable settings and scope have fixed errors",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_unreadable_settings_and_scope_have_fixed_errors",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-18",
+   "phase": "xchg-hardening",
+   "name": "exchange: hidden names cannot escape as unknown file kinds",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_hidden_names_cannot_escape_as_unknown_file_kinds",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-19",
+   "phase": "xchg-hardening",
+   "name": "exchange: error replies are validated and screened",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_error_replies_are_validated_and_screened",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-20",
+   "phase": "xchg-hardening",
+   "name": "exchange: secret alias is not forwarded for key generation",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_secret_alias_is_not_forwarded_for_key_generation",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-21",
+   "phase": "xchg-hardening",
+   "name": "exchange: scope link cannot select an outside project",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_scope_link_cannot_select_an_outside_project",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-22",
+   "phase": "xchg-hardening",
+   "name": "exchange: batch take continues after a missing download",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_batch_take_continues_after_a_missing_download",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-23",
+   "phase": "xchg-hardening",
+   "name": "exchange: put scrubs upload without changing source",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_put_scrubs_upload_without_changing_source",
+   "status": "passing"
+  },
+  {
+   "id": "xchg-hardening-24",
+   "phase": "xchg-hardening",
+   "name": "exchange: inbox listing and copy summaries hide secret names",
+   "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_inbox_listing_and_copy_summaries_hide_secret_names",
+   "status": "passing"
   }
  ],
- "total_tests": 2846,
+ "total_tests": 2870,
  "checked": "2026-11-09"
 }
