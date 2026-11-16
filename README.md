@@ -946,7 +946,9 @@ deliverable to a PDF, for every project and for you; no project writes its own. 
 `--out` names another file (inside the project folder or the session scratch folder only) and runs as the work
 user in a project session. The PDF is A4 with the standard fonts, so the text stays selectable: headings,
 paragraphs, lists, code blocks in Courier that keep their lines and indents (a long line goes on below with a
-drawn arrow, never cut, so a copied command is the command), tables as aligned text, links with their URL, page
+drawn arrow, never cut, so a copied command is the command), Markdown pipe tables as a ruled grid (a bold header
+row repeated on every page, column widths fitted to the page, text wrapped inside its cell, the alignment of the
+separator row), HTML tables as aligned text, links with their URL, page
 numbers and the title (the first heading unless `--title`) in the document info. A character the standard fonts
 cannot show (Cyrillic for example) is never dropped silently: the command refuses with its line and the count;
 `--replace` writes `?` for it and says how many. `awb howto render --pdf` and the HOW-TO.pdf of the dataset

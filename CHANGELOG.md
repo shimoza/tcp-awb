@@ -3,7 +3,11 @@
 What changed in the Architect Workbench, one entry per week (ISO week, Monday to Sunday), newest first. The form
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and projects appear as codes only.
 
-## Week 46, 2026-11-09 to 2026-11-15 (in progress)
+## Week 47, 2026-11-16 to 2026-11-22 (in progress)
+### Changed
+- `awb pdf FILE.md` draws a Markdown pipe table as a ruled grid: a bold header row on a light shade, repeated at the top of every page the table runs onto, column widths fitted to the page width from the content, text wrapped inside its cell with no wrap arrow and left, centre or right alignment from the separator row (`:--`, `:--:`, `--:`). HTML tables and the tables of the dataset HOW-TO stay aligned Courier text. Tests: `tests/test_pdf_tables.py`.
+
+## Week 46, 2026-11-09 to 2026-11-15
 ### Added
 - UX21: the owner page lists checked project Decisions from the timer status file through `GET /api/owner/items`. Take the default sends the UX20 call once, stays disabled while pending and after success, and shows sent to the session; refusals show their reason. Items without a default show the UX18 app line. Original OPEN.md indexes survive filtering. Owner-actions retains status-file-only access. Tests: `tests/test_owner_page_decisions.py`.
 - UX13: `awb handover write` writes a checked source-only `build/HANDOVER.md` with open work, Git changes, held notes, open asks and default owner status. Owner hook settings support writing before compaction, showing the file time at session start and one reminder after the second compaction. Host installation remains a development action on the owner's word. Tests: `tests/test_handover_write.py`.

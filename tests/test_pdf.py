@@ -127,9 +127,10 @@ def test_a_markdown_sample_with_every_element_reads_back_with_the_poppler_tools(
     while len("".join(pieces)) < len(LONG):
         pieces.append(code[start + len(pieces)])
     assert len(pieces) > 1 and "".join(pieces) == LONG
-    # the table as aligned Courier text
-    table = [x for x in code if x.startswith(("Service", "ECS", "RDS"))]
-    assert table == ["Service | Flavor     | Hours", "ECS     | s3.large.2 | 730", "RDS     | rds.pg.x1  | 24"]
+    # the pipe table as a ruled grid since fix/pdf-tables: its rows read back in order, cell by cell
+    table = [x.split() for x in poppler("pdftotext", out, "-layout").splitlines()
+             if x.split()[:1] in (["Service"], ["ECS"], ["RDS"])]
+    assert table == [["Service", "Flavor", "Hours"], ["ECS", "s3.large.2", "730"], ["RDS", "rds.pg.x1", "24"]]
     raw = out.read_bytes()
     assert b"/Subtype /Link" in raw and b"/URI (https://example.org/prices)" in raw
     assert b"/BaseFont /Courier " in raw and b"/BaseFont /Helvetica-Oblique " in raw

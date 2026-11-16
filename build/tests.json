@@ -20348,8 +20348,64 @@
    "name": "clean hardening: put refuses an invalid project before any bucket call",
    "run": ".venv/bin/pytest tests/test_clean.py::test_put_refuses_an_invalid_project_before_any_bucket_call",
    "status": "passing"
+  },
+  {
+   "id": "pdf-tables-1",
+   "phase": "pdf-tables",
+   "name": "pdf tables: a pipe table becomes a grid block with the alignment of its separator row",
+   "run": ".venv/bin/pytest tests/test_pdf_tables.py::test_a_pipe_table_becomes_a_grid_block_with_the_alignment_of_its_separator_row",
+   "status": "passing"
+  },
+  {
+   "id": "pdf-tables-2",
+   "phase": "pdf-tables",
+   "name": "pdf tables: the cells read back and the grid is ruled with no wrap arrow",
+   "run": ".venv/bin/pytest tests/test_pdf_tables.py::test_the_cells_read_back_and_the_grid_is_ruled_with_no_wrap_arrow",
+   "status": "passing"
+  },
+  {
+   "id": "pdf-tables-3",
+   "phase": "pdf-tables",
+   "name": "pdf tables: the header row is bold",
+   "run": ".venv/bin/pytest tests/test_pdf_tables.py::test_the_header_row_is_bold",
+   "status": "passing"
+  },
+  {
+   "id": "pdf-tables-4",
+   "phase": "pdf-tables",
+   "name": "pdf tables: a long cell wraps inside its own column",
+   "run": ".venv/bin/pytest tests/test_pdf_tables.py::test_a_long_cell_wraps_inside_its_own_column",
+   "status": "passing"
+  },
+  {
+   "id": "pdf-tables-5",
+   "phase": "pdf-tables",
+   "name": "pdf tables: a table longer than a page repeats its header on every page",
+   "run": ".venv/bin/pytest tests/test_pdf_tables.py::test_a_table_longer_than_a_page_repeats_its_header_on_every_page",
+   "status": "passing"
+  },
+  {
+   "id": "pdf-tables-6",
+   "phase": "pdf-tables",
+   "name": "pdf tables: umlauts and sharp s survive in cells",
+   "run": ".venv/bin/pytest tests/test_pdf_tables.py::test_umlauts_and_sharp_s_survive_in_cells",
+   "status": "passing"
+  },
+  {
+   "id": "pdf-tables-7",
+   "phase": "pdf-tables",
+   "name": "pdf tables: alignment right and centre move the text in its cell",
+   "run": ".venv/bin/pytest tests/test_pdf_tables.py::test_alignment_right_and_centre_move_the_text_in_its_cell",
+   "status": "passing"
+  },
+  {
+   "id": "pdf-tables-8",
+   "phase": "pdf-tables",
+   "name": "pdf tables: an html table stays aligned courier text",
+   "run": ".venv/bin/pytest tests/test_pdf_tables.py::test_an_html_table_stays_aligned_courier_text",
+   "status": "passing"
   }
  ],
- "total_tests": 2907,
+ "total_tests": 2915,
  "checked": "2026-11-09"
 }

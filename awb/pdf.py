@@ -7,8 +7,10 @@ The writer uses the four standard fonts every reader carries (Helvetica, Helveti
 in WinAnsi, so it needs no font file and the text stays selectable: pdftotext gives back every heading, list item and
 code line. It knows headings h1 to h3, paragraphs with bold, italic and inline code, bullet and numbered lists, code
 blocks in Courier that keep their lines and indents (a line longer than the page wraps onto the next line with a drawn
-arrow at the break, which is not text, so a copied line comes back as it was written), tables as aligned Courier
-text, links as their text with the URL after it and a link annotation, a page number on every page and the title and
+arrow at the break, which is not text, so a copied line comes back as it was written), Markdown pipe tables as a
+ruled grid (a bold header row repeated on every page the table runs onto, column widths fitted to the page from the
+content, text wrapped inside its cell, left, centre or right as the separator row says), HTML tables as aligned
+Courier text, links as their text with the URL after it and a link annotation, a page number on every page and the title and
 author in the document info.
 
 Input: the Markdown the Workbench writes (headings, paragraphs, lists, fenced code, pipe tables, `code`, **bold**,
@@ -45,7 +47,8 @@ FONTS = {"r": ("F1", "Helvetica"), "b": ("F2", "Helvetica-Bold"), "i": ("F3", "H
          "c": ("F4", "Courier")}
 # kind: (size, leading, space before in leadings)
 STYLES = {"h1": (17, 24, 0.5), "h2": (12, 17, 1.0), "h3": (11, 15, 0.6), "p": (10, 14, 0.0), "li": (10, 14, 0.0),
-          "code": (9, 12, 0.2), "table": (9, 12, 0.2)}
+          "code": (9, 12, 0.2), "table": (9, 12, 0.2), "grid": (9, 11, 0.4)}
+GRID_PAD_X, GRID_PAD_Y, GRID_RULE, GRID_SHADE = 4, 3, 0.5, 0.9
 LIST_INDENT = 16
 TAB = 8
 
@@ -75,12 +78,14 @@ class PdfRefused(PdfError):
 @dataclass
 class Block:
     """One block of the document. `runs` are (text, font, url) with font r, b, i or c; `lines` are the lines of a
-    code block or the rows (lists of cells) of a table; `marker` is the bullet or number of a list item."""
+    code block or the rows (lists of cells) of a table or grid; `marker` is the bullet or number of a list item;
+    `align` the l, c or r of each grid column."""
     kind: str
     runs: list = field(default_factory=list)
     lines: list = field(default_factory=list)
     marker: str = ""
     level: int = 0
+    align: list = field(default_factory=list)
 
 
 def plain(kind: str, text: str) -> Block:
@@ -245,6 +250,19 @@ def _lines(runs: list, width: float, size: float, heading: bool) -> list[list[tu
     return lines
 
 
+def _merge(pieces: list, size: float) -> list[list]:
+    """Pieces of one font and link next to each other as one string, with the space between them."""
+    merged: list[list] = []
+    for x, text, font, url in pieces:
+        if merged and merged[-1][2] == font and merged[-1][3] == url:
+            end = merged[-1][0] + _width(merged[-1][1], font, size)
+            spaces = round((x - end) / _width(" ", font, size)) if x > end else 0
+            merged[-1][1] += " " * spaces + text
+        else:
+            merged.append([x, text, font, url])
+    return merged
+
+
 def _draw_runs(pages: _Pages, block: Block, x0: float, width: float) -> None:
     size, lead, before = STYLES[block.kind]
     heading = block.kind in ("h1", "h2", "h3")
@@ -258,16 +276,7 @@ def _draw_runs(pages: _Pages, block: Block, x0: float, width: float) -> None:
         if i == 0 and block.marker:
             mw = _width(block.marker, "r", size)
             pages.text(x0 - mw - 4, y, "r", size, block.marker)
-        # pieces of one font and link next to each other become one string, with the space between them
-        merged: list[list] = []
-        for x, text, font, url in pieces:
-            if merged and merged[-1][2] == font and merged[-1][3] == url:
-                end = merged[-1][0] + _width(merged[-1][1], font, size)
-                spaces = round((x - end) / _width(" ", font, size)) if x > end else 0
-                merged[-1][1] += " " * spaces + text
-            else:
-                merged.append([x, text, font, url])
-        for x, text, font, url in merged:
+        for x, text, font, url in _merge(pieces, size):
             pages.text(x0 + x, y, font, size, text)
             if url and url.startswith(_LINK_SCHEMES):
                 pages.link(x0 + x, y - 2, x0 + x + _width(text, font, size), y + size, url)
@@ -316,6 +325,109 @@ def _table_lines(rows: list[list[str]]) -> list[str]:
     return out
 
 
+def _grid_widths(rows: list[list[str]], size: float) -> list[float]:
+    """Column widths that fit the text width: each column as wide as its longest cell when all fit, else at least
+    its longest word and the rest of the room shared by what each column lacks of its full width."""
+    n = len(rows[0])
+    pad = 2 * GRID_PAD_X
+    full, least = [0.0] * n, [0.0] * n
+    for r, row in enumerate(rows):
+        font = "b" if r == 0 else "r"
+        for i, cell in enumerate(row):
+            full[i] = max(full[i], _width(cell, font, size) + pad)
+            least[i] = max([least[i], pad + 1] + [_width(w, font, size) + pad for w in cell.split()])
+    if sum(full) <= TEXT_W:
+        return full
+    if sum(least) >= TEXT_W:
+        return [w * TEXT_W / sum(least) for w in least]
+    # a column narrower than its fair share keeps its full width; the others share the rest by their full width
+    keep: set[int] = set()
+    while True:
+        rest = [i for i in range(n) if i not in keep]
+        room = TEXT_W - sum(full[i] for i in keep)
+        more = {i for i in rest if full[i] <= room / len(rest)}
+        if not more or len(more) == len(rest):
+            break
+        keep |= more
+    room = TEXT_W - sum(full[i] for i in keep)
+    share = {i: room * full[i] / sum(full[j] for j in rest) for i in rest}
+    if all(share[i] >= least[i] for i in rest):
+        return [full[i] if i in keep else share[i] for i in range(n)]
+    room, lack = TEXT_W - sum(least), [f - m for f, m in zip(full, least)]
+    return [m + room * k / sum(lack) for m, k in zip(least, lack)]
+
+
+def _draw_grid(pages: _Pages, block: Block) -> None:
+    """A table as ruled cells: the header row bold on a light shade and drawn again at the top of every page the
+    table runs onto, each cell's text wrapped inside its column, a row split between pages only when it is taller
+    than a page."""
+    size, lead, before = STYLES["grid"]
+    rows = [[" ".join(c.split()) for c in r] for r in block.lines]
+    if not rows:
+        return
+    n = max(len(r) for r in rows)
+    rows = [r + [""] * (n - len(r)) for r in rows]
+    align = (list(block.align) + ["l"] * n)[:n]
+    widths = _grid_widths(rows, size)
+    xs = [MARGIN + sum(widths[:i]) for i in range(n)]
+    cells = [[_lines([(c, "b" if r == 0 else "r", None)], w - 2 * GRID_PAD_X, size, False)
+              for c, w in zip(row, widths)] for r, row in enumerate(rows)]
+    head, body = cells[0], cells[1:]
+
+    def height(k: int) -> float:
+        return k * lead + 2 * GRID_PAD_Y
+
+    def draw(row: list, start: int, k: int, header: bool) -> None:
+        top = pages.y
+        h = height(k)
+        ops = pages.ops[-1]
+        if header:
+            ops.append(b"q %g g %.2f %.2f %.2f %.2f re f Q" % (GRID_SHADE, MARGIN, top - h, sum(widths), h))
+        for x, w, lines, a in zip(xs, widths, row, align):
+            ops.append(b"q %g w 0.3 G %.2f %.2f %.2f %.2f re S Q" % (GRID_RULE, x, top - h, w, h))
+            for j, pieces in enumerate(lines[start:start + k]):
+                y = top - GRID_PAD_Y - (j + 1) * lead + (lead - size) / 2 + size * 0.22
+                end = max((px + _width(t, f, size) for px, t, f, _ in pieces), default=0.0)
+                room = w - 2 * GRID_PAD_X - end
+                shift = room if a == "r" else room / 2 if a == "c" else 0.0
+                for px, text, font, _ in _merge(pieces, size):
+                    pages.text(x + GRID_PAD_X + max(shift, 0.0) + px, y, font, size, text)
+        pages.y = top - h
+
+    head_k = max(len(c) for c in head)
+    fresh = int((PAGE_H - 2 * MARGIN - height(head_k) - 2 * GRID_PAD_Y) // lead)
+
+    def page_with_header() -> None:
+        pages.new_page()
+        draw(head, 0, head_k, True)
+
+    if pages.ops[-1]:
+        pages.y -= lead * before
+    first = max((len(c) for c in body[0]), default=0) if body else 0
+    if pages.ops[-1] and pages.y - height(head_k) - height(min(max(first, 1), 3)) < MARGIN:
+        pages.new_page()
+    draw(head, 0, head_k, True)
+    for row in body:
+        total, start, turned = max(len(c) for c in row), 0, False
+        while start < total:
+            left = total - start
+            avail = int((pages.y - MARGIN - 2 * GRID_PAD_Y) // lead)
+            if turned:
+                avail = max(avail, 1)       # a header that fills the page still leaves one line per page
+            if left <= avail:
+                draw(row, start, left, False)
+                break
+            if not turned and ((start == 0 and left <= fresh) or avail < 1):
+                page_with_header()
+                turned = True
+                continue
+            draw(row, start, avail, False)
+            start += avail
+            page_with_header()
+            turned = True
+    pages.y -= lead * 0.8
+
+
 def layout(blocks: list[Block]) -> _Pages:
     pages = _Pages()
     for b in blocks:
@@ -323,6 +435,8 @@ def layout(blocks: list[Block]) -> _Pages:
             _draw_fixed(pages, b.lines, "code")
         elif b.kind == "table":
             _draw_fixed(pages, _table_lines(b.lines), "table")
+        elif b.kind == "grid":
+            _draw_grid(pages, b)
         elif b.kind == "li":
             indent = LIST_INDENT * (b.level + 1)
             _draw_runs(pages, b, MARGIN + indent, TEXT_W - indent)
@@ -444,6 +558,14 @@ def _cells(line: str) -> list[str]:
     return [_plain_text(_runs(c.strip())) for c in cells]
 
 
+def _align(sep: str) -> str:
+    """l, c or r of a cell of the separator row: :-- left, :-: centre, --: right."""
+    sep = sep.strip()
+    if sep.startswith(":") and sep.endswith(":"):
+        return "c"
+    return "r" if sep.endswith(":") else "l"
+
+
 def from_markdown(text: str) -> tuple[list[Block], str]:
     """(blocks, the text of the first h1 or "") of the Markdown the Workbench writes."""
     lines = text.split("\n")
@@ -491,11 +613,12 @@ def from_markdown(text: str) -> tuple[list[Block], str]:
             flush()
             in_list = False
             rows = [_cells(line)]
+            align = [_align(c) for c in _cells(lines[i + 1])]
             i += 2
             while i < len(lines) and lines[i].strip().startswith("|"):
                 rows.append(_cells(lines[i]))
                 i += 1
-            blocks.append(Block("table", lines=rows))
+            blocks.append(Block("grid", lines=rows, align=align))
             continue
         elif _RULE_RE.match(line):
             flush()
