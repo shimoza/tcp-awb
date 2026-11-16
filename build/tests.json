@@ -19697,8 +19697,232 @@
    "name": "rulesync: non utf8 rule path is hashed without echo",
    "run": ".venv/bin/pytest tests/test_rulesync.py::test_non_utf8_rule_path_is_hashed_without_echo",
    "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-1",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver conflict diagnostics withhold ids keys names and values",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_conflict_diagnostics_withhold_ids_keys_names_and_values",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-2",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: tests json rejects duplicate object keys",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_tests_json_rejects_duplicate_object_keys",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-3",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: tests json rejects nonfinite numbers",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_tests_json_rejects_nonfinite_numbers",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-4",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: tests json rejects deep input without traceback",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_tests_json_rejects_deep_input_without_traceback",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-5",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: tests json rejects invalid checked dates",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_tests_json_rejects_invalid_checked_dates",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-6",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: tests json rejects escaped surrogates before writing",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_tests_json_rejects_escaped_surrogates_before_writing",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-7",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: tests json delete modify conflicts in both directions",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_tests_json_delete_modify_conflicts_in_both_directions",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-8",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: tests json metadata uses missing distinct from null",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_tests_json_metadata_uses_missing_distinct_from_null",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-9",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: changelog refuses conflicting week heading edits",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_changelog_refuses_conflicting_week_heading_edits",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-10",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: changelog preserves unilateral item formatting and section tail",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_changelog_preserves_unilateral_item_formatting_and_section_tail",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-11",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: changelog refuses delete modify of weeks and sections",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_changelog_refuses_delete_modify_of_weeks_and_sections",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-12",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: changelog refuses invalid or excessive week numbers",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_changelog_refuses_invalid_or_excessive_week_numbers",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-13",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver refuses leaf links and hardlinks",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_refuses_leaf_links_and_hardlinks",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-14",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver refuses linked ancestors",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_refuses_linked_ancestors",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-15",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver refuses paths outside working directory",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_refuses_paths_outside_working_directory",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-16",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver refuses special files without blocking",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_refuses_special_files_without_blocking",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-17",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver missing unreadable and invalid utf8 inputs are private",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_missing_unreadable_and_invalid_utf8_inputs_are_private",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-18",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver bounds actual reads even if stat understates size",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_bounds_actual_reads_even_if_stat_understates_size",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-19",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver refuses unexpected arguments without echoing them",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_refuses_unexpected_arguments_without_echoing_them",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-20",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver dependency errors and refusals never echo values",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_dependency_errors_and_refusals_never_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-21",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver partial write failure preserves ours and cleans stage",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_partial_write_failure_preserves_ours_and_cleans_stage",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-22",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver sync and publication failures preserve ours",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_sync_and_publication_failures_preserve_ours",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-23",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver refuses inputs replaced or edited during merge",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_refuses_inputs_replaced_or_edited_during_merge",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-24",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver link swap before publication never writes target",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_link_swap_before_publication_never_writes_target",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-25",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: keyed merge inserts many rows with linear work",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_keyed_merge_inserts_many_rows_with_linear_work",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-26",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: changelog many duplicate items finish without losing occurrences",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_changelog_many_duplicate_items_finish_without_losing_occurrences",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-27",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver independent outputs can merge concurrently",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_independent_outputs_can_merge_concurrently",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-28",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: existing malformed shapes and duplicate headings remain refused",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_existing_malformed_shapes_and_duplicate_headings_remain_refused",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-29",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver success preserves mode newlines count and later date",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_success_preserves_mode_newlines_count_and_later_date",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-30",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver parent swap cannot redirect publication",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_parent_swap_cannot_redirect_publication",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-31",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: driver overlapping runs do not overwrite each other",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_driver_overlapping_runs_do_not_overwrite_each_other",
+   "status": "passing"
+  },
+  {
+   "id": "mergedriver-review-32",
+   "phase": "mergedriver-review",
+   "name": "Merge driver: added sections follow the week introduction",
+   "run": ".venv/bin/pytest tests/test_build_rebase_drivers.py::test_changelog_added_section_stays_after_week_introduction",
+   "status": "passing"
   }
  ],
- "total_tests": 2814,
+ "total_tests": 2846,
  "checked": "2026-11-09"
 }

@@ -8,6 +8,11 @@ git gives the three versions as files (%O %A %B) and keeps OURS as the result wh
 leaves OURS as it is, prints one line `awb merge: ...` to standard error and exits 1, so git stops with the file in
 conflict.
 
+The invocation directory bounds all version paths. Versions must be single regular files with no links in the
+path. Reads and results are limited to 8 MiB; JSON nesting is limited to 100 levels. An output inode lock refuses
+overlapping runs on the same snapshot, and a complete staged result replaces OURS only after the inputs are
+rechecked. Diagnostics withhold input values except short test codes of one capital letter and up to six digits.
+
 tests: the rows are merged by id across the three versions. A row one side changed or added is taken from that side,
 a row one side dropped (and the other kept as it was) is dropped, `total_tests` is the count of the result and
 `checked` the later date. Two different rows with one id are refused and so is a version that holds one id twice.
@@ -21,14 +26,27 @@ from outside never runs its own driver. Standard library only; it imports nothin
 """
 from __future__ import annotations
 
+import fcntl
 import json
+import math
+import os
 import re
+import stat
 import sys
+import uuid
+from contextlib import ExitStack
+from datetime import date
 from pathlib import Path
 
 
 class Refused(Exception):
-    """The versions cannot be merged; the message names ids and keys only."""
+    """The versions cannot be merged. Only short test codes may appear in diagnostics."""
+
+
+MAX_BYTES = 8 * 1024 * 1024
+MAX_DEPTH = 100
+_MISSING = object()
+_ROW_DIAGNOSTIC = re.compile(r"two different rows with the id [A-Z][0-9]{1,6}")
 
 
 # --------------------------------------------------------------------------- the keyed three-way merge
@@ -43,24 +61,41 @@ def merge_keyed(base: dict, ours: dict, theirs: dict, merge_value) -> dict:
             out[k] = merge_value(base.get(k), a, theirs[k])
         elif k in base and base[k] == a:
             continue
+        elif k in base:
+            raise Refused("one side deleted an entry the other changed")
         else:
             out[k] = a
-    keys = list(theirs)
-    for i, k in enumerate(keys):
-        if k in ours or k in base:
+    # A linked order avoids rebuilding the whole map for each insertion. Each side's added block is visited
+    # once, even when many thousands of new entries follow the same old entry.
+    head = object()
+    following = {}
+    previous = head
+    for k in out:
+        following[previous] = k
+        previous = k
+    following[previous] = head
+    after = head
+    for k in theirs:
+        if k not in ours and k in base and theirs[k] != base[k]:
+            raise Refused("one side deleted an entry the other changed")
+        if k in out:
+            after = k
             continue
-        after = None
-        for prev in reversed(keys[:i]):
-            if prev in out:
-                after = prev
-                break
-        items = list(out.items())
-        at = 0 if after is None else [x for x, _ in items].index(after) + 1
-        while at < len(items) and items[at][0] not in base and items[at][0] not in theirs:
-            at += 1
-        items.insert(at, (k, theirs[k]))
-        out = dict(items)
-    return out
+        if k in base:
+            continue
+        next_key = following[after]
+        while next_key is not head and next_key not in base and next_key not in theirs:
+            after = next_key
+            next_key = following[after]
+        following[after], following[k] = k, next_key
+        out[k] = theirs[k]
+        after = k
+    ordered = {}
+    k = following[head]
+    while k is not head:
+        ordered[k] = out[k]
+        k = following[k]
+    return ordered
 
 
 def pick(base, ours, theirs, what: str):
@@ -82,24 +117,81 @@ def _rows(data, label: str) -> dict[str, dict]:
         if not isinstance(row, dict) or not isinstance(row.get("id"), str):
             raise Refused("%s has a row without an id" % label)
         if row["id"] in rows:
-            raise Refused("%s holds the id %s twice" % (label, row["id"]))
+            raise Refused("%s holds an id twice" % label)
         rows[row["id"]] = row
     return rows
 
 
-def merge_tests(base_text: str, ours_text: str, theirs_text: str) -> str:
+def _json_object(pairs):
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            raise Refused("a JSON object holds a key twice")
+        out[key] = value
+    return out
+
+
+def _finite_number(text):
+    number = float(text)
+    if not math.isfinite(number):
+        raise Refused("a JSON number is not finite")
+    return number
+
+
+def _checked_text(text: str) -> bytes:
     try:
-        base = json.loads(base_text) if base_text.strip() else {"tests": []}
-        ours = json.loads(ours_text)
-        theirs = json.loads(theirs_text)
-    except ValueError:
+        data = text.encode("utf-8")
+    except UnicodeError:
+        raise Refused("a version contains invalid Unicode") from None
+    if len(data) > MAX_BYTES:
+        raise Refused("a version is too large")
+    return data
+
+
+def _load_tests(text: str):
+    _checked_text(text)
+    try:
+        data = json.loads(text, object_pairs_hook=_json_object,
+                          parse_float=_finite_number, parse_constant=_finite_number)
+    except (ValueError, RecursionError):
         raise Refused("a version of build/tests.json is not JSON") from None
+    # Validate before comparisons and encoding, which also recurse through nested data.
+    pending = [(data, 0)]
+    while pending:
+        value, depth = pending.pop()
+        if depth > MAX_DEPTH:
+            raise Refused("a JSON value is nested too deeply")
+        if isinstance(value, str):
+            _checked_text(value)
+        elif isinstance(value, dict):
+            pending.extend((v, depth + 1) for pair in value.items() for v in pair)
+        elif isinstance(value, list):
+            pending.extend((v, depth + 1) for v in value)
+    if isinstance(data, dict) and "checked" in data:
+        checked = data["checked"]
+        try:
+            if not isinstance(checked, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", checked):
+                raise ValueError
+            date.fromisoformat(checked)
+        except ValueError:
+            raise Refused("a checked date is invalid") from None
+    return data
+
+
+def merge_tests(base_text: str, ours_text: str, theirs_text: str) -> str:
+    base = _load_tests(base_text) if base_text.strip() else {"tests": []}
+    ours, theirs = _load_tests(ours_text), _load_tests(theirs_text)
     rb, ra, rt = _rows(base, "the base"), _rows(ours, "one side"), _rows(theirs, "the other side")
 
     def row(b, a, t):
+        # Preserve the legacy diagnostic for short test codes (for example D1). Other IDs may contain names,
+        # credentials or terminal controls, and cannot be screened against a registry by this copied driver.
+        message = "two different rows with the id " + a["id"]
+        if not _ROW_DIAGNOSTIC.fullmatch(message):
+            message = "two different rows with one id"
         if b is None and a != t:
-            raise Refused("two different rows with the id %s" % a["id"])
-        return pick(b, a, t, "two different rows with the id %s" % a["id"])
+            raise Refused(message)
+        return pick(b, a, t, message)
 
     rows = merge_keyed(rb, ra, rt, row)
     out: dict = {}
@@ -109,13 +201,12 @@ def merge_tests(base_text: str, ours_text: str, theirs_text: str) -> str:
         elif key == "total_tests":
             out[key] = len(rows)
         elif key == "checked":
-            out[key] = max(str(x) for x in (ours.get(key), theirs.get(key)) if x is not None)
-        elif key in ours and key in theirs:
-            out[key] = pick(base.get(key), ours[key], theirs[key], "both sides changed the key %s" % key)
-        elif key in ours:
-            out[key] = ours[key]
+            out[key] = max(x for x in (ours.get(key), theirs.get(key)) if x is not None)
         else:
-            out[key] = theirs[key]
+            value = pick(base.get(key, _MISSING), ours.get(key, _MISSING), theirs.get(key, _MISSING),
+                         "both sides changed a metadata field")
+            if value is not _MISSING:
+                out[key] = value
     if "total_tests" not in out:
         out["total_tests"] = len(rows)
     return json.dumps(out, indent=1, ensure_ascii=False) + "\n"
@@ -141,11 +232,11 @@ def _items(lines: list[str]) -> tuple[dict, list[str]]:
             items.append(blank + [ln])
             blank = []
     out: dict = {}
+    counts: dict[str, int] = {}
     for it in items:
         text = "\n".join(x.strip() for x in it if x.strip())
-        n = 0
-        while (text, n) in out:
-            n += 1
+        n = counts.get(text, 0)
+        counts[text] = n + 1
         out[(text, n)] = it
     return out, blank
 
@@ -166,11 +257,14 @@ def _split(lines: list[str], prefix: str) -> tuple[list[str], list[tuple[str, li
 
 def _week_key(heading: str):
     m = _WEEK_RE.match(heading)
+    if heading.startswith("## Week ") and (not m or len(m.group(1)) > 2 or not 1 <= int(m.group(1)) <= 53):
+        raise Refused("CHANGELOG.md has an invalid week number")
     return ("week", int(m.group(2)), int(m.group(1))) if m else ("heading", heading)
 
 
 def parse_changelog(text: str) -> tuple[list[str], dict]:
     """(the lines before the first week, {week key: (heading, {section heading or None: (items, tail)})})."""
+    _checked_text(text)
     preamble, weeks = _split(text.split("\n"), "## ")
     out: dict = {}
     for heading, body in weeks:
@@ -210,11 +304,12 @@ def merge_changelog(base_text: str, ours_text: str, theirs_text: str) -> str:
     (pb, wb), (pa, wa), (pt, wt) = parsed
 
     def section(b, a, t):
-        items = merge_keyed(b[0] if b else {}, a[0], t[0], lambda _b, x, _t: x)
-        return items, a[1]
+        items = merge_keyed(b[0] if b else {}, a[0], t[0],
+                            lambda old, x, y: pick(old, x, y, "both sides changed an item's formatting"))
+        return items, pick(b[1] if b else None, a[1], t[1], "both sides changed a section's spacing")
 
     def week(b, a, t):
-        heading = t[0] if b is not None and a[0] == b[0] else a[0]
+        heading = pick(b[0] if b else None, a[0], t[0], "both sides changed a week heading")
         return heading, merge_keyed(b[1] if b else {}, a[1], t[1], section)
 
     weeks = merge_keyed(wb, wa, wt, week)
@@ -248,22 +343,123 @@ def _quote(s: str) -> str:
 MERGES = {"tests": merge_tests, "changelog": merge_changelog}
 
 
+def _signature(st):
+    return st.st_dev, st.st_ino, st.st_mode, st.st_nlink, st.st_size, st.st_mtime_ns, st.st_ctime_ns
+
+
+def _open_version(path: str, root: Path, root_fd: int, stack: ExitStack):
+    """Resolve below the invocation directory using pinned, unlinked directory descriptors.
+
+    Git supplies temporary files in its working directory (also for merge-tree in a bare repository).
+    Absolute paths below that directory are allowed; links, traversal and multiply linked files are not.
+    """
+    relative = Path(path)
+    if relative.is_absolute():
+        try:
+            relative = relative.relative_to(root)
+        except ValueError:
+            raise Refused("a version is outside the working directory") from None
+    if not relative.parts or ".." in relative.parts:
+        raise Refused("a version path is invalid")
+    parent = root_fd
+    for part in relative.parts[:-1]:
+        parent = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+        stack.callback(os.close, parent)
+    name = relative.name
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+    stack.callback(os.close, fd)
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+        raise Refused("a version is not a single regular file")
+    return parent, name, fd, _signature(st)
+
+
+def _unchanged(version):
+    parent, name, fd, signature = version
+    if (_signature(os.fstat(fd)) != signature
+            or _signature(os.stat(name, dir_fd=parent, follow_symlinks=False)) != signature):
+        raise Refused("a version changed during the merge")
+
+
+def _read_version(version):
+    fd = version[2]
+    if os.fstat(fd).st_size > MAX_BYTES:
+        raise Refused("a version is too large")
+    data = bytearray()
+    while True:
+        block = os.read(fd, min(65536, MAX_BYTES + 1 - len(data)))
+        if not block:
+            break
+        data.extend(block)
+        if len(data) > MAX_BYTES:
+            raise Refused("a version is too large")
+    _unchanged(version)
+    # Preserve read_text's universal newline handling.
+    return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _publish(versions, data: bytes):
+    """Write completely before replacing OURS. Every operation stays relative to its pinned parent.
+
+    The caller holds the output inode lock until publication. Cooperating drivers cannot use a stale snapshot;
+    a fresh opener after replacement sees the completed result. Recheck all inputs for observed external edits.
+    """
+    parent, name, _, signature = versions[1]
+    stage = ".awb-merge-" + uuid.uuid4().hex
+    fd = os.open(stage, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+    published = False
+    try:
+        try:
+            remaining = memoryview(data)
+            while remaining:
+                written = os.write(fd, remaining)
+                if written <= 0:
+                    raise OSError("incomplete write")
+                remaining = remaining[written:]
+            os.fchmod(fd, stat.S_IMODE(signature[2]) & 0o777)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        for version in versions:
+            _unchanged(version)
+        os.replace(stage, name, src_dir_fd=parent, dst_dir_fd=parent)
+        published = True
+    finally:
+        if not published:
+            try:
+                os.unlink(stage, dir_fd=parent)
+            except FileNotFoundError:
+                pass
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if len(argv) < 4 or argv[0] not in MERGES:
+    if len(argv) != 4 or argv[0] not in MERGES:
         print("awb merge: usage: mergedriver.py tests|changelog BASE OURS THEIRS", file=sys.stderr)
         return 2
     kind, base, ours, theirs = argv[:4]
     try:
-        texts = [Path(p).read_text(encoding="utf-8") for p in (base, ours, theirs)]
-        result = MERGES[kind](*texts)
+        with ExitStack() as stack:
+            root = Path.cwd()
+            root_fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
+            stack.callback(os.close, root_fd)
+            versions = [_open_version(p, root, root_fd, stack) for p in (base, ours, theirs)]
+            fcntl.flock(versions[1][2], fcntl.LOCK_EX | fcntl.LOCK_NB)
+            texts = [_read_version(v) for v in versions]
+            result = _checked_text(MERGES[kind](*texts))
+            _publish(versions, result)
     except Refused as err:
-        print("awb merge: %s" % err, file=sys.stderr)
+        # Do not trust an exception's string conversion, including Refused instances from a dependency.
+        message = err.args[0] if len(err.args) == 1 and type(err.args[0]) is str else ""
+        if not _ROW_DIAGNOSTIC.fullmatch(message):
+            message = "versions cannot be safely merged or written"
+        print("awb merge: " + message, file=sys.stderr)
         return 1
-    except (OSError, UnicodeDecodeError) as err:
-        print("awb merge: a version cannot be read (%s)" % type(err).__name__, file=sys.stderr)
+    except Exception:
+        # Parser, filesystem and dependency errors may all embed paths or document values. This standalone
+        # process has no trusted name registry; emit a fixed diagnostic even for unexpected exceptions.
+        print("awb merge: versions cannot be safely merged or written", file=sys.stderr)
         return 1
-    Path(ours).write_text(result, encoding="utf-8")
     return 0
 
 
