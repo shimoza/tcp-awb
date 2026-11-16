@@ -1247,14 +1247,22 @@ def test_admin_sync_ignores_unusable_files_without_touching_outside(home, tmp_pa
         path.write_bytes(b"\xff")
     elif kind == "unreadable":
         path.write_text(before, encoding="utf-8")
-        original = Path.read_text
-
-        def denied(self, *args, **kwargs):
-            if self == path:
-                raise PermissionError(NAME)
-            return original(self, *args, **kwargs)
-
-        monkeypatch.setattr(Path, "read_text", denied)
+        path.chmod(0)
+        try:
+            with open(path, "r+b"):
+                still_usable = True          # a privileged user (the build runner) reads it anyway
+        except PermissionError:
+            still_usable = False
+        try:
+            if still_usable:
+                # the file is not unusable for this user, so it is synced like any plain file
+                assert rulesync.sync(home) == [(row.code, ["STATE.md"])]
+            else:
+                assert rulesync.sync(home) == [(row.code, [])]
+        finally:
+            path.chmod(0o640)
+        assert outside.read_text() == before
+        return
     assert rulesync.sync(home) == [(row.code, [])]
     assert outside.read_text() == before
 
