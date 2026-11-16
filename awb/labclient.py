@@ -41,7 +41,14 @@ an interrupted job.
 from __future__ import annotations
 
 import argparse
+import fcntl
+import functools
+import secrets
+import stat
+import time
+from contextlib import contextmanager
 import json
+import math
 import os
 import re
 import socket
@@ -76,51 +83,227 @@ def _root(start: Path | None = None) -> Path:
     return root
 
 
-def _code(root: Path) -> str:
-    """The `code:` line of the project's SCOPE.md, else the folder's name (as awb lab run RECIPE reads it)."""
+MAX_FILE = 1024 * 1024
+
+
+def _identifier(value, kind: str) -> str:
+    patterns = {"run": r"run-[0-9]{8}-[0-9]{6}-[a-z0-9]{4}",
+                "tenant": r"[a-z][a-z0-9-]{0,63}", "project": r"tcp-[a-z0-9]{4}"}
+    if not isinstance(value, str) or not re.fullmatch(patterns[kind], value):
+        raise LabClientError("invalid %s identifier" % kind)
+    return value
+
+
+def _safe_text(text: str) -> str:
+    """Screen complete output before publication; checker errors never carry their values out."""
+    from awb import check, config, labsecrets
+
     try:
-        text = (root / "SCOPE.md").read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        text = ""
+        text.encode("utf-8")
+        if any(ord(c) < 32 and c not in "\n\t" or 0x7f <= ord(c) < 0xa0 or
+               c in "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069" for c in text):
+            return "[withheld]"
+        text, _ = labsecrets.shorten(text)
+        register = config.paths().register
+        try:
+            hits = check.check_text(labsecrets.without_short(text), register)
+        except check.CheckUnavailable:
+            # An unconfigured development installation has no name register. A work session,
+            # an existing vault or an inaccessible vault must still fail closed.
+            if config.is_work_user():
+                return "[withheld]"
+            try:
+                register.parent.stat()
+            except FileNotFoundError:
+                hits = []
+            else:
+                return "[withheld]"
+        if any(h.get("cls") == "name" for h in hits):
+            return "[withheld]"
+        return text
+    except Exception:
+        return "[withheld]"
+
+
+def _print(text: str, **kwargs) -> None:
+    print(_safe_text(text), **kwargs)
+
+
+def _service_error(answer: dict) -> str:
+    # Keep the established diagnosis without relaying arbitrary service prose.
+    error = answer.get("error")
+    if isinstance(error, str) and re.fullmatch(r"refused: test-[0-9]+ is no lab tenant.*", error):
+        return "refused: no lab tenant"
+    return "the key service refused the request"
+
+
+def _display_error(value) -> str:
+    """Service diagnostics may contain rejected credentials even without a field label."""
+    if isinstance(value, str) and re.fullmatch(r"HTTP [1-5][0-9]{2}(?: [A-Z]{2,12}\.[0-9]{1,8})?", value):
+        return value
+    return "operation failed"
+
+
+def _json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError
+        result[key] = value
+    return result
+
+
+def _invalid_constant(value):
+    raise ValueError
+
+
+def _json_float(value):
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError
+    return number
+
+
+@contextmanager
+def _directory(path: Path, create: bool = False):
+    """Pin every ancestor; never follow a directory link between checking and opening."""
+    path = Path(os.path.abspath(path))
+    fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        for part in path.parts[1:]:
+            if create:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _file(parent: int, name: str, flags: int) -> int:
+    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, 0o600, dir_fd=parent)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+            raise LabClientError("refused: expected a regular file with one link")
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _read(parent: int, name: str, limit: int = MAX_FILE) -> str:
+    fd = _file(parent, name, os.O_RDONLY)
+    with os.fdopen(fd, "rb") as fh:
+        raw = fh.read(limit + 1)
+    if len(raw) > limit:
+        raise LabClientError("refused: project file is too large")
+    return raw.decode("utf-8")
+
+
+def _write(parent: int, name: str, text: str) -> None:
+    """Replace only a regular destination, using a private, unique temporary file."""
+    try:
+        fd = _file(parent, name, os.O_RDONLY)
+    except FileNotFoundError:
+        pass
+    else:
+        os.close(fd)
+    temp = ".lab-" + secrets.token_hex(16)
+    fd = _file(parent, temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(temp, name, src_dir_fd=parent, dst_dir_fd=parent)
+    finally:
+        try:
+            os.unlink(temp, dir_fd=parent)
+        except FileNotFoundError:
+            pass
+
+
+def _boundary(fn):
+    @functools.wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError, RecursionError, OverflowError):
+            raise LabClientError("lab client could not read or write valid data") from None
+    return wrapped
+
+
+def _locked(fn):
+    @functools.wraps(fn)
+    def wrapped(root, *args, **kwargs):
+        if root is None:
+            return fn(root, *args, **kwargs)
+        with _directory(root) as fd:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            return fn(root, *args, **kwargs)
+    return wrapped
+
+
+@_boundary
+def _code(root: Path) -> str:
+    with _directory(root) as fd:
+        try:
+            text = _read(fd, "SCOPE.md")
+        except FileNotFoundError:
+            text = ""
     m = re.search(r"^- code: *(\S+) *$", text, re.MULTILINE)
-    return m.group(1) if m else root.name
+    return _identifier(m.group(1) if m else root.name, "project")
 
 
 def _folder(root: Path) -> Path:
     folder = root / LOG_FOLDER
-    folder.mkdir(parents=True, exist_ok=True)
+    with _directory(folder, create=True):
+        pass
     return folder
 
 
 def _marker(root: Path, tenant: str) -> Path:
-    return root / LOG_FOLDER / ("%s.open" % tenant)
+    return root / LOG_FOLDER / ("%s.open" % _identifier(tenant, "tenant"))
 
 
+@_boundary
 def _open_runs(root: Path) -> dict[str, str]:
-    """{tenant: run} of the markers `awb lab run start` wrote."""
     out = {}
-    folder = root / LOG_FOLDER
-    for f in sorted(folder.glob("*.open")) if folder.is_dir() else []:
-        try:
-            out[f.name[:-5]] = f.read_text(encoding="utf-8").strip()
-        except OSError:
-            continue
+    try:
+        with _directory(root / LOG_FOLDER) as fd:
+            for name in sorted(os.listdir(fd)):
+                if name.endswith(".open"):
+                    tenant = _identifier(name[:-5], "tenant")
+                    run = _read(fd, name, 128)
+                    # Only the single newline written by start is framing, not arbitrary whitespace.
+                    out[tenant] = _identifier(run.removesuffix("\n"), "run")
+    except FileNotFoundError:
+        # A missing directory is normal; a disappearing marker is not a usable run.
+        return {}
     return out
 
 
 def _pick(root: Path, tenant: str | None, run: str | None) -> tuple[str, str]:
+    if tenant is not None:
+        _identifier(tenant, "tenant")
+    if run is not None:
+        _identifier(run, "run")
     runs = _open_runs(root)
     if tenant is None:
         if len(runs) != 1:
             raise LabClientError("name the tenant: %s" % ("no lab run is open here (awb lab run start --tenant T, "
                                                          "only on his word)" if not runs else
-                                                         "runs are open on %s" % ", ".join(sorted(runs))))
+                                                         "multiple runs are open"))
         tenant = next(iter(runs))
     if run is None:
         run = runs.get(tenant)
         if not run:
-            raise LabClientError("no lab run is open here on %s (awb lab run start --tenant %s, only on his word)"
-                                 % (tenant, tenant))
+            raise LabClientError("no lab run is open here on the requested tenant")
     return tenant, run
 
 
@@ -128,13 +311,16 @@ def _stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+@_boundary
 def log(root: Path, run: str, lines: list[str]) -> None:
-    """Append a block to notes/lab-runs/<run>.log, shortened as awb/labsecrets.py shortens a lab log."""
-    from awb import labsecrets
-
-    text, _counts = labsecrets.shorten("\n".join(lines) + "\n")
-    with open(_folder(root) / ("%s.log" % run), "a", encoding="utf-8") as fh:
-        fh.write(text + "\n")
+    """Append one screened block through a pinned directory and a checked descriptor."""
+    _identifier(run, "run")
+    text = _safe_text("\n".join(lines) + "\n") + "\n"
+    with _directory(root / LOG_FOLDER, create=True) as parent:
+        fd = _file(parent, run + ".log", os.O_WRONLY | os.O_APPEND | os.O_CREAT)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            fh.write(text)
 
 
 def _pretty(value) -> str:
@@ -159,6 +345,7 @@ def _token(root: Path | None) -> str | None:
         return None
 
 
+@_boundary
 def _request(obj: dict, root: Path | None = None, fds: tuple[int, ...] = ()) -> dict:
     """One request on the call socket of the key service, one JSON line each way; `fds` go with the line as
     SCM_RIGHTS (a lab obs put or get). This module speaks the socket itself: it is core code and imports nothing of
@@ -167,10 +354,11 @@ def _request(obj: dict, root: Path | None = None, fds: tuple[int, ...] = ()) -> 
     if token is not None:
         obj = dict(obj, token=token)
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.settimeout(TIMEOUT)
     try:
+        deadline = time.monotonic() + TIMEOUT
+        s.settimeout(TIMEOUT)
         s.connect(os.environ.get(SOCKET_ENV) or DEFAULT_SOCKET)
-        line = json.dumps(obj).encode("utf-8") + b"\n"
+        line = json.dumps(obj, allow_nan=False).encode("utf-8") + b"\n"
         if fds:
             sent = socket.send_fds(s, [line], list(fds))
             s.sendall(line[sent:])
@@ -178,21 +366,28 @@ def _request(obj: dict, root: Path | None = None, fds: tuple[int, ...] = ()) -> 
             s.sendall(line)
         buf = bytearray()
         while b"\n" not in buf:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise LabClientError("the key service answer timed out")
+            s.settimeout(remaining)
             chunk = s.recv(1 << 16)
             if not chunk:
                 break
             buf += chunk
             if len(buf) > MAX_ANSWER:
                 raise LabClientError("the answer of the key service is too large")
-        answer = json.loads(bytes(buf).partition(b"\n")[0])
-        if not isinstance(answer, dict):
+        if b"\n" not in buf:
+            raise ValueError
+        answer = json.loads(bytes(buf).partition(b"\n")[0], object_pairs_hook=_json_object,
+                            parse_constant=_invalid_constant, parse_float=_json_float)
+        if not isinstance(answer, dict) or type(answer.get("ok")) is not bool:
             raise ValueError
         return answer
     except (FileNotFoundError, ConnectionRefusedError):
         raise LabClientError("the key service is not running") from None
     except PermissionError:
         raise LabClientError("the key service refused this user") from None
-    except ValueError:
+    except (ValueError, TypeError, RecursionError):
         raise LabClientError("the key service gave no readable answer") from None
     except OSError as err:
         raise LabClientError("no answer from the key service (%s)" % type(err).__name__) from None
@@ -200,6 +395,7 @@ def _request(obj: dict, root: Path | None = None, fds: tuple[int, ...] = ()) -> 
         s.close()
 
 
+@_boundary
 def call(method: str, service: str, path: str, body=None, params=None, region=None, *, tenant: str | None = None,
          run: str | None = None, headers: dict | None = None, scope: str | None = None, credential: str | None = None,
          keep: str | None = None, delete_listed: bool = False, start: Path | None = None):
@@ -231,8 +427,8 @@ def call(method: str, service: str, path: str, body=None, params=None, region=No
     head += ["keep: %s" % keep] if keep is not None else []
     head += ["delete_listed: yes"] if delete_listed else []
     if not answer.get("ok"):
-        log(root, run, head + ["refused: %s" % answer.get("error")])
-        raise LabClientError(str(answer.get("error")))
+        log(root, run, head + ["refused: %s" % _service_error(answer)])
+        raise LabClientError(_service_error(answer))
     data = answer.get("data")
     out = data if data is not None else (answer.get("text") or "")
     lines = head + ["answer: %s%s" % (answer.get("status"), " (path %s)" % answer["path"]
@@ -251,36 +447,40 @@ def call(method: str, service: str, path: str, body=None, params=None, region=No
     return answer.get("status"), answer.get("headers") or {}, out
 
 
+@_boundary
+@_locked
 def keep_row(root: Path, run: str, tenant: str, k: dict) -> str:
-    """The handle of the live row in RESOURCES.md of a kept create: the row there with its id, else a new one
-    (kind-N after the highest N of its kind)."""
+    """Add one kept resource without losing another writer's row or forging Markdown cells."""
     from awb import projects
 
-    path = root / "RESOURCES.md"
-    if not path.exists():
-        path.write_text(projects._resources(_code(root)), encoding="utf-8")
-    text = path.read_text(encoding="utf-8")
-    rid = str(k.get("id") or "")
-    handles = []
-    for line in text.splitlines():
-        cells = [c.strip().strip("`") for c in line.strip().strip("|").split("|")] if line.strip().startswith("|") \
-            else []
-        if cells and rid and rid in cells:
-            return cells[0]
-        if cells:
-            handles.append(cells[0])
-    kind = re.sub(r"[^a-z0-9]+", "-", str(k.get("label") or "resource").split()[-1].lower()).strip("-") or "resource"
-    kind = kind[:-1] if kind.endswith("s") and len(kind) > 3 else kind
-    n = 1 + max([int(h.rsplit("-", 1)[1]) for h in handles if re.fullmatch(re.escape(kind) + r"-\d+", h)] + [0])
-    handle = "%s-%d" % (kind, n)
-    note = (KEEP_NOTE % (run, tenant, k.get("reason") or "-")).replace("|", "/")
-    row = "| %s | %s | %s | %s | - | - | live | %s |\n" % (handle, rid or "unknown", k.get("label") or "-",
-                                                         k.get("region") or "-", note)
-    if text and not text.endswith("\n"):
-        text += "\n"
-    tmp = path.with_name(".RESOURCES.md.tmp")
-    tmp.write_text(text + row, encoding="utf-8")
-    os.replace(tmp, path)
+    _identifier(run, "run")
+    _identifier(tenant, "tenant")
+    def cell(value):
+        return " ".join(_safe_text(str(value or "-")).split()).replace("|", "/").replace("`", "")
+    rid, label, region, reason = (cell(k.get(key)) for key in ("id", "label", "region", "reason"))
+    with _directory(root) as fd:
+        try:
+            text = _read(fd, "RESOURCES.md")
+        except FileNotFoundError:
+            text = projects._resources(_code(root))
+        handles = []
+        for line in text.splitlines():
+            cells = [c.strip().strip("`") for c in line.strip().strip("|").split("|")] if \
+                line.strip().startswith("|") else []
+            if len(cells) >= 8 and rid not in ("-", "[withheld]", "[secret]") and rid == cells[1]:
+                return cells[0]
+            if cells:
+                handles.append(cells[0])
+        words = label.split()
+        kind = re.sub(r"[^a-z0-9]+", "-", words[-1].lower() if words else "resource").strip("-") or "resource"
+        kind = kind[:-1] if kind.endswith("s") and len(kind) > 3 else kind
+        n = 1 + max([int(h.rsplit("-", 1)[1]) for h in handles if
+                     re.fullmatch(re.escape(kind) + r"-[0-9]{1,9}", h)] + [0])
+        handle = "%s-%d" % (kind, n)
+        note = cell(KEEP_NOTE % (run, tenant, reason))
+        row = "| %s | %s | %s | %s | - | - | live | %s |\n" % (handle, rid if rid != "-" else "unknown",
+                                                                   label, region, note)
+        _write(fd, "RESOURCES.md", text + ("\n" if text and not text.endswith("\n") else "") + row)
     return handle
 
 
@@ -288,63 +488,67 @@ def keep_row(root: Path, run: str, tenant: str, k: dict) -> str:
 
 
 def _object(url: str) -> tuple[str, str]:
-    m = re.match(r"^obs://([^/]+)/(.+)$", url or "")
+    m = re.fullmatch(r"obs://([^/\s]+)/([^\r\n\x00-\x1f\x7f]+)", url or "")
     if not m:
         raise LabClientError("an object reads obs://BUCKET/KEY")
     return m.group(1), m.group(2)
 
 
+@_boundary
 def _transfer(action: str, path: str, url: str, tenant: str | None, run: str | None, region: str | None,
               start: Path | None, vendor_hash: str | None = None) -> dict:
     root = _root(start)
     tenant, run = _pick(root, tenant, run)
     bucket, key = _object(url) if action != "fetch" else (None, None)
-    where = os.path.abspath(path)
+    where = Path(os.path.abspath(path))
+    if action != "put":
+        inside = (Path(os.path.abspath(root)), Path(SCRATCH % os.getuid()))
+        if not any(where != base and where.is_relative_to(base) for base in inside):
+            raise LabClientError("refused: a %s writes only inside the project folder or the session scratch folder" % action)
     made = False
     try:
-        if action == "put":
-            fd = os.open(where, os.O_RDONLY | os.O_CLOEXEC)
-        else:
-            inside = [str(root.resolve()), os.path.realpath(SCRATCH % os.getuid())]
-            real = os.path.realpath(where)
-            if not any(real.startswith(f.rstrip("/") + "/") for f in inside):
-                raise LabClientError("refused: a %s writes only inside the project folder or the session scratch "
-                                     "folder (%s)" % (action, SCRATCH % os.getuid()))
-            made = not os.path.lexists(where)
-            fd = os.open(where, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o666)
-    except PermissionError:
-        raise LabClientError("refused: this user cannot %s %s; the key service takes only a file the session itself "
-                             "opens" % ("read" if action == "put" else "write", path)) from None
-    except FileNotFoundError:
-        folder = os.path.dirname(where)
-        if action != "put" and not os.path.isdir(folder):
-            raise LabClientError("no such folder: %s (make it first, then %s again)" % (folder, action)) from None
-        raise LabClientError("no such file: %s" % path) from None
-    except IsADirectoryError:
-        raise LabClientError("refused: %s is a folder" % path) from None
-    try:
-        log_fd = os.open(_folder(root) / ("%s.log" % run), os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC,
-                         0o666)
-        try:
-            req = {"op": "lab_obs", "action": action, "tenant": tenant, "run": run, "project": _code(root),
-                   "bucket": bucket, "key": key, "region": region}
-            if action == "fetch":
-                req = dict(req, url=url, hash=vendor_hash)
-            answer = _request(req, root, (fd, log_fd))
-        finally:
-            os.close(log_fd)
-    finally:
-        os.close(fd)
-    head = ["## %s obs %s %s %s" % (_stamp(), action, path if action == "put" else url,
-                                    url if action == "put" else path)]
-    if not answer.get("ok"):
-        if made:
+        with _directory(where.parent) as parent:
+            if action == "put":
+                fd = _file(parent, where.name, os.O_RDONLY)
+            else:
+                try:
+                    fd = _file(parent, where.name, os.O_RDWR | os.O_CREAT | os.O_EXCL)
+                    made = True
+                except FileExistsError:
+                    fd = _file(parent, where.name, os.O_RDWR)
             try:
-                os.unlink(where)
-            except OSError:
-                pass
-        log(root, run, head + ["refused: %s" % answer.get("error")])
-        raise LabClientError(str(answer.get("error")))
+                original = os.fstat(fd)
+                with _directory(root / LOG_FOLDER, create=True) as logs:
+                    log_fd = _file(logs, run + ".log", os.O_WRONLY | os.O_APPEND | os.O_CREAT)
+                    try:
+                        req = {"op": "lab_obs", "action": action, "tenant": tenant, "run": run,
+                               "project": _code(root), "bucket": bucket, "key": key, "region": region}
+                        if action == "fetch":
+                            req = dict(req, url=url, hash=vendor_hash)
+                        answer = _request(req, root, (fd, log_fd))
+                    finally:
+                        os.close(log_fd)
+                if not answer.get("ok") and made:
+                    try:
+                        current = os.stat(where.name, dir_fd=parent, follow_symlinks=False)
+                        if (current.st_dev, current.st_ino) == (original.st_dev, original.st_ino):
+                            os.unlink(where.name, dir_fd=parent)
+                    except FileNotFoundError:
+                        pass
+            finally:
+                os.close(fd)
+    except PermissionError:
+        raise LabClientError("refused: this user cannot %s the session file" %
+                             ("read" if action == "put" else "write")) from None
+    except FileNotFoundError:
+        if action != "put" and not where.parent.is_dir():
+            raise LabClientError("no such folder: %s (make it first, then %s again)" %
+                                 (_safe_text(str(where.parent)), action)) from None
+        raise LabClientError("no such file or folder for the transfer") from None
+    head = ["## %s obs %s %s" % (_stamp(), action, url)]
+    if not answer.get("ok"):
+        log(root, run, head + ["refused: %s" % _service_error(answer)])
+        raise LabClientError(_service_error(answer))
     log(root, run, head + ["job: %s%s, %d bytes%s" % (answer["job"], " resumed" if answer.get("resumed") else "",
                                                       answer.get("size") or 0, ", %d parts of %d bytes" % (
                                                           answer["parts"], answer["part_size"])
@@ -385,25 +589,28 @@ def obs_hosts() -> tuple[list[str], list[str]]:
     return vendorhosts.read()
 
 
+@_boundary
 def obs_status(job: str | None = None, *, start: Path | None = None) -> list[dict]:
     """The lab obs jobs of the project (or the one named): id, action, bucket, key, size, done, rate (bytes per
     second), state (hashing, running, verifying, done, failed, interrupted, aborted), error, sha256."""
     root = _root(start)
     answer = _request({"op": "lab_obs", "action": "status", "project": _code(root), "job": job}, root)
     if not answer.get("ok"):
-        raise LabClientError(str(answer.get("error")))
+        raise LabClientError(_service_error(answer))
     return answer.get("jobs") or []
 
 
+@_boundary
 def obs_abort(job: str, *, start: Path | None = None) -> dict:
     """Stop a job; a put also aborts its multipart upload."""
     root = _root(start)
     answer = _request({"op": "lab_obs", "action": "abort", "project": _code(root), "job": job}, root)
     if not answer.get("ok"):
-        raise LabClientError(str(answer.get("error")))
+        raise LabClientError(_service_error(answer))
     return answer.get("job") or {}
 
 
+@_boundary
 def obs_wait(job: str, *, every: float = 15.0, start: Path | None = None) -> dict:
     """The job once it has ended (done, failed, interrupted or aborted), asked every `every` seconds."""
     import time
@@ -411,7 +618,7 @@ def obs_wait(job: str, *, every: float = 15.0, start: Path | None = None) -> dic
     while True:
         rows = obs_status(job, start=start)
         if not rows:
-            raise LabClientError("no lab obs job %s" % job)
+            raise LabClientError("no lab obs job found")
         if rows[0].get("state") in OBS_ENDED:
             return rows[0]
         time.sleep(every)
@@ -458,7 +665,7 @@ def _size(n) -> str:
 def obs_main(argv: list[str]) -> int:
     action = argv[0] if argv else ""
     if action not in ("put", "get", "fetch", "hosts", "status", "abort"):
-        print("awb lab obs: put, get, fetch, hosts, status or abort", file=sys.stderr)
+        _print("awb lab obs: put, get, fetch, hosts, status or abort", file=sys.stderr)
         return EXIT_REFUSED
     try:
         args = _obs_parser(action).parse_args(argv[1:])
@@ -468,9 +675,9 @@ def obs_main(argv: list[str]) -> int:
         if action == "hosts":
             hosts, portals = obs_hosts()
             for h in hosts:
-                print(h)
+                _print(h)
             for h in portals:
-                print("%s  (portal: refused, hand the download to the owner)" % h)
+                _print("%s  (portal: refused, hand the download to the owner)" % h)
             return EXIT_OK
         if action in ("put", "get", "fetch"):
             if action == "put":
@@ -479,31 +686,34 @@ def obs_main(argv: list[str]) -> int:
                 a = obs_fetch(args.url, args.file, sha256=args.sha256, sha1=args.sha1, tenant=args.tenant)
             else:
                 a = obs_get(args.url, args.file, tenant=args.tenant)
-            print("job %s %s: %s of %s%s; awb lab obs status %s" % (
+            _print("job %s %s: %s of %s%s; awb lab obs status %s" % (
                 a["job"], "resumed" if a.get("resumed") else "started", action, _size(a.get("size")),
                 " in %d parts" % a["parts"] if a.get("parts") else "", a["job"]))
             return EXIT_OK
         if action == "abort":
             j = obs_abort(args.job)
-            print("job %s %s" % (j.get("id"), j.get("state")))
+            _print("job %s %s" % (j.get("id"), j.get("state")))
             return EXIT_OK
         rows = obs_status(args.job)
         if not rows:
-            print("no lab obs job%s" % (" %s" % args.job if args.job else ""))
+            _print("no lab obs job")
         for j in rows:
             pct = 100.0 * (j.get("done") or 0) / j["size"] if j.get("size") else 0.0
             what = "%s -> %s" % (j.get("url"), j.get("file_name")) if j["action"] == "fetch" else \
                 "obs://%s/%s" % (j["bucket"], j["key"])
-            print("%s  %s %s  %s  %s of %s (%.0f%%)  %.1f MB/s%s" % (
+            _print("%s  %s %s  %s  %s of %s (%.0f%%)  %.1f MB/s%s" % (
                 j["id"], j["action"], what, j["state"], _size(j.get("done")), _size(j.get("size")),
-                pct, (j.get("rate") or 0) / 1e6, "  %s" % j["error"] if j.get("error") else ""))
+                pct, (j.get("rate") or 0) / 1e6, "  %s" % _display_error(j["error"]) if j.get("error") else ""))
             if j.get("state") == "done" and j.get("sha256"):
-                print("    sha256 %s, %s s" % (j["sha256"], j.get("seconds")))
+                _print("    sha256 %s, %s s" % (j["sha256"], j.get("seconds")))
             if j["action"] == "fetch" and j.get("sha1"):
-                print("    sha1 %s, vendor hash: %s" % (j["sha1"], j.get("vendor_hash") or "-"))
+                _print("    sha1 %s, vendor hash: %s" % (j["sha1"], j.get("vendor_hash") or "-"))
         return EXIT_OK
     except LabClientError as err:
-        print("awb lab obs: %s" % err, file=sys.stderr)
+        _print("awb lab obs: %s" % err, file=sys.stderr)
+        return EXIT_REFUSED
+    except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError, OverflowError):
+        _print("awb lab obs: invalid service data", file=sys.stderr)
         return EXIT_REFUSED
 
 
@@ -535,7 +745,7 @@ def _parser(action: str) -> argparse.ArgumentParser:
 def run_main(argv: list[str]) -> int:
     action = argv[0] if argv else ""
     if action not in ("start", "keep", "end", "status"):
-        print("awb lab run: start, keep, end or status", file=sys.stderr)
+        _print("awb lab run: start, keep, end or status", file=sys.stderr)
         return EXIT_REFUSED
     ap = _parser(action)
     try:
@@ -548,6 +758,8 @@ def run_main(argv: list[str]) -> int:
         root = None
     try:
         project = args.project or (_code(root) if root else None)
+        if project is not None:
+            _identifier(project, "project")
         if action == "status":
             return _status(project, root)
         if not project:
@@ -558,25 +770,32 @@ def run_main(argv: list[str]) -> int:
             return _keep(root, project, args.tenant, args.item, args.reason)
         return _end(root, project, args.tenant)
     except LabClientError as err:
-        print("awb lab run: %s" % err, file=sys.stderr)
+        _print("awb lab run: %s" % err, file=sys.stderr)
         return EXIT_REFUSED
 
 
+@_boundary
+@_locked
 def _start(root: Path | None, project: str, tenant: str, note: str) -> int:
+    _identifier(project, "project")
+    _identifier(tenant, "tenant")
+    if root is not None:
+        _open_runs(root)
     answer = _request({"op": "lab_run", "action": "start", "project": project, "tenant": tenant, "note": note}, root)
     if not answer.get("ok"):
-        raise LabClientError(str(answer.get("error")))
-    run = answer["run"]
+        raise LabClientError(_service_error(answer))
+    run = _identifier(answer["run"], "run")
     if root is not None:
-        _folder(root)
-        _marker(root, tenant).write_text(run + "\n", encoding="utf-8")
+        with _directory(root / LOG_FOLDER, create=True) as fd:
+            _write(fd, _marker(root, tenant).name, run + "\n")
         log(root, run, ["# lab run %s of %s on %s, opened %s" % (run, project, tenant, answer.get("started")),
                         "note: %s" % note if note else "note: -"])
-    print("run %s open on %s for %s: scripts call through awb.labclient, then awb lab run end" % (run, tenant, project))
-    print("run a script with %s (plain python3 has no awb module)" % (sys.executable or "/opt/tcp-awb/venv/bin/python3"))
+    _print("run %s open on %s for %s: scripts call through awb.labclient, then awb lab run end" % (run, tenant, project))
+    _print("run a script with %s (plain python3 has no awb module)" % (sys.executable or "/opt/tcp-awb/venv/bin/python3"))
     return EXIT_OK
 
 
+@_boundary
 def _keep(root: Path | None, project: str, tenant: str | None, item: str, reason: str) -> int:
     if root is None:
         raise LabClientError("keep runs from the project folder: its RESOURCES.md gets the row")
@@ -584,17 +803,22 @@ def _keep(root: Path | None, project: str, tenant: str | None, item: str, reason
     answer = _request({"op": "lab_run", "action": "keep", "project": project, "tenant": tenant, "run": run,
                        "item": item, "reason": reason}, root)
     if not answer.get("ok"):
-        raise LabClientError(str(answer.get("error")))
+        raise LabClientError(_service_error(answer))
     for k in answer.get("kept") or []:
         handle = keep_row(root, run, tenant, k)
         log(root, run, ["## %s keep %s %s (%s), row %s in RESOURCES.md" % (_stamp(), k["label"], k["id"],
                                                                          k["reason"], handle)])
-        print("kept %s %s as %s: the end of run %s leaves it, RESOURCES.md lists it live" % (k["label"], k["id"],
+        _print("kept %s %s as %s: the end of run %s leaves it, RESOURCES.md lists it live" % (k["label"], k["id"],
                                                                                           handle, run))
     return EXIT_OK
 
 
+@_boundary
+@_locked
 def _end(root: Path | None, project: str, tenant: str | None) -> int:
+    _identifier(project, "project")
+    if tenant is not None:
+        _identifier(tenant, "tenant")
     run = None
     if tenant is None:
         if root is None:
@@ -604,8 +828,13 @@ def _end(root: Path | None, project: str, tenant: str | None) -> int:
         run = _open_runs(root).get(tenant)
     answer = _request({"op": "lab_run", "action": "end", "project": project, "tenant": tenant, "run": run}, root)
     if not answer.get("ok"):
-        raise LabClientError(str(answer.get("error")))
-    run = answer["run"]
+        raise LabClientError(_service_error(answer))
+    run = _identifier(answer["run"], "run")
+    for key in ("failed", "removed", "kept"):
+        rows = answer.get(key) or []
+        if not isinstance(rows, list) or any(not isinstance(row, dict) or
+                                            not isinstance(row.get("label"), str) for row in rows):
+            raise LabClientError("the key service gave invalid resource rows")
     failed = answer.get("failed") or []
     if root is not None:
         lines = ["## %s end of run %s" % (_stamp(), run)]
@@ -616,38 +845,41 @@ def _end(root: Path | None, project: str, tenant: str | None) -> int:
                                                                    len(answer.get("removed") or []), len(failed),
                                                                    len(answer.get("kept") or []))]
         log(root, run, lines)
-        try:
-            _marker(root, tenant).unlink()
-        except OSError:
-            pass
-    print("run %s ended on %s: created %d, removed %d, failed %d, kept %d" % (
+        with _directory(root / LOG_FOLDER) as fd:
+            try:
+                if _read(fd, _marker(root, tenant).name, 128).removesuffix("\n") == run:
+                    os.unlink(_marker(root, tenant).name, dir_fd=fd)
+            except FileNotFoundError:
+                pass
+    _print("run %s ended on %s: created %d, removed %d, failed %d, kept %d" % (
         run, tenant, answer.get("created", 0), len(answer.get("removed") or []), len(failed),
         len(answer.get("kept") or [])))
     for c in answer.get("kept") or []:
-        print("  kept     %s %s: %s" % (c["label"], c["id"], c.get("reason") or "-"))
+        _print("  kept     %s %s: %s" % (c["label"], c["id"], c.get("reason") or "-"))
     for c in answer.get("removed") or []:
-        print("  removed  %s %s" % (c["label"], c.get("name") or ""))
+        _print("  removed  %s %s" % (c["label"], c.get("name") or ""))
     for c in failed:
-        print("  failed   %s %s: %s (%s)" % (c["label"], c.get("name") or "", c.get("error"), c.get("delete")))
+        _print("  failed   %s %s: %s (%s)" % (c["label"], c.get("name") or "", _display_error(c.get("error")), c.get("delete")))
     if failed:
-        print("awb lab run end --tenant %s tries the failed ones again; the owner sees them in awb owner status"
+        _print("awb lab run end --tenant %s tries the failed ones again; the owner sees them in awb owner status"
               % tenant)
     return EXIT_LEFT if failed else EXIT_OK
 
 
+@_boundary
 def _status(project: str | None, root: Path | None = None) -> int:
     answer = _request({"op": "lab_run", "action": "status", "project": project}, root)
     if not answer.get("ok"):
-        raise LabClientError(str(answer.get("error")))
+        raise LabClientError(_service_error(answer))
     rows = answer.get("runs") or []
     if not rows:
-        print("no open lab run and no leftovers%s" % (" of %s" % project if project else ""))
+        _print("no open lab run and no leftovers%s" % (" of %s" % project if project else ""))
         return EXIT_OK
     for r in rows:
-        print("%s  %s on %s  %s, %d min, %d calls, %d left, %d kept" % (
+        _print("%s  %s on %s  %s, %d min, %d calls, %d left, %d kept" % (
             r["run"], r["project"], r["tenant"], r["state"], r.get("minutes", 0), r.get("calls", 0),
             len(r.get("left") or []), r.get("kept", 0)))
         for c in r.get("left") or []:
-            print("    #%s %s %s %s%s" % (c.get("n") or "-", c["state"], c["label"], c.get("name") or "",
-                                     " (%s)" % c["error"] if c.get("error") else ""))
+            _print("    #%s %s %s %s%s" % (c.get("n") or "-", c["state"], c["label"], c.get("name") or "",
+                                     " (%s)" % _display_error(c["error"]) if c.get("error") else ""))
     return EXIT_OK

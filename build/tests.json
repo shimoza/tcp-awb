@@ -20404,8 +20404,253 @@
    "name": "pdf tables: an html table stays aligned courier text",
    "run": ".venv/bin/pytest tests/test_pdf_tables.py::test_an_html_table_stays_aligned_courier_text",
    "status": "passing"
+  },
+  {
+   "id": "LR-H01",
+   "phase": "LR",
+   "name": "lab client: identifiers cannot escape or inject lines",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_identifiers_cannot_escape_or_inject_lines",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H02",
+   "phase": "LR",
+   "name": "lab client: service run is validated before publication",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_service_run_is_validated_before_publication",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H03",
+   "phase": "LR",
+   "name": "lab client: markers reject links special files and bad bytes",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_markers_reject_links_special_files_and_bad_bytes",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H04",
+   "phase": "LR",
+   "name": "lab client: unreadable marker fails closed",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_unreadable_marker_fails_closed",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H05",
+   "phase": "LR",
+   "name": "lab client: log refuses linked ancestors and files",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_log_refuses_linked_ancestors_and_files",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H06",
+   "phase": "LR",
+   "name": "lab client: log pins directory during swap",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_log_pins_directory_during_swap",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H07",
+   "phase": "LR",
+   "name": "lab client: scope refuses link unreadable and oversized files",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_scope_refuses_link_unreadable_and_oversized_files",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H08",
+   "phase": "LR",
+   "name": "lab client: project fallback never echoes folder names",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_project_fallback_never_echoes_folder_names",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H09",
+   "phase": "LR",
+   "name": "lab client: resources refuse links and do not touch old temp",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_resources_refuse_links_and_do_not_touch_old_temp",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H10",
+   "phase": "LR",
+   "name": "lab client: kept cells cannot forge resource rows",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_kept_cells_cannot_forge_resource_rows",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H11",
+   "phase": "LR",
+   "name": "lab client: resource dedup uses id column only",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_resource_dedup_uses_id_column_only",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H12",
+   "phase": "LR",
+   "name": "lab client: concurrent keeps preserve both rows",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_concurrent_keeps_preserve_both_rows",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H13",
+   "phase": "LR",
+   "name": "lab client: failed resource publish preserves original and cleans temp",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_failed_resource_publish_preserves_original_and_cleans_temp",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H14",
+   "phase": "LR",
+   "name": "lab client: end preserves a newer marker",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_end_preserves_a_newer_marker",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H15",
+   "phase": "LR",
+   "name": "lab client: start end are serialized",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_start_end_are_serialized",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H16",
+   "phase": "LR",
+   "name": "lab client: service errors never echo values",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_service_errors_never_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H17",
+   "phase": "LR",
+   "name": "lab client: logs rows and cli withhold names and secrets",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_logs_rows_and_cli_withhold_names_and_secrets",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H18",
+   "phase": "LR",
+   "name": "lab client: failed name check withholds text",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_failed_name_check_withholds_text",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H19",
+   "phase": "LR",
+   "name": "lab client: cli controls and malformed status are safe",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_cli_controls_and_malformed_status_are_safe",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H20",
+   "phase": "LR",
+   "name": "lab client: wire requires boolean ok and complete json line",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_wire_requires_boolean_ok_and_complete_json_line",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H21",
+   "phase": "LR",
+   "name": "lab client: wire bounds depth and hides decode errors",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_wire_bounds_depth_and_hides_decode_errors",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H22",
+   "phase": "LR",
+   "name": "lab client: wire deadline covers all chunks",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_wire_deadline_covers_all_chunks",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H23",
+   "phase": "LR",
+   "name": "lab client: obs url rejects controls and trailing newline",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_obs_url_rejects_controls_and_trailing_newline",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H24",
+   "phase": "LR",
+   "name": "lab client: transfer refuses links and nonregular files",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_transfer_refuses_links_and_nonregular_files",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H25",
+   "phase": "LR",
+   "name": "lab client: transfer pins parent during swap",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_transfer_pins_parent_during_swap",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H26",
+   "phase": "LR",
+   "name": "lab client: transfer refusal does not unlink replacement",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_transfer_refusal_does_not_unlink_replacement",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H27",
+   "phase": "LR",
+   "name": "lab client: missing and unreadable transfer errors hide paths",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_missing_and_unreadable_transfer_errors_hide_paths",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H28",
+   "phase": "LR",
+   "name": "lab client: marker publication is atomic",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_marker_publication_is_atomic",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H29",
+   "phase": "LR",
+   "name": "lab client: wire rejects duplicate keys and nonfinite numbers",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_wire_rejects_duplicate_keys_and_nonfinite_numbers",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H30",
+   "phase": "LR",
+   "name": "lab client: stored errors never echo bare values",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_stored_errors_never_echo_bare_values",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H31",
+   "phase": "LR",
+   "name": "lab client: obs malformed rows return safe refusal",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_obs_malformed_rows_return_safe_refusal",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H32",
+   "phase": "LR",
+   "name": "lab client: malformed end does not close local run",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_malformed_end_does_not_close_local_run",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H33",
+   "phase": "LR",
+   "name": "lab client: download destination boundary and upload descriptors",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_download_destination_boundary_and_upload_descriptors",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H34",
+   "phase": "LR",
+   "name": "lab client: missing parent diagnostic is screened",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_missing_parent_diagnostic_is_screened",
+   "status": "passing"
+  },
+  {
+   "id": "LR-H35",
+   "phase": "LR",
+   "name": "lab client: unknown job diagnostic never echoes argument",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_unknown_job_diagnostic_never_echoes_argument",
+   "status": "passing"
   }
  ],
- "total_tests": 2915,
+ "total_tests": 2950,
  "checked": "2026-11-09"
 }

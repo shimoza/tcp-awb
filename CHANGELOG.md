@@ -7,6 +7,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 ### Changed
 - `awb pdf FILE.md` draws a Markdown pipe table as a ruled grid: a bold header row on a light shade, repeated at the top of every page the table runs onto, column widths fitted to the page width from the content, text wrapped inside its cell with no wrap arrow and left, centre or right alignment from the separator row (`:--`, `:--:`, `--:`). HTML tables and the tables of the dataset HOW-TO stay aligned Courier text. Tests: `tests/test_pdf_tables.py`.
 
+### Fixed
+- Lab client hardening: validate identifiers and service replies, pin file access, refuse links and special files, serialize resource and run updates, publish markers atomically, preserve newer downloads and run markers, and withhold names, secrets and unchecked error values. Added 35 regression tests in `tests/test_lr_lab_runs.py`, including export portability and fault checks.
+
 ## Week 46, 2026-11-09 to 2026-11-15
 ### Added
 - UX21: the owner page lists checked project Decisions from the timer status file through `GET /api/owner/items`. Take the default sends the UX20 call once, stays disabled while pending and after success, and shows sent to the session; refusals show their reason. Items without a default show the UX18 app line. Original OPEN.md indexes survive filtering. Owner-actions retains status-file-only access. Tests: `tests/test_owner_page_decisions.py`.
