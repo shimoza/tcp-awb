@@ -70,7 +70,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from awb import winlab
+from awb import codes, winlab
 from awb.winlab import WinlabError
 
 LOG_FOLDER = Path("notes") / "winlab"
@@ -212,7 +212,8 @@ def _broker_call(request: dict, payload: bytes = b"", timeout: float = BROKER_SL
     # broker's own generated line of a machine name and a project code: the pattern is its check, no name check.
     supplied = answer.get("error")
     if isinstance(supplied, str) and re.fullmatch(
-            r"the window of [a-z][a-z0-9-]{1,30} is open for another project, not for tcp-[a-z0-9]{4,}", supplied):
+            r"the window of [a-z][a-z0-9-]{1,30} is open for another project, not for %s" % codes.TCP_PROJECT_WIDE,
+            supplied):
         error = supplied
     if answer.get("kind") == "offline":
         raise Offline(error)
@@ -410,7 +411,7 @@ def _serial(fn):
         root = bound.arguments.get("root") or _root()
         bound.arguments["root"] = root
         with winlab._parent(root / ".winlab-lock") as folder:
-            fcntl.flock(folder, fcntl.LOCK_EX)
+            winlab._lock(folder)
             try:
                 return fn(*bound.args, **bound.kwargs)
             finally:

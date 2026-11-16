@@ -62,6 +62,7 @@ import secrets
 import socket
 import stat
 import sys
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -202,13 +203,31 @@ def _atomic_json(path: Path, data: dict) -> None:
                 pass
 
 
+LOCK_WAIT = 60.0
+"""The longest wait for the lock of the registry or of a project's lab work; then the command is refused."""
+
+
+def _lock(folder: int, wait: float | None = None) -> None:
+    """flock the folder, waiting at most LOCK_WAIT seconds: a process that holds the lock for ever (or a child
+    that inherited it) refuses the next command instead of blocking it without end."""
+    end = time.monotonic() + (LOCK_WAIT if wait is None else wait)
+    while True:
+        try:
+            fcntl.flock(folder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            if time.monotonic() >= end:
+                raise WinlabError("another awb winlab command holds the lock: try again when it ended") from None
+            time.sleep(0.02)
+
+
 def _transaction(fn):
     @functools.wraps(fn)
     def locked(*args, **kwargs):
         _owner_only()
         path = kwargs.get("path") or registry_path()
         with _parent(path, create=True) as folder:
-            fcntl.flock(folder, fcntl.LOCK_EX)
+            _lock(folder)
             try:
                 return fn(*args, **kwargs)
             finally:

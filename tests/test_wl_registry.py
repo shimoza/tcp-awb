@@ -400,7 +400,24 @@ def test_wl_review_concurrent_opens_have_one_winner(registered, monkeypatch):
             return False
 
     with ThreadPoolExecutor(2) as pool:
-        assert sorted(pool.map(attempt, [PROJECT, OTHER])) == [False, True]
+        assert sorted(pool.map(attempt, [PROJECT, OTHER], timeout=60)) == [False, True]
+
+
+def test_wl_review_a_held_registry_lock_refuses_within_the_wait(registered, monkeypatch):
+    import fcntl
+    import os
+    import time
+    monkeypatch.setattr(winlab, "LOCK_WAIT", 0.2)
+    holder = os.open(registered.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        start = time.monotonic()
+        with pytest.raises(winlab.WinlabError, match="holds the lock"):
+            winlab.open_(MACHINE, 30, PROJECT, now=T0)
+        assert time.monotonic() - start < 10
+    finally:
+        os.close(holder)
+    winlab.open_(MACHINE, 30, PROJECT, now=T0)
 
 
 def test_wl_review_failed_save_keeps_registry_and_removes_temp(registered, monkeypatch, capsys):

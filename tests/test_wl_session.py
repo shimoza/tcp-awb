@@ -829,7 +829,7 @@ def test_wl_review_concurrent_job_logs_read_each_byte_once(lab, monkeypatch):
 
     monkeypatch.setattr(lab, "stat", overlapping)
     with ThreadPoolExecutor(2) as pool:
-        results = list(pool.map(lambda _: winlabsession.job_log(job, lab.root), range(2)))
+        results = list(pool.map(lambda _: winlabsession.job_log(job, lab.root), range(2), timeout=60))
     assert sum(result["bytes"] for result in results) == len(b"one line\n")
 
 

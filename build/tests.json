@@ -21524,8 +21524,15 @@
    "name": "Windows lab review: transfer cleanup cannot leave project",
    "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_review_transfer_cleanup_cannot_leave_project",
    "status": "passing"
+  },
+  {
+   "id": "WL-RH-075",
+   "phase": "WL",
+   "name": "Windows lab review: a held registry lock refuses within the wait",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_review_a_held_registry_lock_refuses_within_the_wait",
+   "status": "passing"
   }
  ],
- "total_tests": 3075,
+ "total_tests": 3076,
  "checked": "2026-11-09"
 }
