@@ -316,10 +316,10 @@ def _atomic_write(path: Path, text: str, host: Host, mode_bits: int = 0o644, gid
         raise EgressError("an egress file could not be written safely") from None
 
 
-@_serialized
 def write_mode(host: Host, new: str, key: str = "egress") -> None:
     """Put `egress = NEW` (or `ask_mode = NEW`) into the root host file in place of any such line, atomically; every
-    other line stays."""
+    other line stays. Not serialized itself: its commands (enforce, count, the ask mode) hold the lock, and the seal
+    rewrites the host file with it as a plain helper."""
     if new not in MODES:
         raise EgressError("the mode is count or enforce")
     pattern = _ASK_MODE_RE if key == "ask_mode" else _EGRESS_RE
