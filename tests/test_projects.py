@@ -871,3 +871,421 @@ def test_spawn_without_the_check_module_names_no_traceback_for_a_vault_it_cannot
     finally:
         os.chmod(home.vault, 0o700)
     assert projects.load(home) == []
+
+
+# --- project administration hardening -----------------------------------------------------------
+
+
+def _admin_project(home, code="tcp-abcd", state="closed", folder=None):
+    """A local project fixture without hooks, installed packages or a repository above the test."""
+    folder = folder or home.projects_root / code
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "RESOURCES.md").write_text(projects._resources(code), encoding="utf-8")
+    (folder / "SCOPE.md").write_text("- goal: compare storage classes\n", encoding="utf-8")
+    row = projects.Project(code, "query", "none", "tcp", str(folder), projects.memory_key(folder), state,
+                           fixtures.TODAY)
+    projects._save(home, projects.load(home) + [row])
+    return row
+
+
+@pytest.mark.timeout(5)
+@pytest.mark.parametrize("kind", ["link", "dangling", "directory", "fifo"])
+def test_admin_load_refuses_nonregular_register(home, tmp_path, kind):
+    target = tmp_path / "outside.tsv"
+    if kind == "link":
+        target.write_text("\t".join(projects.HEADER) + "\n", encoding="utf-8")
+    if kind in ("link", "dangling"):
+        home.projects_register.symlink_to(target)
+    elif kind == "directory":
+        home.projects_register.mkdir()
+    else:
+        os.mkfifo(home.projects_register)
+    with pytest.raises(projects.ProjectError):
+        projects.load(home)
+
+
+@pytest.mark.parametrize("stage", ["mkdir", "mkstemp", "fchmod", "fsync", "replace"])
+def test_admin_register_io_errors_hide_values_and_preserve_snapshot(home, monkeypatch, stage):
+    row = _admin_project(home)
+    before = home.projects_register.read_bytes()
+    secret = "pass" + "word=fixture-admin-value"
+
+    def refused(*args, **kwargs):
+        raise PermissionError(secret)
+
+    module = Path if stage == "mkdir" else projects.tempfile if stage == "mkstemp" else projects.os
+    monkeypatch.setattr(module, stage, refused)
+    with pytest.raises(projects.ProjectError) as error:
+        projects._save(home, [])
+    assert secret not in str(error.value)
+    assert home.projects_register.read_bytes() == before
+    assert not list(home.shared.glob(".projects.tsv.*.tmp"))
+    assert projects.load(home) == [row]
+
+
+@pytest.mark.parametrize("kind", ["link", "fifo", "directory"])
+def test_admin_lock_refuses_nonregular_file(home, tmp_path, kind):
+    lock = home.shared / ".projects.lock"
+    target = tmp_path / "private"
+    target.write_text("untouched", encoding="utf-8")
+    if kind == "link":
+        lock.symlink_to(target)
+    elif kind == "fifo":
+        os.mkfifo(lock)
+    else:
+        lock.mkdir()
+    with pytest.raises(projects.ProjectError):
+        with projects.locked(home):
+            pytest.fail("unsafe lock accepted")
+    assert target.read_text() == "untouched"
+
+
+@pytest.mark.parametrize("char", ["\u202e", "\u2028", "\u2029", "\ud800"])
+def test_admin_register_rejects_invisible_or_unencodable_paths(home, char):
+    path = "/srv/" + char + "/tcp-abcd"
+    row = projects.Project(*GOOD)
+    row.path, row.memory_key = path, projects.memory_key(path)
+    with pytest.raises(projects.ProjectError):
+        projects._save(home, [row])
+    assert not home.projects_register.exists()
+
+
+@pytest.mark.timeout(5)
+@pytest.mark.parametrize("kind", ["link", "directory", "fifo", "folder-link", "invalid"])
+def test_admin_goal_does_not_read_redirected_or_invalid_files(home, tmp_path, kind):
+    row = _admin_project(home)
+    folder = Path(row.path)
+    scope = folder / "SCOPE.md"
+    scope.unlink()
+    target = tmp_path / "private.md"
+    target.write_text("- goal: outside-only-value\n", encoding="utf-8")
+    if kind == "link":
+        scope.symlink_to(target)
+    elif kind == "directory":
+        scope.mkdir()
+    elif kind == "fifo":
+        os.mkfifo(scope)
+    elif kind == "folder-link":
+        moved = tmp_path / "moved"
+        folder.rename(moved)
+        (moved / "SCOPE.md").write_text(target.read_text(), encoding="utf-8")
+        folder.symlink_to(moved, target_is_directory=True)
+    else:
+        scope.write_bytes(b"- goal: \xff\n")
+    assert projects.goal_of(folder) == ""
+
+
+@pytest.mark.parametrize("value", ["pass" + "word=fixture-admin-value", "gh" + "p_" + "Q" * 36],
+                         ids=["assignment", "token"])
+def test_admin_list_withholds_secrets_in_changed_goals(home, capsys, value):
+    from awb import cli
+
+    row = _admin_project(home)
+    (Path(row.path) / "SCOPE.md").write_text("- goal: " + value + "\n", encoding="utf-8")
+    assert cli.main(["projects", "list"]) == 0
+    output = capsys.readouterr()
+    assert value not in output.out + output.err
+    assert row.code in output.out
+    assert "withheld" in output.out
+
+
+def test_admin_goal_withholds_when_pattern_checks_fail(home, monkeypatch):
+    from awb import ledger
+
+    row = _admin_project(home)
+    secret = "pass" + "word=fixture-admin-value"
+    (Path(row.path) / "SCOPE.md").write_text("- goal: " + secret, encoding="utf-8")
+
+    def unavailable(*args):
+        raise ledger.LedgerError(secret)
+
+    monkeypatch.setattr(ledger, "_pattern_counts", unavailable)
+    assert projects.goal_of(row.path) == ledger.WITHHELD
+
+
+@pytest.mark.timeout(5)
+@pytest.mark.parametrize("kind", ["missing", "link", "dangling", "directory", "fifo", "invalid", "malformed"])
+def test_admin_delete_requires_readable_resource_inventory(home, tmp_path, kind):
+    row = _admin_project(home)
+    resource = Path(row.path) / "RESOURCES.md"
+    resource.unlink()
+    target = tmp_path / "outside.md"
+    if kind == "link":
+        target.write_text(projects._resources(row.code), encoding="utf-8")
+    if kind in ("link", "dangling"):
+        resource.symlink_to(target)
+    elif kind == "directory":
+        resource.mkdir()
+    elif kind == "fifo":
+        os.mkfifo(resource)
+    elif kind == "invalid":
+        resource.write_bytes(b"\xff")
+    elif kind == "malformed":
+        resource.write_text("inventory is unavailable", encoding="utf-8")
+    with pytest.raises(projects.ProjectError, match="RESOURCES.md"):
+        projects.delete(home, row.code)
+    assert Path(row.path).is_dir()
+    assert projects.load(home) == [row]
+
+
+def test_admin_delete_unreadable_inventory_hides_os_error(home, monkeypatch):
+    row = _admin_project(home)
+    original = os.open
+    secret = "pass" + "word=fixture-admin-value"
+
+    def unreadable(path, *args, **kwargs):
+        if Path(path).name == "RESOURCES.md":
+            raise PermissionError(secret)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(projects.os, "open", unreadable)
+    with pytest.raises(projects.ProjectError) as error:
+        projects.delete(home, row.code)
+    assert secret not in str(error.value)
+    assert Path(row.path).is_dir() and projects.load(home) == [row]
+
+
+def test_admin_delete_checks_holder_even_when_folder_is_missing(home):
+    import shutil
+
+    row = _admin_project(home)
+    shutil.rmtree(row.path)
+    with pytest.raises(projects.ProjectError, match="live session"):
+        projects.delete(home, row.code, holder=lambda code: code == row.code)
+    assert projects.load(home) == [row]
+    assert projects.delete(home, row.code).state == "deleted"
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_admin_delete_refuses_outside_paths_even_when_missing(home, tmp_path, missing):
+    import shutil
+
+    row = _admin_project(home, folder=tmp_path / "outside" / "tcp-abcd")
+    if missing:
+        shutil.rmtree(row.path)
+    with pytest.raises(projects.ProjectError, match="projects root"):
+        projects.delete(home, row.code)
+    assert projects.load(home) == [row]
+    assert Path(row.path).exists() != missing
+
+
+def test_admin_delete_detects_folder_replacement_during_holder_check(home, tmp_path):
+    row = _admin_project(home)
+    folder = Path(row.path)
+    moved = tmp_path / "original"
+
+    def replace_folder(code):
+        folder.rename(moved)
+        folder.mkdir()
+        (folder / "keep").write_text("replacement", encoding="utf-8")
+        return False
+
+    with pytest.raises(projects.ProjectError):
+        projects.delete(home, row.code, holder=replace_folder)
+    assert (folder / "keep").read_text() == "replacement"
+    assert (moved / "SCOPE.md").is_file()
+    assert projects.load(home) == [row]
+
+
+def test_admin_delete_failure_hides_paths_and_keeps_closed_row(home, monkeypatch):
+    import shutil
+
+    row = _admin_project(home)
+    secret = "pass" + "word=fixture-admin-value"
+
+    def refused(*args, **kwargs):
+        raise PermissionError(secret)
+
+    monkeypatch.setattr(shutil, "rmtree", refused)
+    with pytest.raises(projects.ProjectError) as error:
+        projects.delete(home, row.code)
+    assert secret not in str(error.value)
+    assert Path(row.path).is_dir() and projects.load(home) == [row]
+
+
+def test_admin_check_refuses_malformed_register_instead_of_reporting_orphans(home):
+    _admin_project(home)
+    home.projects_register.write_text("broken", encoding="utf-8")
+    with pytest.raises(projects.ProjectError):
+        projects.unregistered(home)
+
+
+def test_admin_check_does_not_follow_directory_links_or_expose_names(home, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (home.projects_root / "tcp-abcd").symlink_to(outside, target_is_directory=True)
+    (home.projects_root / ("tcp-" + NAME)).mkdir()
+    assert projects.unregistered(home) == ["a folder"]
+
+
+def test_admin_check_unreadable_root_is_not_a_clean_result(home, monkeypatch):
+    original = os.scandir
+    secret = "pass" + "word=fixture-admin-value"
+
+    def refused(path):
+        if Path(path) == home.projects_root:
+            raise PermissionError(secret)
+        return original(path)
+
+    monkeypatch.setattr(projects.os, "scandir", refused)
+    with pytest.raises(projects.ProjectError) as error:
+        projects.unregistered(home)
+    assert secret not in str(error.value)
+
+
+def test_admin_concurrent_deletes_remove_once_and_preserve_other_rows(home, monkeypatch):
+    import shutil
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    row = _admin_project(home)
+    other = _admin_project(home, code="tcp-efgh")
+    entered, release, attempted = threading.Event(), threading.Event(), threading.Event()
+    original = shutil.rmtree
+    removed = []
+
+    def slow_remove(*args, **kwargs):
+        removed.append(args[0])
+        entered.set()
+        assert release.wait(5)
+        return original(*args, **kwargs)
+
+    def second_delete():
+        attempted.set()
+        return projects.delete(home, row.code)
+
+    monkeypatch.setattr(shutil, "rmtree", slow_remove)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(projects.delete, home, row.code)
+        try:
+            assert entered.wait(5)
+            second = pool.submit(second_delete)
+            assert attempted.wait(5)
+            # The first run owns the lock across the filesystem change and the register write.
+            with pytest.raises(TimeoutError):
+                second.result(timeout=0.1)
+        finally:
+            release.set()
+        assert first.result(timeout=5).state == second.result(timeout=5).state == "deleted"
+    assert len(removed) == 1
+    assert projects.load(home)[1] == other and Path(other.path).is_dir()
+
+
+def test_admin_list_rechecks_names_and_hides_unchecked_goals(home, monkeypatch, capsys):
+    from awb import cli, ledger
+
+    row = _admin_project(home)
+    scope = Path(row.path) / "SCOPE.md"
+    scope.write_text("- goal: compare storage for " + NAME, encoding="utf-8")
+    assert cli.main(["projects", "list"]) == 0
+    out = capsys.readouterr()
+    assert NAME not in out.out + out.err and "withheld" in out.out
+    scope.write_text("- goal: compare storage classes", encoding="utf-8")
+
+    def unavailable(*args):
+        raise ledger.LedgerError(NAME)
+
+    monkeypatch.setattr(ledger, "hit_indexes", unavailable)
+    assert cli.main(["projects", "list"]) == 0
+    out = capsys.readouterr()
+    assert "compare storage" not in out.out + out.err and NAME not in out.out + out.err
+    assert "name check is unavailable" in out.out
+
+
+def test_admin_list_deleted_filter_and_missing_goal(home, capsys):
+    from awb import cli
+
+    active = _admin_project(home, state="active")
+    deleted = _admin_project(home, code="tcp-efgh", state="deleted")
+    (Path(active.path) / "SCOPE.md").unlink()
+    assert cli.main(["projects", "list"]) == 0
+    out = capsys.readouterr().out
+    assert active.code in out and deleted.code not in out
+    assert cli.main(["projects", "list", "--all", "--paths"]) == 0
+    out = capsys.readouterr().out
+    assert active.path in out and deleted.path in out
+
+
+def test_admin_sync_selection_is_idempotent_and_keeps_notes_and_modes(home):
+    from awb import rulesync
+
+    rows = [_admin_project(home, code=code, state=state) for code, state in
+            [("tcp-abcd", "active"), ("tcp-efgh", "parked"), ("tcp-wxyz", "closed"), ("tcp-zz22", "deleted")]]
+    old, new = rulesync.STATE_FIXES[0]
+    before = "Status: Started.\nNext: Compare storage.\n" + old + "\nLocal notes stay here.\n"
+    for row in rows:
+        path = Path(row.path) / "STATE.md"
+        path.write_text(before, encoding="utf-8")
+        path.chmod(0o640)
+    selected = rows[1]
+    path = Path(selected.path) / "STATE.md"
+    inode = path.stat().st_ino
+    assert rulesync.sync(home, [selected.code]) == [(selected.code, ["STATE.md"])]
+    assert path.read_text() == before.replace(old, new)
+    assert path.stat().st_mode & 0o777 == 0o640 and path.stat().st_ino == inode
+    assert rulesync.sync(home, [selected.code]) == [(selected.code, [])]
+    assert rulesync.sync(home) == [(rows[0].code, ["STATE.md"]), (selected.code, [])]
+    for row in rows[2:]:
+        assert (Path(row.path) / "STATE.md").read_text() == before
+
+
+@pytest.mark.parametrize("kind", ["link", "missing", "directory", "invalid", "unreadable"])
+def test_admin_sync_ignores_unusable_files_without_touching_outside(home, tmp_path, monkeypatch, kind):
+    from awb import rulesync
+
+    row = _admin_project(home, state="active")
+    path = Path(row.path) / "STATE.md"
+    (Path(row.path) / "CLAUDE.md").write_text("# Rules\n", encoding="utf-8")
+    outside = tmp_path / "private.md"
+    before = rulesync.STATE_FIXES[0][0] + "\n" + NAME
+    outside.write_text(before, encoding="utf-8")
+    if kind == "link":
+        path.symlink_to(outside)
+    elif kind == "directory":
+        path.mkdir()
+    elif kind == "invalid":
+        path.write_bytes(b"\xff")
+    elif kind == "unreadable":
+        path.write_text(before, encoding="utf-8")
+        original = Path.read_text
+
+        def denied(self, *args, **kwargs):
+            if self == path:
+                raise PermissionError(NAME)
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", denied)
+    assert rulesync.sync(home) == [(row.code, [])]
+    assert outside.read_text() == before
+
+
+def test_admin_sync_unknown_code_does_not_echo_input_or_change_project(home, capsys):
+    from awb import cli, rulesync
+
+    row = _admin_project(home, state="active")
+    path = Path(row.path) / "STATE.md"
+    before = rulesync.STATE_FIXES[0][0]
+    path.write_text(before, encoding="utf-8")
+    assert cli.main(["projects", "sync", NAME]) == 1
+    output = capsys.readouterr()
+    assert NAME not in output.out + output.err
+    assert path.read_text() == before
+
+
+def test_admin_delete_root_replacement_cannot_redirect_removal(home, tmp_path):
+    row = _admin_project(home)
+    moved = tmp_path / "original-root"
+    outside = tmp_path / "outside-root"
+    replacement = outside / row.code
+    replacement.mkdir(parents=True)
+    (replacement / "keep").write_text("outside", encoding="utf-8")
+
+    def replace_root(code):
+        home.projects_root.rename(moved)
+        home.projects_root.symlink_to(outside, target_is_directory=True)
+        return False
+
+    assert projects.delete(home, row.code, holder=replace_root).state == "deleted"
+    assert (replacement / "keep").read_text() == "outside"
+    assert not (moved / row.code).exists()
+    assert projects.load(home)[0].state == "deleted"

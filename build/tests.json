@@ -20649,8 +20649,365 @@
    "name": "lab client: unknown job diagnostic never echoes argument",
    "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_hard_unknown_job_diagnostic_never_echoes_argument",
    "status": "passing"
+  },
+  {
+   "id": "projects-review-1",
+   "phase": "projects-review",
+   "name": "projects: load refuses nonregular register[link]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_load_refuses_nonregular_register[link]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-2",
+   "phase": "projects-review",
+   "name": "projects: load refuses nonregular register[dangling]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_load_refuses_nonregular_register[dangling]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-3",
+   "phase": "projects-review",
+   "name": "projects: load refuses nonregular register[directory]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_load_refuses_nonregular_register[directory]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-4",
+   "phase": "projects-review",
+   "name": "projects: load refuses nonregular register[fifo]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_load_refuses_nonregular_register[fifo]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-5",
+   "phase": "projects-review",
+   "name": "projects: register io errors hide values and preserve snapshot[mkdir]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_register_io_errors_hide_values_and_preserve_snapshot[mkdir]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-6",
+   "phase": "projects-review",
+   "name": "projects: register io errors hide values and preserve snapshot[mkstemp]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_register_io_errors_hide_values_and_preserve_snapshot[mkstemp]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-7",
+   "phase": "projects-review",
+   "name": "projects: register io errors hide values and preserve snapshot[fchmod]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_register_io_errors_hide_values_and_preserve_snapshot[fchmod]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-8",
+   "phase": "projects-review",
+   "name": "projects: register io errors hide values and preserve snapshot[fsync]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_register_io_errors_hide_values_and_preserve_snapshot[fsync]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-9",
+   "phase": "projects-review",
+   "name": "projects: register io errors hide values and preserve snapshot[replace]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_register_io_errors_hide_values_and_preserve_snapshot[replace]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-10",
+   "phase": "projects-review",
+   "name": "projects: lock refuses nonregular file[link]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_lock_refuses_nonregular_file[link]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-11",
+   "phase": "projects-review",
+   "name": "projects: lock refuses nonregular file[fifo]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_lock_refuses_nonregular_file[fifo]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-12",
+   "phase": "projects-review",
+   "name": "projects: lock refuses nonregular file[directory]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_lock_refuses_nonregular_file[directory]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-13",
+   "phase": "projects-review",
+   "name": "projects: register rejects invisible or unencodable paths[\\u202e]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_register_rejects_invisible_or_unencodable_paths[\\u202e]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-14",
+   "phase": "projects-review",
+   "name": "projects: register rejects invisible or unencodable paths[\\u2028]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_register_rejects_invisible_or_unencodable_paths[\\u2028]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-15",
+   "phase": "projects-review",
+   "name": "projects: register rejects invisible or unencodable paths[\\u2029]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_register_rejects_invisible_or_unencodable_paths[\\u2029]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-16",
+   "phase": "projects-review",
+   "name": "projects: register rejects invisible or unencodable paths[\\ud800]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_register_rejects_invisible_or_unencodable_paths[\\ud800]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-17",
+   "phase": "projects-review",
+   "name": "projects: goal does not read redirected or invalid files[link]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_goal_does_not_read_redirected_or_invalid_files[link]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-18",
+   "phase": "projects-review",
+   "name": "projects: goal does not read redirected or invalid files[directory]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_goal_does_not_read_redirected_or_invalid_files[directory]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-19",
+   "phase": "projects-review",
+   "name": "projects: goal does not read redirected or invalid files[fifo]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_goal_does_not_read_redirected_or_invalid_files[fifo]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-20",
+   "phase": "projects-review",
+   "name": "projects: goal does not read redirected or invalid files[folder-link]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_goal_does_not_read_redirected_or_invalid_files[folder-link]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-21",
+   "phase": "projects-review",
+   "name": "projects: goal does not read redirected or invalid files[invalid]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_goal_does_not_read_redirected_or_invalid_files[invalid]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-22",
+   "phase": "projects-review",
+   "name": "projects: list withholds secrets in changed goals[assignment]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_list_withholds_secrets_in_changed_goals[assignment]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-23",
+   "phase": "projects-review",
+   "name": "projects: list withholds secrets in changed goals[token]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_list_withholds_secrets_in_changed_goals[token]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-24",
+   "phase": "projects-review",
+   "name": "projects: goal withholds when pattern checks fail",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_admin_goal_withholds_when_pattern_checks_fail",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-25",
+   "phase": "projects-review",
+   "name": "projects: delete requires readable resource inventory[missing]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_delete_requires_readable_resource_inventory[missing]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-26",
+   "phase": "projects-review",
+   "name": "projects: delete requires readable resource inventory[link]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_delete_requires_readable_resource_inventory[link]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-27",
+   "phase": "projects-review",
+   "name": "projects: delete requires readable resource inventory[dangling]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_delete_requires_readable_resource_inventory[dangling]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-28",
+   "phase": "projects-review",
+   "name": "projects: delete requires readable resource inventory[directory]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_delete_requires_readable_resource_inventory[directory]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-29",
+   "phase": "projects-review",
+   "name": "projects: delete requires readable resource inventory[fifo]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_delete_requires_readable_resource_inventory[fifo]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-30",
+   "phase": "projects-review",
+   "name": "projects: delete requires readable resource inventory[invalid]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_delete_requires_readable_resource_inventory[invalid]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-31",
+   "phase": "projects-review",
+   "name": "projects: delete requires readable resource inventory[malformed]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_delete_requires_readable_resource_inventory[malformed]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-32",
+   "phase": "projects-review",
+   "name": "projects: delete unreadable inventory hides os error",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_admin_delete_unreadable_inventory_hides_os_error",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-33",
+   "phase": "projects-review",
+   "name": "projects: delete checks holder even when folder is missing",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_admin_delete_checks_holder_even_when_folder_is_missing",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-34",
+   "phase": "projects-review",
+   "name": "projects: delete refuses outside paths even when missing[False]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_delete_refuses_outside_paths_even_when_missing[False]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-35",
+   "phase": "projects-review",
+   "name": "projects: delete refuses outside paths even when missing[True]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_delete_refuses_outside_paths_even_when_missing[True]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-36",
+   "phase": "projects-review",
+   "name": "projects: delete detects folder replacement during holder check",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_admin_delete_detects_folder_replacement_during_holder_check",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-37",
+   "phase": "projects-review",
+   "name": "projects: delete failure hides paths and keeps closed row",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_admin_delete_failure_hides_paths_and_keeps_closed_row",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-38",
+   "phase": "projects-review",
+   "name": "projects: check refuses malformed register instead of reporting orphans",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_admin_check_refuses_malformed_register_instead_of_reporting_orphans",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-39",
+   "phase": "projects-review",
+   "name": "projects: check does not follow directory links or expose names",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_admin_check_does_not_follow_directory_links_or_expose_names",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-40",
+   "phase": "projects-review",
+   "name": "projects: check unreadable root is not a clean result",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_admin_check_unreadable_root_is_not_a_clean_result",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-41",
+   "phase": "projects-review",
+   "name": "projects: concurrent deletes remove once and preserve other rows",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_admin_concurrent_deletes_remove_once_and_preserve_other_rows",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-42",
+   "phase": "projects-review",
+   "name": "projects: list rechecks names and hides unchecked goals",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_admin_list_rechecks_names_and_hides_unchecked_goals",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-43",
+   "phase": "projects-review",
+   "name": "projects: list deleted filter and missing goal",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_admin_list_deleted_filter_and_missing_goal",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-44",
+   "phase": "projects-review",
+   "name": "projects: sync selection is idempotent and keeps notes and modes",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_admin_sync_selection_is_idempotent_and_keeps_notes_and_modes",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-45",
+   "phase": "projects-review",
+   "name": "projects: sync ignores unusable files without touching outside[link]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_sync_ignores_unusable_files_without_touching_outside[link]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-46",
+   "phase": "projects-review",
+   "name": "projects: sync ignores unusable files without touching outside[missing]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_sync_ignores_unusable_files_without_touching_outside[missing]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-47",
+   "phase": "projects-review",
+   "name": "projects: sync ignores unusable files without touching outside[directory]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_sync_ignores_unusable_files_without_touching_outside[directory]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-48",
+   "phase": "projects-review",
+   "name": "projects: sync ignores unusable files without touching outside[invalid]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_sync_ignores_unusable_files_without_touching_outside[invalid]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-49",
+   "phase": "projects-review",
+   "name": "projects: sync ignores unusable files without touching outside[unreadable]",
+   "run": ".venv/bin/pytest 'tests/test_projects.py::test_admin_sync_ignores_unusable_files_without_touching_outside[unreadable]'",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-50",
+   "phase": "projects-review",
+   "name": "projects: sync unknown code does not echo input or change project",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_admin_sync_unknown_code_does_not_echo_input_or_change_project",
+   "status": "passing"
+  },
+  {
+   "id": "projects-review-51",
+   "phase": "projects-review",
+   "name": "projects: delete root replacement cannot redirect removal",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_admin_delete_root_replacement_cannot_redirect_removal",
+   "status": "passing"
   }
  ],
- "total_tests": 2950,
+ "total_tests": 3001,
  "checked": "2026-11-09"
 }

@@ -9,6 +9,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ### Fixed
 - Lab client hardening: validate identifiers and service replies, pin file access, refuse links and special files, serialize resource and run updates, publish markers atomically, preserve newer downloads and run markers, and withhold names, secrets and unchecked error values. Added 35 regression tests in `tests/test_lr_lab_runs.py`, including export portability and fault checks. The key service's own one-line refusals still reach the session and the run log when the screen leaves them unchanged, an obs transfer logs its file and object again and a withheld log block keeps its blank separator line.
+- Project administration refuses linked and special register, lock and goal files, withholds secrets in edited goals, rejects invisible register fields, and reports unreadable checks without values. Delete requires a readable resource table, checks missing folders and held sessions, and anchors removal to checked directories. Regression tests cover failures, concurrent deletes, list privacy and sync selection in a fresh export.
 
 ## Week 46, 2026-11-09 to 2026-11-15
 ### Added

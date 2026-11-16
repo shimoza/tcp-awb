@@ -110,15 +110,39 @@ def memory_key(path: str | os.PathLike) -> str:
 GOAL_WIDTH = 72
 
 
+def _read_regular(path, *, dir_fd=None) -> bytes:
+    """Read the opened regular file, never a link or a blocking special file."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+    with os.fdopen(fd, "rb") as fh:
+        if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+            raise OSError("not a regular file")
+        return fh.read()
+
+
 def goal_of(path: str | os.PathLike) -> str:
-    """The goal line of a project's SCOPE.md, empty when there is none or the file cannot be read."""
+    """The goal of a plain SCOPE.md, empty if unreadable, with secrets withheld before display.
+
+    Callers must still check registered names against their current register.
+    """
     try:
-        text = (Path(path) / "SCOPE.md").read_text(encoding="utf-8")
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            text = _read_regular("SCOPE.md", dir_fd=fd).decode("utf-8")
+        finally:
+            os.close(fd)
     except (OSError, UnicodeDecodeError):
         return ""
     for line in text.splitlines():
         if line.startswith("- goal:"):
-            return " ".join(line[len("- goal:"):].split())
+            from awb import ledger
+
+            goal = " ".join(line[len("- goal:"):].split())
+            try:
+                if ledger._pattern_counts(goal):
+                    return ledger.WITHHELD
+            except ledger.LedgerError:
+                return ledger.WITHHELD
+            return goal
     return ""
 
 
@@ -144,7 +168,7 @@ def _check(pr: Project, where: str) -> None:
     for value in (pr.code, pr.kind, pr.customer, pr.platform, pr.path, pr.memory_key, pr.state, pr.created):
         if not isinstance(value, str):
             raise _fail(where, "every field must be a string")
-        if any(unicodedata.category(c) == "Cc" for c in value):
+        if any(unicodedata.category(c) in ("Cc", "Cf", "Cs", "Zl", "Zp") for c in value):
             raise _fail(where, "a field contains a control character, a tab or a line break")
     if not _codes.is_project_code(pr.code):
         raise _fail(where, "code does not match the project code grammar")
@@ -185,11 +209,11 @@ def load(p: _config.Paths) -> list[Project]:
     """Read the project register. A missing file is an empty list. Anything malformed is a ProjectError."""
     path = p.projects_register
     try:
-        raw = path.read_bytes()
+        raw = _read_regular(path)
     except FileNotFoundError:
         return []
-    except OSError as exc:
-        raise ProjectError("projects.tsv cannot be read: %s" % exc.__class__.__name__) from None
+    except OSError:
+        raise ProjectError("projects.tsv cannot be read") from None
     try:
         content = raw.decode("utf-8")
     except UnicodeDecodeError:
@@ -233,36 +257,45 @@ def _save(p: _config.Paths, rows: list[Project]) -> None:
     lines.extend("\t".join((r.code, r.kind, r.customer, r.platform, r.path, r.memory_key, r.state, r.created))
                  for r in rows)
     data = ("\n".join(lines) + "\n").encode("utf-8")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".%s." % target.name, suffix=".tmp", dir=target.parent)
+    tmp = None
     try:
-        os.fchmod(fd, 0o640)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".%s." % target.name, suffix=".tmp", dir=target.parent)
         with os.fdopen(fd, "wb") as fh:
+            os.fchmod(fh.fileno(), 0o640)
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
         os.replace(tmp, target)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+        tmp = None
+    except OSError:
+        raise ProjectError("projects.tsv cannot be written") from None
+    finally:
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 @contextmanager
 def locked(p: _config.Paths):
     """One writer of the project register at a time, across processes."""
-    p.shared.mkdir(parents=True, exist_ok=True)
-    fd = os.open(p.shared / ".projects.lock", os.O_RDWR | os.O_CREAT, 0o640)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        p.shared.mkdir(parents=True, exist_ok=True)
+        fd = os.open(p.shared / ".projects.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o640)
+    except OSError:
+        raise ProjectError("project register lock cannot be opened") from None
+    try:
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode) or os.fstat(fd).st_nlink != 1:
+                raise OSError("not a private regular lock file")
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        except OSError:
+            raise ProjectError("project register lock cannot be acquired") from None
         yield
     finally:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        finally:
-            os.close(fd)
+        os.close(fd)  # closing this descriptor also releases its flock
 
 
 # The private name stays for the web adapters still deployed outside the repository until they are switched.
@@ -857,12 +890,15 @@ def open_items(folder: Path) -> int:
     return len(open_bullets(text))
 
 
-def _live_rows(folder: Path) -> list[dict[str, str]]:
+def _live_rows(folder: Path, *, strict: bool = False, dir_fd=None) -> list[dict[str, str]]:
     """The rows of the table in RESOURCES.md whose state is live or has no state that says otherwise (creating
     counts: a lab create that never finished may have made its resource), each as column -> cell."""
     try:
-        text = (Path(folder) / "RESOURCES.md").read_text(encoding="utf-8")
-    except OSError:
+        path = Path(folder) / "RESOURCES.md" if dir_fd is None else "RESOURCES.md"
+        text = _read_regular(path, dir_fd=dir_fd).decode("utf-8")
+    except (OSError, UnicodeError):
+        if strict:
+            raise ProjectError("RESOURCES.md cannot be read; nothing deleted") from None
         return []
     head: list[str] | None = None
     live: list[dict[str, str]] = []
@@ -883,6 +919,9 @@ def _live_rows(folder: Path) -> list[dict[str, str]]:
             row = {"handle": cells[0], "state": state}
         if state not in ("deleted", "kept", "not created"):
             live.append(row)
+    if strict and (head is None or "state" not in head or not {"id", "handle"}.intersection(head)
+                   or len(head) != len(set(head))):
+        raise ProjectError("RESOURCES.md has no valid resource table; nothing deleted")
     return live
 
 
@@ -1235,18 +1274,40 @@ def delete(p: _config.Paths, code: str, holder=None) -> Project:
         if pr.state != "closed":
             raise ProjectError("project %s is active; close it first (awb close %s)" % (code, code))
         folder = Path(pr.path)
-        if folder.exists() or folder.is_symlink():
-            if folder.is_symlink() or not folder.is_dir():
-                raise ProjectError("the folder of %s is not a plain folder; nothing deleted" % code)
+        try:
             if folder.parent.resolve() != p.projects_root.resolve() or folder.name != code:
                 raise ProjectError("the folder of %s is not under the projects root; nothing deleted" % code)
-            live = live_resources(folder)
-            if live:
-                raise ProjectError("project %s lists %d live resource(s) in RESOURCES.md; delete them in the "
-                                   "cloud first" % (code, live))
-            if holder is not None and holder(code):
-                raise ProjectError("a live session holds %s; end it first" % code)
-            shutil.rmtree(folder)
+            # Anchor both the inventory read and removal to opened directories. A renamed parent
+            # must not redirect removal to a different tree.
+            root_fd = os.open(p.projects_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                try:
+                    folder_fd = os.open(code, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root_fd)
+                except FileNotFoundError:
+                    folder_fd = None
+                except OSError:
+                    raise ProjectError("the folder of %s is not a plain folder; nothing deleted" % code) from None
+                try:
+                    if folder_fd is not None:
+                        identity = os.fstat(folder_fd)
+                        live = len(_live_rows(folder, strict=True, dir_fd=folder_fd))
+                        if live:
+                            raise ProjectError("project %s lists %d live resource(s) in RESOURCES.md; delete them in "
+                                               "the cloud first" % (code, live))
+                    if holder is not None and holder(code):
+                        raise ProjectError("a live session holds %s; end it first" % code)
+                    if folder_fd is not None:
+                        current = os.stat(code, dir_fd=root_fd, follow_symlinks=False)
+                        if (current.st_dev, current.st_ino) != (identity.st_dev, identity.st_ino):
+                            raise ProjectError("the project folder changed; nothing deleted")
+                        shutil.rmtree(code, dir_fd=root_fd)
+                finally:
+                    if folder_fd is not None:
+                        os.close(folder_fd)
+            finally:
+                os.close(root_fd)
+        except OSError:
+            raise ProjectError("the project folder cannot be read or removed; deletion not recorded") from None
         rows[idx] = _replace(pr, state="deleted")
         _save(p, rows)
         return rows[idx]
@@ -1255,16 +1316,19 @@ def delete(p: _config.Paths, code: str, holder=None) -> Project:
 def unregistered(p: _config.Paths) -> list[str]:
     """Folders named tcp-* under the projects root that the register does not know (T-98). A folder whose name
     is not a project code comes back as "a folder", because its name can carry anything."""
-    try:
-        known = {Path(r.path).name for r in load(p)}
-    except ProjectError:
-        known = set()
+    known = {Path(r.path).name for r in load(p)}
     out = []
-    root = p.projects_root
-    for d in sorted(root.glob("tcp-*")) if root.is_dir() else []:
-        if not d.is_dir() or d.name in NOT_PROJECTS or d.name in known:
-            continue
-        out.append(d.name if _codes.is_project_code(d.name) else "a folder")
+    try:
+        with os.scandir(p.projects_root) as entries:
+            for d in sorted(entries, key=lambda entry: entry.name):
+                if (not d.name.startswith("tcp-") or not d.is_dir(follow_symlinks=False)
+                        or d.name in NOT_PROJECTS or d.name in known):
+                    continue
+                out.append(d.name if _codes.is_project_code(d.name) else "a folder")
+    except FileNotFoundError:
+        return []
+    except OSError:
+        raise ProjectError("projects root cannot be read") from None
     return out
 
 
