@@ -504,3 +504,418 @@ def test_wl_put_does_not_overwrite_a_file_on_the_machine(lab, capsys):
     for winpath in ("C:\\lab\\..\\a.txt", "lab\\a.txt", "C:\\lab\\$env:x.txt", "C:\\lab\\a.txt.awb-part"):
         assert cli.main(["winlab", "put", "winlab-out/a.txt", winpath]) == 1
         assert "WINPATH" in capsys.readouterr().err, winpath
+
+
+@pytest.mark.parametrize("kind", ["vm", "job", "winpath", "machine"])
+def test_wl_review_session_identifiers_reject_newlines(lab, kind):
+    calls = {
+        "vm": lambda: winlabsession.check_vm("lab-vm\n"),
+        "job": lambda: winlabsession._job_record(lab.root, "wl-20261105-101500-a1b2\n"),
+        "winpath": lambda: winlabsession.check_winpath(WINDIR + "a.txt\n"),
+        "machine": lambda: winlabsession.run(MACHINE + "\n", "Get-VM"),
+    }
+    with pytest.raises(winlab.WinlabError) as err:
+        calls[kind]()
+    assert "\n" not in str(err.value)
+    assert not lab.sent
+
+
+@pytest.mark.parametrize("place", ["notes", "winlab", "log", "hardlog"])
+def test_wl_review_logs_do_not_follow_links(lab, tmp_path, place, capsys):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    victim = outside / "victim"
+    victim.write_text("untouched")
+    if place == "notes":
+        (lab.root / "notes").symlink_to(outside)
+    elif place == "winlab":
+        (lab.root / "notes").mkdir()
+        (lab.root / winlabsession.LOG_FOLDER).symlink_to(outside)
+    else:
+        path = winlabsession.log_path(lab.root, MACHINE)
+        path.parent.mkdir(parents=True)
+        if place == "log":
+            path.symlink_to(victim)
+        else:
+            os.link(victim, path)
+    assert cli.main(["winlab", "run", MACHINE, "--", "Get-VM"]) == 1
+    capsys.readouterr()
+    assert victim.read_text() == "untouched"
+    assert list(outside.iterdir()) == [victim]
+
+
+@pytest.mark.parametrize("field,value", [("log_offset", -1), ("log_offset", "bad"),
+                                         ("log_offset", True), ("winlog", "C:\\lab\\unrelated.txt"),
+                                         ("project", "tcp-zz99"), ("machine", "lab-1\n")])
+def test_wl_review_job_record_is_validated_before_contact(lab, field, value):
+    job = winlabsession.start(MACHINE, "Get-VM")["job"]
+    path = lab.root / winlabsession.LOG_FOLDER / "jobs" / (job + ".json")
+    record = json.loads(path.read_text())
+    record[field] = value
+    path.write_text(json.dumps(record))
+    lab.sent.clear()
+    with pytest.raises(winlab.WinlabError):
+        winlabsession.job_log(job)
+    assert not lab.sent and not lab.chunks
+
+
+def test_wl_review_job_record_link_is_refused(lab, tmp_path):
+    job = winlabsession.start(MACHINE, "Get-VM")["job"]
+    path = lab.root / winlabsession.LOG_FOLDER / "jobs" / (job + ".json")
+    outside = tmp_path / "job.json"
+    path.rename(outside)
+    path.symlink_to(outside)
+    before = outside.read_bytes()
+    lab.sent.clear()
+    with pytest.raises(winlab.WinlabError):
+        winlabsession.status(job)
+    assert not lab.sent and outside.read_bytes() == before
+
+
+@pytest.mark.parametrize("operation", ["command", "output", "file"])
+def test_wl_review_checker_errors_do_not_echo_values(lab, monkeypatch, capsys, operation):
+    from awb import hooks
+    value = "pass" + "word=" + WORD + "\n" + fixtures.CUSTOMER_FORMS[0]
+
+    def unavailable(*args, **kwargs):
+        raise hooks.Unavailable(value)
+
+    monkeypatch.setattr(hooks, "name_hits", unavailable)
+    monkeypatch.setattr(hooks, "file_hits", unavailable)
+    if operation == "output":
+        text, note = winlabsession.landed("plain output")
+        assert text is None
+        result = note
+    else:
+        src = lab.root / "winlab-out" / "plain.txt"
+        src.write_text("plain")
+        with pytest.raises(winlab.WinlabError) as err:
+            if operation == "command":
+                winlabsession.run(MACHINE, "Get-VM")
+            else:
+                winlabsession.check_file(src, 5)
+        result = str(err.value)
+    assert WORD not in result + logs(lab.root)
+    fixtures.assert_no_fixture_name(result + logs(lab.root), "checker refusal")
+
+
+@pytest.mark.parametrize("operation", ["run", "connect"])
+def test_wl_review_transport_errors_are_not_output(lab, monkeypatch, capsys, operation):
+    value = "pass" + "word=" + WORD + "\n" + fixtures.CUSTOMER_FORMS[0]
+
+    def broken(*args, **kwargs):
+        raise winlabsession.Offline(value)
+
+    if operation == "run":
+        monkeypatch.setattr(lab, "run", broken)
+    else:
+        monkeypatch.setattr(winlabsession, "connect", broken)
+    assert cli.main(["winlab", "run", MACHINE, "--", "Get-VM"]) == winlabsession.EXIT_OFFLINE
+    output = capsys.readouterr()
+    text = output.out + output.err + logs(lab.root)
+    assert WORD not in text
+    fixtures.assert_no_fixture_name(text, "transport refusal")
+
+
+@pytest.mark.parametrize("kind", ["existing", "parent"])
+def test_wl_review_target_path_is_checked_before_echo(lab, kind, capsys):
+    name = fixtures.CUSTOMER_FORMS[0]
+    file = name + ".txt" if kind == "existing" else name + "/result.txt"
+    if kind == "existing":
+        (lab.root / file).write_text("old")
+    lab.files[(WINDIR + "a.txt").lower()] = bytearray(b"plain")
+    assert cli.main(["winlab", "get", WINDIR + "a.txt", file]) == 1
+    out = capsys.readouterr()
+    fixtures.assert_no_fixture_name(out.out + out.err + logs(lab.root), "target path")
+
+
+@pytest.mark.parametrize("kind", ["hardlink", "fifo", "symlink"])
+def test_wl_review_get_part_is_regular_and_private(lab, tmp_path, kind, capsys, monkeypatch):
+    victim = tmp_path / "victim"
+    victim.write_bytes(b"keep")
+    part = lab.root / "result.txt.awb-part"
+    if kind == "hardlink":
+        os.link(victim, part)
+    elif kind == "fifo":
+        os.mkfifo(part)
+        fd = os.open(part, os.O_RDWR | os.O_NONBLOCK)
+    else:
+        part.symlink_to(victim)
+    lab.files[(WINDIR + "a.txt").lower()] = bytearray(b"plain")
+    real_fdopen = os.fdopen
+    opened_unsafe = []
+
+    def fdopen(fd, *args, **kwargs):
+        import stat
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink > 1:
+            opened_unsafe.append(True)
+        return real_fdopen(fd, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fdopen", fdopen)
+    try:
+        assert cli.main(["winlab", "get", WINDIR + "a.txt", "result.txt"]) == 1
+    finally:
+        if kind == "fifo":
+            os.close(fd)
+    capsys.readouterr()
+    assert victim.read_bytes() == b"keep"
+    assert not opened_unsafe
+    assert not (lab.root / "result.txt").exists()
+
+
+def test_wl_review_get_never_overwrites_a_concurrent_file(lab, monkeypatch, capsys):
+    dst = lab.root / "result.txt"
+    original = lab.get_chunk
+
+    def raced(*args):
+        dst.write_bytes(b"concurrent writer")
+        return original(*args)
+
+    monkeypatch.setattr(lab, "get_chunk", raced)
+    lab.files[(WINDIR + "a.txt").lower()] = bytearray(b"plain")
+    assert cli.main(["winlab", "get", WINDIR + "a.txt", "result.txt"]) == 1
+    capsys.readouterr()
+    assert dst.read_bytes() == b"concurrent writer"
+
+
+def test_wl_review_large_get_checks_names(lab, monkeypatch, capsys):
+    monkeypatch.setattr(winlabsession, "CHECK_WHOLE_MAX", 16)
+    lab.files[(WINDIR + "a.txt").lower()] = bytearray(("plain\n" * 10 + fixtures.CUSTOMER_FORMS[0]).encode())
+    assert cli.main(["winlab", "get", WINDIR + "a.txt", "result.txt"]) == 1
+    capsys.readouterr()
+    assert not (lab.root / "result.txt").exists()
+    assert not (lab.root / "result.txt.awb-part").exists()
+
+
+def test_wl_review_put_checks_the_bytes_it_sends(lab, monkeypatch, capsys):
+    src = lab.root / "winlab-out" / "a.txt"
+    src.write_bytes(b"plain")
+    original = winlabsession.check_file
+    upload = lab.put_chunk
+    sent = bytearray()
+
+    def captured(path, offset, data):
+        sent.extend(data)
+        return upload(path, offset, data)
+
+    monkeypatch.setattr(lab, "put_chunk", captured)
+
+    def changed(path, size):
+        result = original(path, size)
+        src.write_text("pass" + "word=" + WORD)
+        return result
+
+    monkeypatch.setattr(winlabsession, "check_file", changed)
+    cli.main(["winlab", "put", "winlab-out/a.txt", WINDIR + "a.txt"])
+    capsys.readouterr()
+    assert not sent or sent == b"plain"
+
+
+def test_wl_review_forged_transfer_record_does_not_skip_check(lab, capsys):
+    src = lab.root / "winlab-out" / "a.txt"
+    src.write_text("pass" + "word=" + WORD)
+    st = src.stat()
+    sha = hashlib.sha256(src.read_bytes()).hexdigest()
+    record = winlabsession._record_path(lab.root, "put", MACHINE, WINDIR + "a.txt")
+    record.parent.mkdir(parents=True)
+    record.write_text(json.dumps({"source": "winlab-out/a.txt", "ident": [st.st_size, st.st_mtime_ns, st.st_ino],
+                                  "winpath": WINDIR + "a.txt", "sha256": sha, "checked": sha}))
+    assert cli.main(["winlab", "put", "winlab-out/a.txt", WINDIR + "a.txt"]) == 1
+    capsys.readouterr()
+    assert not lab.chunks
+
+
+def test_wl_review_receive_refuses_oversized_chunk(lab, monkeypatch):
+    import io
+    monkeypatch.setattr(lab, "get_chunk", lambda *args: b"too many bytes")
+    fh = io.BytesIO()
+    with pytest.raises(winlab.WinlabError):
+        winlabsession._receive(lab, fh, WINDIR + "a.txt", 0, 1)
+    assert fh.getvalue() == b""
+
+
+@pytest.mark.parametrize("length", [-1, True, "2", 65 * 1024 * 1024])
+def test_wl_review_broker_payload_length_is_bounded(monkeypatch, length):
+    import stat
+    from types import SimpleNamespace
+    answer = json.dumps({"ok": True, "length": length}).encode() + b"\n"
+
+    class Socket:
+        def settimeout(self, seconds): pass
+        def connect(self, path): pass
+        def sendall(self, data): pass
+        def close(self): pass
+        def recv(self, size):
+            nonlocal answer
+            if not answer:
+                pytest.fail("an invalid length must be refused before another read")
+            data, answer = answer, b""
+            return data
+
+    real_stat = os.stat
+    socket_path = os.environ[winlabsession.BROKER_SOCKET_ENV]
+    monkeypatch.setattr(winlabsession.os, "stat", lambda path, *args, **kwargs:
+                        SimpleNamespace(st_mode=stat.S_IFSOCK) if path == socket_path
+                        else real_stat(path, *args, **kwargs))
+    monkeypatch.setattr(winlabsession.socket, "socket", lambda *args: Socket())
+    with pytest.raises(winlabsession.Offline):
+        winlabsession._broker_call({"op": "get_chunk", "size": 2})
+
+
+def test_wl_review_broker_error_does_not_echo_values(monkeypatch):
+    import stat
+    from types import SimpleNamespace
+    value = "pass" + "word=" + WORD + "\n" + fixtures.CUSTOMER_FORMS[0]
+
+    class Socket:
+        def settimeout(self, seconds): pass
+        def connect(self, path): pass
+        def sendall(self, data): pass
+        def close(self): pass
+        def recv(self, size):
+            return json.dumps({"ok": False, "error": value}).encode() + b"\n"
+
+    real_stat = os.stat
+    socket_path = os.environ[winlabsession.BROKER_SOCKET_ENV]
+    monkeypatch.setattr(winlabsession.os, "stat", lambda path, *args, **kwargs:
+                        SimpleNamespace(st_mode=stat.S_IFSOCK) if path == socket_path
+                        else real_stat(path, *args, **kwargs))
+    monkeypatch.setattr(winlabsession.socket, "socket", lambda *args: Socket())
+    with pytest.raises(winlab.WinlabError) as err:
+        winlabsession._broker_call({"op": "check"})
+    assert WORD not in str(err.value)
+    fixtures.assert_no_fixture_name(str(err.value), "broker refusal")
+
+
+def test_wl_review_get_pins_destination_directory(lab, tmp_path, monkeypatch, capsys):
+    folder = lab.root / "results"
+    folder.mkdir()
+    moved = lab.root / "saved-results"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    original = lab.get_chunk
+
+    def swapped(*args):
+        folder.rename(moved)
+        folder.symlink_to(outside)
+        (outside / "a.txt.awb-part").write_bytes(b"plain")
+        return original(*args)
+
+    monkeypatch.setattr(lab, "get_chunk", swapped)
+    lab.files[(WINDIR + "a.txt").lower()] = bytearray(b"plain")
+    assert cli.main(["winlab", "get", WINDIR + "a.txt", "results/a.txt"]) in (0, 1)
+    capsys.readouterr()
+    assert list(outside.iterdir()) == [outside / "a.txt.awb-part"]
+    assert (outside / "a.txt.awb-part").read_bytes() == b"plain"
+    assert not (moved / "a.txt").exists() or (moved / "a.txt").read_bytes() == b"plain"
+
+
+def test_wl_review_concurrent_job_logs_read_each_byte_once(lab, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    job = winlabsession.start(MACHINE, "Get-VM")["job"]
+    path = "C:\\ProgramData\\awb-winlab\\jobs\\%s\\log.txt" % job
+    lab.files[path.lower()] = bytearray(b"one line\n")
+    barrier = threading.Barrier(2)
+    original = lab.stat
+
+    def overlapping(*args, **kwargs):
+        try:
+            barrier.wait(timeout=0.3)
+        except threading.BrokenBarrierError:
+            pass
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(lab, "stat", overlapping)
+    with ThreadPoolExecutor(2) as pool:
+        results = list(pool.map(lambda _: winlabsession.job_log(job, lab.root), range(2)))
+    assert sum(result["bytes"] for result in results) == len(b"one line\n")
+
+
+def test_wl_review_missing_source_is_a_safe_refusal(lab, capsys):
+    value = "pass" + "word=" + WORD
+    assert cli.main(["winlab", "put", "winlab-out/" + value, WINDIR + "a.txt"]) == 1
+    out = capsys.readouterr()
+    assert WORD not in out.out + out.err + logs(lab.root)
+    assert not lab.sent and not lab.chunks
+
+
+def test_wl_review_downloaded_secret_is_deleted(lab, capsys):
+    lab.files[(WINDIR + "a.txt").lower()] = bytearray(("pass" + "word=" + WORD).encode())
+    assert cli.main(["winlab", "get", WINDIR + "a.txt", "result.txt"]) == 1
+    out = capsys.readouterr()
+    assert WORD not in out.out + out.err + logs(lab.root)
+    assert not (lab.root / "result.txt").exists()
+    assert not (lab.root / "result.txt.awb-part").exists()
+
+
+def test_wl_review_oversized_output_is_withheld_before_truncation(lab, monkeypatch):
+    from awb import paste
+    monkeypatch.setattr(paste, "OWN_MAX_BYTES", 20)
+    text = "plain line\n" * 3 + fixtures.CUSTOMER_FORMS[0]
+    clean, note = winlabsession.landed(text)
+    assert clean is None and "withheld" in note
+
+
+@pytest.mark.parametrize("op", ["windows", "check", "run"])
+def test_wl_review_broker_metadata_is_not_echoed(lab, monkeypatch, op):
+    value = "pass" + "word=" + WORD
+    monkeypatch.setattr(winlabsession, "_local_registry", lambda: False)
+    answer = {"windows": {"machines": [value]}, "check": {"machine": {"name": MACHINE, "end": value}},
+              "run": {"exit": value, "stdout": "", "stderr": ""}}[op]
+    monkeypatch.setattr(winlabsession, "_broker_call", lambda *a, **kw: (answer, b""))
+    with pytest.raises(winlab.WinlabError) as err:
+        if op == "run":
+            winlabsession.BrokerTransport(MACHINE, CODE, None).run("Get-VM")
+        else:
+            if op == "check":
+                original = winlabsession._broker_call
+                monkeypatch.setattr(winlabsession, "_broker_call", lambda req: (
+                    ({"machines": [MACHINE]}, b"") if req["op"] == "windows" else original(req)))
+            winlabsession.session_list(lab.root)
+    assert WORD not in str(err.value)
+
+
+@pytest.mark.parametrize("device", ["CON", "nul.txt", "COM1.bin", "lpt9"])
+def test_wl_review_windows_device_paths_are_refused(lab, device):
+    with pytest.raises(winlab.WinlabError):
+        winlabsession.check_winpath(WINDIR + device)
+
+
+def test_wl_review_job_log_withholds_a_line_split_at_limit(lab, monkeypatch):
+    monkeypatch.setattr(winlabsession, "LOG_READ", 8)
+    job = winlabsession.start(MACHINE, "Get-VM")["job"]
+    path = "C:\\ProgramData\\awb-winlab\\jobs\\%s\\log.txt" % job
+    lab.files[path.lower()] = bytearray(("pass" + "word=" + WORD + "\nplain\n").encode())
+    results = []
+    for _ in range(20):
+        result = winlabsession.job_log(job)
+        results.append(result["text"] or "")
+        if not result["more"]:
+            break
+    assert WORD not in "".join(results) + logs(lab.root)
+    assert not any(WORD[i:i + 6] in "".join(results) for i in range(len(WORD) - 5))
+
+
+def test_wl_review_transfer_cleanup_cannot_leave_project(lab, tmp_path, monkeypatch, capsys):
+    src = lab.root / "winlab-out" / "a.txt"
+    src.write_text("plain")
+    outside = tmp_path / "outside-records"
+    outside.mkdir()
+    original = winlabsession._write_json
+    victim = []
+
+    def swapped(path, record):
+        original(path, record)
+        if path.parent.name == "transfers":
+            copy = outside / path.name
+            copy.write_bytes(b"keep")
+            victim.append(copy)
+            path.parent.rename(path.parent.with_name("saved-transfers"))
+            path.parent.symlink_to(outside)
+
+    monkeypatch.setattr(winlabsession, "_write_json", swapped)
+    cli.main(["winlab", "put", "winlab-out/a.txt", WINDIR + "a.txt"])
+    capsys.readouterr()
+    assert len(victim) == 1 and victim[0].read_bytes() == b"keep"

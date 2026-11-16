@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime
 import json
 import stat
+from pathlib import Path
 
 import pytest
 
@@ -278,3 +279,166 @@ def test_wl_owner_status_lists_nothing_without_a_registry(owner):
     assert ownerwait.winlab_items(now=T0) == []
     owner.write_text("{broken", encoding="utf-8")
     assert ownerwait.winlab_items(now=T0) == []
+
+
+# Review regressions: no live registry, process, or repository is needed.
+@pytest.mark.parametrize("field", ["name", "fingerprint", "account", "project"])
+def test_wl_review_rejects_trailing_newline(owner, field):
+    values = dict(name=MACHINE, fingerprint=FINGERPRINT, account=winlab.ACCOUNT)
+    if field == "project":
+        winlab.add(MACHINE, 2201, FINGERPRINT, True)
+        with pytest.raises(winlab.WinlabError):
+            winlab.open_(MACHINE, 30, PROJECT + "\n", now=T0)
+    else:
+        values[field] += "\n"
+        with pytest.raises(winlab.WinlabError):
+            winlab.add(port=2201, no_customer_data=True, **values)
+
+
+@pytest.mark.parametrize("field,value", [("registered", "2026-99-99"), ("registered", 20261105),
+                                         ("account", ["awblab"]), ("fingerprint", FINGERPRINT + "\n")])
+def test_wl_review_malformed_registry_fields_fail_closed(registered, field, value):
+    data = json.loads(registered.read_text())
+    data["machines"][MACHINE][field] = value
+    registered.write_text(json.dumps(data))
+    with pytest.raises(winlab.WinlabError):
+        winlab.load()
+    assert winlab.windows() == []
+
+
+@pytest.mark.parametrize("kind", ["link", "dangling", "fifo", "hardlink", "directory"])
+def test_wl_review_registry_requires_regular_unlinked_file(owner, tmp_path, kind, monkeypatch):
+    import os
+    other = tmp_path / "outside"
+    other.write_text(json.dumps({"machines": {}}))
+    if kind == "link":
+        owner.symlink_to(other)
+    elif kind == "dangling":
+        owner.symlink_to(tmp_path / "missing")
+    elif kind == "fifo":
+        os.mkfifo(owner)
+        # A writer prevents the faulty reader from hanging; its bytes are a valid registry.
+        fd = os.open(owner, os.O_RDWR | os.O_NONBLOCK)
+        os.write(fd, b'{"machines": {}}')
+        monkeypatch.setattr(Path, "read_text", lambda *a, **k: '{"machines": {}}')
+    elif kind == "hardlink":
+        os.link(other, owner)
+    else:
+        owner.mkdir()
+    try:
+        with pytest.raises(winlab.WinlabError):
+            winlab.load()
+    finally:
+        if kind == "fifo":
+            os.close(fd)
+    assert other.read_bytes() == b'{"machines": {}}'
+
+
+def test_wl_review_registry_duplicate_keys_are_refused(owner):
+    owner.write_text('{"machines": {}, "machines": {}}')
+    with pytest.raises(winlab.WinlabError):
+        winlab.load()
+
+
+def test_wl_review_registry_read_is_bounded(owner):
+    owner.write_text('{"machines": {}}' + ' ' * (2 * 1024 * 1024))
+    with pytest.raises(winlab.WinlabError):
+        winlab.load()
+
+
+def test_wl_review_future_window_is_not_authorized(registered):
+    winlab.open_(MACHINE, 30, PROJECT, now=minutes(10))
+    with pytest.raises(winlab.WinlabError):
+        winlab.allowed(MACHINE, PROJECT, now=T0)
+    assert winlab.windows(now=T0) == []
+
+
+@pytest.mark.parametrize("operation", ["add", "open", "close", "remove", "allowed"])
+def test_wl_review_invalid_values_never_reach_errors(owner, operation):
+    value = "pass" + "word=" + "invented" + "-private\n"
+    calls = {
+        "add": lambda: winlab.add(value, 2201, FINGERPRINT, False),
+        "open": lambda: winlab.open_(value, 30, PROJECT),
+        "close": lambda: winlab.close(value),
+        "remove": lambda: winlab.remove(value),
+        "allowed": lambda: winlab.allowed(value, PROJECT),
+    }
+    with pytest.raises(winlab.WinlabError) as err:
+        calls[operation]()
+    assert value not in str(err.value) and "\n" not in str(err.value)
+
+
+def test_wl_review_registry_error_hides_path(tmp_path):
+    path = tmp_path / ("pass" + "word=" + "private-value")
+    path.write_bytes(b"\xff")
+    with pytest.raises(winlab.WinlabError) as err:
+        winlab.load(path)
+    assert path.name not in str(err.value)
+
+
+def test_wl_review_concurrent_opens_have_one_winner(registered, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    barrier = threading.Barrier(2)
+    original = winlab.load
+
+    def overlapping(path=None):
+        result = original(path)
+        try:
+            barrier.wait(timeout=0.3)
+        except threading.BrokenBarrierError:
+            pass
+        return result
+
+    monkeypatch.setattr(winlab, "load", overlapping)
+
+    def attempt(code):
+        try:
+            winlab.open_(MACHINE, 30, code, now=T0)
+            return True
+        except winlab.WinlabError:
+            return False
+
+    with ThreadPoolExecutor(2) as pool:
+        assert sorted(pool.map(attempt, [PROJECT, OTHER])) == [False, True]
+
+
+def test_wl_review_failed_save_keeps_registry_and_removes_temp(registered, monkeypatch, capsys):
+    import os
+    before = registered.read_bytes()
+    value = "pass" + "word=" + "private-value"
+
+    def fail(*args, **kwargs):
+        raise OSError(value)
+
+    monkeypatch.setattr(os, "replace", fail)
+    assert cli.main(["winlab", "open", MACHINE, "--minutes", "30", "--project", PROJECT]) == 1
+    out = capsys.readouterr()
+    assert value not in out.out + out.err
+    assert registered.read_bytes() == before
+    assert sorted(p.name for p in registered.parent.iterdir()) == ["keys.conf", winlab.FILE_NAME]
+
+
+def test_wl_review_unreadable_registry_fails_closed(registered, monkeypatch):
+    import os
+    value = "pass" + "word=" + "private-value"
+    real_open, real_read = os.open, Path.read_text
+
+    def denied(path, *args, **kwargs):
+        if path == winlab.FILE_NAME or path == registered:
+            raise PermissionError(value)
+        return real_open(path, *args, **kwargs)
+
+    def denied_text(path, *args, **kwargs):
+        if path == registered:
+            raise PermissionError(value)
+        return real_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", denied)
+    monkeypatch.setattr(Path, "read_text", denied_text)
+    with pytest.raises(winlab.WinlabError, match="cannot be read"):
+        winlab.load()
+    with pytest.raises(winlab.WinlabError) as err:
+        winlab.allowed(MACHINE, PROJECT)
+    assert value not in str(err.value)
+    assert winlab.windows() == []

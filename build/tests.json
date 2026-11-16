@@ -21006,8 +21006,526 @@
    "name": "projects: delete root replacement cannot redirect removal",
    "run": ".venv/bin/pytest tests/test_projects.py::test_admin_delete_root_replacement_cannot_redirect_removal",
    "status": "passing"
+  },
+  {
+   "id": "WL-RH-001",
+   "phase": "WL",
+   "name": "Windows lab review: rejects trailing newline[name]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_rejects_trailing_newline[name]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-002",
+   "phase": "WL",
+   "name": "Windows lab review: rejects trailing newline[fingerprint]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_rejects_trailing_newline[fingerprint]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-003",
+   "phase": "WL",
+   "name": "Windows lab review: rejects trailing newline[account]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_rejects_trailing_newline[account]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-004",
+   "phase": "WL",
+   "name": "Windows lab review: rejects trailing newline[project]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_rejects_trailing_newline[project]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-005",
+   "phase": "WL",
+   "name": "Windows lab review: malformed registry fields fail closed[registered-2026-99-99]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_malformed_registry_fields_fail_closed[registered-2026-99-99]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-006",
+   "phase": "WL",
+   "name": "Windows lab review: malformed registry fields fail closed[registered-20261105]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_malformed_registry_fields_fail_closed[registered-20261105]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-007",
+   "phase": "WL",
+   "name": "Windows lab review: malformed registry fields fail closed[account-value2]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_malformed_registry_fields_fail_closed[account-value2]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-008",
+   "phase": "WL",
+   "name": "Windows lab review: malformed registry fields fail closed[fingerprint-SHA256:inventedinventedinventedinventedinventedinv\\n]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_malformed_registry_fields_fail_closed[fingerprint-SHA256:inventedinventedinventedinventedinventedinv\\n]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-009",
+   "phase": "WL",
+   "name": "Windows lab review: registry requires regular unlinked file[link]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_registry_requires_regular_unlinked_file[link]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-010",
+   "phase": "WL",
+   "name": "Windows lab review: registry requires regular unlinked file[dangling]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_registry_requires_regular_unlinked_file[dangling]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-011",
+   "phase": "WL",
+   "name": "Windows lab review: registry requires regular unlinked file[fifo]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_registry_requires_regular_unlinked_file[fifo]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-012",
+   "phase": "WL",
+   "name": "Windows lab review: registry requires regular unlinked file[hardlink]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_registry_requires_regular_unlinked_file[hardlink]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-013",
+   "phase": "WL",
+   "name": "Windows lab review: registry requires regular unlinked file[directory]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_registry_requires_regular_unlinked_file[directory]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-014",
+   "phase": "WL",
+   "name": "Windows lab review: registry duplicate keys are refused",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_review_registry_duplicate_keys_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-015",
+   "phase": "WL",
+   "name": "Windows lab review: registry read is bounded",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_review_registry_read_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-016",
+   "phase": "WL",
+   "name": "Windows lab review: future window is not authorized",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_review_future_window_is_not_authorized",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-017",
+   "phase": "WL",
+   "name": "Windows lab review: invalid values never reach errors[add]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_invalid_values_never_reach_errors[add]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-018",
+   "phase": "WL",
+   "name": "Windows lab review: invalid values never reach errors[open]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_invalid_values_never_reach_errors[open]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-019",
+   "phase": "WL",
+   "name": "Windows lab review: invalid values never reach errors[close]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_invalid_values_never_reach_errors[close]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-020",
+   "phase": "WL",
+   "name": "Windows lab review: invalid values never reach errors[remove]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_invalid_values_never_reach_errors[remove]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-021",
+   "phase": "WL",
+   "name": "Windows lab review: invalid values never reach errors[allowed]",
+   "run": ".venv/bin/pytest 'tests/test_wl_registry.py::test_wl_review_invalid_values_never_reach_errors[allowed]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-022",
+   "phase": "WL",
+   "name": "Windows lab review: registry error hides path",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_review_registry_error_hides_path",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-023",
+   "phase": "WL",
+   "name": "Windows lab review: concurrent opens have one winner",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_review_concurrent_opens_have_one_winner",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-024",
+   "phase": "WL",
+   "name": "Windows lab review: failed save keeps registry and removes temp",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_review_failed_save_keeps_registry_and_removes_temp",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-025",
+   "phase": "WL",
+   "name": "Windows lab review: unreadable registry fails closed",
+   "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_review_unreadable_registry_fails_closed",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-026",
+   "phase": "WL",
+   "name": "Windows lab review: session identifiers reject newlines[vm]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_session_identifiers_reject_newlines[vm]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-027",
+   "phase": "WL",
+   "name": "Windows lab review: session identifiers reject newlines[job]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_session_identifiers_reject_newlines[job]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-028",
+   "phase": "WL",
+   "name": "Windows lab review: session identifiers reject newlines[winpath]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_session_identifiers_reject_newlines[winpath]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-029",
+   "phase": "WL",
+   "name": "Windows lab review: session identifiers reject newlines[machine]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_session_identifiers_reject_newlines[machine]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-030",
+   "phase": "WL",
+   "name": "Windows lab review: logs do not follow links[notes]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_logs_do_not_follow_links[notes]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-031",
+   "phase": "WL",
+   "name": "Windows lab review: logs do not follow links[winlab]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_logs_do_not_follow_links[winlab]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-032",
+   "phase": "WL",
+   "name": "Windows lab review: logs do not follow links[log]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_logs_do_not_follow_links[log]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-033",
+   "phase": "WL",
+   "name": "Windows lab review: logs do not follow links[hardlog]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_logs_do_not_follow_links[hardlog]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-034",
+   "phase": "WL",
+   "name": "Windows lab review: job record is validated before contact[log offset--1]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_job_record_is_validated_before_contact[log_offset--1]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-035",
+   "phase": "WL",
+   "name": "Windows lab review: job record is validated before contact[log offset-bad]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_job_record_is_validated_before_contact[log_offset-bad]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-036",
+   "phase": "WL",
+   "name": "Windows lab review: job record is validated before contact[log offset-True]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_job_record_is_validated_before_contact[log_offset-True]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-037",
+   "phase": "WL",
+   "name": "Windows lab review: job record is validated before contact[winlog-C:\\\\lab\\\\unrelated.txt]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_job_record_is_validated_before_contact[winlog-C:\\\\lab\\\\unrelated.txt]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-038",
+   "phase": "WL",
+   "name": "Windows lab review: job record is validated before contact[project-tcp-zz99]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_job_record_is_validated_before_contact[project-tcp-zz99]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-039",
+   "phase": "WL",
+   "name": "Windows lab review: job record is validated before contact[machine-lab-1\\n]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_job_record_is_validated_before_contact[machine-lab-1\\n]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-040",
+   "phase": "WL",
+   "name": "Windows lab review: job record link is refused",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_review_job_record_link_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-041",
+   "phase": "WL",
+   "name": "Windows lab review: checker errors do not echo values[command]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_checker_errors_do_not_echo_values[command]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-042",
+   "phase": "WL",
+   "name": "Windows lab review: checker errors do not echo values[output]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_checker_errors_do_not_echo_values[output]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-043",
+   "phase": "WL",
+   "name": "Windows lab review: checker errors do not echo values[file]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_checker_errors_do_not_echo_values[file]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-044",
+   "phase": "WL",
+   "name": "Windows lab review: transport errors are not output[run]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_transport_errors_are_not_output[run]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-045",
+   "phase": "WL",
+   "name": "Windows lab review: transport errors are not output[connect]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_transport_errors_are_not_output[connect]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-046",
+   "phase": "WL",
+   "name": "Windows lab review: target path is checked before echo[existing]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_target_path_is_checked_before_echo[existing]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-047",
+   "phase": "WL",
+   "name": "Windows lab review: target path is checked before echo[parent]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_target_path_is_checked_before_echo[parent]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-048",
+   "phase": "WL",
+   "name": "Windows lab review: get part is regular and private[hardlink]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_get_part_is_regular_and_private[hardlink]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-049",
+   "phase": "WL",
+   "name": "Windows lab review: get part is regular and private[fifo]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_get_part_is_regular_and_private[fifo]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-050",
+   "phase": "WL",
+   "name": "Windows lab review: get part is regular and private[symlink]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_get_part_is_regular_and_private[symlink]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-051",
+   "phase": "WL",
+   "name": "Windows lab review: get never overwrites a concurrent file",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_review_get_never_overwrites_a_concurrent_file",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-052",
+   "phase": "WL",
+   "name": "Windows lab review: large get checks names",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_review_large_get_checks_names",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-053",
+   "phase": "WL",
+   "name": "Windows lab review: put checks the bytes it sends",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_review_put_checks_the_bytes_it_sends",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-054",
+   "phase": "WL",
+   "name": "Windows lab review: forged transfer record does not skip check",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_review_forged_transfer_record_does_not_skip_check",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-055",
+   "phase": "WL",
+   "name": "Windows lab review: receive refuses oversized chunk",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_review_receive_refuses_oversized_chunk",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-056",
+   "phase": "WL",
+   "name": "Windows lab review: broker payload length is bounded[-1]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_broker_payload_length_is_bounded[-1]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-057",
+   "phase": "WL",
+   "name": "Windows lab review: broker payload length is bounded[True]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_broker_payload_length_is_bounded[True]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-058",
+   "phase": "WL",
+   "name": "Windows lab review: broker payload length is bounded[2]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_broker_payload_length_is_bounded[2]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-059",
+   "phase": "WL",
+   "name": "Windows lab review: broker payload length is bounded[68157440]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_broker_payload_length_is_bounded[68157440]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-060",
+   "phase": "WL",
+   "name": "Windows lab review: broker error does not echo values",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_review_broker_error_does_not_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-061",
+   "phase": "WL",
+   "name": "Windows lab review: get pins destination directory",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_review_get_pins_destination_directory",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-062",
+   "phase": "WL",
+   "name": "Windows lab review: concurrent job logs read each byte once",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_review_concurrent_job_logs_read_each_byte_once",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-063",
+   "phase": "WL",
+   "name": "Windows lab review: missing source is a safe refusal",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_review_missing_source_is_a_safe_refusal",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-064",
+   "phase": "WL",
+   "name": "Windows lab review: downloaded secret is deleted",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_review_downloaded_secret_is_deleted",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-065",
+   "phase": "WL",
+   "name": "Windows lab review: oversized output is withheld before truncation",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_review_oversized_output_is_withheld_before_truncation",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-066",
+   "phase": "WL",
+   "name": "Windows lab review: broker metadata is not echoed[windows]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_broker_metadata_is_not_echoed[windows]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-067",
+   "phase": "WL",
+   "name": "Windows lab review: broker metadata is not echoed[check]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_broker_metadata_is_not_echoed[check]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-068",
+   "phase": "WL",
+   "name": "Windows lab review: broker metadata is not echoed[run]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_broker_metadata_is_not_echoed[run]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-069",
+   "phase": "WL",
+   "name": "Windows lab review: windows device paths are refused[CON]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_windows_device_paths_are_refused[CON]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-070",
+   "phase": "WL",
+   "name": "Windows lab review: windows device paths are refused[nul.txt]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_windows_device_paths_are_refused[nul.txt]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-071",
+   "phase": "WL",
+   "name": "Windows lab review: windows device paths are refused[COM1.bin]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_windows_device_paths_are_refused[COM1.bin]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-072",
+   "phase": "WL",
+   "name": "Windows lab review: windows device paths are refused[lpt9]",
+   "run": ".venv/bin/pytest 'tests/test_wl_session.py::test_wl_review_windows_device_paths_are_refused[lpt9]'",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-073",
+   "phase": "WL",
+   "name": "Windows lab review: job log withholds a line split at limit",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_review_job_log_withholds_a_line_split_at_limit",
+   "status": "passing"
+  },
+  {
+   "id": "WL-RH-074",
+   "phase": "WL",
+   "name": "Windows lab review: transfer cleanup cannot leave project",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_review_transfer_cleanup_cannot_leave_project",
+   "status": "passing"
   }
  ],
- "total_tests": 3001,
+ "total_tests": 3075,
  "checked": "2026-11-09"
 }

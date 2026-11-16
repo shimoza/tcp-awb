@@ -53,12 +53,16 @@ from __future__ import annotations
 
 import base64
 import datetime
+import fcntl
+import functools
 import json
 import os
 import re
+import secrets
 import socket
+import stat
 import sys
-import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 from awb import codes, config
@@ -119,61 +123,156 @@ def _owner_only() -> None:
         raise WinlabError(OWNER_LINE)
 
 
+# Bound metadata reads, reject duplicate keys, and never follow storage links.
+METADATA_MAX = 1024 * 1024
+
+
+@contextmanager
+def _parent(path: Path, create: bool = False):
+    """Pin each directory while walking it. No component may be a symbolic link."""
+    path = Path(os.path.abspath(path))
+    fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for component in path.parts[1:-1]:
+            if create:
+                try:
+                    os.mkdir(component, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _regular(folder: int, name: str, flags: int = os.O_RDONLY, mode: int = 0o600) -> int:
+    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, mode, dir_fd=folder)
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+        os.close(fd)
+        raise WinlabError("lab storage requires a regular file with no links")
+    return fd
+
+
+def _read_bytes(path: Path, limit: int = METADATA_MAX) -> bytes:
+    with _parent(path) as folder:
+        with os.fdopen(_regular(folder, path.name), "rb") as fh:
+            if os.fstat(fh.fileno()).st_size > limit:
+                raise WinlabError("the lab file is too large")
+            data = fh.read(limit + 1)
+    if len(data) > limit:
+        raise WinlabError("the lab file is too large")
+    return data
+
+
+def _json(data):
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError("duplicate key")
+            result[key] = value
+        return result
+    return json.loads(data, object_pairs_hook=pairs)
+
+
+def _atomic_json(path: Path, data: dict) -> None:
+    with _parent(path, create=True) as folder:
+        try:
+            fd = _regular(folder, path.name)
+        except FileNotFoundError:
+            pass
+        else:
+            os.close(fd)
+        tmp = ".winlab-" + secrets.token_hex(16)
+        try:
+            fd = _regular(folder, tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=1, sort_keys=True)
+                fh.write("\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, path.name, src_dir_fd=folder, dst_dir_fd=folder)
+        finally:
+            try:
+                os.unlink(tmp, dir_fd=folder)
+            except FileNotFoundError:
+                pass
+
+
+def _transaction(fn):
+    @functools.wraps(fn)
+    def locked(*args, **kwargs):
+        _owner_only()
+        path = kwargs.get("path") or registry_path()
+        with _parent(path, create=True) as folder:
+            fcntl.flock(folder, fcntl.LOCK_EX)
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                fcntl.flock(folder, fcntl.LOCK_UN)
+    return locked
+
+
+def _matches(pattern, value) -> bool:
+    return isinstance(value, str) and pattern.fullmatch(value) is not None
+
+
 def _valid_window(w) -> bool:
-    if not isinstance(w, dict) or not CODE_RE.match(str(w.get("project", ""))):
+    if not isinstance(w, dict) or not _matches(CODE_RE, w.get("project")):
         return False
     try:
-        return _parse(str(w["start"])) < _parse(str(w["end"]))
-    except (KeyError, ValueError):
+        return _parse(w["start"]) < _parse(w["end"])
+    except (KeyError, ValueError, TypeError):
         return False
 
 
 def _valid_machine(m) -> bool:
-    return (isinstance(m, dict) and isinstance(m.get("port"), int) and PORT_MIN <= m["port"] <= PORT_MAX
-            and FINGERPRINT_RE.match(str(m.get("fingerprint", ""))) is not None
-            and re.match(r"^\d{4}-\d{2}-\d{2}$", str(m.get("registered", ""))) is not None
+    if not isinstance(m, dict):
+        return False
+    try:
+        registered = m["registered"]
+        if not isinstance(registered, str) or datetime.date.fromisoformat(registered).isoformat() != registered:
+            return False
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (type(m.get("port")) is int and PORT_MIN <= m["port"] <= PORT_MAX
+            and _matches(FINGERPRINT_RE, m.get("fingerprint"))
             and m.get("no_customer_data") is True
-            and ("account" not in m or ACCOUNT_RE.match(str(m["account"])) is not None)
+            and ("account" not in m or _matches(ACCOUNT_RE, m["account"]))
             and (m.get("window") is None or _valid_window(m["window"])))
 
 
 def load(path: Path | None = None) -> dict[str, dict]:
-    """{name: machine} of the registry; nothing when there is no file. A file that does not read as a registry is
-    refused, so a broken registry allows nothing."""
+    """Read a bounded, regular registry. Only an absent file means an empty registry."""
     path = path or registry_path()
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = _json(_read_bytes(path))
     except FileNotFoundError:
         return {}
-    except (OSError, UnicodeDecodeError, ValueError):
-        raise WinlabError("the lab registry %s cannot be read" % path.name) from None
+    except (OSError, UnicodeError, ValueError, RecursionError, WinlabError):
+        raise WinlabError("the lab registry cannot be read") from None
     machines = data.get("machines") if isinstance(data, dict) else None
-    if not isinstance(machines, dict) or not all(NAME_RE.match(str(n)) and _valid_machine(m)
-                                                 for n, m in machines.items()):
-        raise WinlabError("the lab registry %s is not a list of valid machines" % path.name)
+    if not isinstance(machines, dict) or not all(_matches(NAME_RE, n) and _valid_machine(m)
+                                                for n, m in machines.items()):
+        raise WinlabError("the lab registry is not a list of valid machines")
     return machines
 
 
 def save(machines: dict[str, dict], path: Path | None = None) -> None:
-    """The registry to a fresh name in its folder, mode 600, then renamed over the old one."""
-    path = path or registry_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".%s." % FILE_NAME, dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump({"machines": machines}, fh, indent=1, sort_keys=True)
-            fh.write("\n")
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+    """Publish a private registry atomically; mutation callers hold the directory lock."""
+    _atomic_json(path or registry_path(), {"machines": machines})
+
+
+def _check_name(name: str) -> None:
+    if not _matches(NAME_RE, name):
+        raise WinlabError("a machine name is 2 to 31 small letters, digits and -, a letter first (lab-1)")
 
 
 def _get(machines: dict[str, dict], name: str) -> dict:
+    _check_name(name)
     if name not in machines:
         raise WinlabError("%s is not a registered lab machine (awb winlab list)" % name)
     return machines[name]
@@ -182,24 +281,24 @@ def _get(machines: dict[str, dict], name: str) -> dict:
 def open_window(machine: dict, now: datetime.datetime) -> dict | None:
     """The window of a machine while it is open at `now`; None without one or after its end."""
     w = machine.get("window")
-    return w if w and now < _parse(w["end"]) else None
+    return w if w and _parse(w["start"]) <= now < _parse(w["end"]) else None
 
 
 # --------------------------------------------------------------------------- the owner's commands
 
 
+@_transaction
 def add(name: str, port: int, fingerprint: str, no_customer_data: bool, *, path: Path | None = None,
         today: str | None = None, account: str = ACCOUNT) -> str:
     _owner_only()
+    _check_name(name)
     if not no_customer_data:
         raise WinlabError("add needs --no-customer-data: your statement that %s holds no customer data" % name)
-    if not NAME_RE.match(name or ""):
-        raise WinlabError("a machine name is 2 to 31 small letters, digits and -, a letter first (lab-1)")
     if not isinstance(port, int) or not PORT_MIN <= port <= PORT_MAX:
         raise WinlabError("the port of a machine is a loopback port from %d to %d" % (PORT_MIN, PORT_MAX))
-    if not FINGERPRINT_RE.match(fingerprint or ""):
+    if not FINGERPRINT_RE.fullmatch(fingerprint or ""):
         raise WinlabError("a fingerprint reads SHA256: and 43 base64 characters, as ssh-keygen -l prints it")
-    if not ACCOUNT_RE.match(account or ""):
+    if not ACCOUNT_RE.fullmatch(account or ""):
         raise WinlabError("the local account is 2 to 20 small letters, digits and -, a letter first (%s)" % ACCOUNT)
     machines = load(path)
     if name in machines:
@@ -216,12 +315,13 @@ def add(name: str, port: int, fingerprint: str, no_customer_data: bool, *, path:
         name, port, fingerprint, "" if account == ACCOUNT else ", account %s" % account)
 
 
+@_transaction
 def open_(name: str, minutes: int, project: str, *, path: Path | None = None,
           now: datetime.datetime | None = None) -> str:
     _owner_only()
-    if not CODE_RE.match(project or ""):
+    if not CODE_RE.fullmatch(project or ""):
         raise WinlabError("a project code reads like tcp-q7m4")
-    if not isinstance(minutes, int) or not 1 <= minutes <= MINUTES_MAX:
+    if type(minutes) is not int or not 1 <= minutes <= MINUTES_MAX:
         raise WinlabError("a window lasts 1 to %d minutes" % MINUTES_MAX)
     now = now or _now()
     machines = load(path)
@@ -237,6 +337,7 @@ def open_(name: str, minutes: int, project: str, *, path: Path | None = None,
                                                                      minutes)
 
 
+@_transaction
 def close(name: str, *, path: Path | None = None, now: datetime.datetime | None = None) -> str:
     _owner_only()
     now = now or _now()
@@ -251,6 +352,7 @@ def close(name: str, *, path: Path | None = None, now: datetime.datetime | None 
     return "lab machine %s: window of %s closed" % (name, w["project"])
 
 
+@_transaction
 def remove(name: str, *, path: Path | None = None, now: datetime.datetime | None = None) -> str:
     _owner_only()
     now = now or _now()
@@ -267,12 +369,16 @@ def remove(name: str, *, path: Path | None = None, now: datetime.datetime | None
 def allowed(name: str, project: str, *, path: Path | None = None, now: datetime.datetime | None = None) -> dict:
     """The machine `name` when `project` holds its open window now, as {"name", "port", "fingerprint", ...}; else
     WinlabError with one line: unregistered machine, no window, expired window or another project."""
+    if not _matches(CODE_RE, project):
+        raise WinlabError("a project code reads like tcp-q7m4")
     now = now or _now()
     m = _get(load(path), name)
     w = m.get("window")
     if not w:
         raise WinlabError("%s has no open window: the owner opens one with awb winlab open %s --minutes N "
                           "--project %s" % (name, name, project))
+    if now < _parse(w["start"]):
+        raise WinlabError("the lab window has not started")
     if now >= _parse(w["end"]):
         raise WinlabError("the window of %s for %s ended at %s" % (name, w["project"], _shown(w["end"])))
     if w["project"] != project:
@@ -386,7 +492,7 @@ def bootstrap(name: str, host_key: str, tunnel: str, *, port: int | None = None,
     (`server_key`, a .pub file). The loopback port is the registered one; a machine that is not registered yet (the
     fingerprint comes from this script) needs `port`. Nothing is written."""
     _owner_only()
-    if not NAME_RE.match(name or ""):
+    if not NAME_RE.fullmatch(name or ""):
         raise WinlabError("a machine name is 2 to 31 small letters, digits and -, a letter first (lab-1)")
     machines = load(path)
     if name in machines:
@@ -400,10 +506,10 @@ def bootstrap(name: str, host_key: str, tunnel: str, *, port: int | None = None,
     for other, m in machines.items():
         if other != name and m["port"] == port:
             raise WinlabError("port %d is the port of %s already" % (port, other))
-    if not ACCOUNT_RE.match(account or ""):
+    if not ACCOUNT_RE.fullmatch(account or ""):
         raise WinlabError("the local account is 2 to 20 small letters, digits and -, a letter first (%s)" % ACCOUNT)
     user, _, host = (tunnel or "").partition("@")
-    if not USER_RE.match(user) or not HOST_RE.match(host):
+    if not USER_RE.fullmatch(user) or not HOST_RE.fullmatch(host):
         raise WinlabError("--tunnel reads USER@HOST: the account and the name or IPv4 address of the Workbench host")
     if not isinstance(ssh_port, int) or not 1 <= ssh_port <= 65535:
         raise WinlabError("the SSH port of the host is 1 to 65535")
@@ -419,7 +525,7 @@ def bootstrap(name: str, host_key: str, tunnel: str, *, port: int | None = None,
 def removal_script(name: str) -> str:
     """remove.ps1 for the lab laptop `name`; it reads what to remove from the state.txt setup.ps1 left there."""
     _owner_only()
-    if not NAME_RE.match(name or ""):
+    if not NAME_RE.fullmatch(name or ""):
         raise WinlabError("a machine name is 2 to 31 small letters, digits and -, a letter first (lab-1)")
     return _script("remove.ps1", {"MACHINE": name})
 

@@ -53,12 +53,16 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime
+import fcntl
+import functools
 import hashlib
 import html
+import inspect
 import json
 import os
 import re
 import secrets
+import shutil
 import socket
 import stat
 import sys
@@ -183,24 +187,34 @@ def _broker_call(request: dict, payload: bytes = b"", timeout: float = BROKER_SL
                 if len(buf) > BROKER_MAX_ANSWER:
                     raise Offline("the answer of the lab broker is too large")
             cut = buf.index(b"\n")
-            answer = json.loads(bytes(buf[:cut]))
-            if not isinstance(answer, dict):
+            answer = winlab._json(bytes(buf[:cut]))
+            if not isinstance(answer, dict) or type(answer.get("ok")) is not bool:
                 raise ValueError("not an object")
             data = bytearray(buf[cut + 1:])
             length = answer.get("length") if answer.get("ok") else None
-            if isinstance(length, int):
+            if length is not None:
+                if (type(length) is not int or not 0 <= length <= min(BROKER_MAX_ANSWER, request.get("size", BROKER_MAX_ANSWER))
+                        or len(data) > length):
+                    raise ValueError("invalid payload length")
                 while len(data) < length:
                     chunk = s.recv(min(1 << 16, length - len(data)))
                     if not chunk:
                         raise Offline("the connection to the lab broker dropped")
                     data += chunk
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, RecursionError) as exc:
             raise Offline("the connection to the lab broker dropped (%s)" % type(exc).__name__) from None
     finally:
         s.close()
     if answer.get("ok"):
         return answer, bytes(data)
-    error = str(answer.get("error") or "the lab broker refused the call")
+    error = "the lab broker refused the call"
+    # Preserve the documented window refusal, but never relay arbitrary dependency text.
+    supplied = answer.get("error")
+    if isinstance(supplied, str) and re.fullmatch(
+            r"the window of [a-z][a-z0-9-]{1,30} is open for another project, not for tcp-[a-z0-9]{4,}", supplied):
+        clean, _ = landed(supplied)
+        if clean is not None:
+            error = clean
     if answer.get("kind") == "offline":
         raise Offline(error)
     if answer.get("kind") == "offset":
@@ -223,12 +237,15 @@ class BrokerTransport(Transport):
 
     def check(self) -> dict:
         """The window is open for the project: {"name", "end"}; else WinlabError with the broker's line."""
-        return self._call({"op": "check"})[0].get("machine") or {}
+        return _broker_machine(self._call({"op": "check"})[0], self.name)
 
     def run(self, text: str, timeout: float | None = None) -> tuple[int, str, str]:
         seconds = timeout or RUN_TIMEOUT
         answer, _ = self._call({"op": "run", "text": text, "timeout": seconds}, seconds + BROKER_SLACK)
-        return int(answer["exit"]), str(answer.get("stdout") or ""), str(answer.get("stderr") or "")
+        if (type(answer.get("exit")) is not int or not isinstance(answer.get("stdout"), str)
+                or not isinstance(answer.get("stderr"), str)):
+            raise WinlabError("the lab broker returned an invalid command result")
+        return answer["exit"], answer["stdout"], answer["stderr"]
 
     def put_chunk(self, path: str, offset: int, data: bytes) -> int:
         answer, _ = self._call({"op": "put_chunk", "path": path, "offset": offset, "length": len(data)},
@@ -267,20 +284,41 @@ def _local_registry() -> bool:
         return False
 
 
+def _broker_names(answer: dict) -> list[str]:
+    names = answer.get("machines")
+    if not isinstance(names, list) or len(names) > 1024:
+        raise WinlabError("the lab broker returned an invalid machine list")
+    for name in names:
+        winlab._check_name(name)
+        check_text(name, "the machine name")
+    return names
+
+
+def _broker_machine(answer: dict, name: str) -> dict:
+    machine = answer.get("machine")
+    try:
+        if (not isinstance(machine, dict) or machine.get("name") != name
+                or winlab._stamp(winlab._parse(machine["end"])) != machine["end"]):
+            raise ValueError()
+    except (ValueError, KeyError, TypeError):
+        raise WinlabError("the lab broker returned an invalid window") from None
+    return machine
+
+
 def session_list(start: Path | None = None) -> list[str]:
     """`awb winlab list` in a session of the work user, who reads no registry of his own: the machines whose window
     is open for this project and its end, from the broker. Other machines and other projects' windows stay unseen."""
     root = _root(start)
     code = _code(root)
     token = _token(root)
-    names = list(_broker_call({"op": "windows", "project": code, "token": token})[0].get("machines") or [])
+    names = _broker_names(_broker_call({"op": "windows", "project": code, "token": token})[0])
     if not names:
         return ["no lab machine has an open window for %s (the owner: awb winlab open NAME --minutes N --project %s)"
                 % (code, code)]
     lines = ["machine  window for  end"]
     for name in names:
         answer, _ = _broker_call({"op": "check", "machine": name, "project": code, "token": token})
-        lines.append("%s  %s  %s" % (name, code, (answer.get("machine") or {}).get("end", "")))
+        lines.append("%s  %s  %s" % (name, code, _broker_machine(answer, name)["end"]))
     return lines
 
 
@@ -289,7 +327,7 @@ def _allowed(name: str, code: str, root: Path) -> dict:
     if _local_registry():
         return winlab.allowed(name, code)
     answer, _ = _broker_call({"op": "check", "machine": name, "project": code, "token": _token(root)})
-    return dict(answer.get("machine") or {}, name=name)
+    return _broker_machine(answer, name)
 
 
 def _pause(seconds: float) -> None:
@@ -331,37 +369,73 @@ def _inside(path: Path, folder: Path) -> bool:
 
 
 def _write_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".%s." % path.name, dir=path.parent)
+    winlab._atomic_json(path, data)
+
+
+def _unlink(path: Path) -> None:
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=1, sort_keys=True)
-            fh.write("\n")
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+        with winlab._parent(path) as folder:
+            os.unlink(path.name, dir_fd=folder)
+    except FileNotFoundError:
+        pass
 
 
 def _read_json(path: Path) -> dict | None:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError):
+        data = winlab._json(winlab._read_bytes(path))
+    except (OSError, UnicodeError, ValueError, RecursionError, WinlabError):
         return None
     return data if isinstance(data, dict) else None
 
 
 def log_path(root: Path, machine: str) -> Path:
+    winlab._check_name(machine)
+    check_text(machine, "the machine name")
     return root / LOG_FOLDER / ("%s-%s.log" % (_now().strftime("%Y-%m-%d"), machine))
 
 
 def _append(path: Path, lines: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as fh:
-        fh.write("\n".join(lines).rstrip("\n") + "\n\n")
+    with winlab._parent(path, create=True) as folder:
+        fd = winlab._regular(folder, path.name, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+        with os.fdopen(fd, "a", encoding="utf-8") as fh:
+            fh.write("\n".join(lines).rstrip("\n") + "\n\n")
+
+
+def _serial(fn):
+    """Serialize jobs, log cursors and transfers of a project across processes."""
+    signature = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    def locked(*args, **kwargs):
+        bound = signature.bind(*args, **kwargs)
+        root = bound.arguments.get("root") or _root()
+        bound.arguments["root"] = root
+        with winlab._parent(root / ".winlab-lock") as folder:
+            fcntl.flock(folder, fcntl.LOCK_EX)
+            try:
+                return fn(*bound.args, **bound.kwargs)
+            finally:
+                fcntl.flock(folder, fcntl.LOCK_UN)
+    return locked
+
+
+class _CheckedTransport:
+    """Transport exceptions may contain commands or credentials. Keep only the failure class."""
+
+    def __init__(self, transport):
+        self.transport = transport
+
+    def __getattr__(self, name):
+        method = getattr(self.transport, name)
+
+        def call(*args, **kwargs):
+            try:
+                return method(*args, **kwargs)
+            except Offline:
+                raise Offline("the connection to the lab machine dropped") from None
+            except (WinlabError, ValueError):
+                raise WinlabError("the lab machine refused the operation") from None
+        return call
 
 
 def _block(label: str, text: str) -> list[str]:
@@ -391,8 +465,8 @@ def _name_count(text: str) -> int:
 
     try:
         return len([h for h in hooks.name_hits(text) if h.get("cls") in NAME_CLASSES])
-    except hooks.Unavailable as exc:
-        raise WinlabError("the name check did not run (%s): nothing was sent" % exc) from None
+    except hooks.Unavailable:
+        raise WinlabError("the name check did not run: nothing was sent") from None
 
 
 def check_text(text: str, what: str = "the command") -> None:
@@ -416,10 +490,13 @@ def check_text(text: str, what: str = "the command") -> None:
 
 
 def check_winpath(winpath: str) -> None:
-    if not WINPATH_RE.match(winpath or "") or len(winpath) > WINPATH_MAX \
+    if not WINPATH_RE.fullmatch(winpath or "") or len(winpath) > WINPATH_MAX \
             or any(s.strip(". ") == "" or s != s.rstrip(". ") for s in winpath[3:].split("\\")):
         raise WinlabError("WINPATH is a whole path like C:\\lab\\file.txt: no variable, no quote, no .. and at most "
                           "%d characters" % WINPATH_MAX)
+    if any(re.fullmatch(r"(?i)(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])", part.split(".")[0])
+           for part in winpath[3:].split("\\")):
+        raise WinlabError("WINPATH must name a file, not a Windows device")
     if winpath.lower().endswith(PART):
         raise WinlabError("WINPATH may not end in %s" % PART)
     check_text(winpath, "WINPATH")
@@ -428,7 +505,7 @@ def check_winpath(winpath: str) -> None:
 def check_vm(vm: str | None) -> None:
     if vm is None:
         return
-    if not VM_RE.match(vm):
+    if not VM_RE.fullmatch(vm):
         raise WinlabError("--vm takes the name of the VM: letters, digits, space, dot, - and _, at most 64")
     check_text(vm, "the VM name")
 
@@ -617,14 +694,13 @@ def landed(text: str) -> tuple[str | None, str]:
     note = ""
     raw = text.encode("utf-8")
     if len(raw) > paste.OWN_MAX_BYTES:
-        text = raw[:paste.OWN_MAX_BYTES].decode("utf-8", "ignore")
-        note = "cut at %d MB" % (paste.OWN_MAX_BYTES // (1024 * 1024))
+        return None, "withheld: output exceeds the size limit"
     try:
         clean, n = paste.own_text(text)
     except paste.PasteRefused:
         return None, "withheld: it carries a registered name"
-    except hooks.Unavailable as exc:
-        return None, "withheld: the name check did not run (%s)" % exc
+    except hooks.Unavailable:
+        return None, "withheld: the name check did not run"
     if n:
         note = ", ".join(x for x in (note, "%d secret(s) shortened or replaced" % n) if x)
     return clean, note
@@ -643,30 +719,42 @@ def _print_cut(text: str, where: str, stream=None) -> None:
 
 def _session(name: str, root: Path | None) -> tuple[Path, str, dict]:
     root = root or _root()
+    winlab._check_name(name)
+    check_text(name, "the machine name")
     code = _code(root)
+    # Refuse unsafe log storage before contacting a machine.
+    path = log_path(root, name)
+    with winlab._parent(path, create=True) as folder:
+        try:
+            fd = winlab._regular(folder, path.name)
+        except FileNotFoundError:
+            pass
+        else:
+            os.close(fd)
     return root, code, dict(_allowed(name, code, root), project=code, root=str(root))
 
 
 def _refused(root: Path | None, machine: str, title: str, err: Exception) -> None:
-    if root is not None and winlab.NAME_RE.match(machine or ""):
+    if root is not None and winlab.NAME_RE.fullmatch(machine or ""):
         try:
             log(root, machine, title, ["refused: %s" % err])
-        except OSError:
+        except (OSError, WinlabError):
             pass
 
 
 def _connect(root: Path, name: str, title: str, machine: dict) -> Transport:
     """connect(), with a refusal or an offline machine logged."""
     try:
-        return connect(machine)
+        return _CheckedTransport(connect(machine))
     except WinlabError as err:
         _refused(root, name, title, err)
         raise
-    except Offline as exc:
-        log(root, name, title, ["offline: %s" % exc])
-        raise
+    except Offline:
+        log(root, name, title, ["offline: the connection to the lab machine dropped"])
+        raise Offline("the connection to the lab machine dropped") from None
 
 
+@_serial
 def run(name: str, text: str, vm: str | None = None, timeout: float = RUN_TIMEOUT,
         root: Path | None = None) -> dict:
     """Run `text` on the machine `name`. Returns {"exit", "stdout", "stderr", "notes", "log"}: stdout and stderr
@@ -703,13 +791,26 @@ def run(name: str, text: str, vm: str | None = None, timeout: float = RUN_TIMEOU
 # --------------------------------------------------------------------------- jobs
 
 
+def _job_winlog(path, job: str) -> bool:
+    if not isinstance(path, str) or not WINPATH_RE.fullmatch(path):
+        return False
+    return (path.lower().endswith("\\awb-winlab\\jobs\\%s\\log.txt" % job)
+            and len(path) <= WINPATH_MAX
+            and all(part.strip(". ") and part == part.rstrip(". ") for part in path[3:].split("\\")))
+
+
 def _job_record(root: Path, job: str) -> tuple[Path, dict]:
-    if not JOB_RE.match(job or ""):
+    if not JOB_RE.fullmatch(job or ""):
         raise WinlabError("a job id reads like wl-20261105-101500-a1b2, as awb winlab start printed it")
     path = root / LOG_FOLDER / "jobs" / ("%s.json" % job)
     record = _read_json(path)
-    if record is None or not winlab.NAME_RE.match(str(record.get("machine", ""))):
+    if record is None or not winlab.NAME_RE.fullmatch(str(record.get("machine", ""))):
         raise WinlabError("no job %s in this project (awb winlab start prints the id)" % job)
+    if (record.get("project") != _code(root) or record.get("job") != job
+            or type(record.get("log_offset")) is not int or record["log_offset"] < 0
+            or type(record.get("log_discard_line", False)) is not bool
+            or not _job_winlog(record.get("winlog"), job)):
+        raise WinlabError("the job record is malformed")
     return path, record
 
 
@@ -741,6 +842,7 @@ def state_line(job: str, machine: str, result: dict) -> str:
     return "job %s on %s: %s" % (job, machine, said)
 
 
+@_serial
 def start(name: str, text: str, vm: str | None = None, root: Path | None = None) -> dict:
     """Start `text` as a long job on the machine `name`. Returns {"job", "log"}. Raises WinlabError, Offline."""
     root = root or _root()
@@ -768,8 +870,7 @@ def start(name: str, text: str, vm: str | None = None, root: Path | None = None)
         transport.close()
     found = dict(line.strip().split("=", 1) for line in strip_clixml(out).splitlines() if "=" in line)
     winlog = found.get("log", "")
-    if exit_code != 0 or found.get("started") != job or not WINPATH_RE.match(winlog) \
-            or not winlog.lower().endswith("\\jobs\\%s\\log.txt" % job):
+    if exit_code != 0 or found.get("started") != job or not _job_winlog(winlog, job):
         err_text, note = landed(err)
         lines = head + ["exit %d: the job did not start" % exit_code]
         lines += ["stderr: %s" % note] if err_text is None else _block("stderr", err_text)
@@ -788,7 +889,7 @@ def _job_call(job: str, root: Path | None, script, op: str) -> tuple[Path, dict,
     name = record["machine"]
     try:
         root, code, machine = _session(name, root)
-        transport = connect(machine)
+        transport = _connect(root, name, "%s of job %s" % (op, job), machine)
     except WinlabError as err:
         _refused(root, name, "%s of job %s" % (op, job), err)
         raise
@@ -810,17 +911,20 @@ def _job_call(job: str, root: Path | None, script, op: str) -> tuple[Path, dict,
     return root, record, result
 
 
+@_serial
 def status(job: str, root: Path | None = None) -> dict:
     """{"state": running|ended|stopped|lost|unknown|offline, "exit": N or None, "machine"}. Raises WinlabError."""
     _root_, record, result = _job_call(job, root, job_status_script, "status")
     return dict(result, machine=record["machine"])
 
 
+@_serial
 def stop(job: str, root: Path | None = None) -> dict:
     _root_, record, result = _job_call(job, root, job_stop_script, "stop")
     return dict(result, machine=record["machine"])
 
 
+@_serial
 def job_log(job: str, root: Path | None = None) -> dict:
     """The part of the job's log since the last call: {"text" (None when withheld), "note", "bytes", "more", "log"}.
     It is appended to notes/winlab/jobs/<JOB>.log. Raises WinlabError, Offline."""
@@ -830,7 +934,7 @@ def job_log(job: str, root: Path | None = None) -> dict:
     winlog = str(record.get("winlog", ""))
     try:
         root, code, machine = _session(name, root)
-        if not WINPATH_RE.match(winlog):
+        if not WINPATH_RE.fullmatch(winlog):
             raise WinlabError("the record of job %s names no log file" % job)
     except WinlabError as err:
         _refused(root, name, "log of job %s" % job, err)
@@ -855,26 +959,40 @@ def job_log(job: str, root: Path | None = None) -> dict:
     finally:
         transport.close()
     more = offset + len(data) < size
-    if more and b"\n" in data:
-        data = data[:data.rindex(b"\n") + 1]        # whole lines; the rest comes with the next call
+    consumed = len(data)
+    discarding = record.get("log_discard_line", False)
+    if discarding:
+        end = data.find(b"\n")
+        if end < 0:
+            data = bytearray()
+        else:
+            data = data[end + 1:]
+            discarding = False
+    if more and data:
+        end = data.rfind(b"\n")
+        if end < 0:
+            data = bytearray()
+            discarding = True
+        else:
+            consumed -= len(data) - end - 1
+            data = data[:end + 1]
+    record["log_discard_line"] = discarding
     if offset == 0 and data.startswith(b"\xef\xbb\xbf"):
         text = bytes(data[3:]).decode("utf-8", "replace")
     else:
         text = bytes(data).decode("utf-8", "replace")
     clean, note = landed(text)
-    record["log_offset"] = offset + len(data)
+    record["log_offset"] = offset + consumed
     _write_json(path, record)
     joblog = root / LOG_FOLDER / "jobs" / ("%s.log" % job)
     if data:
         if clean is None:
             _append(joblog, ["## %s %d bytes %s" % (_stamp(), len(data), note)])
         elif clean.strip():
-            joblog.parent.mkdir(parents=True, exist_ok=True)
-            with open(joblog, "a", encoding="utf-8") as fh:
-                fh.write(clean if clean.endswith("\n") else clean + "\n")
+            _append(joblog, [clean])
     log(root, name, "log of job %s" % job, ["%d new bytes%s%s" % (len(data), ", " + note if note else "",
                                                                   ", more to come" if more else "")])
-    return {"text": clean, "note": note, "bytes": len(data), "more": more, "log": joblog.relative_to(root)}
+    return {"text": clean, "note": note, "bytes": consumed, "more": more, "log": joblog.relative_to(root)}
 
 
 # --------------------------------------------------------------------------- files
@@ -1120,8 +1238,8 @@ def check_file(path: Path, size: int) -> str:
     if size <= CHECK_WHOLE_MAX and not image:
         try:
             hits = hooks.file_hits(path)
-        except hooks.Unavailable as exc:
-            raise WinlabError("the name check did not run (%s): nothing was sent" % exc) from None
+        except hooks.Unavailable:
+            raise WinlabError("the name check did not run: nothing was sent") from None
         names = [h for h in hits if h.get("cls") in NAME_CLASSES]
         if names:
             raise WinlabError("the file carries %d registered name(s): nothing was sent" % len(names))
@@ -1178,8 +1296,7 @@ def _pick(root: Path, machine: str | None) -> str:
     if _local_registry():
         names = [n for n, w in winlab.windows() if w["project"] == code]
     else:
-        names = list(_broker_call({"op": "windows", "project": code, "token": _token(root)})[0].get("machines")
-                     or [])
+        names = _broker_names(_broker_call({"op": "windows", "project": code, "token": _token(root)})[0])
     if not names:
         raise WinlabError("no lab machine has an open window for %s (the owner: awb winlab open NAME --minutes N "
                           "--project %s)" % (code, code))
@@ -1188,6 +1305,7 @@ def _pick(root: Path, machine: str | None) -> str:
     return names[0]
 
 
+@_serial
 def put(file: str, winpath: str, machine: str | None = None, root: Path | None = None) -> dict:
     """The file `file` of winlab-out/ to `winpath` on the machine of the project's window. Returns {"machine",
     "size", "sha256", "resumed", "check", "log"}. Raises WinlabError (refused or failed), Offline (broken: run it
@@ -1197,7 +1315,7 @@ def put(file: str, winpath: str, machine: str | None = None, root: Path | None =
         machine = _pick(root, machine)
         root, _code_, found = _session(machine, root)
         src = source(root, file)
-        check_text(src.name, "the name of FILE")
+        check_text(src.relative_to(os.path.realpath(root)).as_posix(), "the name of FILE")
         check_winpath(winpath)
     except WinlabError as err:
         _refused(root, machine or NO_WINDOW, "put to %s" % (machine or "a lab machine"), err)
@@ -1210,18 +1328,28 @@ def put(file: str, winpath: str, machine: str | None = None, root: Path | None =
 
 
 def _put(root: Path, name: str, machine: dict, src: Path, winpath: str) -> dict:
+    with winlab._parent(src) as folder:
+        fd = winlab._regular(folder, src.name)
+        with os.fdopen(fd, "rb") as source_file, tempfile.TemporaryDirectory(prefix="awb-winlab-") as scratch:
+            st = os.fstat(source_file.fileno())
+            snapshot = Path(scratch) / src.name
+            with open(snapshot, "xb") as copy:
+                shutil.copyfileobj(source_file, copy, CHUNK)
+            after = os.fstat(source_file.fileno())
+            if (after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (st.st_size, st.st_mtime_ns, st.st_ctime_ns):
+                raise WinlabError("the source changed while it was copied: nothing was sent")
+            return _put_snapshot(root, name, machine, src, winpath, snapshot, st)
+
+
+def _put_snapshot(root: Path, name: str, machine: dict, src: Path, winpath: str, snapshot: Path, st) -> dict:
     rel = src.relative_to(os.path.realpath(root)).as_posix()
-    st = os.stat(src)
     size, ident = st.st_size, [st.st_size, st.st_mtime_ns, st.st_ino]
     rpath = _record_path(root, "put", name, winpath)
     record = _read_json(rpath) or {}
     same = record.get("source") == rel and record.get("ident") == ident and record.get("winpath") == winpath
-    sha = record["sha256"] if same and re.fullmatch(r"[0-9a-f]{64}", str(record.get("sha256"))) else _sha256(src)
-    checked = check_kind(src, size)
-    if not (same and record.get("checked") == sha):
-        check_file(src, size)
-    else:
-        checked += ", passed at the first try"
+    sha = _sha256(snapshot)
+    checked = check_kind(snapshot, size)
+    check_file(snapshot, size)
     record ={"source": rel, "ident": ident, "winpath": winpath, "sha256": sha, "checked": sha, "size": size}
     _write_json(rpath, record)
     part = winpath + PART
@@ -1234,13 +1362,13 @@ def _put(root: Path, name: str, machine: dict, src: Path, winpath: str) -> dict:
         offset = there["size"] if there and there["size"] <= size else 0
         resumed = offset
         try:
-            _send(transport, src, part, offset, size)
+            _send(transport, snapshot, part, offset, size)
         except Offline as exc:
             raise _broken("put", _part_size(transport, part), size, exc) from None
         final = transport.stat(part, digest=True)
         if not final or final.get("size") != size or str(final.get("sha256", "")).lower() != sha:
             transport.run(file_remove_script(part), timeout=60)
-            rpath.unlink(missing_ok=True)
+            _unlink(rpath)
             raise WinlabError("the SHA-256 of %s on %s does not match the file: the part was deleted, nothing kept"
                               % (winpath, name))
         exit_code, _out, _err = transport.run(file_move_script(part, winpath), timeout=60)
@@ -1252,7 +1380,7 @@ def _put(root: Path, name: str, machine: dict, src: Path, winpath: str) -> dict:
         raise
     finally:
         transport.close()
-    rpath.unlink(missing_ok=True)
+    _unlink(rpath)
     path = log(root, name, title, ["to %s" % winpath, "%s, sha256 %s, %s, %s" % (
         _size(size), sha, "resumed at %s" % _size(resumed) if resumed else "whole", checked)])
     return {"machine": name, "size": size, "sha256": sha, "resumed": resumed, "check": checked,
@@ -1279,6 +1407,8 @@ def _send(transport: Transport, src: Path, part: str, offset: int, size: int) ->
                     continue
                 fh.seek(offset)
                 data = fh.read(min(CHUNK, size - offset))
+                if not data and offset < size:
+                    raise WinlabError("the source got shorter during the put")
                 after = transport.put_chunk(part, offset, data)
                 if after != offset + len(data):
                     raise WinlabError("the machine holds %d bytes of the part, not %d" % (after, offset + len(data)))
@@ -1301,6 +1431,12 @@ def target(root: Path, file: str) -> Path:
     rel = (parent / path.name).relative_to(os.path.realpath(root))
     if rel.parts[:1] in (("input",), (".git",)) or not rel.parts:
         raise WinlabError("get never writes into input/ (customer material comes through awb intake) or .git")
+    check_text(rel.as_posix(), "the name of FILE")
+    try:
+        with winlab._parent(path):
+            pass
+    except FileNotFoundError:
+        pass
     if os.path.lexists(parent / path.name):
         raise WinlabError("%s exists: get does not overwrite, choose another FILE" % rel.as_posix())
     if path.name.endswith(PART):
@@ -1309,6 +1445,7 @@ def target(root: Path, file: str) -> Path:
     return parent / path.name
 
 
+@_serial
 def get(winpath: str, file: str, machine: str | None = None, root: Path | None = None) -> dict:
     """`winpath` of the machine of the project's window into the project as `file`. Returns {"machine", "size",
     "sha256", "resumed", "file", "log"}. Raises WinlabError, Offline (broken: run it again)."""
@@ -1329,10 +1466,16 @@ def get(winpath: str, file: str, machine: str | None = None, root: Path | None =
 
 
 def _get(root: Path, name: str, machine: dict, winpath: str, dst: Path) -> dict:
+    # Keep the destination directory pinned through transfer, checks and publication.
+    with winlab._parent(dst, create=True) as folder:
+        return _get_at(root, name, machine, winpath, dst, folder)
+
+
+def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folder: int) -> dict:
     from awb import hooks
 
     rel = dst.relative_to(os.path.realpath(root)).as_posix()
-    part = dst.with_name(dst.name + PART)
+    part = dst.name + PART
     rpath = _record_path(root, "get", name, winpath)
     record = _read_json(rpath) or {}
     title = "get %s from %s" % (rel, name)
@@ -1341,12 +1484,13 @@ def _get(root: Path, name: str, machine: dict, winpath: str, dst: Path) -> dict:
         st = transport.stat(winpath)
         if st is None:
             raise WinlabError("there is no file %s on %s" % (winpath, name))
-        size = int(st["size"])
+        if not isinstance(st, dict) or type(st.get("size")) is not int or st["size"] < 0:
+            raise WinlabError("the machine returned an invalid file size")
+        size = st["size"]
         same = (record.get("winpath") == winpath and record.get("file") == rel and record.get("size") == size
                 and record.get("mtime") == st.get("mtime"))
         _write_json(rpath, {"winpath": winpath, "file": rel, "size": size, "mtime": st.get("mtime")})
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o640)
+        fd = winlab._regular(folder, part, os.O_RDWR | os.O_CREAT)
         with os.fdopen(fd, "r+b") as fh:
             have = os.fstat(fh.fileno()).st_size
             offset = have if same and have <= size else 0
@@ -1362,24 +1506,50 @@ def _get(root: Path, name: str, machine: dict, winpath: str, dst: Path) -> dict:
         raise
     finally:
         transport.close()
-    sha = _sha256(part)
-    if not final or str(final.get("sha256", "")).lower() != sha or final.get("size") != size:
-        part.unlink(missing_ok=True)
-        rpath.unlink(missing_ok=True)
-        raise WinlabError("the SHA-256 of the copy does not match %s on %s: the part was deleted, nothing kept"
-                          % (winpath, name))
-    if size <= CHECK_WHOLE_MAX:
+    # A private checked copy also prevents replacement of the resumable part during checks.
+    staged = ".winlab-" + secrets.token_hex(16) + dst.suffix
+    snapshot = Path("/proc/self/fd/%d" % folder) / staged
+    try:
+        read_fd = winlab._regular(folder, part)
+        with os.fdopen(read_fd, "rb") as source_file:
+            write_fd = winlab._regular(folder, staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+            with os.fdopen(write_fd, "wb") as copy:
+                shutil.copyfileobj(source_file, copy, CHUNK)
+        sha = _sha256(snapshot)
+        if not final or str(final.get("sha256", "")).lower() != sha or final.get("size") != size:
+            os.unlink(part, dir_fd=folder)
+            _unlink(rpath)
+            raise WinlabError("the SHA-256 of the copy does not match %s on %s: the part was deleted, nothing kept"
+                              % (winpath, name))
         try:
-            names = [h for h in hooks.file_hits(part) if h.get("cls") in NAME_CLASSES]
-        except hooks.Unavailable as exc:
-            part.unlink(missing_ok=True)
-            raise WinlabError("the name check did not run (%s): the copy was deleted" % exc) from None
-        if names:
-            part.unlink(missing_ok=True)
-            rpath.unlink(missing_ok=True)
-            raise WinlabError("the file carries %d registered name(s): the copy was deleted" % len(names))
-    os.replace(part, dst)
-    rpath.unlink(missing_ok=True)
+            if size <= CHECK_WHOLE_MAX:
+                names = [h for h in hooks.file_hits(snapshot) if h.get("cls") in NAME_CLASSES]
+                if names:
+                    raise WinlabError("the file carries %d registered name(s): the copy was deleted" % len(names))
+            with open(snapshot, "rb") as fh:
+                tail = ""
+                while data := fh.read(PIECE):
+                    text = tail + _piece_text(data)
+                    if _name_count(text):
+                        raise WinlabError("the file carries registered name(s): the copy was deleted")
+                    if _secret_count(text):
+                        raise WinlabError("the file carries secret(s): the copy was deleted")
+                    tail = text[-OVERLAP:]
+        except (WinlabError, hooks.Unavailable) as exc:
+            os.unlink(part, dir_fd=folder)
+            _unlink(rpath)
+            if isinstance(exc, hooks.Unavailable):
+                raise WinlabError("the name check did not run: the copy was deleted") from None
+            raise
+        # Hard-link publication cannot replace a destination another writer created.
+        os.link(staged, dst.name, src_dir_fd=folder, dst_dir_fd=folder, follow_symlinks=False)
+        os.unlink(part, dir_fd=folder)
+    finally:
+        try:
+            os.unlink(staged, dir_fd=folder)
+        except FileNotFoundError:
+            pass
+    _unlink(rpath)
     path = log(root, name, title, ["from %s" % winpath, "%s, sha256 %s, %s" % (
         _size(size), sha, "resumed at %s" % _size(resumed) if resumed else "whole")])
     return {"machine": name, "size": size, "sha256": sha, "resumed": resumed, "file": rel,
@@ -1397,6 +1567,8 @@ def _receive(transport: Transport, fh, winpath: str, offset: int, size: int) -> 
                 raise
             _pause(2 ** tries)
             continue
+        if len(data) > min(CHUNK, size - offset):
+            raise WinlabError("the machine returned too many bytes")
         if not data:
             raise WinlabError("%s got shorter on the machine during the get: the same get again starts over"
                               % winpath)
