@@ -8,7 +8,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - `awb pdf FILE.md` draws a Markdown pipe table as a ruled grid: a bold header row on a light shade, repeated at the top of every page the table runs onto, column widths fitted to the page width from the content, text wrapped inside its cell with no wrap arrow and left, centre or right alignment from the separator row (`:--`, `:--:`, `--:`). HTML tables and the tables of the dataset HOW-TO stay aligned Courier text. Tests: `tests/test_pdf_tables.py`.
 
 ### Fixed
-- Lab client hardening: validate identifiers and service replies, pin file access, refuse links and special files, serialize resource and run updates, publish markers atomically, preserve newer downloads and run markers, and withhold names, secrets and unchecked error values. Added 35 regression tests in `tests/test_lr_lab_runs.py`, including export portability and fault checks.
+- Lab client hardening: validate identifiers and service replies, pin file access, refuse links and special files, serialize resource and run updates, publish markers atomically, preserve newer downloads and run markers, and withhold names, secrets and unchecked error values. Added 35 regression tests in `tests/test_lr_lab_runs.py`, including export portability and fault checks. The key service's own one-line refusals still reach the session and the run log when the screen leaves them unchanged, an obs transfer logs its file and object again and a withheld log block keeps its blank separator line.
 
 ## Week 46, 2026-11-09 to 2026-11-15
 ### Added

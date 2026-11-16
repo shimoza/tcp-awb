@@ -87,8 +87,10 @@ MAX_FILE = 1024 * 1024
 
 
 def _identifier(value, kind: str) -> str:
+    from awb import codes
+
     patterns = {"run": r"run-[0-9]{8}-[0-9]{6}-[a-z0-9]{4}",
-                "tenant": r"[a-z][a-z0-9-]{0,63}", "project": r"tcp-[a-z0-9]{4}"}
+                "tenant": r"[a-z][a-z0-9-]{0,63}", "project": codes.TCP_PROJECT_WIDE}
     if not isinstance(value, str) or not re.fullmatch(patterns[kind], value):
         raise LabClientError("invalid %s identifier" % kind)
     return value
@@ -134,6 +136,10 @@ def _service_error(answer: dict) -> str:
     error = answer.get("error")
     if isinstance(error, str) and re.fullmatch(r"refused: test-[0-9]+ is no lab tenant.*", error):
         return "refused: no lab tenant"
+    # The key service's own refusals ("refused: ...", one short line) carry the reason the session needs; they are
+    # relayed only when the screen leaves them unchanged. Anything else stays generic.
+    if isinstance(error, str) and re.fullmatch(r"refused: [^\r\n]{1,300}", error) and _safe_text(error) == error:
+        return error
     return "the key service refused the request"
 
 
@@ -315,7 +321,8 @@ def _stamp() -> str:
 def log(root: Path, run: str, lines: list[str]) -> None:
     """Append one screened block through a pinned directory and a checked descriptor."""
     _identifier(run, "run")
-    text = _safe_text("\n".join(lines) + "\n") + "\n"
+    text = _safe_text("\n".join(lines) + "\n")
+    text = (text if text.endswith("\n") else text + "\n") + "\n"
     with _directory(root / LOG_FOLDER, create=True) as parent:
         fd = _file(parent, run + ".log", os.O_WRONLY | os.O_APPEND | os.O_CREAT)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -545,7 +552,8 @@ def _transfer(action: str, path: str, url: str, tenant: str | None, run: str | N
             raise LabClientError("no such folder: %s (make it first, then %s again)" %
                                  (_safe_text(str(where.parent)), action)) from None
         raise LabClientError("no such file or folder for the transfer") from None
-    head = ["## %s obs %s %s" % (_stamp(), action, url)]
+    head = ["## %s obs %s %s %s" % (_stamp(), action, where if action == "put" else url,
+                                    url if action == "put" else where)]
     if not answer.get("ok"):
         log(root, run, head + ["refused: %s" % _service_error(answer)])
         raise LabClientError(_service_error(answer))
@@ -831,7 +839,7 @@ def _end(root: Path | None, project: str, tenant: str | None) -> int:
         raise LabClientError(_service_error(answer))
     run = _identifier(answer["run"], "run")
     for key in ("failed", "removed", "kept"):
-        rows = answer.get(key) or []
+        rows = answer.get(key, [])
         if not isinstance(rows, list) or any(not isinstance(row, dict) or
                                             not isinstance(row.get("label"), str) for row in rows):
             raise LabClientError("the key service gave invalid resource rows")
