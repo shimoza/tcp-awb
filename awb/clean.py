@@ -105,6 +105,8 @@ import io
 import json
 import os
 import re
+import secrets
+import stat
 import subprocess
 import sys
 import time
@@ -175,8 +177,8 @@ def report_outputs(report: Path) -> list[Path]:
     """The clean copies a report lists (the rows in state clean), where they are now."""
     out = []
     try:
-        lines = Path(report).read_text(encoding="utf-8").splitlines()
-    except OSError:
+        lines = _regular_bytes(Path(report)).decode("utf-8").splitlines()
+    except (CleanError, OSError, UnicodeError):
         return out
     for line in lines:
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
@@ -218,7 +220,30 @@ class CleanError(Exception):
 
 
 def is_clean_name(name: str) -> bool:
-    return bool(CLEAN_NAME_RE.search(name or ""))
+    return bool(name and not re.search(r"[/\\\x00-\x1f\x7f]", name) and CLEAN_NAME_RE.search(name))
+
+
+def _no_links(path: Path) -> None:
+    """Reject links in the named path, including a dangling link and linked parents."""
+    if any(p.is_symlink() for p in (path, *path.parents)):
+        raise CleanError("a file or folder path contains a symbolic link")
+
+
+def _regular_bytes(path: Path, *, dir_fd: int | None = None, limit: int | None = None) -> bytes:
+    """Read a regular file through the checked descriptor, without following a final link or blocking on a FIFO."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+        with os.fdopen(fd, "rb") as fh:
+            if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+                raise CleanError("a file is not a regular file")
+            data = fh.read() if limit is None else fh.read(limit + 1)
+            if limit is not None and len(data) > limit:
+                raise CleanError("a file is larger than the read limit")
+            return data
+    except FileNotFoundError:
+        raise
+    except OSError:
+        raise CleanError("a file could not be read safely") from None
 
 
 @dataclass
@@ -253,7 +278,10 @@ _SAFE_NAME_RE = re.compile(r"[^\w.-]+")
 def _safe_stem(engine, src: Path, taken: set[str], number: int) -> str:
     """The stem of the copy: the original stem with its registered forms, names and data replaced, in plain file
     name characters; `file-N` when the replaced stem still carries something."""
-    clean, _ = engine.sanitize(re.sub(r"[_]+", " ", src.stem), "file name")
+    # Do this before changing separators, which can destroy a token or a keyed secret's syntax.
+    counts = Counter()
+    raw = cleanlogs.drop_secret_lines(_secret_pass(src.stem, counts), counts)
+    clean, _ = engine.sanitize(re.sub(r"[_]+", " ", raw), "file name")
     stem = _SAFE_NAME_RE.sub("-", clean).strip("-.")[:80] or "file-%d" % number
     if engine.leaks(stem.replace("-", " "), candidates=False):
         stem = "file-%d" % number
@@ -266,7 +294,7 @@ def _safe_stem(engine, src: Path, taken: set[str], number: int) -> str:
 
 
 def _read_log(src: Path) -> str | None:
-    data = src.read_bytes()
+    data = _regular_bytes(src, limit=MAX_LOG_BYTES)
     if b"\x00" in data[:8192] and not data.startswith((b"\xff\xfe", b"\xfe\xff")):
         return None
     for bom, enc in ((b"\xef\xbb\xbf", "utf-8"), (b"\xff\xfe", "utf-16-le"), (b"\xfe\xff", "utf-16-be")):
@@ -314,6 +342,7 @@ def run(files: list[Path], project: str, kind: str, out: Path | None = None, *, 
     if failed:
         raise CleanError("the intake failed its self-test, nothing is cleaned: %s" % "; ".join(failed))
     out = Path(out) if out is not None else Path.cwd() / "clean"
+    _no_links(out)
     out.mkdir(parents=True, exist_ok=True)
     os.chmod(out, 0o700)
 
@@ -411,7 +440,11 @@ def run(files: list[Path], project: str, kind: str, out: Path | None = None, *, 
         if path.exists():
             fr.state, fr.why = "skipped", "a copy of that name is in the output folder already"
             continue
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            fr.state, fr.why = "skipped", "a copy of that name is in the output folder already"
+            continue
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
             fh.write(body)
         fr.output = path
@@ -437,9 +470,6 @@ def _write_report(out: Path, project: str, customer: str, kind: str, results: li
 
     stamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
     path, n = out / ("clean-report-%s.md" % stamp), 1
-    while path.exists():
-        n += 1
-        path = out / ("clean-report-%s-%d.md" % (stamp, n))
     lines = ["# awb clean %s" % stamp, "", "- project: %s" % project, "- customer: %s" % customer,
              "- kind: %s" % kind, "- files: %d" % len(results), "", "| file | read as | state | replaced | removed |",
              "| --- | --- | --- | --- | --- |"]
@@ -454,7 +484,13 @@ def _write_report(out: Path, project: str, customer: str, kind: str, results: li
             label = fr.output.name if fr.output else "file %d" % fr.number
             lines.append("- %s: %s" % (label, cleanlm.stats_line(fr.llm)))
     lines += ["", "Kinds and counts only. The values and their tokens stay in the vault folder of this laptop."]
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    while True:
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            break
+        except FileExistsError:
+            n += 1
+            path = out / ("clean-report-%s-%d.md" % (stamp, n))
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
     return path
@@ -479,10 +515,19 @@ def put_files(project: str, files: list[Path], *, client=None, today: date | Non
     with its in/ and out/. A copy of a name that is in in/ already is not replaced. Returns the keys written."""
     from awb import bucket, bucket_layout, obs
 
+    laptop.customer_of(project)
+    files = [Path(f) for f in files]
     for f in files:
         if not is_clean_name(f.name):
             raise CleanError("--put takes the clean copies of awb clean only")
+        if f.is_symlink() or not f.is_file():
+            raise CleanError("--put needs regular clean copies")
     _refuse_report([Path(f) for f in files])
+    # Snapshot before any bucket call so a later link swap cannot send another file.
+    try:
+        copies = [(f, _regular_bytes(f)) for f in files]
+    except OSError:
+        raise CleanError("a clean copy could not be read") from None
     c = client or _client()
     try:
         folder = bucket.find_folder(c, project)
@@ -493,19 +538,19 @@ def put_files(project: str, files: list[Path], *, client=None, today: date | Non
                     c.put_bytes(key, b"")
             say("bucket: created %s" % folder)
         written = []
-        for f in files:
+        for f, data in copies:
             key = folder + bucket_layout.IN + f.name
             if c.head(key) is not None:
                 say("bucket: %s is in %sin/ already, not replaced" % (f.name, folder))
                 continue
             ctype = "text/markdown" if f.suffix == ".md" else "text/plain"
-            c.put_file(key, f, ctype)
+            c.put_bytes(key, data, ctype)
             written.append(key)
         say("bucket: %d clean cop%s into %s" % (len(written), "y" if len(written) == 1 else "ies",
                                                  folder + bucket_layout.IN))
         return written
-    except (obs.OBSError, bucket.BucketError) as err:
-        raise CleanError("the bucket: %s" % err) from None
+    except (obs.OBSError, bucket.BucketError):
+        raise CleanError("the bucket request failed; check the connection and project folder") from None
 
 
 # --------------------------------------------------------------------------- awb clean update
@@ -516,12 +561,12 @@ def _list_count(data: bytes) -> int:
                if line.strip() and not line.lstrip().startswith("#"))
 
 
-def _snapshot(rules: Path) -> dict[str, bytes]:
+def _snapshot(rules: Path, *, dir_fd: int | None = None) -> dict[str, bytes]:
     out = {}
     for name in UPDATE_FILES:
         try:
-            out[name] = (rules / name).read_bytes()
-        except OSError:
+            out[name] = _regular_bytes(rules / name if dir_fd is None else Path(name), dir_fd=dir_fd)
+        except FileNotFoundError:
             out[name] = b""
     return out
 
@@ -532,8 +577,8 @@ def _changes(before: dict[str, bytes], after: dict[str, bytes]) -> list[str]:
         a, b = before.get(name, b""), after.get(name, b"")
         if a == b:
             continue
-        old = {x.strip() for x in a.decode("utf-8", "replace").splitlines() if x.strip() and not x.startswith("#")}
-        new = {x.strip() for x in b.decode("utf-8", "replace").splitlines() if x.strip() and not x.startswith("#")}
+        old = {x.strip() for x in a.decode("utf-8", "replace").splitlines() if x.strip() and not x.lstrip().startswith("#")}
+        new = {x.strip() for x in b.decode("utf-8", "replace").splitlines() if x.strip() and not x.lstrip().startswith("#")}
         lines.append("%s: %d -> %d entries (%d added, %d removed)" % (name, len(old), len(new), len(new - old),
                                                                      len(old - new)))
     return lines
@@ -543,11 +588,33 @@ def git_blob_id(data: bytes) -> str:
     return hashlib.sha1(b"blob %d\x00" % len(data) + data).hexdigest()
 
 
+class _HTTPSRedirect(urllib.request.HTTPRedirectHandler):
+    """The repository tree is the trust anchor for blobs, so redirects must keep TLS."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        import urllib.parse
+
+        if urllib.parse.urlsplit(newurl).scheme != "https":
+            raise CleanError("the public repository redirected outside HTTPS")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _fetch(url: str, limit: int = 32 * 1024 * 1024) -> bytes:
+    import http.client
+    import urllib.error
+
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     # a fresh opener reads the proxy of the environment as it is now (urlopen keeps the first one it built)
-    with urllib.request.build_opener().open(req, timeout=60) as resp:
-        data = resp.read(limit + 1)
+    try:
+        with urllib.request.build_opener(_HTTPSRedirect()).open(req, timeout=60) as resp:
+            data = resp.read(limit + 1)
+    except urllib.error.URLError as err:
+        # Preserve the transport exception type without its potentially credential-bearing URL/reason.
+        if isinstance(err, urllib.error.HTTPError):
+            err.close()
+        raise urllib.error.URLError("the public repository request failed") from None
+    except (OSError, ValueError, http.client.HTTPException):
+        raise CleanError("the public repository request could not be completed") from None
     if len(data) > limit:
         raise CleanError("an answer of the public repository is larger than the limit")
     return data
@@ -566,9 +633,28 @@ def _update_git(repo: Path, run=subprocess.run) -> None:
         raise CleanError("git pull --ff-only of the public repository failed (exit %d)" % got.returncode)
 
 
-def _update_https(rules: Path, fetch=_fetch) -> None:
-    tree = json.loads(fetch(TREE_URL).decode("utf-8"))
-    blobs = {e.get("path"): e.get("sha") for e in tree.get("tree", []) if isinstance(e, dict)}
+def _update_https(rules: Path, fetch=_fetch, *, dir_fd: int | None = None) -> None:
+    try:
+        tree = json.loads(fetch(TREE_URL).decode("utf-8"))
+    except (ValueError, UnicodeError, RecursionError):
+        raise CleanError("the public repository tree is not valid JSON") from None
+    if (not isinstance(tree, dict) or tree.get("truncated", False) is not False
+            or not isinstance(tree.get("tree"), list)):
+        raise CleanError("the public repository tree is malformed or incomplete")
+    blobs = {}
+    for entry in tree["tree"]:
+        if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+            raise CleanError("the public repository tree has a malformed entry")
+        path = entry["path"]
+        if path not in {"rules/" + name for name in UPDATE_FILES}:
+            continue
+        sha = entry.get("sha")
+        if (path in blobs or not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha)
+                or entry.get("type", "blob") != "blob" or entry.get("mode", "100644") not in ("100644", "100755")):
+            raise CleanError("the public repository tree has an invalid rule entry")
+        blobs[path] = sha
+    if not blobs:
+        raise CleanError("the public repository tree contains no supported lists")
     fresh = {}
     for name in UPDATE_FILES:
         want = blobs.get("rules/" + name)
@@ -578,26 +664,57 @@ def _update_https(rules: Path, fetch=_fetch) -> None:
         if git_blob_id(data) != want:
             raise CleanError("%s does not match the checksum of the repository tree: nothing was changed" % name)
         fresh[name] = data
-    for name, data in fresh.items():
-        tmp = rules / (".%s.tmp" % name)
-        tmp.write_bytes(data)
-        os.replace(tmp, rules / name)
+    staged = []
+    try:
+        for name, data in fresh.items():
+            tmp = ".%s.%s.tmp" % (name, secrets.token_hex(16))
+            tmp = rules / tmp if dir_fd is None else Path(tmp)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=dir_fd)
+            staged.append((tmp, name))
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+                # Installed public lists remain readable by the other local tools.
+                os.fchmod(fh.fileno(), 0o644)
+        for tmp, name in staged:
+            os.replace(tmp, rules / name if dir_fd is None else name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    finally:
+        for tmp, _ in staged:
+            try:
+                os.unlink(tmp, dir_fd=dir_fd)
+            except FileNotFoundError:
+                pass
 
 
 def update(rules: Path | None = None, *, run=subprocess.run, fetch=_fetch) -> list[str]:
     """`awb clean update`: the lists of public terms from the public repository. Returns the lines of what changed."""
     from awb import patterns
+    import fcntl
 
     rules = Path(rules or patterns.RULES_DIR)
     repo = rules.parent
-    before = _snapshot(rules)
-    if (repo / ".git").exists():
-        _update_git(repo, run=run)
-        how = "git pull --ff-only of %s" % PUBLIC_REPO
-    else:
-        _update_https(rules, fetch=fetch)
-        how = "download over HTTPS, checked against the blob ids of the repository tree"
-    changed = _changes(before, _snapshot(rules))
+    _no_links(rules)
+    try:
+        fd = os.open(rules, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            # Lock the directory inode, not a replaceable lock file. Independent runs serialize the full update.
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            before = _snapshot(rules, dir_fd=fd)
+            if (repo / ".git").exists():
+                _no_links(repo / ".git")
+                _update_git(repo, run=run)
+                how = "git pull --ff-only of %s" % PUBLIC_REPO
+            else:
+                _update_https(rules, fetch=fetch, dir_fd=fd)
+                how = "download over HTTPS, checked against the blob ids of the repository tree"
+            changed = _changes(before, _snapshot(rules, dir_fd=fd))
+        finally:
+            os.close(fd)
+    except OSError as err:
+        import urllib.error
+
+        if isinstance(err, urllib.error.URLError):
+            raise
+        raise CleanError("the rule lists could not be read or updated safely") from None
     return ["update: %s" % how] + (changed or ["the lists are up to date: nothing changed"])
 
 
@@ -623,13 +740,28 @@ def proxy_host(value: str | None) -> str:
     if not value:
         return "not set"
     try:
+        if re.search(r"[\s\\\x00-\x1f\x7f]", value):
+            return "set, not a URL"
         u = urllib.parse.urlsplit(value if "://" in value else "http://" + value)
-        host = u.hostname or "?"
+        host = u.hostname
         port = u.port
+        if (u.scheme not in ("http", "https") or not host or u.path not in ("", "/") or u.query or u.fragment
+                or not re.fullmatch(r"[a-zA-Z0-9.:-]+", host)):
+            return "set, not a URL"
     except ValueError:
         return "set, not a URL"
     login = " (with a login)" if u.username or u.password else ""
     return "%s%s%s" % (host, ":%d" % port if port else "", login)
+
+
+def _proxy_bypass(value: str | None) -> str:
+    """Only the conventional public loopback bypasses are safe to echo."""
+    if not value:
+        return "not set"
+    if all(part.strip() in ("localhost", "127.0.0.1", "::1", "[::1]") for part in value.split(",")) \
+            and not re.search(r"[\x00-\x1f\x7f]", value):
+        return value
+    return "set (private bypass list)"
 
 
 def classify(err: BaseException) -> str:
@@ -653,6 +785,8 @@ def doctor_targets() -> list[tuple[str, str]]:
     from awb import bucket_layout, obs
 
     region = os.environ.get("AWB_OBS_REGION") or bucket_layout.REGION
+    if not re.fullmatch(r"[a-z]{2}-[a-z]{2,12}[0-9]?", region):
+        raise CleanError("AWB_OBS_REGION is not a region code")
     return [("object storage %s" % region, "https://obs.%s.%s/" % (region, obs.DOMAIN)),
             ("github.com", "https://github.com/")]
 
@@ -663,15 +797,24 @@ def doctor(opener=None) -> tuple[list[str], int]:
     import urllib.error
 
     lines = ["%s: %s" % (k, proxy_host(os.environ.get(k)) if "NO_PROXY" not in k.upper()
-                         else (os.environ.get(k) or "not set")) for k in PROXY_VARS]
+                         else _proxy_bypass(os.environ.get(k))) for k in PROXY_VARS]
     if os.environ.get("SSL_CERT_FILE"):
         lines.append("SSL_CERT_FILE: set")
     hint = laptop.shell_hint()
     if hint:
         lines.append(hint)
-    opener = opener or urllib.request.build_opener()
     code = EXIT_OK
-    for label, url in doctor_targets():
+    try:
+        targets = doctor_targets()
+    except CleanError as err:
+        lines.append(str(err))
+        return lines, EXIT_ERROR
+    try:
+        opener = opener or urllib.request.build_opener()
+    except (OSError, ValueError):
+        lines.append("the proxy settings could not be read")
+        return lines, EXIT_ERROR
+    for label, url in targets:
         req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
         try:
             with opener.open(req, timeout=20) as resp:
@@ -682,6 +825,7 @@ def doctor(opener=None) -> tuple[list[str], int]:
                 code = EXIT_HELD
             else:
                 lines.append("%s: reachable (HTTP %d)" % (label, err.code))
+            err.close()
         except Exception as err:  # noqa: BLE001 - every failure gets its fix, never its text
             lines.append("%s: failed, %s" % (label, classify(err)))
             code = EXIT_HELD
@@ -925,7 +1069,7 @@ def main(argv: list[str] | None = None) -> int:
             print("%s: %s; replaced %s; removed %s%s" % (label, fr.state, _counts_text(fr.counts),
                                                          _counts_text(fr.removed), " (%s)" % fr.why if fr.why else ""))
         print("clean copies: %d of %d in %.1f s; report %s" % (len(res.outputs), len(res.files),
-                                                               time.monotonic() - started, res.report))
+                                                               time.monotonic() - started, res.report.name))
         ok = ok and all(fr.output for fr in res.files)
         copies += len(res.outputs)
         if model is not None and kind == "logs":
@@ -1009,8 +1153,8 @@ def _bucket_month(project: str) -> tuple[str | None, str]:
         return None, "month: this month (no key to ask the bucket; --month YYYY-MM names another)"
     try:
         base = bucket.find_folder(_client("awb clean use"), project)
-    except (obs.OBSError, bucket.BucketError) as err:
-        raise CleanError("the bucket cannot tell the month (%s): give --month YYYY-MM" % err) from None
+    except (obs.OBSError, bucket.BucketError):
+        raise CleanError("the bucket cannot tell the month: give --month YYYY-MM") from None
     if base is None:
         return None, "month: this month (no folder in the bucket yet; --month YYYY-MM names another)"
     return base[:7], "month: %s, that of the bucket folder" % base[:7]

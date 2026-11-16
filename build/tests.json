@@ -20089,8 +20089,267 @@
    "name": "exchange: inbox listing and copy summaries hide secret names",
    "run": ".venv/bin/pytest tests/test_xchg.py::test_xh_inbox_listing_and_copy_summaries_hide_secret_names",
    "status": "passing"
+  },
+  {
+   "id": "clean-hardening-01",
+   "phase": "clean-hardening",
+   "name": "clean hardening: update refuses malformed or incomplete tree",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_update_refuses_malformed_or_incomplete_tree",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-02",
+   "phase": "clean-hardening",
+   "name": "clean hardening: update bad json has a value free error",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_update_bad_json_has_a_value_free_error",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-03",
+   "phase": "clean-hardening",
+   "name": "clean hardening: update checks tree entry identity before fetching blobs",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_update_checks_tree_entry_identity_before_fetching_blobs",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-04",
+   "phase": "clean-hardening",
+   "name": "clean hardening: update refuses nonregular local rule files before network",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_update_refuses_nonregular_local_rule_files_before_network",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-05",
+   "phase": "clean-hardening",
+   "name": "clean hardening: update does not treat an unreadable rule as missing",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_update_does_not_treat_an_unreadable_rule_as_missing",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-06",
+   "phase": "clean-hardening",
+   "name": "clean hardening: update refuses a rules path through a link",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_update_refuses_a_rules_path_through_a_link",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-07",
+   "phase": "clean-hardening",
+   "name": "clean hardening: update never writes through the old predictable temp name",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_update_never_writes_through_the_old_predictable_temp_name",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-08",
+   "phase": "clean-hardening",
+   "name": "clean hardening: update cleans staged files when replace fails",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_update_cleans_staged_files_when_replace_fails",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-09",
+   "phase": "clean-hardening",
+   "name": "clean hardening: update verifies every blob before replacing any list",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_update_verifies_every_blob_before_replacing_any_list",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-10",
+   "phase": "clean-hardening",
+   "name": "clean hardening: concurrent updates do not share staging files",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_concurrent_updates_do_not_share_staging_files",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-11",
+   "phase": "clean-hardening",
+   "name": "clean hardening: fetch bounds the response and closes it",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_fetch_bounds_the_response_and_closes_it",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-12",
+   "phase": "clean-hardening",
+   "name": "clean hardening: fetch never exposes a transport error value",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_fetch_never_exposes_a_transport_error_value",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-13",
+   "phase": "clean-hardening",
+   "name": "clean hardening: proxy host refuses malformed credentials and controls",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_proxy_host_refuses_malformed_credentials_and_controls",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-14",
+   "phase": "clean-hardening",
+   "name": "clean hardening: doctor does not print private bypass names or invalid region",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_doctor_does_not_print_private_bypass_names_or_invalid_region",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-15",
+   "phase": "clean-hardening",
+   "name": "clean hardening: put refuses nonregular copies before any bucket call",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_put_refuses_nonregular_copies_before_any_bucket_call",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-16",
+   "phase": "clean-hardening",
+   "name": "clean hardening: put bucket errors do not echo remote values",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_put_bucket_errors_do_not_echo_remote_values",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-17",
+   "phase": "clean-hardening",
+   "name": "clean hardening: bucket month errors do not echo remote values",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_bucket_month_errors_do_not_echo_remote_values",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-18",
+   "phase": "clean-hardening",
+   "name": "clean hardening: report outputs refuses unreadable or linked reports",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_report_outputs_refuses_unreadable_or_linked_reports",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-19",
+   "phase": "clean-hardening",
+   "name": "clean hardening: clean name requires a basename without controls",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_clean_name_requires_a_basename_without_controls",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-20",
+   "phase": "clean-hardening",
+   "name": "clean hardening: secret in source name never reaches copy report or map",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_secret_in_source_name_never_reaches_copy_report_or_map",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-21",
+   "phase": "clean-hardening",
+   "name": "clean hardening: main does not print the private output directory",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_main_does_not_print_the_private_output_directory",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-22",
+   "phase": "clean-hardening",
+   "name": "clean hardening: run refuses an output directory link without chmod or writes",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_run_refuses_an_output_directory_link_without_chmod_or_writes",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-23",
+   "phase": "clean-hardening",
+   "name": "clean hardening: report creation retries a racing writer and a dangling link",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_report_creation_retries_a_racing_writer_and_a_dangling_link",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-24",
+   "phase": "clean-hardening",
+   "name": "clean hardening: copy creation race skips the existing copy",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_copy_creation_race_skips_the_existing_copy",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-25",
+   "phase": "clean-hardening",
+   "name": "clean hardening: update ignores tree paths outside the fixed allowlist",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_update_ignores_tree_paths_outside_the_fixed_allowlist",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-26",
+   "phase": "clean-hardening",
+   "name": "clean hardening: git update errors never echo subprocess output",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_git_update_errors_never_echo_subprocess_output",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-27",
+   "phase": "clean-hardening",
+   "name": "clean hardening: update refuses linked git metadata",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_update_refuses_linked_git_metadata",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-28",
+   "phase": "clean-hardening",
+   "name": "clean hardening: fetch refuses https downgrade before opening the redirect",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_fetch_refuses_https_downgrade_before_opening_the_redirect",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-29",
+   "phase": "clean-hardening",
+   "name": "clean hardening: fetch sanitizes setup and read failures and closes http errors",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_fetch_sanitizes_setup_and_read_failures_and_closes_http_errors",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-30",
+   "phase": "clean-hardening",
+   "name": "clean hardening: log read rejects a link swapped after preflight",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_log_read_rejects_a_link_swapped_after_preflight",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-31",
+   "phase": "clean-hardening",
+   "name": "clean hardening: log size limit also applies when the file grows before read",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_log_size_limit_also_applies_when_the_file_grows_before_read",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-32",
+   "phase": "clean-hardening",
+   "name": "clean hardening: put uses the checked copy even if its path changes",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_put_uses_the_checked_copy_even_if_its_path_changes",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-33",
+   "phase": "clean-hardening",
+   "name": "clean hardening: doctor handles invalid proxy setup without echoing it",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_doctor_handles_invalid_proxy_setup_without_echoing_it",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-34",
+   "phase": "clean-hardening",
+   "name": "clean hardening: doctor preserves valid proxy hosts and classifies private errors",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_doctor_preserves_valid_proxy_hosts_and_classifies_private_errors",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-35",
+   "phase": "clean-hardening",
+   "name": "clean hardening: main missing and unreadable input errors do not echo paths",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_main_missing_and_unreadable_input_errors_do_not_echo_paths",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-36",
+   "phase": "clean-hardening",
+   "name": "clean hardening: update counts ignore indented comments and duplicate words",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_update_counts_ignore_indented_comments_and_duplicate_words",
+   "status": "passing"
+  },
+  {
+   "id": "clean-hardening-37",
+   "phase": "clean-hardening",
+   "name": "clean hardening: put refuses an invalid project before any bucket call",
+   "run": ".venv/bin/pytest tests/test_clean.py::test_put_refuses_an_invalid_project_before_any_bucket_call",
+   "status": "passing"
   }
  ],
- "total_tests": 2870,
+ "total_tests": 2907,
  "checked": "2026-11-09"
 }

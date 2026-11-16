@@ -372,3 +372,643 @@ def test_a_secret_field_with_a_plain_word_is_no_secret(lap, tmp_path):
     text = out.read_text(encoding="utf-8")
     assert "must have 12 characters" in text and "token: expired" in text
     assert pw not in text and "[secret]" in text
+
+
+def _tree_fetch(files, tree=None):
+    """A public repository entirely in memory, with real Git blob checksums."""
+    if tree is None:
+        tree = {"tree": [{"path": "rules/" + name, "sha": clean.git_blob_id(data),
+                          "type": "blob", "mode": "100644"} for name, data in files.items()]}
+
+    def fetch(url, limit=0):
+        if url == clean.TREE_URL:
+            return json.dumps(tree).encode()
+        return files[url.rsplit("/", 1)[-1]]
+
+    return fetch
+
+
+@pytest.mark.parametrize("tree", [None, [], {}, {"tree": None}, {"tree": {}}, {"tree": [None]},
+                                  {"tree": [{"path": []}]}, {"tree": [], "truncated": True}])
+def test_update_refuses_malformed_or_incomplete_tree(tmp_path, tree):
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    old = rules / "allowed-terms.txt"
+    old.write_bytes(b"old\n")
+    with pytest.raises(clean.CleanError):
+        clean.update(rules, fetch=lambda url: json.dumps(tree).encode())
+    assert old.read_bytes() == b"old\n"
+    assert sorted(p.name for p in rules.iterdir()) == [old.name]
+
+
+@pytest.mark.parametrize("payload", [b"\xff", b"{", b'{"tree": "' + b"pass" + b"word" + b'"}'])
+def test_update_bad_json_has_a_value_free_error(tmp_path, payload):
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    with pytest.raises(clean.CleanError) as exc:
+        clean.update(rules, fetch=lambda url: payload)
+    assert "pass" + "word" not in str(exc.value)
+
+
+@pytest.mark.parametrize("change", ["duplicate", "symlink", "tree", "bad-sha", "truncated"])
+def test_update_checks_tree_entry_identity_before_fetching_blobs(tmp_path, change):
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    data = b"new\n"
+    entry = {"path": "rules/allowed-terms.txt", "sha": clean.git_blob_id(data),
+             "type": "blob", "mode": "100644"}
+    tree = {"tree": [entry]}
+    if change == "duplicate":
+        tree["tree"].append(dict(entry))
+    elif change == "symlink":
+        entry["mode"] = "120000"
+    elif change == "tree":
+        entry["type"] = "tree"
+    elif change == "bad-sha":
+        entry["sha"] = {"value": "pass" + "word"}
+    else:
+        tree["truncated"] = True
+    asked = []
+
+    def fetch(url):
+        asked.append(url)
+        return json.dumps(tree).encode() if url == clean.TREE_URL else data
+
+    with pytest.raises(clean.CleanError):
+        clean.update(rules, fetch=fetch)
+    assert asked == [clean.TREE_URL]
+    assert not list(rules.iterdir())
+
+
+@pytest.mark.parametrize("kind", ["symlink", "dangling", "directory", "fifo"])
+def test_update_refuses_nonregular_local_rule_files_before_network(tmp_path, kind):
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"private\n")
+    path = rules / "allowed-terms.txt"
+    if kind in ("symlink", "dangling"):
+        path.symlink_to(outside if kind == "symlink" else tmp_path / "missing")
+    elif kind == "directory":
+        path.mkdir()
+    else:
+        os.mkfifo(path)
+
+    def fetch(url):
+        pytest.fail("unsafe local files must be refused before a request")
+
+    # A FIFO must be refused without opening it in blocking mode.
+    with pytest.raises(clean.CleanError):
+        clean.update(rules, fetch=fetch)
+    assert outside.read_bytes() == b"private\n"
+
+
+def test_update_does_not_treat_an_unreadable_rule_as_missing(tmp_path, monkeypatch):
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    path = rules / "allowed-terms.txt"
+    path.write_bytes(b"old\n")
+    real_read, real_open = Path.read_bytes, os.open
+
+    def read(p):
+        if p == path:
+            raise PermissionError("pass" + "word")
+        return real_read(p)
+
+    def open_file(p, *args, **kwargs):
+        if os.fspath(p) in (str(path), path.name):
+            raise PermissionError("pass" + "word")
+        return real_open(p, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_bytes", read)
+    monkeypatch.setattr(os, "open", open_file)
+    with pytest.raises(clean.CleanError) as exc:
+        clean.update(rules, fetch=lambda url: pytest.fail("unreadable rules must stop the update"))
+    assert "pass" + "word" not in str(exc.value)
+
+
+@pytest.mark.parametrize("parent_link", [False, True])
+def test_update_refuses_a_rules_path_through_a_link(tmp_path, parent_link):
+    outside = tmp_path / "outside"
+    (outside / "rules").mkdir(parents=True)
+    link = tmp_path / "link"
+    link.symlink_to(outside if parent_link else outside / "rules", target_is_directory=True)
+    rules = link / "rules" if parent_link else link
+    with pytest.raises(clean.CleanError):
+        clean.update(rules, fetch=_tree_fetch({"allowed-terms.txt": b"new\n"}))
+    assert not list((outside / "rules").iterdir())
+
+
+def test_update_never_writes_through_the_old_predictable_temp_name(tmp_path):
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"private\n")
+    planted = rules / ".allowed-terms.txt.tmp"
+    planted.symlink_to(outside)
+    clean.update(rules, fetch=_tree_fetch({"allowed-terms.txt": b"new\n"}))
+    assert outside.read_bytes() == b"private\n"
+    assert planted.is_symlink()
+    assert (rules / "allowed-terms.txt").read_bytes() == b"new\n"
+
+
+def test_update_cleans_staged_files_when_replace_fails(tmp_path, monkeypatch):
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    path = rules / "allowed-terms.txt"
+    path.write_bytes(b"old\n")
+
+    def refuse(*args, **kwargs):
+        raise PermissionError("pass" + "word")
+
+    monkeypatch.setattr(os, "replace", refuse)
+    with pytest.raises(clean.CleanError) as exc:
+        clean.update(rules, fetch=_tree_fetch({path.name: b"new\n"}))
+    assert "pass" + "word" not in str(exc.value)
+    assert path.read_bytes() == b"old\n"
+    assert list(rules.iterdir()) == [path]
+
+
+def test_update_verifies_every_blob_before_replacing_any_list(tmp_path):
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    files = {"common-words.txt": b"first\n", "allowed-terms.txt": b"second\n"}
+    for name in files:
+        (rules / name).write_bytes(b"old\n")
+    good = _tree_fetch(files)
+
+    def fetch(url):
+        return b"bad\n" if url == clean.RAW_URL % "allowed-terms.txt" else good(url)
+
+    with pytest.raises(clean.CleanError, match="checksum"):
+        clean.update(rules, fetch=fetch)
+    assert all((rules / name).read_bytes() == b"old\n" for name in files)
+    assert len(list(rules.iterdir())) == len(files)
+
+
+def test_concurrent_updates_do_not_share_staging_files(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    entered, release, second_started = threading.Event(), threading.Event(), threading.Event()
+    replace = os.replace
+    calls = []
+
+    def paused(src, dst, *args, **kwargs):
+        calls.append(os.fspath(src))
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(10)
+        return replace(src, dst, *args, **kwargs)
+
+    def second():
+        second_started.set()
+        return clean.update(rules, fetch=_tree_fetch({"allowed-terms.txt": b"second\n"}))
+
+    monkeypatch.setattr(os, "replace", paused)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(clean.update, rules, fetch=_tree_fetch({"allowed-terms.txt": b"first\n"}))
+        try:
+            assert entered.wait(10)
+            other = pool.submit(second)
+            assert second_started.wait(10)
+        finally:
+            release.set()
+        first.result(timeout=10)
+        other.result(timeout=10)
+    assert len(calls) == len(set(calls)) == 2
+    assert (rules / "allowed-terms.txt").read_bytes() in (b"first\n", b"second\n")
+    assert len(list(rules.iterdir())) == 1
+
+
+def test_fetch_bounds_the_response_and_closes_it(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    streams = []
+    requests = []
+
+    def opened(req, timeout):
+        requests.append((req, timeout))
+        stream = io.BytesIO(b"abcde")
+        streams.append(stream)
+        return stream
+
+    monkeypatch.setattr(clean.urllib.request, "build_opener", lambda *a: SimpleNamespace(open=opened))
+    assert clean._fetch(clean.TREE_URL, limit=5) == b"abcde"
+    with pytest.raises(clean.CleanError, match="limit"):
+        clean._fetch(clean.TREE_URL, limit=4)
+    assert all(s.closed for s in streams)
+    assert all(r.get_header("User-agent") == clean.USER_AGENT and t == 60 for r, t in requests)
+
+
+def test_fetch_never_exposes_a_transport_error_value(monkeypatch):
+    from types import SimpleNamespace
+    import urllib.error
+
+    secret = "pass" + "word"
+
+    def fail(*args, **kwargs):
+        raise urllib.error.URLError("http://user:" + secret + "@proxy.invalid")
+
+    monkeypatch.setattr(clean.urllib.request, "build_opener", lambda *a: SimpleNamespace(open=fail))
+    with pytest.raises(urllib.error.URLError) as exc:
+        clean._fetch(clean.TREE_URL)
+    assert secret not in str(exc.value) and "user:" not in str(exc.value)
+
+
+@pytest.mark.parametrize("value", ["http://user/pass" + "word@proxy.invalid:80",
+                                    "http://user?pass" + "word@proxy.invalid:80",
+                                    "http://user#pass" + "word@proxy.invalid:80",
+                                    "http://user\nname:pw@proxy.invalid:80",
+                                    "http://proxy.invalid:bad", "http://[broken", "http://"])
+def test_proxy_host_refuses_malformed_credentials_and_controls(value):
+    assert clean.proxy_host(value) == "set, not a URL"
+
+
+def test_doctor_does_not_print_private_bypass_names_or_invalid_region(lap, monkeypatch):
+    from types import SimpleNamespace
+    private = fx.CUSTOMER_FORMS[0]
+    monkeypatch.setenv("NO_PROXY", private + ",http://user:" + "pass" + "word@proxy.invalid")
+    monkeypatch.setenv("no_proxy", private)
+    monkeypatch.setenv("AWB_OBS_REGION", private + "/@outside.invalid")
+    asked = []
+
+    def open_request(req, timeout):
+        asked.append(req.full_url)
+        raise OSError("pass" + "word")
+
+    lines, code = clean.doctor(opener=SimpleNamespace(open=open_request))
+    text = "\n".join(lines)
+    assert code != 0
+    assert private not in text and "pass" + "word" not in text
+    assert all("outside.invalid" not in url for url in asked)
+
+
+@pytest.mark.parametrize("kind", ["missing", "symlink", "directory", "fifo"])
+def test_put_refuses_nonregular_copies_before_any_bucket_call(lap, tmp_path, kind):
+    path = tmp_path / "copy.clean.log"
+    if kind == "symlink":
+        outside = tmp_path / "private"
+        outside.write_bytes(b"private\n")
+        path.symlink_to(outside)
+    elif kind == "directory":
+        path.mkdir()
+    elif kind == "fifo":
+        os.mkfifo(path)
+
+    class NoBucket:
+        def __getattr__(self, name):
+            pytest.fail("the refusal must precede the bucket")
+
+    with pytest.raises(clean.CleanError):
+        clean.put_files(PROJECT, [path], client=NoBucket())
+
+
+def test_put_bucket_errors_do_not_echo_remote_values(lap, tmp_path, monkeypatch):
+    from awb import bucket
+    path = tmp_path / "copy.clean.log"
+    path.write_bytes(b"ok\n")
+    secret = "pass" + "word"
+
+    def fail(*args):
+        raise obs.OBSError("remote echoed " + secret)
+
+    monkeypatch.setattr(bucket, "find_folder", fail)
+    with pytest.raises(clean.CleanError) as exc:
+        clean.put_files(PROJECT, [path], client=object())
+    assert secret not in str(exc.value)
+
+
+def test_bucket_month_errors_do_not_echo_remote_values(monkeypatch):
+    from awb import bucket
+    secret = "pass" + "word"
+    monkeypatch.setattr(clean, "keys_present", lambda: True)
+    monkeypatch.setattr(clean, "_client", lambda *a: object())
+
+    def fail(*args):
+        raise obs.OBSError(secret)
+
+    monkeypatch.setattr(bucket, "find_folder", fail)
+    with pytest.raises(clean.CleanError, match="--month") as exc:
+        clean._bucket_month(PROJECT)
+    assert secret not in str(exc.value)
+
+
+@pytest.mark.parametrize("kind", ["bad-encoding", "symlink"])
+def test_report_outputs_refuses_unreadable_or_linked_reports(tmp_path, kind):
+    copy = tmp_path / "copy.clean.log"
+    copy.write_bytes(b"ok\n")
+    report = tmp_path / "report.md"
+    if kind == "bad-encoding":
+        report.write_bytes(b"\xff")
+    else:
+        outside = tmp_path / "outside"
+        outside.write_text("| copy.clean.log | logs | clean | nothing | nothing |\n")
+        report.symlink_to(outside)
+    assert clean.report_outputs(report) == []
+
+
+def test_clean_name_requires_a_basename_without_controls():
+    for name in ("../a.clean.log", "/a.clean.log", "..\\a.clean.log", "a.clean.log\n", "a\x00.clean.md"):
+        assert not clean.is_clean_name(name)
+
+
+def test_secret_in_source_name_never_reaches_copy_report_or_map(lap, tmp_path):
+    _register()
+    source = tmp_path / (("pass" + "word=") + PASSWORD + ".log")
+    source.write_text("ok\n", encoding="utf-8")
+    result = clean.run([source], PROJECT, "logs", tmp_path / "out")
+    assert result.outputs
+    for path in result.outputs + [result.report] + ([result.mapping] if result.mapping else []):
+        assert PASSWORD not in path.name
+        assert PASSWORD not in path.read_text(encoding="utf-8")
+
+
+def test_main_does_not_print_the_private_output_directory(lap, tmp_path, capsys):
+    _register()
+    source = tmp_path / "app.log"
+    source.write_text("ok\n", encoding="utf-8")
+    out = tmp_path / fx.CUSTOMER_FORMS[0]
+    assert clean.main([str(source), "--project", PROJECT, "--out", str(out)]) == 0
+    said = capsys.readouterr()
+    assert fx.CUSTOMER_FORMS[0] not in said.out + said.err
+    assert "clean-report-" in said.out
+
+
+def test_run_refuses_an_output_directory_link_without_chmod_or_writes(lap, tmp_path):
+    _register()
+    source = tmp_path / "app.log"
+    source.write_text("ok\n", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir(mode=0o755)
+    out = tmp_path / "out"
+    out.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(clean.CleanError):
+        clean.run([source], PROJECT, "logs", out)
+    assert stat.S_IMODE(outside.stat().st_mode) == 0o755
+    assert not list(outside.iterdir())
+
+
+def test_report_creation_retries_a_racing_writer_and_a_dangling_link(tmp_path, monkeypatch):
+    real_open = os.open
+    raced = []
+
+    def open_file(path, flags, *args, **kwargs):
+        if Path(path).name.startswith("clean-report-") and not raced:
+            raced.append(Path(path))
+            Path(path).symlink_to(tmp_path / "missing")
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", open_file)
+    report = clean._write_report(tmp_path, PROJECT, CUSTOMER, "logs", [])
+    assert report != raced[0] and raced[0].is_symlink()
+    assert PROJECT in report.read_text(encoding="utf-8")
+    assert stat.S_IMODE(report.stat().st_mode) == 0o600
+
+
+def test_copy_creation_race_skips_the_existing_copy(lap, tmp_path, monkeypatch):
+    _register()
+    source = tmp_path / "app.log"
+    source.write_text("ok\n", encoding="utf-8")
+    real_open = os.open
+
+    def open_file(path, flags, *args, **kwargs):
+        if Path(path).name == "app.clean.log":
+            Path(path).write_bytes(b"other run\n")
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", open_file)
+    result = clean.run([source], PROJECT, "logs", tmp_path / "out")
+    assert not result.outputs and result.files[0].state == "skipped"
+    assert (tmp_path / "out" / "app.clean.log").read_bytes() == b"other run\n"
+    assert result.report.is_file()
+
+
+def test_update_ignores_tree_paths_outside_the_fixed_allowlist(tmp_path):
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"private\n")
+    data = b"new\n"
+    paths = ["rules/allowed-terms.txt", "rules/../outside", str(outside), "rules/unknown.txt"]
+    tree = {"tree": [{"path": p, "sha": clean.git_blob_id(data)} for p in paths]}
+    asked = []
+    fetch_tree = _tree_fetch({"allowed-terms.txt": data}, tree)
+
+    def fetch(url):
+        asked.append(url)
+        return fetch_tree(url)
+
+    clean.update(rules, fetch=fetch)
+    assert asked == [clean.TREE_URL, clean.RAW_URL % "allowed-terms.txt"]
+    assert outside.read_bytes() == b"private\n"
+    assert [p.name for p in rules.iterdir()] == ["allowed-terms.txt"]
+
+
+@pytest.mark.parametrize("failure", ["status", "dirty", "pull"])
+def test_git_update_errors_never_echo_subprocess_output(tmp_path, failure):
+    from types import SimpleNamespace
+    # The marker and runner are private to this test, independent of the checkout's .git.
+    (tmp_path / ".git").mkdir()
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    secret = "pass" + "word"
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        status = "status" in args
+        return SimpleNamespace(returncode=int(failure == ("status" if status else "pull")),
+                               stdout=secret if failure == "dirty" or not status else "", stderr=secret)
+
+    with pytest.raises(clean.CleanError) as exc:
+        clean.update(rules, run=run, fetch=lambda u: pytest.fail("git update must not use the downloader"))
+    assert secret not in str(exc.value)
+    assert len(calls) == (2 if failure == "pull" else 1)
+    assert all(args[:3] == ["git", "-C", str(tmp_path)] for args in calls)
+
+
+def test_update_refuses_linked_git_metadata(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    repo = tmp_path / "repo"
+    (repo / "rules").mkdir(parents=True)
+    (repo / ".git").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(clean.CleanError):
+        clean.update(repo / "rules", run=lambda *a, **k: pytest.fail("must not run git through a link"))
+
+
+def test_fetch_refuses_https_downgrade_before_opening_the_redirect(monkeypatch):
+    from types import SimpleNamespace
+    import urllib.request
+
+    seen = []
+
+    def build(*handlers):
+        redirect = next((h for h in handlers if isinstance(h, urllib.request.HTTPRedirectHandler)),
+                        urllib.request.HTTPRedirectHandler())
+
+        def open_request(req, timeout):
+            seen.append(req.full_url)
+            next_request = redirect.redirect_request(req, None, 302, "redirect", {}, "http://outside.invalid/tree")
+            assert next_request is None, "an HTTPS tree must never be followed over HTTP"
+            return io.BytesIO(b"ok")
+
+        return SimpleNamespace(open=open_request)
+
+    monkeypatch.setattr(urllib.request, "build_opener", build)
+    with pytest.raises(clean.CleanError):
+        clean._fetch(clean.TREE_URL)
+    assert seen == [clean.TREE_URL]
+
+
+@pytest.mark.parametrize("error_kind", ["proxy", "read", "http"])
+def test_fetch_sanitizes_setup_and_read_failures_and_closes_http_errors(monkeypatch, error_kind):
+    from types import SimpleNamespace
+    import urllib.error
+
+    secret = "pass" + "word"
+    body = io.BytesIO(b"private response")
+
+    def fail(*args, **kwargs):
+        if error_kind == "proxy":
+            raise ValueError(secret)
+        if error_kind == "read":
+            raise OSError(secret)
+        raise urllib.error.HTTPError(clean.TREE_URL, 502, secret, {}, body)
+
+    if error_kind == "proxy":
+        monkeypatch.setattr(clean.urllib.request, "build_opener", fail)
+    else:
+        monkeypatch.setattr(clean.urllib.request, "build_opener", lambda *a: SimpleNamespace(open=fail))
+    with pytest.raises((clean.CleanError, OSError)) as exc:
+        clean._fetch(clean.TREE_URL)
+    assert secret not in str(exc.value)
+    if error_kind == "http":
+        assert body.closed
+
+
+def test_log_read_rejects_a_link_swapped_after_preflight(lap, tmp_path, monkeypatch):
+    _register()
+    source = tmp_path / "app.log"
+    source.write_text("ok\n", encoding="utf-8")
+    outside = tmp_path / "private.log"
+    outside.write_text("private content\n", encoding="utf-8")
+    read_log = clean._read_log
+
+    def swapped(path):
+        path.unlink()
+        path.symlink_to(outside)
+        return read_log(path)
+
+    monkeypatch.setattr(clean, "_read_log", swapped)
+    with pytest.raises(clean.CleanError):
+        clean.run([source], PROJECT, "logs", tmp_path / "out")
+    assert not list((tmp_path / "out").iterdir())
+
+
+def test_log_size_limit_also_applies_when_the_file_grows_before_read(tmp_path, monkeypatch):
+    source = tmp_path / "app.log"
+    source.write_bytes(b"abcde")
+    monkeypatch.setattr(clean, "MAX_LOG_BYTES", 4)
+    with pytest.raises(clean.CleanError, match="limit"):
+        clean._read_log(source)
+
+
+def test_put_uses_the_checked_copy_even_if_its_path_changes(lap, tmp_path, monkeypatch):
+    from awb import bucket
+    copy = tmp_path / "app.clean.log"
+    copy.write_bytes(b"clean\n")
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"private\n")
+    sent = []
+
+    class Client:
+        def head(self, key):
+            copy.unlink()
+            copy.symlink_to(outside)
+            return None
+
+        def put_file(self, key, path, content_type):
+            sent.append(path.read_bytes())
+
+        def put_bytes(self, key, data, content_type):
+            sent.append(data)
+
+    monkeypatch.setattr(bucket, "find_folder", lambda *a: "2026-11/" + PROJECT + "/")
+    assert clean.put_files(PROJECT, [copy], client=Client(), say=lambda s: None)
+    assert sent == [b"clean\n"]
+
+
+def test_doctor_handles_invalid_proxy_setup_without_echoing_it(lap, monkeypatch):
+    secret = "pass" + "word"
+
+    def fail():
+        raise ValueError(secret)
+
+    monkeypatch.setattr(clean.urllib.request, "build_opener", fail)
+    lines, code = clean.doctor()
+    assert code == clean.EXIT_ERROR and secret not in "\n".join(lines)
+
+
+def test_doctor_preserves_valid_proxy_hosts_and_classifies_private_errors(lap, monkeypatch):
+    from types import SimpleNamespace
+    import ssl
+    import urllib.error
+
+    secret = PASSWORD
+    monkeypatch.setenv("HTTPS_PROXY", "http://user:" + secret + "@proxy.example.org:3128")
+    monkeypatch.setenv("NO_PROXY", "localhost,127.0.0.1")
+    errors = iter([urllib.error.HTTPError("https://example.org", 407, secret, {}, None),
+                   urllib.error.URLError(ssl.SSLCertVerificationError(1, secret))])
+
+    def fail(req, timeout):
+        assert req.method == "HEAD"
+        raise next(errors)
+
+    lines, code = clean.doctor(opener=SimpleNamespace(open=fail))
+    text = "\n".join(lines)
+    assert code == clean.EXIT_HELD and secret not in text
+    assert "HTTPS_PROXY: proxy.example.org:3128 (with a login)" in text
+    assert "NO_PROXY: localhost,127.0.0.1" in text
+    assert clean.FIX_LOGIN in text and clean.FIX_TLS in text
+
+
+def test_main_missing_and_unreadable_input_errors_do_not_echo_paths(lap, tmp_path, monkeypatch, capsys):
+    _register()
+    source = tmp_path / (fx.CUSTOMER_FORMS[0] + ".log")
+    args = [str(source), "--project", PROJECT, "--out", str(tmp_path / "out")]
+    assert clean.main(args) == clean.EXIT_ERROR
+    source.write_text("ok\n", encoding="utf-8")
+
+    def fail(path):
+        raise PermissionError("pass" + "word", str(path))
+
+    monkeypatch.setattr(clean, "_read_log", fail)
+    assert clean.main(args) == clean.EXIT_ERROR
+    text = capsys.readouterr()
+    assert fx.CUSTOMER_FORMS[0] not in text.out + text.err
+    assert "pass" + "word" not in text.out + text.err
+
+
+def test_update_counts_ignore_indented_comments_and_duplicate_words():
+    old = b" # old comment\nalpha\nalpha\n"
+    new = b"  # new comment\nalpha\n beta\nbeta\n"
+    assert clean._changes({"allowed-terms.txt": old}, {"allowed-terms.txt": new}) == [
+        "allowed-terms.txt: 1 -> 2 entries (1 added, 0 removed)"]
+
+
+@pytest.mark.parametrize("project", ["../outside", "tcp-q7m4\n", fx.CUSTOMER_FORMS[0]])
+def test_put_refuses_an_invalid_project_before_any_bucket_call(lap, tmp_path, project):
+    copy = tmp_path / "app.clean.log"
+    copy.write_bytes(b"ok\n")
+
+    class NoBucket:
+        def __getattr__(self, name):
+            pytest.fail("invalid projects must be refused before the bucket")
+
+    with pytest.raises(laptop.LaptopError, match="project code") as exc:
+        clean.put_files(project, [copy], client=NoBucket())
+    assert project not in str(exc.value)
