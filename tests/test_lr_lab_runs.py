@@ -1203,3 +1203,167 @@ def test_lr_hard_unknown_job_diagnostic_never_echoes_argument(tmp_path, monkeypa
     with pytest.raises(labclient.LabClientError) as exc:
         labclient.obs_wait(private)
     assert private not in str(exc.value)
+
+
+def test_lr_hard_explicit_project_and_marker_tenant_are_validated(tmp_path, monkeypatch, capsys):
+    root, _ = _hard_project(tmp_path, monkeypatch)
+    seen = []
+    monkeypatch.setattr(labclient, "_request", lambda *a: seen.append(a) or {"ok": True, "runs": []})
+    for project in ("../outside", PROJECT + "\n", "tcp-TOOLONG"):
+        assert labclient.run_main(["status", "--project", project]) == 2
+        assert project not in str(capsys.readouterr())
+    for tenant in ("../outside", LAB + "\n", ""):
+        with pytest.raises(labclient.LabClientError):
+            labclient._marker(root, tenant)
+    assert not seen
+
+
+def test_lr_hard_pick_errors_withhold_tenant_names(tmp_path, monkeypatch):
+    root, logs = _hard_project(tmp_path, monkeypatch)
+    tenant = "private-" + "tenant"
+    (logs / (tenant + ".open")).write_text(_HARD_NEXT + "\n")
+    with pytest.raises(labclient.LabClientError) as exc:
+        labclient._pick(root, None, None)
+    assert tenant not in str(exc.value) and LAB not in str(exc.value)
+    (logs / (tenant + ".open")).unlink()
+    with pytest.raises(labclient.LabClientError) as exc:
+        labclient._pick(root, tenant, None)
+    assert tenant not in str(exc.value)
+
+
+def test_lr_hard_start_checks_existing_marker_before_request(tmp_path, monkeypatch):
+    root, logs = _hard_project(tmp_path, monkeypatch)
+    marker = logs / (LAB + ".open")
+    marker.write_text("invalid\n")
+    seen = []
+    monkeypatch.setattr(labclient, "_request", lambda *a: seen.append(a) or {"ok": True, "run": _HARD_NEXT})
+    with pytest.raises(labclient.LabClientError):
+        labclient._start(root, PROJECT, LAB, "")
+    assert not seen and marker.read_text() == "invalid\n"
+
+
+def test_lr_hard_wire_refuses_nonfinite_request_before_sending(monkeypatch):
+    for number in (float("nan"), float("inf"), -float("inf")):
+        sock = _hard_socket(monkeypatch, [b'{"ok":true}\n'])
+        sent = []
+        monkeypatch.setattr(sock, "sendall", sent.append)
+        with pytest.raises(labclient.LabClientError):
+            labclient._request({"op": "lab_call", "body": {"value": number}})
+        assert not sent and sock.closed
+
+
+def test_lr_hard_screening_handles_names_and_secrets_independently(home, tmp_path, monkeypatch, capsys):
+    from tests import fixtures
+
+    root, logs = _hard_project(tmp_path, monkeypatch)
+    secret = "invented-" + "pass" + "word-4711"
+    for value, text in ((fixtures.PERSON_FORMS[0], fixtures.PERSON_FORMS[0]),
+                        (secret, "pass" + "word: " + secret)):
+        labclient.log(root, _HARD_RUN, [text])
+        labclient.keep_row(root, _HARD_RUN, LAB, _hard_kept(reason=text))
+        monkeypatch.setattr(labclient, "_request", lambda *a: {"ok": True, "job": {"id": "job-1", "state": text}})
+        assert labclient.obs_main(["abort", "job-1"]) == 0
+        written = (logs / (_HARD_RUN + ".log")).read_text() + (root / "RESOURCES.md").read_text()
+        assert value not in written + str(capsys.readouterr())
+        (root / "RESOURCES.md").unlink()
+
+
+def test_lr_hard_screening_fails_closed_for_work_user_and_checker_errors(tmp_path, monkeypatch):
+    from awb import check
+
+    root, logs = _hard_project(tmp_path, monkeypatch)
+    private = "unverified-" + "value"
+    assert not config.paths().register.parent.exists()
+    monkeypatch.setattr(config, "is_work_user", lambda: True)
+    for error in (check.CheckUnavailable(private), RuntimeError(private)):
+        def unavailable(*args):
+            raise error
+
+        monkeypatch.setattr(check, "check_text", unavailable)
+        labclient.log(root, _HARD_RUN, [private])
+        assert private not in (logs / (_HARD_RUN + ".log")).read_text()
+
+
+def test_lr_hard_screening_withholds_unicode_controls_and_invalid_text(tmp_path, monkeypatch):
+    root, logs = _hard_project(tmp_path, monkeypatch)
+    for control in ("\x00", "\x7f", "\x85", "\u202e", "\u2066", "\ud800"):
+        labclient.log(root, _HARD_RUN, ["unsafe" + control + "text"])
+    assert (logs / (_HARD_RUN + ".log")).read_text() == "[withheld]\n\n" * 6
+
+
+def test_lr_hard_resource_placeholders_and_huge_handles_do_not_deduplicate(tmp_path, monkeypatch):
+    root, _ = _hard_project(tmp_path, monkeypatch)
+    path = root / "RESOURCES.md"
+    for rid in ("-", "[withheld]", "[secret]"):
+        path.write_text("| rule-7 | %s | vpc rules | eu-de | - | - | live | old |\n" % rid)
+        assert labclient.keep_row(root, _HARD_RUN, LAB, _hard_kept(rid)) == "rule-8"
+        assert len(path.read_text().splitlines()) == 2
+    path.write_text("| rule-%s | old | vpc rules | eu-de | - | - | live | old |\n" % ("9" * 5000))
+    assert labclient.keep_row(root, _HARD_RUN, LAB, _hard_kept()) == "rule-1"
+
+
+def test_lr_hard_log_blocks_are_serialized(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    root, logs = _hard_project(tmp_path, monkeypatch)
+    first_half = threading.Event()
+    attempted = threading.Event()
+    second_write = threading.Event()
+    release = threading.Event()
+    real_fdopen = os.fdopen
+
+    class SplitWriter:
+        def __init__(self, fd, *args, **kwargs):
+            self.file = real_fdopen(fd, *args, **kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.file.close()
+
+        def fileno(self):
+            return self.file.fileno()
+
+        def write(self, text):
+            if text.startswith("first"):
+                self.file.write(text[:3])
+                self.file.flush()
+                first_half.set()
+                assert release.wait(5)
+                self.file.write(text[3:])
+            else:
+                second_write.set()
+                self.file.write(text)
+
+    def other():
+        attempted.set()
+        labclient.log(root, _HARD_RUN, ["second"])
+
+    monkeypatch.setattr(os, "fdopen", SplitWriter)
+    with ThreadPoolExecutor(2) as pool:
+        a = pool.submit(labclient.log, root, _HARD_RUN, ["first"])
+        try:
+            assert first_half.wait(5)
+            b = pool.submit(other)
+            assert attempted.wait(5)
+            overlapped = second_write.wait(0.2)
+        finally:
+            release.set()
+        a.result(timeout=5)
+        b.result(timeout=5)
+    assert not overlapped
+    assert (logs / (_HARD_RUN + ".log")).read_text() == "first\n\nsecond\n\n"
+
+
+def test_lr_hard_end_rejects_empty_nonlist_resource_rows(tmp_path, monkeypatch):
+    root, logs = _hard_project(tmp_path, monkeypatch)
+    marker = logs / (LAB + ".open")
+    for key in ("failed", "removed", "kept"):
+        for value in ({}, "", 0, False):
+            answer = {"ok": True, "run": _HARD_RUN, key: value}
+            monkeypatch.setattr(labclient, "_request", lambda *a: answer)
+            with pytest.raises(labclient.LabClientError):
+                labclient._end(root, PROJECT, LAB)
+            assert marker.read_text() == _HARD_RUN + "\n"
+            assert not (logs / (_HARD_RUN + ".log")).exists()
