@@ -208,13 +208,12 @@ def _broker_call(request: dict, payload: bytes = b"", timeout: float = BROKER_SL
     if answer.get("ok"):
         return answer, bytes(data)
     error = "the lab broker refused the call"
-    # Preserve the documented window refusal, but never relay arbitrary dependency text.
+    # Preserve the documented window refusal, but never relay arbitrary dependency text. The refusal is the
+    # broker's own generated line of a machine name and a project code: the pattern is its check, no name check.
     supplied = answer.get("error")
     if isinstance(supplied, str) and re.fullmatch(
             r"the window of [a-z][a-z0-9-]{1,30} is open for another project, not for tcp-[a-z0-9]{4,}", supplied):
-        clean, _ = landed(supplied)
-        if clean is not None:
-            error = clean
+        error = supplied
     if answer.get("kind") == "offline":
         raise Offline(error)
     if answer.get("kind") == "offset":
@@ -290,7 +289,7 @@ def _broker_names(answer: dict) -> list[str]:
         raise WinlabError("the lab broker returned an invalid machine list")
     for name in names:
         winlab._check_name(name)
-        check_text(name, "the machine name")
+        check_own(name, "the machine name")
     return names
 
 
@@ -390,7 +389,7 @@ def _read_json(path: Path) -> dict | None:
 
 def log_path(root: Path, machine: str) -> Path:
     winlab._check_name(machine)
-    check_text(machine, "the machine name")
+    check_own(machine, "the machine name")
     return root / LOG_FOLDER / ("%s-%s.log" % (_now().strftime("%Y-%m-%d"), machine))
 
 
@@ -472,6 +471,16 @@ def _name_count(text: str) -> int:
 def check_text(text: str, what: str = "the command") -> None:
     """Refuse `text` before it goes to a lab machine: a {{secret:}} reference, the machine's own state, a registered
     name or a secret. The refusal names the class and the count, never the text."""
+    _check_own(text, what, names=True)
+
+
+def check_own(text: str, what: str) -> None:
+    """check_text without the name check, for text the Workbench generated itself (a lab machine name, a window
+    line): the material was checked for names once when it entered, generated text gets the secret check only."""
+    _check_own(text, what, names=False)
+
+
+def _check_own(text: str, what: str, names: bool) -> None:
     if not text.strip():
         raise WinlabError("%s is empty" % what)
     if SECRET_REF_RE.search(text):
@@ -480,9 +489,9 @@ def check_text(text: str, what: str = "the command") -> None:
     if STATE_RE.search(text):
         raise WinlabError("%s names the machine's own state (awb-winlab, the ssh keys): no session command reaches "
                           "it, nothing was sent" % what)
-    names = _name_count(text)
-    if names:
-        raise WinlabError("%s carries %d registered name(s): nothing was sent" % (what, names))
+    found = _name_count(text) if names else 0
+    if found:
+        raise WinlabError("%s carries %d registered name(s): nothing was sent" % (what, found))
     found = _secret_count(text)
     if found:
         raise WinlabError("%s carries %d secret(s): no password and no key goes to a lab machine, nothing was sent"
@@ -720,7 +729,7 @@ def _print_cut(text: str, where: str, stream=None) -> None:
 def _session(name: str, root: Path | None) -> tuple[Path, str, dict]:
     root = root or _root()
     winlab._check_name(name)
-    check_text(name, "the machine name")
+    check_own(name, "the machine name")
     code = _code(root)
     # Refuse unsafe log storage before contacting a machine.
     path = log_path(root, name)
