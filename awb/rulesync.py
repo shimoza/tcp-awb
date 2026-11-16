@@ -25,12 +25,16 @@ topic ...)" with the closest facts, once per task.
 """
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
 import re
 import secrets
+import stat
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
 
 from awb import config, devnote
@@ -118,7 +122,6 @@ NOTICE = ("The Workbench rules or the CLAUDE.md of this project changed since th
           "work by them: they replace what you loaded at the start. In short: \"the inbox\" is the bucket inboxes "
           "of `awb inbox take`, files for him leave with `awb xchg put`, and STATE.md keeps its Status: and Next: "
           "lines current after every step." % RULES_READ)
-_SID_RE = re.compile(r"[^A-Za-z0-9_-]")
 
 
 # --------------------------------------------------------------------------- the files of a project
@@ -153,25 +156,73 @@ def _fix_lines(text: str, fixes, adds=(), cuts=(), drops=(), appends=()) -> str:
     return "\n".join(lines)
 
 
+# Bound reads even when a file grows after fstat. These are small rule and JSON files.
+_MAX_BYTES = 1024 * 1024
+
+
+@contextmanager
+def _directory(path: Path, create: bool = False):
+    """Walk through directory handles, refusing links in every component."""
+    path = Path(os.path.abspath(path))
+    fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in path.parts[1:]:
+            if create:
+                try:
+                    os.mkdir(part, 0o750, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+@contextmanager
+def _regular(path: Path, writable: bool = False):
+    with _directory(path.parent) as parent:
+        fd = os.open(path.name, (os.O_RDWR if writable else os.O_RDONLY) | os.O_NOFOLLOW | os.O_NONBLOCK,
+                     dir_fd=parent)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise OSError("expected a single regular file")
+        with os.fdopen(fd, "r+" if writable else "r", encoding="utf-8") as fh:
+            fd = None
+            yield fh
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _read_text(fh) -> str:
+    data = fh.buffer.read(_MAX_BYTES + 1)
+    if len(data) > _MAX_BYTES:
+        raise ValueError("file exceeds the rules size limit")
+    return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+
+
 def sync_project(root: Path) -> list[str]:
     """Bring the template lines of one project up to date. Returns the names of the files it changed."""
     changed = []
     for name, fixes, adds, cuts, drops, appends in (
             ("CLAUDE.md", CLAUDE_FIXES, CLAUDE_ADD, CLAUDE_CUT, CLAUDE_DROP, CLAUDE_APPEND),
             ("STATE.md", STATE_FIXES, (), (), (), ())):
-        path = Path(root) / name
         try:
-            if path.is_symlink() or not path.is_file():
-                continue
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
+            with _regular(Path(root) / name, writable=True) as fh:
+                fcntl.flock(fh, fcntl.LOCK_EX)
+                text = _read_text(fh)
+                new = _fix_lines(text, fixes, adds, cuts, drops, appends)
+                if new != text:
+                    fh.seek(0)
+                    fh.write(new)
+                    fh.truncate()
+                    fh.flush()
+                    changed.append(name)
+        except (OSError, ValueError):
             continue
-        new = _fix_lines(text, fixes, adds, cuts, drops, appends)
-        if new != text:
-            with open(path, "r+", encoding="utf-8") as fh:     # the same file: its owner and mode stay
-                fh.write(new)
-                fh.truncate()
-            changed.append(name)
     return changed
 
 
@@ -184,23 +235,33 @@ def current(root: Path | None, client: Path | None = None) -> bool:
 
     if client is not None:
         try:
-            if Path(client).read_bytes() != Path(projects.RULES_FILE).read_bytes():
+            with _regular(Path(client)) as actual, _regular(Path(projects.RULES_FILE)) as installed:
+                left, right = actual.buffer.read(_MAX_BYTES + 1), installed.buffer.read(_MAX_BYTES + 1)
+                equal = left == right
+                oversized = max(len(left), len(right)) > _MAX_BYTES
+            if not equal or oversized:
                 return False
         except OSError:
             return False
     if root is None:
         return True
+    try:
+        with _directory(Path(root)):
+            pass
+    except OSError:
+        return False
     for name, fixes, adds, cuts, drops, appends in (
             ("CLAUDE.md", CLAUDE_FIXES, CLAUDE_ADD, CLAUDE_CUT, CLAUDE_DROP, CLAUDE_APPEND),
             ("STATE.md", STATE_FIXES, (), (), (), ())):
         path = Path(root) / name
-        if not path.exists() and not path.is_symlink():
-            continue
         try:
+            with _regular(path) as fh:
+                text = _read_text(fh)
+        except FileNotFoundError:
             if path.is_symlink():
                 return False
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
+            continue
+        except (OSError, ValueError):
             return False
         if _fix_lines(text, fixes, adds, cuts, drops, appends) != text:
             return False
@@ -215,7 +276,10 @@ def sync(p: config.Paths, codes: list[str] | None = None) -> list[tuple[str, lis
     for r in projects.load(p):
         if r.state not in projects.LIVE_STATES or (codes and r.code not in codes):
             continue
-        out.append((r.code, sync_project(Path(r.path))))
+        folder = Path(r.path)
+        if folder.parent != p.projects_root or folder.name != r.code:
+            continue
+        out.append((r.code, sync_project(folder)))
     return out
 
 
@@ -235,43 +299,115 @@ def digest(root: Path | None) -> str:
     h = hashlib.sha256()
     for f in _rules_files(root):
         try:
-            data = f.read_bytes()
-        except OSError:
-            data = b""
-        h.update(str(f).encode() + b"\0" + data + b"\0")
+            with _regular(f) as fh:
+                data = fh.buffer.read(_MAX_BYTES + 1)
+            if len(data) > _MAX_BYTES:
+                raise ValueError("file exceeds the rules size limit")
+            data = b"read\0" + data
+        except (OSError, ValueError):
+            data = b"unreadable"
+        h.update(os.fsencode(f) + b"\0" + data + b"\0")
     return h.hexdigest()
 
 
 def _mark(p: config.Paths, session_id: str) -> Path:
-    sid = _SID_RE.sub("", session_id or "")[:80] or "unknown"
+    # Keep established short safe ids, but never discard characters or truncate ids.
+    if isinstance(session_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,80}", session_id):
+        sid = session_id
+    else:
+        sid = "." + hashlib.sha256(str(session_id).encode("utf-8", "surrogatepass")).hexdigest()
     return p.shared / "sessions" / ("rules-%s.json" % sid)
+
+
+def _unique_object(pairs):
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError("duplicate JSON field")
+        out[key] = value
+    return out
 
 
 def _read_mark(path: Path) -> dict:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        with _regular(path) as fh:
+            data = json.loads(_read_text(fh), object_pairs_hook=_unique_object)
+    except (OSError, ValueError, RecursionError):
         return {}
-    return data if isinstance(data, dict) else {}
+    pending = [(data, 0)]
+    while pending:
+        value, depth = pending.pop()
+        if depth > 32:
+            return {}
+        if isinstance(value, dict):
+            pending.extend((v, depth + 1) for v in value.values())
+        elif isinstance(value, list):
+            pending.extend((v, depth + 1) for v in value)
+    if not isinstance(data, dict):
+        return {}
+    for key in ("inputs", "notes"):
+        if key in data:
+            data[key] = _strings(data[key])
+    return data
+
+
+def _publish(parent: int, name: str, data: dict, mode: int, exclusive: bool = False) -> None:
+    tmp = ".rules-" + secrets.token_hex(16) + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(data) + "\n")
+        if exclusive:
+            os.link(tmp, name, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
+        else:
+            os.replace(tmp, name, src_dir_fd=parent, dst_dir_fd=parent)
+    finally:
+        os.unlink(tmp, dir_fd=parent)
 
 
 def _write_mark(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.is_symlink():
+    try:
+        with _directory(path.parent, create=True) as parent:
+            try:
+                info = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            else:
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                    return
+            _publish(parent, path.name, data, 0o600)
+    except (OSError, ValueError):
+        # Hooks must not echo storage paths or exception text.
         return
-    tmp = path.with_name(".%s.tmp" % path.name)
-    tmp.write_text(json.dumps(data) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
 
 
+def _strings(value) -> list[str]:
+    return [x for x in value if isinstance(x, str)][-200:] if isinstance(value, list) else []
+
+
+def _session_locked(func):
+    @wraps(func)
+    def locked(p, session_id, root):
+        if not session_id:
+            return func(p, session_id, root)
+        try:
+            with _directory(p.shared / "sessions", create=True) as parent:
+                # The directory inode is stable across atomic mark replacement.
+                fcntl.flock(parent, fcntl.LOCK_EX)
+                return func(p, session_id, root)
+        except OSError:
+            return [] if func.__name__ == "input_notices" else None
+    return locked
+
+
+@_session_locked
 def remember(p: config.Paths, session_id: str | None, root: Path | None) -> None:
     """The session-start hook: what this session loaded. The input notices it was told stay told."""
     if not session_id:
         return
     path = _mark(p, session_id)
     mark = _read_mark(path)
-    seen = mark.get("inputs") or []
-    data = {"digest": digest(root), "inputs": [x for x in seen if isinstance(x, str)][-200:]}
+    data = {"digest": digest(root), "inputs": _strings(mark.get("inputs"))}
     if isinstance(mark.get("notes"), list):
         data["notes"] = [x for x in mark["notes"] if isinstance(x, str)][-200:]     # notes told stay told (DN)
     if isinstance(mark.get("kb"), dict):
@@ -291,11 +427,12 @@ def notice(p: config.Paths, session_id: str | None, root: Path | None) -> str | 
     return "\n".join(said) or None
 
 
+@_session_locked
 def _rules_changed(p: config.Paths, session_id: str, root: Path | None) -> str | None:
     seen = _read_mark(_mark(p, session_id)).get("digest")
     if seen == digest(root):
         return None
-    remember(p, session_id, root)
+    remember.__wrapped__(p, session_id, root)
     return NOTICE
 
 
@@ -305,7 +442,7 @@ INPUT = "new input: %d copies in the outbox of %s, report intake-report.md"
 REPLACED = ("replaced: %d copies in the outbox of %s under the file ids they had, report intake-report.md; move them "
             "into input/ over the earlier ones")
 _NOTICE_RE = re.compile(r"input-[0-9TZ-]+-[0-9a-f]{8}\.json")
-_FILE_ID_RE = re.compile(r"F-[A-Z2-7]{4}|(?:mail|transcript|table|paste)-\d{4}-\d{2}-\d{2}-\d+\.(?:md|csv)")
+_FILE_ID_RE = re.compile(r"F-[A-Z2-7]{4}|(?:mail|transcript|table|paste)-\d{4}-\d{2}-\d{2}-\d+\.(?:md|csv)", re.ASCII)
 """A file id of an imported copy (F-ABCD) or the name of the copy of a paste (mail-2026-10-12-1.md)."""
 
 
@@ -323,21 +460,35 @@ def post_input(p: config.Paths, customer: str, project: str, file_ids: list[str]
                auto: bool = False) -> Path:
     """Leave the notice of one import for the sessions (owner side): codes and file ids only. `auto` marks the
     import of the timer: its notice reads "new input: N files (FILE IDS)"."""
-    from awb import codes
-
-    if not (codes.is_code(customer) or customer == project) or not codes.is_project_code(project):
-        raise ValueError("a notice carries a customer code and a project code")
-    ids = [f for f in file_ids if _FILE_ID_RE.fullmatch(f)]
-    folder = config.make_dir(notices_dir(p), 0o750, shared=True)
+    if not _notice_codes(customer, project) or not isinstance(file_ids, list):
+        raise ValueError("a notice carries a customer code, a project code and a list of file ids")
+    ids = list(dict.fromkeys(f for f in file_ids if isinstance(f, str) and _FILE_ID_RE.fullmatch(f)))
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    path = folder / ("input-%s-%s.json" % (stamp, secrets.token_hex(4)))
+    path = notices_dir(p) / ("input-%s-%s.json" % (stamp, secrets.token_hex(4)))
     data = {"customer": customer, "project": project, "ids": ids, "replaced": bool(replaced)}
     if auto:
         data["auto"] = True
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps(data) + "\n")
+    try:
+        with _directory(path.parent, create=True) as parent:
+            _publish(parent, path.name, data, 0o640, exclusive=True)
+    except OSError:
+        raise ValueError("the input notice could not be stored") from None
     return path
+
+
+def _notice_codes(customer, project) -> bool:
+    from awb import codes
+
+    return (isinstance(customer, str) and isinstance(project, str) and codes.is_project_code(project)
+            and (codes.is_code(customer) or customer == project))
+
+
+def _waiting(path: Path) -> bool:
+    try:
+        with _regular(path):
+            return True
+    except (OSError, ValueError):
+        return False
 
 
 def _project_customer(p: config.Paths, code: str) -> str | None:
@@ -352,6 +503,7 @@ def _project_customer(p: config.Paths, code: str) -> str | None:
     return None
 
 
+@_session_locked
 def input_notices(p: config.Paths, session_id: str | None, root: Path | None) -> list[str]:
     """The lines of the input notices this session has not been told yet: a notice of its project, or of the
     customer of its project, whose copies still wait in the outbox. Each is told once per session."""
@@ -360,12 +512,13 @@ def input_notices(p: config.Paths, session_id: str | None, root: Path | None) ->
     code = Path(root).name
     customer = _project_customer(p, code)
     try:
-        names = sorted(f.name for f in notices_dir(p).iterdir() if _NOTICE_RE.fullmatch(f.name))
+        with _directory(notices_dir(p)) as parent:
+            names = sorted(n for n in os.listdir(parent) if _NOTICE_RE.fullmatch(n))
     except OSError:
         return []
     path = _mark(p, session_id)
     mark = _read_mark(path)
-    seen = [x for x in (mark.get("inputs") or []) if isinstance(x, str)]
+    seen = _strings(mark.get("inputs"))
     out: list[str] = []
     for name in names:
         if name in seen:
@@ -375,10 +528,13 @@ def input_notices(p: config.Paths, session_id: str | None, root: Path | None) ->
             continue
         data = _read_mark(f)
         cust, proj, ids = data.get("customer"), data.get("project"), data.get("ids") or []
-        if not isinstance(cust, str) or not (proj == code or (customer and cust == customer)):
+        if (not _notice_codes(cust, proj) or not isinstance(ids, list)
+                or not isinstance(data.get("replaced", False), bool)
+                or not isinstance(data.get("auto", False), bool)
+                or not (proj == code or (customer and cust == customer))):
             continue
-        waiting = [i for i in ids if isinstance(i, str) and _FILE_ID_RE.fullmatch(i)
-                   and (p.outbox / cust / (i if "." in i else "%s.md" % i)).is_file()]
+        waiting = list(dict.fromkeys(i for i in ids if isinstance(i, str) and _FILE_ID_RE.fullmatch(i)
+                                    and _waiting(p.outbox / cust / (i if "." in i else "%s.md" % i))))
         if not waiting:
             continue
         if data.get("auto") is True:

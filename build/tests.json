@@ -19487,8 +19487,218 @@
    "name": "receipt: screening outage cannot leave stale marks or double count sessions",
    "run": ".venv/bin/pytest tests/test_receipt.py::test_screening_outage_cannot_leave_stale_marks_or_double_count_sessions",
    "status": "passing"
+  },
+  {
+   "id": "rulesync-review-1",
+   "phase": "rulesync-review",
+   "name": "rulesync: notice customer cannot leak names secrets or escape outbox",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_notice_customer_cannot_leak_names_secrets_or_escape_outbox",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-2",
+   "phase": "rulesync-review",
+   "name": "rulesync: notice requires valid project even for customer match",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_notice_requires_valid_project_even_for_customer_match",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-3",
+   "phase": "rulesync-review",
+   "name": "rulesync: notice rejects wrong field types and deduplicates ids",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_notice_rejects_wrong_field_types_and_deduplicates_ids",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-4",
+   "phase": "rulesync-review",
+   "name": "rulesync: post input validates types without echoing values",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_post_input_validates_types_without_echoing_values",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-5",
+   "phase": "rulesync-review",
+   "name": "rulesync: post input refuses unicode digits in file ids",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_post_input_refuses_unicode_digits_in_file_ids",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-6",
+   "phase": "rulesync-review",
+   "name": "rulesync: mark rejects duplicate keys and excessive nesting",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_mark_rejects_duplicate_keys_and_excessive_nesting",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-7",
+   "phase": "rulesync-review",
+   "name": "rulesync: mark read is bounded even when stat size is stale",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_mark_read_is_bounded_even_when_stat_size_is_stale",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-8",
+   "phase": "rulesync-review",
+   "name": "rulesync: mark rejects file and directory links and hardlinks",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_mark_rejects_file_and_directory_links_and_hardlinks",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-9",
+   "phase": "rulesync-review",
+   "name": "rulesync: invalid mark inputs are discarded when remembering and notifying",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_invalid_mark_inputs_are_discarded_when_remembering_and_notifying",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-10",
+   "phase": "rulesync-review",
+   "name": "rulesync: session ids cannot collide after sanitizing or truncating",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_session_ids_cannot_collide_after_sanitizing_or_truncating",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-11",
+   "phase": "rulesync-review",
+   "name": "rulesync: mark write does not follow predictable temp link",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_mark_write_does_not_follow_predictable_temp_link",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-12",
+   "phase": "rulesync-review",
+   "name": "rulesync: mark write refuses parent link",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_mark_write_refuses_parent_link",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-13",
+   "phase": "rulesync-review",
+   "name": "rulesync: failed mark replace is silent and removes temp files",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_failed_mark_replace_is_silent_and_removes_temp_files",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-14",
+   "phase": "rulesync-review",
+   "name": "rulesync: notice publication is atomic and storage errors are redacted",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_notice_publication_is_atomic_and_storage_errors_are_redacted",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-15",
+   "phase": "rulesync-review",
+   "name": "rulesync: outbox links never count as waiting copies",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_outbox_links_never_count_as_waiting_copies",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-16",
+   "phase": "rulesync-review",
+   "name": "rulesync: sync refuses linked roots ancestors and hardlinked files",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_sync_refuses_linked_roots_ancestors_and_hardlinked_files",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-17",
+   "phase": "rulesync-review",
+   "name": "rulesync: sync file swap cannot redirect the write",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_sync_file_swap_cannot_redirect_the_write",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-18",
+   "phase": "rulesync-review",
+   "name": "rulesync: sync denied write does not echo error or block other files",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_sync_denied_write_does_not_echo_error_or_block_other_files",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-19",
+   "phase": "rulesync-review",
+   "name": "rulesync: sync register path must be under configured projects root",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_sync_register_path_must_be_under_configured_projects_root",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-20",
+   "phase": "rulesync-review",
+   "name": "rulesync: digest distinguishes missing empty and unreadable files",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_digest_distinguishes_missing_empty_and_unreadable_files",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-21",
+   "phase": "rulesync-review",
+   "name": "rulesync: current client cannot be a link",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_current_client_cannot_be_a_link",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-22",
+   "phase": "rulesync-review",
+   "name": "rulesync: concurrent syncs read after locking and keep mode",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_concurrent_syncs_read_after_locking_and_keep_mode",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-23",
+   "phase": "rulesync-review",
+   "name": "rulesync: concurrent input notices are told once and preserve mark fields",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_concurrent_input_notices_are_told_once_and_preserve_mark_fields",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-24",
+   "phase": "rulesync-review",
+   "name": "rulesync: missing unreadable invalid utf8 and nonregular rules fail closed",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_missing_unreadable_invalid_utf8_and_nonregular_rules_fail_closed",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-25",
+   "phase": "rulesync-review",
+   "name": "rulesync: special files are rejected before any blocking read",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_special_files_are_rejected_before_any_blocking_read",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-26",
+   "phase": "rulesync-review",
+   "name": "rulesync: oversized rules are never rewritten or reported current",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_oversized_rules_are_never_rewritten_or_reported_current",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-27",
+   "phase": "rulesync-review",
+   "name": "rulesync: malformed notes in session mark do not crash combined notice",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_malformed_notes_in_session_mark_do_not_crash_combined_notice",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-28",
+   "phase": "rulesync-review",
+   "name": "rulesync: concurrent rule change notices are told once",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_concurrent_rule_change_notices_are_told_once",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-29",
+   "phase": "rulesync-review",
+   "name": "rulesync: concurrent mark publications use independent temp files",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_concurrent_mark_publications_use_independent_temp_files",
+   "status": "passing"
+  },
+  {
+   "id": "rulesync-review-30",
+   "phase": "rulesync-review",
+   "name": "rulesync: non utf8 rule path is hashed without echo",
+   "run": ".venv/bin/pytest tests/test_rulesync.py::test_non_utf8_rule_path_is_hashed_without_echo",
+   "status": "passing"
   }
  ],
- "total_tests": 2784,
+ "total_tests": 2814,
  "checked": "2026-11-09"
 }
