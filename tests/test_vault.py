@@ -1513,3 +1513,658 @@ def test_the_module_text_promise_holds_in_the_parts_of_the_vault():
     text = (ROOT / "awb" / "handover.py").read_text(encoding="utf-8")
     planted = text + "\n\ndef _leak(passphrase):\n    print(passphrase)\n"
     assert _text_promise_problems(planted) == ["%d carries passphrase" % (text.count("\n") + 4)]
+
+
+# --------------------------------------------------------------------------- vault hardening, 2026-11-16
+
+
+def _review_secret():
+    return "pass" + "word" + "-review-" + "7391"
+
+
+def _review_crypto(monkeypatch):
+    """Fast reversible stand-in: these tests exercise file transactions, not gpg."""
+    monkeypatch.setattr(vault, "encrypt_bytes", lambda data, *a: b"sealed:" + data)
+
+    def decrypt(data, *args):
+        if not data.startswith(b"sealed:"):
+            raise vault.VaultError("wrong passphrase or damaged file")
+        return data[len(b"sealed:"):]
+
+    monkeypatch.setattr(vault, "decrypt_bytes", decrypt)
+
+
+def _review_answer(d, op, **fields):
+    return d._answer(json.dumps(dict(op=op, **fields)).encode(), op != "check", os.getuid())
+
+
+def _review_nonblocking(monkeypatch, path):
+    """A planted FIFO must fail promptly even on the old implementation."""
+    real_open = os.open
+
+    def guarded(name, flags, *args, **kwargs):
+        if str(name) in (str(path), path.name):
+            assert flags & os.O_NONBLOCK, "a special file could block the daemon"
+        return real_open(name, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", guarded)
+    real_io_open = io.open
+
+    def guarded_io(name, *args, **kwargs):
+        assert str(name) not in (str(path), path.name), "a special file could block the daemon"
+        return real_io_open(name, *args, **kwargs)
+
+    monkeypatch.setattr(io, "open", guarded_io)
+
+
+def test_review_passphrase_rejects_surrogates_without_echo(tmp_path):
+    with pytest.raises(vault.VaultError) as err:
+        vault.encrypt_bytes(b"data", _review_secret() + "\ud800", tmp_path / "g")
+    assert _review_secret() not in str(err.value)
+
+
+def test_review_homedir_refuses_links_without_chmod(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir(mode=0o755)
+    linked = tmp_path / "g"
+    linked.symlink_to(outside, target_is_directory=True)
+    with pytest.raises((OSError, vault.VaultError)):
+        vault._homedir(linked)
+    assert stat.S_IMODE(outside.stat().st_mode) == 0o755
+    assert list(outside.iterdir()) == []
+
+
+def test_review_seal_refuses_link_before_creating_ciphertext(tmp_path, monkeypatch):
+    _review_crypto(monkeypatch)
+    outside = tmp_path / "outside"
+    outside.write_bytes(_review_secret().encode())
+    path = tmp_path / "linked"
+    path.symlink_to(outside)
+    with pytest.raises((OSError, vault.VaultError)):
+        vault.seal_path(path, _review_secret(), tmp_path / "g")
+    assert not vault._gpg_path(path).exists()
+    assert outside.read_bytes() == _review_secret().encode()
+
+
+def test_review_seal_refuses_hardlinks_before_shredding(tmp_path, monkeypatch):
+    _review_crypto(monkeypatch)
+    outside = tmp_path / "outside"
+    outside.write_bytes(_review_secret().encode())
+    path = tmp_path / "linked"
+    os.link(outside, path)
+    with pytest.raises((OSError, vault.VaultError)):
+        vault.seal_path(path, _review_secret(), tmp_path / "g")
+    assert outside.read_bytes() == _review_secret().encode()
+    assert path.exists() and not vault._gpg_path(path).exists()
+
+
+def test_review_shred_refuses_fifo_without_blocking(tmp_path, monkeypatch):
+    path = tmp_path / "pipe"
+    os.mkfifo(path)
+    _review_nonblocking(monkeypatch, path)
+    with pytest.raises((OSError, vault.VaultError)):
+        vault._shred(path)
+    assert path.exists()
+
+
+def test_review_encrypt_refuses_linked_input_folder(vp, tmp_path, monkeypatch):
+    _review_crypto(monkeypatch)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    original = outside / "private.txt"
+    original.write_bytes(_review_secret().encode())
+    vp.originals.rmdir()
+    vp.originals.symlink_to(outside, target_is_directory=True)
+    with pytest.raises((OSError, vault.VaultError)):
+        vault.encrypt_vault(vp, _review_secret())
+    assert original.read_bytes() == _review_secret().encode()
+    assert vp.register.exists() and not vp.register_encrypted.exists()
+
+
+def test_review_encrypt_does_not_skip_unreadable_tree(vp, monkeypatch):
+    _review_crypto(monkeypatch)
+    real_scan, real_list = os.scandir, os.listdir
+
+    def blocked(path):
+        actual = Path(os.readlink('/proc/self/fd/%d' % path)) if isinstance(path, int) else Path(path)
+        if actual == vp.originals:
+            raise PermissionError(_review_secret())
+
+    def scan(path):
+        blocked(path)
+        return real_scan(path)
+
+    def listing(path):
+        blocked(path)
+        return real_list(path)
+
+    monkeypatch.setattr(os, "scandir", scan)
+    monkeypatch.setattr(os, "listdir", listing)
+    with pytest.raises((OSError, vault.VaultError)):
+        vault.encrypt_vault(vp, _review_secret())
+    assert vp.register.exists() and not vp.register_encrypted.exists()
+
+
+def test_review_retry_validates_every_sealed_file(vp, monkeypatch):
+    _review_crypto(monkeypatch)
+    (vp.originals / "a.gpg").write_bytes(b"sealed:first")
+    (vp.originals / "b.gpg").write_bytes(b"damaged")
+    original = vp.originals / "c.txt"
+    original.write_bytes(b"keep")
+    with pytest.raises(vault.VaultError, match="another passphrase"):
+        vault.encrypt_vault(vp, _review_secret())
+    assert original.read_bytes() == b"keep"
+    assert vp.register.exists() and not vp.register_encrypted.exists()
+
+
+def test_review_seal_keeps_changed_plaintext(tmp_path, monkeypatch):
+    _review_crypto(monkeypatch)
+    path = tmp_path / "source"
+    path.write_bytes(b"before")
+
+    def encrypt(data, *args):
+        path.write_bytes(b"after!")
+        return b"sealed:" + data
+
+    monkeypatch.setattr(vault, "encrypt_bytes", encrypt)
+    with pytest.raises(vault.VaultError):
+        vault.seal_path(path, _review_secret(), tmp_path / "g")
+    assert path.read_bytes() == b"after!"
+
+
+def test_review_seal_keeps_replaced_plaintext(tmp_path, monkeypatch):
+    _review_crypto(monkeypatch)
+    path = tmp_path / "source"
+    path.write_bytes(b"before")
+
+    def encrypt(data, *args):
+        replacement = tmp_path / "replacement"
+        replacement.write_bytes(b"replacement")
+        replacement.replace(path)
+        return b"sealed:" + data
+
+    monkeypatch.setattr(vault, "encrypt_bytes", encrypt)
+    with pytest.raises(vault.VaultError):
+        vault.seal_path(path, _review_secret(), tmp_path / "g")
+    assert path.read_bytes() == b"replacement"
+
+
+def test_review_seal_preserves_conflicting_ciphertext(tmp_path, monkeypatch):
+    _review_crypto(monkeypatch)
+    path = tmp_path / "source"
+    path.write_bytes(b"new")
+    sealed = vault._gpg_path(path)
+    sealed.write_bytes(b"sealed:old")
+    with pytest.raises(vault.VaultError):
+        vault.seal_path(path, _review_secret(), tmp_path / "g")
+    assert path.read_bytes() == b"new" and sealed.read_bytes() == b"sealed:old"
+
+
+def test_review_seal_requires_durable_ciphertext_directory(tmp_path, monkeypatch):
+    _review_crypto(monkeypatch)
+    path = tmp_path / "source"
+    path.write_bytes(b"keep")
+    real_sync = os.fsync
+
+    def sync(fd):
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            raise OSError("directory sync failed")
+        return real_sync(fd)
+
+    monkeypatch.setattr(os, "fsync", sync)
+    with pytest.raises(OSError):
+        vault.seal_path(path, _review_secret(), tmp_path / "g")
+    assert path.read_bytes() == b"keep"
+    assert list(tmp_path.glob(".awb-*.tmp")) == []
+
+
+def test_review_simultaneous_seals_keep_one_complete_copy(tmp_path, monkeypatch):
+    _review_crypto(monkeypatch)
+    path = tmp_path / "source"
+    path.write_bytes(_review_secret().encode())
+    entered, release_second = threading.Event(), threading.Event()
+    outcomes = []
+    real_encrypt = vault.encrypt_bytes
+
+    def encrypt(data, *args):
+        entered.set()
+        assert release_second.wait(5)
+        return real_encrypt(data, *args)
+
+    monkeypatch.setattr(vault, "encrypt_bytes", encrypt)
+
+    def seal():
+        try:
+            outcomes.append(vault.seal_path(path, _review_secret(), tmp_path / "g"))
+        except Exception as err:
+            outcomes.append(err)
+
+    first = threading.Thread(target=seal)
+    first.start()
+    try:
+        assert entered.wait(5)
+        # The second run must refuse before it reaches encryption, not race to overwrite the first result.
+        with pytest.raises(vault.VaultError, match="holds the file"):
+            vault.seal_path(path, _review_secret(), tmp_path / "g")
+    finally:
+        release_second.set()
+        first.join(5)
+    assert not first.is_alive()
+    assert outcomes == [vault._gpg_path(path)]
+    assert vault._gpg_path(path).read_bytes() == b"sealed:" + _review_secret().encode()
+    assert not path.exists()
+
+
+def test_review_atomic_write_pins_parent_after_directory_swap(tmp_path, monkeypatch):
+    parent, moved, outside = tmp_path / "parent", tmp_path / "moved", tmp_path / "outside"
+    parent.mkdir()
+    outside.mkdir()
+    target = parent / "data"
+    (outside / "data").write_bytes(b"untouched")
+    real_replace = os.replace
+
+    def replace(src, dst, **kwargs):
+        parent.rename(moved)
+        parent.symlink_to(outside, target_is_directory=True)
+        return real_replace(src, dst, **kwargs)
+
+    monkeypatch.setattr(os, "replace", replace)
+    vault._write_atomic(target, b"new")
+    assert (moved / "data").read_bytes() == b"new"
+    assert (outside / "data").read_bytes() == b"untouched"
+    assert list(moved.glob(".awb-*.tmp")) == []
+
+
+def test_review_encrypted_marker_link_never_falls_back_to_plain(vp):
+    vp.register_encrypted.symlink_to(vp.vault / "absent")
+    d = vault.Daemon(vp)
+    assert d.state() == "locked"
+    answer = _review_answer(d, "check", text=TEXT)
+    assert answer["error"] == "locked" and "hits" not in answer
+    assert d._plain is None
+
+
+def test_review_missing_encrypted_register_stays_locked(vp, monkeypatch):
+    _review_crypto(monkeypatch)
+    vp.register_encrypted.write_bytes(b"sealed:" + vp.register.read_bytes())
+    d = vault.Daemon(vp)
+    assert d.state() == "locked"
+    d._unlock(_review_secret())
+    vp.register_encrypted.unlink()
+    assert d.state() == "locked"
+    assert d._passphrase is None and d._entries is None
+
+
+def test_review_replaced_encrypted_register_invalidates_memory(vp, monkeypatch):
+    _review_crypto(monkeypatch)
+    vp.register_encrypted.write_bytes(b"sealed:" + vp.register.read_bytes())
+    d = vault.Daemon(vp)
+    d._unlock(_review_secret())
+    vp.register_encrypted.write_bytes(b"damaged")
+    assert d.state() == "locked" and d._passphrase is None
+    assert _review_answer(d, "register_load")["error"] == "locked"
+
+
+def test_review_plain_register_refuses_links(vp, tmp_path):
+    outside = tmp_path / "outside"
+    vp.register.replace(outside)
+    vp.register.symlink_to(outside)
+    answer = _review_answer(vault.Daemon(vp), "register_load")
+    assert answer["ok"] is False and "text" not in answer
+    assert str(outside) not in json.dumps(answer)
+
+
+def test_review_plain_register_refuses_fifo_without_blocking(vp, monkeypatch):
+    vp.register.unlink()
+    os.mkfifo(vp.register)
+    _review_nonblocking(monkeypatch, vp.register)
+    answer = _review_answer(vault.Daemon(vp), "register_load")
+    assert answer["ok"] is False and "text" not in answer
+    assert "AssertionError" not in json.dumps(answer), "the file was opened without O_NONBLOCK"
+
+
+def test_review_plain_register_cache_detects_preserved_mtime(vp):
+    d = vault.Daemon(vp)
+    before = _review_answer(d, "register_load")["text"]
+    st = vp.register.stat()
+    after = before.replace(fixtures.CUSTOMER_FORMS[0], "Z" * len(fixtures.CUSTOMER_FORMS[0]))
+    assert after != before and len(after.encode()) == len(before.encode())
+    vp.register.write_text(after, encoding="utf-8")
+    os.utime(vp.register, ns=(st.st_atime_ns, st.st_mtime_ns))
+    assert _review_answer(d, "register_load")["text"] == after
+
+
+def test_review_cached_register_still_requires_read_access(vp, monkeypatch):
+    d = vault.Daemon(vp)
+    assert _review_answer(d, "register_load")["ok"]
+    real_open = os.open
+
+    def denied(path, *a, **kw):
+        if str(path) in (str(vp.register), vp.register.name):
+            raise PermissionError(_review_secret())
+        return real_open(path, *a, **kw)
+
+    monkeypatch.setattr(os, "open", denied)
+    answer = _review_answer(d, "register_load")
+    assert answer["ok"] is False
+    assert _review_secret() not in json.dumps(answer)
+
+
+def test_review_register_parser_diagnostic_is_not_an_answer(vp, monkeypatch):
+    def fail(*args):
+        raise register.RegisterError("register line 2: " + _review_secret())
+
+    monkeypatch.setattr(register, "parse", fail)
+    answer = _review_answer(vault.Daemon(vp), "register_save", text="input")
+    assert answer["error"] == "invalid" and "line 2" in answer["detail"]
+    assert _review_secret() not in json.dumps(answer)
+
+
+def test_review_register_parser_diagnostic_is_not_cli_output(vp, monkeypatch, capsys):
+    def fail(*args):
+        raise register.RegisterError("register line 2: " + _review_secret())
+
+    monkeypatch.setattr(register, "parse", fail)
+    monkeypatch.setattr(sys, "stdin", io.StringIO((_review_secret() + "\n") * 2))
+    assert vault.main(["encrypt", "--stdin"]) == 2
+    out = capsys.readouterr()
+    assert _review_secret() not in out.out + out.err
+    assert "line 2" in out.err
+
+
+def test_review_unlock_publishes_state_only_after_matcher_succeeds(vp, monkeypatch):
+    _review_crypto(monkeypatch)
+    vp.register_encrypted.write_bytes(b"sealed:" + vp.register.read_bytes())
+    d = vault.Daemon(vp)
+
+    def fail(*args):
+        raise ValueError(_review_secret())
+
+    monkeypatch.setattr(vault, "Matcher", fail)
+    answer = _review_answer(d, "unlock", passphrase=_review_secret())
+    assert answer["ok"] is False and _review_secret() not in json.dumps(answer)
+    assert d.state() == "locked" and d._passphrase is None and d._entries is None
+
+
+def test_review_open_file_rechecks_link_after_validation(vp, tmp_path, monkeypatch):
+    _review_crypto(monkeypatch)
+    vp.register_encrypted.write_bytes(b"sealed:" + vp.register.read_bytes())
+    d = vault.Daemon(vp)
+    d._unlock(_review_secret())
+    path = vp.originals / "file.gpg"
+    path.write_bytes(b"sealed:allowed")
+    outside = tmp_path / "outside.gpg"
+    outside.write_bytes(b"sealed:" + _review_secret().encode())
+    real_validate = d._vault_file
+
+    def swap(raw, **kw):
+        result = real_validate(raw, **kw)
+        path.unlink()
+        path.symlink_to(outside)
+        return result
+
+    monkeypatch.setattr(d, "_vault_file", swap)
+    answer = _review_answer(d, "open_file", path=str(path))
+    assert answer["ok"] is False and "data" not in answer
+    assert _review_secret() not in json.dumps(answer)
+
+
+def test_review_log_refuses_linked_file(vp, tmp_path, capsys):
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"untouched")
+    vp.check_log.mkdir(exist_ok=True)
+    log = vp.check_log / ("checks-%s.tsv" % datetime.now(timezone.utc).strftime("%Y-%m"))
+    log.symlink_to(outside)
+    vault.Daemon(vp)._log(os.getuid(), 1, 0, "ok")
+    assert outside.read_bytes() == b"untouched"
+    assert str(outside) not in capsys.readouterr().err
+
+
+def test_review_log_refuses_linked_folder(vp, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if vp.check_log.exists():
+        vp.check_log.rmdir()
+    vp.check_log.symlink_to(outside, target_is_directory=True)
+    vault.Daemon(vp)._log(os.getuid(), 1, 0, "ok")
+    assert list(outside.iterdir()) == []
+
+
+def test_review_log_refuses_fifo_without_blocking(vp, monkeypatch):
+    vp.check_log.mkdir(exist_ok=True)
+    log = vp.check_log / ("checks-%s.tsv" % datetime.now(timezone.utc).strftime("%Y-%m"))
+    os.mkfifo(log)
+    _review_nonblocking(monkeypatch, log)
+    vault.Daemon(vp)._log(os.getuid(), 1, 0, "ok")
+    assert stat.S_ISFIFO(log.lstat().st_mode)
+
+
+def test_review_report_selection_refuses_linked_file(vp, tmp_path):
+    folder = vp.private_reports / fixtures.CUSTOMER_CODE
+    folder.mkdir()
+    outside = tmp_path / "outside"
+    outside.write_text(_review_secret())
+    (folder / "2026-11-16-120000.md").symlink_to(outside)
+    with pytest.raises(vault.VaultError):
+        vault.newest_report(vp, fixtures.CUSTOMER_CODE)
+
+
+def test_review_report_selection_refuses_linked_folder(vp, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "2026-11-16-120000.md").write_text(_review_secret())
+    (vp.private_reports / fixtures.CUSTOMER_CODE).symlink_to(outside, target_is_directory=True)
+    with pytest.raises(vault.VaultError):
+        vault.newest_report(vp)
+
+
+def test_review_show_keeps_link_spelling_for_daemon_validation(vp, tmp_path, monkeypatch):
+    class Tty(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    monkeypatch.setattr(sys, "stdout", Tty())
+    target = vp.originals / "report.gpg"
+    target.write_bytes(b"ciphertext")
+    link = tmp_path / "link.gpg"
+    link.symlink_to(target)
+    seen = []
+
+    def call(op, **kw):
+        seen.append(kw["path"])
+        raise vault.VaultError("not allowed")
+
+    monkeypatch.setattr(vault, "admin_call", call)
+    assert vault.main(["show", str(link)]) == 2
+    assert seen == [str(link)]
+
+
+def test_review_pipelined_requests_obey_connection_lifetime(vp, monkeypatch):
+    class Connection:
+        def __init__(self):
+            self.replies = []
+            self.reads = 0
+
+        def settimeout(self, value):
+            pass
+
+        def recv(self, size):
+            self.reads += 1
+            return b'{"op":"ping"}\n' * 4 if self.reads == 1 else b""
+
+        def sendall(self, data):
+            self.replies.append(data)
+
+        def close(self):
+            pass
+
+    now = [0.0]
+    monkeypatch.setattr(vault.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(vault, "MAX_CONNECTION_SECONDS", 1.0)
+    monkeypatch.setattr(vault, "_peer_uid", lambda conn: os.getuid())
+    d = vault.Daemon(vp)
+
+    def answer(*args):
+        now[0] += 2.0
+        return {"ok": True}
+
+    monkeypatch.setattr(d, "_answer", answer)
+    conn = Connection()
+    d._serve_conn(conn, True)
+    assert len(conn.replies) == 1
+
+
+def test_review_stop_before_accept_releases_resources(vp):
+    d = vault.Daemon(vp)
+    d._threads = [threading.Thread(target=lambda: None)]
+    d._started = True
+    d._passphrase = _review_secret()
+    d.stop()
+    assert d._passphrase is None and not d._started and d._threads == []
+
+
+def test_review_log_header_is_serialized_across_daemons(vp, monkeypatch):
+    first_header, second_stat, release = threading.Event(), threading.Event(), threading.Event()
+    real_stat, real_write = os.fstat, os.write
+    failures = []
+
+    def status(fd):
+        result = real_stat(fd)
+        if (threading.current_thread().name == "review-log-second" and stat.S_ISREG(result.st_mode)
+                and os.readlink('/proc/self/fd/%d' % fd).endswith(".tsv")):
+            second_stat.set()
+            assert release.wait(5)
+        return result
+
+    def write(fd, data):
+        if threading.current_thread().name == "review-log-first" and bytes(data) == vault.CHECK_LOG_HEADER.encode():
+            first_header.set()
+            assert release.wait(5)
+        return real_write(fd, data)
+
+    monkeypatch.setattr(os, "fstat", status)
+    monkeypatch.setattr(os, "write", write)
+
+    def log():
+        try:
+            vault.Daemon(vp)._log(os.getuid(), 1, 0, "ok")
+        except BaseException as err:
+            failures.append(err)
+
+    first = threading.Thread(target=log, name="review-log-first")
+    second = threading.Thread(target=log, name="review-log-second")
+    first.start()
+    try:
+        assert first_header.wait(5)
+        second.start()
+        assert second_stat.wait(5)
+    finally:
+        release.set()
+        first.join(5)
+        if second.ident is not None:
+            second.join(5)
+    assert not first.is_alive() and not second.is_alive() and not failures
+    data = next(vp.check_log.glob("checks-*.tsv")).read_text()
+    assert data.count(vault.CHECK_LOG_HEADER) == 1 and len(data.splitlines()) == 3
+
+
+def test_review_log_completes_short_writes(vp, monkeypatch):
+    real_write = os.write
+    monkeypatch.setattr(os, "write", lambda fd, data: real_write(fd, data[:3]))
+    vault.Daemon(vp)._log(os.getuid(), 11, 2, "ok")
+    data = next(vp.check_log.glob("checks-*.tsv")).read_text()
+    assert data.startswith(vault.CHECK_LOG_HEADER)
+    assert len(data.splitlines()) == 2 and data.endswith("\t11\t2\tok\n")
+
+
+def test_review_log_repairs_private_permissions(vp):
+    vp.check_log.mkdir(exist_ok=True)
+    log = vp.check_log / ("checks-%s.tsv" % datetime.now(timezone.utc).strftime("%Y-%m"))
+    log.write_text(vault.CHECK_LOG_HEADER)
+    log.chmod(0o644)
+    vault.Daemon(vp)._log(os.getuid(), 1, 0, "ok")
+    assert stat.S_IMODE(log.stat().st_mode) == 0o600
+
+
+def test_review_start_failure_closes_bound_resources(vp, monkeypatch):
+    class Server:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    servers = []
+
+    def bind(*args):
+        srv = Server()
+        servers.append(srv)
+        return srv, (0, 0)
+
+    def state():
+        raise PermissionError(_review_secret())
+
+    d = vault.Daemon(vp)
+    monkeypatch.setattr(vault, "_bind", bind)
+    monkeypatch.setattr(d, "state", state)
+    with pytest.raises(PermissionError):
+        d.start(accept=False)
+    assert all(s.closed for s in servers)
+    assert not d._started and d._threads == [] and d._servers == []
+
+
+def test_review_show_malformed_plain_report_refuses_without_values(vp, monkeypatch, capsys):
+    class Tty(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    out = Tty()
+    monkeypatch.setattr(sys, "stdout", out)
+    folder = vp.private_reports / fixtures.CUSTOMER_CODE
+    folder.mkdir()
+    (folder / "2026-11-16-120000.md").write_bytes(_review_secret().encode() + b"\xff")
+    assert vault.main(["show", "--customer", fixtures.CUSTOMER_CODE]) == 2
+    assert out.getvalue() == ""
+    assert _review_secret() not in capsys.readouterr().err
+
+
+def test_review_register_save_builds_matcher_before_commit(vp, monkeypatch):
+    _review_crypto(monkeypatch)
+    original = b"sealed:" + vp.register.read_bytes()
+    vp.register_encrypted.write_bytes(original)
+    d = vault.Daemon(vp)
+    d._unlock(_review_secret())
+    entries, matcher = d._entries, d._matcher
+    new = register.render(entries + [register.Entry(fixtures.PARTNER_CODE + "-PERS-1", "PERS",
+                                                   fixtures.PLANTED_PERSON, fixtures.TODAY, "active")])
+
+    def fail(*args):
+        raise ValueError(_review_secret())
+
+    monkeypatch.setattr(vault, "Matcher", fail)
+    answer = _review_answer(d, "register_save", text=new)
+    assert answer["ok"] is False and _review_secret() not in json.dumps(answer)
+    assert vp.register_encrypted.read_bytes() == original
+    assert d._entries is entries and d._matcher is matcher and d.state() == "unlocked"
+
+
+def test_review_register_save_cannot_race_encryption(vp, monkeypatch):
+    _review_crypto(monkeypatch)
+    d = vault.Daemon(vp)
+    original = vp.register.read_bytes()
+    attempted = []
+
+    def encrypt(data, *args):
+        attempted.append(_review_answer(d, "register_save", text=original.decode()))
+        return b"sealed:" + data
+
+    monkeypatch.setattr(vault, "encrypt_bytes", encrypt)
+    vault.encrypt_vault(vp, _review_secret())
+    assert attempted == [{"ok": False, "error": "busy"}]
+    assert not vp.register.exists()
+    assert vp.register_encrypted.read_bytes() == b"sealed:" + original

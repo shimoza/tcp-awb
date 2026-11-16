@@ -21531,8 +21531,288 @@
    "name": "Windows lab review: a held registry lock refuses within the wait",
    "run": ".venv/bin/pytest tests/test_wl_registry.py::test_wl_review_a_held_registry_lock_refuses_within_the_wait",
    "status": "passing"
+  },
+  {
+   "id": "VAULT-H1",
+   "phase": "T",
+   "name": "vault: passphrase rejects surrogates without echo",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_passphrase_rejects_surrogates_without_echo",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H2",
+   "phase": "T",
+   "name": "vault: homedir refuses links without chmod",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_homedir_refuses_links_without_chmod",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H3",
+   "phase": "T",
+   "name": "vault: seal refuses link before creating ciphertext",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_seal_refuses_link_before_creating_ciphertext",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H4",
+   "phase": "T",
+   "name": "vault: seal refuses hardlinks before shredding",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_seal_refuses_hardlinks_before_shredding",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H5",
+   "phase": "T",
+   "name": "vault: shred refuses fifo without blocking",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_shred_refuses_fifo_without_blocking",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H6",
+   "phase": "T",
+   "name": "vault: encrypt refuses linked input folder",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_encrypt_refuses_linked_input_folder",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H7",
+   "phase": "T",
+   "name": "vault: encrypt does not skip unreadable tree",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_encrypt_does_not_skip_unreadable_tree",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H8",
+   "phase": "T",
+   "name": "vault: retry validates every sealed file",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_retry_validates_every_sealed_file",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H9",
+   "phase": "T",
+   "name": "vault: seal keeps changed plaintext",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_seal_keeps_changed_plaintext",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H10",
+   "phase": "T",
+   "name": "vault: seal keeps replaced plaintext",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_seal_keeps_replaced_plaintext",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H11",
+   "phase": "T",
+   "name": "vault: seal preserves conflicting ciphertext",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_seal_preserves_conflicting_ciphertext",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H12",
+   "phase": "T",
+   "name": "vault: seal requires durable ciphertext directory",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_seal_requires_durable_ciphertext_directory",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H13",
+   "phase": "T",
+   "name": "vault: simultaneous seals keep one complete copy",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_simultaneous_seals_keep_one_complete_copy",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H14",
+   "phase": "T",
+   "name": "vault: atomic write pins parent after directory swap",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_atomic_write_pins_parent_after_directory_swap",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H15",
+   "phase": "T",
+   "name": "vault: encrypted marker link never falls back to plain",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_encrypted_marker_link_never_falls_back_to_plain",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H16",
+   "phase": "T",
+   "name": "vault: missing encrypted register stays locked",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_missing_encrypted_register_stays_locked",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H17",
+   "phase": "T",
+   "name": "vault: replaced encrypted register invalidates memory",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_replaced_encrypted_register_invalidates_memory",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H18",
+   "phase": "T",
+   "name": "vault: plain register refuses links",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_plain_register_refuses_links",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H19",
+   "phase": "T",
+   "name": "vault: plain register refuses fifo without blocking",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_plain_register_refuses_fifo_without_blocking",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H20",
+   "phase": "T",
+   "name": "vault: plain register cache detects preserved mtime",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_plain_register_cache_detects_preserved_mtime",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H21",
+   "phase": "T",
+   "name": "vault: cached register still requires read access",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_cached_register_still_requires_read_access",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H22",
+   "phase": "T",
+   "name": "vault: register parser diagnostic is not an answer",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_register_parser_diagnostic_is_not_an_answer",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H23",
+   "phase": "T",
+   "name": "vault: register parser diagnostic is not cli output",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_register_parser_diagnostic_is_not_cli_output",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H24",
+   "phase": "T",
+   "name": "vault: unlock publishes state only after matcher succeeds",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_unlock_publishes_state_only_after_matcher_succeeds",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H25",
+   "phase": "T",
+   "name": "vault: open file rechecks link after validation",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_open_file_rechecks_link_after_validation",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H26",
+   "phase": "T",
+   "name": "vault: log refuses linked file",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_log_refuses_linked_file",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H27",
+   "phase": "T",
+   "name": "vault: log refuses linked folder",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_log_refuses_linked_folder",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H28",
+   "phase": "T",
+   "name": "vault: log refuses fifo without blocking",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_log_refuses_fifo_without_blocking",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H29",
+   "phase": "T",
+   "name": "vault: report selection refuses linked file",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_report_selection_refuses_linked_file",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H30",
+   "phase": "T",
+   "name": "vault: report selection refuses linked folder",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_report_selection_refuses_linked_folder",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H31",
+   "phase": "T",
+   "name": "vault: show keeps link spelling for daemon validation",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_show_keeps_link_spelling_for_daemon_validation",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H32",
+   "phase": "T",
+   "name": "vault: pipelined requests obey connection lifetime",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_pipelined_requests_obey_connection_lifetime",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H33",
+   "phase": "T",
+   "name": "vault: stop before accept releases resources",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_stop_before_accept_releases_resources",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H34",
+   "phase": "T",
+   "name": "vault: log header is serialized across daemons",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_log_header_is_serialized_across_daemons",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H35",
+   "phase": "T",
+   "name": "vault: log completes short writes",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_log_completes_short_writes",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H36",
+   "phase": "T",
+   "name": "vault: log repairs private permissions",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_log_repairs_private_permissions",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H37",
+   "phase": "T",
+   "name": "vault: start failure closes bound resources",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_start_failure_closes_bound_resources",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H38",
+   "phase": "T",
+   "name": "vault: show malformed plain report refuses without values",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_show_malformed_plain_report_refuses_without_values",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H39",
+   "phase": "T",
+   "name": "vault: register save builds matcher before commit",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_register_save_builds_matcher_before_commit",
+   "status": "passing"
+  },
+  {
+   "id": "VAULT-H40",
+   "phase": "T",
+   "name": "vault: register save cannot race encryption",
+   "run": ".venv/bin/pytest tests/test_vault.py::test_review_register_save_cannot_race_encryption",
+   "status": "passing"
   }
  ],
- "total_tests": 3076,
+ "total_tests": 3116,
  "checked": "2026-11-09"
 }

@@ -49,12 +49,12 @@ import getpass
 import json
 import os
 import re
+import secrets
 import signal
 import socket
 import stat
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from collections import deque
@@ -112,8 +112,8 @@ CHECK_LOG_HEADER = "time\tuid\tlength\thits\tresult\n"
 
 def _homedir(homedir: Path) -> Path:
     homedir = Path(homedir)
-    homedir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    os.chmod(homedir, 0o700)
+    with _directory(homedir, create=True) as fd:
+        os.fchmod(fd, 0o700)
     return homedir
 
 
@@ -130,6 +130,10 @@ def _check_passphrase(passphrase) -> str:
         raise VaultError("the passphrase is longer than %d characters" % MAX_PASSPHRASE)
     if any(c in passphrase for c in "\r\n\x00"):
         raise VaultError("the passphrase must be one line")
+    try:
+        passphrase.encode("utf-8")
+    except UnicodeError:
+        raise VaultError("the passphrase must be valid UTF-8") from None
     return passphrase
 
 
@@ -187,45 +191,105 @@ def decrypt_bytes(data: bytes, passphrase: str, homedir: Path) -> bytes:
 # --------------------------------------------------------------------------- files
 
 
-def _write_atomic(path: Path, data: bytes, mode: int = 0o600) -> None:
-    path = Path(path)
-    fd, tmp = tempfile.mkstemp(prefix=".awb-", suffix=".tmp", dir=path.parent)
+@contextmanager
+def _directory(path: Path, *, create: bool = False):
+    """Open each component without links and retain the directory used by an operation."""
+    path = Path(path).absolute()
+    if ".." in path.parts:
+        raise VaultError("a vault path must not contain parent traversal")
+    fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        os.fchmod(fd, mode)
+        for name in path.parts[1:]:
+            if create:
+                try:
+                    os.mkdir(name, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+@contextmanager
+def _regular_at(folder: int, name: str, flags: int = os.O_RDONLY):
+    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=folder)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+            raise VaultError("only a regular vault file with one link is allowed")
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _read_fd(fd: int) -> bytes:
+    with os.fdopen(os.dup(fd), "rb") as fh:
+        return fh.read()
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    remaining = memoryview(data)
+    while remaining:
+        count = os.write(fd, remaining)
+        if count <= 0:
+            raise OSError("a vault write made no progress")
+        remaining = remaining[count:]
+
+
+def _read_file(path: Path) -> bytes:
+    with _directory(path.parent) as folder, _regular_at(folder, path.name) as fd:
+        return _read_fd(fd)
+
+
+def _revision(st) -> tuple:
+    return st.st_dev, st.st_ino, st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_nlink
+
+
+def _write_at(folder: int, name: str, data: bytes, mode: int) -> None:
+    tmp = ".awb-%s.tmp" % secrets.token_hex(16)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=folder)
+    try:
         with os.fdopen(fd, "wb") as fh:
+            os.fchmod(fh.fileno(), mode)
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, path)
-    except BaseException:
+        os.replace(tmp, name, src_dir_fd=folder, dst_dir_fd=folder)
+        os.fsync(folder)
+    finally:
         try:
-            os.unlink(tmp)
-        except OSError:
+            os.unlink(tmp, dir_fd=folder)
+        except FileNotFoundError:
             pass
-        raise
-    try:
-        dfd = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(dfd)
-        finally:
-            os.close(dfd)
-    except OSError:
-        pass
+
+
+def _write_atomic(path: Path, data: bytes, mode: int = 0o600) -> None:
+    path = Path(path)
+    with _directory(path.parent) as folder:
+        _write_at(folder, path.name, data, mode)
 
 
 def _shred(path: Path) -> None:
     """Overwrite a plaintext file with zeros, then unlink it."""
-    fd = os.open(path, os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0))
-    try:
-        size = os.fstat(fd).st_size
-        block = b"\x00" * 65536
-        done = 0
-        while done < size:
-            done += os.write(fd, block[:min(len(block), size - done)])
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-    os.unlink(path)
+    with _directory(path.parent) as folder, _regular_at(folder, path.name, os.O_WRONLY) as fd:
+        _shred_fd(fd)
+        os.unlink(path.name, dir_fd=folder)
+
+
+def _shred_fd(fd: int) -> None:
+    size = os.fstat(fd).st_size
+    os.lseek(fd, 0, os.SEEK_SET)
+    block = b"\x00" * 65536
+    done = 0
+    while done < size:
+        n = os.write(fd, block[:min(len(block), size - done)])
+        if n <= 0:
+            raise VaultError("the plaintext could not be removed")
+        done += n
+    os.fsync(fd)
 
 
 def _is_regular(path: Path) -> bool:
@@ -242,13 +306,33 @@ def _gpg_path(path: Path) -> Path:
 def seal_path(path: Path, passphrase: str, homedir: Path) -> Path:
     """Encrypt a plaintext file to `<path>.gpg`, prove that it decrypts, then overwrite and remove the plaintext."""
     path = Path(path)
-    data = path.read_bytes()
-    enc = encrypt_bytes(data, passphrase, homedir)
-    if decrypt_bytes(enc, passphrase, homedir) != data:
-        raise VaultError("the encrypted copy does not decrypt to the original, the plaintext is kept")
     target = _gpg_path(path)
-    _write_atomic(target, enc)
-    _shred(path)
+    with _directory(path.parent) as folder, _regular_at(folder, path.name, os.O_RDWR) as fd:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise VaultError("another encryption holds the file") from None
+        before = _revision(os.fstat(fd))
+        data = _read_fd(fd)
+        try:
+            with _regular_at(folder, target.name) as sealed:
+                enc = _read_fd(sealed)
+        except FileNotFoundError:
+            enc = encrypt_bytes(data, passphrase, homedir)
+        if decrypt_bytes(enc, passphrase, homedir) != data:
+            raise VaultError("the encrypted copy does not decrypt to the original, the plaintext is kept")
+        def unchanged():
+            if (before != _revision(os.fstat(fd)) or
+                    before != _revision(os.stat(path.name, dir_fd=folder, follow_symlinks=False))):
+                raise VaultError("the plaintext changed during encryption, it is kept")
+        unchanged()
+        _write_at(folder, target.name, enc, 0o600)
+        unchanged()
+        _shred_fd(fd)
+        if os.stat(path.name, dir_fd=folder, follow_symlinks=False).st_ino != os.fstat(fd).st_ino:
+            raise VaultError("the plaintext changed during encryption, it is kept")
+        os.unlink(path.name, dir_fd=folder)
+        os.fsync(folder)
     return target
 
 
@@ -259,19 +343,42 @@ def _vault_homedir(p: config.Paths) -> Path:
 def plaintext_files(p: config.Paths) -> list[Path]:
     """What `awb vault encrypt` seals: keep.tsv, every regular file under originals/ and reports/ that is not
     a .gpg yet. The register comes last, so that a failed run can be repeated."""
-    out: list[Path] = []
-    if _is_regular(p.keep_list):
-        out.append(p.keep_list)
-    for folder in (p.originals, p.private_reports):
-        if not folder.is_dir():
-            continue
-        for root, dirs, files in os.walk(folder):
-            dirs.sort()
-            for name in sorted(files):
-                f = Path(root) / name
-                if not name.endswith(".gpg") and _is_regular(f):
-                    out.append(f)
+    out = _inventory(p, encrypted=False)
     out.append(p.register)
+    return out
+
+
+def _inventory(p: config.Paths, *, encrypted: bool) -> list[Path]:
+    out = []
+
+    def walk(folder: int, path: Path):
+        for name in sorted(os.listdir(folder)):
+            st = os.stat(name, dir_fd=folder, follow_symlinks=False)
+            if stat.S_ISDIR(st.st_mode):
+                child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=folder)
+                try:
+                    walk(child, path / name)
+                finally:
+                    os.close(child)
+            elif not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+                raise VaultError("the vault contains an unsafe file")
+            elif name.endswith(".gpg") == encrypted:
+                out.append(path / name)
+
+    keep = _gpg_path(p.keep_list) if encrypted else p.keep_list
+    try:
+        with _directory(keep.parent) as folder, _regular_at(folder, keep.name):
+            out.append(keep)
+    except FileNotFoundError:
+        pass
+    for path in (p.originals, p.private_reports):
+        try:
+            with _directory(path) as folder:
+                walk(folder, path)
+        except FileNotFoundError:
+            # Only an absent optional root is harmless. Disappearing children are errors.
+            if path.exists() or path.is_symlink():
+                raise
     return out
 
 
@@ -282,8 +389,7 @@ def vault_lock(p: config.Paths, wait: float | None = None):
     reload only, and never while it holds its own lock, so an intake that holds it can still have its files
     sealed."""
     wait = LOCK_WAIT if wait is None else wait
-    fd = os.open(p.vault, os.O_RDONLY | os.O_DIRECTORY)
-    try:
+    with _directory(p.vault) as fd:
         deadline = time.monotonic() + wait
         while True:
             try:
@@ -295,22 +401,11 @@ def vault_lock(p: config.Paths, wait: float | None = None):
                         from None
                 time.sleep(0.1)
         yield
-    finally:
-        os.close(fd)
 
 
 def _sealed_files(p: config.Paths) -> list[Path]:
     """The .gpg files an earlier run of `awb vault encrypt` left: keep list, originals and reports."""
-    out: list[Path] = []
-    keep = _gpg_path(p.keep_list)
-    if _is_regular(keep):
-        out.append(keep)
-    for folder in (p.originals, p.private_reports):
-        if folder.is_dir():
-            for root, dirs, files in os.walk(folder):
-                dirs.sort()
-                out.extend(Path(root) / n for n in sorted(files) if n.endswith(".gpg") and _is_regular(Path(root) / n))
-    return out
+    return _inventory(p, encrypted=True)
 
 
 def encrypt_vault(p: config.Paths, passphrase: str) -> int:
@@ -318,21 +413,21 @@ def encrypt_vault(p: config.Paths, passphrase: str) -> int:
 
     It holds the vault lock, so that no intake writes a plaintext original while it runs. A run that failed half
     way can be repeated, but only with the same passphrase: when files of the earlier run are sealed already, the
-    new passphrase must open one of them, else nothing is done (the daemon could never open both kinds)."""
+    new passphrase must open all of them, else nothing is done (the daemon could never open both kinds)."""
     _check_passphrase(passphrase)
     if len(passphrase) < MIN_NEW_PASSPHRASE:
         raise VaultError("a new passphrase needs at least %d characters" % MIN_NEW_PASSPHRASE)
     with vault_lock(p):
-        if p.register_encrypted.exists():
+        if os.path.lexists(p.register_encrypted):
             raise VaultError("the vault is already encrypted")
         if not _is_regular(p.register):
             raise VaultError("there is no register to encrypt; run awb init first")
-        register.parse(p.register.read_bytes())
+        register.parse(_read_file(p.register))
         home = _homedir(_vault_homedir(p))
         earlier = _sealed_files(p)
-        if earlier:
+        for sealed in earlier:
             try:
-                decrypt_bytes(earlier[0].read_bytes(), passphrase, home)
+                decrypt_bytes(_read_file(sealed), passphrase, home)
             except VaultError:
                 raise VaultError("files of an earlier run are sealed with another passphrase; run it again with "
                                  "the passphrase of that run, nothing was changed") from None
@@ -367,6 +462,12 @@ def _now_since() -> str:
     return datetime.now(timezone.utc).strftime(SINCE_FORMAT)
 
 
+def _register_detail(err: Exception) -> str:
+    """Keep the parser's useful line number, never its unchecked diagnostic text."""
+    match = re.match(r"register line ([0-9]{1,9}):", str(err))
+    return "register line %s: invalid fields" % match[1] if match else "register invalid"
+
+
 def _takeover_command(fd: int) -> list[str]:
     """The new daemon of a reload: the installed code in a fresh, isolated interpreter, so `-m awb` resolves through
     the live release. The tests replace this function with a stand-in child; no option names another program."""
@@ -395,6 +496,8 @@ class Daemon:
         self._entries: list[register.Entry] | None = None
         self._matcher: Matcher | None = None
         self._plain: tuple | None = None
+        self._encrypted_seen = False
+        self._encrypted_revision: tuple | None = None
         self._rate: dict[int, deque] = {}
         self._servers: list[tuple[socket.socket, Path, tuple[int, int]]] = []
         self._threads: list[threading.Thread] = []
@@ -437,11 +540,12 @@ class Daemon:
                 t = threading.Thread(target=self._accept_loop, args=(srv, admin), daemon=True,
                                      name="awb-vault-%s" % ("admin" if admin else "check"))
                 self._threads.append(t)
+            self.state()      # an encrypted register starts locked; fail before starting any thread
         except BaseException:
             self._close_servers(unlink=inherited is None)
+            self._threads = []
             raise
         self._started = True
-        self.state()      # a start with an encrypted register is locked from now on: _state() notes the time
         if accept:
             self.accept_now()
 
@@ -467,7 +571,8 @@ class Daemon:
             return
         self.stopping.set()
         for t in self._threads:
-            t.join(timeout=5)
+            if t.ident is not None:
+                t.join(timeout=5)
         self._threads = []
         self._close_servers()
         with self._conn_lock:
@@ -598,6 +703,8 @@ class Daemon:
             end_of_life = time.monotonic() + MAX_CONNECTION_SECONDS
             deadline = min(time.monotonic() + READ_TIMEOUT, end_of_life)
             while True:
+                if time.monotonic() >= end_of_life:
+                    return
                 nl = buf.find(b"\n")
                 if nl < 0:
                     if not buf and self.stopping.is_set():
@@ -696,15 +803,14 @@ class Daemon:
                                          "-" if hits is None else str(hits), result)
         with self._log_lock:
             try:
-                self.p.check_log.mkdir(mode=0o700, parents=True, exist_ok=True)
-                fd = os.open(f, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-                try:
+                with _directory(self.p.check_log, create=True) as folder, _regular_at(
+                        folder, f.name, os.O_WRONLY | os.O_APPEND | os.O_CREAT) as fd:
+                    fcntl.flock(fd, fcntl.LOCK_EX)
+                    os.fchmod(fd, 0o600)
                     if os.fstat(fd).st_size == 0:
-                        os.write(fd, CHECK_LOG_HEADER.encode("ascii"))
-                    os.write(fd, line.encode("ascii"))
-                finally:
-                    os.close(fd)
-            except OSError as err:
+                        _write_all(fd, CHECK_LOG_HEADER.encode("ascii"))
+                    _write_all(fd, line.encode("ascii"))
+            except (OSError, VaultError) as err:
                 if not self._log_warned:
                     self._log_warned = True
                     print("awb vault: the check log cannot be written (%s)" % type(err).__name__, file=sys.stderr)
@@ -723,7 +829,16 @@ class Daemon:
             return self._state()
 
     def _state(self) -> str:
-        if _is_regular(self.p.register_encrypted):
+        with _directory(self.p.vault) as folder:
+            try:
+                marker = os.stat(self.p.register_encrypted.name, dir_fd=folder, follow_symlinks=False)
+            except FileNotFoundError:
+                marker = None
+        if marker is not None or self._encrypted_seen:
+            self._encrypted_seen = True
+            if (marker is None or not stat.S_ISREG(marker.st_mode) or marker.st_nlink != 1 or
+                    self._passphrase is not None and _revision(marker) != self._encrypted_revision):
+                self._forget()
             # the vault is encrypted: a copy of the plain register from before must not outlive it
             self._plain = None
             if self._passphrase is not None:
@@ -745,14 +860,17 @@ class Daemon:
     def _plain_register(self) -> tuple[list[register.Entry], Matcher]:
         path = self.p.register
         try:
-            st = os.stat(path)
+            with _directory(path.parent) as folder, _regular_at(folder, path.name) as fd:
+                key = _revision(os.fstat(fd))
+                if self._plain is not None and self._plain[0] == key:
+                    return self._plain[1], self._plain[2]
+                data = _read_fd(fd)
+                if key != _revision(os.fstat(fd)):
+                    raise _Refused("register invalid")
         except FileNotFoundError:
             raise _Refused("no register") from None
-        key = (st.st_dev, st.st_ino, st.st_mtime_ns, st.st_size)
-        if self._plain is not None and self._plain[0] == key:
-            return self._plain[1], self._plain[2]
         try:
-            entries = register.parse(path.read_bytes())
+            entries = register.parse(data)
         except register.RegisterError:
             raise _Refused("register invalid") from None
         m = Matcher(register.forms_for_matching(entries))
@@ -872,17 +990,24 @@ class Daemon:
         if not _is_regular(self.p.register_encrypted):
             raise _Refused("not encrypted")
         try:
-            data = decrypt_bytes(self.p.register_encrypted.read_bytes(), pw, self.homedir)
+            with _directory(self.p.vault) as folder, _regular_at(folder, self.p.register_encrypted.name) as fd:
+                revision = _revision(os.fstat(fd))
+                data = decrypt_bytes(_read_fd(fd), pw, self.homedir)
+                if revision != _revision(os.fstat(fd)):
+                    raise VaultError("the encrypted register changed")
         except VaultError:
             raise _Refused("wrong passphrase") from None
         try:
             entries = register.parse(data)
         except register.RegisterError as err:
-            raise _Refused("invalid", str(err)) from None
+            raise _Refused("invalid", _register_detail(err)) from None
+        matcher = Matcher(register.forms_for_matching(entries))
         self._passphrase = pw
+        self._encrypted_seen = True
+        self._encrypted_revision = revision
         self._locked_since = None
         self._entries = entries
-        self._matcher = Matcher(register.forms_for_matching(entries))
+        self._matcher = matcher
 
     def _op_unlock(self, req: dict, uid: int) -> dict:
         pw = req.get("passphrase")
@@ -942,7 +1067,7 @@ class Daemon:
             entries = register.parse(text)
             canonical = register.render(entries)
         except register.RegisterError as err:
-            raise _Refused("invalid", str(err)) from None
+            raise _Refused("invalid", _register_detail(err)) from None
         with self._lock:
             self._not_handing_over()
             state = self._state()
@@ -963,16 +1088,44 @@ class Daemon:
                                           "never removed" % len(dropped))
             if state == "unlocked":
                 data = canonical.encode("utf-8")
+                matcher = Matcher(register.forms_for_matching(entries))
                 enc = encrypt_bytes(data, self._passphrase, self.homedir)
                 if decrypt_bytes(enc, self._passphrase, self.homedir) != data:
                     raise _Refused("failed", "the encrypted register does not decrypt, nothing was written")
                 _write_atomic(self.p.register_encrypted, enc)
+                self._encrypted_revision = _revision(self.p.register_encrypted.stat())
                 self._entries = entries
-                self._matcher = Matcher(register.forms_for_matching(entries))
+                self._matcher = matcher
             else:
-                register.save(self.p.register, entries)
+                self._save_plain(canonical.encode("utf-8"))
                 self._plain = None
             return {"ok": True, "codes": len(register.codes(entries)), "forms": len(entries)}
+
+    def _save_plain(self, data: bytes) -> None:
+        """Share the source inode lock with encryption without taking an intake's directory lock."""
+        with _directory(self.p.vault) as folder:
+            try:
+                source = os.open(self.p.register.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                                 dir_fd=folder)
+            except FileNotFoundError:
+                source = None
+            try:
+                if source is not None:
+                    try:
+                        fcntl.flock(source, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        raise _Refused("busy") from None
+                    current = os.stat(self.p.register.name, dir_fd=folder, follow_symlinks=False)
+                    if (not stat.S_ISREG(current.st_mode) or current.st_nlink != 1 or
+                            _revision(current) != _revision(os.fstat(source)) or
+                            self._plain is not None and self._plain[0] != _revision(current)):
+                        raise _Refused("busy")
+                if self._state() != "plain":
+                    raise _Refused("locked")
+                _write_at(folder, self.p.register.name, data, 0o600)
+            finally:
+                if source is not None:
+                    os.close(source)
 
     def _op_seal_file(self, req: dict, uid: int) -> dict:
         with self._lock:
@@ -987,7 +1140,7 @@ class Daemon:
             pw = self._need_unlocked()
             path = self._vault_file(req.get("path"), encrypted=True)
             try:
-                data = decrypt_bytes(path.read_bytes(), pw, self.homedir)
+                data = decrypt_bytes(_read_file(path), pw, self.homedir)
             except VaultError:
                 raise _Refused("failed", "the file does not decrypt with the passphrase in memory") from None
             return {"ok": True, "data": base64.b64encode(data).decode("ascii")}
@@ -1205,11 +1358,11 @@ def _cmd_show(args, p: config.Paths) -> int:
         print("awb vault: show prints to a terminal only, never to a pipe or a file", file=sys.stderr)
         return 2
     if args.file:
-        path = Path(args.file).expanduser().resolve()
+        path = Path(args.file).expanduser().absolute()
     else:
         path = newest_report(p, args.customer)
         if path.suffix != ".gpg":
-            text = path.read_text(encoding="utf-8")
+            text = _read_file(path).decode("utf-8")
             sys.stdout.write(text if text.endswith("\n") else text + "\n")
             return 0
     answer = admin_call("open_file", path=str(path))
@@ -1230,7 +1383,10 @@ def newest_report(p: config.Paths, customer: str | None = None, now: float | Non
 
     def reports(folder: Path) -> list[Path]:
         try:
-            return sorted(f for f in folder.iterdir() if f.is_file() and REPORT_NAME_RE.fullmatch(f.name))
+            with _directory(folder) as fd:
+                return sorted(folder / n for n in os.listdir(fd) if REPORT_NAME_RE.fullmatch(n)
+                              and stat.S_ISREG(os.stat(n, dir_fd=fd, follow_symlinks=False).st_mode)
+                              and os.stat(n, dir_fd=fd, follow_symlinks=False).st_nlink == 1)
         except OSError:
             return []
 
@@ -1245,8 +1401,10 @@ def newest_report(p: config.Paths, customer: str | None = None, now: float | Non
     limit = (time.time() if now is None else now) - 24 * 3600
     recent = []
     try:
-        folders = [d for d in p.private_reports.iterdir()
-                   if d.is_dir() and (codes.is_code(d.name) or codes.is_project_code(d.name))]
+        with _directory(p.private_reports) as fd:
+            folders = [p.private_reports / n for n in os.listdir(fd)
+                       if stat.S_ISDIR(os.stat(n, dir_fd=fd, follow_symlinks=False).st_mode)
+                       and (codes.is_code(n) or codes.is_project_code(n))]
     except OSError:
         folders = []
     for d in folders:
@@ -1300,11 +1458,17 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         return func(args, config.paths())
-    except (VaultError, register.RegisterError) as err:
+    except register.RegisterError as err:
+        print("awb vault: %s" % _register_detail(err), file=sys.stderr)
+        return 2
+    except VaultError as err:
         print("awb vault: %s" % err, file=sys.stderr)
         return 2
     except OSError as err:
         print("awb vault: %s (operating system error)" % type(err).__name__, file=sys.stderr)
+        return 2
+    except (ValueError, RuntimeError) as err:
+        print("awb vault: %s (invalid data)" % type(err).__name__, file=sys.stderr)
         return 2
 
 
