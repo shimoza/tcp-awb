@@ -325,6 +325,10 @@ def seal_path(path: Path, passphrase: str, homedir: Path) -> Path:
             if (before != _revision(os.fstat(fd)) or
                     before != _revision(os.stat(path.name, dir_fd=folder, follow_symlinks=False))):
                 raise VaultError("the plaintext changed during encryption, it is kept")
+            # a same-size rewrite within one timestamp tick leaves the metadata equal, so compare the content too
+            os.lseek(fd, 0, os.SEEK_SET)
+            if _read_fd(fd) != data:
+                raise VaultError("the plaintext changed during encryption, it is kept")
         unchanged()
         _write_at(folder, target.name, enc, 0o600)
         unchanged()
@@ -829,11 +833,12 @@ class Daemon:
             return self._state()
 
     def _state(self) -> str:
-        with _directory(self.p.vault) as folder:
-            try:
+        try:
+            # a vault folder that does not exist yet holds no encrypted register: the state is plain
+            with _directory(self.p.vault) as folder:
                 marker = os.stat(self.p.register_encrypted.name, dir_fd=folder, follow_symlinks=False)
-            except FileNotFoundError:
-                marker = None
+        except FileNotFoundError:
+            marker = None
         if marker is not None or self._encrypted_seen:
             self._encrypted_seen = True
             if (marker is None or not stat.S_ISREG(marker.st_mode) or marker.st_nlink != 1 or
