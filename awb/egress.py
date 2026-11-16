@@ -49,19 +49,24 @@ minutes and no class counted a connection in that time, but probe (the planted c
 from __future__ import annotations
 
 import argparse
+import fcntl
+import functools
 import hashlib
 import ipaddress
 import json
 import os
 import pwd
 import re
+import secrets
 import socket
 import subprocess
+import stat
 import sys
-import tempfile
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as wait_for
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -124,8 +129,10 @@ _EGRESS_RE = re.compile(r"^[ \t]*egress[ \t]*=[ \t]*(.*?)[ \t]*$")
 _ASK_MODE_RE = re.compile(r"^[ \t]*ask_mode[ \t]*=[ \t]*(.*?)[ \t]*$")
 _USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 _HOST_RE = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
-_ROW_RE = re.compile(r"^\|\s*`([^`\s]+)`\s*\|\s*`(tcp 443|any)`\s*\|\s*`([a-z_]+)`\s*\|")
+_ROW_RE = re.compile(r"^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|")
 _TIME_FMT = "%Y-%m-%dT%H:%M:%SZ"
+_MAX_FILE = 4 * 1024 * 1024
+_locks = threading.local()
 
 
 class EgressError(Exception):
@@ -171,11 +178,79 @@ def _boot_id() -> str:
     return (_read(Path("/proc/sys/kernel/random/boot_id")) or "").strip()
 
 
-def _read(path: Path) -> str | None:
+@contextmanager
+def _parent(path: Path, *, create: bool = False):
+    """Open each directory without following links, then keep the parent pinned for the operation."""
+    path = Path(os.path.abspath(path))
+    fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        return path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        for part in path.parts[1:-1]:
+            if create:
+                try:
+                    os.mkdir(part, 0o755, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd, path.name
+    finally:
+        os.close(fd)
+
+
+def _regular(fd: int) -> None:
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+        raise OSError("not a private regular file")
+
+
+def _read(path: Path, *, strict: bool = False) -> str | None:
+    try:
+        with _parent(path) as (parent, name):
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            with os.fdopen(fd, "rb") as fh:
+                _regular(fh.fileno())
+                raw = fh.read(_MAX_FILE + 1)
+                if len(raw) > _MAX_FILE:
+                    raise OSError("file too large")
+                return raw.decode("utf-8")
+    except FileNotFoundError:
         return None
+    except (OSError, UnicodeDecodeError):
+        if strict:
+            raise EgressError("an egress file cannot be read safely") from None
+        return None
+
+
+def _serialized(function):
+    """One writer per state directory, including the complete mode change and its rollback."""
+    @functools.wraps(function)
+    def run(host: Host, *args, **kwargs):
+        _require_root(host, "load")
+        key = os.path.abspath(host.state_dir)
+        held = getattr(_locks, "held", set())
+        try:
+            if key in held:
+                return function(host, *args, **kwargs)
+            with _parent(host.state_dir / ".lock", create=True) as (parent, name):
+                fd = os.open(name, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600,
+                             dir_fd=parent)
+                try:
+                    _regular(fd)
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        raise EgressError("another egress change is running") from None
+                    _locks.held = held | {key}
+                    try:
+                        return function(host, *args, **kwargs)
+                    finally:
+                        _locks.held = held
+                finally:
+                    os.close(fd)
+        except (OSError, UnicodeError, subprocess.SubprocessError):
+            raise EgressError("an egress file or command could not be accessed safely") from None
+    return run
 
 
 def parse_mode(text: str | None, key: str = "egress") -> tuple[str | None, str]:
@@ -212,24 +287,36 @@ def conf_value(text: str, key: str) -> str | None:
 
 
 def _atomic_write(path: Path, text: str, host: Host, mode_bits: int = 0o644, gid: int = 0) -> None:
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".%s." % path.name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(text)
-            fh.flush()
-            os.fchmod(fh.fileno(), mode_bits)
-            if host.chown_root and host.geteuid() == 0:
-                os.fchown(fh.fileno(), 0, gid)
-            os.fsync(fh.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+        with _parent(path) as (parent, name):
+            try:
+                st = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            except FileNotFoundError:
+                st = None
+            if st is not None and (not stat.S_ISREG(st.st_mode) or st.st_nlink != 1):
+                raise EgressError("an egress destination is not a regular file")
+            tmp = ".egress-" + secrets.token_hex(16)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fh.write(text)
+                    fh.flush()
+                    os.fchmod(fh.fileno(), mode_bits)
+                    if host.chown_root and host.geteuid() == 0:
+                        os.fchown(fh.fileno(), 0, gid)
+                    os.fsync(fh.fileno())
+                os.replace(tmp, name, src_dir_fd=parent, dst_dir_fd=parent)
+                os.fsync(parent)
+            finally:
+                try:
+                    os.unlink(tmp, dir_fd=parent)
+                except FileNotFoundError:
+                    pass
+    except OSError:
+        raise EgressError("an egress file could not be written safely") from None
 
 
+@_serialized
 def write_mode(host: Host, new: str, key: str = "egress") -> None:
     """Put `egress = NEW` (or `ask_mode = NEW`) into the root host file in place of any such line, atomically; every
     other line stays."""
@@ -273,11 +360,13 @@ def _rows(text: str) -> list[Entry]:
     for line in text.splitlines():
         m = _ROW_RE.match(line.strip())
         if not m:
+            if re.match(r"^\|\s*`", line.strip()) and line.count("|") >= 4:
+                raise EgressError("ALLOW.md: a machine row is malformed")
             continue
         dest, port, kind = m.groups()
         if kind not in SETS + (ASK_SET,):
             raise EgressError("ALLOW.md: a row names a set other than %s" % ", ".join(SETS + (ASK_SET,)))
-        if (kind in ("allow", ASK_SET)) != (port == "tcp 443"):
+        if port not in ("tcp 443", "any") or (kind in ("allow", ASK_SET)) != (port == "tcp 443"):
             raise EgressError("ALLOW.md: an allowed row is tcp 443, a watched row is any")
         if not (_HOST_RE.match(dest) or _network(dest)):
             raise EgressError("ALLOW.md: a row names neither a host name nor a network")
@@ -316,11 +405,22 @@ def resolve_all(names: list[str], resolve: Callable, timeout: float = RESOLVE_TI
     out: dict[str, list[str] | None] = {}
     for name, fut in futures.items():
         if fut in done and fut.exception() is None:
-            addrs = [a for a in (fut.result() or []) if _network(a) is not None]
+            result = fut.result()
+            addrs = [a for a in result if _address(a)] if isinstance(result, (list, tuple)) else []
             out[name] = addrs
         else:
             out[name] = None
     return out
+
+
+def _address(value) -> bool:
+    if not isinstance(value, str) or "%" in value:
+        return False
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
 
 
 def update_cache(cache: dict, entries: list[Entry], resolve: Callable, now: float) -> tuple[dict, int]:
@@ -332,8 +432,10 @@ def update_cache(cache: dict, entries: list[Entry], resolve: Callable, now: floa
     out: dict[str, dict[str, float]] = {}
     missing = 0
     for h in hosts:
-        seen = {a: t for a, t in (cache.get(h) or {}).items()
-                if isinstance(t, (int, float)) and now - t <= KEEP_ADDRESSES and _network(a) is not None}
+        previous = cache.get(h)
+        seen = {a: t for a, t in (previous.items() if isinstance(previous, dict) else [])
+                if type(t) in (int, float) and 0 <= t <= now and now - t <= KEEP_ADDRESSES
+                and _address(a)}
         got = answers.get(h)
         if not got:
             missing += 1
@@ -366,7 +468,7 @@ def render_rules(template: str, work_user: str, mode_word: str) -> str:
     """The template with the work user and the verdict of the mode; refused when a placeholder stays."""
     if mode_word not in MODES:
         raise EgressError("the mode is count or enforce")
-    if not _USER_RE.match(work_user or ""):
+    if not _USER_RE.fullmatch(work_user or ""):
         raise EgressError("the work user is no user name")
     text = template.replace("@WORK_USER@", work_user).replace("@VERDICT@", VERDICTS[mode_word])
     if re.search(r"@[A-Z_]+@", text):
@@ -390,7 +492,7 @@ def render_ask_rules(template: str, ask_user: str, ask_mode: str) -> str:
     stays or the name is no user name."""
     if ask_mode not in MODES:
         raise EgressError("the mode is count or enforce")
-    if not _USER_RE.match(ask_user or ""):
+    if not _USER_RE.fullmatch(ask_user or ""):
         raise EgressError("the Ask user is no user name")
     text = template.replace("@ASK_USER@", ask_user).replace("@ASK_VERDICT@", VERDICTS[ask_mode])
     if re.search(r"@[A-Z_]+@", text):
@@ -432,7 +534,19 @@ def refresh_text(elements: dict[str, list[str]]) -> str:
 
 
 def _nft(host: Host, args: list[str], text: str | None = None) -> subprocess.CompletedProcess:
-    return host.run([NFT] + args, input=text, capture_output=True, text=True, timeout=60)
+    try:
+        return host.run([NFT] + args, input=text, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        raise EgressError("nft could not be run") from None
+
+
+def _rule_verdict(rule, table: str, chain: str, current: str | None) -> str | None:
+    if not isinstance(rule, dict) or rule.get("table") != table or rule.get("chain") != chain:
+        return current
+    expr = rule.get("expr")
+    if not isinstance(expr, list):
+        return current
+    return "enforce" if any(isinstance(e, dict) and "reject" in e for e in expr) else (current or "count")
 
 
 def table_state(host: Host) -> dict | None:
@@ -442,19 +556,19 @@ def table_state(host: Host) -> dict | None:
         return None
     try:
         data = json.loads(r.stdout)
-    except ValueError:
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("nftables"), list):
         return None
     counters: dict[str, int] = {}
     verdict = None
     for item in data.get("nftables", []) if isinstance(data, dict) else []:
         c = item.get("counter") if isinstance(item, dict) else None
-        if isinstance(c, dict) and c.get("table") == TABLE and isinstance(c.get("packets"), int) \
-                and str(c.get("name")).startswith(COUNTER_PREFIX):
+        if isinstance(c, dict) and c.get("table") == TABLE and _count_value(c.get("packets")) \
+                and c.get("name") in tuple(COUNTER_PREFIX + n for n in CLASSES + (ALLOWED,)):
             counters[str(c["name"])[len(COUNTER_PREFIX):]] = c["packets"]
         rule = item.get("rule") if isinstance(item, dict) else None
-        if isinstance(rule, dict) and rule.get("chain") == "refused":
-            words = json.dumps(rule.get("expr"))
-            verdict = "enforce" if '"reject"' in words else (verdict or "count")
+        verdict = _rule_verdict(rule, TABLE, "refused", verdict)
     return {"counters": counters, "verdict": verdict}
 
 
@@ -465,24 +579,25 @@ def ask_state(host: Host) -> dict | None:
         return None
     try:
         data = json.loads(r.stdout)
-    except ValueError:
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("nftables"), list):
         return None
     counters: dict[str, int] = {}
     verdict = None
     for item in data.get("nftables", []) if isinstance(data, dict) else []:
         c = item.get("counter") if isinstance(item, dict) else None
-        if isinstance(c, dict) and c.get("table") == ASK_TABLE and isinstance(c.get("packets"), int) \
+        if isinstance(c, dict) and c.get("table") == ASK_TABLE and _count_value(c.get("packets")) \
                 and str(c.get("name")) in ASK_NAMES:
             counters[str(c["name"])] = c["packets"]
         rule = item.get("rule") if isinstance(item, dict) else None
-        if isinstance(rule, dict) and rule.get("chain") == "ask_refused":
-            verdict = "enforce" if '"reject"' in json.dumps(rule.get("expr")) else (verdict or "count")
+        verdict = _rule_verdict(rule, ASK_TABLE, "ask_refused", verdict)
     return {"counters": counters, "verdict": verdict}
 
 
 def _first_line(text: str) -> str:
-    line = next((x for x in (text or "").splitlines() if x.strip()), "")
-    return re.sub(r"[^\x20-\x7e]", " ", line)[:200]
+    # Diagnostics can quote an entire rule, user name, path or secret. Never relay them.
+    return "Operation failed"
 
 
 def _conntrack(args: list[str]) -> subprocess.CompletedProcess | None:
@@ -508,8 +623,8 @@ def forget(host: Host, mark: int = MARK_OTHER, who: str = "the work user") -> st
             return ("conntrack is not available: the connections opened outside the list stay in conntrack until "
                     "they time out and the filter refuses their packets")
         # conntrack prints "N flow entries have been deleted" and exits 1 when none matched
-        m = re.search(r"(\d+) flow entr", (r.stderr or "") + (r.stdout or ""))
-        if m is None:
+        m = re.search(r"(?<![0-9])([0-9]{1,20}) flow entr", (r.stderr or "") + (r.stdout or ""))
+        if r.returncode not in (0, 1) or m is None or not _count_value(int(m.group(1))):
             return ("conntrack failed (%s): the connections opened outside the list stay in conntrack until they "
                     "time out and the filter refuses their packets" % _first_line(r.stderr))
         deleted += int(m.group(1))
@@ -532,15 +647,25 @@ def _parse_time(text) -> float | None:
         return None
 
 
-def _read_json(path: Path) -> dict:
-    text = _read(path)
+def _read_json(path: Path, *, strict: bool = False) -> dict:
+    text = _read(path, strict=strict)
     if text is None:
         return {}
     try:
         data = json.loads(text)
-    except ValueError:
+    except (ValueError, RecursionError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _history_path(host: Host, file: str) -> Path:
+    if file not in ("history.tsv", ASK_HISTORY):
+        raise EgressError("unknown egress history file")
+    return host.state_dir / file
+
+
+def _count_value(value) -> bool:
+    return type(value) is int and 0 <= value <= 2**64 - 1
 
 
 def read_history(host: Host, file: str = "history.tsv",
@@ -548,7 +673,7 @@ def read_history(host: Host, file: str = "history.tsv",
     """(time, mode, counts) per line of history.tsv (or the Ask history), oldest first; a line that does not parse is
     left out."""
     out = []
-    for line in (_read(host.state_dir / file) or "").splitlines():
+    for line in (_read(_history_path(host, file), strict=True) or "").splitlines():
         parts = line.split("\t")
         if len(parts) != 3:
             continue
@@ -559,7 +684,9 @@ def read_history(host: Host, file: str = "history.tsv",
         if parts[2] != "-":
             for pair in parts[2].split(","):
                 k, _, v = pair.partition("=")
-                if k in names and v.isdigit():
+                if k in names:
+                    if not re.fullmatch(r"[0-9]{1,20}", v) or k in counts or not _count_value(int(v)):
+                        raise EgressError("the egress history contains an invalid count")
                     counts[k] = int(v)
         out.append((t, parts[1], counts))
     return sorted(out, key=lambda x: x[0])
@@ -568,7 +695,7 @@ def read_history(host: Host, file: str = "history.tsv",
 def _write_history(host: Host, rows: list[tuple[float, str, dict[str, int]]], file: str = "history.tsv") -> None:
     lines = ["%s\t%s\t%s" % (_now_text(t), m, ",".join("%s=%d" % kv for kv in sorted(c.items())) or "-")
              for t, m, c in rows]
-    _atomic_write(host.state_dir / file, "\n".join(lines) + ("\n" if lines else ""), host)
+    _atomic_write(_history_path(host, file), "\n".join(lines) + ("\n" if lines else ""), host)
 
 
 def record(host: Host, st: dict, counters: dict[str, int], mode_word: str, now: float,
@@ -718,6 +845,7 @@ def _load_ask(host: Host, st: dict, template: str, ask_user: str, ask_mode: str,
     st["ask"] = ast
 
 
+@_serialized
 def load(host: Host, *, force_reload: bool = False) -> dict:
     """Resolve, then load the table when its rules changed (recording the counters of the old one first) or refresh
     its address sets in place, record the counters and write status.json. The mode comes from the host file."""
@@ -746,9 +874,9 @@ def load(host: Host, *, force_reload: bool = False) -> dict:
     rules = render_rules(template, user, mode_word)
     digest = hashlib.sha256(rules.encode("utf-8")).hexdigest()
     host.state_dir.mkdir(mode=0o755, parents=True, exist_ok=True)
-    st = _read_json(host.state_dir / "status.json")
+    st = _read_json(host.state_dir / "status.json", strict=True)
     now = host.now()
-    cache, missing = update_cache(_read_json(host.state_dir / "addresses.json"), entries + ask_entries,
+    cache, missing = update_cache(_read_json(host.state_dir / "addresses.json", strict=True), entries + ask_entries,
                                   host.resolve or _resolve, now)
     _atomic_write(host.state_dir / "addresses.json", json.dumps(cache, indent=1, sort_keys=True) + "\n", host)
     elements = set_elements(entries, cache)
@@ -806,6 +934,7 @@ def _save_status(host: Host, st: dict) -> None:
     _atomic_write(host.state_dir / "status.json", json.dumps(st, indent=1, sort_keys=True) + "\n", host)
 
 
+@_serialized
 def enforce(host: Host, accepted: set[str]) -> str:
     """Switch to enforce when the last 24 hours allow it; refused (Refused) otherwise, the mode stays count."""
     bad = sorted(accepted - set(CLASSES))
@@ -846,16 +975,31 @@ def enforce(host: Host, accepted: set[str]) -> str:
             % (note, forget(host)))
 
 
+def _restore_conf(host: Host, text: str) -> None:
+    st = host.conf_path.stat()
+    _atomic_write(host.conf_path, text, host, st.st_mode & 0o755, st.st_gid)
+    try:
+        load(host, force_reload=True)
+    except EgressError:
+        pass
+
+
+@_serialized
 def count(host: Host) -> str:
     text = _read(host.conf_path)
     if text is None:
         raise EgressError("the host file cannot be read: run seal/setup.sh first")
     _require_owner(host, text, "count")
     write_mode(host, "count")
-    load(host)
+    try:
+        load(host)
+    except EgressError:
+        _restore_conf(host, text)
+        raise
     return "\n".join(["egress: count, nothing is refused; the 24 hours start again now"] + ask_lines(host))
 
 
+@_serialized
 def set_ask_mode(host: Host, new: str) -> str:
     """Put ask_mode NEW into the host file and load: the verdict of the chain ask alone changes, the table of the
     work user and its mode stay. The owner with sudo; no window of counts is asked for. A failed load puts the
@@ -873,11 +1017,7 @@ def set_ask_mode(host: Host, new: str) -> str:
     try:
         load(host)
     except EgressError:
-        write_mode(host, before, "ask_mode")
-        try:
-            load(host, force_reload=True)
-        except EgressError:
-            pass
+        _restore_conf(host, text)
         raise
     head = ("egress: the Ask uid is refused outside its list now" if new == "enforce"
             else "egress: the Ask uid is counted outside its list, nothing is refused")
@@ -889,6 +1029,32 @@ def set_ask_mode(host: Host, new: str) -> str:
 # --------------------------------------------------------------------------- what every user can read
 
 
+def _public_counts(value, names: tuple) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    return {k: v for k, v in value.items() if k in names and _count_value(v)}
+
+
+def _public_time(value) -> str | None:
+    parsed = _parse_time(value)
+    return _now_text(parsed) if parsed is not None else None
+
+
+def _public_window(value) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    why = value.get("why")
+    fixed = ("", "the filter does not count now", "the history begins inside the last 24 hours",
+             "the window holds a time in the mode enforce")
+    valid = isinstance(why, str) and (why in fixed or re.fullmatch(
+        r"counting since [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z, less than 24 hours"
+        r"|a gap of [0-9]{1,10} minutes in the history \(the timer did not run or the host was down\)", why))
+    return {"covered": value.get("covered") is True and bool(valid),
+            "why": why if valid else "invalid history summary",
+            "counts": _public_counts(value.get("counts"), CLASSES) or {},
+            "allowed": value.get("allowed") if _count_value(value.get("allowed")) else 0}
+
+
 def status(host: Host | None = None) -> dict:
     """The status file with the mode of the host file and its age: what status_lines and the seal check show."""
     host = host or Host()
@@ -896,17 +1062,19 @@ def status(host: Host | None = None) -> dict:
     host_mode, why = parse_mode(_read(host.conf_path))
     refreshed = _parse_time(st.get("refreshed_at"))
     ast = st.get("ask") if isinstance(st.get("ask"), dict) else {}
-    return {"host_mode": host_mode, "host_why": why, "line": has_line(host), "loaded": bool(st.get("loaded_at")),
-            "mode": st.get("mode") if st.get("mode") in MODES else None, "loaded_at": st.get("loaded_at"),
-            "refreshed_at": st.get("refreshed_at"),
-            "table_lost_at": st.get("table_lost_at") if isinstance(st.get("table_lost_at"), str) else None,
+    return {"host_mode": host_mode, "host_why": why, "line": has_line(host),
+            "loaded": _public_time(st.get("loaded_at")) is not None,
+            "mode": st.get("mode") if st.get("mode") in MODES else None,
+            "loaded_at": _public_time(st.get("loaded_at")),
+            "refreshed_at": _public_time(st.get("refreshed_at")),
+            "table_lost_at": _public_time(st.get("table_lost_at")),
             "stale": refreshed is None or host.now() - refreshed > STALE,
-            "window": st.get("window") if isinstance(st.get("window"), dict) else None,
-            "hosts": st.get("hosts") if isinstance(st.get("hosts"), dict) else None,
+            "window": _public_window(st.get("window")),
+            "hosts": _public_counts(st.get("hosts"), ("listed", "unanswered")),
             "ask_line": has_ask_line(host),
             "ask_host_mode": parse_mode(_read(host.conf_path), "ask_mode")[0],
             "ask_mode": ast.get("mode") if ast.get("mode") in MODES else None,
-            "ask": ast.get("window") if isinstance(ast.get("window"), dict) else None}
+            "ask": _public_counts(ast.get("window"), ASK_CLASSES + (ALLOWED,))}
 
 
 def ask_lines(host: Host | None = None) -> list[str]:
@@ -968,11 +1136,18 @@ def check(host: Host | None = None) -> tuple[bool, str] | None:
 def main(argv: list[str] | None = None, host: Host | None = None) -> int:
     from awb.cli import SafeParser
 
+    class EgressParser(SafeParser):
+        def error(self, message):
+            # argparse's quoting changes with the input. Redacting quoted fragments is insufficient.
+            self.print_usage(sys.stderr)
+            print("awb egress: invalid arguments", file=sys.stderr)
+            raise SystemExit(2)
+
     host = host or Host()
-    ap = SafeParser(prog="awb egress", description="The egress filter of the work user (seal/egress/ALLOW.md).")
+    ap = EgressParser(prog="awb egress", description="The egress filter of the work user (seal/egress/ALLOW.md).")
     ap.add_argument("--ask-mode", choices=MODES, default=None, metavar="count|enforce",
                     help="the owner with sudo: the verdict of the Ask uid's chain (count refuses nothing)")
-    sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
+    sub = ap.add_subparsers(dest="command", parser_class=EgressParser)
     st = sub.add_parser("status", help="the mode, the load and the counts of the last 24 hours")
     st.add_argument("--json", action="store_true")
     sub.add_parser("load", help="root: resolve the list, load the table or refresh its sets, record the counters")

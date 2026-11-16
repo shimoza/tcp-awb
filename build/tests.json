@@ -21811,8 +21811,190 @@
    "name": "vault: register save cannot race encryption",
    "run": ".venv/bin/pytest tests/test_vault.py::test_review_register_save_cannot_race_encryption",
    "status": "passing"
+  },
+  {
+   "id": "EGRESS-H01",
+   "phase": "T",
+   "name": "egress: machine rows with bad ports or cells are not silently ignored",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_machine_rows_with_bad_ports_or_cells_are_not_silently_ignored",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H02",
+   "phase": "T",
+   "name": "egress: user names must match in full in both templates",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_user_names_must_match_in_full_in_both_templates",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H03",
+   "phase": "T",
+   "name": "egress: dns answers cannot turn a host into an allowed network",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_dns_answers_cannot_turn_a_host_into_an_allowed_network",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H04",
+   "phase": "T",
+   "name": "egress: cache rejects malformed records networks and nonfinite or future times",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_cache_rejects_malformed_records_networks_and_nonfinite_or_future_times",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H05",
+   "phase": "T",
+   "name": "egress: nft json requires a list and known nonnegative integer counters",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_nft_json_requires_a_list_and_known_nonnegative_integer_counters",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H06",
+   "phase": "T",
+   "name": "egress: status outputs only valid schema fields",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_status_outputs_only_valid_schema_fields",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H07",
+   "phase": "T",
+   "name": "egress: subprocess diagnostics never echo values",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_subprocess_diagnostics_never_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H08",
+   "phase": "T",
+   "name": "egress: cli parser never echoes quoted or control character arguments",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_cli_parser_never_echoes_quoted_or_control_character_arguments",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H09",
+   "phase": "T",
+   "name": "egress: nft launch and timeout errors are safe command errors",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_nft_launch_and_timeout_errors_are_safe_command_errors",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H10",
+   "phase": "T",
+   "name": "egress: file reads refuse links special files and linked parents",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_file_reads_refuse_links_special_files_and_linked_parents",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H11",
+   "phase": "T",
+   "name": "egress: host and source links cannot load rules",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_host_and_source_links_cannot_load_rules",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H12",
+   "phase": "T",
+   "name": "egress: state directory link cannot write outside its directory",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_state_directory_link_cannot_write_outside_its_directory",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H13",
+   "phase": "T",
+   "name": "egress: atomic write refuses linked and special destinations",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_atomic_write_refuses_linked_and_special_destinations",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H14",
+   "phase": "T",
+   "name": "egress: history paths cannot escape state",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_history_paths_cannot_escape_state",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H15",
+   "phase": "T",
+   "name": "egress: invalid history counts do not become a quiet window",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_invalid_history_counts_do_not_become_a_quiet_window",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H16",
+   "phase": "T",
+   "name": "egress: unreadable history cannot be replaced by an empty history",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_unreadable_history_cannot_be_replaced_by_an_empty_history",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H17",
+   "phase": "T",
+   "name": "egress: failed count restores the previous host mode",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_failed_count_restores_the_previous_host_mode",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H18",
+   "phase": "T",
+   "name": "egress: failed first ask switch restores absence of the ask line",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_failed_first_ask_switch_restores_absence_of_the_ask_line",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H19",
+   "phase": "T",
+   "name": "egress: overlapping loads cannot duplicate counts",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_overlapping_loads_cannot_duplicate_counts",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H20",
+   "phase": "T",
+   "name": "egress: missing host and unreadable sources leave rules untouched",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_missing_host_and_unreadable_sources_leave_rules_untouched",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H21",
+   "phase": "T",
+   "name": "egress: failed atomic publication keeps original and removes temporary file",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_failed_atomic_publication_keeps_original_and_removes_temporary_file",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H22",
+   "phase": "T",
+   "name": "egress: reads are bounded even for regular files",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_reads_are_bounded_even_for_regular_files",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H23",
+   "phase": "T",
+   "name": "egress: a linked lock cannot authorize a writer",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_a_linked_lock_cannot_authorize_a_writer",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H24",
+   "phase": "T",
+   "name": "egress: atomic publication stays in the opened parent",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_atomic_publication_stays_in_the_opened_parent",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H25",
+   "phase": "T",
+   "name": "egress: deeply nested json is treated as invalid data",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_deeply_nested_json_is_treated_as_invalid_data",
+   "status": "passing"
+  },
+  {
+   "id": "EGRESS-H26",
+   "phase": "T",
+   "name": "egress: conntrack errors and oversized counts cannot report success",
+   "run": ".venv/bin/pytest tests/test_egress.py::test_conntrack_errors_and_oversized_counts_cannot_report_success",
+   "status": "passing"
   }
  ],
- "total_tests": 3116,
+ "total_tests": 3142,
  "checked": "2026-11-09"
 }

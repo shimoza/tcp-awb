@@ -1109,3 +1109,347 @@ def test_the_seal_scripts_know_the_ask_table(fakebin):
     assert "nft list chain inet awb_egress_ask ask" in script
     assert "ask_mode = $(kept_conf ask_mode count)" in SETUP.read_text(encoding="utf-8")
     assert "ask_user = $(kept_conf ask_user awb-ask)" in SETUP.read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- hostile inputs and failed operations
+
+
+def test_machine_rows_with_bad_ports_or_cells_are_not_silently_ignored():
+    good = "| `api.example.org` | `tcp 443` | `allow` |\n"
+    for row in ("| `api.example.org` | `tcp 80` | `allow` |",
+                "| `api.example.org` | `tcp 443` | `UNKNOWN` |",
+                "| `bad host` | `tcp 443` | `allow` |",
+                "| `api.example.org` | tcp 443 | `allow` |"):
+        with pytest.raises(egress.EgressError):
+            egress.read_allow(good + row)
+
+
+def test_user_names_must_match_in_full_in_both_templates():
+    for render, template in ((egress.render_rules, "@WORK_USER@ @VERDICT@"),
+                             (egress.render_ask_rules, "@ASK_USER@ @ASK_VERDICT@")):
+        with pytest.raises(egress.EgressError):
+            render(template, "worker\n", "count")
+
+
+def test_dns_answers_cannot_turn_a_host_into_an_allowed_network():
+    entries = [egress.Entry("api.example.org", "tcp 443", "allow")]
+    answers = ["0.0.0.0/0", "::/0", "fe80::1%eth0", 42, None, {}, "192.0.2.1", "2001:db8::1"]
+    cache, missing = egress.update_cache({}, entries, lambda _: answers, T0)
+    assert missing == 0
+    assert cache == {"api.example.org": {"192.0.2.1": T0, "2001:db8::1": T0}}
+    for bad in (42, "192.0.2.1", {"192.0.2.1": T0}):
+        assert egress.update_cache({}, entries, lambda _: bad, T0) == ({"api.example.org": {}}, 1)
+
+
+def test_cache_rejects_malformed_records_networks_and_nonfinite_or_future_times():
+    entries = [egress.Entry("api.example.org", "tcp 443", "allow")]
+    for record in ([], 42, "value", {"0.0.0.0/0": T0, "192.0.2.1": float("inf"),
+                                    "192.0.2.2": T0 + 1, "192.0.2.3": True, "192.0.2.4": 10**1000}):
+        cache, missing = egress.update_cache({"api.example.org": record}, entries, lambda _: [], T0)
+        assert (cache, missing) == ({"api.example.org": {}}, 1)
+
+
+def test_nft_json_requires_a_list_and_known_nonnegative_integer_counters(world):
+    host, _, _, _ = world
+    private = "private" + "-name"
+    for reader, table, prefix in ((egress.table_state, egress.TABLE, "c_"),
+                                  (egress.ask_state, egress.ASK_TABLE, "ask_")):
+        def reply(data):
+            host.run = lambda *a, **k: subprocess.CompletedProcess([], 0, json.dumps(data), "")
+        for value in (None, 1, {}, "value"):
+            reply({"nftables": value})
+            assert reader(host) is None
+        reply({"nftables": [{"counter": {"table": table, "name": prefix + name, "packets": value}}
+                            for name, value in ((private, 2), ("web", -1), ("dns", True), ("allowed", 3))]})
+        assert reader(host)["counters"] == {("allowed" if prefix == "c_" else "ask_allowed"): 3}
+        chain = "refused" if prefix == "c_" else "ask_refused"
+        reply({"nftables": [{"rule": {"table": "unrelated", "chain": chain, "expr": [{"reject": None}]}},
+                            {"rule": {"table": table, "chain": chain, "expr": [{"comment": "reject"}]}}]})
+        assert reader(host)["verdict"] == "count"
+
+
+def test_status_outputs_only_valid_schema_fields(askworld, capsys):
+    host, _, _, _ = askworld
+    host.state_dir.mkdir()
+    secret = "pass" + "word"
+    private = "private" + "-name"
+    poisoned = {"loaded_at": secret, "refreshed_at": private, "table_lost_at": secret,
+                "mode": "count", "window": {"covered": secret, "why": private,
+                "allowed": secret, "counts": {private: 2, "dns": secret}, "extra": secret},
+                "hosts": {private: secret, "listed": secret},
+                "ask": {"mode": "count", "window": {private: 1, "allowed": secret}}}
+    (host.state_dir / "status.json").write_text(json.dumps(poisoned))
+    for args in (["status"], ["status", "--json"]):
+        assert egress.main(args, host) == 0
+        output = capsys.readouterr()
+        assert secret not in output.out + output.err and private not in output.out + output.err
+    assert egress.status(host)["loaded"] is False
+
+
+def test_subprocess_diagnostics_never_echo_values(world):
+    host, _, _, _ = world
+    secret = "pass" + "word"
+    message = "Error: private" + "-name " + secret
+    host.run = lambda *a, **k: subprocess.CompletedProcess([], 1, "", message)
+    with pytest.raises(egress.EgressError) as caught:
+        egress.load(host)
+    assert secret not in str(caught.value) and "private-name" not in str(caught.value)
+    host.conntrack = lambda *a: subprocess.CompletedProcess([], 2, "", message)
+    assert secret not in egress.forget(host) and "private-name" not in egress.forget(host)
+
+
+def test_cli_parser_never_echoes_quoted_or_control_character_arguments(world, capsys):
+    host, _, _, _ = world
+    secret = "pass" + "word"
+    for value in (secret + "'a", 'a"' + secret, "a\n" + secret):
+        for args in ([value], ["--ask-mode", value]):
+            assert egress.main(args, host) == 2
+            output = capsys.readouterr()
+            assert secret not in output.err + output.out
+
+
+def test_nft_launch_and_timeout_errors_are_safe_command_errors(world, capsys):
+    host, _, _, _ = world
+    secret = "pass" + "word"
+    for error in (FileNotFoundError(secret), PermissionError(secret),
+                  subprocess.TimeoutExpired(secret, 60, output=secret, stderr=secret)):
+        def fail(*args, **kwargs):
+            raise error
+        host.run = fail
+        assert egress.main(["load"], host) == 2
+        output = capsys.readouterr()
+        assert secret not in output.out + output.err
+
+
+def test_file_reads_refuse_links_special_files_and_linked_parents(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = outside / "data"
+    target.write_text("pass" + "word")
+    link = tmp_path / "link"
+    link.symlink_to(target)
+    parent = tmp_path / "parent"
+    parent.symlink_to(outside, target_is_directory=True)
+    fifo = tmp_path / "fifo"
+    os.mkfifo(fifo)
+    for path in (link, parent / "data", fifo, outside):
+        assert egress._read(path) is None
+
+
+def test_host_and_source_links_cannot_load_rules(world, tmp_path):
+    host, nft, _, conf = world
+    original = conf.read_text()
+    target = tmp_path / "outside-conf"
+    target.write_text(original)
+    conf.unlink()
+    conf.symlink_to(target)
+    with pytest.raises(egress.EgressError):
+        egress.load(host)
+    assert nft.calls == [] and target.read_text() == original
+    conf.unlink()
+    conf.write_text(original)
+    source = tmp_path / "source"
+    source.symlink_to(EGRESS, target_is_directory=True)
+    host.source = source
+    with pytest.raises(egress.EgressError):
+        egress.load(host)
+    assert nft.calls == []
+
+
+def test_state_directory_link_cannot_write_outside_its_directory(world, tmp_path):
+    host, nft, _, _ = world
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    host.state_dir.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(egress.EgressError):
+        egress.load(host)
+    assert list(outside.iterdir()) == [] and nft.calls == []
+
+
+def test_atomic_write_refuses_linked_and_special_destinations(world, tmp_path):
+    host, _, _, _ = world
+    target = tmp_path / "outside"
+    target.write_text("pass" + "word")
+    link = tmp_path / "link"
+    link.symlink_to(target)
+    fifo = tmp_path / "fifo"
+    os.mkfifo(fifo)
+    for path in (link, fifo):
+        with pytest.raises(egress.EgressError):
+            egress._atomic_write(path, "replacement", host)
+    assert target.read_text() == "pass" + "word" and link.is_symlink()
+
+
+def test_history_paths_cannot_escape_state(world, tmp_path):
+    host, _, _, _ = world
+    host.state_dir.mkdir()
+    target = tmp_path / "outside"
+    target.write_text(egress._now_text(T0) + "\tcount\tweb=9\n")
+    for name in (str(target), "../outside"):
+        with pytest.raises(egress.EgressError):
+            egress.read_history(host, name)
+        with pytest.raises(egress.EgressError):
+            egress._write_history(host, [], name)
+    assert "web=9" in target.read_text()
+
+
+def test_invalid_history_counts_do_not_become_a_quiet_window(world):
+    host, _, _, _ = world
+    host.state_dir.mkdir()
+    for value in ("web=-1", "web=²", "web=" + "9" * 5000, "web=1,web=0", "web=oops"):
+        (host.state_dir / "history.tsv").write_text(egress._now_text(T0) + "\tcount\t" + value + "\n")
+        with pytest.raises(egress.EgressError):
+            egress.read_history(host)
+
+
+def test_unreadable_history_cannot_be_replaced_by_an_empty_history(world, monkeypatch):
+    host, nft, _, _ = world
+    egress.load(host)
+    history = host.state_dir / "history.tsv"
+    original = history.read_bytes()
+    history.chmod(0)
+    try:
+        with pytest.raises(egress.EgressError):
+            egress.load(host)
+    finally:
+        history.chmod(0o644)
+    assert history.read_bytes() == original
+
+
+def test_failed_count_restores_the_previous_host_mode(world):
+    host, nft, _, conf = world
+    _conf(conf, "egress = enforce\n")
+    egress.load(host)
+    original = conf.read_text()
+    nft.fail_on = "accept"
+    with pytest.raises(egress.EgressError):
+        egress.count(host)
+    assert conf.read_text() == original and egress.mode(host) == "enforce"
+
+
+def test_failed_first_ask_switch_restores_absence_of_the_ask_line(world):
+    host, nft, _, conf = world
+    original = conf.read_text()
+    nft.fail_on = "accept"
+    with pytest.raises(egress.EgressError):
+        egress.set_ask_mode(host, "enforce")
+    assert conf.read_text() == original and not egress.has_ask_line(host)
+
+
+def test_overlapping_loads_cannot_duplicate_counts(world):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    host, nft, clock, _ = world
+    egress.load(host)
+    nft.bump(web=5)
+    clock.t += 300
+    entered, release = Event(), Event()
+    real_resolve = host.resolve
+
+    def held_resolve(name):
+        entered.set()
+        assert release.wait(5)
+        return real_resolve(name)
+
+    first = egress.Host(**{**host.__dict__, "resolve": held_resolve})
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(egress.load, first)
+        try:
+            assert entered.wait(5)
+            with pytest.raises(egress.EgressError, match="running"):
+                egress.load(host)
+        finally:
+            release.set()
+        future.result(timeout=5)
+    assert sum(row[2].get("web", 0) for row in egress.read_history(host)) == 5
+
+
+def test_missing_host_and_unreadable_sources_leave_rules_untouched(world, tmp_path):
+    host, nft, _, conf = world
+    conf.unlink()
+    with pytest.raises(egress.EgressError):
+        egress.load(host)
+    _conf(conf)
+    host.source = tmp_path / "missing-source"
+    with pytest.raises(egress.EgressError):
+        egress.load(host)
+    assert nft.calls == []
+
+
+def test_failed_atomic_publication_keeps_original_and_removes_temporary_file(world, tmp_path, monkeypatch):
+    host, _, _, _ = world
+    target = tmp_path / "original"
+    target.write_text("before")
+    before = set(tmp_path.iterdir())
+
+    def fail(*args, **kwargs):
+        raise OSError("publication failed")
+
+    monkeypatch.setattr(egress.os, "replace", fail)
+    with pytest.raises((OSError, egress.EgressError)):
+        egress._atomic_write(target, "after", host)
+    assert target.read_text() == "before" and set(tmp_path.iterdir()) == before
+
+
+def test_reads_are_bounded_even_for_regular_files(tmp_path):
+    path = tmp_path / "oversized"
+    with path.open("wb") as stream:
+        stream.truncate(4 * 1024 * 1024 + 1)
+    assert egress._read(path) is None
+
+
+def test_a_linked_lock_cannot_authorize_a_writer(world, tmp_path):
+    host, nft, _, _ = world
+    host.state_dir.mkdir()
+    outside = tmp_path / "outside"
+    outside.write_text("pass" + "word")
+    (host.state_dir / ".lock").symlink_to(outside)
+    with pytest.raises(egress.EgressError):
+        egress.load(host)
+    assert nft.calls == [] and outside.read_text() == "pass" + "word"
+
+
+def test_atomic_publication_stays_in_the_opened_parent(world, tmp_path, monkeypatch):
+    host, _, _, _ = world
+    parent = tmp_path / "destination"
+    parent.mkdir()
+    target = parent / "data"
+    target.write_text("before")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "data").write_text("pass" + "word")
+    moved = tmp_path / "moved"
+    replace = os.replace
+
+    def swap(src, dst, **kwargs):
+        parent.rename(moved)
+        parent.symlink_to(outside, target_is_directory=True)
+        # An attacker also supplies the temporary basename in the substituted parent.
+        (outside / Path(src).name).write_text("substituted")
+        return replace(src, dst, **kwargs)
+
+    monkeypatch.setattr(egress.os, "replace", swap)
+    egress._atomic_write(target, "after", host)
+    assert (outside / "data").read_text() == "pass" + "word"
+    assert (moved / "data").read_text() == "after"
+
+
+def test_deeply_nested_json_is_treated_as_invalid_data(world):
+    import sys
+
+    host, _, _, _ = world
+    host.state_dir.mkdir()
+    depth = max(10000, sys.getrecursionlimit() + 100)
+    raw = '{"nftables":' + '[' * depth + '0' + ']' * depth + '}'
+    (host.state_dir / "status.json").write_text(raw)
+    assert egress.status(host)["loaded"] is False
+    host.run = lambda *a, **k: subprocess.CompletedProcess([], 0, raw, "")
+    assert egress.table_state(host) is None and egress.ask_state(host) is None
+
+
+def test_conntrack_errors_and_oversized_counts_cannot_report_success(world):
+    host, _, _, _ = world
+    for code, value in ((2, "7"), (0, "9" * 5000), (0, str(2**64))):
+        host.conntrack = lambda *a: subprocess.CompletedProcess([], code, "", value + " flow entries deleted")
+        assert "conntrack failed" in egress.forget(host)
