@@ -1020,7 +1020,7 @@ def _log_refusal(p: config.Paths, data: dict, tool: str, cls: str, own: Path | N
         sid = data.get("session_id") if isinstance(data, dict) else None
         if not isinstance(sid, str) or not _SID_RE.fullmatch(sid):
             sid = "unknown"
-        elif not re.fullmatch(r"(?:s-[0-9]{1,12}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})", sid):
+        elif not re.fullmatch(r"(?:s-[0-9]{1,12}|[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12})", sid):
             sid = "unknown"
         tool = tool if tool in GUARD_TOOLS else "other"
         cls = cls if cls in _PLACE_CLASSES else UNKNOWN_PROJECT
@@ -1055,9 +1055,13 @@ def _workflow_class(tool_input: dict, home: Path, folder: Path | None = None) ->
         return FOREIGN_WORKFLOW
     try:
         candidate = Path(_expand(raw, home))
-        if not candidate.is_absolute() or candidate not in {folder / name for name in WORKFLOW_FILES}:
+        if not candidate.is_absolute() or candidate.name not in WORKFLOW_FILES:
             return FOREIGN_WORKFLOW
-        with _regular(candidate):
+        # the folder may be reached through the deploy link (src -> releases/<commit>), the file itself never
+        real_folder = Path(os.path.realpath(candidate.parent))
+        if real_folder != Path(os.path.realpath(folder)):
+            return FOREIGN_WORKFLOW
+        with _regular(real_folder / candidate.name):
             return None
     except (OSError, UnicodeError, ValueError):
         return FOREIGN_WORKFLOW
