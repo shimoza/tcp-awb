@@ -75,7 +75,7 @@ def _plain(value) -> bool:
 
 def _key(value) -> bool:
     return (_plain(value) and bool(value) and "\\" not in value
-            and all(part not in (".", "..", "") for part in value.rstrip("/").split("/")))
+            and all(part not in (".", "..", "") for part in value.removesuffix("/").split("/")))
 
 
 @contextlib.contextmanager
@@ -634,7 +634,7 @@ def put(p: config.Paths, c: obs.Client, code: str, file: Path, *, replace: bool 
         if not isinstance(line, str) or not re.fullmatch(
                 r"review: (?:none|passed(?: [0-9]{4}-[0-9]{2}-[0-9]{2})?)", line):
             line = "review: none"
-        if file.suffix.lower() in TEXT_SUFFIXES:
+        if file.suffix.lower() in TEXT_SUFFIXES + PAGE_SUFFIXES:
             try:
                 text = snapshot.read_text(encoding="utf-8")
             except UnicodeDecodeError:

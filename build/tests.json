@@ -23575,8 +23575,106 @@
    "name": "bucket: malformed text cannot bypass secret scrubbing",
    "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_malformed_text_cannot_bypass_secret_scrubbing",
    "status": "passing"
+  },
+  {
+   "id": "BUCKET-H41",
+   "phase": "T",
+   "name": "bucket: listing rejects duplicates controls and malformed paths",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_listing_rejects_duplicates_controls_and_malformed_paths",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H42",
+   "phase": "T",
+   "name": "bucket: upload shrink is refused and growth is bounded",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_upload_shrink_is_refused_and_growth_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H43",
+   "phase": "T",
+   "name": "bucket: download write failure preserves existing file",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_download_write_failure_preserves_existing_file",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H44",
+   "phase": "T",
+   "name": "bucket: download parent swap keeps publication in opened directory",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_download_parent_swap_keeps_publication_in_opened_directory",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H45",
+   "phase": "T",
+   "name": "bucket: history short append rolls back and repairs permissions",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_history_short_append_rolls_back_and_repairs_permissions",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H46",
+   "phase": "T",
+   "name": "bucket: fetch history failure removes published file",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_fetch_history_failure_removes_published_file",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H47",
+   "phase": "T",
+   "name": "bucket: fetch publication race preserves competing file",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_fetch_publication_race_preserves_competing_file",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H48",
+   "phase": "T",
+   "name": "bucket: fetch checks size even without md5",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_fetch_checks_size_even_without_md5",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H49",
+   "phase": "T",
+   "name": "bucket: put refuses source changed during snapshot",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_put_refuses_source_changed_during_snapshot",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H50",
+   "phase": "T",
+   "name": "bucket: public metadata fails closed when check is unavailable",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_public_metadata_fails_closed_when_check_is_unavailable",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H51",
+   "phase": "T",
+   "name": "bucket: markdown alias cannot bypass text validation",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_markdown_alias_cannot_bypass_text_validation",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H52",
+   "phase": "T",
+   "name": "bucket: move rechecks same sized source before deletion",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_move_rechecks_same_sized_source_before_deletion",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H53",
+   "phase": "T",
+   "name": "bucket: concurrent moves copy and delete once",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_concurrent_moves_copy_and_delete_once",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H54",
+   "phase": "T",
+   "name": "bucket: cli screens same archived and failed metadata",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_cli_screens_same_archived_and_failed_metadata",
+   "status": "passing"
   }
  ],
- "total_tests": 3368,
- "checked": "2026-11-16"
+ "total_tests": 3382,
+ "checked": "2026-11-17"
 }

@@ -265,8 +265,11 @@ def private_value():
 
 
 def test_bh_reply_requires_complete_object_and_boolean_success(monkeypatch):
-    for reply in (b'{"ok": true}', b'{"ok": true, "ok": false}\n', b'{"ok": 1}\n',
-                  b'{"ok": true, "value": NaN}\n', b'[]\n', b'\xff\n'):
+    depth = 10000
+    for reply in (b'{"ok": true}', b'{"ok": true, "ok": false}\n', b'{"ok": false, "ok": true}\n',
+                  b'{"ok": true, "value": {"x": 1, "x": 2}}\n', b'{"ok": 1}\n',
+                  b'{"ok": true, "value": NaN}\n', b'[]\n', b'\xff\n',
+                  b'{"ok": true, "value": ' + b'[' * depth + b']' * depth + b'}\n'):
         wire_reply(monkeypatch, reply)
         with pytest.raises(bucket.BucketError):
             bucket.KeyServiceClient()._ask({"op": "bucket_list"})
@@ -462,6 +465,9 @@ def test_bh_fetch_does_not_follow_dangling_name_collision(home, bh, tmp_path):
     client.objects[folder + "in/file.txt"] = b"private"
     outside = tmp_path / "outside"
     (home.inbox / "file.txt").symlink_to(outside)
+    assert bucket._local_name("file.txt", home.inbox) == "file (2).txt"
+    with bucket._directory(home.inbox) as directory:
+        assert bucket._local_name("file.txt", directory) == "file (2).txt"
     result = bucket.fetch(home, client, project.code)
     assert not outside.exists()
     assert result["files"][0].read_bytes() == b"private"
@@ -636,7 +642,7 @@ def test_bh_move_rejects_unsafe_folder_and_out_of_scope_listing(home, bh, monkey
     client.objects.clear()
     for old in ("2026-01/../", "2026-01/./", "2026-01//", "2026-01/name\n/"):
         client.objects = {old + "in/file": b"x"}
-        with pytest.raises(bucket.BucketError):
+        with pytest.raises(bucket.BucketError, match="give the folder"):
             bucket.move(home, client, old, project.code)
         assert not any(c[0] == "copy" for c in client.calls)
     client.objects.clear()
@@ -781,3 +787,237 @@ def test_bh_malformed_text_cannot_bypass_secret_scrubbing(home, bh, tmp_path):
         with pytest.raises(bucket.BucketError):
             bucket.put(home, client, project.code, source)
         assert client.objects == before
+
+
+def test_bh_listing_rejects_duplicates_controls_and_malformed_paths(monkeypatch):
+    good = {"ok": True, "objects": [["scope/file", 1, "tag"]], "prefixes": ["scope/sub/"],
+            "modified": {"scope/file": "2026-11-17"}}
+    for method in ("list", "lab_list"):
+        wire_reply(monkeypatch, good)
+        assert getattr(bucket.KeyServiceClient(), method)("scope/").objects == [("scope/file", 1, "tag")]
+        changes = [{"objects": good["objects"] * 2}, {"objects": {}},
+                   {"prefixes": ["scope/sub"]}, {"modified": {"elsewhere/file": "today"}},
+                   {"modified": {"scope/file": 1}}, {"modified": {"scope/file": "bad\x00date"}}]
+        for key in ("scope/../file", "scope/./file", "scope//file", "scope/file//",
+                    "scope/back\\slash", "scope/hidden\u200b", "scope/control\x7f"):
+            changes.append({"objects": [[key, 1, "tag"]]})
+            changes.append({"prefixes": [key + "/"]})
+            changes.append({"modified": {key: "today"}})
+        for change in changes:
+            wire_reply(monkeypatch, dict(good, **change))
+            with pytest.raises(bucket.BucketError, match="valid listing"):
+                getattr(bucket.KeyServiceClient(), method)("scope/")
+
+
+def test_bh_upload_shrink_is_refused_and_growth_is_bounded(tmp_path, monkeypatch):
+    import json
+    source = tmp_path / "source"
+    for data in (b"short", b"original plus more"):
+        source.write_bytes(b"original")
+        wire = wire_reply(monkeypatch, {"ok": True}, on_connect=lambda: source.write_bytes(data))
+        if len(data) < len(b"original"):
+            with pytest.raises(bucket.BucketError, match="changed"):
+                bucket.KeyServiceClient().put_file("out/file", source)
+        else:
+            bucket.KeyServiceClient().put_file("out/file", source)
+        header, _, body = wire.sent.partition(b"\n")
+        assert json.loads(header)["length"] == 8
+        assert len(body) <= 8
+        assert wire.closed
+
+
+def test_bh_download_write_failure_preserves_existing_file(tmp_path, monkeypatch):
+    dst = tmp_path / "download"
+    dst.write_bytes(b"original")
+    wire = wire_reply(monkeypatch, {"ok": True, "length": 3}, b"new")
+    def failed_sync(fd):
+        raise OSError(private_value())
+    monkeypatch.setattr(bucket.os, "fsync", failed_sync)
+    with pytest.raises(bucket.BucketError) as caught:
+        bucket.KeyServiceClient().get("out/file", dst)
+    assert private_value() not in str(caught.value)
+    assert dst.read_bytes() == b"original"
+    assert list(tmp_path.iterdir()) == [dst] and wire.closed
+
+
+def test_bh_download_parent_swap_keeps_publication_in_opened_directory(tmp_path, monkeypatch):
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    pinned = tmp_path / "pinned"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "download").write_bytes(b"untouched")
+    real_open = bucket.os.open
+    def swap(name, *args, **kwargs):
+        if str(name).startswith(".bucket-") and not pinned.exists():
+            parent.rename(pinned)
+            parent.symlink_to(outside, target_is_directory=True)
+        return real_open(name, *args, **kwargs)
+    monkeypatch.setattr(bucket.os, "open", swap)
+    wire_reply(monkeypatch, {"ok": True, "length": 3}, b"new")
+    bucket.KeyServiceClient().get("out/file", parent / "download")
+    assert (outside / "download").read_bytes() == b"untouched"
+    assert (pinned / "download").read_bytes() == b"new"
+    assert list(pinned.iterdir()) == [pinned / "download"]
+
+
+def test_bh_history_short_append_rolls_back_and_repairs_permissions(home, monkeypatch):
+    bucket._remember(home, "key", "tag")
+    record = home.vault / bucket.PULLED
+    before = record.read_bytes()
+    record.chmod(0o644)
+    write = bucket.os.write
+    def short(fd, data):
+        return write(fd, data[:3])
+    monkeypatch.setattr(bucket.os, "write", short)
+    with pytest.raises(bucket.BucketError):
+        bucket._remember(home, "next", "tag")
+    assert record.read_bytes() == before
+    assert stat.S_IMODE(record.stat().st_mode) == 0o600
+
+
+def test_bh_fetch_history_failure_removes_published_file(home, bh, monkeypatch):
+    project, client, folder = bh
+    client.objects[folder + "in/file.txt"] = b"original"
+    def failed(*args):
+        raise OSError(private_value())
+    monkeypatch.setattr(bucket, "_remember", failed)
+    with pytest.raises(bucket.BucketError) as caught:
+        bucket.fetch(home, client, project.code)
+    assert private_value() not in str(caught.value)
+    assert not list(home.inbox.iterdir())
+    assert bucket.pulled(home) == set()
+
+
+def test_bh_fetch_publication_race_preserves_competing_file(home, bh, monkeypatch):
+    project, client, folder = bh
+    client.objects[folder + "in/file.txt"] = b"original"
+    link = bucket.os.link
+    raced = False
+    def compete(src, dst, *args, **kwargs):
+        nonlocal raced
+        if not raced:
+            raced = True
+            (home.inbox / dst).write_bytes(b"competing")
+        return link(src, dst, *args, **kwargs)
+    monkeypatch.setattr(bucket.os, "link", compete)
+    result = bucket.fetch(home, client, project.code)
+    assert (home.inbox / "file.txt").read_bytes() == b"competing"
+    assert result["files"] == [home.inbox / "file (2).txt"]
+    assert result["files"][0].read_bytes() == b"original"
+    assert len(bucket.pulled(home)) == 1
+
+
+def test_bh_fetch_checks_size_even_without_md5(home, bh, monkeypatch):
+    project, client, folder = bh
+    key = folder + "in/file.txt"
+    client.objects[key] = b"original"
+    listing = client.list
+    def multipart(prefix="", delimiter="", page=0):
+        result = listing(prefix, delimiter, page)
+        result.objects = [(k, n, "multipart-2") for k, n, e in result.objects]
+        return result
+    monkeypatch.setattr(client, "list", multipart)
+    monkeypatch.setattr(client, "get", lambda key, dst, **kw: Path(dst).write_bytes(b"short"))
+    with pytest.raises(bucket.BucketError, match="changed"):
+        bucket.fetch(home, client, project.code)
+    assert not list(home.inbox.iterdir()) and bucket.pulled(home) == set()
+
+
+def test_bh_put_refuses_source_changed_during_snapshot(home, bh, tmp_path, monkeypatch):
+    project, client, _ = bh
+    source = tmp_path / "offer.txt"
+    source.write_bytes(b"original")
+    copy = bucket.shutil.copyfileobj
+    def changed(src, dst):
+        copy(src, dst)
+        source.write_bytes(b"changed during copy")
+    monkeypatch.setattr(bucket.shutil, "copyfileobj", changed)
+    before = dict(client.objects)
+    with pytest.raises(bucket.BucketError, match="changed"):
+        bucket.put(home, client, project.code, source)
+    assert client.objects == before
+    assert not list((home.vault / "tmp").iterdir())
+
+
+def test_bh_public_metadata_fails_closed_when_check_is_unavailable(home, monkeypatch):
+    from awb import check
+    assert bucket._public("ordinary.txt", home) == "ordinary.txt"
+    assert bucket._public("ordinary\u200b.txt", home) == "[withheld]"
+    def unavailable(*args):
+        raise OSError(private_value())
+    monkeypatch.setattr(check, "check_text", unavailable)
+    assert bucket._public("ordinary.txt", home) == "[withheld]"
+
+
+def test_bh_markdown_alias_cannot_bypass_text_validation(home, bh, tmp_path):
+    project, client, _ = bh
+    source = tmp_path / "offer.markdown"
+    source.write_bytes(b"\x00" + private_value().encode())
+    before = dict(client.objects)
+    with pytest.raises(bucket.BucketError):
+        bucket.put(home, client, project.code, source)
+    assert client.objects == before
+
+
+def test_bh_move_rechecks_same_sized_source_before_deletion(home, bh, monkeypatch):
+    project, client, _ = bh
+    old = "2026-01/drift/"
+    key = old + "in/file.txt"
+    client.objects = {key: b"original"}
+    def changed(src, dst):
+        client.objects[dst] = client.objects[src]
+        client.objects[src] = b"modified"
+    monkeypatch.setattr(client, "copy", changed)
+    with pytest.raises(bucket.BucketError, match="nothing was deleted"):
+        bucket.move(home, client, old, project.code)
+    assert client.objects[key] == b"modified"
+    assert not any(call[0] == "delete" for call in client.calls)
+
+
+def test_bh_concurrent_moves_copy_and_delete_once(home, bh, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    import time
+    project, client, _ = bh
+    old = "2026-01/drift/"
+    key = old + "in/file.txt"
+    client.objects = {key: b"original"}
+    start = threading.Barrier(2)
+    copy = client.copy
+    def slow_copy(*args):
+        time.sleep(0.05)
+        return copy(*args)
+    monkeypatch.setattr(client, "copy", slow_copy)
+    def run():
+        start.wait(timeout=5)
+        try:
+            bucket.move(home, client, old, project.code)
+            return "moved"
+        except bucket.BucketError:
+            return "refused"
+    with ThreadPoolExecutor(2) as pool:
+        futures = [pool.submit(run) for _ in range(2)]
+        assert sorted(f.result(timeout=10) for f in futures) == ["moved", "refused"]
+    assert client.calls.count(("copy", key)) == 1
+    assert client.calls.count(("delete", key)) == 1
+
+
+def test_bh_cli_screens_same_archived_and_failed_metadata(home, bh, monkeypatch, capsys):
+    project, client, folder = bh
+    name = fx.CUSTOMER_FORMS[0]
+    key = folder + "out/" + name + ".md"
+    monkeypatch.setattr(bucket, "client", lambda: client)
+    for same in (True, False):
+        def result(*args, outcome, **kwargs):
+            outcome.update(same=key if same else None,
+                           archived=[(key, folder + "_archive/" + name + ".md")],
+                           failed=[(key, private_value())])
+            return key, None
+        monkeypatch.setattr(bucket, "put", result)
+        assert bucket.main(["put", project.code, "unused.md"]) == 0
+        captured = capsys.readouterr()
+        text = captured.out + captured.err
+        assert "[withheld]" in text
+        assert private_value() not in text
+        fx.assert_no_fixture_name(text, "bucket metadata")
